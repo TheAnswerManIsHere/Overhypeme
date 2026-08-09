@@ -30,9 +30,7 @@ import type {
   CheckDuplicateBody,
   Comment,
   CommentListResponse,
-  CreateFactRequest,
   CreateMemeRequest,
-  DuplicateConflict,
   ErrorEnvelope,
   FactDetail,
   FactListResponse,
@@ -596,94 +594,6 @@ export function useListFacts<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-/**
- * @summary Submit a new fact
- */
-export const getCreateFactUrl = () => {
-  return `/api/facts`;
-};
-
-export const createFact = async (
-  createFactRequest: CreateFactRequest,
-  options?: RequestInit,
-): Promise<FactDetail> => {
-  return customFetch<FactDetail>(getCreateFactUrl(), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(createFactRequest),
-  });
-};
-
-export const getCreateFactMutationOptions = <
-  TError = ErrorType<ErrorEnvelope | DuplicateConflict>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof createFact>>,
-    TError,
-    { data: BodyType<CreateFactRequest> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof createFact>>,
-  TError,
-  { data: BodyType<CreateFactRequest> },
-  TContext
-> => {
-  const mutationKey = ["createFact"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof createFact>>,
-    { data: BodyType<CreateFactRequest> }
-  > = (props) => {
-    const { data } = props ?? {};
-
-    return createFact(data, requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type CreateFactMutationResult = NonNullable<
-  Awaited<ReturnType<typeof createFact>>
->;
-export type CreateFactMutationBody = BodyType<CreateFactRequest>;
-export type CreateFactMutationError = ErrorType<
-  ErrorEnvelope | DuplicateConflict
->;
-
-/**
- * @summary Submit a new fact
- */
-export const useCreateFact = <
-  TError = ErrorType<ErrorEnvelope | DuplicateConflict>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof createFact>>,
-    TError,
-    { data: BodyType<CreateFactRequest> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof createFact>>,
-  TError,
-  { data: BodyType<CreateFactRequest> },
-  TContext
-> => {
-  return useMutation(getCreateFactMutationOptions(options));
-};
 
 /**
  * @summary Weighted-random hero fact (top ~50 Wilson-ranked, with optional exclusions)
@@ -3168,11 +3078,13 @@ export function useGetAffiliateStats<
 }
 
 /**
- * Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
-them in bulk. Protected by the `X-API-Key` header (ADMIN_API_KEY secret).
-Supports `?dryRun=true` to validate without writing.
+ * Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and queues
+each valid one as a Stage-1 moderation review (a system import — this
+loads the moderation queue, it does not publish facts directly). Protected
+by the `X-API-Key` header (ADMIN_API_KEY secret). Supports `?dryRun=true`
+to validate without writing.
 
- * @summary Bulk-import facts (API key required)
+ * @summary Bulk-import facts for moderation (API key required)
  */
 export const getBulkImportFactsUrl = (params?: BulkImportFactsParams) => {
   const normalizedParams = new URLSearchParams();
@@ -3248,7 +3160,7 @@ export type BulkImportFactsMutationBody = BodyType<BulkImportFactsBody>;
 export type BulkImportFactsMutationError = ErrorType<ErrorEnvelope>;
 
 /**
- * @summary Bulk-import facts (API key required)
+ * @summary Bulk-import facts for moderation (API key required)
  */
 export const useBulkImportFacts = <
   TError = ErrorType<ErrorEnvelope>,

@@ -204,6 +204,31 @@ while `visual_concept_status = "pending"` for the same reason. See
 [`moderation-workflow.md`](./moderation-workflow.md) and the PR #179 decision in
 [`decisions.md`](./decisions.md).
 
+## Repairing state on a caught async error races the thing it's repairing
+
+**Looks like:** an enqueue helper writes optimistic status (e.g. `"pending"`)
+before calling `enqueueJob`, then on a caught error rewrites that status to a
+terminal value (e.g. `"failed"`) so the UI doesn't strand at "working."
+**Dangerous:** `enqueueJob` can throw even when a job genuinely got created —
+its own dedupe-conflict recovery has a narrow insert-retry race of its own — so
+a caught error doesn't reliably mean "no job exists." An unconditional
+repair-write can clobber a legitimately in-flight (or already-finished) job's
+real status before it's ever observed. Even a "check first, then repair" fix
+(SELECT for an in-flight job, then UPDATE only if none found) has its own
+TOCTOU gap: the job can go terminal, or another writer can write its own
+terminal status, in the window between the SELECT and the UPDATE. **Avoid:**
+fold every condition the repair depends on into **one atomic UPDATE** — the
+state is still what you last wrote AND no non-terminal row exists for the
+dedupe key — evaluated in the same statement's `WHERE` clause (a `NOT EXISTS`
+subquery), not a prior read. **Overhype:** `enqueueFactPexels`/
+`enqueueFactAiMemeBackfill` (`artifacts/api-server/src/lib/factPexelsJobs.ts`,
+`aiMemeBackfillJobs.ts`, PR #256) took three rounds of review to converge on
+this: round 1 added an unconditional repair (wrong — clobbers a concurrent
+success), round 2 added a SELECT-then-UPDATE (still racy), round 3 replaced
+both with a single `UPDATE ... WHERE status = 'pending' AND NOT EXISTS
+(SELECT 1 FROM async_jobs WHERE queue=? AND dedupe_key=? AND status IN
+('pending','processing'))`.
+
 ## One-example bug fixes
 
 **Looks like:** patching only the exact reported sentence/case instead of the
@@ -449,30 +474,89 @@ lane-specific config knob to a fresh literal instead of the old shared knob's
 resolved value — is in
 [`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
 
-## Un-frozen input re-resolved live between enqueue and async execution
+**A related but distinct lesson from the same claim-then-dispatch shape,
+caught during NCMEC phase 3 review (PR #349, known gap G15, not yet built):**
+`asyncJobsTick` stamps a whole claimed batch `processing` in one transaction
+*before* `mapWithConcurrency` dispatches any row to a handler at limited
+concurrency — so a row claimed late in a same-queue batch can queue for real
+minutes before its own handler starts, even with no other queue involved at
+all. Lane-splitting doesn't fix this one; it's within-queue, not cross-queue.
+The lesson is narrower and specific to safety deadlines: **a wall-clock
+invariant meant to bound total elapsed risk must be measured from the true
+start of the risk window (claim time), not from a later sub-phase within it
+(handler start)** — a test that only checks the sub-phase's own constant
+against a cutoff can pass while the invariant it's protecting is still
+violable. Tracked, not yet exploitable (no caller exists for the NCMEC
+worker this would affect); phase 5's worker must bound elapsed time since
+claim.
 
-**Looks like:** a value (identity, config, a selected option) is fixed at the
-moment a user takes an action, but an async worker that processes the
-resulting job re-derives that same value **live** — a fresh DB query, a fresh
-config read — instead of reading whatever was fixed at enqueue time.
-**Dangerous:** if the underlying source changes in the window between enqueue
-and execution (a profile edit, a config change, a row deactivated), the worker
-silently uses the NEW value while other parts of the same job (text already
-rendered from the OLD value) still reflect the old one — producing output that
-is internally inconsistent with itself, and non-reproducible (the same job
-re-run later can produce a different result than it would have at enqueue
-time). **Avoid:** resolve every input a job needs exactly ONCE, at the point of
-enqueue, and persist a validated snapshot on the job/row; the worker reads the
-snapshot and never re-queries the live source for that input. **Overhype:** the
-`image_prompt_generation` worker re-queried the user's `displayName`/`pronouns`
-and re-resolved the selected look-style live on every run, even though the
-fact text had already been frozen at enqueue — a profile edit or a style
-edit/deactivation in that window could produce a render whose frozen fact text
-and whose live-resolved identity/style disagreed. Fixed by
-`prepareImagePromptAttemptInputs()` freezing a `PromptIdentitySnapshot` +
-`ResolvedRenderStyleSnapshot` once and rendering the fact text from that same
-identity (PR #223). See
-[`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
+## A live FK's `ON DELETE SET NULL` can erase the fact an unrelated predicate depends on
+
+**Looks like:** a predicate infers a historical fact ("did this row ever have
+X") from a live column's *current* value ("is X currently non-null"), where
+that column is the target end of a foreign key declared `onDelete: "set
+null"`. **Dangerous:** an entirely unrelated action elsewhere in the app —
+deleting the referenced row for its own, unconnected reasons — silently nulls
+the column via the database's own cascade, with no application code path
+that notices or logs it happening. The predicate then reads the row as
+"never had X" instead of "had X, then lost it," and if the predicate gates a
+security- or compliance-relevant decision, the wrong branch fires with
+nobody having decided anything — it looks like normal operation from every
+surface. **Avoid:** don't infer an immutable historical fact from a column
+that participates in a live FK cascade; capture the fact separately, once,
+at the moment it's true, into a column nothing can silently null out from
+under it. **Overhype:** `isIdentityUnresolved` (NCMEC phase 3,
+`artifacts/api-server/src/lib/moderation/ncmecWorker.ts`) infers "this row's uploader identity was
+never captured" from `reporterSnapshot === null && userId !== null` — but
+`ncmec_reports.user_id` has `onDelete: "set null"`, and the pre-existing,
+unrelated account hard-delete admin action (`routes/admin.ts`) runs
+`db.delete(usersTable)`, which cascades. An admin hard-deleting the uploader
+of a row correctly parked as `identity_unresolved` (a capture defect) turns
+it into a row that reads as honestly anonymous and files automatically with
+the uploader silently omitted — nobody having approved that. Caught in PR
+#349's round-1 review before any caller existed to make it reachable;
+tracked as known gap G14, needing an immutable snapshot-time capture that
+the cascade can't touch (phase 4).
+
+## Un-frozen input re-resolved live after its freeze point
+
+**Looks like:** a value (identity, config, a selected option) is fixed at one
+point in a pipeline — enqueue time, or a job's finalization — but a later
+consumer (the worker that runs it, or a reader that classifies it afterward)
+re-derives that same value **live** — a fresh DB query, a fresh config read —
+instead of reading whatever was fixed at that earlier point.
+**Dangerous:** if the underlying source changes in the window between the
+freeze point and the later read (a profile edit, a config change, a row
+deactivated, an admin raising a limit), the consumer silently uses the NEW
+value while other parts of the same record (text already rendered, or a
+status already decided from the OLD value) still reflect the old one —
+producing output that is internally inconsistent with itself, and
+non-reproducible (re-reading later can produce a different answer than it
+would have at the freeze point). **Avoid:** resolve every input exactly ONCE,
+at the point it's actually known, and persist a validated snapshot on the
+job/row; every later consumer reads the snapshot and never re-queries the live
+source for that input. **Overhype:**
+- The `image_prompt_generation` worker re-queried the user's
+  `displayName`/`pronouns` and re-resolved the selected look-style live on
+  every run, even though the fact text had already been frozen at enqueue —
+  a profile edit or a style edit/deactivation in that window could produce a
+  render whose frozen fact text and whose live-resolved identity/style
+  disagreed. Fixed by `prepareImagePromptAttemptInputs()` freezing a
+  `PromptIdentitySnapshot` + `ResolvedRenderStyleSnapshot` once and rendering
+  the fact text from that same identity (PR #223). See
+  [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
+- The Queue Health surface's `abandoned_no_retry` classification re-resolved
+  a queue's retry ceiling from **current** `admin_config` at read time for
+  any row still carrying the `0` sentinel (the common case — no per-row
+  override). A row that legitimately exhausted retries under an old, lower
+  ceiling would silently flip to `abandoned_no_retry` the moment an admin
+  later raised that queue's limit — degrading *after* the fact,
+  with no code change to explain it. Fixed by persisting the resolved
+  ceiling onto the row at the one moment it's finalized to `failed` (PR
+  #288); a pre-fix legacy row (still carrying the sentinel, since the
+  migration doesn't backfill) is classified conservatively rather than risk
+  the same bug on data that can't be resolved safely. See
+  [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live).
 
 ## Budget-constrained assembly blindly truncates wherever length lands
 
@@ -548,3 +632,539 @@ the fix landed. Fixed with a mandatory pre-open disclosure check that keeps such
 plans off the public channel (see
 [`decisions.md`](./decisions.md#2026-07-22--plan-review-automated-via-a-codex-draft-pr-loop-replaces-the-manual-chatgpt-paste)).
 Compare PR #217 — a production DB dump that sat committed on public `main`.
+
+## Security-relevant dependency claims written from assumption, not verification
+
+**Looks like:** writing something confident and specific about a dependency's
+security status into a durable doc — "no known CVE," "just a safe hygiene
+bump," "these three patches are generic maintenance" — without actually
+checking the package's changelog or advisory database first. **Dangerous:**
+these claims read as authoritative once committed, so a later reader (a
+`/maintenance` pass, a future agent, David) trusts them instead of re-checking,
+and a real, disclosed CVE stays effectively invisible — mis-triaged as
+low-priority precisely because the doc says it's safe. It compounds: an
+unverified "safe" claim can gate a genuinely urgent fix behind an unrelated,
+lower-priority blocker. **Avoid:** for any claim of the shape "no known
+issue," "safe to defer," or "just hygiene," actually check — the package's own
+changelog/GHSA/CVE listing, not memory or a plausible-sounding assumption — and
+cite what was checked. Re-verify an existing claim before trusting it, same as
+any other unverified product truth. **Overhype:** the original
+`deferred-work.md` entry for the parked sharp bump (PR #243) asserted the
+prior version "has no known CVE" — false; sharp inherits CVEs from libvips
+(alert tagged `Direct`), just not the ones actually blocking the upgrade
+(those were a typings regression). Separately, three *other* packages bundled
+in that same PR (`drizzle-orm`, `vite`, `postcss`) were first filed as generic
+"safe patch" hygiene, not worth prioritizing — until a full alert triage found
+each closed a real, disclosed CVE, including a SQL injection in `drizzle-orm`,
+the production ORM. (The same triage separately found and fixed CVEs in
+`esbuild` and `fast-uri` too — not among these three, but part of the same
+PR #246 sweep — bringing the total to 9 disclosed CVEs closed; see
+[`decisions.md`](./decisions.md#2026-07-24--dependabot-alert-triage-found-the-safe-patch-bumps-parked-in-pr-243-were-actually-9-disclosed-cves-including-a-sql-injection-in-the-production-orm)
+for the full breakdown.)
+
+## Stripe plan selection: classify by price identity, not product identity
+
+**Looks like:** turning Stripe's product/price catalog into "which plan is
+this?" by inspecting the **product** — its name (string-matching "monthly" /
+"annual" / "lifetime" / "forever" keywords) or just its first/cheapest price —
+instead of inspecting **each price's own `recurring` field**. **Dangerous:**
+Stripe's natural dashboard setup is one product with several price points
+(e.g. a single "Legendary" product carrying monthly, annual, and one-time
+prices together), so classifying by product collapses all of them into
+whichever single bucket the product's name or first price happens to match,
+silently dropping the others — a customer-facing plan picker can end up
+showing only one price option even though the catalog has three. **Avoid:**
+classify each price independently (`!recurring` → one-time, `recurring.interval
+=== "month"` → monthly, `=== "year"` → annual) and never group by the parent
+product. A second, adjacent trap: don't stop at classifying — also filter to
+prices whose product carries the membership allowlist tag before doing so.
+`/api/stripe/plans` returns **every** active product in the catalog (not just
+membership ones), and the grant layer (`/stripe/checkout`, the confirm
+endpoint, the webhook — see
+[`security-model.md`](./security-model.md#payment-trust--membership-grants-c6))
+already enforces `overhype_membership=true` as the sole gate; a display/
+selection surface that skips the same filter can advertise a future
+non-membership SKU (render credits, merch, tips) as a Legendary plan, which
+then gets rejected at checkout. **Overhype:** `Pricing.tsx`'s `classifyPlan()`
+did the product-name/first-price version of this (PR #255) — a single
+"Legendary" product with three attached prices showed only its "Forever"
+one-time price, hiding monthly/annual. Codex review on the same PR caught the
+missing-membership-filter half before it shipped. Both are now centralized in
+`artifacts/overhype-me/src/pages/pricingPlans.ts`'s `selectPlanPrices()` —
+filter to `overhype_membership` first, then classify each remaining price by
+its own `recurring` field. See the decision in
+[`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products).
+
+## Persisted sync/job failure invisible after reload
+
+**Looks like:** an admin sync/job progress panel that renders its per-resource
+status only while a condition like `syncing || finalMessage || inProgress` is
+true. **Dangerous:** all three go false the moment the page is left and
+reloaded — so a per-resource `error` status the backend already computed,
+persisted, and serves via its status endpoint is fetched and then silently
+discarded. What remains on screen (a stale-but-plausible "N products found ·
+last synced X ago") reads exactly like success, not "the last run partially
+failed." **Avoid:** always render the last-known persisted state on load,
+independent of whether a run is currently being watched — distinguish "last
+run failed" from "last run succeeded, N ago" from "never run," per the admin
+state-legibility rule in
+[`async-ui-status.md`](./async-ui-status.md#admin-state-legibility).
+**Overhype:** `stripeSyncRunner.ts`'s `readSyncStatus` correctly persists and
+returns each resource's `status`/`error_message`; `billing.tsx`'s progress
+panel just never rendered it outside an active run. This is why the "pricing
+page shows only one plan" bug (see
+[`decisions.md`](./decisions.md#2026-07-28--the-lifetime-only-upgrade-bugs-real-root-cause-was-a-silently-failed-stripe-sync-not-plan-selection-logic))
+survived two unrelated code fixes (PR #255, #260), and re-running the sync
+silently fixed it: the actual failure was never visible enough to investigate.
+
+**A trap in how this was found, worth naming for future debugging:**
+reproducing one layer of a suspected pipeline in isolation proves *that
+layer* correct — it says nothing about whether the *live* run that produced
+the current symptom actually succeeded. Confirming the sync library's storage
+and read-query layers were faithful (by replaying its migrations and upsert
+SQL locally) correctly ruled out the pricing-selection code, but was twice
+over-read as "the sync is fine," when the live sync itself had simply failed
+on an earlier run. The faster test that would have settled it sooner:
+re-running the live operation and checking whether the symptom changes,
+before building a from-scratch reproduction of its internals.
+
+## A sample ordered by anything correlated with the outcome isn't representative
+
+**Looks like:** measuring some subset of items by sorting on a convenient,
+available field (creation order, an id, alphabetical) and taking a fixed
+fraction — because the field is deterministic and easy to reason about, not
+because it's independent of what you're trying to detect. **Dangerous:** if
+the ordering field correlates with the property under measurement, the
+sample can be composed entirely of the "easy" or "early" cases while the
+metric's own reason for existing — catching the hard, late cases — goes
+completely unchecked, and a validation gate built on that sample (a
+disagreement threshold, an acceptance test) can pass cleanly while being
+blind to exactly the failures it exists to catch. **Avoid:** either measure
+the full population when the cost allows it (deletes the whole class of
+defect), or stratify explicitly across whatever dimension correlates with
+the outcome (here: review round) rather than trusting a single convenient
+sort key. A "the sample is deterministic" property is not the same as "the
+sample is representative" — the first is about reproducibility, the second
+is about coverage, and a fix can satisfy one while still failing the other.
+**Overhype:** the loop-ledger's blind-adjudication sample (PR #270) first
+sorted findings by GitHub comment id ascending and took the first 30% — but
+comment ids track creation order, and propagation/wrong-fix findings (the
+metric's actual self-inflicted numerator) can only occur in round 2 onward,
+so the sample oversampled round 1's disproportionately-new-ground findings.
+The next fix, round-robin sampling across rounds, was still deterministic
+and still wrong: its "every round contributes" guarantee was false whenever
+a loop had more nonempty rounds than the sample size, and starting the
+robin at round 1 meant it systematically dropped the *latest* rounds —
+exactly where the numerator lives. Both defects were confirmed by
+independent review before the sampling design was replaced entirely with
+full-population adjudication. See
+[`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample).
+
+## A widening cast over a field the SDK's current version doesn't have
+
+**Looks like:** reading a property off a typed third-party object via a cast —
+`(obj as Type & { field?: X }).field` — instead of the field actually being on
+`Type`. TypeScript accepts the cast without complaint, because a widening
+intersection cast can add any property regardless of whether the base type has
+it. **Dangerous:** the code compiles clean, and the field silently reads
+`undefined` on every real call — not an error, not a crash, just a `null` where
+a real value belonged. Neither typecheck nor an ordinary product-testing pass
+catches it: typecheck can't, because the cast is *why* it compiles; testing
+often can't either, because the field degrading to `null` doesn't break the
+feature it's attached to, it just quietly loses one piece of data forever.
+**Avoid:** before reading any field off a pinned SDK's object, grep the SDK's
+own `.d.ts` for that field name rather than trusting memory of an older API
+version or writing a cast to make TypeScript stop complaining — a cast that
+"fixes" a type error on a third-party object is a signal to go verify the
+field actually moved, not license to keep going. **Overhype:** `stripe@20`
+relocated three fields this same PR needed, each caught only by an independent
+reviewer, not by typecheck: `Invoice` has no top-level `subscription` (only
+`parent.subscription_details.subscription`); `Charge` has no `invoice` field
+at all (use `invoicePayments.list` as the reverse lookup instead); and
+`Subscription` has no top-level `current_period_end` (moved to each
+`SubscriptionItem`) — the last one shipped as
+`(subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end`
+and stored `null` on every refreshed entitlement source until PR #287's round
+9 review caught it. See
+[`membership-entitlements.md`](./membership-entitlements.md#the-trust-boundary--w1a).
+
+## A sequence's `last_value` is not a commit-order watermark
+
+**Looks like:** reading a Postgres sequence's current position (`SELECT
+last_value FROM some_seq`, or the analogous "current version counter") before
+starting some work, then later comparing a row's stamped version against that
+watermark to answer "has anything touched this row since I began?" **Dangerous:**
+`nextval()` is **not transactional** — a sequence value is consumed the instant
+`nextval()` runs, independent of whether the transaction that called it ever
+commits, and independent of *when* it commits relative to other transactions.
+So a concurrent writer can allocate a token (making it visible to a `last_value`
+read) and then commit its write *after* your watermark was taken — its row now
+carries a version equal to your watermark, and a `<= watermark` comparison calls
+that freshly-committed row stale. Sequence allocation order is simply not the
+same thing as commit order, and nothing about `last_value` makes it so.
+**Avoid:** compare **committed row values to committed row values** instead of
+either side to a sequence position — read each row's own version before the
+work begins, then read it again after, and treat "the version changed" as "an
+authoritative write landed," whoever performed it. **Overhype:** the
+reinstatement fail-closed path (PR #287, review round 8) took
+`membership_source_state_seq`'s `last_value` as a watermark before refreshing a
+user's sources, then compared each source's `source_state_as_of` against it —
+exactly the race above, confirmed independently by review. Replaced with
+`loadSourceStateVersions`, which snapshots each source's own version before and
+after. See
+[`membership-entitlements.md`](./membership-entitlements.md#the-admin-surfaces-are-entitlements-not-fake-payments-or-a-tier-field).
+
+## A transaction alone doesn't give two reads one consistent snapshot
+
+**Looks like:** wrapping two related `SELECT`s in `db.transaction(...)` to make
+them "atomic," when the actual goal is that both statements see the same
+database state — e.g. deriving a status from one query and selecting the row
+that status applies to with a second. **Dangerous:** the database's default
+isolation level, READ COMMITTED, gives a transaction atomicity **on write**
+(all-or-nothing), not a consistent snapshot **on read** — every statement
+inside a READ COMMITTED transaction still takes its own fresh snapshot at the
+moment it runs. A write landing between the two `SELECT`s (a webhook cancelling
+row B, say) is invisible to the first statement and visible to the second, so
+the two reads can legitimately disagree about the same row — reintroducing
+exactly the inconsistency the transaction looked like it was preventing.
+**Avoid:** for a multi-statement read that must see one snapshot, either
+collapse it into one statement, or explicitly request `{ isolationLevel:
+"repeatable read" }` — safe on a read-only block, since a serialization failure
+there has nothing to undo and no write to retry. **Overhype:** twice in one PR
+(#287, rounds 8–9): `GET /stripe/subscription` selected a qualifying source in
+one statement and the row to return in a second, which could disagree about
+which of two subscriptions was current; and the grace-drift admin panel read an
+uncapped `count(*)` and a capped sample as two separate statements against a
+predicate the hourly sweep was actively changing, which could report a total
+smaller than the list beside it. Both were plain `db.transaction(...)` blocks
+before the fix — the first was corrected to `repeatable read`, the second to
+`count(*) OVER ()` in one statement.
+
+## A broad error-class match convicts more than the one case it was written for
+
+**Looks like:** catching an error and testing a general property of it — an
+error code, a substring of the message — to answer a specific question ("was
+this a duplicate?", "was this a timeout?"), when the general property is shared
+by cases the specific question doesn't apply to. **Dangerous:** the broad test
+passes on the wrong case just as readily as the right one, and silently
+mis-routes it — often into the code path that swallows or acknowledges the
+error, which is the most expensive place to be wrong. The bug is invisible in
+the common case (where only the intended cause ever produces that error) and
+appears only under a specific concurrent or edge condition that produces the
+same broad symptom for a different reason. **Avoid:** match the most specific
+identifying detail available — a Postgres error's `constraint` name, not just
+`code === "23505"`; a specific error subclass, not a message substring — so the
+test can only be true for the actual case it exists to handle. **Overhype:** a
+webhook handler's catch block tested `code === "23505" || message.includes("unique")`
+to detect "this event was already processed," inside a `try` that also covers
+domain writes touching *other* unique constraints. Two racing first-purchase
+deliveries could violate an unrelated unique-customer constraint during
+prepare — a real failure — and the broad test called it a duplicate, silently
+acking an event whose purchase was never granted (PR #287, review round 9).
+Fixed by matching `err.constraint === "stripe_processed_events_pkey"`
+specifically.
+
+## Fixing the flagged site and leaving its siblings
+
+**Symptom:** a reviewer names one place a fact is wrong or duplicated. You fix
+exactly that place, push, and the next review round names the next copy. Repeat
+for as many rounds as the fact has homes. Each round looks like progress and
+the finding count never falls.
+
+**Why it happens:** review comments are anchored to a *line*, so they arrive
+scoped to one site even when the defect is repo-wide. Fixing what was pointed
+at feels complete and is locally verifiable — the flagged line is now correct —
+so nothing prompts the wider search. Worse, correcting one copy can *create* a
+contradiction, because the other copies now disagree with a document that was
+previously consistent with them.
+
+**Avoid:** treat a finding as naming a **fact**, not a line. Before pushing the
+fix, grep the whole repo for every other site asserting that fact — including
+docs the PR does not otherwise touch — and fix or explicitly qualify each one.
+Verify against the *fact*, not the string you happened to delete: a paraphrase
+forks exactly as well as a quotation, so a grep for the removed wording can
+pass while the claim survives three lines away in different words.
+
+**Overhype:** PR #291 (the async-lane de-fork) narrated six review rounds in
+its own body, but the loop ledger's fully-paginated, mechanically-derived
+count (row 23 of `.agents/metrics/loop-ledger.md`) is seven — that figure is
+the one of record, per this file's own reason to exist, and the "six" here is
+superseded by it rather than reconciled against it. This pattern accounted
+for a finding in five of the narrated rounds. The clearest instance: a claim
+equating async-jobs handler concurrency with database pool occupancy was
+corrected in `architecture-map.md` in round 4, which left `background-work.md`
+and `deferred-work.md` asserting the disproved version — so the repo
+contradicted itself in three places *because* one site had been fixed, and
+`decisions.md` turned out to be a fourth. In another instance the round-1 fix
+deleted the offending sentences and left paraphrases of the same two facts
+inside the very sentence that linked to the spec; the author's own verification
+grepped for the deleted strings, passed, and missed it.
+
+**The lexical half of this is now a CI guard** —
+`scripts/check-manual-tuning-language.mjs` fails the build on values and their
+prose stand-ins in `docs/manual/`, which is what most of those rounds were
+actually about. The guard is deliberately narrow and **cannot** detect a fact
+with two homes, a paraphrased spec section, or a false claim. Those remain the
+human half, and this entry is the reminder that they exist.
+
+**The pattern generalizes past docs to code call sites (PR #308).** Mounting
+a new global rate limiter gave several `/api` pollers their first-ever
+rate-limit 429 path to handle — **not every poller**, since some endpoints
+already had their own pre-existing 429 (see below) — a new failure mode with
+**at least four independent call sites** (not a
+verified-exhaustive count, per the same undercounting this file's own
+"fixing the flagged site" lesson warns about) across two components' worth
+of poll loops. The plan's own implementation fixed one (the video/PuLID
+pollers) up front; round 1 of review found a second (`AiBgPicker`'s render
+poller); round 2 found a third, in an entirely different component
+(`SourceImageConfirmModal`) that no earlier fix had touched, plus a fourth
+handler (`handleConfirmCancel`) left outside a sibling fix in the *same*
+file. Each fix was locally correct and each round looked like progress while
+the finding count didn't fall to zero until round 3. **Not every poller of
+an endpoint the global limiter now covers was newly exposed** — a Codex
+round on this very `/document` harvest found a fifth poller
+(`useTaxonomyHealthActions.ts` → `/api/admin/taxonomy-health/job-status` —
+the client-visible path; `/admin/...` is only the router-local path before
+`app.use("/api", router)` mounts it) whose
+429 handling predates this PR entirely, because that route already had its
+own `checkSharedRateLimit` call (it's one of the pre-existing DB-backed
+limiters `adminTaxonomyHealth.ts` is documented as, elsewhere in this repo's
+docs) — a reminder that "every caller of a newly-changed resource" still
+needs checking against what was already true, not assumed to be uniformly
+new. Same avoidance: when a change introduces a new failure mode on a shared
+resource (an endpoint, a response shape, an error code), grep for **every**
+caller of that resource before considering the fix complete — not just the
+one a review comment or the plan happened to name, and not assuming the
+count found is the count that exists.
+
+## Satisfying a lexical guard by changing a value's form, not its meaning
+
+**Looks like:** a CI text guard flags a stated value in prose. The fix changes
+*how* the value is written — a digit becomes a spelled-out word, a cardinal
+becomes an ordinal, a bare value gets wrapped in markdown emphasis or a link,
+a phrase gets reflowed across a line break — without changing what the
+sentence actually asserts. The guard goes green; the value it exists to keep
+out of that document is still fully present, just spelled differently.
+
+**Dangerous:** a green check reads as "compliant," so the sentence doesn't get
+looked at again — but the source-of-truth risk the rule exists to prevent (the
+same fact living in two places, able to drift independently) is completely
+intact. Because each round of this only narrows the *specific* form just
+caught, not the general risk, a review loop chasing it can run for many
+rounds, one surface form at a time, and look like slow but real progress the
+whole way.
+
+**Avoid:** when a value is flagged, ask "does this sentence's truth depend on
+the number, in *any* form?" — not "does it still contain the literal string
+the rule matched." Removing the concept (say that something exists or is
+true, not how much) is the fix; rewording the same count in a different part
+of speech is not, and is usually just as fast to write, which is what makes it
+tempting. Authoring or extending a guard like this has the mirror-image
+discipline: after closing one evasion, actively probe for the *next* form of
+the same class (spelled-out numbers, teens, ordinals, hyphenated compounds,
+markdown markup, a hard-wrapped line split) instead of declaring the class
+closed after the one instance found.
+
+**Overhype:** PR #298 (the manual tuning-language guard) went through six
+finding-bearing Codex review rounds, and this exact pattern recurred inside
+its own fix history — round 5 found "a simpler 2-lane split ... in favor of
+3" and fixed
+it by spelling the count out ("a simpler two-way split ... in favor of a
+third, separate lane"), which round 6 caught as the same lane count restated
+as an ordinal instead of removed; the round-6 fix describes the split
+qualitatively with no number in any form, which is what a genuine fix looks
+like for this pattern — but that fix was never independently re-reviewed
+before merge (see [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
+row 22), so its correctness is this PR's own claim, not a confirmed close.
+Separately, the guard's own detection had to grow across rounds to
+cover markdown emphasis/links hiding a value from the regex, a hard-wrapped
+phrase split across two physical lines, and a spelled-out-number extension
+whose digit-derived "attached s" shorthand accidentally matched an ordinary
+English word ("hundred" + "s" = "hundreds," not a duration). The full list of
+evasions the guard now covers, and why each was needed, lives in
+`scripts/check-manual-tuning-language.mjs`'s own header and rule comments —
+not duplicated here.
+
+## Chasing completeness against an adversarial reviewer past the artifact's real risk
+
+**Looks like:** a review loop where every finding is correct, every fix is
+sound, and the finding count **stops falling** — often while the artifact grows
+and the later fixes start specifying guarantees the platform cannot actually
+provide. **Dangerous:** each round is individually justified, so there is no
+natural stopping point, and the cost is invisible because the work looks like
+diligence. It ends with a large over-specified artifact and real time gone. The
+tell is never a single finding — they're usually right — it is the **trend**,
+plus the shape of the late-round fixes. **Avoid:** size ceremony to blast radius
+at intake, not to how the request was phrased
+([`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05));
+require findings to fall round over round or stop and reassess with David; and
+triage every finding into **fix / accept-and-document / escalate** rather than
+reading "Required Revision" as automatically meaning fix. **Overhype:** twice
+in one day, 2026-08-05 — PR #329's Bash guard (9 → 11 → 12 → 19 findings, an
+unbounded parsing surface; see the sub-pattern below) and PR #333's `/status`
+plan (12 → 1 → 4 → 6 → 12 findings, **six review rounds and a 660-line plan for
+two markdown skill files**, with round 6 specifying compare-and-swap semantics
+GitHub's label API does not offer and acceptance cases with no way to run
+them). **The second happened hours after the first was written up**, because
+the first was recorded narrowly as a *parser* problem and the lesson did not
+transfer — which is exactly why this entry states it at the general level and
+demotes the parser case to a sub-pattern.
+
+**A third instance, two days later, on a different kind of unachievable
+guarantee (PR #293).** Migration `0097`'s attempt to make the NCMEC
+audit-ledger's append-only guarantee a real PostgreSQL privilege boundary ran
+17 review rounds and accounted for roughly 65 of the PR's 90-plus findings —
+not by finding fewer bugs each round, but by refining the same reachability
+model past what the platform can support: `pg_has_role(...,'usage')` →
+`'member'` → literal `SET ROLE` success → `ADMIN OPTION` → an *inherited*
+admin-option chain → containing-schema ownership → the guard function's own
+schema ownership. Each fix was a real, verified correction — and each one
+sat on the same unfixable foundation: a migration running as the application
+role cannot grant that role a privilege boundary the role cannot already
+cross (see the 2026-08-07 `decisions.md` entry). The late-round shape
+matches the general pattern exactly — fixes that specify guarantees
+(`CREATE ROLE` without conferring membership, a `REVOKE` the current role
+cannot execute) the actor available to the migration cannot actually
+provide. David cut the scope after the concentration became visible: the
+migration now creates the objects and reports the residual state; closing
+the boundary moved to a superuser runbook
+([`docs/engineering/ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)).
+The tell was available well before round 17 — a scope-vs-blast-radius check
+at round 5 or so, once "every fix targets the same reachability model,"
+would have caught it much earlier than a David-initiated review of the
+finding distribution did.
+
+**A fourth instance, the very next day, on an artifact with no blast radius
+at all (PR #356, 2026-08-08).** The TEST_RUN checklist for PR #293 — a doc
+that is *deleted after one Replit run* — went five review rounds and 36
+findings (9 → 6 → 6 → 6 → 9), nearly all against instructions for re-running
+test suites that had already passed in CI on the same code. Every finding was
+technically correct; every round was a misallocation, because the artifact's
+worst case was one confused test run, not a production defect. Each isolation
+fix opened the next round's gap (culminating in round 5 discovering the
+repo's own test wrappers silently override the variable all the prior fixes
+depended on), and the loop only ended when David asked what any of it had to
+do with the product — the answer being "nothing," the fix was to **delete the
+findings' entire subject from the doc**, not repair it a fifth time. Where
+the first three instances were about *unachievable guarantees*, this one is
+about **criticality**: the loop's subject was achievable and simply not worth
+achieving. That question now has a formal gate — rate the artifact 1–100 on
+"what breaks in production if this is wrong" *before* requesting round 2, and
+single-digit artifacts never loop
+([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)).
+
+### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
+
+**Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
+meant to catch **every** way a general-purpose scripting/shell language can
+express a specific dangerous operation ("does this Bash string, however
+written, ever run a force push?"). **Dangerous:** each review round finds a
+*new class* of bypass instead of a shrinking set, because the target
+language's "ways to dispatch a command" surface (wrapper commands, quoting
+forms, script-dispatch mechanisms, alias systems) is not practically
+enumerable — the same losing shape as blocklist-based XSS sanitization.
+Diligence cannot fix a wrong-shaped defense; more review rounds just find
+more gaps, and a shrinking-then-growing trend across rounds (see below) is
+the tell that the surface isn't converging. **Avoid:** before hand-rolling a
+parser for a general-purpose language's command-dispatch semantics, check
+whether the operation can instead be made correct **by construction**
+(an allowlist/encoder shape instead of a blocklist scanner) or whether a
+narrower control that doesn't need to parse intent at all — a server-side
+rule, a protocol-level restriction — already covers the actual risk. Size
+the defense to the *realistic* threat model (an honest mistake) rather than
+a fully adversarial one, when the two genuinely differ, and say so out loud
+rather than quietly absorbing round after round. **Overhype:**
+`.claude/guard.sh` / `scripts/guard-decision.mjs` (PR #329) — Codex review
+rounds found 11, then 11, then 12, then 19 parser gaps (fixing 9, 11, 11, 0).
+The count of newly-found gaps never fell across four rounds, even as each
+round's fixes landed. David stopped the loop there
+rather than open a round 5: the hook was narrowed to "make the lease
+mandatory" and accepted as a best-effort local backstop behind GitHub's
+server-side ruleset on `main` (which needs no Bash parsing at all — it
+rejects the actual git protocol operation), not chased to full-coverage
+completeness. See the
+[2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
+and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
+docstring section.
+
+## PostgreSQL role/constraint verification traps that look safe and aren't
+
+**Looks like:** code (application, migration, or test) that infers a
+PostgreSQL privilege or constraint's real behavior from a surface signal that
+seems like it should imply it — a role membership check, a rendered
+`pg_get_constraintdef()` string — rather than the thing that actually governs
+behavior. **Dangerous:** each trap fails silently in the safe-looking
+direction (permission appears absent when it is present, or a constraint
+appears correct when it accepts values it shouldn't), so it surfaces as a
+production security gap or a migration that "passed" over an unenforced
+guarantee, not as a crash. All three below were verified empirically against
+this repository's own PostgreSQL 16 target, not taken from documentation —
+each contradicted the intuitive reading. **Avoid:** treat every PostgreSQL
+privilege/constraint check in migration or authorization code as needing
+direct verification against a live instance before trusting it, and prefer
+the specific fixes named below over re-deriving them.
+
+- **`pg_has_role(role, target, 'member')` is not "can this role act as
+  target."** It is true for a grant with `INHERIT FALSE, SET FALSE` — a
+  membership that confers no actual capability. **Use `'usage'`** (ambient,
+  inherited privileges) or `'set'` (can `SET ROLE` to it on demand) for a
+  narrowly defined, single-grant-shape question — never `'member'` for an
+  authorization decision. **Neither `'usage'` nor `'set'` alone answers the
+  broader "can this role EFFECTIVELY reach target at all" question** —
+  `'usage'` misses a SET-only grant, `'set'` misses an INHERIT-only one, and
+  both miss an admin-option chain that lets the role grant itself the
+  target on demand. This repo already implements and tests that full union
+  (`usage OR set OR a transitive admin-option chain`) in
+  `canEffectivelyAssumeRole()` (`lib/db/src/index.ts`) — route an
+  effective-reachability decision through that helper rather than a bare
+  `pg_has_role` call, or risk reintroducing the exact under-reporting this
+  entry's own history is about.
+- **`CREATE ROLE x` by a non-superuser `CREATEROLE` role auto-grants `x` to
+  the creator, WITH ADMIN OPTION — and the grantor is the bootstrap
+  superuser, not the creator.** The creator therefore cannot revoke its own
+  new membership: `REVOKE x FROM <creator>` run by a non-superuser who
+  isn't the grantor does not raise an error. It emits a `WARNING` and changes nothing — a
+  superuser other than the grantor CAN still remove it, bypassing the
+  grantor check entirely; only a non-superuser lacking the grantor's
+  authority is stuck. Code
+  that creates a role and then tries to revoke its own automatic membership
+  needs to verify the revoke actually happened (re-read
+  `pg_auth_members`), not trust the absence of an exception. There is no
+  privileged path around this available to the creator; only the grantor —
+  here, a real superuser — or a superuser can remove the row. (PR #293,
+  `lib/db/migrations/0097_ncmec_submission.sql`'s original `overhype_audit_maintenance`
+  provisioning, later removed entirely — see the 2026-08-07 `decisions.md`
+  entry.)
+- **`pg_get_constraintdef()` is not a fixed point.** Feeding its own output
+  back into `ADD CONSTRAINT` for the identical predicate produces a
+  *different* string: `"action" IN (...)` renders as
+  `ANY ((ARRAY['x'::varchar, ...])::text[])`, but re-applying that rendered
+  text moves the cast onto each array element —
+  `ANY (ARRAY[('x'::varchar)::text, ...])`. Any code that round-trips a
+  constraint through its rendered text (a migration verifying a constraint
+  by comparing `pg_get_constraintdef()` output, `pg_dump`/restore, or
+  `drizzle-kit push` reconciling against a Drizzle-rendered snapshot) can
+  land in either form for a semantically identical constraint. Worse: no
+  amount of pattern-matching on the rendered text can soundly verify a
+  CHECK constraint's *meaning* at all — five successive attempts in PR #293
+  (a literal string match, matching the mentioned literal set, an anchored
+  shape, evaluating the predicate against probe values, then widening the
+  anchored shape for both renderings above) were each defeated by a
+  predicate that rendered acceptably while enforcing something else, most
+  recently one accepting all nine intended literals plus any 13-character
+  string via a `CASE WHEN length(action) = 13 ...` disjunct hidden inside
+  the array. **The fix that actually converged was to stop verifying and
+  rebuild the constraint unconditionally** (`DROP CONSTRAINT IF EXISTS` +
+  `ADD CONSTRAINT`) wherever the role has permission, so the post-condition
+  holds by construction instead of by inspection — but unconditional
+  replacement is only safe when no row can already violate the *new*
+  constraint: append-only triggers stop later mutation, not an `INSERT`
+  the *currently drifted* CHECK still admits, so a row a prior drifted
+  predicate let through would make the replacement `ADD CONSTRAINT` raise
+  a violation and roll back the whole migration. Safe here specifically
+  because phase 1 has no ledger writers yet (the table is empty at replay
+  time) — reusing this "just rebuild it" move against a table that already
+  has rows needs a preflight check (or an owner-run repair of nonconforming
+  rows) first, not an assumption that unconditional replacement is
+  generally replay-safe. See the 2026-08-07 `decisions.md` entry and
+  `lib/db/migrations/0097_ncmec_submission.sql`'s action-CHECK block.

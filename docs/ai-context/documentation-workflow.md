@@ -173,12 +173,65 @@ separation aids review). Placement:
   suffices. If a stale remote ref of the old feature branch exists (a
   same-name push can recreate one GitHub already auto-deleted), confirm the
   owning PR is actually merged/closed before deleting that stale ref, and
-  never force-push.
+  never force-push. **Restarting the branch removes staleness, not
+  collisions**: if another PR merged in the interval and touched the same
+  shared docs files, reapplying your edits can produce a real merge conflict
+  — resolve by keeping both sides' entries, never by picking one (see
+  `.agents/memory/document-ceremony-concurrent-docs-pr-conflict.md`).
 - **Only if you have clear session evidence the feature's PR is still
   open** (e.g. you're running `/document` mid-build, before the PR merged) →
   commit to that same branch instead, so the learnings ship and get reviewed
   with the feature. Don't go hunting for an open PR "just in case" — the
   default above is the common case.
+
+## The harvest itself is a tracked workstream
+
+**Scope: this applies only to the default path above** (a new, standalone
+docs-only PR). The mid-build exception — committing to the feature's own
+still-open branch/PR — has no separate harvest PR at all; the feature's own
+workstream issue already covers it, and nothing below applies.
+
+Per [`workstream-tracking.md`](./workstream-tracking.md), a standalone
+harvest has its own branch, PR, and review loop, so it gets its own board
+row — a **sub-issue** of the feature's workstream issue, never folded into
+the parent as a status value. This applies to every agent running this
+ceremony, not just Claude's enactment of it:
+
+1. Open the harvest PR **as a draft, and do not subscribe or apply any
+   label yet.** Draft status only defers Codex's *auto*-review — it does
+   **not** defer the watching agent's own subscription (Claude always
+   subscribes to a PR it creates, draft or not) or any labeling that
+   subscription's own review-loop skill would otherwise do on PR-open.
+   Treat steps 2–3 as blocking: no subscribe, no `Workstream:`-line read,
+   no label write, until the sub-issue (or standalone issue) is real and
+   the line is corrected.
+2. **Disclosure check first**, same as the feature-level check the parent
+   went through: if the harvest itself is sensitive — most directly, if the
+   feature it documents was itself routed through the disclosure carve-out
+   and therefore has no public parent issue *for that reason* — it does
+   **not** get a public issue of any kind, sub- or standalone. Use a
+   private draft Project item instead. Don't assume every parentless
+   feature is simply pre-tracking legacy work; check why the parent is
+   missing before defaulting to the public path.
+3. For everything else: open the sub-issue, parented to the feature's
+   workstream issue if one exists (`stage:code-review`, `waiting:codex`,
+   `mode:docs`, its own State of Play block). **If the feature never got
+   its own workstream issue** for a genuinely legacy reason (a `/document`
+   run against pre-this-system work, not a disclosure carve-out) — open the
+   harvest as a **standalone** `mode:docs` workstream issue instead of
+   skipping tracking. `pr-watch` needs *some* issue to label regardless of
+   whether a parent exists, and an untracked harvest is invisible to
+   `/status-all` and the board despite having its own real review loop.
+4. Set the PR body's `Workstream:` line to the sub-issue (or standalone
+   issue) just created — never the parent, which is typically already well
+   past this harvest's own stage.
+5. **Now subscribe, and mark the PR ready for review.** Marking ready is
+   what actually triggers round 1 (per `CLAUDE.md`'s trigger list — open /
+   mark-ready / `@codex review`). Subscribing only now, not at step 1, is
+   what actually defers labeling — draft status alone does not.
+6. From there the harvest is watched exactly like any other PR — the
+   normal review-loop skill/process for that agent owns the label
+   transitions and State of Play upkeep from this point on.
 
 ## Boundaries
 

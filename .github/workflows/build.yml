@@ -1,29 +1,137 @@
 name: Build
 
 on:
+  # `edited` was added (PR #304) because the retired `[LEDGER]` PR type made
+  # a PR's TITLE load-bearing for its own checks: retitling after the last
+  # push had to re-run the coverage gate, or a stale green check would stay
+  # attached. Nothing keys off the title any more — the metrics-store guard
+  # reads only the files in `.agents/metrics/` — so this trigger is now
+  # merely harmless rather than necessary. It is kept because a title edit
+  # re-running the suite costs one cheap run and losing the habit would be
+  # invisible if some future check does key on PR metadata again.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
   push:
     branches:
       - main
 
+# A PR-triggered run is obsolete the moment another push lands on the same
+# PR — cancelling it loses no signal, just wall-clock and Actions minutes.
+# Every push-to-main run must complete, no exceptions — the ledger-debt
+# audit step only runs there. That ruled out `queue: max` (GitHub disallows
+# combining it with a `cancel-in-progress` that can evaluate true, which
+# ours does for PR events) as a way to protect queued push runs. Falling
+# back to `github.ref` for the group key was tried first and was WRONG: every
+# push-to-main run shares that same ref, so a burst of quick merges would
+# still hit GitHub's default single-pending-slot behavior and silently drop
+# a queued run — cancel-in-progress: false only protects a run already
+# EXECUTING, not one waiting behind it. Falling back to `github.run_id`
+# instead (unique per run) means push/schedule runs never share a group
+# with each other at all, so nothing is ever queued or cancelled for them —
+# only same-PR runs share a group and race for cancellation.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Classifies the change set so the heavy jobs (Test, Frontend Test,
+  # E2E Smoke) can skip docs-only PRs — /document harvests, [LEDGER] PRs,
+  # UAT/TEST_RUN docs, skill and CLAUDE.md edits — which provably cannot
+  # change those suites' outcomes. The Build job is NOT gated: it carries
+  # the docs-accuracy, ledger, and script-test gates that docs PRs exist to
+  # exercise.
+  #
+  # The skip happens via job-level `if:` on the jobs below, deliberately NOT
+  # via workflow-level `paths:`/`paths-ignore:` filtering. A required check
+  # whose workflow never triggers reports nothing, leaving the PR stuck at
+  # "Expected — waiting for status to be reported" forever. A job skipped by
+  # `if:` instead reports "Success" — GitHub's documented behavior: "A job
+  # that is skipped will report its status as 'Success'. It will not prevent
+  # a pull request from merging, even if it is a required check."
+  #
+  # Every failure path lands on "run everything": push-to-main skips the
+  # classification entirely (main is the backstop — always full coverage), a
+  # failed file-listing API call yields an empty list which classifies as
+  # heavy, a file list whose entry count disagrees with the PR's own
+  # changed_files total (the API hard-caps at 3,000 files) forces heavy, and
+  # if this job itself fails outright, the gated jobs' `!cancelled()` +
+  # `needs.changes.result != 'success'` condition runs them anyway — a plain
+  # `needs` would have SKIPPED them on failure, and a skipped required check
+  # reports success, which is exactly the silent green this design must
+  # never produce.
+  changes:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run-heavy: ${{ steps.classify.outputs.run-heavy }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      # The PR's full changed-file list (all commits, not just the latest
+      # push) via the API — same semantics GitHub's own paths filters use
+      # for pull_request events, so a PR that touched code in commit 1 and
+      # docs in commit 11 still runs the full suite on every push. Runner's
+      # preinstalled node is fine: the classifier is dependency-free.
+      #
+      # Both sides of a rename are classified: a product file renamed INTO
+      # docs/ deletes its heavy source path, and judging only the
+      # destination would let that deletion skip the suites. And because the
+      # files API hard-caps at 3,000 entries, the collected entry count is
+      # checked against the PR's own changed_files total — any mismatch
+      # (truncation, API weirdness) forces the full suite rather than
+      # classifying a prefix as if it were the whole change set.
+      - name: Classify
+        id: classify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run-heavy=true" >> "$GITHUB_OUTPUT"
+            echo "push/schedule event — full suite unconditionally."
+            exit 0
+          fi
+          raw=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[] | [.filename, (.previous_filename // "")] | @tsv') || raw=""
+          entry_count=$(printf '%s' "$raw" | grep -c '^' || true)
+          expected='${{ github.event.pull_request.changed_files }}'
+          if [ -z "$raw" ] || [ "$entry_count" != "$expected" ]; then
+            echo "run-heavy=true" >> "$GITHUB_OUTPUT"
+            echo "collected $entry_count file entr(ies) but the PR reports $expected changed file(s) — treating as unreadable, full suite."
+            exit 0
+          fi
+          result=$(printf '%s\n' "$raw" | tr '\t' '\n' | grep -v '^$' | node scripts/classify-ci-paths.mjs) \
+            || result="run-heavy=true"
+          echo "$result" >> "$GITHUB_OUTPUT"
+          echo "$result"
+
   build:
     name: Build
     runs-on: ubuntu-latest
 
+    # Explicit least-privilege. `pull-requests: read` is what the loop-ledger
+    # coverage guard needs to list closed PRs; every other step in this job
+    # only reads the checkout.
+    permissions:
+      contents: read
+      pull-requests: read
+
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
@@ -33,8 +141,88 @@ jobs:
       - name: Check docs accuracy (links + cited paths)
         run: node scripts/check-docs-accuracy.mjs
 
+      # The manual's charter reserves configuration — values and their prose
+      # stand-ins — for docs/ai-context/. That rule was written after a de-fork
+      # PR spent three review rounds on the boundary, then took three MORE
+      # because each round surfaced another phrase that failed it while the
+      # previous one was being fixed. Every one of those was lexically
+      # detectable, so per docs/ai-context/decisions.md ("Recurring failure
+      # patterns become CI guards, not just doc updates") this is a check
+      # rather than a seventh promise to be careful.
+      # LEXICAL ONLY — it cannot see duplicated facts or false claims.
+      - name: Check manual tuning language
+        run: node scripts/check-manual-tuning-language.mjs
+
+      - name: Check manual tuning-language guard logic
+        run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
+
+      # Also dependency-free. The loop ledger's whole premise is that counted
+      # numbers beat recalled ones, so its counting logic has to be provably
+      # right — an unverified derivation would carry exactly the false
+      # authority it exists to remove.
+      - name: Check loop-metrics derivation
+        run: node --test scripts/__tests__/loop-metrics.test.mjs
+
+      - name: Check loop-metrics guard logic
+        run: node --test scripts/__tests__/check-loop-metrics.test.mjs
+
+      - name: Check loop-report logic
+        run: node --test scripts/__tests__/loop-report.test.mjs
+
+      # The workstream board is only trustworthy if its columns match reality.
+      # The label -> field mapping is the one place that can quietly drift (a
+      # renamed Status option, a new stage with no label slug), and a board that
+      # stops tracking reads identically to a board where nothing needs David.
+      - name: Check project-sync label mapping
+        run: node --test scripts/__tests__/sync-project-fields.test.mjs
+
+      # A workstream stuck at stage:test-run after Replit actually finished is
+      # invisible in exactly the way the whole board exists to prevent — this
+      # script is the only writable trigger for that transition, so its
+      # filename parsing, UAT-doc detection, and label/body rewrites need to
+      # be provably right, not just plausible.
+      - name: Check TEST_RUN completion sync logic
+        run: node --test scripts/__tests__/sync-test-run-completion.test.mjs
+
+      # The classifier decides which PRs get to skip the Test/Frontend
+      # Test/E2E Smoke jobs entirely. A bug in its allowlist is the one way
+      # this workflow could silently wave a code change past the suites, so
+      # its inert/heavy matrix is asserted here — in the always-on job, which
+      # is exactly the job a misclassified PR can't skip.
+      - name: Check CI path classifier logic
+        run: node --test scripts/__tests__/classify-ci-paths.test.mjs
+
+      # The Bash guard decides which git commands this session may run. Its
+      # previous version blocked `git push --force` and allowed `git push -f`,
+      # so the one thing it existed to prevent was the one thing it let past —
+      # and nothing tested it, so the hole survived however long it was there.
+      # A guard whose block/allow matrix is unasserted is a guard nobody can
+      # rely on, which is worse than none: it is trusted.
+      - name: Check Bash guard decisions
+        run: node --test scripts/__tests__/guard-decision.test.mjs
+
+      # Record validity, offline. Needs no token, no PR context, and no base
+      # diff, so it runs identically on a PR and on push-to-main.
+      #
+      # Coverage is deliberately NOT checked here (David, 2026-08-07). The old
+      # guard failed builds over missing rows, which coupled every unrelated
+      # PR to ledger state and still didn't put the gap in front of the person
+      # who could act on it. Missing records are now named in the digest
+      # `/maintenance` narrates — the surface David actually reads. That trades
+      # a red check nobody sees for a weekly report someone does, and accepts
+      # that tracking can lapse for a week. This is a tracking tool.
+      - name: Check loop-metrics store
+        run: node scripts/check-loop-metrics.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The client and server each keep their own copy of the redirect-target
+      # validator (no shared workspace boundary between them) — PR #292 found
+      # the same normalization defect in both at once. This is the mechanical
+      # guard against a future fix landing on only one copy.
+      - name: Check return-to validator parity
+        run: pnpm run check:return-to-parity
 
       - name: Validate migration snapshots
         run: pnpm --filter @workspace/db validate-snapshots
@@ -53,9 +241,20 @@ jobs:
 
   # Authoritative test gate: runs the api-server integration suite against a real
   # Postgres + pgvector. Phase 2's runner does all DB setup; CI just provides the
-  # database. Runs in parallel with `build` (no `needs:`) for fast feedback.
+  # database. Still parallel with `build` — the `changes` gate adds only its own
+  # ~seconds of latency, and skipping here reports "Success" to required checks
+  # (see the `changes` job's comment for why that's safe).
   test:
     name: Test
+    needs: changes
+    # `!cancelled() && result != 'success'` (not a bare needs-gate): if the
+    # `changes` job fails, plain `needs` would SKIP this job, and a skipped
+    # required check reports success — a transient classifier failure would
+    # green-light the PR without running any tests. This condition runs the
+    # suite whenever classification didn't positively succeed-and-say-skip.
+    # `!cancelled()` rather than `always()` so the concurrency group's
+    # cancel-in-progress still cancels superseded runs.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -85,10 +284,10 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -97,7 +296,7 @@ jobs:
       # files (and lacks the test-isolation flag). 22 matches where these tests
       # are verified to run (Replit is on Node 24).
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -118,17 +317,49 @@ jobs:
 
       # Fail early and clearly if the service/credentials are wrong, and create the
       # pgvector extension before push-force (the schema has vector columns).
+      #
+      # `overhype_db_test` is a SEPARATE database for @workspace/db's own suite, and the
+      # separation is load-bearing rather than tidy. `drizzle-kit push --force` reconciles a
+      # database to the Drizzle snapshot and drops whatever exists only in raw migration SQL;
+      # api-server's `pretest` runs push BEFORE migrate, which is correct on a pristine
+      # database but destructive on one that has already been migrated — and the migrate that
+      # follows cannot repair it, because the journal already records every migration as
+      # applied. Running the db suite against `overhype_test` therefore left api-server's
+      # shards cloning a database with migration-only objects missing (`facts_active_requires_concept`,
+      # the membership-entitlement objects) and CHECK constraints re-created from the Drizzle
+      # snapshot in a different, semantically identical rendering.
       - name: Prepare database
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'SELECT current_database(), current_user;'
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE overhype_db_test;'
+          psql "${DATABASE_URL%/*}/overhype_db_test" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 
       - name: Show runner diagnostics
         run: |
           echo "nproc=$(nproc)"
           node --version
           pnpm --version
+
+      # @workspace/db's own suite (migrate.test.ts, ncmecAuditBoundaryStatus.test.ts) was
+      # previously unreachable from any CI gate — Build only compiles the libraries and this
+      # job ran api-server's suite alone, so a regression in lib/db's own tests (including the
+      # restricted-role privilege-boundary assertions) could fail locally and stay green here.
+      # Applied against `overhype_db_test`, NOT the `overhype_test` database api-server's
+      # shards are cloned from — see the Prepare database step for why that separation is a
+      # correctness requirement and not a preference.
+      - name: Apply schema + migrations for @workspace/db test suite
+        env:
+          DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_db_test
+        run: |
+          pnpm --filter @workspace/db push-force
+          pnpm --filter @workspace/db run migrate
+
+      - name: Run @workspace/db test suite
+        env:
+          DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_db_test
+        run: pnpm --filter @workspace/db test
 
       # `pretest` applies push-force + migrations + codegen; run-tests-sharded.sh
       # then clones an isolated database per shard (auto-selected min(nproc,4)).
@@ -140,6 +371,15 @@ jobs:
   # the backend suite gated PRs and a frontend regression rode through green CI.
   frontend-test:
     name: Frontend Test
+    needs: changes
+    # `!cancelled() && result != 'success'` (not a bare needs-gate): if the
+    # `changes` job fails, plain `needs` would SKIP this job, and a skipped
+    # required check reports success — a transient classifier failure would
+    # green-light the PR without running any tests. This condition runs the
+    # suite whenever classification didn't positively succeed-and-say-skip.
+    # `!cancelled()` rather than `always()` so the concurrency group's
+    # cancel-in-progress still cancels superseded runs.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -148,15 +388,15 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -176,6 +416,15 @@ jobs:
   # env-gated E2E_API_PROXY_TARGET proxy plays that role here.
   e2e-smoke:
     name: E2E Smoke
+    needs: changes
+    # `!cancelled() && result != 'success'` (not a bare needs-gate): if the
+    # `changes` job fails, plain `needs` would SKIP this job, and a skipped
+    # required check reports success — a transient classifier failure would
+    # green-light the PR without running any tests. This condition runs the
+    # suite whenever classification didn't positively succeed-and-say-skip.
+    # `!cancelled()` rather than `always()` so the concurrency group's
+    # cancel-in-progress still cancels superseded runs.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -202,15 +451,15 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -224,7 +473,7 @@ jobs:
       # below only matters on the cache-miss path).
       - name: Cache Playwright Chromium
         id: pw-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -270,7 +519,7 @@ jobs:
 
       - name: Upload traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-smoke-traces
           path: |

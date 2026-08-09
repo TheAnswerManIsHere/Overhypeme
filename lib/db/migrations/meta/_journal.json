@@ -638,6 +638,62 @@
       "when": 1782300000000,
       "tag": "0090_visual_concepts_bubble_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1782400000000,
+      "tag": "0091_fact_lifecycle_phase1_additive",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1782500000000,
+      "tag": "0092_fact_lifecycle_phase2_backfill_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1782600000000,
+      "tag": "0093_facts_ai_meme_backfill_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1782700000000,
+      "tag": "0094_worker_lane_heartbeats",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1782800000000,
+      "tag": "0095_membership_entitlements",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1782900000000,
+      "tag": "0096_drop_legacy_membership_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1783000000000,
+      "tag": "0097_ncmec_submission",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1783100000000,
+      "tag": "0098_fact_lifecycle_check_repair",
+      "breakpoints": true
     }
   ]
 }

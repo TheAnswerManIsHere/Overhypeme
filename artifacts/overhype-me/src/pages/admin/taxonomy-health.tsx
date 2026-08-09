@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
-  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send,
+  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send, Image as ImageIcon, Images, Sparkles,
 } from "lucide-react";
 import {
   currentTaxonomyVersions,
@@ -20,6 +20,10 @@ import {
   useTaxonomyHealthActions,
   type UiOpState,
 } from "@/components/admin/useTaxonomyHealthActions";
+import {
+  useBulkMediaBackfillActions,
+  type BulkBackfillActionKey,
+} from "@/components/admin/useBulkMediaBackfillActions";
 import { MarkMajorUpdateModal } from "@/components/admin/MarkMajorUpdateModal";
 
 /**
@@ -40,6 +44,8 @@ interface HealthRow {
   updatedAt: string | null;
   /** True when a refresh candidate is already in flight — pre-disables send-back. */
   refreshInReview: boolean;
+  /** True when this fact's last 3 send-back attempts all failed — excluded from "Send next 50 stale" until manually retried. */
+  repeatedFailure: boolean;
 }
 
 interface ListResponse {
@@ -159,7 +165,6 @@ function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: Action
       const label =
         reason === "admin_edited" ? "Skipped — admin-edited"
         : reason === "already_in_review" ? "Skipped — already in review"
-        : reason === "has_active_variants" ? "Skipped — has active variants"
         : reason === "not_active" ? "Skipped — not active"
         : reason === "not_applicable" ? "Skipped — not applicable"
         : "Skipped";
@@ -215,6 +220,117 @@ function RowSendBack({
     <Button variant="secondary" size="sm" disabled={busy} onClick={onSend} data-testid="send-back-to-review">
       <Send className="w-3 h-3 mr-1" /> Send back to review
     </Button>
+  );
+}
+
+const BULK_BACKFILL_ACTIONS: Array<{
+  key: BulkBackfillActionKey;
+  label: string;
+  url: string;
+  icon: typeof ImageIcon;
+  confirmMessage: string;
+  testId: string;
+}> = [
+  {
+    key: "backfill_images",
+    label: "Backfill images",
+    url: "/api/admin/facts/backfill-images",
+    icon: ImageIcon,
+    confirmMessage: "Enqueue Pexels image prep for every active fact (root or variant) with no images yet?",
+    testId: "bulk-backfill-images",
+  },
+  {
+    key: "backfill_pexels",
+    label: "Backfill Pexels",
+    url: "/api/admin/backfill-pexels",
+    icon: Images,
+    confirmMessage: "Enqueue Pexels image prep for every active fact (root or variant) with no images yet?",
+    testId: "bulk-backfill-pexels",
+  },
+  {
+    key: "backfill_ai_memes",
+    label: "Backfill AI memes",
+    url: "/api/admin/facts/backfill-ai-memes",
+    icon: Sparkles,
+    confirmMessage: "Enqueue AI meme background generation for every active fact (root or variant) missing them? This calls paid OpenAI/fal.ai APIs.",
+    testId: "bulk-backfill-ai-memes",
+  },
+];
+
+/**
+ * Corpus-wide media bulk-backfill controls (site 8/15/16 of the variant-
+ * independence fix): the three admin.ts routes now widen their selection to
+ * every active fact (root or variant), not just roots, and enqueue durable
+ * jobs instead of blocking the request — but had no frontend caller at all
+ * before this panel (a "no dead UI, no invisible backend" gap independent of
+ * the async-status rule). Each button fires its route and polls the returned
+ * jobs to a terminal state via the shared `/admin/taxonomy-health/job-status`
+ * endpoint (queue-agnostic — already used by the Taxonomy Health actions
+ * above).
+ */
+function BulkMediaBackfillPanel() {
+  const { submit, counts, itemOutcomes, busy, error } = useBulkMediaBackfillActions();
+
+  return (
+    <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2" data-testid="bulk-media-backfill-panel">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-bold">Bulk Media Backfill</h3>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Corpus-wide: each button enqueues durable jobs for every eligible active fact (root or variant). Safe to
+        re-run — already-in-flight facts dedupe onto their existing job.
+      </p>
+      {error && (
+        <p className="text-xs text-red-600 dark:text-red-400" role="alert">{error}</p>
+      )}
+      <div className="flex flex-col gap-3">
+        {BULK_BACKFILL_ACTIONS.map(({ key, label, url, icon: Icon, confirmMessage, testId }) => {
+          const c = counts(key);
+          const isBusy = busy(key);
+          const items = itemOutcomes(key);
+          return (
+            <div key={key} className="flex flex-col gap-1" data-testid={testId}>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={isBusy}
+                  onClick={() => {
+                    if (!window.confirm(confirmMessage)) return;
+                    void submit(key, url);
+                  }}
+                  data-testid={`${testId}-button`}
+                >
+                  {isBusy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Icon className="w-3 h-3 mr-1" />}
+                  {label}
+                </Button>
+                {c && (
+                  <span className="text-xs text-muted-foreground" data-testid={`${testId}-status`}>
+                    {c.requested === 0
+                      ? "no matching facts"
+                      : `${c.done} of ${c.queued} done${c.failed > 0 ? ` · ${c.failed} failed` : ""}${c.stillRunning > 0 ? ` · ${c.stillRunning} still running` : ""}${c.skipped > 0 ? ` · ${c.skipped} skipped (inactive)` : ""}`}
+                  </span>
+                )}
+              </div>
+              {items.length > 0 && (
+                <ul className="pl-5 space-y-0.5" data-testid={`${testId}-items`}>
+                  {items.map((item, i) => (
+                    <li key={i} className="text-xs text-muted-foreground list-disc">
+                      <span className={item.status === "failed" ? "text-red-600 dark:text-red-400" : ""}>
+                        {item.status === "failed" ? "Failed" : "Skipped"}:
+                      </span>{" "}
+                      {item.label}
+                      {item.error ? ` — ${item.error}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -368,7 +484,7 @@ export default function TaxonomyHealth() {
   // know the exact eligible count before POST (that's computed server-side).
   const runSendBackAllStale = useCallback(() => {
     const msg =
-      "Queue up to 50 eligible stale facts for refresh? Facts already in review or blocked by active variants are left out of this batch. Every refresh still needs Visual Concept + Test Render approval before it goes live.";
+      "Queue up to 50 eligible stale facts for refresh? Facts already in review are left out of this batch. Every refresh still needs Visual Concept + Test Render approval before it goes live.";
     if (!window.confirm(msg)) return;
     void actions.submit("bulk", "send_back_to_review", BULK_SEND_BACK_URL, { scope: "all_stale" });
   }, [actions]);
@@ -397,7 +513,14 @@ export default function TaxonomyHealth() {
       op.action === "send_back_to_review" && op.eligibleRemaining != null
         ? ` — ${op.eligibleRemaining} eligible stale fact${op.eligibleRemaining === 1 ? "" : "s"} remain in the corpus.`
         : "";
-    if (c.requested === 0) return { text: `${label}: no matching facts.${eligibleTrailer}`, done: true };
+    // A nonzero repeatedFailureCount means the migration is NOT complete even
+    // once queued/failed/eligibleRemaining all read clean — surface it in the
+    // same place, not only discoverable by scrolling row-by-row.
+    const repeatedFailureTrailer =
+      op.action === "send_back_to_review" && !!op.repeatedFailureCount
+        ? ` ${op.repeatedFailureCount} fact${op.repeatedFailureCount === 1 ? "" : "s"} excluded after repeated failures — investigate before considering the migration complete.`
+        : "";
+    if (c.requested === 0) return { text: `${label}: no matching facts.${eligibleTrailer}${repeatedFailureTrailer}`, done: true };
     const segs: string[] = [];
     if (c.running > 0) segs.push(`${c.running} in progress`);
     if (c.failed > 0) segs.push(`${c.failed} failed`);
@@ -405,7 +528,7 @@ export default function TaxonomyHealth() {
     if (c.stillRunning > 0) segs.push(`${c.stillRunning} still running`);
     const detail = segs.length > 0 ? ` · ${segs.join(" · ")}` : "";
     const allDone = c.running === 0 && c.stillRunning === 0;
-    return { text: `${label}: ${c.done} of ${c.requested} done${detail}${eligibleTrailer}`, done: allDone };
+    return { text: `${label}: ${c.done} of ${c.requested} done${detail}${eligibleTrailer}${repeatedFailureTrailer}`, done: allDone };
   }, [actions]);
 
   const isBulkMode = filter !== "any";
@@ -448,6 +571,8 @@ export default function TaxonomyHealth() {
             }}
           />
         )}
+
+        <BulkMediaBackfillPanel />
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -662,6 +787,15 @@ export default function TaxonomyHealth() {
                             busy={rowBusy}
                             onSend={() => runRowSendBack(row.factId)}
                           />
+                        )}
+                        {row.repeatedFailure && (
+                          <span
+                            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400"
+                            title="Last 3 send-back attempts all failed — excluded from &quot;Send next 50 stale&quot; until manually retried here."
+                            data-testid="send-back-repeated-failure"
+                          >
+                            <AlertTriangle className="w-3 h-3" /> 3 failed attempts
+                          </span>
                         )}
                         <ActionIndicator state={state} outcome={outcome} />
                       </div>

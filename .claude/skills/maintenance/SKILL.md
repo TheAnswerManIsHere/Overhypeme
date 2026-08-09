@@ -10,7 +10,7 @@ per the CLAUDE.md tier table this belongs on **Sonnet**; if the session is
 on a higher tier when invoked, I say so and suggest switching before
 starting, but I don't block on it.
 
-The deliverable is one concise report at the end covering the four areas
+The deliverable is one concise report at the end covering the five areas
 below. If an area has nothing to report, one line ("no open dependency
 PRs") — the discipline stays visible, the report stays short.
 
@@ -74,27 +74,110 @@ triggers the manual path.
   runs. A flaky test that shows up twice across maintenance runs should
   graduate to a fix task, not stay a report line.
 
-## 4. "What shipped" digest
+## 4. Deferred-work backlog triage
+
+Read [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
+and re-check **each entry's revisit trigger**:
+
+- **Any trigger that has fired** (a dated cutoff reached, a dependency shipped
+  its fix, a recurrence count hit, a security advisory landed) → surface it to
+  David as a numbered decision item in the report. Don't act on the underlying
+  bump/change here — see Boundaries.
+- **Newly parked items** discovered this pass (a major bump held in step 1, a
+  deprecation spotted in a lockfile or CI log) → add them to the doc with the
+  four-field entry template, and commit that doc change directly (docs-only,
+  no PR ceremony needed) — the one Boundaries exception, see below.
+- If nothing fired and nothing's new, one line: "deferred-work backlog: N
+  items, no triggers fired."
+
+## 5. "What shipped" digest
 
 - List PRs merged since the last maintenance run (default window: 7 days).
 - Write it **PM-facing**: what changed in product terms, one line per PR,
   grouped as features / fixes / dependencies / infra. Not a commit log.
 
+## 6. Loop-efficacy digest
+
+**Build the closed-PR inventory and pass it — this step is required, not
+optional.** Since this PR retired CI's coverage gate, the digest's
+`--inventory` completeness check is the *only* remaining mechanism that
+notices a missing record; skipping it every week means coverage can rot
+indefinitely while the report keeps saying "not checked" and nobody notices.
+List closed PRs (`mcp__github__list_pull_requests`, `state: closed`,
+paginated in small batches) back through `FIRST_RECORDED_PR` in
+`loop-report.mjs` (read the constant rather than hardcoding it here — it moved
+once already when a late `[LEDGER]` PR landed rows during the cutover) —
+**not just the last maintenance window.** `missingRecords()` has no settling
+window (David, 2026-08-08) — a loop closed seconds ago is eligible to be
+flagged — so the risk isn't recency, it's an inventory that only covers the
+last 7 days and silently drops an older gap that opened before the lookback
+started; the "every closed loop has a record" line would then read as
+checked when only the last week actually was. Keep
+`number`/`title`/`closed_at`/`user.login` for each PR — write the array to a
+scratch JSON file and pass it as `--inventory <file>`. If GitHub access
+genuinely isn't available this run, say so explicitly in the report
+("completeness not checked — GitHub access unavailable") rather than
+silently running without `--inventory` and letting the section read as
+routine.
+
+Run `node scripts/loop-report.mjs --inventory <file>` and **narrate the
+result to David in plain language** — a few sentences, not the raw tables.
+The script computes; this step interprets; David decides.
+
+This section exists because the measurement half shipped in PR #270 and the
+delivery half never did: for a year the answers sat in a file David doesn't
+open, and he discovered the records were duplicating by stumbling into it.
+**The digest is the product** — if it isn't narrated, the whole system is
+back to where it was.
+
+What to actually say:
+
+- **The headline, if there is one.** Churn moving, an unusually expensive
+  loop, a run of clean ones. If nothing moved, say that in one line.
+- **Anything actionable.** A deferral that has been open for weeks, a loop
+  whose adjudication tripped the disagreement gate, missing records piling
+  up. These are named individually in the digest precisely so they can be
+  acted on rather than counted.
+- **Honest uncertainty.** Below three qualifying loops the digest says "not
+  yet informative" — pass that through rather than dressing two data points
+  as a trend. The frozen ledger withdrew two such readings already.
+
+**Always run the digest, even on a week where nothing closed** — the
+data-health and completeness checks are all-time, not windowed, and this
+digest is now the only mechanism that ever notices a missing or stuck
+record. A quiet week with a real deferral or a growing missing-records list
+still has something to say; only the empty-volume commentary is skippable.
+Say "no loops closed this week" in one line and go straight to data health,
+rather than dropping the section entirely.
+
 ## Report delivery
 
-Single message, four short sections, worst news first. When something needs
+Single message, six short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
-If the report is substantial, also publish it as an Artifact page (per the
-CLAUDE.md artifact-delivery preference) — the chat message remains the
-canonical copy.
+If the report is substantial, also publish it as an Artifact page — the chat
+message remains the canonical copy. (CLAUDE.md's combined Artifact-delivery
+paragraph this used to cite was retired; only its UAT-specific rule survives,
+under *Every PR ships with a Replit test plan + a UAT*, and it doesn't cover
+maintenance reports. This is now a standalone maintenance-skill rule.)
 
 ## Boundaries
 
 - **No feature work, no refactors, no drive-by fixes** — anything
   discovered here that needs real code change becomes a flagged item for
-  David, or a `/bugfix` batch if he says so. Maintenance touches nothing
-  but dependency merges.
+  David, or a `/bugfix` fix (its own branch and PR per bug — bugfix mode no
+  longer batches, see
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md#one-bug-one-branch-one-pr-david-2026-07-26))
+  if he says so. Maintenance touches nothing but
+  dependency merges, **with one narrow exception**: committing updates to
+  [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
+  (step 4) — recording a newly-parked item or updating an entry's status.
+  That's docs-only, zero behavior/dependency change, no PR ceremony, and
+  matches the tier table's "documentation is Sonnet-always, drift is
+  self-catching" rationale. It is **not** license to fix, refactor, or bump
+  anything the backlog pass turns up — a fired trigger for a *major* bump
+  (dependency or Action) still only ever becomes a reported decision item,
+  never a direct action, per step 4 above.
 - **No scheduled self-wakeups.** David invokes this manually (standing
   no-background-check-ins rule). If he later opts into a scheduled weekly
   routine, that decision changes this section — not before.

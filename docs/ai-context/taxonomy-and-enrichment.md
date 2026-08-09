@@ -25,11 +25,68 @@ render-time visual-preview phase inside enrichment.** The render-time
 the image model receives — see [`visual-pipeline.md`](./visual-pipeline.md). Do
 not blur these layers.
 
+## Variants are independent facts
+
+**A variant is a fully independent fact.** `facts.parent_id` records that a
+variant expresses **the same concept** as its root (the primary example of that
+concept) in slightly different words — and it exists for exactly two purposes:
+**recording that kinship**, and letting the UI **show or hide** variants. It is
+**not** an inheritance link.
+
+David, verbatim (2026-07-24): *"the only thing that we should be doing with
+variants is tracking them as having a parent-child relationship to the master
+fact… other than being able to show or hide variants I don't want them to be
+dependent upon their parents for any metadata. A variant can have its own memes,
+can have its own visual taxonomy, can have its own enrichment, can have its own
+visual concept."*
+
+So, for **every** metadata layer:
+
+- A variant owns its **own** enrichment/taxonomy, Visual Concept, stock
+  (`pexelsImages`) and AI (`aiMemeImages`) images, memes, and videos.
+- A variant **never displays, borrows, or falls back to** its root's metadata.
+  If a variant has no stock images of its own, it has none — the picker must not
+  substitute the root's.
+- **A variant can GENERATE its own images, not just display them (PR #256).**
+  `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`/
+  `backfill-ai-memes`, and, user-facing, AI meme/PuLID generation (`memes.ts`,
+  `pulidJobs.ts`) all now operate on any active fact, root or variant — the
+  root-only 400s ("AI meme generation only supported on root facts") are
+  removed. The three bulk-backfill routes also converted from blocking/
+  direct-call to a durable async queue (`fact_pexels` / `fact_ai_meme_backfill`
+  lanes — see [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)).
+  **Still treat any new `isNull(factsTable.parentId)` / `parentId !== null`
+  guard on an images/enrichment/AI-generation path as suspect** — the exact
+  list of root-only sites was under-enumerated twice during PR #256's review
+  before a repo-wide sweep found them all; the same blind spot can recur if a
+  future feature adds a new generation path and copies an old root-only
+  pattern instead of checking this doc first.
+- **Enrichment classifies a variant on its own text only** — the root's wording
+  is not passed as classifier context. Consequence (intended): **re-wording a
+  root does not invalidate or re-enrich its variants.** Their enrichment depends
+  on their own text, nothing else. This retires the dependency machinery that
+  existed only to protect the old model: `factTextEditProtection.ts`'s
+  `loadDirectVariantDependencies` (blocks a root text edit while a variant is
+  mid-cycle) and `confirmedFactTextEdit.ts`'s child-signature clearing on a
+  confirmed root edit — both go away with it, not just go unused.
+- The only legitimate cross-references are **structural, not metadata**: the
+  `parent_id` link itself, show/hide grouping, lifecycle guards that reference
+  kinship (`HAS_ACTIVE_VARIANTS`, "a variant's parent must be an active root"),
+  and excluding self/parent/siblings from "related facts".
+
+**When you find code that makes a variant read its parent's metadata, that is a
+bug, not a feature** — fix it toward independence rather than mirroring it into
+new code paths. (`enrichmentVersioning.ts`'s field-preservation invariant
+already treats `parentId`, `pexelsImages`, and `aiMemeImages` as variant-owned;
+that is the correct pattern.)
+
 ## Source-of-truth boundaries
 
 - **Active fact truth:** the `facts.*` columns. The public feed and runtime read
   `facts.enrichment` (the effective blob). "Option B": `facts.*` is the SOLE
   active truth.
+- **Variant truth:** a variant's own `facts.*` row — never its parent's (see
+  *Variants are independent facts* above).
 - **Archive/candidate:** `fact_enrichment_versions` is an append-only archive +
   in-flight candidate store — **not** active lineage.
 - **Visual source of truth:** the Visual Concept + render-time plan/compiler, not
@@ -86,7 +143,11 @@ job. That job classifies into the version row and advances the review to
 active as a `superseded` row, rematerializes the candidate into `facts.*`
 (including the signature — see above), and marks it `promoted`; **reject**
 retains the candidate as `rejected` history (never hard-deleted). Guards:
-`REFRESH_ALREADY_IN_PROGRESS`, `NOT_ACTIVE`, `HAS_ACTIVE_VARIANTS`.
+`REFRESH_ALREADY_IN_PROGRESS`, `NOT_ACTIVE`. (A prior `HAS_ACTIVE_VARIANTS`
+guard here — "refreshing a root could invalidate its variants' classification"
+— was removed once variants stopped classifying from the root's text; see
+*Variants are independent facts* above. `factActivation.ts` has its own,
+unrelated `HAS_ACTIVE_VARIANTS` code for reparenting, which still stands.)
 
 **A refresh is initiation, not completion.** Sending a fact back only starts
 the cycle — it still has to clear **both** human gates (Visual Concept at Step
@@ -102,11 +163,18 @@ out across many stale facts via the `fact_send_back` async-jobs queue
 Two scopes: `all_stale` (server picks up to a **50-per-request cap**,
 `BULK_SEND_BACK_BATCH_LIMIT`, from the corpus-wide stale set) and `selected`
 (an explicit admin-chosen id list). `all_stale` **silently excludes** ineligible
-facts (already in review / active variants) to keep the response bounded
-regardless of corpus size — `selected` gives each chosen fact an explicit,
-reasoned skip outcome instead, since the admin picked it deliberately.
+facts (already in review) to keep the response bounded regardless of corpus
+size — `selected` gives each chosen fact an explicit, reasoned skip outcome
+instead, since the admin picked it deliberately.
 
-A guard rejection (`NOT_ACTIVE` / `HAS_ACTIVE_VARIANTS` / already in review) is a
+`all_stale` also excludes any fact whose most recent `fact_send_back` jobs
+have repeatedly failed — `factsWithRepeatedSendBackFailures`'s default
+`streak` of **3** — so a persistently-broken fact can't eat a bulk run's
+capacity forever (`repeatedFailureCount` in the response). `selected`
+deliberately is NOT gated by this: a manual retry after investigating
+`lastError` on the terminal rows is the only path that clears the streak.
+
+A guard rejection (`NOT_ACTIVE` / already in review) is a
 **terminal skip, not a retry** — that's what makes re-running a batch
 idempotent. `REFRESH_ALREADY_IN_PROGRESS` gets extra handling: the primitive
 commits the candidate/review, then enqueues candidate enrichment in a
@@ -158,7 +226,9 @@ generated under, so a fact processed under old assumptions reads as stale.
 - **`stale_enrichment_version`** — the older, narrower lens: per fact,
   `enrichment.classificationPromptVersion` is stamped at classify time; when it
   differs from the current `CLASSIFICATION_PROMPT_VERSION` constant
-  (`lib/api-zod/src/taxonomy.ts`, currently `"v5"`) the fact is flagged stale.
+  (`lib/api-zod/src/taxonomy.ts` — check the constant itself for the live
+  value rather than trusting a hardcoded version number in prose, which has
+  already gone stale here once) the fact is flagged stale.
   `VISUAL_STRATEGY_VERSION` (`lib/api-zod/src/visualPromptStrategies.ts`) is
   surfaced for visibility but not separately gated on.
 - **`stale_for_reprocess`** (PR3) — the `ProcessingSignature`-based lens

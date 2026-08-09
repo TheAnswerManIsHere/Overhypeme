@@ -12,10 +12,11 @@
 
 Every fact carries **enrichment** — structured metadata describing *how the
 joke works*, not what picture to draw for it. That includes its primary
-archetype (which of eleven joke mechanisms it uses), a subtype, tone
-modifiers, how strong the "overhype" fit is, adult-suitability, cultural
-references, named entities, suggested hashtags, and the AI's confidence in
-its own read. It's produced once at moderation time and can be **refreshed**
+archetype (which joke mechanism it uses, from a fixed list), a subtype, a
+broader set of scene/tone/composition modifiers, how strong the "overhype"
+fit is, adult-suitability, cultural references, named entities, suggested
+hashtags, and the AI's confidence in its own read. It's produced once at
+moderation time and can be **refreshed**
 later — deliberately, by a human — as the classification model and prompts
 improve, without disturbing a fact's live content or any manual edit an admin
 made to it.
@@ -24,6 +25,13 @@ Enrichment is explicitly **not** an image prompt. What the picture looks like
 is a separate concern, owned by the Visual Concept and the render pipeline
 (see [`visual-pipeline.md`](../ai-context/visual-pipeline.md)) — this area only answers
 "what kind of joke is this, and is it safe/on-brand?"
+
+**A variant is classified entirely on its own wording.** A variant fact
+(alternate phrasing of the same joke as a "root" fact, linked for kinship and
+show/hide grouping only) gets its own enrichment, taxonomy, Visual Concept,
+and images — never its root's. Re-wording a root does **not** invalidate or
+re-enrich its variants. See *Variants are independent facts* in the
+[deep-spec doc](../ai-context/taxonomy-and-enrichment.md#variants-are-independent-facts).
 
 ## How it works
 
@@ -39,13 +47,18 @@ of joke.
 
 **Admin → Taxonomy Health** is where enrichment quality is monitored and
 repaired. Every active fact rolls up into overlapping cards — a fact can
-appear under more than one at once:
+appear under more than one at once. The core categories:
 
-- **Missing / invalid enrichment** — no classification exists, or it fails
-  validation. Fixed with **Re-enrich** (a real model call).
-- **Needs admin review** — low confidence, a questionable content fit, a
-  cultural reference or named entity flagged for human judgment.
-- **Projection mismatch** — the four "promoted" columns (archetype, subtype,
+- **Missing or invalid enrichment** — no classification exists yet, or one
+  exists but fails validation. Fixed with **Re-enrich** (a real model
+  call).
+- **Needs admin review** — a questionable content fit, or something
+  flagged for human judgment. A few narrower cards break this down
+  further today — low AI confidence and cultural references needing
+  research each get their own dedicated card, following the same shape —
+  but the underlying idea is the same across all of them: something needs
+  a person's judgment, not just a re-run.
+- **Projection mismatch** — the "promoted" columns (archetype, subtype,
   fit, suitability) drifted from what's actually stored in the enrichment
   JSON. Fixed with **Repair projections** — instant, no model call, safe to
   run repeatedly.
@@ -64,8 +77,9 @@ safe to click twice.
 
 A fact's classification doesn't have to be right forever — an admin can send
 any live fact **back into moderation** for a fresh pass, one at a time from
-the Facts page or the Taxonomy Health list, or **in bulk** (up to 50 at a
-time) from the Stale-for-reprocess card. Sending a fact back:
+the Facts page or the Taxonomy Health list, or **in bulk**, bounded per click
+(see "A bulk send-back run is deliberately limited per click," below), from
+the Stale-for-reprocess card. Sending a fact back:
 
 - Keeps it fully live the whole time — the public feed and every reader-facing
   surface keep showing its current content, unaffected, until the refresh is
@@ -76,9 +90,14 @@ time) from the Stale-for-reprocess card. Sending a fact back:
 - Puts the fact through the **same two human gates** every submission clears
   — Visual Concept, then Test Renders — before the refreshed version can go
   live. **Sending a fact back only starts that cycle; it never finishes it on
-  its own.** This holds whether it's one fact or fifty: bulk send-back is
-  strictly a faster way to *queue* refreshes, never a way to skip the humans
-  reviewing them.
+  its own.** This holds no matter how many facts are queued at once: bulk
+  send-back is strictly a faster way to *queue* refreshes, never a way to
+  skip the humans reviewing them.
+- Works the same whether or not the fact has active variants. Root facts with
+  active variants used to be blocked from bulk send-back, on the assumption
+  that refreshing a root could invalidate its variants' classification —
+  that assumption no longer holds now that a variant classifies from its own
+  text only, so the block was removed.
 
 ### Staleness has two different meanings
 
@@ -144,13 +163,22 @@ side effect of an unrelated config change.
 - **No automatic promotion, ever.** Nothing in this area — single-fact or
   bulk — promotes a refreshed fact on its own. A human approves the Visual
   Concept, then the Test Renders, exactly as for a first-time submission.
-- **A bulk send-back run is capped at 50 facts per click.** On a corpus with
+- **A bulk send-back run is deliberately limited per click.** On a corpus with
   a larger backlog (common right after a "Mark major update" bump, which
   can make most of the corpus stale at once), an admin clicks the button more
   than once over time. This is deliberate — it keeps the moderation queue
-  from being flooded in one action.
+  from being flooded in one action. The limit itself is in
+  [`taxonomy-and-enrichment.md`](../ai-context/taxonomy-and-enrichment.md).
+- **A fact whose recent send-back attempts have repeatedly failed drops out
+  of bulk runs.** This stops a persistently-broken fact from silently eating
+  a bulk run's capacity forever, and stops an admin from being able to declare a
+  bulk migration "complete" while that fact sits invisibly excluded — its
+  failure streak (`repeatedFailureCount`) shows on the Taxonomy Health row
+  list and the bulk-action response. The only way to clear the streak is to
+  target that fact directly (single-fact or `scope: selected`), which is also
+  the only path that resets the count.
 - **The exact number of eligible facts isn't known before you click "send."**
-  The confirm dialog says "up to 50 eligible" rather than an exact count,
+  The confirm dialog states an upper bound rather than an exact count,
   because computing the exact number requires the same server-side work as
   actually running the batch. The real numbers show up immediately after.
 - **A sent-back fact stays flagged stale until its refresh is actually
@@ -172,3 +200,8 @@ side effect of an unrelated config change.
   (the two-altitude status rule bulk send-back follows).
 - Rationale: the staleness/bulk-send-back entry in
   [`decisions.md`](../ai-context/decisions.md).
+
+**Next:** chapter 5 — [`visual-pipeline.md`](./visual-pipeline.md), how an
+authored Visual Concept becomes a rendered image.
+
+*Verified against `c9c6715` (2026-08-09) · claim inventory in PR #380.*

@@ -9,6 +9,15 @@
   rendered on demand for any name/pronoun set. Not stored per-name.
   → [product-brief](./product-brief.md), [token-rendering](./token-rendering-and-grammar.md)
 
+- **Variant (of a fact)** — a fact that expresses **the same concept** as another
+  fact in slightly different words, linked by `facts.parent_id` to the **root**
+  (the primary example of that concept). The link exists for exactly two
+  purposes: recording that kinship, and letting the UI show or hide variants.
+  **A variant is otherwise a fully independent fact** — it owns its own memes,
+  taxonomy/enrichment, Visual Concept, and stock/AI images, and it inherits
+  **no** metadata from its root.
+  → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts)
+
 - **Personalization tokens** — the closed set a template may use: `{NAME}`,
   `{NAME_POSSESSIVE}`, the pronoun tokens (`{SUBJ}`/`{OBJ}`/`{POSS}`/`{POSS_PRO}`/
   `{REFL}` + capitalized variants), and conjugation pairs like `{laughs|laugh}`.
@@ -143,18 +152,99 @@
   polled by a worker. Enqueue is not completion.
   → [architecture-map](./architecture-map.md), [async-ui-status](./async-ui-status.md)
 
-- **Lane (async-jobs)** — one of three independent scheduling groups (`fast` /
-  `render` / `bulk`) the async-jobs worker splits queues into, each with its own
-  poll timer, re-entrancy guard, and concurrency bound, so slow work in one lane
-  can never delay another's. Set per-queue via `registerJobHandler(queue,
-  handler, { lane })`; defaults to `bulk`.
+- **Lane (async-jobs)** — one of five independent scheduling groups (`fast` /
+  `render` / `bulk` / `pexels` / `ai_meme_backfill`) the async-jobs worker
+  splits queues into, each with its own poll timer, re-entrancy guard, and
+  concurrency bound, so slow work in one lane can never delay another's
+  *scheduling*. Set per-queue via `registerJobHandler(queue, handler, {
+  lane })`; defaults to `bulk`. This isolation is at the scheduling level
+  only — all five lanes share one database connection pool, so a DB-heavy
+  lane consuming most of `DB_POOL_MAX` can still make another lane's claim
+  or heartbeat queries wait.
   → [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
+- **Worker lane heartbeat** — a `worker_lane_heartbeats` row, keyed
+  `(instance_id, lane)`, that one worker instance publishes to say a lane is
+  still ticking and how many jobs it has in flight. The basis for the Queue
+  Health surface's per-lane liveness verdict and the `/api/health/queues`
+  public probe — the queue table alone can't distinguish "about to be
+  claimed" from "every worker died an hour ago."
+  → [architecture-map](./architecture-map.md#worker-liveness-heartbeats--the-queue-health-surface-phase-1-pr-288)
+
+- **Sentinel (`max_attempts`)** — the value `0` on an `async_jobs` row,
+  meaning "resolve the retry ceiling from the queue's live `admin_config`
+  setting" rather than a fixed per-row override. Replaced with the resolved
+  number once a row finalizes to `failed`, so its `abandoned_no_retry`
+  classification stays pinned to the ceiling that actually applied, not
+  whatever the config says today.
+  → [decisions.md](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
 
 - **Membership tier** — user entitlement level: `unregistered | registered |
   legendary`. Legendary unlocks paid per-render surfaces; separate from the
   `is_admin` flag. There are no consumer "credits" (server-side budget gate).
-  → [product-brief](./product-brief.md)
+  **Derived, never assigned, post-creation**: `users.membership_tier` is a
+  projection computed from a user's entitlement sources, recomputed on every
+  change to them, after the user exists. Account creation is a separate,
+  one-time initialization write (signup's DB default, or an admin's chosen
+  starting tier on Add User), not a competing writer. One narrow, designed
+  exception past that point: admin reinstatement writes it directly,
+  fail-closed, when a source refresh comes back incomplete — see
+  [membership-entitlements](./membership-entitlements.md#the-one-thing-to-understand-before-anything-else).
+  → [product-brief](./product-brief.md), [membership-entitlements](./membership-entitlements.md)
+
+- **Entitlement source** — a `membership_entitlements` row: one durable
+  candidate for membership a user has ever held, of type
+  `stripe_subscription`, `stripe_lifetime_payment`, or `admin_grant`. **Not**
+  the same as "currently grants membership" — a cancelled, refunded, or
+  disputed source is retained, not deleted, and no longer qualifies. A
+  dispute closing **anything but lost** — `won`, `warning_closed`, or
+  `prevented` — only clears the dispute hold; the source still must pass its
+  own lifecycle check, so a cancellation/refund that happened while it was
+  disputed stays disqualified regardless of how the dispute itself resolved.
+  Only `lost` is a separate, permanent disqualification. A user's tier is the **union** of their
+  *qualifying* sources (a separate check per row), not a priority order —
+  Legendary if *any* one qualifies.
+  → [membership-entitlements](./membership-entitlements.md#the-entitlement-model)
+
+- **Grace episode** — the 14-day window a `past_due` subscription keeps
+  qualifying for, counted from the first failed charge on the earliest
+  still-unpaid invoice of the contiguous unpaid run. Not "however long Stripe
+  keeps retrying" — a bounded, computed deadline once the anchor is known. If
+  it can't be resolved yet **and no deadline is already stored** (incomplete
+  pagination, an ambiguous episode boundary on a fresh episode), the source
+  keeps qualifying without a deadline until it can be resolved. If a deadline
+  *is* already stored, an unresolvable refresh instead retries as a no-op and
+  leaves that stored deadline in force — including past its expiry, which
+  disqualifies the source rather than failing open.
+  → [membership-entitlements](./membership-entitlements.md#grace-episodes--bounded-dunning-not-indefinite-retry)
 
 - **Wilson score / leaderboard** — ranking is driven by `facts.wilsonScore` (a
   confidence bound on up/down votes) plus score/comment/share counts.
   → [architecture-map](./architecture-map.md)
+
+- **Workstream** — one unit of work (a feature, a bugfix, a `/document`
+  harvest) tracked end-to-end by a single GitHub issue — except
+  sensitive/disclosure-carve-out work, which is a private draft Project item
+  instead, never a public issue. Runs through the full lifecycle
+  (Discovery→UAT) only when there's product-visible behavior to verify;
+  UAT is skipped for a pure-docs/devops workstream (closes out at merge, per
+  `pr-watch`'s merge rule), a Tier A bugfix (never ships a UAT doc), and a
+  Tier B bugfix whose only surface is internal (the infra-only exception —
+  see [working-modes.md](./working-modes.md#tier-b--elevated-fix)).
+  Deliberately **not** the same as a session or a
+  PR: a workstream outlives both and can span several PRs, which is why it —
+  not the PR number — is the stable thing to name and track against.
+  → [workstream-tracking](./workstream-tracking.md)
+
+- **State of Play block** — the standard block maintained in a workstream
+  issue's body: current stage, whose turn it is, the open question in plain
+  language, artifact links, and how to resume. It exists so a workstream can
+  be picked up **cold in a fresh session**, which is what makes sessions
+  disposable rather than something to keep alive for their scrollback.
+  → [workstream-tracking](./workstream-tracking.md)
+
+- **David-gate** — a lifecycle stage only David can move past, marked 🛑 in
+  both the board's Status options and the chat interruption banner: Plan
+  approval, Merge, and UAT. One glyph means "David" everywhere, so scanning
+  for it finds exactly the blocking moments.
+  → [workstream-tracking](./workstream-tracking.md)

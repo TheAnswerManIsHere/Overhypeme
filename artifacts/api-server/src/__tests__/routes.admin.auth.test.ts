@@ -51,6 +51,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "delete", path: "/admin/users/:id" },
   { method: "get",    path: "/admin/users/:id/membership" },
   { method: "get",    path: "/admin/refunds-disputes" },
+  { method: "get",    path: "/admin/membership/grace-sweep" },
   { method: "post",   path: "/admin/users/:id/grant-lifetime" },
   { method: "post",   path: "/admin/users/:id/revoke-lifetime" },
   { method: "post",   path: "/admin/users" },
@@ -67,6 +68,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "get",    path: "/admin/facts/:id/enrichment-overrides/history" },
   { method: "post",   path: "/admin/facts/:id/enrich" },
   { method: "post",   path: "/admin/facts/:id/send-back-to-review" },
+  { method: "post",   path: "/admin/facts/:id/resubmit-for-moderation" },
   { method: "get",    path: "/admin/facts/:id/enrichment-versions" },
   { method: "post",   path: "/admin/facts/:id/variants" },
   { method: "delete", path: "/admin/facts/variants/:variantId" },
@@ -108,11 +110,17 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/_debug/sentry" },
   { method: "get",    path: "/admin/sentry-status" },
   { method: "get",    path: "/admin/route-stats" },
+  // Phase 1 queue-health surface. Both are read-only aggregations, but they
+  // expose per-queue counts and per-job error text, so they are admin-gated
+  // exactly like the rest of this table. (The UNAUTHENTICATED liveness probe
+  // lives at /health/queues, outside this router, and deliberately returns only
+  // a status code and lane counts — no queue names, no payloads, no errors.)
+  { method: "get",    path: "/admin/queue-health" },
+  { method: "get",    path: "/admin/queue-health/jobs" },
   { method: "get",    path: "/admin/email-queue" },
   { method: "delete", path: "/admin/email-queue" },
   { method: "post",   path: "/admin/email-queue/:id/retry" },
   { method: "get",    path: "/admin/users/:id/data-export" },
-  { method: "post",   path: "/admin/users/:id/data-delete" },
   { method: "post",   path: "/admin/retention/run" },
 ];
 

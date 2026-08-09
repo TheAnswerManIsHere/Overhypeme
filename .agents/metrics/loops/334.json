@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 1,
+  "pr": 334,
+  "closedAt": "2026-08-07T17:07:05Z",
+  "mechanical": {
+    "title": "fix(devops): address the 11 review findings that never got fixed (#323, #324)",
+    "cohort": "bugfix",
+    "size": {
+      "files": 20,
+      "added": 1661,
+      "removed": 89
+    },
+    "rounds": 21,
+    "findings": 69,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-05T22:32:33Z",
+        "source": "review",
+        "findings": 6
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-05T22:42:41Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-05T23:00:42Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-08-05T23:25:07Z",
+        "source": "review",
+        "findings": 9
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-08-05T23:35:38Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 6,
+        "submitted_at": "2026-08-05T23:47:51Z",
+        "source": "review",
+        "findings": 7
+      },
+      {
+        "round": 7,
+        "submitted_at": "2026-08-06T00:03:03Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 8,
+        "submitted_at": "2026-08-06T00:13:42Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 9,
+        "submitted_at": "2026-08-06T00:25:16Z",
+        "source": "review",
+        "findings": 7
+      },
+      {
+        "round": 10,
+        "submitted_at": "2026-08-06T00:44:05Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 11,
+        "submitted_at": "2026-08-06T00:57:11Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 12,
+        "submitted_at": "2026-08-06T01:07:06Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 13,
+        "submitted_at": "2026-08-06T01:16:36Z",
+        "source": "comment",
+        "findings": 0
+      },
+      {
+        "round": 14,
+        "submitted_at": "2026-08-06T01:33:01Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 15,
+        "submitted_at": "2026-08-06T01:46:27Z",
+        "source": "review",
+        "findings": 5
+      },
+      {
+        "round": 16,
+        "submitted_at": "2026-08-06T01:55:36Z",
+        "source": "comment",
+        "findings": 0
+      },
+      {
+        "round": 17,
+        "submitted_at": "2026-08-06T19:10:44Z",
+        "source": "comment",
+        "findings": 0
+      },
+      {
+        "round": 18,
+        "submitted_at": "2026-08-07T15:42:26Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 19,
+        "submitted_at": "2026-08-07T15:49:19Z",
+        "source": "comment",
+        "findings": 0
+      },
+      {
+        "round": 20,
+        "submitted_at": "2026-08-07T16:39:01Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 21,
+        "submitted_at": "2026-08-07T16:46:11Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-05T22:26:49Z",
+      "last_review_at": "2026-08-07T16:46:11.000Z",
+      "hours": 42.3
+    },
+    "warnings": [
+      "1 reviewer pass(es) absorbed a bodiless inline-comment review record alongside their announcement (b33667ba99×2). Counted as one round each, per reviewerPasses' announcement rule."
+    ]
+  },
+  "judgment": {
+    "causes": { "new": 18, "prop": 38, "wrong": 12, "reRaised": 0, "invalid": 1 },
+    "preOpenPreflightMin": 0,
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "completed", "population": 69, "disagreements": 10 },
+  "notes": "Backfilled from the frozen ledger (row 37), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment/adjudication transcribed from the ledger's already-adjudicated, corrected figures (the highest self-inflicted share on record — 73.5%, 50/68 valid findings, dominated by propagation into a brand-new GitHub Action built mid-loop and then hardened across a dozen rounds). A blind adjudicator's independent reading landed the same 73.5% via a different category split (17 new/34 prop/16 wrong/1 re-raised/1 invalid); both readings agree on the bottom-line share so the author's reading is recorded, per this ledger's convention."
+}

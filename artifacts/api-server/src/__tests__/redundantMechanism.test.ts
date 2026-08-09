@@ -266,6 +266,6 @@ describe("classifier system prompt encodes the redundant-mechanism rule", () => 
     assert.equal(isKnownModifier("avoid_real_logos"), false);
     assert.equal(isKnownModifier("avoid_readable_ui"), false);
     // The classifier-prompt contract changed → version bumped.
-    assert.equal(CLASSIFICATION_PROMPT_VERSION, "v6");
+    assert.equal(CLASSIFICATION_PROMPT_VERSION, "v7");
   });
 });

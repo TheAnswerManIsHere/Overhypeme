@@ -49,6 +49,8 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  // Active facts require a non-empty Visual Concept (facts_active_requires_concept CHECK).
+  visualPromptStrategyOverride: { version: 1, coreSceneOverride: "A hero stands tall." },
 } as unknown as FactEnrichment;
 
 const insertedFactIds: number[] = [];

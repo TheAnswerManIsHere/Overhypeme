@@ -22,6 +22,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, memesTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 import { canViewMeme } from "../lib/memeVisibility.js";
@@ -83,7 +84,7 @@ before(async () => {
   ]);
   const [fact] = await db
     .insert(factsTable)
-    .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true })
+    .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
     .returning({ id: factsTable.id });
   factId = fact.id;
 

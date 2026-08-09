@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "pr": 274,
+  "closedAt": "2026-07-28T04:04:25Z",
+  "mechanical": {
+    "title": "[PLAN REVIEW] Stripe billing: make the catalog legible, and sell every plan in it — DO NOT MERGE",
+    "cohort": "plan-review",
+    "size": {
+      "files": 1,
+      "added": 817,
+      "removed": 0
+    },
+    "rounds": 4,
+    "findings": 19,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-07-28T00:58:52Z",
+        "source": "review",
+        "findings": 5
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-07-28T01:12:39Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-07-28T03:36:15Z",
+        "source": "review",
+        "findings": 6
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-07-28T03:54:53Z",
+        "source": "review",
+        "findings": 5
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-07-28T00:52:31Z",
+      "last_review_at": "2026-07-28T03:54:53.000Z",
+      "hours": 3
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 6, "prop": 6, "wrong": 7, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "not measured in the original ledger backfill",
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "Backfilled from the frozen ledger (row 4), 2026-08-08 — mechanical re-derived fresh via loop-metrics.mjs --mcp-snapshot; judgment transcribed from the ledger's already-adjudicated figures (author's reading, the more self-critical of two). Loop closed unmerged when scope was cut mid-review; findings/rounds describe an interrupted loop, not a finished one."
+}

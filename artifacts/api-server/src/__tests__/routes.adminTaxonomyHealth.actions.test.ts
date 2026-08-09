@@ -21,7 +21,7 @@ import request from "supertest";
 import { db, factsTable, usersTable } from "@workspace/db";
 import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature } from "@workspace/api-zod";
+import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -47,6 +47,7 @@ function validEnrichment(overrides: Record<string, unknown> = {}): Record<string
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
+    visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
     ...overrides,
   };
 }
@@ -76,7 +77,11 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   ): Promise<number> {
     const [r] = await db
       .insert(factsTable)
-      .values({ text, submittedById: adminUserId, enrichment, ...cols })
+      // A fully-missing enrichment blob can no longer satisfy the DB's
+      // facts_active_requires_concept CHECK, so this fixture models it as an
+      // inactive (never-activated) fact — matching the new invariant that an
+      // active fact always carries a concept.
+      .values({ text, submittedById: adminUserId, enrichment, isActive: enrichment != null, ...cols })
       .returning({ id: factsTable.id });
     factIds.push(r!.id);
     return r!.id;
@@ -136,7 +141,14 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   });
 
   it("missing_enrichment / stale / projection filters select the right rows", async () => {
-    assert.ok((await listIds("missing_enrichment")).includes(missingId));
+    // The missing-enrichment fixture is necessarily INACTIVE (Phase 2's
+    // facts_active_requires_concept CHECK makes an active fact with no
+    // enrichment impossible), and /admin/taxonomy-health/facts scopes to active
+    // facts only — so "active + missing_enrichment" can no longer occur via the
+    // real system. The filter itself is unchanged (out of scope for this PR);
+    // assert it correctly returns nothing for this now-unreachable case rather
+    // than asserting an impossible inclusion.
+    assert.ok(!(await listIds("missing_enrichment")).includes(missingId));
     assert.ok((await listIds("stale_enrichment_version")).includes(adminStaleId));
     assert.ok((await listIds("projection_mismatch")).includes(mismatchId));
   });
@@ -251,6 +263,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
       .values({
         text: TEXT("stale not reprocess"),
         submittedById: adminUserId,
+        isActive: true,
         enrichment: validEnrichment({ classificationPromptVersion: "v0-prehistoric" }),
         lastProcessedSignature: currentSig,
         ...MATCHING_COLS,
@@ -273,7 +286,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   it("refreshInReview is true for a fact with an in-flight refresh candidate, false otherwise", async () => {
     const [f] = await db
       .insert(factsTable)
-      .values({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS })
+      .values({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
       .returning({ id: factsTable.id });
     factIds.push(f!.id);
     await db.insert(factEnrichmentVersionsTable).values({
@@ -293,5 +306,88 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     assert.equal(inFlight!.refreshInReview, true, "a candidate in review pre-disables its send-back button");
     const other = rows.find((r) => r.factId === healthyId);
     assert.equal(other?.refreshInReview, false, "a fact with no candidate is not marked in-review");
+  });
+
+  it("repeatedFailure is true after 3 consecutive terminal fact_send_back failures, false once a later success clears the streak", async () => {
+    const [f] = await db
+      .insert(factsTable)
+      .values({ text: TEXT("repeated failure fact"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
+      .returning({ id: factsTable.id });
+    factIds.push(f!.id);
+
+    // dedupeKey uniqueness only applies to non-terminal (pending/processing)
+    // rows, so multiple done/failed rows can share the same key — exactly
+    // like real job history for one fact accumulates over repeated retries.
+    async function insertTerminalJob(status: "failed" | "done"): Promise<void> {
+      const [row] = await db
+        .insert(asyncJobsTable)
+        .values({ queue: "fact_send_back", payload: { factId: f!.id }, status, dedupeKey: `fact_send_back:${f!.id}` })
+        .returning({ id: asyncJobsTable.id });
+      jobIds.push(row!.id);
+    }
+
+    await insertTerminalJob("failed");
+    await insertTerminalJob("failed");
+
+    let res = await request(app)
+      .get("/api/admin/taxonomy-health/facts")
+      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+    assert.equal(res.status, 200);
+    let row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
+    assert.equal(row?.repeatedFailure, false, "only 2 failures — streak not yet at 3");
+
+    await insertTerminalJob("failed");
+
+    res = await request(app)
+      .get("/api/admin/taxonomy-health/facts")
+      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+    row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
+    assert.equal(row?.repeatedFailure, true, "3 consecutive terminal failures flags the fact");
+
+    await insertTerminalJob("done");
+
+    res = await request(app)
+      .get("/api/admin/taxonomy-health/facts")
+      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+    row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
+    assert.equal(row?.repeatedFailure, false, "a later success within the most recent 3 clears the flag");
+  });
+});
+
+describe("POST /admin/taxonomy-health/job-status — accepts the ADMIN_API_KEY header (Codex review, PR #256)", () => {
+  // Same env-var-mutation caution as routes.admin.auth.test.ts: capture the
+  // previous value inside before(), not at module-load time, since other test
+  // files' top-level before() hooks can mutate ADMIN_API_KEY first under
+  // shared-process test isolation.
+  let previousKey: string | undefined;
+  const TEST_KEY = "test-tth-job-status-api-key-do-not-use-elsewhere";
+
+  before(() => {
+    previousKey = process.env.ADMIN_API_KEY;
+    process.env.ADMIN_API_KEY = TEST_KEY;
+  });
+  after(() => {
+    if (previousKey === undefined) delete process.env.ADMIN_API_KEY;
+    else process.env.ADMIN_API_KEY = previousKey;
+  });
+
+  it("an unauthenticated request bearing the valid api key can poll job-status — the backfill-images/backfill-ai-memes automation this key already authenticates otherwise has no way to learn job outcomes", async () => {
+    const unauthedApp = buildTestApp({ kind: "unauthenticated" }, adminTaxonomyHealthRouter);
+    const res = await request(unauthedApp)
+      .post("/api/admin/taxonomy-health/job-status")
+      .set("x-api-key", TEST_KEY)
+      .send({ jobs: [{ jobId: 2_147_482_999 }] });
+    assert.notEqual(res.status, 401, "valid api key should not return 401");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.jobs, []);
+  });
+
+  it("an unauthenticated request with a wrong api key is still rejected", async () => {
+    const unauthedApp = buildTestApp({ kind: "unauthenticated" }, adminTaxonomyHealthRouter);
+    const res = await request(unauthedApp)
+      .post("/api/admin/taxonomy-health/job-status")
+      .set("x-api-key", "wrong-key")
+      .send({ jobs: [] });
+    assert.equal(res.status, 401);
   });
 });

@@ -16,7 +16,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Textarea, Input } from "@/components/ui/Input";
-import { renderFact } from "@/lib/render-fact";
+import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 import { useToast } from "@/hooks/use-toast";
 import { useFormDraft } from "@/hooks/use-form-draft";
 import { createLocalStorageAdapter } from "@/lib/form-draft-storage";
@@ -614,7 +614,7 @@ export default function SubmitFact() {
                       <span className="text-sm text-muted-foreground">{p.name}</span>
                     </div>
                     <p className="text-xl font-medium text-foreground leading-snug">
-                      "{renderFact(template, p.name, p.label)}"
+                      "<HighlightedFactText template={template} name={p.name} pronouns={p.label} />"
                     </p>
                   </div>
                 ))}

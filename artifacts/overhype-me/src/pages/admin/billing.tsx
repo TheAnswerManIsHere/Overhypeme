@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
+import { deriveSyncSummary } from "./syncStatusSummary";
 import { Button } from "@/components/ui/Button";
 import {
   CreditCard, Zap, Star, CheckCircle, XCircle, AlertTriangle,
@@ -474,6 +475,12 @@ export default function AdminBilling() {
   const keyIsLive = pubKey?.startsWith("pk_live_") ?? false;
   const keyIsTest = pubKey?.startsWith("pk_test_") ?? false;
 
+  // Aggregate sync state for the panel's summary line. Null until the status
+  // fetch lands, which is also what gates the panel — see the comment there.
+  const syncSummary = syncStatus
+    ? deriveSyncSummary(syncStatus.resources, syncStatus.inProgress)
+    : null;
+
   const hasProducts = plans.length > 0;
   const hasWebhookSecret = summary?.webhookSecretConfigured ?? false;
 
@@ -632,28 +639,25 @@ export default function AdminBilling() {
           description="Membership products and prices fetched from Stripe."
           storageKey="admin_section_billing_plans"
         >
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2" data-testid="plans-header">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-xs px-2 py-0.5 rounded-sm font-medium ${liveMode ? "bg-amber-500/20 text-amber-400" : "bg-blue-500/20 text-blue-400"}`}>
+              <span
+                data-testid="plans-mode-badge"
+                className={`text-xs px-2 py-0.5 rounded-sm font-medium ${liveMode ? "bg-amber-500/20 text-amber-400" : "bg-blue-500/20 text-blue-400"}`}
+              >
                 {liveMode === null ? "…" : liveMode ? "LIVE" : "TEST"}
               </span>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground" data-testid="plans-count">
                 {plans.length > 0 ? `${plans.length} product${plans.length !== 1 ? "s" : ""} found` : "No products synced yet"}
               </p>
-              {(() => {
-                const stamps = (syncStatus?.resources ?? [])
-                  .map(r => r.lastSyncedAt)
-                  .filter((s): s is string => !!s)
-                  .map(s => new Date(s).getTime())
-                  .filter(t => !Number.isNaN(t));
-                const latest = stamps.length > 0 ? Math.max(...stamps) : null;
-                if (latest === null) return null;
-                return (
-                  <span className="text-xs text-muted-foreground">
-                    · Last synced: {formatRelative(new Date(latest).toISOString())}
-                  </span>
-                );
-              })()}
+              {/* The stamp comes from per-resource lastSyncedAt, never from the
+                  response's finishedAt — that is derived from the server's
+                  in-process lock and is null after a restart. */}
+              {syncSummary?.latestSyncedAt && (
+                <span className="text-xs text-muted-foreground" data-testid="plans-last-synced">
+                  · Last synced: {formatRelative(syncSummary.latestSyncedAt)}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Button
@@ -681,9 +685,52 @@ export default function AdminBilling() {
             </div>
           </div>
 
-          {/* Progress panel — shown while syncing or after the most recent run */}
-          {(syncing || syncFinalMessage || syncStatus?.inProgress) && (
-            <div className="mb-4 border border-border rounded-sm p-3 bg-secondary/30 space-y-2">
+          {/* Progress panel — rendered as soon as status has LOADED, not only
+              while a run is in flight. The old gate was
+              `syncing || syncFinalMessage || syncStatus?.inProgress`, and all
+              three are false after a page reload — so a failed sync's
+              persisted error was fetched into state and then thrown away
+              unrendered, leaving "N products found · Last synced: 10m ago" on
+              screen, which reads exactly like success. Note the gate is
+              "loaded", not "has a non-idle resource": readSyncStatus defaults
+              every absent row to `idle`, so all-idle IS the never-synced state
+              and must render. */}
+          {(syncing || syncFinalMessage || syncStatus) && (
+            <div
+              className="mb-4 border border-border rounded-sm p-3 bg-secondary/30 space-y-2"
+              data-testid="sync-progress-panel"
+            >
+              {syncSummary && !syncFinalMessage && (
+                <div
+                  data-testid="sync-summary"
+                  data-tone={syncSummary.tone}
+                  className={`text-xs px-2 py-1.5 rounded-sm border flex items-start gap-2 ${
+                    syncSummary.tone === "error"
+                      ? "bg-destructive/10 border-destructive/30 text-destructive"
+                      : syncSummary.tone === "never"
+                        ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                        : syncSummary.tone === "running"
+                          ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                          : "bg-green-500/10 border-green-500/30 text-green-400"
+                  }`}
+                >
+                  {syncSummary.tone === "error" ? (
+                    <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  ) : syncSummary.tone === "never" ? (
+                    <Circle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  ) : syncSummary.tone === "running" ? (
+                    <Loader2 className="w-3.5 h-3.5 shrink-0 mt-0.5 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  )}
+                  <span>
+                    {syncSummary.message}
+                    {syncSummary.latestSyncedAt && syncSummary.tone !== "never" && (
+                      <> Last synced {formatRelative(syncSummary.latestSyncedAt)}.</>
+                    )}
+                  </span>
+                </div>
+              )}
               {syncFinalMessage && (
                 <div className={`text-xs px-2 py-1.5 rounded-sm border flex items-start gap-2 ${syncFinalMessage.ok ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
                   {syncFinalMessage.ok ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
@@ -705,10 +752,15 @@ export default function AdminBilling() {
                     icon = <Circle className="w-3.5 h-3.5 text-muted-foreground" />;
                   }
                   return (
-                    <div key={resource} className="flex items-center gap-2 text-xs flex-wrap">
+                    <div
+                      key={resource}
+                      className="flex items-center gap-2 text-xs flex-wrap"
+                      data-testid={`sync-row-${resource}`}
+                      data-status={status}
+                    >
                       {icon}
                       <span className="font-medium text-foreground w-32">{RESOURCE_LABELS[resource]}</span>
-                      <span className="text-muted-foreground">
+                      <span className="text-muted-foreground" data-testid={`sync-row-${resource}-detail`}>
                         {status === "running"
                           ? "syncing…"
                           : status === "complete"

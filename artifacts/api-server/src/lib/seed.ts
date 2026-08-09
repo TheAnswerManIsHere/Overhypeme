@@ -5,6 +5,7 @@ import {
   factHashtagsTable,
 } from "@workspace/db/schema";
 import { eq, sql, gt } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 import { seedScenePromptConfig } from "./scenePromptConfig";
@@ -51,8 +52,12 @@ export async function ensureSchema(): Promise<void> {
       ddl: `CREATE INDEX IF NOT EXISTS "IDX_prt_token_hash" ON password_reset_tokens (token_hash)`,
     },
     {
+      // Facts are born INACTIVE (Phase 2 fact-lifecycle closure) — activation is
+      // moderation-only. Kept in sync with the schema default + migration 0091.
+      // (ADD COLUMN IF NOT EXISTS is a no-op on any existing DB, so this only
+      // governs a from-scratch bootstrap; migrations own the live column.)
       label: "facts.is_active",
-      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT false`,
     },
     {
       label: "users.is_active",
@@ -554,10 +559,14 @@ export async function ensureSchema(): Promise<void> {
         processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`,
     },
-    {
-      label: "lifetime_entitlements.status",
-      ddl: `ALTER TABLE lifetime_entitlements ADD COLUMN IF NOT EXISTS status varchar NOT NULL DEFAULT 'active'`,
-    },
+    // The `lifetime_entitlements.status` entry is REMOVED, and its removal is
+    // part of migration 0095 rather than follow-up work.
+    //
+    // ensureSchema() runs immediately after runMigrations() and BEFORE the port
+    // binds. `ADD COLUMN IF NOT EXISTS` guards the COLUMN, not the table, so once
+    // 0095 drops `lifetime_entitlements` that statement raises 42P01 outside the
+    // migration runner's SAVEPOINT recovery — and aborts startup. Leaving it here
+    // would have made this the deploy that never came up.
     {
       label: "membership_history.stripe_dispute_id",
       ddl: `ALTER TABLE membership_history ADD COLUMN IF NOT EXISTS stripe_dispute_id varchar`,
@@ -568,6 +577,26 @@ export async function ensureSchema(): Promise<void> {
         VALUES ('email_outbox_retention_days', '30', 'integer', 'Email Outbox Retention (days)',
           'Number of days to keep delivered and abandoned emails in the outbox before they are automatically purged. Set to 0 to disable auto-purge.',
           0, 3650, false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      // Bounds mirror MIN_BATCH_SIZE/MAX_BATCH_SIZE in
+      // jobs/rateLimitCounterPurger.ts — the code clamps to those regardless,
+      // so this row's min/max only has to agree, not be load-bearing.
+      label: "admin_config seed rate_limit_counters.purge_batch_size",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+        VALUES ('rate_limit_counters.purge_batch_size', '5000', 'integer', 'Rate Limit Counter Purge — Batch Size',
+          'Rows deleted per batch when purging expired rate_limit_counters rows. Bounded (see the job) so a bad value cannot recreate an unbounded DELETE.',
+          1, 50000, false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      // Bounds mirror MIN_MAX_BATCHES/MAX_MAX_BATCHES in the same file.
+      label: "admin_config seed rate_limit_counters.purge_max_batches",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+        VALUES ('rate_limit_counters.purge_max_batches', '20', 'integer', 'Rate Limit Counter Purge — Max Batches Per Run',
+          'Batches per scheduled run before the purger stops and reschedules, so one run cannot hold locks across the whole backlog.',
+          1, 1000, false)
         ON CONFLICT (key) DO NOTHING`,
     },
     {
@@ -729,10 +758,24 @@ export async function seedIfEmpty(): Promise<void> {
 
   logger.info({ count: SEED_FACTS.length }, "[seed] Production database is empty — seeding facts");
 
+  // Facts are born inactive and only go live with a non-empty Visual Concept
+  // (Phase-2 fact-lifecycle closure + DB CHECK). The startup seed inserts live
+  // starter facts, so each carries a valid placeholder enrichment + concept and
+  // its projected taxonomy columns.
+  const seedEnrichment = buildPlaceholderFactEnrichment();
+
   for (const item of SEED_FACTS) {
     const [fact] = await db
       .insert(factsTable)
-      .values({ text: item.text, isActive: true })
+      .values({
+        text: item.text,
+        isActive: true,
+        enrichment: seedEnrichment,
+        primaryArchetype: seedEnrichment.primaryArchetype,
+        subtype: seedEnrichment.subtype,
+        overhypeFit: seedEnrichment.overhypeFit,
+        adultSuitability: seedEnrichment.adultSuitability,
+      })
       .returning({ id: factsTable.id });
 
     for (const tagName of item.hashtags) {

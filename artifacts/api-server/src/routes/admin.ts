@@ -3,15 +3,16 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
-import { enrichFact, buildFactEnrichmentColumns, materializeEnrichment } from "../lib/factEnrichment";
+import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
+import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration";
 import {
   applyOverrideReset,
   applyOverrideUpsert,
@@ -22,7 +23,10 @@ import {
   type OverrideLayers,
   type VisualOverride,
 } from "../lib/enrichmentOverrideLayers";
-import { enqueueJob } from "../lib/asyncJobs";
+import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
+import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
+import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
+import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import {
   validateEnrichment,
   computeBaselineChangedPaths,
@@ -32,6 +36,7 @@ import {
   OVERRIDABLE_PATH_KEYS,
   pathToField,
   FACT_TEXT_EDIT_CODES,
+  UNRESOLVED_SUBMISSION_STAGE_VALUES,
   type FactEnrichment,
   type ManualOverride,
   type OverridablePath,
@@ -39,11 +44,63 @@ import {
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
-import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
-import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
+import { enqueueFactPexels } from "../lib/factPexelsJobs";
+import { enqueueFactAiMemeBackfill } from "../lib/aiMemeBackfillJobs";
+import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
+import { createTriageReview } from "../lib/moderationStaging";
+import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
+import {
+  isMembershipConfigKey,
+  lockAndLoadMembershipConfig,
+  resolveMembershipConfig,
+  validateMembershipConfigSet,
+  type MembershipConfigKey,
+} from "../lib/membershipTiming";
+
+/**
+ * A relational-config rejection raised from inside the write transaction.
+ *
+ * Distinguished by type rather than by message so the catch cannot mistake a
+ * genuine database failure for a validation rejection and answer it with a 400.
+ */
+class RelationalConfigError extends Error {}
+
+/**
+ * Parse a config value EXACTLY as the runtime resolver will.
+ *
+ * `adminConfig`'s `getConfigInt` uses `parseInt`, which stops at the first
+ * non-digit: "1e5" is 1 at runtime but 100000 to `Number`. Validating with one
+ * and running with the other lets an operator store a value the validator
+ * approved and the system then violates. Non-canonical strings are refused
+ * outright rather than silently reinterpreted — round-tripping the parsed number
+ * back to a string is what makes "canonical" checkable.
+ */
+function parseMembershipConfigValue(raw: string, dataType: string): number | null {
+  const trimmed = raw.trim();
+  if (dataType === "integer") {
+    const parsed = parseInt(trimmed, 10);
+    if (Number.isNaN(parsed)) return null;
+    return String(parsed) === trimmed ? parsed : null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+import { deriveEffectiveMembership, effectiveTierExpr } from "../lib/membershipState";
+import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
+import { graceSweepHealth } from "../lib/membershipSchedules";
+import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
+import {
+  loadSourceSnapshots,
+  loadSourceStateVersions,
+  hasQualifyingLifetimeSource,
+  recomputeMembership,
+  writeAdminGrant,
+  writeAdminRevocation,
+} from "../lib/membershipSources";
+import { authorizeAdminGrant, authorizeAdminRevocation } from "../lib/entitlementVerification";
 import {
   FACT_ENRICHMENT_CONFIG_KEYS,
   FACT_ENRICHMENT_SYSTEM_DEFAULT,
@@ -55,32 +112,82 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
-import { softDeleteUserLifecycle, hardDeleteUserLifecycle, exportUserData, anonymizePaymentHistoryForUser, runRetentionWindowJobs } from "../lib/dataLifecycle";
+import { exportUserData, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { getGovernanceAdminView } from "../lib/resourceGovernance";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
 
 const _styleStorage = new ObjectStorageService();
 
-async function resolveUserTierOnReinstatement(userId: string): Promise<"registered" | "legendary"> {
-  const lifetimeRows = await db
-    .select({ id: lifetimeEntitlementsTable.id })
-    .from(lifetimeEntitlementsTable)
-    .where(eq(lifetimeEntitlementsTable.userId, userId))
-    .limit(1);
-  if (lifetimeRows.length > 0) return "legendary";
+/**
+ * The human-readable label an admin action is attributed by.
+ *
+ * First NON-BLANK candidate, not first non-null: the admin edit route accepts a
+ * whitespace-only display name, and `??` would pick that over a perfectly good
+ * email — which `authorizeAdminGrant` then trims to empty and rejects, turning
+ * grant, revoke and Legendary user-creation into 500s. Returns "" when nothing
+ * readable exists, which those constructors reject deliberately; the raw id is
+ * never a fallback, since no internal id may reach an admin-visible surface.
+ */
+function adminLabel(actor: { displayName?: string | null; email?: string | null }): string {
+  return [actor.displayName, actor.email].find((v) => (v ?? "").trim() !== "")?.trim() ?? "";
+}
 
-  const activeSubRows = await db
-    .select({ id: subscriptionsTable.id })
-    .from(subscriptionsTable)
-    .where(and(
-      eq(subscriptionsTable.userId, userId),
-      gt(subscriptionsTable.currentPeriodEnd, new Date()),
-    ))
-    .limit(1);
-  if (activeSubRows.length > 0) return "legendary";
-
-  return "registered";
+/**
+ * Reinstatement recomputes from AUTHORITATIVE state, not from local rows.
+ *
+ * The old version asked "does a lifetime row exist" and "is there a subscription
+ * whose period has not ended" — two bare-existence reads that both say yes for a
+ * user whose purchase was refunded, or whose subscription Stripe has already
+ * cancelled while the webhook was dropped. And reinstatement is a manual action
+ * that can easily precede a reconciliation pass.
+ *
+ * So it refreshes every Stripe-backed source first. This is a rare,
+ * high-consequence operation, so the extra retrieval is free.
+ *
+ * And an INCOMPLETE refresh may not return `legendary`. An earlier revision
+ * recomputed from local state whenever the refresh failed and called that
+ * "failing closed" — it is the opposite. The precise case reinstatement exists
+ * to catch is a source whose cancellation webhook was dropped: locally it still
+ * says `active`, and recomputing from that restores paid access on exactly the
+ * evidence we could not confirm. Failing closed means declining to assert
+ * Legendary without an authoritative read, which is what this does; the admin
+ * can reinstate again once Stripe is reachable, and the scheduled reconciliation
+ * repairs the source regardless.
+ */
+/**
+ * Refresh every Stripe-backed source before a reinstatement decides anything.
+ *
+ * Returns whether the refresh was COMPLETE. `failed` counts per-source failures
+ * `refreshAllSourcesForUser` swallows internally, so the absence of a throw is
+ * not evidence that every source was seen — and reinstating on a stale local row
+ * is exactly how a cancelled subscription hands Legendary back.
+ *
+ * Deliberately returns no tier. An earlier revision derived one here, in its own
+ * transaction, and the caller copied it into a later `UPDATE` — so a refund or
+ * cancellation webhook recomputing in the gap was overwritten, restoring
+ * Legendary with a null horizon and granting access indefinitely. The derivation
+ * has to happen under the same lock as the write that lands it, which is the
+ * caller's transaction, not this function's.
+ */
+async function refreshSourcesForReinstatement(
+  userId: string,
+): Promise<{ complete: boolean; verifiedSourceIds: Set<number> }> {
+  try {
+    const { getUncachableStripeClient } = await import("../lib/stripeClient");
+    const stripe = await getUncachableStripeClient();
+    const { failed, verifiedSourceIds } = await refreshAllSourcesForUser(stripe, userId);
+    if (failed > 0) {
+      logger.warn({ userId, failed }, "reinstatement could not refresh every source — declining to restore Legendary");
+      return { complete: false, verifiedSourceIds };
+    }
+    return { complete: true, verifiedSourceIds };
+  } catch (err) {
+    logger.warn({ err, userId }, "reinstatement could not reach Stripe — declining to restore Legendary");
+    // A total failure verified nothing — never an empty set standing in for
+    // "everything was fine".
+    return { complete: false, verifiedSourceIds: new Set() };
+  }
 }
 
 const router: IRouter = Router();
@@ -130,8 +237,20 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
     : undefined;
   const where = activeFilter && searchFilter ? and(activeFilter, searchFilter) : (activeFilter ?? searchFilter);
 
+  // The admin list renders `membershipTier`, so it reports the EFFECTIVE tier
+  // rather than the raw column: with the convergence sweep failing and a grace
+  // horizon passed, authorization has already demoted the user and this screen
+  // would otherwise still show Legendary. Both surfaces evaluate at one bound
+  // instant so the list cannot disagree with itself mid-page.
+  const asOf = new Date();
   const [users, [{ total }]] = await Promise.all([
-    db.select().from(usersTable).where(where).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
+    db
+      .select({ ...getTableColumns(usersTable), membershipTier: effectiveTierExpr(asOf) })
+      .from(usersTable)
+      .where(where)
+      .orderBy(desc(usersTable.createdAt))
+      .limit(limit)
+      .offset(offset),
     db.select({ total: count() }).from(usersTable).where(where),
   ]);
 
@@ -151,8 +270,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["nsfwModeEnabled"] === "boolean") updates.nsfwModeEnabled = body["nsfwModeEnabled"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
-  if (body["membershipTier"] !== undefined && ["unregistered", "registered", "legendary"].includes(String(body["membershipTier"])))
-    updates.membershipTier = String(body["membershipTier"]) as "unregistered" | "registered" | "legendary";
+  // `membershipTier` is deliberately NOT accepted here. It is derived from
+  // entitlement sources, and accepting it would let an admin write a value the
+  // next recompute silently reverts — the failure mode being that the change
+  // appears to work and then does not. Comping a membership is
+  // POST /admin/users/:id/grant-lifetime, which writes an entitlement.
   if (body["pronouns"] !== undefined) {
     const p = String(body["pronouns"]).trim();
     if (p.length > 0 && p.length <= 80) updates.pronouns = p;
@@ -173,22 +295,145 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     return;
   }
 
+  let reinstating = false;
   if (updates.isActive === true && body["membershipTier"] === undefined) {
     const [currentUser] = await db
       .select({ isActive: usersTable.isActive })
       .from(usersTable)
       .where(eq(usersTable.id, id))
       .limit(1);
-    if (currentUser && currentUser.isActive === false) {
-      updates.membershipTier = await resolveUserTierOnReinstatement(id);
-    }
+    reinstating = currentUser?.isActive === false;
   }
 
-  const [updated] = await db
-    .update(usersTable)
-    .set(updates)
-    .where(eq(usersTable.id, id))
-    .returning();
+  // The Stripe retrieval runs OUTSIDE the transaction (invariant 1), and returns
+  // only whether it was complete — never a tier.
+  //
+  // The per-source versions are read BEFORE the refresh so "applied since we
+  // began" is answerable against COMMITTED state, whoever did the applying.
+  const versionsBeforeRefresh = reinstating
+    ? await loadSourceStateVersions(db, id)
+    : new Map<number, number>();
+  const refresh = reinstating
+    ? await refreshSourcesForReinstatement(id)
+    : { complete: true, verifiedSourceIds: new Set<number>() };
+
+  const [updated] = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(usersTable)
+      .set(updates)
+      .where(eq(usersTable.id, id))
+      .returning();
+
+    if (!row || !reinstating) return [row];
+
+    // Derived and written under the SAME lock, in the same transaction as the
+    // activation. `recomputeMembership` takes the user row `FOR UPDATE`, so a
+    // refund or cancellation webhook either lands before this and is counted, or
+    // waits behind it — where copying a previously-derived tier into this update
+    // would simply overwrite whatever it had just decided.
+    await recomputeMembership(tx, id);
+
+    if (!refresh.complete) {
+      // Fail closed — but only over sources that are ACTUALLY unverified, and
+      // only to the extent that the tier actually rests on them.
+      //
+      // "My refresh failed" is not the same as "this data is unverified". The
+      // common failure is `source_busy`, which means another writer held the
+      // lease — and that writer's own authoritative apply may well have landed
+      // while we waited. Overwriting the derived tier on that basis strands a
+      // paying user at `registered` with nothing scheduled to revisit them,
+      // since the event that would have fixed it has already been consumed.
+      //
+      // A source is TRUSTED if either is true:
+      //
+      //   1. We verified it ourselves. A successful verification can write
+      //      nothing at all — confirming a lifetime purchase was not refunded
+      //      is a no-op — so verification has to be tracked separately rather
+      //      than inferred from the version. Inferring it labelled a
+      //      verified-clean source stale whenever some OTHER source's version
+      //      moved.
+      //   2. Its version moved, meaning somebody else applied it since we
+      //      began. Per-source, not a single sequence watermark: sequences
+      //      advance outside commit, so a writer can allocate its token before a
+      //      `last_value` read and commit after it. Comparing committed row
+      //      values to committed row values is the only comparison that
+      //      respects commit order. A source absent from the "before" map is
+      //      new, therefore fresh; one that has since disappeared cannot be
+      //      stale.
+      //
+      // `admin_grant` never appears here at all — it has no provider state to
+      // verify against, so it is authoritative by construction.
+      const versionsNow = await loadSourceStateVersions(tx, id);
+      const staleSourceIds = new Set<number>();
+      for (const [sourceId, version] of versionsNow) {
+        if (refresh.verifiedSourceIds.has(sourceId)) continue;
+        const before = versionsBeforeRefresh.get(sourceId);
+        if (before !== undefined && before === version) staleSourceIds.add(sourceId);
+      }
+
+      if (staleSourceIds.size > 0) {
+        // Re-derive over the TRUSTED sources and persist that whole result —
+        // tier and horizon together.
+        //
+        // Two things go wrong if this is a boolean check that merely preserves
+        // what `recomputeMembership` wrote. An aggregate downgrade throws away
+        // independently authoritative entitlements: a comped member with a
+        // qualifying `admin_grant` would be dropped to `registered` by a
+        // transient Stripe outage on an unrelated subscription, with no provider
+        // event guaranteed to ever restore them. And preserving the all-sources
+        // result keeps the all-sources HORIZON — so a verified `past_due` source
+        // whose grace ends soon, sitting beside an unverified source that still
+        // looks indefinitely active locally, yields a null horizon and grants
+        // Legendary from the stale source forever, with the sweep recomputing
+        // the same wrong answer every hour.
+        //
+        // Deriving from `trusted` answers both: the tier reflects only sources
+        // we can stand behind, and the horizon is the one those sources
+        // actually support.
+        const trusted = (await loadSourceSnapshots(tx, id)).filter(
+          (snapshot) => !staleSourceIds.has(snapshot.id),
+        );
+        const derived = deriveEffectiveMembership(trusted, new Date());
+
+        // `unregistered` is an AUTH state, not an entitlement one, and the
+        // derivation must never promote out of it — `recomputeMembership`
+        // enforces exactly that, and writing `derived.tier` here bypassed it.
+        // Its no-source answer is `registered`, so an unregistered account being
+        // reinstated with any stale source would have been silently granted
+        // registration capabilities by the fail-closed path.
+        const [locked] = await tx
+          .select({ tier: usersTable.membershipTier })
+          .from(usersTable)
+          .where(eq(usersTable.id, id))
+          .limit(1);
+        const nextTier = locked?.tier === "unregistered" ? "unregistered" : derived.tier;
+
+        await tx
+          .update(usersTable)
+          .set({ membershipTier: nextTier, membershipValidUntil: derived.validUntil })
+          .where(eq(usersTable.id, id));
+
+        logger.info(
+          {
+            userId: id,
+            staleSources: staleSourceIds.size,
+            trustedTier: derived.tier,
+            trustedValidUntil: derived.validUntil,
+          },
+          "reinstatement refresh was incomplete — membership re-derived over the sources it could trust",
+        );
+      } else {
+        logger.info(
+          { userId: id },
+          "reinstatement refresh reported incomplete, but every source was either verified or applied " +
+            "by another writer since it began — the derived tier stands",
+        );
+      }
+    }
+
+    const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    return [fresh];
+  });
 
   if (!updated) {
     res.status(404).json({ error: "User not found" });
@@ -268,11 +513,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 2.5: Cancel active Stripe subscription (non-fatal — user is being permanently deleted)
       let subscriptionCanceled = false;
       const activeSubs = await db
-        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
-        .from(subscriptionsTable)
+        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+        .from(membershipEntitlementsTable)
         .where(and(
-          eq(subscriptionsTable.userId, id),
-          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+          or(
+            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+          ),
         ));
       if (activeSubs.length > 0) {
         try {
@@ -280,13 +529,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           const stripe = await getUncachableStripeClient();
           let canceledCount = 0;
           for (const sub of activeSubs) {
+            const subscriptionId = sub.stripeSubscriptionId;
+            if (!subscriptionId) continue;
             try {
               // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+              await stripe.subscriptions.cancel(subscriptionId);
               canceledCount++;
             } catch (e) {
-              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[hard-delete] Failed to cancel subscription");
+              logger.error({ err: e, subscriptionId }, "[hard-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
@@ -298,8 +549,11 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 3: Delete records with NOT NULL user_id FKs and no cascade
       currentStage = "membership";
       await db.delete(stripeCheckoutRequestLedgerTable).where(eq(stripeCheckoutRequestLedgerTable.userId, id));
-      await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
-      await db.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+      // membership_entitlements is NOT deleted here: its user_id FK is
+      // ON DELETE CASCADE, so the rows go with the user in step 5. Deleting
+      // them explicitly would also destroy the disputes that cascade off them
+      // before the user row is gone, for no benefit.
+
       await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
       await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
       await db.execute(sql`DELETE FROM affiliate_clicks WHERE user_id = ${id}`);
@@ -334,11 +588,15 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       // Step 1: Cancel active Stripe subscription (non-fatal)
       let subscriptionCanceled = false;
       const activeSubs = await db
-        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
-        .from(subscriptionsTable)
+        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+        .from(membershipEntitlementsTable)
         .where(and(
-          eq(subscriptionsTable.userId, id),
-          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+          or(
+            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+          ),
         ));
       if (activeSubs.length > 0) {
         try {
@@ -346,13 +604,25 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           const stripe = await getUncachableStripeClient();
           let canceledCount = 0;
           for (const sub of activeSubs) {
+            const subscriptionId = sub.stripeSubscriptionId;
+            if (!subscriptionId) continue;
             try {
               // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+              await stripe.subscriptions.cancel(subscriptionId);
+              // Apply the cancellation LOCALLY rather than waiting for the
+              // webhook. Under a derived model, leaving the row `active` means a
+              // later reinstatement recomputes Legendary for a user whose
+              // subscription Stripe has already cancelled — and "the webhook
+              // usually closes the gap" is exactly what this model refuses.
+              // subscription_cancelled is recorded unconditionally by
+              // applySubscription itself on the status transition — passing it
+              // as a transitionEvent too would double-write it whenever this
+              // cancellation also happens to change the user's aggregate tier.
+              await refreshSubscriptionSource(stripe, subscriptionId);
               canceledCount++;
             } catch (e) {
-              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[soft-delete] Failed to cancel subscription");
+              logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
@@ -387,26 +657,44 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
   const id = String(req.params["id"] ?? "");
   try {
     const [lifetimeRows, subRows, historyRows] = await Promise.all([
+      // A lifetime PURCHASE and an admin GRANT are now different source types,
+      // where the old schema conflated them: a comp was a lifetime row with a
+      // synthesized payment-intent id and amount 0. This screen shows both, and
+      // says which is which.
       db.select({
-        id: lifetimeEntitlementsTable.id,
-        userId: lifetimeEntitlementsTable.userId,
-        stripePaymentIntentId: lifetimeEntitlementsTable.stripePaymentIntentId,
-        stripeCustomerId: lifetimeEntitlementsTable.stripeCustomerId,
-        amount: lifetimeEntitlementsTable.amount,
-        currency: lifetimeEntitlementsTable.currency,
-        status: lifetimeEntitlementsTable.status,
-        grantedByAdminId: lifetimeEntitlementsTable.grantedByAdminId,
-        createdAt: lifetimeEntitlementsTable.createdAt,
-        grantedByAdminDisplayName: usersTable.displayName,
-        grantedByAdminEmail: usersTable.email,
+        id: membershipEntitlementsTable.id,
+        userId: membershipEntitlementsTable.userId,
+        sourceType: membershipEntitlementsTable.sourceType,
+        stripePaymentIntentId: membershipEntitlementsTable.providerRef,
+        amount: membershipEntitlementsTable.amount,
+        currency: membershipEntitlementsTable.currency,
+        status: membershipEntitlementsTable.lifecycleStatus,
+        isMembershipProduct: membershipEntitlementsTable.isMembershipProduct,
+        disputeLossRevokedAt: membershipEntitlementsTable.disputeLossRevokedAt,
+        grantedByAdminId: membershipEntitlementsTable.grantedByAdminId,
+        grantedByAdminLabel: membershipEntitlementsTable.grantedByAdminLabel,
+        grantReason: membershipEntitlementsTable.grantReason,
+        revokedByAdminLabel: membershipEntitlementsTable.revokedByAdminLabel,
+        revokedReason: membershipEntitlementsTable.revokedReason,
+        revokedAt: membershipEntitlementsTable.revokedAt,
+        createdAt: membershipEntitlementsTable.createdAt,
       })
-        .from(lifetimeEntitlementsTable)
-        .leftJoin(usersTable, eq(lifetimeEntitlementsTable.grantedByAdminId, usersTable.id))
-        .where(eq(lifetimeEntitlementsTable.userId, id))
-        .limit(1),
-      db.select().from(subscriptionsTable)
-        .where(eq(subscriptionsTable.userId, id))
-        .orderBy(desc(subscriptionsTable.createdAt))
+        .from(membershipEntitlementsTable)
+        .where(and(
+          eq(membershipEntitlementsTable.userId, id),
+          or(
+            eq(membershipEntitlementsTable.sourceType, "stripe_lifetime_payment"),
+            eq(membershipEntitlementsTable.sourceType, "admin_grant"),
+          ),
+        ))
+        .orderBy(desc(membershipEntitlementsTable.createdAt))
+        .limit(5),
+      db.select().from(membershipEntitlementsTable)
+        .where(and(
+          eq(membershipEntitlementsTable.userId, id),
+          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+        ))
+        .orderBy(desc(membershipEntitlementsTable.createdAt))
         .limit(1),
       (() => {
         const adminUsers = alias(usersTable, "admin_users");
@@ -431,7 +719,23 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
       })(),
     ]);
 
-    const appSub = subRows[0] ?? null;
+    // The shape this endpoint has always returned, rebuilt from the entitlement
+    // source so the admin client contract is unchanged — same pattern as
+    // GET /stripe/subscription.
+    const subSource = subRows[0] ?? null;
+    const appSub = subSource
+      ? {
+          id: subSource.id,
+          userId: subSource.userId,
+          stripeSubscriptionId: subSource.providerRef,
+          plan: subSource.plan,
+          status: subSource.lifecycleStatus,
+          currentPeriodEnd: subSource.currentPeriodEnd,
+          cancelAtPeriodEnd: subSource.cancelAtPeriodEnd ?? false,
+          createdAt: subSource.createdAt,
+          updatedAt: subSource.updatedAt,
+        }
+      : null;
 
     let stripeSub: Record<string, unknown> | null = null;
     if (appSub?.stripeSubscriptionId) {
@@ -446,7 +750,15 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
     const liveMode = (await getConfigStringRaw("stripe_live_mode", "false")) === "true";
 
     res.json({
-      isLifetime: lifetimeRows.length > 0,
+      // Qualification, not existence: a refunded purchase keeps its row.
+      isLifetime: await hasQualifyingLifetimeSource(id),
+      // Separate from `isLifetime` on purpose. Revoking only ever acts on an
+      // active admin grant, so the client needs to know about THAT source
+      // specifically — a paid lifetime purchase also makes `isLifetime` true and
+      // has nothing for revoke to act on.
+      hasActiveAdminGrant: lifetimeRows.some(
+        (row) => row.sourceType === "admin_grant" && row.status === "active",
+      ),
       lifetimeEntitlement: lifetimeRows[0] ?? null,
       appSubscription: appSub,
       stripeSub,
@@ -460,11 +772,61 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
 });
 
 // GET /admin/refunds-disputes — paginated list of refund/dispute events from membership_history
-// Returns rows for events: refund, dispute_opened, dispute_won, dispute_lost, dispute_closed.
+// Returns rows for events: refund, partial_refund, dispute_opened, dispute_won,
+// dispute_lost, dispute_closed.
 // Joined with the users table so the UI can display who was affected without a second round-trip.
+/**
+ * GET /admin/membership/grace-sweep — the sweep's status at BOTH altitudes.
+ *
+ * `health` is the aggregate: cadence, staleness, whether it is past its alert
+ * threshold, and the last error. `drifted` is the per-item disposition: the
+ * users whose stored tier currently disagrees with what the read path enforces,
+ * i.e. exactly what a sweep that partially converged and then failed left
+ * behind.
+ *
+ * Nothing here is an access bug. `effectiveTierExpr` demotes these users on
+ * every request already; what this reports is a projection lag, which is
+ * precisely why it needs a surface rather than an alarm.
+ *
+ * Rate-limited like its `queue-health` sibling above: `requireAdmin` bounds
+ * *who* can call this, not how often — an authenticated or compromised admin
+ * session could otherwise re-run `driftedMembershipUsers()`'s full active-user
+ * scan on every request. Same family/shape as `admin.queue-health`.
+ */
+router.get("/admin/membership/grace-sweep", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const rateLimit = await checkSharedRateLimit(
+      { endpoint: "admin.membership.grace-sweep", ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit: 60, windowMs: 60_000 },
+    );
+    if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
+    const [health, drifted] = await Promise.all([
+      graceSweepHealth(),
+      driftedMembershipUsers(),
+    ]);
+    // `driftedCount` is the UNCAPPED total, not the length of the sample. A cap
+    // reported as the total is a silent truncation, and this surface exists to
+    // tell an operator the real backlog.
+    res.json({
+      health,
+      drifted: drifted.users,
+      driftedCount: drifted.total,
+      driftedTruncated: drifted.truncated,
+    });
+  } catch (err) {
+    logger.error({ err }, "[admin] grace sweep status query failed");
+    res.status(503).json({ error: "Could not read grace sweep status" });
+  }
+});
+
 router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Response) => {
   const REFUND_DISPUTE_EVENTS = [
     "refund",
+    // A partial refund is a real refund event with its own durable history row
+    // (it deliberately leaves the entitlement active). Omitting it here hid it
+    // from the one surface dedicated to refunds while it sat in the database.
+    "partial_refund",
     "dispute_opened",
     "dispute_won",
     "dispute_lost",
@@ -533,45 +895,62 @@ router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Re
   }
 });
 
-// POST /admin/users/:id/grant-lifetime — manually grant Legendary for Life
+// POST /admin/users/:id/grant-lifetime — comp a membership
+//
+// W1b: an admin comp is an ENTITLEMENT with an actor, a label and a reason —
+// never a payment. What this replaces inserted a `lifetime_entitlements` row
+// with a synthesized payment-intent id (`admin_grant_<timestamp>_<random>`),
+// `stripeCustomerId: "admin_grant"` and `amount: 0`, which is indistinguishable
+// from a real purchase in any payment audit, and then set the tier by hand.
 router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   try {
-    const [existing, userRows] = await Promise.all([
-      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1),
-      db.select({ stripeCustomerId: usersTable.stripeCustomerId }).from(usersTable).where(eq(usersTable.id, id)).limit(1),
+    const [userRows] = await Promise.all([
+      db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, id)).limit(1),
     ]);
-    if (existing.length > 0) {
-      res.status(400).json({ error: "User already has Legendary for Life" });
-      return;
-    }
     if (!userRows[0]) {
       res.status(404).json({ error: "User not found" });
       return;
     }
 
-    const fakePaymentIntentId = `admin_grant_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const adminUserId = req.user!.id;
-    await db.transaction(async (tx) => {
-      await tx.insert(lifetimeEntitlementsTable).values({
-        userId: id,
-        stripePaymentIntentId: fakePaymentIntentId,
-        stripeCustomerId: userRows[0]!.stripeCustomerId ?? "admin_grant",
-        amount: 0,
-        currency: "usd",
-        grantedByAdminId: adminUserId,
-      });
-      await tx.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, id));
+    const actor = req.user!;
+    // The only constructor for a grant. It throws rather than returning a
+    // partial record, so a blank actor or reason cannot reach the database and
+    // be discovered at a constraint — or not at all, if a future writer bypasses
+    // the constraint's shape.
+    const grant = authorizeAdminGrant({
+      userId: id,
+      grantedByAdminId: actor.id,
+      // Never the raw admin id: a raw internal id may not reach any
+      // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
+      // rather than let the write proceed with nothing human-readable to show.
+      grantedByAdminLabel: adminLabel(actor),
+      grantReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
+        "Comped by an administrator",
+    });
+
+    const outcome = await db.transaction(async (tx) => {
+      const { created } = await writeAdminGrant(tx, grant);
+      if (!created) return { created: false as const };
+
       await tx.insert(membershipHistoryTable).values({
         userId: id,
-        event: "lifetime_purchase",
-        plan: "lifetime",
-        amount: 0,
-        currency: "usd",
-        stripePaymentIntentId: fakePaymentIntentId,
-        performedByAdminId: adminUserId,
+        event: "admin_grant",
+        performedByAdminId: actor.id,
       });
+      // The tier is DERIVED, not assigned. This is the same recompute every
+      // other writer calls.
+      await recomputeMembership(tx, id);
+      return { created: true as const };
     });
+
+    if (!outcome.created) {
+      // The partial unique index on active admin grants makes a duplicate
+      // submission — or a retry after an uncertain response — a no-op rather
+      // than a second qualifying row that would survive a later revoke.
+      res.status(400).json({ error: "User already has an active admin grant" });
+      return;
+    }
 
     const [updated] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     res.json({ success: true, user: updated });
@@ -581,26 +960,40 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
   }
 });
 
-// POST /admin/users/:id/revoke-lifetime — remove Legendary for Life entitlement
+// POST /admin/users/:id/revoke-lifetime — revoke an admin grant
+//
+// W1b's revocation clause: the grant is marked revoked WITH provenance, never
+// deleted. Deleting it — which is what this replaces — destroys the record that
+// a human granted and a human took it away, and history is append-only.
 router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   try {
-    const existing = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1);
-    if (existing.length === 0) {
-      res.status(400).json({ error: "User does not have Legendary for Life" });
-      return;
-    }
+    const actor = req.user!;
+    const revocation = authorizeAdminRevocation({
+      revokedByAdminId: actor.id,
+      // Never the raw admin id — same reasoning as the grant path above.
+      revokedByAdminLabel: adminLabel(actor),
+      revokedReason: String((req.body as Record<string, unknown>)?.["reason"] ?? "").trim() ||
+        "Revoked by an administrator",
+    });
 
-    const adminUserId = req.user!.id;
-    await db.transaction(async (tx) => {
-      await tx.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+    const outcome = await db.transaction(async (tx) => {
+      const { revoked } = await writeAdminRevocation(tx, id, revocation);
+      if (!revoked) return { revoked: false as const };
+
       await tx.insert(membershipHistoryTable).values({
         userId: id,
-        event: "subscription_cancelled",
-        plan: "lifetime",
-        performedByAdminId: adminUserId,
+        event: "admin_revoke",
+        performedByAdminId: actor.id,
       });
+      await recomputeMembership(tx, id);
+      return { revoked: true as const };
     });
+
+    if (!outcome.revoked) {
+      res.status(400).json({ error: "User does not have an active admin grant" });
+      return;
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -644,10 +1037,52 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
-    const [created] = await db
-      .insert(usersTable)
-      .values({ email, passwordHash, displayName, membershipTier, isAdmin, isActive: true })
-      .returning();
+    // Settled decision 8: admin user-creation writes an ENTITLEMENT, never a
+    // tier. Creating a user at `legendary` directly would put the one field this
+    // whole model derives back under manual control, and the first recompute
+    // would silently undo it — the user would appear Legendary until any event
+    // touched them, then drop.
+    const actor = req.user!;
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(usersTable)
+        .values({
+          email,
+          passwordHash,
+          displayName,
+          // Never `legendary`: that tier is granted below, through the model.
+          membershipTier: membershipTier === "legendary" ? "registered" : membershipTier,
+          isAdmin,
+          isActive: true,
+        })
+        .returning();
+
+      if (membershipTier === "legendary") {
+        await writeAdminGrant(
+          tx,
+          authorizeAdminGrant({
+            userId: row.id,
+            grantedByAdminId: actor.id,
+            // Never the raw admin id: a raw internal id may not reach any
+      // admin-visible surface, and `authorizeAdminGrant` rejects a blank label
+      // rather than let the write proceed with nothing human-readable to show.
+      grantedByAdminLabel: adminLabel(actor),
+            grantReason: "Created as a Legendary member by an administrator",
+          }),
+        );
+        await tx.insert(membershipHistoryTable).values({
+          userId: row.id,
+          event: "admin_grant",
+          performedByAdminId: actor.id,
+        });
+        await recomputeMembership(tx, row.id);
+        const [refreshed] = await tx.select().from(usersTable).where(eq(usersTable.id, row.id)).limit(1);
+        return refreshed ?? row;
+      }
+
+      return row;
+    });
+
     const { passwordHash: _omit, ...safeUser } = created;
     res.status(201).json({ success: true, user: safeUser });
   } catch (err: unknown) {
@@ -776,12 +1211,38 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   const hard = req.query["hard"] === "true";
 
   try {
+    // Removing a root (soft or hard) that still has active variants would leave
+    // them active under an inactive/missing parent — the same orphan state
+    // cascadeDeactivateActiveChildren exists to prevent elsewhere. facts.parent_id
+    // has no FK/ON DELETE behavior, so a hard delete in particular would strand
+    // them indefinitely (nothing else ever revisits them). Cascade in the same
+    // transaction as the removal for both paths.
     if (hard) {
-      const [deleted] = await db.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+      const deleted = await db.transaction(async (tx) => {
+        // Delete THIS row first (locks it for the delete), then cascade — not
+        // the reverse. The cascade's own children-check must run only after
+        // we've serialized against a concurrent activateFact validating this
+        // exact row as a parent (its parent-revalidation locks this same row
+        // via FOR UPDATE): deleting first means either we win the lock and
+        // delete before it locks (so its own re-check then sees no parent row
+        // and fails), or it wins first (activates a child, commits, releases
+        // the lock) and OUR delete then proceeds, with the cascade below
+        // running after — catching that newly-active child. Cascading before
+        // ever touching this row (the old order) never contended for the lock
+        // at all, so a variant could activate under this root moments after
+        // the cascade found nothing and moments before the delete removed it.
+        const [row] = await tx.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+        if (row) await cascadeDeactivateActiveChildren(tx, id);
+        return row;
+      });
       if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
       res.json({ success: true, deleted: true });
     } else {
-      const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+      const updated = await db.transaction(async (tx) => {
+        const [row] = await tx.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+        if (row) await cascadeDeactivateActiveChildren(tx, id);
+        return row;
+      });
       if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
       res.json({ success: true, deleted: false });
     }
@@ -831,6 +1292,57 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (useCase !== undefined) nonTextUpdates.useCase = useCase ? String(useCase) : null;
   if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
 
+  // Fetch current state once if either guard below needs it.
+  let current: { isActive: boolean } | undefined;
+  if (nonTextUpdates.isActive === true || (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null)) {
+    [current] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
+  }
+
+  // Activation is moderation-only (Phase 2 fact-lifecycle closure). The admin
+  // Active toggle may DEACTIVATE a fact (true→false is always safe) but may NOT
+  // ACTIVATE one: a false→true flip here would bypass the entire production gate
+  // that approveForProduction/activateFact enforce (Visual Concept check,
+  // active-root parent revalidation, the pending_reviews transition,
+  // production-approval recording, submitter notification). To bring a
+  // deactivated fact back, re-moderate it. So: reject any false→true request;
+  // asserting isActive=true on an already-active fact is a harmless no-op that we
+  // simply drop.
+  if (nonTextUpdates.isActive === true) {
+    if (current!.isActive === false) {
+      res.status(400).json({
+        error: "A fact can only be activated through moderation. Deactivated facts must be re-moderated to go live again.",
+        code: "ACTIVATION_REQUIRES_MODERATION",
+      });
+      return;
+    }
+    delete nonTextUpdates.isActive;
+  }
+
+  // Active-root parent invariant: this PATCH's parentId field is otherwise
+  // unguarded, so an admin could point an ACTIVE fact at an inactive/missing/
+  // non-root parent, bypassing the same active-root revalidation activateFact
+  // performs at activation time — reintroducing exactly the orphan state Phase 2
+  // closes. Only matters when the target fact IS (or remains) active: a fact
+  // that's inactive, or being deactivated by this same request, can point
+  // anywhere (activateFact will revalidate whenever it's next activated).
+  //
+  // A fact can never be its own parent, active or not — this is a structural
+  // invariant, not just an active-root one, and cheap to check up front.
+  if (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId === id) {
+    res.status(400).json({ error: "A fact cannot be its own parent.", code: "SELF_PARENT" });
+    return;
+  }
+  // The active-root lookup + active-children check, however, MUST run inside
+  // the same transaction as the write, with the parent row locked (`FOR
+  // UPDATE`) — otherwise a concurrent deactivate/delete of that parent (or a
+  // concurrent variant created under `id`) between this check and the write
+  // below could still land an active variant under an inactive/missing root,
+  // exactly mirroring the TOCTOU `activateFact` itself guards against. See the
+  // transaction below.
+  const reparenting = nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null;
+  const reparentStaysActive = reparenting && current!.isActive && nonTextUpdates.isActive !== false;
+
   // ── Non-text-only PATCH — unchanged behavior ──────────────────────────────
   if (text === undefined) {
     if (Object.keys(nonTextUpdates).length === 0) {
@@ -839,9 +1351,47 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       respondFactUpdate(res, current);
       return;
     }
-    const [updated] = await db.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
-    if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
-    respondFactUpdate(res, updated);
+    // Deactivating a fact that's an active root with active children would
+    // strand those children active under a now-inactive parent, so cascade in
+    // the same transaction (no-op if there's nothing to cascade — see
+    // cascadeDeactivateActiveChildren).
+    const deactivating = nonTextUpdates.isActive === false;
+    type PatchTxResult =
+      | { kind: "guard"; status: number; body: Record<string, unknown> }
+      | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
+    const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
+      if (reparentStaysActive) {
+        // Lock `id`'s own row BEFORE checking its active children —
+        // assertReparentAllowed's contract requires the target already locked
+        // by the caller (confirmedFactTextEdit's text-edit path satisfies this
+        // incidentally, since it locks the fact row for its own CAS first; this
+        // branch didn't). Without it, a concurrent activateFact activating a
+        // variant UNDER `id` (which locks `id` as the parent via the same
+        // FOR UPDATE primitive) can interleave between this check and the
+        // reparent UPDATE below: whichever side loses the race for `id`'s lock
+        // sees the other's committed result — either `id` already has a new
+        // parent (so activateFact's own parent-revalidation then correctly
+        // fails), or `id` already has the newly-active child (so the
+        // active-children check below, now running after the lock, correctly
+        // rejects) — instead of both proceeding on stale reads.
+        const [targetLock] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).for("update").limit(1);
+        if (!targetLock) {
+          return { kind: "guard", status: 404, body: { error: "Fact not found" } };
+        }
+        const failure = await assertReparentAllowed(tx, { factId: id, parentId: nonTextUpdates.parentId as number });
+        if (failure) {
+          return { kind: "guard", status: 400, body: { error: failure.message, code: failure.code } };
+        }
+      }
+      const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+      if (row && deactivating) {
+        await cascadeDeactivateActiveChildren(tx, id);
+      }
+      return { kind: "ok", row };
+    });
+    if (result.kind === "guard") { res.status(result.status).json(result.body); return; }
+    if (!result.row) { res.status(404).json({ error: "Fact not found" }); return; }
+    respondFactUpdate(res, result.row);
     return;
   }
 
@@ -873,25 +1423,22 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     case "stale_baseline":
       res.status(409).json({ error: "The stored wording changed since you opened this — review the new diff.", code: FACT_TEXT_EDIT_CODES.STALE_BASELINE, impact: outcome.impact });
       return;
-    case "dependent_variant_in_progress":
-      res.status(409).json({ error: "A variant of this fact is mid-review. Resolve or finish those before re-wording the parent.", code: FACT_TEXT_EDIT_CODES.DEPENDENT_VARIANT_IN_PROGRESS, blockingVariants: outcome.blockingVariants, affectedVariantCount: outcome.affectedVariantCount });
-      return;
     case "staging_prep_in_progress":
       res.status(409).json({ error: "Prep is still running for this fact. Wait for it to finish, then edit.", code: FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS });
+      return;
+    case "reparent_rejected":
+      res.status(400).json({ error: outcome.failure.message, code: outcome.failure.code });
       return;
     case "no_text_change":
       respondFactUpdate(res, outcome.fact);
       return;
     case "protected_committed":
-      // Root re-word: re-embed + re-seed stock photos (variants inherit the
-      // parent's images and aren't embedded). Checked against the UPDATED row's
-      // parentId (not a pre-update flag) so a PATCH that also promotes a variant
-      // to root in the same request still seeds these root-only artifacts.
-      if (outcome.fact.parentId === null) {
-        void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
-        void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
-      }
-      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId, affectedVariantCount: outcome.affectedVariantCount });
+      // Confirmed edit: re-embed + re-seed stock photos for the fact being
+      // edited, root or variant (variant independence — a variant generates
+      // its own images/embedding too, not just a root).
+      void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
+      void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
+      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId });
       return;
     case "staging_restarted":
       respondFactUpdate(res, outcome.fact, { prepDispatch: outcome.prepDispatch });
@@ -1316,8 +1863,8 @@ router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Re
   } catch (err) {
     if (err instanceof SendBackToReviewError) {
       if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
-      // NOT_ACTIVE / HAS_ACTIVE_VARIANTS / REFRESH_ALREADY_IN_PROGRESS — the
-      // in-progress case names the in-flight cycle so the UI can link to it.
+      // NOT_ACTIVE / REFRESH_ALREADY_IN_PROGRESS — the in-progress case names
+      // the in-flight cycle so the UI can link to it.
       res.status(409).json({
         error: err.message,
         code: err.code,
@@ -1327,6 +1874,35 @@ router.post("/admin/facts/:id/send-back-to-review", requireAdmin, async (req: Re
     }
     logger.error({ err, factId: id }, "[POST /admin/facts/:id/send-back-to-review] failed");
     res.status(500).json({ error: "Failed to send fact back to review" });
+  }
+});
+
+// POST /admin/facts/:id/resubmit-for-moderation — re-enter an INACTIVE fact
+// into moderation (the opposite case from send-back-to-review, which requires
+// the fact to already be active). Reuses the existing factId/history; no
+// duplicate fact is created. See resubmitForModeration.ts for why this exists.
+router.post("/admin/facts/:id/resubmit-for-moderation", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
+
+  try {
+    const result = await resubmitInactiveFactForModeration({ factId: id, adminId });
+    res.json({ success: true, workflowStage: "prep_pending", ...result });
+  } catch (err) {
+    if (err instanceof ResubmitForModerationError) {
+      if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
+      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS / ORPHANED_PARENT — the
+      // in-progress case names the in-flight review so the UI can link to it.
+      res.status(409).json({
+        error: err.message,
+        code: err.code,
+        ...(err.existing ? { reviewId: err.existing.reviewId } : {}),
+      });
+      return;
+    }
+    logger.error({ err, factId: id }, "[POST /admin/facts/:id/resubmit-for-moderation] failed");
+    res.status(500).json({ error: "Failed to resubmit fact for moderation" });
   }
 });
 
@@ -1397,26 +1973,27 @@ router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res:
   const [root] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(and(eq(factsTable.id, rootId), eq(factsTable.isActive, true))).limit(1);
   if (!root) { res.status(404).json({ error: "Fact not found" }); return; }
   if (root.parentId !== null) { res.status(400).json({ error: "Cannot add a variant to a variant. Target the root fact." }); return; }
-  const { text, useCase } = req.body as Record<string, unknown>;
+  const { text } = req.body as Record<string, unknown>;
   if (!text || typeof text !== "string" || text.trim().length === 0) { res.status(400).json({ error: "text is required" }); return; }
-  // Not a bulk path — a single invalid variant is a normal validation error.
-  const normalized = normalizeFactTemplateForStorage(text.trim());
+  // A variant is a normal fact that happens to have a parent (Phase 2
+  // fact-lifecycle closure): it enters moderation at Stage 1 like any other
+  // submission, carrying its parent linkage on the review. It earns its own
+  // triage/enrichment/concept and only becomes an active variant on production
+  // approval (where activateFact revalidates the parent as an active root).
+  const normalized = normalizeFactTemplateForPendingReview(text.trim());
   if (!normalized.valid) {
     res.status(422).json({
       error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
     });
     return;
   }
-  const [variant] = await db.insert(factsTable).values({
-    text: normalized.text,
-    canonicalText: normalized.canonicalText,
-    splitTokenIndex: normalized.splitTokenIndex,
-    hasPronouns: normalized.hasPronouns,
-    parentId: rootId,
-    useCase: useCase ? String(useCase) : null,
-    isActive: true,
-  } as typeof factsTable.$inferInsert).returning();
-  res.status(201).json({ success: true, variant });
+  const review = await createTriageReview(db, {
+    submittedText: normalized.text,
+    submittedById: (req as AuthenticatedRequest).user!.id,
+    hashtags: [],
+    parentFactId: rootId,
+  });
+  res.status(201).json({ success: true, queued: true, reviewId: review.id });
 });
 
 // DELETE /admin/facts/variants/:variantId — soft-delete a single variant
@@ -1439,6 +2016,45 @@ export const FactsImportBody = z.object({
     z.object({ text: z.string().max(2000) }).passthrough(),
   ])).min(1).max(1000),
 });
+
+/**
+ * Shared bulk-ingestion funnel (Phase 2 fact-lifecycle closure) for the two
+ * session-admin import endpoints. Dedups each text against existing facts AND
+ * unresolved reviews, then creates a Stage-1 triage review per new text
+ * (submittedById = the acting admin). Bulk import LOADS the moderation queue — it
+ * does NOT publish — so nothing here inserts an active fact; enrichment/hashtags/
+ * embeddings are deferred to the pipeline. Returns queued/skipped counts.
+ */
+async function queueTextsForTriage(
+  submittedById: string | null,
+  texts: string[],
+): Promise<{ queued: number; skipped: number }> {
+  if (texts.length === 0) return { queued: 0, skipped: 0 };
+  const [factRows, reviewRows] = await Promise.all([
+    db.select({ text: factsTable.text }).from(factsTable).where(inArray(factsTable.text, texts)),
+    db
+      .select({ text: pendingReviewsTable.submittedText })
+      .from(pendingReviewsTable)
+      .where(
+        and(
+          inArray(pendingReviewsTable.submittedText, texts),
+          inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+        ),
+      ),
+  ]);
+  const seen = new Set<string>([...factRows.map((r) => r.text), ...reviewRows.map((r) => r.text)]);
+  let queued = 0;
+  let skipped = 0;
+  await db.transaction(async (tx) => {
+    for (const text of texts) {
+      if (seen.has(text)) { skipped++; continue; }
+      seen.add(text);
+      await createTriageReview(tx, { submittedText: text, submittedById, hashtags: [] });
+      queued++;
+    }
+  });
+  return { queued, skipped };
+}
 
 router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {
   const parsed = FactsImportBody.safeParse(req.body);
@@ -1463,29 +2079,24 @@ router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Respo
     return;
   }
 
-  // Normalize + validate each row before storage. Partial success: invalid
-  // rows are reported in `failed` and skipped; valid rows are written —
-  // existing `success`/`imported`/`facts` keys are kept, `failed` is added.
-  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  // Normalize + validate each row through the SAME normalizer user submissions
+  // use, then QUEUE valid rows for moderation (Stage-1 triage reviews) rather
+  // than inserting active facts. Partial success: invalid rows are reported in
+  // `failed` and skipped; valid rows are queued.
+  const validTexts: string[] = [];
   const failed: { index: number; text: string; error: string }[] = [];
   texts.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForStorage(text);
+    const normalized = normalizeFactTemplateForPendingReview(text);
     if (!normalized.valid) {
       failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
       return;
     }
-    rowsToInsert.push({
-      text: normalized.text,
-      canonicalText: normalized.canonicalText,
-      splitTokenIndex: normalized.splitTokenIndex,
-      hasPronouns: normalized.hasPronouns,
-      isActive: true,
-    });
+    validTexts.push(normalized.text);
   });
 
-  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
 
-  res.json({ success: true, imported: inserted.length, facts: inserted, failed });
+  res.json({ success: true, queued, skipped, failed });
 });
 
 // Cap the raw CSV size (≤2 MB) so an unbounded string can't exhaust memory.
@@ -1514,29 +2125,23 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
     return;
   }
 
-  // Normalize + validate each row before storage. Partial success: invalid
-  // rows are reported in `failed` and skipped; valid rows are written —
-  // existing `success`/`imported` keys are kept, `failed` is added.
-  const rowsToInsert: (typeof factsTable.$inferInsert)[] = [];
+  // Normalize + validate each row, then QUEUE valid rows for moderation (Stage-1
+  // triage reviews) rather than inserting active facts. Partial success: invalid
+  // rows are reported in `failed` and skipped; valid rows are queued.
+  const validTexts: string[] = [];
   const failed: { index: number; text: string; error: string }[] = [];
   lines.forEach((text, index) => {
-    const normalized = normalizeFactTemplateForStorage(text);
+    const normalized = normalizeFactTemplateForPendingReview(text);
     if (!normalized.valid) {
       failed.push({ index, text, error: `Template grammar validation failed: ${normalized.grammarResult.error}` });
       return;
     }
-    rowsToInsert.push({
-      text: normalized.text,
-      canonicalText: normalized.canonicalText,
-      splitTokenIndex: normalized.splitTokenIndex,
-      hasPronouns: normalized.hasPronouns,
-      isActive: true,
-    });
+    validTexts.push(normalized.text);
   });
 
-  const inserted = rowsToInsert.length ? await db.insert(factsTable).values(rowsToInsert).returning() : [];
+  const { queued, skipped } = await queueTextsForTriage((req as AuthenticatedRequest).user!.id, validTexts);
 
-  res.json({ success: true, imported: inserted.length, failed });
+  res.json({ success: true, queued, skipped, failed });
 });
 
 // GET /admin/comments/pending — comments awaiting first moderation
@@ -1755,7 +2360,7 @@ router.get("/admin/users/:id/spend", requireAdmin, async (req: Request, res: Res
 // POST /admin/facts/backfill-embeddings
 // One-shot endpoint to generate pgvector embeddings for all facts that don't have one yet.
 // Accepts either an authenticated admin session OR the ADMIN_API_KEY header.
-async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
   const apiKey = req.headers["x-api-key"];
   const adminApiKey = process.env.ADMIN_API_KEY;
   if (adminApiKey && apiKey === adminApiKey) {
@@ -1804,10 +2409,9 @@ router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
   const force = req.query["force"] === "true";
-  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, pexelsImages: factsTable.pexelsImages })
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, pexelsImages: factsTable.pexelsImages })
     .from(factsTable).where(eq(factsTable.id, id)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (fact.parentId !== null) { res.status(400).json({ error: "Images are only stored on root facts, not variants." }); return; }
   if (!force && fact.pexelsImages !== null) {
     res.json({ success: true, skipped: true, message: "Fact already has images. Pass force=true to overwrite." });
     return;
@@ -1816,112 +2420,124 @@ router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request
   res.json({ success: true, skipped: false, message: "Image pipeline started. Results will appear shortly." });
 });
 
+interface BulkBackfillJob {
+  factId: number;
+  jobId: number;
+  deduped: boolean;
+  /** Bounded text preview for admin-UI display — never render factId raw. */
+  label: string;
+}
+interface BulkBackfillSkip {
+  factId: number;
+  status: "skipped";
+  reason: "not_active";
+  label: string;
+}
+/** A per-fact enqueue call rejected — the job was never created for this fact. */
+interface BulkBackfillEnqueueFailure {
+  factId: number;
+  status: "failed";
+  error: string;
+  label: string;
+}
+type BulkBackfillOutcome = BulkBackfillSkip | BulkBackfillEnqueueFailure;
+interface BulkBackfillResponse {
+  success: true;
+  jobs: BulkBackfillJob[];
+  outcomes: BulkBackfillOutcome[];
+  summary: { requested: number; queued: number; skipped: number; failed: number };
+}
+
+const BULK_BACKFILL_LABEL_MAX = 60;
+
+/**
+ * Shared enqueue loop for the three bulk-backfill routes: check `isActive`
+ * per fact (route-level skip, no enqueue at all — the selection query itself
+ * still has no `isActive` predicate, a pre-existing, out-of-scope gap this
+ * doesn't widen), then enqueue through the given per-fact enqueuer. Returns
+ * the queued job descriptors + skip/failure outcomes for the frontend to poll
+ * via the existing `/admin/taxonomy-health/job-status` endpoint
+ * (queue-agnostic). A single fact's enqueue rejecting is caught and recorded
+ * as a failure outcome rather than aborting the request — earlier facts in
+ * the same loop already committed durable (potentially paid) jobs, and those
+ * descriptors must still reach the caller (Codex review, PR #256).
+ */
+export async function enqueueBulkBackfill(
+  facts: { id: number; text: string; isActive: boolean }[],
+  enqueue: (factId: number) => Promise<{ jobId: number; inserted: boolean }>,
+): Promise<BulkBackfillResponse> {
+  const jobs: BulkBackfillJob[] = [];
+  const outcomes: BulkBackfillOutcome[] = [];
+  for (const fact of facts) {
+    const label = fact.text.slice(0, BULK_BACKFILL_LABEL_MAX);
+    if (!fact.isActive) {
+      outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active", label });
+      continue;
+    }
+    try {
+      const result = await enqueue(fact.id);
+      jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted, label });
+    } catch (err) {
+      logger.error({ err, factId: fact.id }, "[admin] bulk-backfill enqueue failed for fact");
+      outcomes.push({ factId: fact.id, status: "failed", error: "Could not queue the job.", label });
+    }
+  }
+  const failed = outcomes.filter((o) => o.status === "failed").length;
+  return {
+    success: true,
+    jobs,
+    outcomes,
+    summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length - failed, failed },
+  };
+}
+
+// POST /admin/facts/backfill-images — enqueue durable Pexels image prep
+// (FACT_PEXELS_QUEUE) for every active fact (root or variant) missing images.
 router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: Request, res: Response) => {
   try {
-    const rootFacts = await db.select({ id: factsTable.id, text: factsTable.text })
-      .from(factsTable).where(isNull(factsTable.parentId));
-    let triggered = 0;
-    for (const fact of rootFacts) {
-      void runFactImagePipeline(fact.id, fact.text);
-      triggered++;
-    }
-    res.json({ success: true, triggered });
+    const facts = await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
+      .from(factsTable).where(isNull(factsTable.pexelsImages));
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] Backfill images error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
 
-// POST /admin/backfill-pexels
-// Backfill Pexels images for all root facts that currently have NULL pexelsImages.
+// POST /admin/backfill-pexels — enqueue durable Pexels image prep for every
+// active fact (root or variant) that currently has NULL pexelsImages.
 // Idempotent: skips facts that already have images.
-// Returns 202 immediately with the count of facts queued; processes sequentially in the background.
 router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    const nullFacts = await db
-      .select({ id: factsTable.id, text: factsTable.text })
+    const facts = await db
+      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
       .from(factsTable)
-      .where(and(isNull(factsTable.parentId), isNull(factsTable.pexelsImages)));
-
-    const queued = nullFacts.length;
-    res.status(202).json({ success: true, queued, message: `Backfilling Pexels images for ${queued} fact(s) in the background.` });
-
-    if (queued === 0) {
-      logger.info("[admin] backfill-pexels: all root facts already have images, nothing to do.");
-      return;
-    }
-
-    void (async () => {
-      logger.info({ queued }, "[admin] backfill-pexels: starting");
-      let succeeded = 0;
-      let failed = 0;
-
-      for (let i = 0; i < nullFacts.length; i++) {
-        const fact = nullFacts[i]!;
-        logger.info(
-          { index: i + 1, queued, factId: fact.id, preview: fact.text.slice(0, 60) },
-          "[admin] backfill-pexels: processing",
-        );
-
-        await runFactImagePipeline(fact.id, fact.text);
-
-        // runFactImagePipeline catches all errors internally — verify success via DB
-        const [updated] = await db
-          .select({ pexelsImages: factsTable.pexelsImages })
-          .from(factsTable)
-          .where(eq(factsTable.id, fact.id))
-          .limit(1);
-
-        if (updated?.pexelsImages != null) {
-          succeeded++;
-          logger.info({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: OK");
-        } else {
-          failed++;
-          logger.error({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: FAILED (pexelsImages still null)");
-        }
-
-        // 1-second delay between requests to respect Pexels rate limits
-        if (i < nullFacts.length - 1) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
-        }
-      }
-
-      logger.info({ succeeded, failed, queued }, "[admin] backfill-pexels: done");
-    })();
+      .where(isNull(factsTable.pexelsImages));
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] backfill-pexels error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
 
+// POST /admin/facts/backfill-ai-memes — enqueue durable AI-meme generation
+// (fact_ai_meme_backfill queue) for every active fact (root or variant)
+// missing AI-meme images (or every active fact with ?force=true).
 router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: Request, res: Response) => {
   try {
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
-    let rootFacts;
-    if (force) {
-      rootFacts = await db
-        .select({ id: factsTable.id, text: factsTable.text })
-        .from(factsTable)
-        .where(isNull(factsTable.parentId));
-    } else {
-      rootFacts = await db
-        .select({ id: factsTable.id, text: factsTable.text })
-        .from(factsTable)
-        .where(and(isNull(factsTable.parentId), isNull(factsTable.aiMemeImages)));
-    }
+    const facts = force
+      ? await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive }).from(factsTable)
+      : await db
+          .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
+          .from(factsTable)
+          .where(isNull(factsTable.aiMemeImages));
 
-    const total = rootFacts.length;
-    res.json({ success: true, queued: total, message: `Processing ${total} facts sequentially in the background.` });
-
-    // Process sequentially so we don't hammer OpenAI rate limits
-    void (async () => {
-      logger.info({ total, force }, "[admin] backfill-ai-memes: starting");
-      for (const fact of rootFacts) {
-        await generateAiMemeBackgrounds(fact.id, fact.text, { suppressErrors: true });
-      }
-      logger.info({ total }, "[admin] backfill-ai-memes: done");
-    })();
+    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactAiMemeBackfill(factId));
+    res.status(202).json(response);
   } catch (err) {
     logger.error({ err }, "[admin] Backfill AI memes error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
@@ -1947,7 +2563,7 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
     const rows = await db
-      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
+      .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment })
       .from(factsTable)
       .where(force
         ? eq(factsTable.isActive, true)
@@ -1962,11 +2578,19 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
       let failed = 0;
       for (const fact of rows) {
         try {
-          const enrichment = await enrichFact({
-            factText: fact.text,
-            status: fact.parentId ? "variant" : "new_fact",
-          });
-          await db.update(factsTable).set(buildFactEnrichmentColumns(enrichment)).where(eq(factsTable.id, fact.id));
+          const enrichment = await enrichFact({ factText: fact.text });
+          // Preserve the moderator's Visual Concept (visualPromptStrategyOverride)
+          // from the EXISTING row: fresh classifier output never carries a VSO, so
+          // materializing from it alone would strip the human concept (breaking
+          // render, and failing the active-requires-concept CHECK on active rows).
+          // Re-apply the current row's VSO onto the fresh AI baseline via the
+          // VSO-preserving materialize path — the preservation source is the
+          // existing row, not the new baseline.
+          const priorVSO = (fact.enrichment as FactEnrichment | null)?.visualPromptStrategyOverride;
+          const aiDerived = { ...enrichment } as FactEnrichment;
+          delete (aiDerived as Record<string, unknown>)["visualPromptStrategyOverride"];
+          const { columns } = materializeEnrichment({ aiDerived, overrides: {}, visualPromptStrategyOverride: priorVSO });
+          await db.update(factsTable).set(columns).where(eq(factsTable.id, fact.id));
           done++;
         } catch (err) {
           failed++;
@@ -2003,6 +2627,20 @@ router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) =
 
 router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Response) => {
   const key = String(req.params["key"]);
+
+  // Refused BEFORE the body is inspected: a reserved key is off-limits to this
+  // route regardless of what the request is trying to do with it, and a
+  // 400 "value is required" for a key that could never have been written here
+  // would tell the caller the wrong thing about why.
+  //
+  // This route validates data type and min/max and nothing else, so an NCMEC
+  // filing switch reaching it is an activation gate with a door beside an open
+  // window. The keys are owned by the safety admin surface instead.
+  if (isNcmecReservedConfigKey(key)) {
+    res.status(403).json({ error: NCMEC_RESERVED_KEY_REFUSAL });
+    return;
+  }
+
   const body = req.body as {
     value?: unknown;
     valueLabel?: unknown;
@@ -2036,6 +2674,17 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   let newValueLabel: string | null | undefined;
   let newDebugValue: string | null | undefined;
   let newDebugValueLabel: string | null | undefined;
+  /**
+   * Relational checks to run INSIDE the write transaction, against the locked
+   * config set — never against a cached read taken before it.
+   */
+  /**
+   * The membership-config columns this ONE request changes, collected so the
+   * transaction below can build a single final state rather than checking each
+   * field against the pre-patch rows. `debug: null` means the override is being
+   * cleared, which is a change like any other.
+   */
+  const relationalChanges: Array<{ value: number | null; target: "value" | "debug" }> = [];
 
   if (hasValue) {
     const rawValue = String(body.value).trim();
@@ -2068,16 +2717,42 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         return;
       }
     }
+    // Some settings are only coherent against each other: the entitlement lease
+    // must outlive the bounded Stripe retrieval plus the apply, a waiter must
+    // not outlive the lease it waits for, and the sweep alert must not fire
+    // before the sweep could have run again. Every individual range can pass
+    // while the SET is broken, and a relational invariant enforced on one side
+    // only is not enforced — so this runs on a write to ANY component.
+    if (isMembershipConfigKey(key)) {
+      // Parsed the way RUNTIME parses it, not the way JavaScript would like to.
+      // `getConfigInt` uses `parseInt`, so "1e5" resolves to 1 at runtime while
+      // `Number` reads it as 100000 — the validator would approve a relationship
+      // the running system then violates, from a value stored verbatim.
+      const parsed = parseMembershipConfigValue(rawValue, existing.dataType);
+      if (parsed === null) {
+        res.status(400).json({ error: "Value must be a number" });
+        return;
+      }
+      // Deferred to the write transaction below, where the set it is checked
+      // against is locked — see `lockAndLoadMembershipConfig`.
+      relationalChanges.push({ value: parsed, target: "value" });
+    }
+
     newValue = rawValue;
     newValueLabel = body.valueLabel !== undefined && body.valueLabel !== null
       ? String(body.valueLabel).trim() || null
       : undefined;
   }
 
-  if (hasDebugValue) {
-    const rawDebug = body.debugValue === null || String(body.debugValue).trim() === ""
-      ? null
-      : String(body.debugValue).trim();
+  if (hasDebugValue || clearDebug) {
+    // `clearDebugValue: true` sent alone (no `debugValue` key at all) is a
+    // second way to clear the override, and it must land on the exact same
+    // validation path as `debugValue: null` — a separate `else if (clearDebug)`
+    // branch after this block used to skip every check below, including the
+    // relational one, for this specific mechanism.
+    const rawDebug = hasDebugValue
+      ? (body.debugValue === null || String(body.debugValue).trim() === "" ? null : String(body.debugValue).trim())
+      : null;
     if (rawDebug !== null && existing.dataType === "integer") {
       const parsed = parseInt(rawDebug, 10);
       if (isNaN(parsed)) {
@@ -2107,27 +2782,116 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         return;
       }
     }
+    // Debug mode makes debugValue the EFFECTIVE value everywhere (see
+    // adminConfig.ts's resolveValue) — so a debugValue write is just as capable
+    // of breaking the lease/waiter/sweep-alert relationships as a
+    // write to value, and skipping the check here left debug mode a backdoor
+    // around it. CLEARING an override is not exempt either: clearing this
+    // key's debug value does not make it inert, it reverts the EFFECTIVE value
+    // to the base `value` column — which can violate a relational invariant
+    // against another key's still-active debug override exactly as easily as
+    // setting a bad debug value can. So the check always runs, using whichever
+    // value this key's write actually makes effective.
+    if (isMembershipConfigKey(key)) {
+      const parsed = parseMembershipConfigValue(
+        rawDebug !== null ? rawDebug : existing.value,
+        existing.dataType,
+      );
+      if (parsed === null) {
+        res.status(400).json({ error: "Debug value must be a number" });
+        return;
+      }
+      // `rawDebug === null` is a CLEAR: the override goes away and the base
+      // value becomes effective again, which is why null is carried through
+      // rather than substituted here.
+      relationalChanges.push({ value: rawDebug !== null ? parsed : null, target: "debug" });
+    }
     newDebugValue = rawDebug;
-    newDebugValueLabel = body.debugValueLabel !== undefined && body.debugValueLabel !== null
-      ? String(body.debugValueLabel).trim() || null
-      : undefined;
-  } else if (clearDebug) {
-    newDebugValue = null;
-    newDebugValueLabel = null;
+    // Clearing (either mechanism) always clears the label too — a null debug
+    // value never keeps a stale debug label attached to it.
+    newDebugValueLabel = rawDebug === null
+      ? null
+      : (body.debugValueLabel !== undefined && body.debugValueLabel !== null
+          ? String(body.debugValueLabel).trim() || null
+          : undefined);
   }
 
-  const [updated] = await db
-    .update(adminConfigTable)
-    .set({
-      ...(newValue !== undefined ? { value: newValue } : {}),
-      ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
-      ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
-      ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
-      updatedAt: new Date(),
-      updatedById: req.user?.id ?? null,
-    })
-    .where(eq(adminConfigTable.key, key))
-    .returning();
+  const patch = {
+    ...(newValue !== undefined ? { value: newValue } : {}),
+    ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
+    ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
+    ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
+    updatedAt: new Date(),
+    updatedById: req.user?.id ?? null,
+  };
+
+  let updated: typeof adminConfigTable.$inferSelect | undefined;
+
+  if (relationalChanges.length === 0) {
+    [updated] = await db
+      .update(adminConfigTable)
+      .set(patch)
+      .where(eq(adminConfigTable.key, key))
+      .returning();
+  } else {
+    // The relational check and the write it authorises share one transaction, so
+    // the set the check read cannot move before the write lands. Rejections
+    // travel out as a thrown message rather than a mid-transaction `res.json`,
+    // which would respond while the transaction was still open.
+    try {
+      updated = await db.transaction(async (tx) => {
+        const membershipKey = key as MembershipConfigKey;
+        const rows = await lockAndLoadMembershipConfig(tx);
+
+        // ONE final state, validated under BOTH resolutions.
+        //
+        // Both halves of that matter. Checking each field of the patch against
+        // the ORIGINAL rows let a single request that changes `value` AND clears
+        // `debugValue` slip through: each check saw the other field unchanged,
+        // and the committed combination satisfied neither. So the whole patch is
+        // applied to the locked rows first, and the result is what gets checked.
+        //
+        // And both resolutions, not just the one in force: while debug mode is
+        // off its overrides are inert, so a debug value checked only against the
+        // base set sits there looking fine until the mode is flipped — and
+        // `debug_mode_active` is not a membership key, so its own PATCH runs no
+        // relational check and would activate the invalid pair in one step.
+        const nextRow = { ...rows[membershipKey] };
+        for (const change of relationalChanges) {
+          if (change.target === "debug") {
+            nextRow.debugValue = change.value;
+          } else if (change.value !== null) {
+            nextRow.value = change.value;
+          }
+        }
+        const nextRows = { ...rows, [membershipKey]: nextRow };
+
+        const baseError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, false));
+        const debugError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, true));
+        const error = baseError ?? (debugError ? `${debugError} (under debug mode)` : null);
+        if (error) {
+          // The prefix belongs to whichever half of the patch is debug-only, so
+          // an operator editing a debug override is told so.
+          const prefix = relationalChanges.some((c) => c.target === "value")
+            ? ""
+            : "Debug value: ";
+          throw new RelationalConfigError(`${prefix}${error}`);
+        }
+        const [row] = await tx
+          .update(adminConfigTable)
+          .set(patch)
+          .where(eq(adminConfigTable.key, key))
+          .returning();
+        return row;
+      });
+    } catch (error) {
+      if (error instanceof RelationalConfigError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  }
 
   bustConfigCache();
 
@@ -2350,16 +3114,18 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
   try {
     // Active legendary subscribers = users with legendary tier and an active subscription
     // Registered members = users with registered tier (no payment)
-    const [legendaryRows, registeredRows] = await Promise.all([
-      db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(usersTable)
-        .where(and(eq(usersTable.membershipTier, "legendary"), eq(usersTable.isActive, true))),
-      db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(usersTable)
-        .where(and(eq(usersTable.membershipTier, "registered"), eq(usersTable.isActive, true))),
-    ]);
+    // ONE statement with conditional aggregation, not two in a Promise.all.
+    // `now()` is the TRANSACTION timestamp, so two implicit transactions get two
+    // different instants, and a user crossing their grace horizon between them
+    // is counted twice or not at all. Sharing the expression makes the counts
+    // agree on the RULE; only one statement makes them agree on the INSTANT.
+    const [tierCounts] = await db
+      .select({
+        legendary: sql<number>`count(*) FILTER (WHERE ${effectiveTierExpr()} = 'legendary')::int`,
+        registered: sql<number>`count(*) FILTER (WHERE ${effectiveTierExpr()} = 'registered')::int`,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.isActive, true));
 
     // Boolean-only presence checks for the Stripe env vars. We never echo the
     // values themselves — only whether each one is configured.
@@ -2385,8 +3151,8 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     ]);
 
     res.json({
-      activeSubscribers: legendaryRows[0]?.cnt ?? 0,
-      registeredMembers: registeredRows[0]?.cnt ?? 0,
+      activeSubscribers: tierCounts?.legendary ?? 0,
+      registeredMembers: tierCounts?.registered ?? 0,
       webhookSecretConfigured,
       webhookUrl,
       stripeEnv,
@@ -2796,6 +3562,102 @@ router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Respons
 // filtered to queue = "email". The status vocabulary is the generic one
 // (pending / processing / done / failed) — the legacy email-only values
 // (sending / delivered / abandoned) were normalized in migration 0063.
+// ─── Queue health (Phase 1 of the async-queue hardening plan) ───────────────
+//
+// Read-only. Derives everything by query from async_jobs + worker_lane_heartbeats
+// and stores nothing, so async_jobs stays the single source of truth for job
+// state. /admin/email-queue below is left exactly as it is — it remains the
+// email-specific working view.
+
+/**
+ * GET /admin/queue-health — the AGGREGATE altitude.
+ *
+ * Per queue: the four raw tallies plus the two derived ones (`skipped`,
+ * `abandonedNoRetry`) that `status` alone cannot express, oldest-pending age,
+ * and 24h throughput. Per lane: live instance count, last-scheduled and
+ * last-completed ages, in-flight count, and whether it is stalled fleet-wide.
+ *
+ * **Phase 1 carries no alert fields at all** — not even an empty array.
+ * `job_alerts` does not exist until Phase 2's migration, so including the field
+ * here would be either unbuildable or a lie: an empty `activeAlerts: []` reads
+ * as "no alerts" on the very page whose job is to reveal problems, when the
+ * truth is "alerting does not exist yet". Phase 2 adds it alongside the table.
+ */
+router.get("/admin/queue-health", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    // The page polls this every 5s (see the UAT doc); 60/60s per (ip, admin
+    // user) comfortably covers one client's steady polling plus several open
+    // tabs, same shape as the taxonomy-health job-status limiter below.
+    const rateLimit = await checkSharedRateLimit(
+      { endpoint: "admin.queue-health", ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit: 60, windowMs: 60_000 },
+    );
+    if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
+    const [queues, lanes] = await Promise.all([queueHealth(db), laneHealth(db)]);
+    const now = Date.now();
+    res.json({
+      ts: new Date(now).toISOString(),
+      queues,
+      lanes: lanes.map((l) => ({
+        ...l,
+        lastScheduledAt: l.lastScheduledAt?.toISOString() ?? null,
+        lastTickCompletedAt: l.lastTickCompletedAt?.toISOString() ?? null,
+        lastScheduledAgeSeconds: l.lastScheduledAt
+          ? Math.max(0, Math.round((now - l.lastScheduledAt.getTime()) / 1000))
+          : null,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, "[admin] queue-health error");
+    const msg = err instanceof Error ? err.message : "Failed to load queue health";
+    res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * GET /admin/queue-health/jobs — the PER-ITEM altitude.
+ *
+ * Bounded and paginated on purpose: the aggregate endpoint above is polled
+ * continuously and must never be able to carry a 50,000-row backlog, so per-item
+ * detail lives behind its own `limit` (capped at 100).
+ *
+ * Returns **all four** raw statuses, never just failures — a per-item view
+ * limited to failures would leave `pending` and `processing` items with no
+ * per-item state at all, which is the two-altitude contract violation this
+ * endpoint exists to prevent. Each row also carries the derived `displayStatus`
+ * and a **sanitized** `skipReason` from a closed set, so "skipped" and
+ * "never retried" are reachable by the page rather than being collapsed into a
+ * generic success and a generic failure.
+ */
+router.get("/admin/queue-health/jobs", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    // Only fetched on-demand (a queue row expanding), but shares the endpoint's
+    // rate-limit family so a runaway client can't dump the table via repeated
+    // paginated requests either.
+    const rateLimit = await checkSharedRateLimit(
+      { endpoint: "admin.queue-health.jobs", ip: req.ip ?? null, userId: req.user?.id ?? null },
+      { limit: 60, windowMs: 60_000 },
+    );
+    if (!rateLimit.allowed) { res.status(429).json({ error: "Too many requests" }); return; }
+
+    const page = await queueHealthJobs(
+      {
+        queue: String(req.query["queue"] ?? "").trim() || undefined,
+        status: String(req.query["status"] ?? "").trim() || undefined,
+        page: parseInt(String(req.query["page"] ?? "1"), 10),
+        limit: parseInt(String(req.query["limit"] ?? "50"), 10),
+      },
+      db,
+    );
+    res.json(page);
+  } catch (err) {
+    logger.error({ err }, "[admin] queue-health/jobs error");
+    const msg = err instanceof Error ? err.message : "Failed to load queue jobs";
+    res.status(500).json({ error: msg });
+  }
+});
+
 router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
   const VALID_STATUSES = ["pending", "processing", "done", "failed"] as const;
   type JobStatus = typeof VALID_STATUSES[number];
@@ -2901,9 +3763,23 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
     // Atomic conditional update: only resets the row if it is still failed.
     // This prevents a race where two concurrent admin retries both pass a
     // read-then-check and then both reset the same row to pending.
+    //
+    // maxAttempts is reset to the sentinel here too. Since PR288's finalize
+    // change, a row that exhausted or terminally failed carries the ceiling
+    // RESOLVED at that moment, persisted as a positive per-row value — correct
+    // for a dead row, but wrong for one an admin is deliberately reopening: a
+    // manual retry should follow whatever the queue's LIVE config says right
+    // now (which may have been raised or lowered since this row first failed),
+    // not the historical value frozen at the original failure.
     const [updated] = await db
       .update(asyncJobsTable)
-      .set({ status: "pending", attempts: 0, nextAttemptAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: "pending",
+        attempts: 0,
+        maxAttempts: USE_CONFIGURED_MAX_ATTEMPTS,
+        nextAttemptAt: new Date(),
+        updatedAt: new Date(),
+      })
       .where(and(
         eq(asyncJobsTable.id, id),
         eq(asyncJobsTable.queue, "email"),
@@ -2941,23 +3817,6 @@ router.get("/admin/users/:id/data-export", requireAdmin, async (req: Request, re
   const id = String(req.params["id"] ?? "");
   const payload = await exportUserData(id);
   res.json({ success: true, ...payload });
-});
-
-router.post("/admin/users/:id/data-delete", requireAdmin, async (req: Request, res: Response) => {
-  const id = String(req.params["id"] ?? "");
-  const phase = String((req.body as Record<string, unknown>)?.["phase"] ?? "soft");
-  if (phase === "soft") {
-    const result = await softDeleteUserLifecycle(id);
-    res.json({ success: true, phase, ...result });
-    return;
-  }
-  if (phase === "hard") {
-    await anonymizePaymentHistoryForUser(id);
-    const result = await hardDeleteUserLifecycle(id);
-    res.json({ success: true, phase, ...result });
-    return;
-  }
-  res.status(400).json({ error: "Unsupported phase" });
 });
 
 router.post("/admin/retention/run", requireAdmin, async (_req: Request, res: Response) => {

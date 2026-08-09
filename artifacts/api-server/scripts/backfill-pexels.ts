@@ -1,15 +1,16 @@
 /**
- * Backfill Pexels images for all root facts that have NULL pexelsImages.
+ * Backfill Pexels images for all active facts (root or variant) that have
+ * NULL pexelsImages.
  *
  * Usage:
  *   pnpm --filter @workspace/api-server run backfill:pexels
  *
- * Runs sequentially with a 1-second delay between facts to respect Pexels rate limits.
- * Facts that already have images are skipped (idempotent).
- * Logs per-fact progress and a final summary to the console.
- *
- * Note: runFactImagePipeline suppresses all internal errors. Success is confirmed
- * by re-fetching pexelsImages from the DB after each call.
+ * Enqueues one `fact_pexels` job per fact and polls each to a terminal state
+ * before exiting — the API server's async-jobs worker must be running for
+ * enqueued jobs to actually process (this script only schedules the work; it
+ * does not call OpenAI/Pexels itself). Idempotent: facts that already have
+ * images are skipped by the selection query, and re-running dedupes onto any
+ * still-in-flight job for a fact rather than double-enqueueing.
  */
 
 // Install stdio guard so EIO/EPIPE on stdout/stderr (e.g. piped to `head`,
@@ -21,61 +22,38 @@ installStdioGuard();
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { isNull, and, eq } from "drizzle-orm";
-import { runFactImagePipeline } from "../src/lib/factImagePipeline";
-
-const DELAY_MS = 1_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+import { enqueueFactPexels } from "../src/lib/factPexelsJobs";
+import { pollJobsToTerminal, type PollableJob } from "../src/lib/cliJobPoller";
 
 async function main(): Promise<void> {
-  console.log("[backfill-pexels] Starting Pexels image backfill for root facts with NULL pexelsImages…");
+  console.log("[backfill-pexels] Starting Pexels image backfill for active facts with NULL pexelsImages…");
 
   const facts = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
-    .where(and(isNull(factsTable.parentId), isNull(factsTable.pexelsImages)));
+    .where(and(eq(factsTable.isActive, true), isNull(factsTable.pexelsImages)));
 
   const total = facts.length;
   console.log(`[backfill-pexels] Found ${total} fact(s) to process.`);
 
   if (total === 0) {
-    console.log("[backfill-pexels] Nothing to do. All root facts already have images.");
+    console.log("[backfill-pexels] Nothing to do. All active facts already have images.");
     process.exit(0);
   }
 
-  let succeeded = 0;
-  let failed = 0;
-
-  for (let i = 0; i < facts.length; i++) {
-    const fact = facts[i]!;
-    console.log(`[backfill-pexels] [${i + 1}/${total}] fact ${fact.id}: "${fact.text.slice(0, 60)}"`);
-
-    await runFactImagePipeline(fact.id, fact.text);
-
-    // runFactImagePipeline catches all errors internally, so verify success via DB
-    const [updated] = await db
-      .select({ pexelsImages: factsTable.pexelsImages })
-      .from(factsTable)
-      .where(eq(factsTable.id, fact.id))
-      .limit(1);
-
-    if (updated?.pexelsImages != null) {
-      succeeded++;
-      console.log(`[backfill-pexels] [${i + 1}/${total}] fact ${fact.id} — OK`);
-    } else {
-      failed++;
-      console.error(`[backfill-pexels] [${i + 1}/${total}] fact ${fact.id} — FAILED (pexelsImages still null after pipeline)`);
-    }
-
-    if (i < facts.length - 1) {
-      await sleep(DELAY_MS);
-    }
+  const jobs: PollableJob[] = [];
+  for (const fact of facts) {
+    const result = await enqueueFactPexels(fact.id, { bulkBackfill: true });
+    jobs.push({ jobId: result.jobId, label: fact.text.slice(0, 60) });
   }
+  console.log(`[backfill-pexels] Enqueued ${jobs.length} job(s) — waiting for the async-jobs worker to drain them…`);
 
-  console.log(`[backfill-pexels] Done. ${succeeded} succeeded, ${failed} failed out of ${total} total.`);
-  process.exit(failed > 0 ? 1 : 0);
+  const { succeeded, skipped, failed, unresolved } = await pollJobsToTerminal(jobs, {
+    log: (msg) => console.log(`[backfill-pexels] ${msg}`),
+  });
+
+  console.log(`[backfill-pexels] Done. ${succeeded} succeeded, ${skipped} skipped, ${failed} failed, ${unresolved.length} unresolved out of ${total} total.`);
+  process.exit(failed > 0 || unresolved.length > 0 ? 1 : 0);
 }
 
 main().catch((err) => {

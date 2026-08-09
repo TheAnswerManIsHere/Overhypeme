@@ -22,6 +22,7 @@ import type { Request } from "express";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, userAiImagesTable } from "@workspace/db/schema";
 import { sql, like, eq } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { userCanReadObject, userOwnsAiReferenceImage } from "../lib/objectAccess.js";
 import type { ObjectStorageService } from "../lib/objectStorage.js";
@@ -70,7 +71,7 @@ before(async () => {
 
   const [fact] = await db
     .insert(factsTable)
-    .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true })
+    .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
     .returning({ id: factsTable.id });
   factId = fact.id;
   // The owner's AI *reference* image, plus a *generic* row that must NOT match.

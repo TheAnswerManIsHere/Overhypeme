@@ -11,6 +11,7 @@ import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExample
 import { GoldenToggle } from "@/components/admin/GoldenToggle";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
+import { resubmitFactForModeration } from "@/components/admin/resubmitForModeration";
 import { PexelsImageGallery, emptyPexelsImages, pexelsImageTotals, type PexelsGender, type PexelsThumb } from "@/components/admin/PexelsImageGallery";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
@@ -493,7 +494,6 @@ export default function AdminFacts() {
   const [variants, setVariants] = useState<FactVariant[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [newVariantText, setNewVariantText] = useState("");
-  const [newVariantUseCase, setNewVariantUseCase] = useState("");
   const [addingVariant, setAddingVariant] = useState(false);
   const [showAddVariant, setShowAddVariant] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -520,6 +520,9 @@ export default function AdminFacts() {
   const [versionInfoLoading, setVersionInfoLoading] = useState(false);
   const [sendBackModal, setSendBackModal] = useState(false);
   const [sendingBack, setSendingBack] = useState(false);
+  // Resubmit-for-moderation: the reactivation-gap fix — the mirror action for
+  // an INACTIVE fact (send-back-to-review only works on an active one).
+  const [resubmitting, setResubmitting] = useState(false);
 
   // Image pipeline state
   const [pipelineRunning, setPipelineRunning] = useState(false);
@@ -585,7 +588,6 @@ export default function AdminFacts() {
           setTextEditModalError(null);
           let message = "Saved successfully.";
           if (result.prepDispatch) message = "Saved. Prep restarted — enrichment and images are regenerating; re-approve the concept when ready.";
-          else if (result.affectedVariantCount && result.affectedVariantCount > 0) message = `Saved. ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? "" : "s"} marked stale for review.`;
           setSaveResult({ type: "success", message });
           // Adopt the server-normalized row as the new baseline (kills a phantom
           // "unsaved change" from normalization).
@@ -603,10 +605,6 @@ export default function AdminFacts() {
           setSelectedFact({ ...sf, text: result.impact.currentStoredText });
           setTextEditModal({ impact: result.impact });
           setTextEditModalError(confirmation ? "The stored text changed since you opened this — review the updated diff and confirm again." : null);
-          throw new CommitInterruption();
-        case "dependent_variant_in_progress":
-          setTextEditModal(null);
-          setSaveResult({ type: "error", message: `Can't re-word this parent: ${result.affectedVariantCount} variant${result.affectedVariantCount === 1 ? " is" : "s are"} mid-review (e.g. fact #${result.blockingVariants[0]?.factId}). Resolve or finish those first.` });
           throw new CommitInterruption();
         case "staging_prep_in_progress":
           setTextEditModal(null);
@@ -682,7 +680,6 @@ export default function AdminFacts() {
     setSaveResult(null);
     setShowAddVariant(false);
     setNewVariantText("");
-    setNewVariantUseCase("");
     setPipelineResult(null);
     // Fetch variants for root facts
     if (fact.parentId === null) {
@@ -759,16 +756,18 @@ export default function AdminFacts() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: newVariantText.trim(), useCase: newVariantUseCase || null }),
+        body: JSON.stringify({ text: newVariantText.trim() }),
       });
-      const data = (await res.json()) as { success?: boolean; variant?: FactVariant; error?: string };
+      const data = (await res.json()) as { success?: boolean; queued?: boolean; reviewId?: number; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to add variant");
-      setVariants((prev) => [...prev, data.variant!]);
+      // A variant is now a normal moderated submission: it enters the triage
+      // queue instead of appearing immediately, and shows up nested under its
+      // parent only once it's approved through moderation. use_case has no home
+      // pre-moderation (createTriageReview carries no such field, and the fact
+      // doesn't exist yet) — set it via the normal fact editor once approved.
       setNewVariantText("");
-      setNewVariantUseCase("");
       setShowAddVariant(false);
-      setRefreshNonce((n) => n + 1); // refresh the list so the new variant nests under its parent
-      if (selectedFact) setExpandedRoots((prev) => new Set(prev).add(selectedFact.id));
+      alert("Variant queued for review. It'll appear under this fact once it's approved through moderation. Set its use case afterward from the fact editor.");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to add variant");
     } finally {
@@ -854,6 +853,27 @@ export default function AdminFacts() {
     }
   }
 
+  async function resubmitForModeration() {
+    if (!selectedFact) return;
+    const factId = selectedFact.id;
+    setResubmitting(true);
+    try {
+      const result = await resubmitFactForModeration(factId);
+      if (result.success) {
+        setSaveResult({
+          type: "success",
+          message: `Resubmitted for moderation — Review #${result.reviewId} is back in the queue at Stage 1. Find it in the Moderation queue to re-approve.`,
+        });
+        setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, enrichmentStatus: "pending" } : f)));
+        setSelectedFact((prev) => (prev && prev.id === factId ? { ...prev, enrichmentStatus: "pending" } : prev));
+      } else {
+        setSaveResult({ type: "error", message: result.error ?? "Resubmit failed" });
+      }
+    } finally {
+      setResubmitting(false);
+    }
+  }
+
   async function handleImport() {
     setImporting(true);
     setImportResult(null);
@@ -880,9 +900,12 @@ export default function AdminFacts() {
         headers: { "Content-Type": "application/json" },
         body,
       });
-      const data = (await res.json()) as { imported?: number; error?: string };
+      const data = (await res.json()) as { queued?: number; skipped?: number; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Import failed");
-      setImportResult({ type: "success", message: `Successfully imported ${data.imported} fact(s).` });
+      // Bulk import now LOADS the moderation queue — facts appear only after they
+      // pass triage → enrichment → activation, not immediately.
+      const skippedNote = data.skipped ? ` (${data.skipped} skipped as duplicates)` : "";
+      setImportResult({ type: "success", message: `Queued ${data.queued ?? 0} fact(s) for moderation${skippedNote}. They'll appear after review.` });
       setImportText("");
       setPage(1);
       setDebouncedSearch("");
@@ -1276,19 +1299,28 @@ export default function AdminFacts() {
               </div>
             )}
 
-            {/* Active toggle */}
+            {/* Active toggle — deactivate-only. Activation is moderation-only
+                (Phase 2 fact-lifecycle closure): the server rejects any
+                false→true PATCH, so this toggle can only ever turn a fact off,
+                never back on — disabled + explained rather than a control that
+                always errors. */}
             <div className="flex items-center justify-between py-2 border border-border rounded-md px-3">
               <div>
                 <p className="text-sm font-medium">Active</p>
-                <p className="text-xs text-muted-foreground">Inactive facts are hidden from the public.</p>
+                <p className="text-xs text-muted-foreground">
+                  {draft.isActive
+                    ? "Inactive facts are hidden from the public."
+                    : "Deactivated facts can only go live again through moderation."}
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => editForm.setValue((d) => d ? { ...d, isActive: !d.isActive } : d)}
+                disabled={!draft.isActive}
+                onClick={() => draft.isActive && editForm.setValue((d) => d ? { ...d, isActive: false } : d)}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                  draft.isActive ? "bg-green-500" : "bg-muted-foreground/30"
+                  draft.isActive ? "bg-green-500" : "bg-muted-foreground/30 cursor-not-allowed opacity-60"
                 }`}
-                title={draft.isActive ? "Click to deactivate" : "Click to activate"}
+                title={draft.isActive ? "Click to deactivate" : "Deactivated — re-moderate to reactivate"}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                   draft.isActive ? "translate-x-6" : "translate-x-1"
@@ -1401,20 +1433,10 @@ export default function AdminFacts() {
                       className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm focus:outline-none focus:border-primary resize-none"
                     />
                     <div className="flex gap-2">
-                      <input
-                        list="use-case-options-new"
-                        value={newVariantUseCase}
-                        onChange={(e) => setNewVariantUseCase(e.target.value)}
-                        placeholder="use_case (e.g. one_line)"
-                        className="flex-1 h-8 px-2 bg-background border border-border rounded-sm text-xs font-mono focus:outline-none focus:border-primary"
-                      />
-                      <datalist id="use-case-options-new">
-                        {USE_CASE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
-                      </datalist>
                       <Button size="sm" onClick={addVariant} isLoading={addingVariant} disabled={!newVariantText.trim()}>
                         Add
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => { setShowAddVariant(false); setNewVariantText(""); setNewVariantUseCase(""); }}>
+                      <Button size="sm" variant="outline" onClick={() => { setShowAddVariant(false); setNewVariantText(""); }}>
                         Cancel
                       </Button>
                     </div>
@@ -1451,14 +1473,14 @@ export default function AdminFacts() {
               </div>
             )}
 
-            {/* Pexels Image Pipeline (root facts only) */}
-            {selectedFact.parentId === null && (
-              <div className="border border-border rounded-sm overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <ImageIcon className="w-3.5 h-3.5" />
-                    Pexels Image Pipeline
-                  </span>
+            {/* Pexels Image Pipeline — every fact generates its own images,
+                root or variant (variant independence). */}
+            <div className="border border-border rounded-sm overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Pexels Image Pipeline
+                </span>
                   <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-sm border ${
                     selectedFact.hasPexelsImages
                       ? "bg-green-500/10 text-green-600 border-green-500/30"
@@ -1518,7 +1540,6 @@ export default function AdminFacts() {
                   <AdminFactPexelsGallery factId={selectedFact.id} refreshNonce={pexelsGalleryRefreshNonce} />
                 </div>
               </div>
-            )}
 
             {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
                 Edit + autosave the metadata, regenerate the visual preview, or
@@ -1624,6 +1645,27 @@ export default function AdminFacts() {
                 <p className="text-xs text-muted-foreground mt-1.5">
                   Re-runs enrichment with the current pipeline as a refresh candidate for moderator approval. The fact
                   stays live throughout.
+                </p>
+              </div>
+            )}
+
+            {/* Resubmit for moderation — inactive facts only (the reactivation-gap
+                fix: deactivating a fact is otherwise a dead end). */}
+            {!selectedFact.isActive && (
+              <div className="border-t border-border pt-3">
+                <Button
+                  variant="outline"
+                  onClick={() => void resubmitForModeration()}
+                  disabled={resubmitting}
+                  className="w-full text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/10 hover:border-blue-500/60 gap-2"
+                  data-testid="resubmit-for-moderation-button"
+                >
+                  {resubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Resubmit for Moderation
+                </Button>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Puts this fact back through moderation (Stage 1 enrichment → Visual Concept → production approval)
+                  under its existing id. It only goes live again once re-approved.
                 </p>
               </div>
             )}

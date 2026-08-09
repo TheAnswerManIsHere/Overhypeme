@@ -55,6 +55,78 @@ preview and the Playwright e2e admin flows keep working; production
   cookie-session unsafe methods; origin allowlist enforced except for the
   intentional `ORIGIN_EXEMPT_PATHS` (Stripe webhook, Apple form_post callback,
   route-stats, and — for now — dev-admin-login).
+- **CodeQL doesn't recognize either hand-rolled control** as satisfying its
+  `js/missing-rate-limiting` / `js/missing-token-validation` (CSRF) queries —
+  see [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)
+  before treating a new alert on either as a real gap. **The `js/missing-rate-limiting`
+  triage rule:** a route with a workload-appropriate **narrow** control CodeQL
+  merely fails to recognize (checked against this repo's established
+  patterns) is the false-positive case: fix by confirming the control, not by
+  adding a redundant one. A route with **no narrow control** — including one
+  that relies on the global rate-limiter backstop below alone — is never
+  eligible for that class on consistency grounds; matching an unprotected
+  sibling is not evidence of safety, since the siblings may just share the
+  same latent gap, and the coarse per-instance backstop existing on every
+  non-exempt `/api` route (two route/handler exemptions below) doesn't settle
+  whether *this* route's own workload is cheap to hit repeatedly. Route it to
+  a real cost/abuse assessment (or add a narrow control, if cheap and
+  pattern-matched) instead. **This narrow-control test is specific to
+  `js/missing-rate-limiting`** — a `js/missing-token-validation` (CSRF) alert
+  is checked against the global double-submit CSRF middleware above instead,
+  since CSRF is intentionally enforced globally rather than per-route, so the
+  absence of a *narrow* control on a CSRF-flagged route is expected, not a
+  signal to escalate. That memory doc also covers the **re-attribution trap**:
+  restructuring `app.ts` (e.g. wrapping it in a
+  factory function) shifts every line number, and GitHub's diff-based
+  code-scanning UI can re-flag a byte-identical pre-existing alert as "new in
+  this PR." Byte-identical flagged lines are necessary but **not sufficient**
+  to dismiss it — in Express the *relative order* middleware registers in is
+  often the actual security behavior, so also confirm the surrounding
+  `app.use(...)` sequence is unchanged, not just the flagged line's content.
+  `git diff origin/main -- artifacts/api-server/src/app.ts` is the starting
+  check (there is no `app.ts` at the repo root; a bare-path diff silently
+  produces an empty, falsely-reassuring result) — see the memory doc for the
+  full two-part rule before assuming a fresh alert on a restructuring-only PR
+  is real.
+- **Global rate-limiter backstop** (`artifacts/api-server/src/lib/rateLimit.ts`'s
+  `createGlobalLimiter`, mounted at `app.use("/api", ...)`): a coarse,
+  `express-rate-limit`-backed, per-instance, per-IP ceiling covering **every**
+  `/api` route — the first *application-level* rate limiting for
+  approximately 18 of this repo's 31 route files (an upper-bound estimate,
+  not an exhaustive count — see the 2026-08-04 `decisions.md` entry's
+  "accepted trade-off" note for the full breakdown and why the exact number
+  can only shrink, not grow, on a future audit, and has already
+  been revised across five Codex review rounds). This exists specifically to satisfy CodeQL's
+  `js/missing-rate-limiting` query (which only recognizes a hardcoded list of
+  npm packages, not `checkSharedRateLimit`) and does **not** replace or change
+  any narrow, DB-backed limiter above — it is a blast-radius backstop layered
+  on top. Exactly two **route/handler** exemptions (`/api/healthz`, the
+  Stripe webhook); backed by a bounded in-memory store (`BoundedMemoryStore`,
+  capped and FIFO-evicted, not `checkSharedRateLimit`'s DB table), so it is
+  **per-instance**, not fleet-wide. **Separately, CORS preflight (`OPTIONS`)
+  requests through the *global* CORS middleware bypass the limiter ONLY for
+  a no-origin or allowed-origin request** — `cors()` is registered in
+  `app.ts` before
+  `createGlobalLimiter()` mounts, with no `preflightContinue` override, so an
+  allowed preflight is answered and ends there. A **rejected-origin**
+  preflight behaves differently: `cors@2.8.6`'s dynamic-origin callback path
+  calls `next(err2)` (with no error) when the origin callback returns a
+  falsy value, which does **not** short-circuit the response — the request
+  falls through past `cors()` unanswered and continues into
+  `createGlobalLimiter`, so rejected-origin preflights ARE metered (verified
+  against the installed package's source, not assumed). Don't treat "OPTIONS
+  bypasses the limiter" as universally true — it depends on the origin
+  decision. **This qualification is scoped to the global CORS middleware
+  specifically — `/api/auth/dev-admin-login` has its own, more permissive
+  bypass** when `ENABLE_DEV_ADMIN_LOGIN=true` (never in production):
+  `app.ts` mounts `cors({ origin: true, credentials: true })` on that one
+  path, before both the global `cors()` and `createGlobalLimiter()`, and
+  `cors@2.8.6` answers OPTIONS preflights by default when
+  `preflightContinue` is unset — so a dev-admin-login preflight is answered
+  (and unmetered) regardless of origin, allowed or rejected, in a
+  non-production preview. See the 2026-08-04 `decisions.md` entry for why an in-memory
+  store was chosen over a
+  DB-backed one.
 
 ## Authorization — objects, media, and memes
 
@@ -116,9 +188,24 @@ single-sourced and enforced at **every** grant surface:
   [`known-failure-patterns.md`](./known-failure-patterns.md)).
 - **Cancellation is symmetric with the grant** — `handleSubscriptionCancelled`
   also checks membership, so canceling a future non-membership subscription
-  can't downgrade a still-active member. Everything fails closed: anything not
-  positively confirmed as a tagged, non-deleted membership product is treated as
-  non-membership.
+  can't downgrade a still-active member. Everything fails closed: a
+  *settled* negative — the product list was fully enumerated and none of them
+  is a tagged, non-deleted membership product — is treated as non-membership.
+  An *unobservable* result (a pagination or retrieval failure mid-check) is
+  not decided against the customer; it retries instead of settling false, so
+  a transient failure can't silently strip access from a real member.
+- **The display/selection layer must apply the same filter, even though it
+  isn't a grant surface.** `/api/stripe/plans` returns every active product in
+  the catalog (render credits, merch, tips, ...), not just membership ones —
+  so code that turns that list into "which plan should the customer see?"
+  (the pricing page's `selectPlanPrices()` in
+  `artifacts/overhype-me/src/pages/pricingPlans.ts`) filters to
+  `overhype_membership=true` products before picking a price. Skipping this
+  filter here isn't a grant-bypass risk (checkout still rejects a
+  non-membership price), but it does mean the pricing page could advertise a
+  plan checkout will then refuse — caught in Codex review on PR #255. See the
+  decision in
+  [`decisions.md`](./decisions.md#2026-07-25--stripe-plan-selection-classifies-by-each-prices-own-recurring-field-and-only-from-membership-tagged-products).
 
 Webhook signature verification is delegated to `stripe-replit-sync` (Replit's
 fork of Supabase's stripe-sync-engine); it sits in the payment-critical path and
@@ -179,6 +266,7 @@ are deferred follow-ups (the latter would break existing API-key automation).
 Enumerated so a later reader knows what this review did *not* do: a full auth
 rewrite, live pentest, Cloudflare WAF/dashboard actions, CSP *enforcement*
 (report-only first), HSTS preload/subdomains, the `ADMIN_API_KEY` scoping, the
-git-history purge, and the admin field-bounding follow-up. See the roadmap for
-the live list. (The C1 dev-admin-login hardening — deferred when this doc was
+git-history purge, and the admin field-bounding follow-up. The live list of
+these deferrals is tracked in
+[`docs/engineering/deferred-work.md`](../engineering/deferred-work.md#security--patching). (The C1 dev-admin-login hardening — deferred when this doc was
 first written — shipped in PR #221.)

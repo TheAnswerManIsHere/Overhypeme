@@ -1,13 +1,14 @@
 /**
- * Approved-fact-text lock — the server-authoritative protection + dependency
- * model for editing a fact's text (Plan v4). Two questions this module answers,
- * both from the LOCKED fact row + review/job history (never from the client):
+ * Approved-fact-text lock — the server-authoritative protection model for
+ * editing a fact's text (Plan v4). Answers, from the LOCKED fact row + review
+ * history (never from the client): is this fact's text PROTECTED (approved,
+ * so an edit needs the dire-warning confirmation) or is it a freely-editable
+ * first-time staging fact?
  *
- *  1. Is this fact's text PROTECTED (approved, so an edit needs the dire-warning
- *     confirmation) or is it a freely-editable first-time staging fact?
- *  2. For a ROOT fact, which direct variants does a re-word invalidate, and is
- *     any of them mid-cycle (so the edit must be blocked, not silently strand
- *     someone else's moderation work)?
+ * A root text edit does NOT look at its variants — a variant's enrichment is
+ * classified from its own text only, so re-wording a root never invalidates
+ * or blocks on a variant (variant independence; see
+ * docs/ai-context/taxonomy-and-enrichment.md).
  *
  * The protection predicate fails CLOSED: only a fact positively identified as a
  * single, unresolved, first-time staging cycle is unprotected. Everything else
@@ -21,7 +22,7 @@
 
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { pendingReviewsTable, factsTable, asyncJobsTable } from "@workspace/db/schema";
+import { pendingReviewsTable, asyncJobsTable } from "@workspace/db/schema";
 import { UNRESOLVED_SUBMISSION_STAGE_VALUES, type ReviewWorkflowStage } from "@workspace/api-zod";
 
 type DbLike = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -102,76 +103,6 @@ export async function resolveFactTextProtection(
     reviewId: only.id,
     workflowStage: only.workflowStage as ReviewWorkflowStage,
   };
-}
-
-// ── Root → variant dependency ────────────────────────────────────────────────
-
-export interface VariantDependency {
-  /** Direct child variants (parentId = root), whose enrichment was classified
-   *  with the parent's text as context — their signatures must be cleared on a
-   *  confirmed root re-word. */
-  childFactIds: number[];
-  /** Children mid-cycle: an unresolved review (first-time or refresh) OR an
-   *  active generic enrichment job. A root text edit is BLOCKED while any exist,
-   *  rather than stranding someone else's moderation work. */
-  blockingChildren: Array<{
-    factId: number;
-    reason: "unresolved_review" | "active_enrichment_job";
-  }>;
-}
-
-/**
- * Resolve the direct-variant dependency for a root fact. Direct parent↔child
- * only — the product has no variants-of-variants (asserted in tests). Uses the
- * durable async_jobs table for the active-enrichment-job signal, not the
- * facts.enrichmentStatus projection.
- */
-export async function loadDirectVariantDependencies(
-  rootFactId: number,
-  tx: DbLike = db,
-): Promise<VariantDependency> {
-  const children = await tx
-    .select({ id: factsTable.id })
-    .from(factsTable)
-    .where(eq(factsTable.parentId, rootFactId));
-  const childFactIds = children.map((c) => c.id);
-  if (childFactIds.length === 0) return { childFactIds, blockingChildren: [] };
-
-  // Children with any unresolved review (first-time OR refresh in flight).
-  const reviewed = await tx
-    .select({ factId: pendingReviewsTable.stagingFactId })
-    .from(pendingReviewsTable)
-    .where(and(
-      inArray(pendingReviewsTable.stagingFactId, childFactIds),
-      inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
-    ));
-  const reviewBlocked = new Set(reviewed.map((r) => r.factId).filter((v): v is number => v != null));
-
-  // Children with a nonterminal generic enrichment job (dedupe key
-  // `enrichment:fact:<childId>`), which consumed parent context.
-  const enrichKeys = childFactIds.map((id) => `enrichment:fact:${id}`);
-  const jobRows = await tx
-    .select({ dedupeKey: asyncJobsTable.dedupeKey })
-    .from(asyncJobsTable)
-    .where(and(
-      eq(asyncJobsTable.queue, "enrichment"),
-      inArray(asyncJobsTable.dedupeKey, enrichKeys),
-      inArray(asyncJobsTable.status, [...NONTERMINAL_JOB_STATUSES]),
-    ));
-  const jobBlocked = new Set(
-    jobRows
-      .map((j) => j.dedupeKey)
-      .filter((k): k is string => k != null)
-      .map((k) => Number(k.slice("enrichment:fact:".length)))
-      .filter((n) => Number.isInteger(n)),
-  );
-
-  const blockingChildren: VariantDependency["blockingChildren"] = [];
-  for (const id of childFactIds) {
-    if (reviewBlocked.has(id)) blockingChildren.push({ factId: id, reason: "unresolved_review" });
-    else if (jobBlocked.has(id)) blockingChildren.push({ factId: id, reason: "active_enrichment_job" });
-  }
-  return { childFactIds, blockingChildren };
 }
 
 // ── Durable prep-job authority (staging branch) ──────────────────────────────

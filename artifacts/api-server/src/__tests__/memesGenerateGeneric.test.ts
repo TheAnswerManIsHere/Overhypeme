@@ -21,7 +21,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable, factsTable, imagePromptAttemptsTable } from "@workspace/db/schema";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { EMPTY_VISUAL_STRATEGY_OVERRIDE, type FactEnrichment } from "@workspace/api-zod";
 import { eq, inArray, like } from "drizzle-orm";
 
 import memesRouter from "../routes/memes.js";
@@ -50,6 +50,8 @@ const VALID_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  // Active facts require a non-empty Visual Concept (facts_active_requires_concept CHECK).
+  visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
 };
 
 function makeApp(): Express {
@@ -138,6 +140,28 @@ describe("POST /memes/ai/:factId/generate — generic branch (new engine)", () =
     assert.equal(factRow?.p ?? null, null);
   });
 
+  it("a variant (parentId set) is accepted — AI image generation is no longer root-only (variant independence)", async () => {
+    const rootId = await seedFact();
+    const [variant] = await db
+      .insert(factsTable)
+      .values({
+        text: `${FACT_PREFIX}{NAME} does a variant thing.`,
+        isActive: true,
+        parentId: rootId,
+        enrichment: VALID_ENRICHMENT as FactEnrichment,
+      })
+      .returning({ id: factsTable.id });
+    insertedFactIds.push(variant!.id);
+
+    const res = await request(makeApp())
+      .post(`/memes/ai/${variant!.id}/generate`)
+      .set("Authorization", `Bearer ${bearer}`)
+      .send({ scope: "gendered", aspectRatio: "square" });
+
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    assert.equal(typeof res.body.attemptId, "number");
+  });
+
   it("abstract scope uses the neutral fallback gender", async () => {
     const factId = await seedFact();
     const res = await request(makeApp())
@@ -155,7 +179,15 @@ describe("POST /memes/ai/:factId/generate — generic branch (new engine)", () =
   });
 
   it("400 fact_enrichment_invalid for a fact with no usable enrichment", async () => {
-    const factId = await seedFact({ enrichment: { primaryArchetype: "nope" } });
+    // Structurally-invalid enrichment (bad primaryArchetype) for the app-level
+    // fact_enrichment_invalid check, but with a Visual Concept present so the
+    // (orthogonal) DB CHECK — which only inspects that one nested string field —
+    // is satisfied and the active-fact insert succeeds. The route requires
+    // isActive=true to find the fact at all (memes.ts:1327), so this fixture
+    // can't be inactive like the admin-bench fixtures.
+    const factId = await seedFact({
+      enrichment: { primaryArchetype: "nope", visualPromptStrategyOverride: { version: 1, coreSceneOverride: "A hero stands tall." } },
+    });
     const res = await request(makeApp())
       .post(`/memes/ai/${factId}/generate`)
       .set("Authorization", `Bearer ${bearer}`)

@@ -12,6 +12,7 @@ import {
   isAdminByEmail,
 } from "../lib/auth";
 import { deriveUserRole } from "../lib/userRole";
+import { effectiveTierExpr } from "../lib/membershipState";
 
 declare global {
   namespace Express {
@@ -95,7 +96,12 @@ export async function authMiddleware(
         displayName: usersTable.displayName,
         pronouns: usersTable.pronouns,
         profileImageUrl: usersTable.profileImageUrl,
-        membershipTier: usersTable.membershipTier,
+        // The EFFECTIVE tier, not the raw column. Grace expiry has no Stripe
+        // event, so a deadline passing revokes nothing until the convergence
+        // sweep runs — and a sweep is a job that can fail. Enforcing it here
+        // makes revocation at the deadline independent of scheduler health.
+        // This is the chokepoint every `req.user.membershipTier` reader inherits.
+        membershipTier: effectiveTierExpr(),
         isAdmin: usersTable.isAdmin,
         captchaVerified: usersTable.captchaVerified,
         nsfwModeEnabled: usersTable.nsfwModeEnabled,

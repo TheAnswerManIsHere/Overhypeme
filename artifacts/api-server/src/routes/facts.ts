@@ -1,11 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { requireAdmin } from "./admin";
 import { moderateComment, checkDuplicateInternal } from "./ai";
-import { embedFactAsync } from "../lib/embeddings";
-import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { logActivity } from "../lib/activity";
-import { runFactImagePipeline, type FactPexelsImages } from "../lib/factImagePipeline";
 import { trimPexelsImages, trimAiMemeImages } from "../lib/trimFactImages";
 import { getConfigInt } from "../lib/adminConfig";
 import { db } from "@workspace/db";
@@ -25,24 +21,13 @@ import { verifyCaptcha } from "../lib/captcha";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull, not, like, or } from "drizzle-orm";
 import {
-  ListFactsQueryParams, CreateFactBody, GetFactParams,
+  ListFactsQueryParams, GetFactParams,
   RateFactParams, RateFactBody,
   ListCommentsParams, ListCommentsQueryParams, AddCommentParams, AddCommentBody,
   ListLinksParams, DeleteLinkParams,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
-
-/**
- * True when an image blob (Pexels or AI-meme) holds at least one image. Both
- * shapes are gender-bucketed objects whose image lists are arrays, so "has
- * content" = any array-valued field is non-empty. Used to decide whether a
- * variant needs to fall back to its parent's images.
- */
-function hasImageContent(blob: unknown): boolean {
-  if (!blob || typeof blob !== "object") return false;
-  return Object.values(blob as Record<string, unknown>).some((v) => Array.isArray(v) && v.length > 0);
-}
 
 async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], userId?: string) {
   if (!facts.length) return [];
@@ -230,31 +215,6 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
   const [{ rank }] = await db.select({ rank: sql<number>`(count(*) + 1)::int` }).from(factsTable).where(and(sql`${factsTable.wilsonScore} > ${fact.wilsonScore}`, eq(factsTable.isActive, true)));
   const [summary] = await buildFactSummaries([fact], req.user?.id);
 
-  // Variants are first-class: they get their OWN images (prepared independently,
-  // since a variant's visuals can differ significantly from the root). We fall
-  // back to the root fact's images ONLY for whichever image kind the variant has
-  // none of its own — never overwriting images the variant does have.
-  if (fact.parentId !== null) {
-    const needPexels = !hasImageContent(summary.pexelsImages);
-    const needAiMeme = !hasImageContent(summary.aiMemeImages);
-    if (needPexels || needAiMeme) {
-      const [parent] = await db
-        .select({ pexelsImages: factsTable.pexelsImages, aiMemeImages: factsTable.aiMemeImages })
-        .from(factsTable)
-        .where(eq(factsTable.id, fact.parentId))
-        .limit(1);
-      if (parent) {
-        const inheritCap = await getConfigInt("api_images_per_gender_cap", 5);
-        if (needPexels) {
-          summary.pexelsImages = trimPexelsImages((parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null, inheritCap);
-        }
-        if (needAiMeme) {
-          summary.aiMemeImages = trimAiMemeImages((parent.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null, inheritCap);
-        }
-      }
-    }
-  }
-
   const linkRows = await db.select().from(externalLinksTable).where(eq(externalLinksTable.factId, fact.id)).orderBy(desc(externalLinksTable.createdAt));
   const links = await Promise.all(linkRows.map(async (l) => {
     let addedBy = null;
@@ -419,75 +379,12 @@ router.post("/facts/:factId/share", async (req: AuthenticatedRequest, res: Respo
 });
 
 // POST /facts — admin-only direct insert; regular users submit via POST /facts/submit-review
-router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const parsed = CreateFactBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
-  const { text, hashtags = [] } = parsed.data;
-
-  // If text is already tokenized (sent from front-end AI step), use it as-is.
-  // Otherwise apply the basic legacy regex tokenizer.
-  const isAlreadyTokenized = /\{(NAME|SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(text);
-  const rawTokenizedText = isAlreadyTokenized ? text : (() => {
-    return text
-      .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{NAME}")
-      .replace(/\bHimself\b/g, "{REFL}")
-      .replace(/\bhimself\b/g, "{REFL}")
-      .replace(/\bHim\b/g, "{Obj}")
-      .replace(/\bhim\b/g, "{OBJ}")
-      .replace(/\bHis\b/g, "{Poss}")
-      .replace(/\bhis\b/g, "{POSS}")
-      .replace(/\bHe\b/g, "{Subj}")
-      .replace(/\bhe\b/g, "{SUBJ}");
-  })();
-  // Already-tokenized input bypasses the tokenize route's post-processing, so
-  // this ingress runs the full deterministic grammar cleanup (not just the
-  // {NAME}-subject collapse) before validation and storage — the same
-  // normalize → validate → derive contract every fact-writing route shares.
-  const normalized = normalizeFactTemplateForStorage(rawTokenizedText);
-  if (!normalized.valid) {
-    res.status(422).json({
-      error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
-    });
-    return;
-  }
-  const { text: tokenizedText, canonicalText, splitTokenIndex, hasPronouns: hasPronounsFlag } = normalized;
-  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user.id, canonicalText, isActive: true, splitTokenIndex }).returning();
-
-  // Generate and persist the pgvector embedding in the background (non-blocking)
-  // Embed from canonicalText so duplicate checks work against plain-English queries
-  void embedFactAsync(fact.id, fact.text, canonicalText);
-
-  // Seed Pexels stock photos in the background, same as the standalone
-  // review-approval path. Admins insert root facts directly (no parentId), so
-  // they otherwise never got stock photos and depended on a manual backfill.
-  void runFactImagePipeline(fact.id, fact.text);
-
-  // Log to activity feed
-  void logActivity({
-    userId: req.user.id,
-    actionType: "fact_submitted",
-    message: `You submitted a new fact to the database.`,
-    metadata: { factId: fact.id, text: text.slice(0, 120) },
-  });
-
-  if (hashtags.length) {
-    for (const tag of hashtags) {
-      const name = tag.toLowerCase().replace(/[^a-z0-9_]/g, "");
-      if (!name) continue;
-      let [ht] = await db.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
-      if (!ht) {
-        [ht] = await db.insert(hashtagsTable).values({ name }).returning();
-      }
-      const [joined] = await db.insert(factHashtagsTable).values({ factId: fact.id, hashtagId: ht.id }).onConflictDoNothing().returning();
-      if (joined) {
-        await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
-      }
-    }
-  }
-
-  const [summary] = await buildFactSummaries([fact], req.user.id);
-  res.status(201).json({ ...summary, links: [] });
-});
+// NOTE: `POST /facts` (admin direct-create) was REMOVED in the Phase 2
+// fact-lifecycle closure. Admin direct-create bypassed moderation (it inserted an
+// active, enrichment-less fact) — the exact anti-state Phase 2 closes. Every fact
+// now enters through the moderation funnel (manual submit / bulk import / variant,
+// all via createTriageReview → triage → enrich → activate). There is deliberately
+// no route here.
 
 // POST /facts/:factId/rating
 router.post("/facts/:factId/rating", async (req: AuthenticatedRequest, res: Response) => {
@@ -650,11 +547,7 @@ router.get("/facts/:factId/pexels-images", async (req: Request, res: Response) =
   const [fact] = await db.select().from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  let rawImages = fact.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null;
-  if (fact.parentId !== null) {
-    const [parent] = await db.select({ pexelsImages: factsTable.pexelsImages }).from(factsTable).where(eq(factsTable.id, fact.parentId)).limit(1);
-    if (parent) rawImages = parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null;
-  }
+  const rawImages = fact.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null;
 
   if (!rawImages) { res.json({ photos: [], hasMore: false }); return; }
 

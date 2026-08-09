@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { createRateLimiter, RATE_MAX, RATE_WINDOW_MS } from "../lib/rateLimit.js";
-import { purgeExpiredRateLimitCounters, purgeRateLimitCountersByPrefix } from "../lib/sharedRateLimiter.js";
+import { purgeRateLimitCountersByPrefix } from "../lib/sharedRateLimiter.js";
 
 const TEST_KEY_PREFIX = "rl|test.";
 const RUN_ID = crypto.randomUUID();
@@ -52,7 +52,7 @@ describe("createRateLimiter", () => {
     assert.equal(ipOnly.nextCalled, true);
   });
 
-  it("can purge expired counters", async () => {
-    await purgeExpiredRateLimitCounters();
-  });
+  // Expired-row retention moved to jobs/rateLimitCounterPurger.ts; its
+  // behavior is covered by rateLimitCounterPurger.test.ts, which asserts what
+  // actually got deleted rather than only that the call returns.
 });

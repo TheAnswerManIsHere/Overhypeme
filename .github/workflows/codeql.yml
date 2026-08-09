@@ -19,6 +19,20 @@ on:
   schedule:
     - cron: '23 18 * * 0'
 
+# Same reasoning as build.yml: a PR-triggered run is obsolete the moment
+# another push lands on the same PR, so it's safe to cancel. Push-to-main and
+# the weekly schedule fall back to github.run_id (unique per run), not
+# github.ref — the ref is identical across every push-to-main run, so that
+# fallback would still let GitHub's default single-pending-slot behavior
+# silently drop a queued run when merges land close together (queue: max
+# isn't an option here — GitHub disallows combining it with a
+# cancel-in-progress that can evaluate true, which ours does for PR events).
+# A per-run-unique fallback means push/schedule runs never share a group
+# with anything, so nothing is ever queued or cancelled for them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
@@ -47,8 +61,10 @@ jobs:
           build-mode: none
         - language: javascript-typescript
           build-mode: none
-        - language: python
-          build-mode: none
+        # 'python' deliberately excluded: the only .py files in this repo are
+        # two helper scripts under .claude/skills/ (semgrep, sarif-parsing) —
+        # tooling, not product code — so this matrix entry scanned nothing
+        # that ships while still paying for a full job on every push.
         # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
         # Use `c-cpp` to analyze code written in C, C++ or both
         # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
@@ -59,7 +75,7 @@ jobs:
         # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     # Add any setup steps before running the `github/codeql-action/init` action.
     # This includes steps like installing compilers or runtimes (`actions/setup-node`

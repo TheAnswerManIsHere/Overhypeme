@@ -11,7 +11,10 @@
  */
 
 import { z } from "zod";
-import { visualPromptStrategyOverrideSchema } from "./visualStrategyOverride";
+import {
+  visualPromptStrategyOverrideSchema,
+  EMPTY_VISUAL_STRATEGY_OVERRIDE,
+} from "./visualStrategyOverride";
 
 // ─── Primary archetypes ────────────────────────────────────────────────────
 
@@ -285,7 +288,10 @@ export const TAXONOMY_VERSION = "v1";
 // RETIRED_TEXT_MODIFIERS. The AI no longer emits blanket text bans; incidental
 // text is owned by the compiler's supporting-text rules and full bans by the
 // moderator override.
-export const CLASSIFICATION_PROMPT_VERSION = "v6";
+// v7: variant independence — the classifier no longer receives a fact-status
+// label or parent-fact text; a variant is classified from its own text only,
+// identically to a root (`docs/ai-context/decisions.md`).
+export const CLASSIFICATION_PROMPT_VERSION = "v7";
 export const PREVIEW_PROMPT_VERSION = "v1";
 
 // ─── Hashtag normalization ─────────────────────────────────────────────────
@@ -571,6 +577,47 @@ export const factEnrichmentSchema = factEnrichmentBase.superRefine(
 );
 
 export type FactEnrichment = z.infer<typeof factEnrichmentSchema>;
+
+/**
+ * The grandfather/placeholder Visual Concept (core scene) stamped on facts that
+ * are active but have no authored scene — visibly generic and greppable so it's
+ * obvious it's a placeholder to replace. Used by the Phase-2 grandfather backfill
+ * (in SQL), by seeds/fixtures, and anywhere a minimal renderable concept is
+ * needed. Carries the {NAME} token, consistent with authored concepts.
+ */
+export const PLACEHOLDER_CORE_SCENE_OVERRIDE = "{NAME} stands there confidently.";
+
+/**
+ * A minimal, schema-valid `FactEnrichment` carrying the placeholder Visual
+ * Concept. Facts are born inactive and may only go live with a non-empty concept
+ * (Phase-2 fact-lifecycle closure + DB CHECK), so any seed/fixture that inserts a
+ * LIVE fact must attach a valid enrichment with a concept — this is the shared
+ * one. It's a real, renderable placeholder (not junk): full valid taxonomy plus
+ * the sentinel core scene.
+ */
+export function buildPlaceholderFactEnrichment(
+  coreSceneOverride: string = PLACEHOLDER_CORE_SCENE_OVERRIDE,
+): FactEnrichment {
+  return {
+    primaryArchetype: "mundane_act_made_legendary",
+    subtype: "domestic_task_mythologized",
+    modifiers: [],
+    visualLiteralness: "literal_dramatization",
+    visualComplexity: "medium",
+    overhypeFit: "strong",
+    adultSuitability: "safe",
+    adultSuitabilityNotes: "",
+    suggestedHashtags: ["overhype", "legend", "placeholder"],
+    taxonomyConfidence: 1,
+    adminReviewNotes: "",
+    culturalReferences: [],
+    semanticEntities: [],
+    visualPromptStrategyOverride: {
+      ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+      coreSceneOverride,
+    },
+  };
+}
 
 export type EnrichmentValidationResult =
   | { ok: true; data: FactEnrichment }

@@ -13,7 +13,10 @@
     "worker:deploy": "pnpm --filter @workspace/og-router run deploy",
     "worker:dev": "pnpm --filter @workspace/og-router run dev",
     "check:docs": "node scripts/check-docs-accuracy.mjs",
-    "check:codegen-drift": "bash scripts/check-codegen-drift.sh"
+    "check:codegen-drift": "bash scripts/check-codegen-drift.sh",
+    "check:ledger": "node scripts/check-loop-metrics.mjs",
+    "check:manual-tuning": "node scripts/check-manual-tuning-language.mjs",
+    "check:return-to-parity": "pnpm --filter @workspace/api-server exec tsx ../../scripts/check-return-to-parity.mjs"
   },
   "private": true,
   "devDependencies": {

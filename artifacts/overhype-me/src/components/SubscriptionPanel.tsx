@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
-import { formatAmount } from "@/components/subscriptionHelpers";
+import { formatAmount, findAnnualPriceId, getAnnualSavingsPercent } from "@/components/subscriptionHelpers";
 import { Star, CreditCard, Zap, ExternalLink, AlertCircle, RefreshCw, ArrowUpCircle, XCircle, CheckCircle2 } from "lucide-react";
 
 interface Subscription {
@@ -64,6 +64,34 @@ interface ProrationPreview {
 }
 
 
+/**
+ * What the three subscription-mutation routes return when the Stripe call
+ * succeeded but our own entitlement row could not be refreshed from it.
+ *
+ * The change IS live at Stripe — that half of the response is authoritative.
+ * What is unknown is our local projection, which stays whatever it was until
+ * the webhook lands. Treating that response as an ordinary success (the
+ * previous behavior) showed the user a confidently wrong membership state with
+ * nothing on screen to suggest otherwise, which is the failure the two-altitude
+ * status rule exists to prevent.
+ */
+const STALE_LOCAL_STATE_MESSAGE =
+  "Your change was accepted by our payment provider, but our own records haven't caught up yet. " +
+  "The membership details below may be out of date for a minute or two — they'll correct themselves automatically.";
+
+/**
+ * How long we keep re-checking after a stale response, in ms from the mutation.
+ *
+ * The tail has to outlast the BACKGROUND work, not the caller's deadline. When
+ * the server abandons its wait at 10s the refresh keeps going — lease
+ * acquisition, then a bounded retrieval phase, then the apply — so a fixed set
+ * of rechecks ending at 20s could see nothing but the old projection and leave
+ * the banner up forever even though the state converged at 40s. These cover the
+ * server's own worst case with room to spare, and stop as soon as the mutation's
+ * settled predicate holds.
+ */
+const STALE_RECHECK_DELAYS_MS = [2000, 5000, 10000, 20000, 35000, 50000, 70000, 90000];
+
 interface ConfirmDialogProps {
   title: string;
   children: React.ReactNode;
@@ -106,6 +134,8 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   const [plans, setPlans] = useState<PlanProduct[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [localStateWarning, setLocalStateWarning] = useState<string | null>(null);
+  const staleTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -122,15 +152,60 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   const [previewLoading, setPreviewLoading] = useState(false);
   const [targetAnnualPriceId, setTargetAnnualPriceId] = useState<string | null>(null);
 
-  const fetchSubData = useCallback(() => {
-    fetch("/api/stripe/subscription", { credentials: "include" })
-      .then(r => r.json())
-      .then((d: SubscriptionResponse) => setSubData(d))
-      .catch(() => setSubData(null));
+  // Returns what it fetched as well as storing it, so a recheck can ask whether
+  // the projection has caught up rather than only redrawing with it.
+  const fetchSubData = useCallback(async (): Promise<SubscriptionResponse | null> => {
+    try {
+      const resp = await fetch("/api/stripe/subscription", { credentials: "include" });
+      const data = (await resp.json()) as SubscriptionResponse;
+      setSubData(data);
+      return data;
+    } catch {
+      setSubData(null);
+      return null;
+    }
   }, []);
 
+  const clearStaleTimers = useCallback(() => {
+    staleTimersRef.current.forEach(clearTimeout);
+    staleTimersRef.current = [];
+  }, []);
+
+  /**
+   * A mutation route told us its Stripe call landed but our local entitlement
+   * row did not refresh. Say so, and keep re-checking — the webhook that fixes
+   * it usually arrives within seconds, and the banner is the honest state until
+   * it does rather than a spinner pretending the page is still loading.
+   *
+   * `settled` is what the corrected state looks like for THIS mutation. Without
+   * it the banner could only be cleared by another mutation or a remount, so a
+   * panel that had already caught up and was displaying the corrected
+   * subscription would keep insisting its records were behind — the same class
+   * of lie as the confident-but-wrong success it replaced, pointing the other
+   * way.
+   */
+  const handleLocalStateStale = useCallback(
+    (settled: (data: SubscriptionResponse) => boolean) => {
+      setLocalStateWarning(STALE_LOCAL_STATE_MESSAGE);
+      clearStaleTimers();
+      staleTimersRef.current = STALE_RECHECK_DELAYS_MS.map((ms) =>
+        setTimeout(() => {
+          void fetchSubData().then((data) => {
+            if (data && settled(data)) {
+              setLocalStateWarning(null);
+              clearStaleTimers();
+            }
+          });
+        }, ms),
+      );
+    },
+    [clearStaleTimers, fetchSubData],
+  );
+
+  useEffect(() => clearStaleTimers, [clearStaleTimers]);
+
   useEffect(() => {
-    fetchSubData();
+    void fetchSubData();
     fetch("/api/stripe/payment-history", { credentials: "include" })
       .then(r => r.json())
       .then((d: { history: PaymentRecord[] }) => setHistory(d.history ?? []))
@@ -144,7 +219,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     if (params.get("from_portal") === "1") {
       setLocation(currentPath, { replace: true });
       const delays = [2000, 4000, 7000, 12000];
-      const timers = delays.map((ms) => setTimeout(fetchSubData, ms));
+      const timers = delays.map((ms) => setTimeout(() => void fetchSubData(), ms));
       return () => timers.forEach(clearTimeout);
     }
     return;
@@ -154,7 +229,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   // When the parent confirms a checkout (e.g. Legendary for Life), refetch everything.
   useEffect(() => {
     if (!refetchTrigger) return;
-    fetchSubData();
+    void fetchSubData();
     fetch("/api/stripe/payment-history", { credentials: "include" })
       .then(r => r.json())
       .then((d: { history: PaymentRecord[] }) => setHistory(d.history ?? []))
@@ -182,14 +257,19 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   async function handleCancel() {
     setCancelLoading(true);
     setError(null);
+    setLocalStateWarning(null);
     try {
       const resp = await fetch("/api/stripe/subscription/cancel", {
         method: "POST",
         credentials: "include",
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean; targetChanged?: boolean };
       if (data.error) {
         setError(data.error);
+        // The server refused because the subscription it would have acted on is
+        // not the one we were showing — it has already repaired its own state,
+        // so refetching makes the panel truthful and a second click deliberate.
+        if (data.targetChanged) void fetchSubData();
       } else {
         // Optimistically flip cancelAtPeriodEnd so the button hides immediately
         // without waiting for the Stripe webhook to update the sync table.
@@ -204,7 +284,11 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         setShowCancelDialog(false);
         setCancelSuccessMessage("Your subscription has been cancelled. You'll keep access until the end of the billing period.");
         // Background refetch to sync full server state
-        fetchSubData();
+        void fetchSubData();
+        // Settled = the server also shows the subscription as cancelling.
+        if (data.localStateStale) {
+          handleLocalStateStale((d) => d.appSubscription?.cancelAtPeriodEnd === true);
+        }
       }
     } catch {
       setError("Network error");
@@ -217,14 +301,19 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     setReactivateLoading(true);
     setError(null);
     setCancelSuccessMessage(null);
+    setLocalStateWarning(null);
     try {
       const resp = await fetch("/api/stripe/subscription/reactivate", {
         method: "POST",
         credentials: "include",
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean; targetChanged?: boolean };
       if (data.error) {
         setError(data.error);
+        // The server refused because the subscription it would have acted on is
+        // not the one we were showing — it has already repaired its own state,
+        // so refetching makes the panel truthful and a second click deliberate.
+        if (data.targetChanged) void fetchSubData();
       } else {
         // Optimistically flip cancelAtPeriodEnd back to false so the reactivate
         // button disappears immediately without waiting for the Stripe webhook.
@@ -238,7 +327,11 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         });
         setCancelSuccessMessage("Your subscription has been reactivated and will renew as normal.");
         // Background refetch to sync full server state
-        fetchSubData();
+        void fetchSubData();
+        // Settled = the server also shows the cancellation withdrawn.
+        if (data.localStateStale) {
+          handleLocalStateStale((d) => d.appSubscription?.cancelAtPeriodEnd === false);
+        }
       }
     } catch {
       setError("Network error");
@@ -252,7 +345,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     setProrationPreview(null);
 
     // Find annual price from plans
-    const annualPriceId = findAnnualPriceId();
+    const annualPriceId = findAnnualPriceId(plans, price?.id);
     if (!annualPriceId) {
       setError("Annual plan not available");
       return;
@@ -283,6 +376,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     if (!targetAnnualPriceId) return;
     setSwitchLoading(true);
     setError(null);
+    setLocalStateWarning(null);
     try {
       const resp = await fetch("/api/stripe/subscription/switch-plan", {
         method: "POST",
@@ -290,77 +384,32 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPriceId: targetAnnualPriceId }),
       });
-      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      const data = (await resp.json()) as { subscription?: unknown; error?: string; localStateStale?: boolean; targetChanged?: boolean };
       if (data.error) {
         setError(data.error);
+        // The server refused because the subscription it would have acted on is
+        // not the one we were showing — it has already repaired its own state,
+        // so refetching makes the panel truthful and a second click deliberate.
+        if (data.targetChanged) void fetchSubData();
       } else {
         setShowSwitchDialog(false);
-        fetchSubData();
-        // Delayed refetches to catch webhook-driven DB updates
-        const delays = [2000, 5000, 10000];
-        delays.forEach((ms) => setTimeout(fetchSubData, ms));
+        void fetchSubData();
+        if (data.localStateStale) {
+          // Already schedules its own re-checks, on a longer tail than the
+          // optimistic ones below — don't stack two sets of timers.
+          // Settled = the server reports the annual plan we switched to.
+          handleLocalStateStale((d) => d.appSubscription?.plan === "annual");
+        } else {
+          // Delayed refetches to catch webhook-driven DB updates
+          const delays = [2000, 5000, 10000];
+          delays.forEach((ms) => setTimeout(() => void fetchSubData(), ms));
+        }
       }
     } catch {
       setError("Network error");
     } finally {
       setSwitchLoading(false);
     }
-  }
-
-  function findAnnualPriceId(): string | null {
-    const currentPriceId = sub?.items?.data?.[0]?.price?.id;
-
-    // Find the product containing the current monthly price, then return its annual price
-    if (currentPriceId) {
-      for (const product of plans) {
-        const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
-        if (hasCurrentPrice) {
-          const annualPrice = product.prices.find(p => p.recurring?.interval === "year");
-          if (annualPrice) return annualPrice.id;
-        }
-      }
-    }
-
-    // Fallback: if current price not found in plans (e.g., synced from webhook but not in plans list),
-    // return the first annual price across all plans
-    for (const product of plans) {
-      for (const price of product.prices) {
-        if (price.recurring?.interval === "year") return price.id;
-      }
-    }
-    return null;
-  }
-
-  function getAnnualSavingsPercent(): number | null {
-    const currentPriceId = sub?.items?.data?.[0]?.price?.id;
-    let monthlyAmount: number | null = null;
-    let annualAmount: number | null = null;
-
-    // Find amounts from the same product as current subscription
-    if (currentPriceId) {
-      for (const product of plans) {
-        const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
-        if (hasCurrentPrice) {
-          monthlyAmount = product.prices.find(p => p.recurring?.interval === "month")?.unit_amount ?? null;
-          annualAmount = product.prices.find(p => p.recurring?.interval === "year")?.unit_amount ?? null;
-          break;
-        }
-      }
-    }
-
-    // Fallback to global search
-    if (!monthlyAmount || !annualAmount) {
-      for (const product of plans) {
-        for (const price of product.prices) {
-          if (price.recurring?.interval === "month") monthlyAmount = price.unit_amount;
-          if (price.recurring?.interval === "year") annualAmount = price.unit_amount;
-        }
-      }
-    }
-
-    if (!monthlyAmount || !annualAmount) return null;
-    const annualEquivMonthly = annualAmount / 12;
-    return Math.round((1 - annualEquivMonthly / monthlyAmount) * 100);
   }
 
   const sub = subData?.subscription ?? null;
@@ -403,8 +452,8 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     price?.recurring?.interval === "month" ||
     (!price?.recurring && appSub?.plan === "monthly")
   );
-  const annualPriceAvailable = findAnnualPriceId() !== null;
-  const savingsPercent = getAnnualSavingsPercent();
+  const annualPriceAvailable = findAnnualPriceId(plans, price?.id) !== null;
+  const savingsPercent = getAnnualSavingsPercent(plans, price?.id);
 
   // Show the portal button for any paid member or anyone with payment history
   const showPortalButton = history.length > 0 || isLegendary;
@@ -418,6 +467,22 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         <Star className="w-5 h-5 text-primary" />
         <h2 className="font-display text-xl uppercase tracking-wide text-foreground">Membership</h2>
       </div>
+
+      {/*
+        Rendered above both branches, not inside the Legendary one: a plan
+        switch is exactly the mutation that can move a user OFF membership, so
+        a warning scoped to the Legendary block would vanish in the one case
+        where the stale state is most confusing.
+      */}
+      {localStateWarning && (
+        <div
+          role="status"
+          className="flex items-start gap-2 text-sm text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-sm p-3 mb-4"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{localStateWarning}</span>
+        </div>
+      )}
 
       {subData === undefined && (
         <div className="animate-pulse h-20 bg-secondary rounded-sm" />

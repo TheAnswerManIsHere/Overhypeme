@@ -1,4 +1,5 @@
-import { pgTable, text, serial, timestamp, varchar, integer, doublePrecision, customType, index, boolean, jsonb } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, serial, timestamp, varchar, integer, doublePrecision, customType, index, boolean, jsonb, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./auth";
@@ -31,7 +32,13 @@ export const factsTable = pgTable("facts", {
   commentCount: integer("comment_count").notNull().default(0),
   shareCount: integer("share_count").notNull().default(0),
   hasPronouns: boolean("has_pronouns").notNull().default(false),
-  isActive: boolean("is_active").notNull().default(true),
+  // Facts are born INACTIVE (Phase 2 fact-lifecycle closure): the only transition
+  // to active is the moderation activation chokepoint (activateFact, reached only
+  // via approveForProduction after the full pipeline + a non-empty Visual Concept).
+  // A DB CHECK constraint (facts_active_requires_concept) enforces the concept gate
+  // even against raw SQL. Every insert that wants a live fact must say so explicitly
+  // AND carry a valid concept.
+  isActive: boolean("is_active").notNull().default(false),
   canonicalText: text("canonical_text"),
   /**
    * Token-boundary index where the rendered fact splits into top/bottom captions.
@@ -76,6 +83,18 @@ export const factsTable = pgTable("facts", {
   aiScenePrompts: jsonb("ai_scene_prompts"),
   /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */
   aiMemeImages: jsonb("ai_meme_images"),
+  /**
+   * AI-meme backfill lifecycle for the durable `fact_ai_meme_backfill` queue:
+   * "pending" | "processing" | "ok" | "failed" | "skipped". Mirrors
+   * `pexels_status` exactly, with two extra values this queue's crash-recovery
+   * design needs: "processing" (set immediately before the paid pipeline call,
+   * so a worker crash mid-run is distinguishable from a queued-but-not-started
+   * job) and "skipped" (a terminal, non-error outcome — the fact was
+   * deactivated before its handler ran). Null on facts that never ran AI-meme
+   * generation through this queue (legacy rows; live-fact generation via
+   * `memes.ts`/`pulidJobs.ts`, which don't use this queue).
+   */
+  aiMemeBackfillStatus: varchar("ai_meme_backfill_status", { length: 16 }),
   /**
    * Full visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod).
    * Populated when a fact is approved from an enriched review, or via backfill.
@@ -139,6 +158,17 @@ export const factsTable = pgTable("facts", {
   index("facts_adult_suitability_idx").on(table.adultSuitability),
   // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
   // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
+  // Keep the lifecycle backstop in the schema model as well as the
+  // hand-authored migration. Otherwise drizzle-kit push can remove it after
+  // the migration runner has recorded 0092 as applied.
+  check(
+    "facts_active_requires_concept",
+    sql`${table.isActive} = false OR COALESCE(
+      jsonb_typeof(${table.enrichment} #> '{visualPromptStrategyOverride,coreSceneOverride}') = 'string'
+      AND (${table.enrichment} #>> '{visualPromptStrategyOverride,coreSceneOverride}') ~ '\\S',
+      false
+    )`,
+  ),
 ]);
 
 export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, shareCount: true, createdAt: true, updatedAt: true });

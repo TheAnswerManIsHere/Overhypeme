@@ -12,8 +12,10 @@ import {
   createLaneRunner,
   enqueueJob,
   queuesForLane,
+  recoverStuckProcessing,
   registerJobHandler,
   terminalFailure,
+  RECOVER_STUCK_CUTOFF_MIN,
   type JobHandler,
 } from "../lib/asyncJobs.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
@@ -195,9 +197,46 @@ describe("asyncJobs worker", () => {
     await asyncJobsTick(db, new Date(), { queues: [queue] });
 
     const after = await getJob(inserted.id);
-    assert.equal(after.maxAttempts, 0, "0 sentinel should mean queue config, not a hard-coded override");
+    // The sentinel is RESOLVED and persisted once the row finalizes to
+    // `failed` — the queue-health surface derives terminal-vs-exhausted from
+    // attempts vs. this column, and re-resolving against LIVE config at read
+    // time (rather than the value in effect at finalization) would
+    // misclassify this row if the queue's ceiling changes later.
+    assert.equal(after.maxAttempts, 2, "the resolved ceiling (2) is persisted on exhaustion, not left as the sentinel");
     assert.equal(after.attempts, 2);
     assert.equal(after.status, "failed");
+  });
+
+  it("still leaves the sentinel in place while a row is only pending retry, not yet finalized", async () => {
+    // The persisted-ceiling behavior above is deliberately scoped to the
+    // FAILED transition only. A still-retrying row must keep tracking live
+    // config — an admin raising a queue's ceiling mid-flight should let an
+    // in-progress job benefit from the extra retries, not freeze it early.
+    const queue = `${QUEUE_PREFIX}${randomUUID()}`;
+    const configKey = `async_job_${queue}_max_attempts`;
+    configKeys.push(configKey);
+    await setConfigInt(configKey, 5);
+
+    registerJobHandler(queue, {
+      async run() {
+        return { ok: false, error: "transient" };
+      },
+    });
+
+    await enqueueJob({ queue, payload: {} });
+    const [inserted] = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, queue)).limit(1);
+    assert.ok(inserted);
+    jobIds.push(inserted.id);
+
+    await db
+      .update(asyncJobsTable)
+      .set({ nextAttemptAt: new Date(Date.now() - 1000) })
+      .where(eq(asyncJobsTable.id, inserted.id));
+    await asyncJobsTick(db, new Date(), { queues: [queue] });
+
+    const after = await getJob(inserted.id);
+    assert.equal(after.status, "pending", "attempt 1 of 5 — still eligible for retry");
+    assert.equal(after.maxAttempts, 0, "the sentinel stays untouched while the row is not yet finalized");
   });
 
   it("terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)", async () => {
@@ -224,6 +263,12 @@ describe("asyncJobs worker", () => {
     assert.equal(after.status, "failed", "a terminal failure fails immediately");
     assert.equal(after.attempts, 1, "terminal failure does not burn extra retry attempts");
     assert.match(after.lastError ?? "", /frozen style snapshot invalid/);
+    // The exact case the queue-health surface needs to tell apart from
+    // exhaustion: 1 attempt against a 5-attempt ceiling. Persisting the
+    // resolved ceiling (5) here, not the enqueue-time sentinel (0), is what
+    // makes `attempts < maxAttempts` a durable fact rather than one that can
+    // flip if the queue's config ceiling changes after this row failed.
+    assert.equal(after.maxAttempts, 5, "the resolved ceiling is persisted on a terminal failure too");
   });
 
   it("a plain (retryable) failure still retries under maxAttempts — terminal path is opt-in", async () => {
@@ -359,11 +404,21 @@ describe("asyncJobs worker", () => {
 
     const bulkRunner = createLaneRunner(
       { lane: "bulk", intervalMs: 1_000_000, maxConcurrency: 1, maintenance: false },
-      { schedule: noopSchedule, runTick: async () => { bulkStarts++; await bulkGate.promise; } },
+      {
+        schedule: noopSchedule,
+        runTick: async () => { bulkStarts++; await bulkGate.promise; },
+        // No-op heartbeats: this test is about lane scheduling, and a database
+        // round-trip on the tick path would make its timing depend on DB load.
+        heartbeats: { scheduled: async () => {}, completed: async () => {} },
+      },
     );
     const fastRunner = createLaneRunner(
       { lane: "fast", intervalMs: 1_000_000, maxConcurrency: 1, maintenance: false },
-      { schedule: noopSchedule, runTick: async () => { fastRuns++; } },
+      {
+        schedule: noopSchedule,
+        runTick: async () => { fastRuns++; },
+        heartbeats: { scheduled: async () => {}, completed: async () => {} },
+      },
     );
 
     // Let both immediate ticks settle: bulk parks on its gate, fast completes.
@@ -388,4 +443,74 @@ describe("asyncJobs worker", () => {
     clearTimeout(bulkRunner.handle);
     clearTimeout(fastRunner.handle);
   });
+
+  // ── Stuck-row reclaim cutoff ────────────────────────────────────────────
+  // Regression guard for the autoscale double-execution defect: this
+  // deployment is `deploymentTarget = "autoscale"` and every instance starts
+  // the worker, so recovery runs against rows OTHER live instances are
+  // actively processing. Because finalize matches on row id alone (no fencing
+  // token yet — Phase 3a), reclaiming a still-running row means both runs
+  // execute and one silently overwrites the other.
+
+  it("does not reclaim a processing row younger than the cutoff", async () => {
+    // 12 minutes: inside the OLD 10-minute cutoff's reclaim window, outside the
+    // new one. This is the row a scaling-up instance would have stolen from a
+    // healthy peer mid-render.
+    const claimedAt = new Date(Date.now() - 12 * 60_000);
+    const [row] = await db
+      .insert(asyncJobsTable)
+      .values({
+        queue: `test_stuck_${randomUUID().slice(0, 8)}`,
+        payload: {},
+        status: "processing",
+        updatedAt: claimedAt,
+      })
+      .returning();
+    jobIds.push(row!.id);
+
+    await recoverStuckProcessing(db, RECOVER_STUCK_CUTOFF_MIN);
+
+    const after = await getJob(row!.id);
+    assert.equal(
+      after.status,
+      "processing",
+      "a row claimed 12 minutes ago must NOT be reclaimed — another instance may still be running it",
+    );
+  });
+
+  it("reclaims a processing row older than the cutoff", async () => {
+    const claimedAt = new Date(Date.now() - (RECOVER_STUCK_CUTOFF_MIN + 1) * 60_000);
+    const [row] = await db
+      .insert(asyncJobsTable)
+      .values({
+        queue: `test_stuck_${randomUUID().slice(0, 8)}`,
+        payload: {},
+        status: "processing",
+        updatedAt: claimedAt,
+      })
+      .returning();
+    jobIds.push(row!.id);
+
+    await recoverStuckProcessing(db, RECOVER_STUCK_CUTOFF_MIN);
+
+    const after = await getJob(row!.id);
+    assert.equal(
+      after.status,
+      "pending",
+      "a genuinely stranded row must still be recovered — the cutoff bounds the race, it does not disable recovery",
+    );
+  });
+
+  it("keeps the reclaim cutoff clear of the slowest real handler", () => {
+    // The image-prompt planner alone can run ~180s before image generation
+    // starts, and that is one handler on one instance. A cutoff anywhere near
+    // it re-opens the reclaim race this constant exists to close, so guard the
+    // floor rather than the exact value — 30 is the current choice, 15 is the
+    // point below which the margin stops being real.
+    assert.ok(
+      RECOVER_STUCK_CUTOFF_MIN >= 15,
+      `RECOVER_STUCK_CUTOFF_MIN is ${RECOVER_STUCK_CUTOFF_MIN}; below 15 minutes a slow handler can be reclaimed mid-run and executed twice`,
+    );
+  });
+
 });

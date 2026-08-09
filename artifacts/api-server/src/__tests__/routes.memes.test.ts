@@ -25,6 +25,7 @@ import {
   userFactPreferencesTable,
 } from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -60,7 +61,7 @@ const insertedFactIds: number[] = [];
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
   const [row] = await db
     .insert(factsTable)
-    .values({ text, submittedById: opts.submittedById, isActive: true, canonicalText: text })
+    .values({ text, submittedById: opts.submittedById, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: text })
     .returning();
   insertedFactIds.push(row.id);
   return row.id;

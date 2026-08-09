@@ -15,7 +15,6 @@
 /** 409 codes the endpoint returns; surfaced verbatim so callers can special-case them. */
 export type SendBackToReviewCode =
   | "NOT_ACTIVE"
-  | "HAS_ACTIVE_VARIANTS"
   | "REFRESH_ALREADY_IN_PROGRESS";
 
 export interface SendBackToReviewResult {

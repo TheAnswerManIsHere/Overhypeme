@@ -4,7 +4,7 @@
 // unhandled errors, which is all we need.
 import "./instrument";
 import * as Sentry from "@sentry/node";
-import app from "./app";
+import { createApp } from "./app";
 import { logger } from "./lib/logger";
 import { absorbFatalStreamError } from "./lib/stdioGuard";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";
@@ -21,6 +21,7 @@ import { registerProjectionRepairHandler } from "./lib/projectionRepairJob.js";
 import { registerFactEnrichmentBackfillHandler } from "./lib/factEnrichmentBackfillJob.js";
 import { registerFactSendBackHandler } from "./lib/factSendBackJob.js";
 import { registerFactPexelsJobHandler } from "./lib/factPexelsJobs.js";
+import { registerFactAiMemeBackfillHandler } from "./lib/aiMemeBackfillJobs.js";
 import { registerVisualConceptJobHandlers } from "./lib/visualConceptJobs.js";
 import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
 import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
@@ -121,44 +122,16 @@ async function initStripe() {
   }
 }
 
-// Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
-// should be upgraded. This catches webhook gaps (e.g. the webhook handler crashed mid-flight).
-async function reconcileMembershipTiers() {
-  try {
-    const { db } = await import("@workspace/db");
-    const { usersTable, subscriptionsTable } = await import("@workspace/db/schema");
-    const { eq, and, ne } = await import("drizzle-orm");
-
-    const mismatched = await db
-      .select({
-        userId: usersTable.id,
-        email: usersTable.email,
-        currentTier: usersTable.membershipTier,
-        subStatus: subscriptionsTable.status,
-      })
-      .from(usersTable)
-      .innerJoin(subscriptionsTable, eq(usersTable.id, subscriptionsTable.userId))
-      .where(and(
-        eq(subscriptionsTable.status, "active"),
-        ne(usersTable.membershipTier, "legendary"),
-      ));
-
-    if (mismatched.length === 0) return;
-
-    for (const row of mismatched) {
-      await db.update(usersTable)
-        .set({ membershipTier: "legendary" })
-        .where(eq(usersTable.id, row.userId));
-      logger.info(
-        { userId: row.userId, email: row.email, previousTier: row.currentTier },
-        "Reconciled membership tier → legendary (active subscription found)",
-      );
-    }
-    logger.info({ count: mismatched.length }, "Membership tier reconciliation complete");
-  } catch (err) {
-    logger.error({ err }, "Membership tier reconciliation failed");
-  }
-}
+// The boot-time tier reconciler is gone.
+//
+// It scanned for "an active subscription row but tier != legendary" and set the
+// tier directly — a seventh writer of the field this model derives, and one that
+// could only ever UPGRADE. It had no notion of the allowlist, of a lost dispute,
+// of a refunded purchase or of an expired grace window, so under the new model it
+// would have re-granted access the derivation had just correctly withdrawn.
+//
+// Its actual job — catching webhook gaps — is what reconciliation does, on a
+// cadence, against authoritative Stripe state rather than against local rows.
 
 // ── fal.ai Pricing Cache ────────────────────────────────────────────────────
 //
@@ -239,6 +212,39 @@ function scheduleTransientRenderPurger() {
   schedule();
 }
 
+// Hourly: delete expired `rate_limit_counters` rows in bounded batches.
+//
+// That table had no production cleanup at all, so the first run after this
+// deploys faces the entire accumulated backlog — which is why the purger works
+// in batches under a budget rather than one statement. When a run stops on that
+// budget with rows still eligible it comes back in a minute instead of an hour,
+// so the one-time backlog drains promptly; steady state is one cheap hourly
+// pass. Every instance on autoscale runs this, which is safe: batches take
+// their rows FOR UPDATE SKIP LOCKED, so concurrent runs divide the work instead
+// of serializing on it.
+function scheduleRateLimitCounterPurger() {
+  const HOURLY_MS = 60 * 60 * 1000;
+  const BACKLOG_FOLLOW_UP_MS = 60 * 1000;
+  const schedule = (delayMs: number) => {
+    setTimeout(async () => {
+      let nextDelayMs = HOURLY_MS;
+      try {
+        const { runRateLimitCounterPurger } = await import("./jobs/rateLimitCounterPurger");
+        // The purger logs its own counts; a second log line here would double
+        // every run in the output.
+        const result = await runRateLimitCounterPurger();
+        if (result.budgetExhausted) nextDelayMs = BACKLOG_FOLLOW_UP_MS;
+      } catch (err) {
+        logger.error({ err }, "rate_limit_counters purge failed");
+      }
+      schedule(nextDelayMs);
+    }, delayMs).unref();
+  };
+  // Deliberately not at boot — the first minute is the busiest this process
+  // ever is, and nothing about this job is urgent to that degree.
+  schedule(BACKLOG_FOLLOW_UP_MS);
+}
+
 // Daily cron: send Fact of the Day at 9:00 UTC
 function scheduleDailyFactJob() {
   const schedule = () => {
@@ -288,6 +294,7 @@ if (getFalApiKey()) {
 }
 
 // Bind the port now — deployment health checks can pass immediately.
+const app = createApp();
 const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -395,7 +402,12 @@ void logLastStripeEvent();
 
 // Non-blocking background tasks — failures are logged but never crash the server.
 initStripe().catch((err: unknown) => logger.error({ err }, "Stripe init error"));
-reconcileMembershipTiers().catch((err: unknown) => logger.error({ err }, "Membership reconciliation error"));
+// Grace convergence + authoritative reconciliation. The first is cosmetic if it
+// dies (the read path already enforces the deadline); the second is this model's
+// answer to "regardless of whether the event arrives at all".
+import("./lib/membershipSchedules")
+  .then((m) => m.scheduleMembershipJobs())
+  .catch((err: unknown) => logger.error({ err }, "Membership job scheduling failed"));
 backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
 backfillEmbeddings()
   .then(({ processed, failed }) => {
@@ -404,6 +416,7 @@ backfillEmbeddings()
   .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
+scheduleRateLimitCounterPurger();
 // Engines: reconcile the typed code catalogue into the DB before pricing
 // cache so the active engines drive the cache refresh.
 reconcileEngines()
@@ -425,6 +438,7 @@ registerProjectionRepairHandler();
 registerFactEnrichmentBackfillHandler();
 registerFactSendBackHandler();
 registerFactPexelsJobHandler();
+registerFactAiMemeBackfillHandler();
 registerReviewRenderScenarioHandlers();
 registerVisualConceptJobHandlers();
 runAsyncJobsWorker();

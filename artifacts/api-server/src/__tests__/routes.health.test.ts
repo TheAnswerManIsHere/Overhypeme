@@ -1,10 +1,17 @@
 /**
  * Integration tests for routes/health.ts.
  *
- * GET /healthz: trivial — asserts the static {status:"ok"} contract.
- * GET /health:  exercises the stripe_processed_events read, the row-present
- *               branch, the row-absent branch (lastStripeEvent === null),
- *               and the catch branch (DB error → lastStripeEventError filled).
+ * GET /healthz:      trivial — asserts the static {status:"ok"} contract.
+ * GET /health:       exercises the stripe_processed_events read, the row-present
+ *                    branch, the row-absent branch (lastStripeEvent === null),
+ *                    and the catch branch (DB error → lastStripeEventError filled).
+ * GET /health/queues: the 200/503 wiring around laneHealth(), and the minimal
+ *                    field-set disclosure boundary on both paths — a manual
+ *                    reproduction of the 503 path is impossible in this
+ *                    topology (stopping the API workflow also stops the HTTP
+ *                    server that owns this route, and another live instance
+ *                    would also be scheduling all five lanes), so this is the
+ *                    only place that actually exercises it end to end.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -13,10 +20,23 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { stripeProcessedEventsTable } from "@workspace/db/schema";
-import { like } from "drizzle-orm";
+import { stripeProcessedEventsTable, workerLaneHeartbeatsTable } from "@workspace/db/schema";
+import { like, inArray } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 
 import healthRouter from "../routes/health.js";
+import { WORKER_PROTOCOL_VERSION } from "../lib/workerHeartbeats.js";
+
+/**
+ * The five real lane names `laneHealth()` reports on. Scoped deletes only —
+ * see queueHealth.test.ts's identical convention and its rationale (a bare
+ * table delete would also wipe workerHeartbeats.test.ts's synthetic rows).
+ */
+const REAL_LANES = ["fast", "render", "bulk", "pexels", "ai_meme_backfill"];
+
+async function clearRealLaneHeartbeats(): Promise<void> {
+  await db.delete(workerLaneHeartbeatsTable).where(inArray(workerLaneHeartbeatsTable.lane, REAL_LANES));
+}
 
 
 // Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
@@ -27,6 +47,19 @@ const ID_PREFIX = "troutesevt-";
 function makeApp(): Express {
   const app = express();
   app.use(healthRouter);
+  return app;
+}
+
+/**
+ * Mounted the way the real app actually mounts it (`app.ts`'s
+ * `app.use("/api", router)`) — used only by the `/health/queues` suite below.
+ * Mounting bare, like `makeApp()` above, would silently mask a wrong
+ * documented URL: the probe is really at `/api/health/queues` in production,
+ * not `/health/queues`, and a bare-mounted test would pass either way.
+ */
+function makeApiApp(): Express {
+  const app = express();
+  app.use("/api", healthRouter);
   return app;
 }
 
@@ -83,4 +116,48 @@ describe("GET /health", () => {
   // uncovered. Exercising it would require monkey-patching the imported `db`
   // singleton, which would leak across other tests in the same process.
   // The branch is defensive and trivial; not worth the test-isolation hazard.
+});
+
+describe("GET /health/queues", () => {
+  before(clearRealLaneHeartbeats);
+  after(clearRealLaneHeartbeats);
+
+  it("returns 200 with ONLY {ok, ts, laneCount, stalledLaneCount} when every lane has a live heartbeat", async () => {
+    await clearRealLaneHeartbeats();
+    const instanceId = randomUUID();
+    await db.insert(workerLaneHeartbeatsTable).values(
+      REAL_LANES.map((lane) => ({
+        instanceId,
+        lane,
+        workerProtocolVersion: WORKER_PROTOCOL_VERSION,
+        lastScheduledAt: new Date(),
+      })),
+    );
+
+    const res = await request(makeApiApp()).get("/api/health/queues");
+    assert.equal(res.status, 200);
+    assert.deepEqual(Object.keys(res.body).sort(), ["laneCount", "ok", "stalledLaneCount", "ts"]);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.laneCount, REAL_LANES.length);
+    assert.equal(res.body.stalledLaneCount, 0);
+  });
+
+  it("returns 503 with the SAME minimal field set when every lane is stalled fleet-wide", async () => {
+    // No live heartbeat rows at all — the case a manual reproduction can't
+    // reach (stopping the API process kills this very route), but this is
+    // real DB state exercised through the real Express route, same as the
+    // healthy case above.
+    await clearRealLaneHeartbeats();
+
+    const res = await request(makeApiApp()).get("/api/health/queues");
+    assert.equal(res.status, 503);
+    assert.deepEqual(
+      Object.keys(res.body).sort(),
+      ["laneCount", "ok", "stalledLaneCount", "ts"],
+      "the failure shape must not exceed the healthy shape's field set — no error text, ever",
+    );
+    assert.equal(res.body.ok, false);
+    assert.equal(res.body.laneCount, REAL_LANES.length);
+    assert.equal(res.body.stalledLaneCount, REAL_LANES.length);
+  });
 });

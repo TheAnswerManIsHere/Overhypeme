@@ -21,6 +21,7 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { logger } from "../lib/logger";
 import { sanitizeAndValidatePersonalName } from "../lib/validators/personalName";
+import { effectiveTierForRow } from "../lib/membershipState";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
 // Canonical home is `lib/auth.ts` so the auth middleware can use it without a
@@ -366,7 +367,7 @@ async function handleOAuthCallback(
       email: dbUser.email,
       displayName: dbUser.displayName,
       profileImageUrl: dbUser.profileImageUrl,
-      membershipTier: dbUser.membershipTier,
+      membershipTier: effectiveTierForRow(dbUser),
     },
     access_token: tokens.access_token,
     captchaVerified: dbUser.captchaVerified,

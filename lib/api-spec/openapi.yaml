@@ -161,41 +161,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FactListResponse"
-    post:
-      operationId: createFact
-      tags: [facts]
-      summary: Submit a new fact
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateFactRequest"
-      responses:
-        "201":
-          description: Fact created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FactDetail"
-        "400":
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "409":
-          description: Possible duplicate detected
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DuplicateConflict"
+    # POST /facts (admin direct-create) was removed in the Phase 2 fact-lifecycle
+    # closure — every fact now enters through the moderation funnel. No post: here.
 
   /facts/hero:
     get:
@@ -1015,11 +982,13 @@ paths:
     post:
       operationId: bulkImportFacts
       tags: [facts]
-      summary: Bulk-import facts (API key required)
+      summary: Bulk-import facts for moderation (API key required)
       description: |
-        Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
-        them in bulk. Protected by the `X-API-Key` header (ADMIN_API_KEY secret).
-        Supports `?dryRun=true` to validate without writing.
+        Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and queues
+        each valid one as a Stage-1 moderation review (a system import — this
+        loads the moderation queue, it does not publish facts directly). Protected
+        by the `X-API-Key` header (ADMIN_API_KEY secret). Supports `?dryRun=true`
+        to validate without writing.
       security:
         - ApiKey: []
       parameters:
@@ -1414,25 +1383,6 @@ components:
         poolSize:
           type: integer
           description: Size of the candidate pool the pick was drawn from.
-
-    CreateFactRequest:
-      type: object
-      required: [text, captchaToken]
-      properties:
-        text:
-          type: string
-          minLength: 10
-          maxLength: 1000
-        hashtags:
-          type: array
-          items:
-            type: string
-          default: []
-        captchaToken:
-          type: string
-        skipDuplicateCheck:
-          type: boolean
-          description: If true, bypasses server-side duplicate enforcement and allows submission even when a duplicate is detected.
 
     RateFactRequest:
       type: object
@@ -1920,23 +1870,25 @@ components:
       type: object
       required: [failed]
       description: |
-        Result of a bulk import. When `dryRun` is true, `wouldCreate` is present
-        instead of `created`/`skipped`.
+        Result of a bulk import. Valid rows are QUEUED as Stage-1 moderation
+        reviews, not inserted as facts directly (Phase 2 fact-lifecycle closure —
+        bulk import loads the moderation queue, it does not publish). When
+        `dryRun` is true, `wouldQueue` is present instead of `queued`/`skipped`.
       properties:
         dryRun:
           type: boolean
           description: Present and true when the request was a dry run.
-        created:
+        queued:
           type: integer
-          description: Number of facts successfully inserted (absent in dry-run mode).
+          description: Number of facts queued as Stage-1 triage reviews (absent in dry-run mode).
         skipped:
           type: integer
-          description: Number of valid facts skipped due to exact-text duplicates (absent in dry-run mode).
-        wouldCreate:
+          description: Number of valid facts skipped as exact-text duplicates against existing facts or unresolved reviews (absent in dry-run mode).
+        wouldQueue:
           type: integer
-          description: Number of facts that would be created (dry-run mode only).
+          description: Number of facts that would be queued for moderation (dry-run mode only).
         failed:
           type: array
           items:
             $ref: "#/components/schemas/BulkImportFactsFailedItem"
-          description: Items that failed schema validation and were not inserted.
+          description: Items that failed schema validation and were not queued.

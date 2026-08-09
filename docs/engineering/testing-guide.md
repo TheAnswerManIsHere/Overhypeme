@@ -176,9 +176,17 @@ branch.
 
 Product-visible behavior needs a click-through check against intent (David tests
 the product, not the diff). "Done" = the intended behavior can be exercised in the
-app. Claude Code additionally ships paired `TEST_RUN` + `UAT` docs per PR (see
-`CLAUDE.md`); Codex should at minimum describe the manual steps to observe the
-change.
+app. In **feature mode**, Claude Code additionally ships paired `TEST_RUN` + `UAT`
+docs per PR by default (see `CLAUDE.md` for when/naming and
+[`test-run-contract.md`](test-run-contract.md) for what the `TEST_RUN` must
+contain — it verifies only what Replit's live environment can verify, not what
+already passed pre-merge). **In bugfix mode the pairing is conditional, not a
+default** — see
+[`working-modes.md`](../ai-context/working-modes.md#tier-b--elevated-fix): a
+Tier A fix ships neither doc, and a Tier B fix ships a UAT only when the fix has
+product-visible behavior and a TEST_RUN only when something genuinely needs
+Replit's live environment. Codex should at minimum describe the manual steps to
+observe the change.
 
 ## What to report after running tests
 

@@ -420,7 +420,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
-    const [parent] = await db.insert(factsTable).values({ text: "{NAME} parent", submittedById: adminId, isActive: true }).returning();
+    const [parent] = await db.insert(factsTable).values({ text: "{NAME} parent", submittedById: adminId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT }).returning();
     const reviewId = await seedTriageReview(submitterId);
 
     const res = await request(makeApp())
@@ -498,7 +498,7 @@ describe("staging-fact enrichment stage advancement", () => {
 
   it("live-fact re-enrich (no linked review) still classifies normally", async () => {
     const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} jumps high", submittedById: submitterId, isActive: true }).returning();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} jumps high", submittedById: submitterId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT }).returning();
     let classifyCalled = false;
     const result = await runEnrichmentForFact(fact.id, {
       classify: async () => { classifyCalled = true; return VALID_APPROVAL_ENRICHMENT; },
@@ -518,7 +518,7 @@ describe("fact_pexels durable image-prep queue", () => {
     }).returning();
 
     let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, {
+    const result = await runFactPexelsJob(fact.id, false, {
       seed: async (id) => {
         seedCalled = true;
         // Mirror seedFactPexelsImagesOnce's terminal write so the assertion is real.
@@ -544,7 +544,7 @@ describe("fact_pexels durable image-prep queue", () => {
     });
 
     let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, { seed: async () => { seedCalled = true; } });
+    const result = await runFactPexelsJob(fact.id, false, { seed: async () => { seedCalled = true; } });
     assert.equal(result.ok, true);
     assert.equal(seedCalled, false, "no paid Pexels/OpenAI work after the review is resolved");
   });
@@ -558,7 +558,7 @@ describe("fact_pexels durable image-prep queue", () => {
     }).returning();
 
     let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, {
+    const result = await runFactPexelsJob(fact.id, false, {
       seed: async (id) => {
         seedCalled = true;
         await db.update(factsTable).set({ pexelsStatus: "ok", pexelsImages: { fact_type: "action", male: [], female: [], neutral: [] } }).where(eq(factsTable.id, id));
@@ -581,7 +581,7 @@ describe("fact_pexels durable image-prep queue", () => {
       workflowStage: "prep_pending", stagingFactId: fact.id,
     });
 
-    const result = await runFactPexelsJob(fact.id, { seed: async () => { throw new Error("pexels 503"); } });
+    const result = await runFactPexelsJob(fact.id, false, { seed: async () => { throw new Error("pexels 503"); } });
     assert.equal(result.ok, false);
 
     const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
@@ -876,7 +876,7 @@ describe("approval renderability gating", () => {
     const submitterId = await createTestUser();
     const [parent] = await db
       .insert(factsTable)
-      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true })
+      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT })
       .returning();
     const [staging] = await db
       .insert(factsTable)

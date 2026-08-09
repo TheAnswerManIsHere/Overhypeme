@@ -69,7 +69,7 @@ const ALEX_SUBJECT_ENTITY = {
   notes: "",
 };
 
-const INPUT: EnrichInput = { factText: "{SUBJ} pushes the Earth down.", status: "new_fact" };
+const INPUT: EnrichInput = { factText: "{SUBJ} pushes the Earth down." };
 
 describe("validateEnrichment — archetype/subtype pairing", () => {
   it("accepts a valid archetype/subtype pair", () => {

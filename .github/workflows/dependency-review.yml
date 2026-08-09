@@ -12,6 +12,13 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# This workflow only ever triggers on pull_request, so a superseding push to
+# the same PR always makes the in-flight run obsolete — safe to cancel
+# unconditionally, unlike build.yml/codeql.yml which also run on push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 # If using a dependency submission action in this workflow this permission will need to be set to:
 #
 # permissions:
@@ -28,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 'Checkout repository'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: 'Dependency Review'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         # Commonly enabled options, see https://github.com/actions/dependency-review-action#configuration-options for all available options.
         with:
           comment-summary-in-pr: always

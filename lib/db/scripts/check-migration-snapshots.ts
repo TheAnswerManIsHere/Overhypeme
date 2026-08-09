@@ -294,6 +294,61 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // is idempotent. No schema delta means no snapshot. Sources of truth:
   // lib/db/src/schema/visualConceptsConfig.ts + admin_config.value.
   "0090_visual_concepts_bubble_contract",
+
+  // Phase 2 fact-lifecycle closure, part 1: flips facts.is_active default to
+  // false and adds pending_reviews.parent_fact_id (nullable integer FK). Hand-
+  // authored idempotent DDL — drizzle-kit generate stays broken on the malformed
+  // 0063 snapshot. Source of truth: lib/db/src/schema/facts.ts + reviews.ts.
+  "0091_fact_lifecycle_phase1_additive",
+
+  // Phase 2 fact-lifecycle closure, part 2: grandfather backfill (deactivate
+  // no-valid-enrichment active facts + orphan sweep + sentinel Visual Concept)
+  // then the facts_active_requires_concept CHECK. Pure DML + one CHECK — no
+  // column/table shape delta. Source of truth: this migration + reviews.ts.
+  "0092_fact_lifecycle_phase2_backfill_check",
+
+  // Adds facts.ai_meme_backfill_status for the new fact_ai_meme_backfill
+  // queue (variant independence — bulk AI-meme backfill routed through a
+  // durable queue). Hand-authored idempotent DDL mirroring 0075's own
+  // pexels_status column exactly. Source of truth: lib/db/src/schema/facts.ts.
+  "0093_facts_ai_meme_backfill_status",
+
+  // Forward-only repair for the facts_active_requires_concept DB backstop.
+  // The matching check() declaration now lives in schema/facts.ts so future
+  // drizzle-kit push runs cannot remove the constraint again.
+  "0098_fact_lifecycle_check_repair",
+
+  // Phase 1 of the async-queue hardening plan: the worker_lane_heartbeats
+  // table + its last_scheduled_at index + one seeded admin_config row
+  // (instance_heartbeat_ttl_minutes). Hand-authored idempotent DDL, following
+  // 0093's shape; purely additive, no existing row read or rewritten.
+  // Source of truth: lib/db/src/schema/workerLaneHeartbeats.ts.
+  "0094_worker_lane_heartbeats",
+
+  // Entitlement model part 1: creates membership_entitlements,
+  // entitlement_source_disputes, membership_leases, the two ordering sequences
+  // and users.membership_valid_until, plus the admin_config seeds. Hand-authored
+  // idempotent DDL — drizzle-kit generate stays broken on the malformed 0063
+  // snapshot, and the file carries triggers and partial/conditional constraints
+  // Drizzle's snapshot format cannot represent anyway. Source of truth:
+  // lib/db/src/schema/membershipEntitlements.ts + auth.ts.
+  "0095_membership_entitlements",
+
+  // Entitlement model part 2: drops the legacy `subscriptions` and
+  // `lifetime_entitlements` tables once every writer has moved onto
+  // membership_entitlements. Two DROP statements — no schema delta drizzle-kit
+  // can express against a snapshot chain it cannot regenerate. Source of truth:
+  // lib/db/src/schema/memberships.ts (both tables removed).
+  "0096_drop_legacy_membership_tables",
+
+  // Phase 1 of the NCMEC CyberTipline submission plan: additive columns on
+  // ncmec_reports + quarantined_memes, the widened submission_status CHECK, the
+  // append-only ncmec_safety_audit_log (table + role-gated triggers), three
+  // partial indexes, one classify-then-link backfill of quarantine_id, and
+  // eight seeded admin_config rows. Hand-authored idempotent DDL — drizzle-kit
+  // generate stays broken on the malformed 0063 snapshot.
+  // Source of truth: lib/db/src/schema/moderation.ts.
+  "0097_ncmec_submission",
 ]);
 
 interface JournalEntry {

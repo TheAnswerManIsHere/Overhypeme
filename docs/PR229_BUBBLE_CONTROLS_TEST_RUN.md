@@ -1,8 +1,25 @@
 # PR229 — Speech &amp; Thought Bubble Controls — TEST_RUN
 
-Engineering/automated checklist for Replit (the technical safety net). Transient —
-delete once it has run green. The durable half of the pair is
+Checklist for Replit (the technical safety net), run post-merge against the
+live workspace. **Replit owns the DB connection** — no `DATABASE_URL` /
+test-DB env is set anywhere in this doc. The durable half of the pair is
 [`PR229_BUBBLE_CONTROLS_UAT.md`](./PR229_BUBBLE_CONTROLS_UAT.md).
+
+Pre-merge gates (install, typecheck, codegen drift) are assumed green;
+spot-check only if something below fails.
+
+**No test suites in this checklist, deliberately.** This PR's feature is
+covered by `visualStrategyOverride.test.ts`, `promptBudget.test.ts`,
+`nanoBanana2Compiler.test.ts`, `imagePromptUserMessage.test.ts`,
+`visualConcepts.test.ts`, and `imagePromptGeneration.validate.test.ts` (the
+version-pin tripwire asserting `IMAGE_PROMPT_GENERATION_VERSION === "v8"`) on
+the api-server side, plus `BubbleEditor.test.tsx`,
+`VisualConceptCandidates.test.tsx`, `EnrichmentEditor.test.tsx`,
+`useFactEnrichmentEditing.test.tsx`, and `fieldDocs.test.ts` on the frontend
+— all of which already ran and passed in CI on this exact code, including the
+full sharded suite (`literalPromptString.ts`'s new codegen-allowlist
+registration is exercised by that same CI run). Everything below is what CI
+genuinely cannot see: the state of the live database.
 
 ## Scope
 
@@ -27,64 +44,39 @@ AI-proposed bubbles from the candidate Visual-concept generator. Touches:
 - `lib/db/migrations/0090_visual_concepts_bubble_contract.sql` — admin-config
   DML prompt migration.
 
-## Migrations (Replit owns the DB connection)
+## Repo-health gates (post-merge state — run always)
 
-- Apply migrations. **0090** is a DML-only prompt-content migration (no schema
-  change): it rewrites the `fact_visual_concepts_system` admin-config row
-  (`value` + `debug_value`) from the old three-field output shape to the v2
-  bubble contract, idempotently and preserving unrelated admin edits.
-- After applying, confirm the deployed prompt actually changed — the resolved
-  `fact_visual_concepts_system` should contain the string `"bubbles" is
-  REQUIRED on every concept`. (If the row was never seeded, the TS default
-  already carries it.)
-- No schema columns or data backfill — the VSO `bubbles` field and the
-  stored-candidate `bubbles` field are additive defaulted JSONB shapes; old
-  blobs parse to `[]`.
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
+  CI's `build.yml`).
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. `0090` is
+  a DML-only migration (no schema change, per below) and correctly has no
+  snapshot file — confirm `0090_visual_concepts_bubble_contract` is in
+  `SNAPSHOT_EXEMPT_TAGS` (added by a later follow-up commit, not this PR's
+  own diff).
+- `node scripts/check-docs-accuracy.mjs` — expected: clean.
+- Other allow-list entries this PR added: `lib/api-zod/src/literalPromptString.ts`
+  registered in the codegen allowlist (`lib/api-spec/patch-generated.mjs`) —
+  confirm it's present so a codegen run doesn't silently drop the export (see
+  the Gotchas note below on why this matters).
 
-## Commands (`artifacts/api-server`)
+## Live checks (read-only; run always)
 
-```bash
-# typecheck (tsc -b + cycle check + no-console gate)
-pnpm --filter @workspace/api-server run typecheck
+1. Migration `0090` applied — confirm the resolved
+   `fact_visual_concepts_system` admin-config value contains the string
+   `"bubbles" is REQUIRED on every concept`. `0090` is a DML-only
+   prompt-content migration (no schema change): it rewrites the
+   `fact_visual_concepts_system` admin-config row (`value` + `debug_value`)
+   from the old three-field output shape to the v2 bubble contract,
+   idempotently and preserving unrelated admin edits. (If the row was never
+   seeded, the TS default already carries the string, so the check still
+   passes.)
+2. No schema columns or data backfill from this PR — the VSO `bubbles` field
+   and the stored-candidate `bubbles` field are additive defaulted JSONB
+   shapes; old blobs parse to `[]`. Nothing further to verify beyond check 1.
 
-# the bubble-core suites
-bash artifacts/api-server/scripts/run-test.sh \
-  src/__tests__/visualStrategyOverride.test.ts \
-  src/__tests__/promptBudget.test.ts \
-  src/__tests__/nanoBanana2Compiler.test.ts \
-  src/__tests__/imagePromptUserMessage.test.ts \
-  src/__tests__/visualConcepts.test.ts
+## Invariants covered in CI (named for awareness — not re-run here)
 
-# version pin
-bash artifacts/api-server/scripts/run-test.sh src/__tests__/imagePromptGeneration.validate.test.ts
-
-# full suite sanity (sharded)
-pnpm --filter @workspace/api-server test
-```
-
-Frontend (`artifacts/overhype-me`):
-
-```bash
-pnpm --filter @workspace/overhype-me run typecheck
-pnpm --filter @workspace/overhype-me exec vitest run \
-  src/components/admin/BubbleEditor.test.tsx \
-  src/components/admin/VisualConceptCandidates.test.tsx \
-  src/components/admin/EnrichmentEditor.test.tsx \
-  src/components/admin/useFactEnrichmentEditing.test.tsx
-# field-reference sync gate (regenerate if it drifts)
-pnpm --filter @workspace/overhype-me exec vitest run src/components/admin/fieldDocs/fieldDocs.test.ts
-```
-
-## Expected results
-
-- api-server typecheck: clean.
-- The five bubble-core suites: **236 pass, 0 fail**.
-- Version pin: asserts `IMAGE_PROMPT_GENERATION_VERSION === "v8"`.
-- Full sharded suite: all shards green (~2318 tests).
-- Frontend typecheck: clean; the four admin suites + BubbleEditor: all pass;
-  fieldDocs sync: pass (regenerated `ADMIN_FIELD_REFERENCE.md` committed).
-
-## Key invariants the tests pin
+Pinned by the suites listed above, already green in CI on this exact code:
 
 - **Budget:** the pool equation and the live-compiler maximum-shape proof both
   fit 6900; the additions measurement excludes bubbles and the bubble
@@ -123,7 +115,7 @@ pnpm --filter @workspace/overhype-me exec vitest run src/components/admin/fieldD
   against the finite 900 pool. Don't expand the template without re-running the
   budget proof.
 
-## Deliberately NOT shipped
+## What's deliberately NOT shipped
 
 - End-user wizard exposure (moderator-only, per David).
 - Runtime-planner-proposed bubbles (planner stages only; proposals come from
@@ -131,3 +123,9 @@ pnpm --filter @workspace/overhype-me exec vitest run src/components/admin/fieldD
 - `thinking_level: high` wiring (a separate follow-up experiment).
 - Post-composited/SVG bubbles, per-bubble styling/coordinates, drag reorder,
   OCR exactness scoring, a "Use scene only" partial pick.
+
+## Delete me
+
+Transient — delete once Replit has run the checklist. The
+[`PR229_BUBBLE_CONTROLS_UAT.md`](./PR229_BUBBLE_CONTROLS_UAT.md) sibling is
+the durable half.

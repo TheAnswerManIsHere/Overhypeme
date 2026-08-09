@@ -24,6 +24,14 @@ import { db as defaultDb } from "@workspace/db";
 import { asyncJobsTable, type AsyncJobRow, type AsyncJobStatus } from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
 import { logger } from "./logger";
+import {
+  stampLaneScheduled,
+  stampTickCompleted,
+  publishInFlight,
+  decrementInFlight,
+  pruneDepartedInstances,
+  heartbeatTtlMinutes,
+} from "./workerHeartbeats";
 
 // ─── Handler registry ───────────────────────────────────────────────────────
 
@@ -76,11 +84,16 @@ const HANDLERS = new Map<string, JobHandler>();
  * Scheduling lane a queue runs in. Each lane is drained by its own independent
  * worker loop (own timer, own re-entrancy guard, own concurrency bound), so a
  * busy lane can never block another lane's progress:
- *   • `fast`   — short, DB-oriented admin actions with no model/image wait.
- *   • `render` — single-item, moderator-watched external-API renders.
- *   • `bulk`   — background/batch work nobody's watching a spinner for (default).
+ *   • `fast`            — short, DB-oriented admin actions with no model/image wait.
+ *   • `render`          — single-item, moderator-watched external-API renders.
+ *   • `bulk`             — background/batch work nobody's watching a spinner for (default).
+ *   • `pexels`           — `fact_pexels`, serialized (maxConcurrency 1) to preserve
+ *     the 1-second Pexels rate-limit pacing the direct-call path used to provide.
+ *   • `ai_meme_backfill` — `fact_ai_meme_backfill`, serialized (maxConcurrency 1)
+ *     to preserve the "process sequentially" OpenAI rate-limit pacing the
+ *     direct-call bulk route used to provide.
  */
-export type JobLane = "fast" | "render" | "bulk";
+export type JobLane = "fast" | "render" | "bulk" | "pexels" | "ai_meme_backfill";
 
 /** Per-queue lane assignment. Kept in lockstep with HANDLERS (same replace/reset). */
 const LANE_OF_QUEUE = new Map<string, JobLane>();
@@ -427,6 +440,16 @@ async function processClaimedJob(
     const isTerminal = outcome.retryable === false;
     if (isTerminal) {
       terminalFailed = true;
+      // Persist the RESOLVED ceiling on a terminal failure, not just the
+      // sentinel that meant "use queue config" at enqueue time. `admin_config`
+      // is mutable, so re-resolving it later (as the queue-health surface
+      // does, to tell a terminal failure apart from genuine exhaustion) would
+      // otherwise answer against whatever the ceiling happens to be NOW rather
+      // than what it was at finalization — misclassifying a historical row if
+      // an admin later raises the queue's ceiling. A `failed` row is terminal
+      // and never re-enters this function, so writing this here is a durable
+      // fact, not a live decision this queue still has to make.
+      const effectiveMax = await effectiveMaxAttempts(row.queue, row.maxAttempts);
       await dbInstance.transaction(async (tx) => {
         await tx
           .update(asyncJobsTable)
@@ -436,6 +459,7 @@ async function processClaimedJob(
             lastError: outcome.error,
             nextAttemptAt: new Date(),
             updatedAt: new Date(),
+            maxAttempts: effectiveMax,
           })
           .where(eq(asyncJobsTable.id, row.id));
       });
@@ -455,6 +479,12 @@ async function processClaimedJob(
             lastError: outcome.error,
             nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
             updatedAt: new Date(),
+            // Same reasoning as the terminal branch above, and ONLY on the
+            // terminal transition: a still-`pending` row is not yet finalized,
+            // so it must keep tracking live config — an admin raising the
+            // ceiling mid-flight should let an in-progress job benefit from
+            // the extra retries, not freeze it to the value read at this tick.
+            ...(abandoned ? { maxAttempts: effectiveMax } : {}),
           })
           .where(eq(asyncJobsTable.id, row.id));
       });
@@ -569,9 +599,25 @@ export async function asyncJobsTick(
   });
 
   const maxConcurrency = options?.maxConcurrency ?? ASYNC_JOBS_MAX_CONCURRENCY;
-  await mapWithConcurrency(claimed, maxConcurrency, (row) =>
-    processClaimedJob(dbInstance, row, lane),
-  );
+
+  // Publish the in-flight count HERE — after the claim transaction has
+  // committed, before a single handler is awaited. Writing it at tick
+  // completion instead would be useless for the case that matters: a wedged
+  // tick never completes, so the durable count would sit at its previous value
+  // (normally zero) while `worker_lane_wedged` waits for `in_flight_count > 0`.
+  if (lane && claimed.length > 0) {
+    await publishInFlight(lane, claimed.length);
+  }
+
+  await mapWithConcurrency(claimed, maxConcurrency, async (row) => {
+    try {
+      await processClaimedJob(dbInstance, row, lane);
+    } finally {
+      // Per job, as it leaves the in-flight set — so a long tail of one slow
+      // handler reads as "1 in flight", not as the whole original batch.
+      if (lane) await decrementInFlight(lane);
+    }
+  });
 }
 
 // ─── Stuck-row recovery (on boot) ───────────────────────────────────────────
@@ -670,6 +716,8 @@ export async function purgeTerminalJobs(
 const DEFAULT_FAST_INTERVAL_MS = 2_000;
 const DEFAULT_RENDER_INTERVAL_MS = 5_000;
 const DEFAULT_WORKER_INTERVAL_MS = 5_000;
+const DEFAULT_PEXELS_INTERVAL_MS = 5_000;
+const DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS = 5_000;
 /** Retention purge isn't time-sensitive — don't run it every short tick. */
 const PURGE_INTERVAL_MS = 60_000;
 /**
@@ -684,9 +732,108 @@ const RECOVER_INTERVAL_MS = 60_000;
  * Only reclaim rows whose `updatedAt` (stamped at claim) is older than this.
  * Must sit comfortably above the slowest real handler (planner ≤180s + image
  * gen) so an in-flight job is never yanked out from under itself and re-run
- * concurrently — 10 min leaves wide margin while still bounding stuck-row retry.
+ * concurrently.
+ *
+ * Raised 10 → 30 min because the margin was not actually wide: this deployment
+ * is `deploymentTarget = "autoscale"` (`.replit`) and `index.ts` starts the
+ * worker in EVERY instance, so "the slowest handler" is not the only thing
+ * racing this cutoff — a *different* instance's in-flight row is. Combined with
+ * a finalize that matches on row id alone (no fencing token), a reclaim while
+ * the original run is still working means both runs execute and the first to
+ * finish overwrites the other. For the `email` queue that is a duplicate send
+ * to a real person.
+ *
+ * The cost is deliberate and bounded: a genuinely crashed job now waits up to
+ * 30 min for recovery instead of 10. That is the right trade against silent
+ * double-execution, and it is an interim mitigation — the real fix is lease
+ * tokens with fenced finalizes (see the "Async-jobs reclaim finalize has no
+ * fencing token" entry in docs/engineering/deferred-work.md, Phase 3a),
+ * after which this cutoff stops being load-bearing.
  */
-const RECOVER_STUCK_CUTOFF_MIN = 10;
+export const RECOVER_STUCK_CUTOFF_MIN = 30;
+
+/**
+ * The **configured** poll interval for each lane, resolved from the same env
+ * vars `runAsyncJobsWorker` uses.
+ *
+ * Exported so the health surface reports what the worker is actually doing
+ * rather than a second hardcoded copy of these numbers. A stalled-lane
+ * threshold derived from a stale duplicate would be wrong in exactly the
+ * deployments that tuned an interval — i.e. the ones most likely to be
+ * investigating queue health in the first place.
+ */
+export function laneIntervalsMs(): Record<JobLane, number> {
+  return {
+    fast: intervalEnv("ASYNC_JOBS_FAST_INTERVAL_MS", DEFAULT_FAST_INTERVAL_MS),
+    render: intervalEnv("ASYNC_JOBS_RENDER_INTERVAL_MS", DEFAULT_RENDER_INTERVAL_MS),
+    bulk: intervalEnv("ASYNC_JOBS_WORKER_INTERVAL_MS", DEFAULT_WORKER_INTERVAL_MS),
+    pexels: intervalEnv("ASYNC_JOBS_PEXELS_INTERVAL_MS", DEFAULT_PEXELS_INTERVAL_MS),
+    ai_meme_backfill: intervalEnv(
+      "ASYNC_JOBS_AI_MEME_BACKFILL_INTERVAL_MS",
+      DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS,
+    ),
+  };
+}
+
+/** All five lanes, in the order the health surface presents them. */
+export const ALL_LANES: readonly JobLane[] = ["fast", "render", "bulk", "pexels", "ai_meme_backfill"];
+
+/**
+ * `max(3 × interval, 60s)`.
+ *
+ * Three intervals rather than one so a single skipped or slow tick is not an
+ * outage, and a 60s floor because the `fast` lane's 2s interval would otherwise
+ * give a 6s threshold — tight enough that ordinary scheduler jitter or a brief
+ * event-loop pause would raise a false stall on the noisiest lane.
+ *
+ * Lives here (not in `queueHealth.ts`, which consumes it) because
+ * `pruneDepartedInstances`'s cutoff below needs it too, and `workerHeartbeats.ts`
+ * is deliberately kept free of any dependency on lane-scheduling concerns —
+ * this file already owns `ALL_LANES`/`laneIntervalsMs`, so it's the one place
+ * both callers can reach without a cross-file import cycle.
+ */
+export function staleThresholdMs(intervalMs: number): number {
+  return Math.max(3 * intervalMs, 60_000);
+}
+
+/**
+ * The loosest stall window across all five lanes, in milliseconds.
+ *
+ * Anything that decides whether a heartbeat row is still worth keeping —
+ * `laneHealth`'s live-instance query, `pruneDepartedInstances`'s delete cutoff —
+ * must never use a window TIGHTER than this, or it can discard a row before
+ * the per-lane stalled check (which uses each lane's OWN, possibly smaller,
+ * threshold) ever gets a chance to evaluate it.
+ */
+export function widestStaleThresholdMs(): number {
+  const intervals = laneIntervalsMs();
+  return Math.max(...ALL_LANES.map((lane) => staleThresholdMs(intervals[lane])));
+}
+
+/** The lane a registered queue belongs to, or undefined if it is not registered. */
+export function laneOfQueue(queue: string): JobLane | undefined {
+  return LANE_OF_QUEUE.get(queue);
+}
+
+/** Every registered queue name. */
+export function registeredQueues(): string[] {
+  return [...HANDLERS.keys()];
+}
+
+/**
+ * The effective retry ceiling for a queue: the row's own override when set,
+ * otherwise `async_job_<queue>_max_attempts`.
+ *
+ * Exported because the health surface needs it to tell "failed after exhausting
+ * five attempts" from "failed on its first and only attempt" — two states
+ * `async_jobs.status` collapses into one `failed`, and the second is the one
+ * `fact_ai_meme_backfill` produces by design.
+ */
+export async function effectiveMaxAttempts(queue: string, rowMaxAttempts: number): Promise<number> {
+  if (rowMaxAttempts > 0) return rowMaxAttempts;
+  const { maxAttempts } = await getRetryConfig(queue);
+  return Math.max(1, maxAttempts);
+}
 
 /** Static scheduling config for one lane's runner. Queues are resolved per-tick. */
 export interface LaneConfig {
@@ -703,6 +850,19 @@ export interface LaneRunnerDeps {
   runTick?: (config: LaneConfig) => Promise<void>;
   /** Override the scheduler (tests pass a no-op so only the returned `tick` runs). */
   schedule?: (fn: () => void, intervalMs: number) => NodeJS.Timeout;
+  /**
+   * Override the heartbeat writes.
+   *
+   * Exists for the same reason `schedule` does: these are database round-trips
+   * on the tick path, and a test asserting *scheduling* behavior should not have
+   * its timing decided by how fast the test database happens to be. Tests that
+   * care about lane independence inject no-ops; the heartbeat writes themselves
+   * are covered directly in `workerHeartbeats.test.ts`.
+   */
+  heartbeats?: {
+    scheduled: (lane: JobLane) => Promise<void>;
+    completed: (lane: JobLane) => Promise<void>;
+  };
 }
 
 const realSchedule = (fn: () => void, intervalMs: number): NodeJS.Timeout => {
@@ -726,6 +886,10 @@ export function createLaneRunner(
   deps: LaneRunnerDeps = {},
 ): { tick: () => Promise<void>; handle: NodeJS.Timeout } {
   const schedule = deps.schedule ?? realSchedule;
+  const heartbeats = deps.heartbeats ?? {
+    scheduled: stampLaneScheduled,
+    completed: stampTickCompleted,
+  };
   let ticking = false;
   let lastPurgeAt = 0;
   let lastRecoverAt = Date.now();
@@ -761,18 +925,62 @@ export function createLaneRunner(
           logger.error({ lane: config.lane, err, queue }, `[asyncJobs:${config.lane}] retention purge failed`);
         }
       }
+      // Same cadence as the purge: drop heartbeat rows for instances that have
+      // stopped writing. Without this, every autoscale scale-down leaves a row
+      // that never advances again and the lane reads as permanently stalled.
+      //
+      // The cutoff is widened the same way laneHealth's own query is — never
+      // tighter than the loosest lane's stall window — or this delete would
+      // erase a heartbeat before laneHealth's widened query ever got a chance
+      // to still see it, defeating that widening entirely.
+      const configuredTtlMinutes = await heartbeatTtlMinutes();
+      const widenedTtlMinutes = Math.max(configuredTtlMinutes, widestStaleThresholdMs() / 60_000);
+      const pruned = await pruneDepartedInstances(defaultDb, widenedTtlMinutes);
+      if (pruned > 0) {
+        logger.info({ lane: config.lane, pruned }, `[asyncJobs:${config.lane}] pruned departed worker heartbeats`);
+      }
     }
   };
 
   const body = deps.runTick ?? defaultBody;
 
   const tick = async (): Promise<void> => {
-    if (ticking) return;
+    // Stamped BEFORE the re-entrancy guard, deliberately. This column is pure
+    // scheduler liveness: a lane whose timer fires every interval while its
+    // previous tick is still running is *healthy but slow*, and it must not read
+    // as dead. Writing this only on ticks that actually run would conflate a
+    // stopped timer with a slow handler — two conditions with two different
+    // remediations, which is exactly why they get two different signals.
+    //
+    // AWAITED rather than fire-and-forget. Fire-and-forget looks safer — it
+    // keeps telemetry off the tick's critical path — but it makes the signal
+    // non-deterministic: two rapid fires can land out of order, so
+    // `last_scheduled_at` can go backwards, and nothing can observe whether the
+    // write happened at all.
+    //
+    // Started but NOT awaited before the body: telemetry must never delay
+    // claiming. Awaiting here puts a database round-trip in front of every
+    // tick, which on the `fast` lane is a meaningful fraction of its interval —
+    // and it broke the lane-isolation test guarding PR #216/#256's invariant,
+    // which is precisely the regression that rule exists to catch. The promise
+    // is awaited before `tick()` resolves instead, so the write is
+    // deterministic for tests without ever sitting in front of real work.
+    const scheduled = heartbeats.scheduled(config.lane);
+    if (ticking) {
+      // A skipped tick does no work, so there is nothing left to delay.
+      await scheduled;
+      return;
+    }
     ticking = true;
     try {
       await body(config);
+      // Reached only when the tick finished. A wedged tick never gets here,
+      // which is what makes the gap between this and `last_scheduled_at`
+      // meaningful.
+      await heartbeats.completed(config.lane);
     } finally {
       ticking = false;
+      await scheduled;
     }
   };
 
@@ -818,10 +1026,27 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
       maxConcurrency: ASYNC_JOBS_MAX_CONCURRENCY,
       maintenance: true,
     },
+    {
+      lane: "pexels",
+      intervalMs: intervalEnv("ASYNC_JOBS_PEXELS_INTERVAL_MS", DEFAULT_PEXELS_INTERVAL_MS),
+      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_PEXELS_MAX_CONCURRENCY", 1)),
+      maintenance: false,
+    },
+    {
+      lane: "ai_meme_backfill",
+      intervalMs: intervalEnv("ASYNC_JOBS_AI_MEME_BACKFILL_INTERVAL_MS", DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS),
+      maxConcurrency: Math.max(1, positiveIntEnv("ASYNC_JOBS_AI_MEME_BACKFILL_MAX_CONCURRENCY", 1)),
+      maintenance: false,
+    },
   ];
 
   // Startup recovery once (the bulk runner also sweeps periodically thereafter).
-  recoverStuckProcessing(defaultDb).catch((err) => {
+  // Pass the cutoff EXPLICITLY rather than relying on `recoverStuckProcessing`'s
+  // 5-minute default: on an autoscaled deployment a booting instance runs this
+  // against rows that other, healthy instances are actively processing, so the
+  // boot path is if anything more exposed to the reclaim race than the periodic
+  // sweep — it must not silently use a shorter, more aggressive cutoff.
+  recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN).catch((err) => {
     logger.error({ err }, "[asyncJobs] startup recovery failed");
   });
 
