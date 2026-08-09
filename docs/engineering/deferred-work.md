@@ -58,16 +58,24 @@ we've sequenced for later.
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
 
-- **`rate_limit_counters` has no production cleanup — PII- and session-token-retention gap, not just table growth.** See the
-  [Code-level tech debt](#code-level-tech-debt) entry below for the full
-  detail: every row `checkSharedRateLimit` writes carries the raw IP, user
-  id, and sometimes a normalized recipient email, with no purge ever wired
-  up — and for both `createRateLimiter`- and `createFactSubmitRateLimiter`-
-  backed routes (including fact submission in `reviews.ts`), "user id" is
-  the actual session token. Left in Code-level tech debt (grouped with the sibling
-  `adminConfig`/`getStripeSync` entries from the same review), but flagged
-  here so the quarterly `/security-review` — which otherwise only reads this
-  section — doesn't miss it.
+- **Nothing alerts if the `rate_limit_counters` purge silently stops running.**
+  - **What.** `jobs/rateLimitCounterPurger.ts` reports through structured log
+    lines only (matching `transientRenderPurger`, the job it was modelled on).
+    If its scheduler never arms or every run starts failing, the table quietly
+    resumes growing — and resumes retaining live session tokens — with no
+    surface that says so.
+  - **Why deferred now.** The purge itself is the fix that mattered and it
+    ships in PR #369; a health surface is a second, larger change (an
+    authenticated admin panel field plus the UI to show it, per the
+    ship-the-surface rule), not a line of it. The grace sweep's
+    `graceSweepHealth` is the model to copy when it's built.
+  - **Cost of waiting.** A silent regression of exactly the bug just fixed
+    would go unnoticed until someone looked at the table again — which is how
+    the original gap survived as long as it did. Bounded by the fact that the
+    job logs its counts on every run that deletes anything, so the signal
+    exists in logs even though nothing watches it.
+  - **Revisit trigger.** Next time the admin health panel is touched for
+    another reason, or the first time this job is suspected of not running.
 
 - **The autoscale connection budget is unenforced and slightly wrong (found on PR #299's review, deferred by PR #308).**
   - **What.** `.replit` selects `deploymentTarget = "autoscale"` with no
@@ -77,9 +85,11 @@ we've sequenced for later.
     per-instance total 22 (not 19) and the honest ceiling
     `floor(398 / 22) = 18`, not the assumed 19.
   - **Why deferred now.** Pre-existing on `main`; same provenance as the
-    `adminConfig`/`getStripeSync`/`rate_limit_counters` entries in
+    `adminConfig`/`getStripeSync` entries in
     [Code-level tech debt](#code-level-tech-debt) below — all five surfaced on
-    the same 16-round review of the plan that became PR #308. Prioritized
+    the same 16-round review of the plan that became PR #308 (the fifth, the
+    `rate_limit_counters` retention gap, was fixed in PR #369 and is off this
+    list). Prioritized
     **first** among these five by David's 2026-08-04 ordering decision — with
     most of this API's route files having had no other rate limiting before
     PR #308's global backstop, an unbounded per-instance ceiling multiplied by
@@ -416,43 +426,6 @@ re-gather it when the work is scheduled.
     three cases proven together: a
     delayed mid-flight mode flip, a construction failure followed by a
     successful retry, and repeated flips returning the live pool count to one.
-
-- **`rate_limit_counters` has no production cleanup at all (found on PR #299's review, deferred by PR #308).**
-  - **What.** `purgeExpiredRateLimitCounters()` (`sharedRateLimiter.ts:83-85`)
-    is one unbounded `DELETE` and nothing calls it, while
-    `checkSharedRateLimit` (`:44-68`) inserts a persistent row for every new
-    endpoint/IP/user/email key combination. The table grows without limit.
-  - **Why deferred now.** Pre-existing on `main` — PR #308's rate limiter uses
-    its own bounded in-memory store and writes no rows to this table at all,
-    so it doesn't touch this gap. Ordered **last** of these five by David's
-    2026-08-04 decision, but flagged as the one that **worsens with time**
-    rather than staying static, so it shouldn't sit indefinitely.
-  - **Cost of waiting.** Not just table growth: `key_raw`
-    (`sharedRateLimiter.ts`'s `normalizeRateLimitKey()`) stores the raw IP,
-    user id, and — for endpoints scoped by `recipientEmail` — a normalized
-    email address, per row, for every endpoint/IP/user/email key combination
-    ever seen. **For both `createRateLimiter`- and `createFactSubmitRateLimiter`-
-    backed routes, the "user id" is `getSessionId(req)`** (both factories call
-    the same `rateLimitScope()` in `rateLimit.ts` — `createFactSubmitRateLimiter`
-    passes `scope.userId` into its own `checkSharedRateLimit` call for the
-    `fact_submit` endpoint, mounted on fact submission in `reviews.ts`) — this
-    repo's 32-byte hex session cookie/Bearer token, not an opaque account id —
-    so those rows, across both factories, retain live/recent **session
-    tokens**, a materially higher-severity secret than an identifier. With no cleanup,
-    this is an **unbounded PII-and-session-token retention backlog**, not
-    merely inert counters — a privacy/security cost, not only a
-    query-latency one. This reframes the item: the quarterly
-    `/security-review` should track it too, not just a maintenance pass, and
-    a design that only addresses index/query cost (e.g. archiving instead of
-    deleting) would leave the retention problem unsolved — worse, archiving
-    would extend the retention window on live session tokens.
-  - **Revisit trigger.** A scheduled maintenance pass, the quarterly security
-    review, or observed table-size growth becoming a real query-latency
-    concern — whichever fires first. Fix needs real retention (deletion, not
-    archiving, given the PII content): a bounded per-run delete statement
-    plus a bounded whole-run budget with rescheduling (not a single
-    unbounded `DELETE`), verified against a
-    high-cardinality backlog so no single run monopolizes the pool.
 
 - **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
   - **What.** [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)

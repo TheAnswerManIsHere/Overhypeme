@@ -80,10 +80,18 @@ export async function checkSharedRateLimit(scope: RateLimitScope, config: RateLi
   return { allowed, count, limit: config.limit, resetAt, nearLimit };
 }
 
-export async function purgeExpiredRateLimitCounters(): Promise<void> {
-  await db.delete(rateLimitCountersTable).where(sql`${rateLimitCountersTable.expiresAt} <= now()`);
-}
-
+/**
+ * Expired-row retention lives in `jobs/rateLimitCounterPurger.ts`, not here.
+ *
+ * There used to be a `purgeExpiredRateLimitCounters()` beside this function: a
+ * single unbounded `DELETE ... WHERE expires_at <= now()` that nothing in
+ * production ever called, so the table grew without limit — retaining the raw
+ * IPs and live session tokens `normalizeRateLimitKey` puts in `key_raw`. It was
+ * removed rather than wired up, because running it against the accumulated
+ * backlog is the specific thing to avoid: one statement holding locks across
+ * every eligible row, on the pool the request path is using. The purger deletes
+ * in bounded batches under a whole-run budget instead.
+ */
 export async function purgeRateLimitCountersByPrefix(rawKeyPrefix: string): Promise<void> {
   await db.delete(rateLimitCountersTable).where(like(rateLimitCountersTable.keyRaw, `${rawKeyPrefix}%`));
 }

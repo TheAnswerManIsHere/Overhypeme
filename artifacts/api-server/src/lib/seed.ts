@@ -580,6 +580,26 @@ export async function ensureSchema(): Promise<void> {
         ON CONFLICT (key) DO NOTHING`,
     },
     {
+      // Bounds mirror MIN_BATCH_SIZE/MAX_BATCH_SIZE in
+      // jobs/rateLimitCounterPurger.ts — the code clamps to those regardless,
+      // so this row's min/max only has to agree, not be load-bearing.
+      label: "admin_config seed rate_limit_counters.purge_batch_size",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+        VALUES ('rate_limit_counters.purge_batch_size', '5000', 'integer', 'Rate Limit Counter Purge — Batch Size',
+          'Rows deleted per batch when purging expired rate_limit_counters rows. Bounded (see the job) so a bad value cannot recreate an unbounded DELETE.',
+          1, 50000, false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      // Bounds mirror MIN_MAX_BATCHES/MAX_MAX_BATCHES in the same file.
+      label: "admin_config seed rate_limit_counters.purge_max_batches",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+        VALUES ('rate_limit_counters.purge_max_batches', '20', 'integer', 'Rate Limit Counter Purge — Max Batches Per Run',
+          'Batches per scheduled run before the purger stops and reschedules, so one run cannot hold locks across the whole backlog.',
+          1, 1000, false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
       // Dead control: the AI background picker reads ai_gallery_display_limit,
       // never bg_display_limit_ai. Nothing consumed this key, so drop it.
       label: "admin_config delete bg_display_limit_ai",
