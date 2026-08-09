@@ -486,11 +486,13 @@ priorities (moderation speed, render/enrichment quality, video). See
 - **Overhype.me Manual — one-time chapter backfill.** David approved the plan
   on 2026-07-30 and the pass has started. Target: **12 chapters in reading
   order** (9 newly written) plus 6 new `docs/ai-context/` subsystem specs for
-  the areas that had none to link into. Four chapters are already written —
-  moderation, taxonomy/enrichment, **background work** (the previous wording,
-  under deferred work, listed background work as outstanding; it is not),
-  and **payments & membership**. `docs/manual/README.md`'s table is the live
-  status. This entry is
+  the areas that had none to link into. `docs/manual/README.md`'s Contents
+  table is the live record of which chapters are written — not restated here
+  as a count that would only go stale again (moderation, taxonomy/enrichment,
+  and background work were already written before this entry was last
+  touched; **background work** specifically was previously miswritten
+  elsewhere, under deferred work, as still outstanding — it is not). This
+  entry is
   retired by the pass's final close-out PR, not before — so the roadmap never
   claims the backfill is finished while chapters are missing.
 

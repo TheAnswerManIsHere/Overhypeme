@@ -52,11 +52,12 @@ held. A row is **not** necessarily currently granting anything: a cancelled
 subscription, a refunded purchase, a source with an open or lost dispute, or
 one on a non-membership price are all retained rows that no longer (or never
 did) qualify — retained deliberately, as the audit trail, and never turned
-into a bare existence check. A **won** dispute is a partial exception: it
+into a bare existence check. A dispute resolving as anything but **lost** —
+`won`, `warning_closed`, or `prevented` — is a partial exception: it
 clears the access hold (step 2 of `qualifySource`), but the source still has
 to pass its own lifecycle check afterward like any other row — a subscription
 cancelled or a purchase refunded while its dispute was open stays
-disqualified on winning the dispute, since that's a separate, later fact (see
+disqualified regardless of how the dispute itself resolved, since that's a separate, later fact (see
 *Refunds and disputes* below). Whether a given row currently grants
 access is answered separately, below. Three source types:
 
@@ -215,11 +216,12 @@ status (i.e. cancellation), not a refund issued against one of its invoices.
 A **lost chargeback is permanent**:
 `dispute_loss_revoked_at` is set-once (the same `BEFORE UPDATE` trigger that
 freezes identity), so no later refresh reporting the subscription `active` can
-clear it. A **won** dispute clears the access hold — `qualifySource` no
-longer disqualifies the source *for the dispute* — but access is only
-actually restored if the source's own lifecycle status still qualifies on
-its own terms; a cancellation or refund that happened while the dispute was
-open isn't undone by winning it. Dispute terminality is absorbing — a fifth
+clear it. Every other terminal outcome — `won`, `warning_closed`, `prevented`
+— clears the access hold the same way: `qualifySource` no longer disqualifies
+the source *for the dispute* — but access is only actually restored if the
+source's own lifecycle status still qualifies on its own terms; a
+cancellation or refund that happened while the dispute was open isn't undone
+by any of these. Dispute terminality is absorbing — a fifth
 Stripe dispute
 status the SDK might someday add gets `isRecognisedDisputeStatus` guarding it
 rather than silently matching nothing.
@@ -237,7 +239,7 @@ suggests "membership."
 |---|---|
 | `artifacts/api-server/src/middlewares/authMiddleware.ts` | everything downstream (~20 sites) |
 | `artifacts/api-server/src/lib/createMemeRecord.ts` | private visibility, rate limit, PuLID gate |
-| `artifacts/api-server/src/lib/budgetGate.ts` | monthly spend limit |
+| `artifacts/api-server/src/lib/budgetGate.ts` | spend limit (period is `budget_period`-configured: monthly or rolling 30-day) |
 | `artifacts/api-server/src/lib/stripeStorage.ts` | the fact-of-the-day mailing list, the revocation notice |
 | `artifacts/api-server/src/routes/admin.ts` | dashboard counts, the admin user list |
 | `artifacts/api-server/src/routes/users.ts`, `artifacts/api-server/src/routes/auth.ts`, `artifacts/api-server/src/routes/localAuth.ts` | login/profile payloads |

@@ -196,10 +196,12 @@
   candidate for membership a user has ever held, of type
   `stripe_subscription`, `stripe_lifetime_payment`, or `admin_grant`. **Not**
   the same as "currently grants membership" — a cancelled, refunded, or
-  disputed source is retained, not deleted, and no longer qualifies (a
-  **won** dispute only clears the dispute hold — the source still must pass
-  its own lifecycle check, so a cancellation/refund that happened while it
-  was disputed stays disqualified). A user's tier is the **union** of their
+  disputed source is retained, not deleted, and no longer qualifies. A
+  dispute closing **anything but lost** — `won`, `warning_closed`, or
+  `prevented` — only clears the dispute hold; the source still must pass its
+  own lifecycle check, so a cancellation/refund that happened while it was
+  disputed stays disqualified regardless of how the dispute itself resolved.
+  Only `lost` is a separate, permanent disqualification. A user's tier is the **union** of their
   *qualifying* sources (a separate check per row), not a priority order —
   Legendary if *any* one qualifies.
   → [membership-entitlements](./membership-entitlements.md#the-entitlement-model)

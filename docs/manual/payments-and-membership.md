@@ -17,16 +17,19 @@ generation, higher rate limits, and a higher generation spend budget).
 Legendary can be bought as a recurring subscription or a one-time "Legendary
 for Life" purchase, and an admin can comp it to someone directly.
 
-The one thing worth understanding before anything else: **nobody sets a
-user's tier.** It's computed. At any moment, a user is Legendary if — and only
-if — they currently hold something that entitles them to it: a qualifying
-subscription (active, in trial, or in a bounded grace window after a failed
-payment), a lifetime purchase, or an admin grant. Cancel the subscription,
-refund the purchase, or revoke the grant, and the computed answer changes on
-its own. There is no button, script, or admin field that sets "Legendary"
-directly — with one narrow, designed exception: reinstating a deactivated
-user whose sources can't all be re-verified writes the tier directly rather
-than derive it from an incomplete set (see below).
+The one thing worth understanding before anything else: **once an account
+exists, nobody sets its tier.** It's computed. At any moment, a user is
+Legendary if — and only if — they currently hold something that entitles
+them to it: a qualifying subscription (active, in trial, or in a bounded
+grace window after a failed payment), a lifetime purchase, or an admin
+grant. Cancel the subscription, refund the purchase, or revoke the grant,
+and the computed answer changes on its own. There is no button, script, or
+admin field that sets "Legendary" directly — with one narrow, designed
+exception: reinstating a deactivated user whose sources can't all be
+re-verified writes the tier directly rather than derive it from an
+incomplete set (see below). (Account creation itself is a separate,
+one-time case — a new account starts Registered or Unregistered by direct
+choice, never Legendary; see the deep spec for the mechanics.)
 
 ## How it works
 
@@ -96,9 +99,10 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
 
 **Admin → Refunds & Disputes** lists refund and chargeback activity, and
 carries a small status strip for the background job (below). Admin → Users
-already shows every user's live, current tier regardless of that job — the
-strip reports the *internal* projection catching up, not anything a person is
-looking at.
+shows every user's live, current tier on a fresh list load, regardless of
+that job — the strip reports the *internal* projection catching up, not a
+fresh load of that screen. (Saving an unrelated field on an already-loaded
+row is a narrower exception — see *Boundaries & known limitations* below.)
 
 ### The machinery
 
