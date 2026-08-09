@@ -26,10 +26,11 @@ saves it as your meme.
   [stock image](../ai-context/glossary.md#stock-image) or one of the built-in templates. This is available to
   anyone signed in — no paid plan required.
 - **An AI-generated image.** Legendary members can generate a new
-  background image built around a source photo — this shares the same
-  underlying image-generation machinery used elsewhere in the product (see
-  [`visual-pipeline.md`](./visual-pipeline.md)), just entered from the
-  studio instead of from moderation.
+  background image, with a source photo or from description alone.
+  Only the no-reference path shares the moderation pipeline's machinery
+  (see [`visual-pipeline.md`](./visual-pipeline.md)); generating from a
+  source photo runs a separate, legacy route straight to the image engine,
+  with its own scene-prompt generation.
 - **An AI-generated video.** Legendary members can also generate a short
   video meme, built the same way — starting from a source photo, styling
   it, then animating it. This runs as a background job with real progress
@@ -82,12 +83,14 @@ already-existing stock photo or template.
   signed in. Generating a new AI image or video does cost something every
   time, which is why that's the part gated to a paid membership rather
   than the studio as a whole.
-- **AI image and video generation share the same underlying machinery on
-  purpose.** Building a Visual Concept for moderation and generating a
-  background from the studio both need the same identity-preserving,
-  policy-respecting image generation — routing both through one shared
-  pipeline means an improvement to one path is automatically true for the
-  other.
+- **The no-reference studio path deliberately shares moderation's image
+  machinery.** Building a Visual Concept for moderation and generating a
+  no-reference background from the studio both need the same
+  identity-preserving, policy-respecting image generation — routing both
+  through one shared pipeline means an improvement to one path is
+  automatically true for the other. The reference-photo path and AI video
+  are separate, purpose-built routes instead, not (yet) folded into that
+  shared pipeline.
 
 ## Boundaries & known limitations
 

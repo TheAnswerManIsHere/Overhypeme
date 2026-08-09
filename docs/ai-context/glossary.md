@@ -61,11 +61,20 @@ an automatic rejection.
 
 A fact that expresses **the same concept** as another fact in slightly
 different words, linked by `facts.parent_id` to the **root**. The link exists
-for exactly two purposes: recording that kinship, and letting the UI show or
-hide variants. **A variant is otherwise a fully independent fact** — it owns
-its own memes, taxonomy/enrichment, Visual Concept, and stock/AI images, and it
-inherits **no** metadata from its root.
-→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts)
+to keep near-duplicate wordings from cluttering the browse surfaces while
+still letting a reader pick the phrasing that lands best for them. **It is
+not a third way facts get submitted** — a fact is submitted exactly two ways
+([submitter](#submitter) or [bulk import](#bulk-import)); becoming a variant
+is a link applied to a fact traveling that same funnel, at
+[Triage](#triage)'s "Prep as Variant of #N" (any positive-confidence
+duplicate match, not only one that crossed the submitter-facing warning
+threshold), from the [Facts editor](#facts-editor) writing one directly, or
+— outside review entirely — an admin reparenting an already-published fact
+via the Facts editor's Parent ID field. **A variant is otherwise a fully
+independent fact** — it owns its own memes, taxonomy/enrichment, Visual
+Concept, and stock/AI images, and it inherits **no** metadata from its root.
+→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts),
+[content-lifecycle](../manual/content-lifecycle.md#variants-organizing-near-duplicate-wordings)
 
 ### Root
 
@@ -214,11 +223,14 @@ before the check resolves reaches the server with no flag at all.
 
 ### Ingestion funnel
 
-The rule that a fact can enter Overhype.me exactly three ways — user
-submission, bulk import, variant creation — and that all three call the *same*
-function to create a pending review. There is no fourth path in the running
-product, which is what makes "every fact gets reviewed" one promise instead of
-three.
+The rule that a fact is submitted exactly two ways — user submission, bulk
+import — plus the admin variant route (an authoring convenience for the
+second, not a distinct kind of content), and that every route calls the
+*same* function to create a pending review. There is no fourth path in the
+running product, which is what makes "every fact gets reviewed" one promise
+instead of several. The admin Facts editor's direct reparenting is a
+separate mechanism that sits outside this funnel entirely — see
+[Variant](#variant).
 → [moderation-workflow](./moderation-workflow.md#the-ingestion-funnel--one-entrance)
 
 ---
@@ -244,9 +256,9 @@ none of the three-gate machinery.
 
 ### Pending review
 
-The row every [ingestion funnel](#ingestion-funnel) entrance creates for a
+The row every [ingestion funnel](#ingestion-funnel) route creates for a
 **first-time** submission — the thing a fact actually *becomes* on
-submission, as opposed to a live catalogue entry. All three entrances call
+submission, as opposed to a live catalogue entry. Every route calls
 the same function to create one, and no other first-time path does. Scoped
 to first-time ingestion: a [send-back refresh](#send-back-to-review) and
 [Resubmit for Moderation](#resubmit-for-moderation) each create their own
@@ -729,10 +741,14 @@ costs nothing extra per meme to produce.
 
 ### AI image meme
 
-A Legendary-gated meme whose background is AI-generated, through the same
-[visual pipeline](#visual-concept) moderation uses — from a source photo when
-one is provided, or from description alone when it isn't; a source photo is
-not required. **Visibility depends on which path generated it.** The
+A Legendary-gated meme whose background is AI-generated — from a source photo
+when one is provided, or from description alone when it isn't; a source photo
+is not required. **Only the no-reference path shares the moderation pipeline**
+([visual planner](#visual-planner), compiler, durable worker). The
+reference-photo path is a separate, legacy synchronous route straight to the
+engine, with its own scene-prompt generation — it does not go through
+`generateImagePromptPlan` or the compiler, so Visual Concept and compiler
+guarantees don't cover it. **Visibility follows the same split.** The
 no-reference path joins that fact's shared gallery, usable by anyone who
 later makes a meme from the same fact. The reference-photo path is the
 opposite — a likeness generated from *your* photo is stored only against
