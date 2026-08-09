@@ -13,9 +13,9 @@
 
 Once a fact exists, these are the surfaces that let anyone actually find
 it, read it personalized to them, rank it against others, and pass it
-along. None of this requires an account — browsing, searching, and
-sharing all work for a signed-out visitor; only saving something to your
-own library requires being signed in.
+along. Browsing, searching, and sharing a *fact* all work without an
+account. Sharing a *meme* — beyond a plain copy-link — and saving anything
+to your own library both require being signed in.
 
 ## How it works
 
@@ -43,9 +43,12 @@ Typing into search looks for those words anywhere in a fact's text — a
 straightforward text match, not a smarter relevance search, so results
 always come back newest-first rather than "best match first." Typing a
 hashtag (with a `#`) searches for exactly that tag instead, and this is
-actually how hashtag browsing works day to day — clicking a hashtag
-anywhere on the site lands you on a search for that tag, not a dedicated
-hashtag directory page.
+one of two ways hashtag browsing actually happens day to day: a hashtag
+pill on a fact card sends you to a search for that tag, while the
+hashtag rail and "Trending Topics" strip on the home page filter the home
+feed itself in place, without leaving the page. Either way, there's no
+dedicated hashtag directory page — the idea of one exists in the
+codebase, but it isn't reachable.
 
 ### Top Facts (the leaderboard)
 
@@ -57,20 +60,28 @@ on the site — no user leaderboard, only a fact leaderboard.
 
 ### Your library, not a public profile
 
-There's no page where you can browse someone else's submissions or memes
-— Overhype.me doesn't have public profile pages. What exists instead is
-your own private library: the facts you've submitted or liked, the memes
-and images you've made, and your search history — visible only to you,
-when you're signed in. Your account settings (name, sign-in method,
-membership) live on a separate page from that library.
+There's no page where you can see a list of everything a particular
+person has made — Overhype.me doesn't have public profile pages. That
+doesn't mean someone else's public memes are hidden from you: you can
+still see a public meme wherever it's shared or attached to a fact, the
+same as anyone. What's missing is a single page that rounds all of one
+person's activity up in one place — that view exists only for your own
+account, as your private library: the facts you've submitted or liked,
+the memes and images you've made, and your search history, visible only
+to you, when you're signed in. Your account settings (name, sign-in
+method, membership) live on a separate page from that library.
 
 ### Sharing a meme makes a rich preview everywhere else
 
-When you share a meme's link — dropping it into a text, a social post, a
-chat app — the app on the other end shows a real preview: the meme's own
-image, a title, a description, not just a bare link. That's true
-specifically for meme links; sharing a link to a fact, a search, or the
-home page itself doesn't currently produce a rich preview the same way.
+When you share a *public* meme's link — dropping it into a text, a social
+post, a chat app — the app on the other end shows a real preview: the
+meme's own image, a title, a description, not just a bare link. A private
+meme's link doesn't get that treatment for anyone who can't already see
+it — the preview machinery respects the same privacy rule the meme itself
+does, rather than leaking a look at something private through the
+preview. Either way, this is specific to meme links; sharing a link to a
+fact, a search, or the home page itself doesn't currently produce a rich
+preview at all.
 
 Sharing itself works a few ways depending on where you start: copying a
 link, tapping a platform's share button, or (on a fact specifically)
@@ -85,10 +96,13 @@ them.
 
 From a meme, you can open a product picker — a shirt, a mug, a sticker,
 and similar — preview roughly how the meme would look on it, and get
-redirected out to Zazzle to actually order it. Overhype.me doesn't handle
-the order itself: it hands off to Zazzle for checkout, sizing, shipping,
-and payment, and only knows that a click happened, not whether anyone
-went on to buy anything.
+redirected out to Zazzle to actually order it. **The product and layout
+you pick on Overhype.me is only a preview** — what actually reaches
+Zazzle is the meme image itself, not your product/layout choice, so
+you'll choose the real product again once you land on Zazzle. Overhype.me
+doesn't handle the order itself: it hands off to Zazzle for checkout,
+sizing, shipping, and payment, and only knows that a click happened, not
+whether anyone went on to buy anything.
 
 ## Why it works this way
 
@@ -97,10 +111,12 @@ went on to buy anything.
   stop being a shared thing — the spotlight and the leaderboard only work
   as social objects because everyone is looking at the same pool, just
   reading it with their own name in it.
-- **Search stays simple because it's a way to jump straight to something
-  you already have in mind**, not a discovery tool competing with the
-  home feed and the leaderboard for that job — so a plain text match is
-  enough, and a smarter relevance ranking hasn't been worth building yet.
+- **Search is a plain text match today, not a smarter relevance search.**
+  Whether that's a deliberate product choice (search as quick lookup
+  rather than discovery, which the home feed and leaderboard already
+  cover) or simply not built yet isn't settled anywhere in the product
+  record — **Needs David confirmation** before treating it as intentional
+  design rather than a gap.
 - **A meme is treated as a finished object when you share it, and a fact
   is treated as something to hand to a specific person.** Those are
   genuinely different sharing intents — "look at this exact thing" versus
@@ -119,24 +135,32 @@ went on to buy anything.
   the ranking underneath never changes; it's always all-time. Not a
   documented product decision, just not wired up yet.
 - **There's no dedicated hashtag browsing page**, even though the idea of
-  one exists in the codebase — clicking a hashtag routes you into a search
-  instead. If you're expecting a page that lists every hashtag with its
-  own dedicated view, that page currently isn't reachable.
+  one exists in the codebase. If you're expecting a page that lists every
+  hashtag with its own dedicated view, that page currently isn't
+  reachable — hashtag browsing only happens through search or the home
+  page's own filtering.
 - **The "Send via Email" share option doesn't currently work.** The
   button is there and looks functional, but the request behind it fails
   every time in production due to a configuration mismatch — this reads
   like unfinished setup rather than an intentional limitation. **Needs
   David confirmation** on whether this is known and whether fixing it is
   planned.
-- **There's no public profile page for any user** — you can see only your
-  own submissions, memes, and library, never anyone else's, and no one
-  can see yours either.
+- **There's no public profile page for any user** — nowhere can you see a
+  rounded-up view of everything a particular person has made, yours
+  included. This doesn't mean everyone's content is invisible to
+  everyone else: a public meme is still visible wherever it's shared or
+  attached to a fact, the same as any public meme.
 - **Rich link previews only exist for meme links.** Sharing a fact page,
   a search result, or the home page itself doesn't produce a preview
   image/description the way sharing a meme does.
 - **Merch has no order or fulfillment tracking on Overhype.me's side** —
   once you're redirected to Zazzle, everything after that (whether you
   actually bought anything, sizing, shipping) is invisible to Overhype.me.
+- **Hearting a private meme isn't currently blocked the way viewing one
+  is.** Every other private-meme surface (the image itself, its rich
+  preview, sharing it, ordering merch from it) correctly requires being
+  the owner or an admin; the heart button doesn't yet carry that same
+  check. Worth fixing rather than a documented gap.
 
 ## Going deeper
 

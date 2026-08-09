@@ -26,21 +26,34 @@ Two independent surfaces, not a personalization-driven feed:
 are fetched.** `usePersonName()` (`hooks/use-person-name.ts`) reads/writes
 `localStorage` (or seeds from a share link's `?displayName=&pronouns=`
 params, `Home.tsx:26-36`) — neither `useListFacts` nor `useHeroFact` ever
-sends name/pronouns to the server. Every visitor gets the same feed/hero
-pool and ordering; only the rendered text substitutes tokens per-visitor.
+sends name/pronouns to the server; only the rendered text substitutes
+tokens per-visitor. **The feed pool is identical for everyone, but the
+hero pool is not** — `GET /facts/hero` (`facts.ts:117-207`) accepts a
+client-tracked `exclude` list of recently-shown ids, and for an
+authenticated caller additionally excludes every fact already recorded as
+shown-as-hero to that user (`userFactPreferencesTable`, `facts.ts:127-139`)
+— so two visitors (or the same visitor across sessions) can draw from
+different-sized hero pools, even though the ranking/weighting logic
+itself is identical.
 
 **Cold vs. warm.** Cold = `!name && !SHARE_LINK_ACTIVE` (`Home.tsx:503`) —
-shows a static placeholder teaser with a demo name, no `/facts/hero` call
-at all while cold (`Home.tsx:644-650,660-669`). After a name is submitted,
-a pronoun-onboarding sheet collects/infers pronouns before the visitor
-flips warm and the real hero/feed calls fire.
+shows a static placeholder teaser with a demo name instead of the real
+hero result. **The `/facts/hero` request still fires while cold** —
+`useHeroFact()` is called unconditionally at `Home.tsx:504`, regardless of
+`isCold`; the cold UI only hides the response behind the teaser, it
+doesn't suppress the request. After a name is submitted, a
+pronoun-onboarding sheet collects/infers pronouns before the visitor flips
+warm and the real hero result is shown.
 
-**No pagination or infinite scroll anywhere on the public site.**
-`useListFacts` is called once with a fixed `limit` — no offset increment,
-"load more," or scroll observer in `Home.tsx` or `Search.tsx` (confirmed
-by grep). The API supports `offset` (`ListFactsQueryParams`,
-`lib/api-zod/src/generated/api.ts:97-112`); nothing on the public site
-drives it.
+**No pagination or infinite scroll on the fact-discovery surfaces
+(Home, Search).** `useListFacts` is called once with a fixed `limit` — no
+offset increment, "load more," or scroll observer in `Home.tsx` or
+`Search.tsx` (confirmed by grep). The API supports `offset`
+(`ListFactsQueryParams`, `lib/api-zod/src/generated/api.ts:97-112`);
+neither page drives it. **This is not true site-wide** — the private
+Activity Feed (`ActivityFeed.tsx`) has its own real page-based pagination
+(`page` state, `GET /activity-feed?page=...`, prev/next controls,
+`ActivityFeed.tsx:142-147,235-246`), outside this chapter's scope.
 
 A sticky hashtag rail and a "Trending Topics" strip (`Home.tsx:26-72,
 713-733`) both call `GET /hashtags` — see below.
@@ -120,8 +133,12 @@ the query is only exercised indirectly via unrelated related-facts tests.
 ## Profiles and Library — the self-view split
 
 **There is no public-facing profile page.** No `/u/:id` or similar route
-exists anywhere; the public `/facts` response's `submittedBy` field is
-consumed only by the admin facts page, never by any public component.
+exists anywhere. This is not the same as "no one can see another user's
+memes" — `GET /facts/:factId/memes?visibility=community` returns every
+public meme for a fact to anyone, and a public meme's permalink is
+viewable by anyone who has it. What doesn't exist is a **per-user
+aggregated view** — nowhere can you see "everything user X has made,"
+public or not, the way you can see your own via `/library`.
 
 `/profile` (`Profile.tsx`) is the **private account-settings surface**,
 hard-gated to the signed-in owner (`Profile.tsx:748-754`) — identity,
@@ -150,7 +167,13 @@ Memes" tab implicitly (a user only ever sees their own), and it's enforced
 via one shared check, `canViewMeme()`
 (`lib/memeVisibility.ts:27-33`), on every meme-resolving surface: the meme
 detail JSON, the rendered image, the OG shell, share-copy/share-intents,
-and the Zazzle export.
+and the Zazzle export. **One exception, not yet using that check:**
+`POST /memes/:id/heart` (`memes.ts:532-546`) only verifies the meme
+exists and isn't soft-deleted — it never calls `canViewMeme()` — so an
+authenticated non-owner who has (or guesses) a private meme's numeric id
+can toggle a heart on it despite not being able to view it anywhere else.
+Worth fixing to match the settled owner/admin-only contract for private
+memes; flagged here rather than fixed, since this spec is documentation.
 
 ## OG cards
 
@@ -247,19 +270,29 @@ generic sitewide fallback.
    or `mailto:`. Copy/URLs are fetched server-side per-platform from
    `GET /share-copy/:memeId/:platform` (auth-required, rate-limited,
    template variables sourced from `admin_config`, Twitter-specific
-   character-budget truncation). Every button click fires `POST
-   /share-intents` — fire-and-forget logging of the *click*, never the
-   actual downstream share (which app the OS share sheet opened is
-   unobservable, per the route's own doc comment).
+   character-budget truncation). **`POST /share-intents` logs a
+   successful share action, not every button click** — the Web Share
+   button only logs after `navigator.share()` resolves (dismissing the OS
+   sheet, an `AbortError`, logs nothing, `MemeShareModal.tsx:97-100`), and
+   Copy Link only logs after the clipboard write actually succeeds
+   (`MemeShareModal.tsx:120-139`). Even a logged "share," though, is still
+   only the local action (share sheet opened / link copied) — which app
+   the OS share sheet was ultimately used with is unobservable, per the
+   route's own doc comment.
 
 3. **`PostCreateShareScreen`** — the post-creation screen, widest platform
-   list, plus a merch teaser and download. Most shares actually originate
-   here rather than from the two modals above.
+   list, plus a merch teaser and download. **It does not call
+   `logShareIntent`** (or write to any other tracking table) — unlike
+   `MemeShareModal`, none of its share actions are logged anywhere.
+   Whether more shares actually originate from this screen than from the
+   other two isn't something the code establishes either way; **Needs
+   David confirmation** rather than asserted.
 
 **Tracking summary:** `factsTable.shareCount`, `affiliateClicksTable`,
-`shareIntentsTable` each log a different action; nothing tracks a share
-all the way to "someone actually opened the link" — every surface stops
-at intent/click.
+`shareIntentsTable` each log a different local action (a fact share, a
+Zazzle click, a successful meme-share action) — none of them, and nothing
+else on the site, tracks a share all the way to "someone actually opened
+the link." `PostCreateShareScreen` writes to none of these tables at all.
 
 ## Files to inspect before public-site/sharing work
 
