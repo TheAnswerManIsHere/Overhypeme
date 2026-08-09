@@ -162,6 +162,28 @@ guard), but they run in CI, not here.
   essay. Anything longer belongs in the plan or in
   [`deferred-work.md`](deferred-work.md).
 
+## Replit's handoff documents are ephemeral too (David, 2026-08-09)
+
+When Replit stops mid-run and writes a handoff document (`docs/CLAUDE_*_HANDOFF_*.md`
+or similar) describing what it ran, what it found, and where it stopped, that
+document is **transient in exactly the way a TEST_RUN checklist is** — a message
+in flight, not a record. Whoever picks it up **deletes it once every issue in it
+has been addressed**, in the same change that addresses them.
+
+Deleting it is not "losing the findings" — it is the forcing function that says
+where each finding actually belongs:
+
+- A wrong or stale instruction → fix the **checklist itself**.
+- A durable lesson → the relevant `docs/ai-context/` file (a generalizing gotcha
+  goes in [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)).
+- A settled call → [`decisions.md`](../ai-context/decisions.md).
+- Anything still open → a question to David, or a real issue — never a paragraph
+  left sitting in a handoff doc.
+
+A finding that survives only because a handoff document is still in the repo has
+not been addressed. If nothing in it belongs anywhere durable, that is the
+signal it was pure transit and the deletion costs nothing.
+
 ## Template
 
 ```markdown

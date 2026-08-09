@@ -1168,3 +1168,22 @@ the specific fixes named below over re-deriving them.
   rows) first, not an assumption that unconditional replacement is
   generally replay-safe. See the 2026-08-07 `decisions.md` entry and
   `lib/db/migrations/0097_ncmec_submission.sql`'s action-CHECK block.
+- **A hand-authored constraint with no matching declaration in `schema/*.ts`
+  is silently removed by the next `drizzle-kit push` — while the migration
+  tracker still reports the migration as applied.** `push` reconciles the live
+  database against the *TypeScript schema*, not against the migration history,
+  so a CHECK that exists only in raw migration SQL reads to `push` as drift to
+  be dropped. Nothing surfaces: the journal still lists the migration, a
+  re-run of the migration skips it as already-applied, and the constraint is
+  simply gone from the database. Found on the live workspace during the PR242
+  post-merge checklist, months after 0092 added
+  `facts_active_requires_concept` — the *backfilled data* was still correct,
+  which is what made it invisible; only the enforcement had disappeared, so the
+  next writer to violate it would have succeeded. **Every raw-SQL constraint
+  needs a matching `check()` (or index/FK) declaration in the schema file that
+  owns the table**, not just the migration — and a repair for a lost one has to
+  be a *new forward-only* migration guarded on `pg_constraint`
+  (`lib/db/migrations/0098_fact_lifecycle_check_repair.sql`), because re-running
+  the original is a no-op the tracker will never perform. Corollary for
+  verification: "the migration is recorded as applied" is not evidence the
+  constraint exists — query `pg_constraint` directly.
