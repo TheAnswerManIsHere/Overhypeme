@@ -13,6 +13,8 @@ import { PulidProgressOverlay } from "./parts/PulidProgressOverlay";
 import { LivePreview } from "./parts/LivePreview";
 import { ActionBar } from "./parts/ActionBar";
 import { TierLockedState } from "./parts/TierLockedState";
+import { VisibilityToggle } from "./parts/VisibilityToggle";
+import { UnifiedUpgradeModal } from "../upgrade/UnifiedUpgradeModal";
 import { STYLIZE_TOGGLE_COPY } from "./copy";
 import {
   currentSource,
@@ -51,6 +53,11 @@ export function MemeBuilder(props: MemeBuilderProps) {
       };
 
   const { state, dispatch } = useBuilderState(initial);
+  // Gallery visibility. Local rather than reducer state: it is Legendary-only,
+  // and the pending-state capture exists for the signup resume path, which by
+  // definition belongs to a tier that can't set it.
+  const [isPublic, setIsPublic] = useState(true);
+  const [privateUpsellOpen, setPrivateUpsellOpen] = useState(false);
   const [pulidOpen, setPulidOpen] = useState(false);
   const [pulidProgress, setPulidProgress] = useState(0);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
@@ -155,6 +162,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
         imageSource,
         textOptions: state.textOptions,
         aspectRatio: state.aspectRatio,
+        isPublic,
         // Omit imageTransform when null — the server's Zod schema treats it
         // as `.optional()` (undefined-only) and would 400 on an explicit null.
         ...(imageTransform ? { imageTransform } : {}),
@@ -285,6 +293,22 @@ export function MemeBuilder(props: MemeBuilderProps) {
         </p>
       )}
 
+      {/* Visibility sits with the save action — it's a choice about publishing,
+          not about the canvas. Hidden when saving isn't on offer (anonymous
+          download-only cells), since there'd be no row to apply it to. */}
+      {cell.visibleActions.includes("save") && (
+        <VisibilityToggle
+          isPublic={isPublic}
+          onChange={setIsPublic}
+          tier={viewerContext.tier}
+          // Deliberately NOT the `upgrade-required` completion signal used by
+          // the AI upsell: hosts treat that as "leave the builder", which would
+          // throw away an in-progress meme just because the user tapped
+          // Private to see what it was.
+          onRequestUpgrade={() => setPrivateUpsellOpen(true)}
+        />
+      )}
+
       <ActionBar
         visibleActions={cell.visibleActions}
         showTryAiUpsell={cell.showTryAiUpsell}
@@ -301,6 +325,12 @@ export function MemeBuilder(props: MemeBuilderProps) {
         open={pulidOpen}
         progress={pulidProgress}
         onCancel={() => setPulidOpen(false)}
+      />
+
+      <UnifiedUpgradeModal
+        open={privateUpsellOpen}
+        onClose={() => setPrivateUpsellOpen(false)}
+        context="private-meme"
       />
     </div>
   );

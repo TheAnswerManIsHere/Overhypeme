@@ -120,6 +120,37 @@ describe("MemeBuilderWizard", () => {
     expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
   });
 
+  // Regression: Step 2 shipped with no privacy control at all, so every meme
+  // built here saved public no matter what the creator wanted — and there is
+  // no way to change a meme's visibility after the fact.
+  describe("visibility control on Step 2", () => {
+    async function openImageStep(tier: ViewerContext["tier"]) {
+      renderWizard({ viewerContext: { ...VIEWER, tier } });
+      fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
+      await screen.findByRole("heading", { name: /build your meme/i }, S2);
+    }
+
+    it("lets a legendary creator choose private before saving", async () => {
+      await openImageStep("legendary");
+      const priv = screen.getByTestId("meme-visibility-private");
+      expect(priv.getAttribute("aria-pressed")).toBe("false");
+      fireEvent.click(priv);
+      expect(screen.getByTestId("meme-visibility-private").getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("shows a registered creator the upsell instead of letting them pick private", async () => {
+      await openImageStep("registered");
+      fireEvent.click(screen.getByTestId("meme-visibility-private"));
+      expect(screen.getByTestId("meme-visibility-private").getAttribute("aria-pressed")).toBe("false");
+      expect(await screen.findByText(/go legendary to keep memes private/i)).toBeTruthy();
+    });
+
+    it("omits the control for a viewer who cannot save yet", async () => {
+      await openImageStep("unregistered");
+      expect(screen.queryByTestId("meme-visibility")).toBeNull();
+    });
+  });
+
   it("ignores expired drafts in sessionStorage", () => {
     const expired = {
       schemaVersion: 2,

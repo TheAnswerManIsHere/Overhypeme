@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import type { AspectRatio, MemeTextOptions, MyImageSource, ViewerContext } from "../../types";
 import type { StockImage } from "../../hooks/useStockImages";
-import { UnifiedUpgradeModal } from "../../../upgrade/UnifiedUpgradeModal";
+import {
+  UnifiedUpgradeModal,
+  type UpgradeModalContext,
+} from "../../../upgrade/UnifiedUpgradeModal";
+import { VisibilityToggle } from "../../parts/VisibilityToggle";
 import { WizardPrimaryAction } from "../WizardPrimaryAction";
 import type { PendingWizardState } from "../state/wizardStorage";
 import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
@@ -87,6 +91,8 @@ export function Step2Image({
     return pickDefaultSourceTab(tier);
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeContext, setUpgradeContext] = useState<UpgradeModalContext>("ai-tab");
+  const [isPublic, setIsPublic] = useState(state.isPublic ?? true);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(state.aspectRatio ?? "landscape");
   const [framingOffset, setFramingOffset] = useState<{ x: number; y: number }>(
     state.framingOffset ?? { x: 0, y: 0 },
@@ -152,6 +158,9 @@ export function Step2Image({
   useEffect(() => {
     dispatch({ type: "set-text-options", textOptions });
   }, [textOptions, dispatch]);
+  useEffect(() => {
+    dispatch({ type: "set-is-public", isPublic });
+  }, [isPublic, dispatch]);
 
   // Task #507: previously this auto-picked `kind:"primary"` as the implicit
   // default. The profile photo is now just a tagged library entry, so the
@@ -375,6 +384,7 @@ export function Step2Image({
           name,
           pronouns,
           textOptions: memeTextOptions,
+          isPublic,
         } as WizardRuntimeState,
         factId: Number(factId),
         pulidGeneratedUploadKey,
@@ -460,12 +470,22 @@ export function Step2Image({
 
       {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
       <div className="flex-1 overflow-y-auto overscroll-y-none">
-        <div className="mx-auto max-w-md space-y-4 px-4 pt-4 pb-24">
+        {/* Bottom padding must clear the fixed action bar, which grows by a
+            row when the visibility control is present — otherwise the last
+            control sits under it and can't be reached. */}
+        <div
+          className={`mx-auto max-w-md space-y-4 px-4 pt-4 ${
+            tier === "unregistered" ? "pb-24" : "pb-36"
+          }`}
+        >
           <SourceSegmentedControl
             active={tab}
             tier={tier}
             onSelect={handleSourceTab}
-            onRequestUpgrade={() => setUpgradeOpen(true)}
+            onRequestUpgrade={() => {
+              setUpgradeContext("ai-tab");
+              setUpgradeOpen(true);
+            }}
           />
 
           <AspectRatioToggle value={aspectRatio} onChange={setAspectRatio} />
@@ -534,13 +554,28 @@ export function Step2Image({
           onClick={handleMakeMyMeme}
           disabled={!sourceSelected}
           loading={saving}
+          aboveAction={
+            // Unregistered viewers can't save at all (the CTA routes them to
+            // signup), so the visibility choice would be premature noise.
+            tier === "unregistered" ? undefined : (
+              <VisibilityToggle
+                isPublic={isPublic}
+                onChange={setIsPublic}
+                tier={tier}
+                onRequestUpgrade={() => {
+                  setUpgradeContext("private-meme");
+                  setUpgradeOpen(true);
+                }}
+              />
+            )
+          }
         />
       </div>
 
       <UnifiedUpgradeModal
         open={upgradeOpen}
         onClose={() => setUpgradeOpen(false)}
-        context="ai-tab"
+        context={upgradeContext}
       />
 
       <NoFaceFallbackModal

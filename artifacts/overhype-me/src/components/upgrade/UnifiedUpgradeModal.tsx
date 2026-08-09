@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/Button";
 export type UpgradeModalContext =
   | "video-card"
   | "ai-tab"
+  | "private-meme"
   | "detail-upsell";
 
 interface Props {
@@ -54,6 +55,7 @@ function navigateToUpgrade() {
 const CONTEXT_HEADLINES: Record<UpgradeModalContext, string> = {
   "video-card": "Go Legendary to make videos.",
   "ai-tab": "Go Legendary to stylize with AI.",
+  "private-meme": "Go Legendary to keep memes private.",
   "detail-upsell": "Go Legendary to unlock the full kit.",
 };
 

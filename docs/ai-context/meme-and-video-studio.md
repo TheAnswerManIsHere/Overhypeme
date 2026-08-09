@@ -37,6 +37,22 @@ Which UI a user sees is a build-time flag, `VITE_MBFO_WIZARD`
 
 Both flows converge on the same backend.
 
+**Where the visibility (Public/Private) choice lives.** One shared control,
+`meme-builder/parts/VisibilityToggle.tsx`, rendered next to the save action in
+both image surfaces: the wizard passes it through `WizardPrimaryAction`'s
+`aboveAction` slot (`step2-image/Step2Image.tsx`), the single-screen builder
+renders it directly above `ActionBar` (`meme-builder/MemeBuilder.tsx`). It is
+set **at creation time only** — no route or UI changes a meme's visibility
+afterwards. Because privacy is Legendary-only (see *Tier gates*), the "Private"
+pill is locked-but-visible for lower tiers: tapping opens
+`UnifiedUpgradeModal` and the private state is unreachable, so the control can
+never show a value `createMemeRecord` would silently overwrite. **Video memes
+have no visibility control on either flow** — `POST /memes/video-jobs`'
+`StartBody` accepts no privacy field and `videoPipelineRunner` calls
+`createMemeRecord` without `isPublic`, so every video meme is public (the
+retired `MemeStudioVideoTab` had one, wired to the legacy sync `/videos`
+route's `isPrivate`).
+
 ## Backend entry point and the `imageSource` union
 
 `POST /memes` (`memes.ts:268-354`) requires `req.isAuthenticated()` (401
