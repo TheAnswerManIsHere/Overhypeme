@@ -66,10 +66,23 @@ ever fire in Step 3.
 
 Every way a fact enters the system funnels through one primitive,
 `createTriageReview` (`artifacts/api-server/src/lib/moderationStaging.ts`): manual
-user submission, admin/API-key bulk import, and variant creation (from an
+user submission, admin/API-key bulk import, and the admin variant route (from an
 existing fact's Facts-page editor) all insert a `pending_reviews` row starting at
 `triage_pending` — none of them can create a fact directly. `facts.is_active`
 defaults to `false`, so a fact is never born active or already enriched.
+
+**Product-wise that is two sources, not three.** A fact is submitted either by a
+user or by an admin import; the admin variant route is an authoring convenience
+for the second, not a distinct kind of content. Variant status is a *link*
+(`pending_reviews.parent_fact_id` → `facts.parent_id`), and it is applied in two
+places: that route sets it at creation, and Triage sets it via
+`provisional-approve`'s `parentFactId` (the "Prep as Variant of #N" action on a
+review carrying a `matchingFactId`). The latter is the near-duplicate
+consolidation path — a reworded submission becomes an alternate phrasing of the
+fact it echoes rather than a rejection or a second near-identical row. Either
+way the fact runs the full pipeline; see
+[*Variants are independent facts*](./taxonomy-and-enrichment.md#variants-are-independent-facts)
+for what the link does and does not confer.
 
 ## The activation chokepoint — one exit
 
