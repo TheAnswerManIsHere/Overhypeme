@@ -34,6 +34,14 @@
 
 ## Core content model
 
+### Core loop
+
+The single cycle the whole product runs on, and the order the
+[manual](../manual/README.md) is written in: **personalize → submit →
+moderate & enrich → render → share → the next visitor personalizes.** Each
+verb in that chain is a term in this glossary with a specific local meaning.
+→ [product-brief](./product-brief.md)
+
 ### Fact
 
 The core content entity: an exaggerated, personalizable statement stored once
@@ -231,6 +239,54 @@ bypasses. Comments have their own, much lighter queue that shares the name but
 none of the three-gate machinery.
 → [moderation-workflow](./moderation-workflow.md)
 
+### Pending review
+
+The row every [ingestion funnel](#ingestion-funnel) entrance creates — the
+thing a fact actually *becomes* on submission, as opposed to a live catalogue
+entry. All three entrances call the same function to create one, and nothing
+else in the running product does.
+→ [moderation-workflow](./moderation-workflow.md#the-ingestion-funnel--one-entrance)
+
+### Gate
+
+One of the three human checkpoints a fact clears before publication —
+[Triage](#triage), [Visual Concept](#visual-concept),
+[Test Renders](#test-renders) — ordered so the cheapest judgment happens
+first and money is only spent on a submission a human has already vouched
+for. "Gate" always means a *human* checkpoint here; automated checks are
+never called gates.
+→ [moderation-workflow](./moderation-workflow.md)
+
+### Comment moderation
+
+The separate, much lighter review a comment goes through: still always a human
+approval before it becomes visible, but with **no automated pre-screening at
+all** — no AI assist in the loop the way fact submissions have, and none of the
+three-gate machinery.
+→ [community-and-engagement](./community-and-engagement.md)
+
+### Legal/safety moderation
+
+The **second, entirely separate** moderation system, asking "is this content
+illegal?" rather than "is this joke good enough?" It shares nothing with
+content-quality review: it runs automatically before a human is ever involved,
+and a moderator cannot approve past it, because
+[refused](#refused) content never becomes a reviewable item at all. Do **not**
+read every refusal here as a finding about legality — one check compares
+against known illegal material, another is an adjustable content-rating
+judgment.
+→ [legal-safety-moderation](./legal-safety-moderation.md)
+
+### Refused
+
+What the [legal/safety](#legalsafety-moderation) checks do to an image —
+deliberately **not** the same word as *rejected*, which is what a moderator
+does to a fact at [Triage](#triage). A refusal is automated, permanent, and
+unappealable, and the uploader gets a deliberately unspecific message that
+never says which check objected (a detailed reason is a free hint to anyone
+probing).
+→ [legal-safety-moderation](./legal-safety-moderation.md)
+
 ### Workflow stage
 
 The fine-grained `review_workflow_stage` that drives the three gates —
@@ -379,11 +435,44 @@ what's actually stored in the enrichment JSON. Instant, no model call, and safe
 to run repeatedly.
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
 
+### Promoted columns
+
+The handful of enrichment values copied out of the enrichment JSON onto the
+fact's own columns (archetype, subtype, fit, suitability) so they can be
+queried and filtered directly. Being a *copy* is what lets them drift — which
+is exactly what [projection mismatch](#projection-mismatch) detects and
+[repair projections](#repair-projections) fixes.
+→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
+
 ### Projection mismatch
 
-The Taxonomy Health dimension where a fact's promoted columns have drifted from
-the enrichment JSON they're supposed to mirror. Fixed by
-[repair projections](#repair-projections).
+The Taxonomy Health dimension where a fact's [promoted
+columns](#promoted-columns) have drifted from the enrichment JSON they're
+supposed to mirror. Fixed by [repair projections](#repair-projections).
+→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
+
+### Needs admin review
+
+The Taxonomy Health category for anything wanting a person's judgment rather
+than a re-run — a questionable content fit, low AI confidence, a cultural
+reference needing research. Several narrower cards break it down, but they all
+mean the same thing: **re-running the model won't settle this.**
+→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
+
+### Adult suitability
+
+The enrichment field rating how a fact fits content-safety expectations. An
+input to filtering and gating, not a moderation verdict on its own.
+→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
+
+### Repeated failure count
+
+The failure streak (`repeatedFailureCount`) on a fact whose recent
+[send-backs](#send-back-to-review) kept failing. Past a threshold the fact
+drops out of [bulk send-back](#bulk-send-back) runs, so one broken fact can't
+eat a bulk run's capacity forever — and the count is shown rather than hidden,
+so an admin can't declare a migration "complete" while a fact sits invisibly
+excluded. Only targeting that fact directly resets it.
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
 
 ### Stale enrichment version
@@ -509,6 +598,31 @@ never the moderator's Concept prose, so two descriptions of the same balloon
 can't diverge.
 → [visual-pipeline](./visual-pipeline.md)
 
+### Look style
+
+The named visual style applied to a render, contributing a suffix to the
+compiled prompt. Frozen at attempt-construction as the [resolved-style
+snapshot](#resolved-style-snapshot), so editing or deactivating a style can't
+change a render already in flight.
+→ [visual-pipeline](./visual-pipeline.md)
+
+### Reference image
+
+Image material the engine is asked to preserve something from — a real
+uploaded likeness, or a non-human subject. Which one applies (or neither) is
+what [render mode](#render-mode) decides.
+→ [visual-pipeline](./visual-pipeline.md)
+
+### Readable-text policy
+
+**There is no ban on an image containing readable text.** What's excluded is
+narrow and fixed: nothing that identifies or brands the image is baked in as
+rendered text — a meme's caption and the fact's own wording among them, since
+those belong to the meme layer on top, where they stay editable. Signage,
+screens, and scoreboards that are genuinely part of the scene are allowed, and
+a moderator can lean into or away from them.
+→ [visual-pipeline](./visual-pipeline.md)
+
 ### Stale render
 
 Render presentation state is derived at read time, never persisted: a
@@ -565,6 +679,27 @@ retroactively upgrades existing memes. An AI-generated image or video *is* a
 real file; its recipe just points at that file.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
+### Background
+
+What a meme is built on top of before the fact's text is composed over it — an
+uploaded photo, a [stock image](#stock-image), a [template](#template), or an
+AI-generated image or video. "Background" is the choice the
+[studio](#studio) is organized around.
+→ [meme-and-video-studio](./meme-and-video-studio.md)
+
+### Stock image
+
+A photo sourced from an external image provider, used as a meme
+[background](#background) or as a moderation review aid. Costs nothing extra
+per meme, so it needs no paid tier.
+→ [meme-and-video-studio](./meme-and-video-studio.md)
+
+### Template
+
+A built-in background supplied by Overhype.me. A meme built on one stores **no
+image of its own** — just a [recipe](#recipe) pointing back at the template.
+→ [meme-and-video-studio](./meme-and-video-studio.md)
+
 ### Photo meme
 
 A meme built from your own uploaded photo, a stock image, or a built-in
@@ -604,13 +739,36 @@ The confidence bound on a fact's up/down votes (`facts.wilsonScore`) that,
 with score/comment/share counts, drives ranking.
 → [architecture-map](./architecture-map.md)
 
+### Fact card
+
+The repeated unit the home grid and search results are built from: one fact,
+rendered for the current name and pronouns, with its
+[hashtag pills](#hashtag-pill) and reaction controls.
+→ [public-site-and-sharing](./public-site-and-sharing.md)
+
 ### Hashtags
 
 Tags on a fact, AI-suggested at submission and editable by the submitter.
-Browsing them happens two ways — a hashtag pill on a fact card runs a search,
-and the home page's hashtag rail and Trending Topics strip filter the feed in
-place. There is **no dedicated hashtag directory page**.
+Browsing them happens two ways — a [hashtag pill](#hashtag-pill) on a fact card
+runs a search, and the home page's hashtag rail and [Trending
+Topics](#trending-topics) strip filter the feed in place. There is **no
+dedicated hashtag directory page**: the idea exists in the codebase but isn't
+reachable.
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md), [public-site-and-sharing](./public-site-and-sharing.md)
+
+### Hashtag pill
+
+A tappable hashtag on a [fact card](#fact-card). Tapping one leaves the page
+for a search on that tag — unlike [Trending Topics](#trending-topics), which
+filters in place.
+→ [public-site-and-sharing](./public-site-and-sharing.md)
+
+### Trending Topics
+
+The home-page strip (with the hashtag rail) that filters the home feed **in
+place**, without navigating away. The other half of hashtag browsing, and the
+reason no directory page is needed for the common case.
+→ [public-site-and-sharing](./public-site-and-sharing.md)
 
 ### Library
 
@@ -711,6 +869,15 @@ site "as a regular user" keeps backend admin permissions the whole time — that
 toggle only changes what the interface shows.
 → [accounts-and-auth](./accounts-and-auth.md)
 
+### View as regular user
+
+The admin toggle for checking what an ordinary member sees. It changes **only
+what the interface shows** — backend admin permissions are never actually
+dropped. A small number of narrower endpoints check the toggle directly and so
+*would* treat a viewing-as-user admin as a non-admin; that's a known
+inconsistency in a corner, not how authorization works generally.
+→ [accounts-and-auth](./accounts-and-auth.md)
+
 ### Deactivate
 
 Signing an account out everywhere, locking it out of signing back in, and
@@ -773,6 +940,60 @@ source keeps qualifying without a deadline; if one *is* stored, an unresolvable
 refresh leaves it in force, including past expiry.
 → [membership-entitlements](./membership-entitlements.md#grace-episodes--bounded-dunning-not-indefinite-retry)
 
+### Cancel
+
+Ending a subscription **at the end of the current billing period** — access
+continues until then. Distinct from a refund, which is a separate event: a
+subscription's access follows its own cancellation, not any refund issued
+against it.
+→ [membership-entitlements](./membership-entitlements.md)
+
+### Reactivate
+
+Undoing a pending [cancellation](#cancel) before it takes effect. **One of
+three different "bring it back" actions, each on a different object** — this
+one restores a *subscription*, [reinstate](#reinstate) restores a deactivated
+*account*, and [Resubmit for Moderation](#resubmit-for-moderation) restores an
+inactive *fact*. They are not interchangeable.
+→ [membership-entitlements](./membership-entitlements.md)
+
+### Switch to Annual
+
+Moving a monthly subscriber to the annual plan, with a prorated charge shown
+before confirming. Exact for the ordinary single-item subscription; a
+subscription carrying a non-membership add-on **listed first** is a known
+edge case, because the switch inspects the first item rather than finding the
+membership one.
+→ [membership-entitlements](./membership-entitlements.md)
+
+### Dispute hold
+
+The disqualification an unresolved chargeback puts on an [entitlement
+source](#entitlement-source). A dispute closing anything *but* `lost` only
+clears the hold — the source still has to pass its own lifecycle check, so a
+cancellation or refund that happened while it was disputed stays disqualified
+regardless. Only `lost` is a separate, permanent disqualification.
+→ [membership-entitlements](./membership-entitlements.md)
+
+### Allowlisted product
+
+The requirement that a Stripe-backed [entitlement source](#entitlement-source)
+point at a product tagged as conferring membership — one of the checks a source
+must pass to qualify. Applies to the **two Stripe-backed source types only**;
+an [admin grant](#admin-grant) is authorized by the admin's own action instead,
+since no product was purchased.
+→ [membership-entitlements](./membership-entitlements.md)
+
+### Entitlement sweep
+
+The scheduled background pass that recomputes stored membership tiers. **Not
+the same as the [recovery sweep](#recovery-sweep)** that requeues crashed jobs
+— different subsystem, different job. The stored tier column can lag reality
+between sweeps, but *access* never does: a lapsed [grace
+episode](#grace-episode) demotes on every request via a live deadline check,
+regardless of what the column says.
+→ [membership-entitlements](./membership-entitlements.md)
+
 ### Legendary for Life
 
 The one-time purchase alternative to a recurring subscription. A **full** refund
@@ -810,6 +1031,15 @@ with the account.
 The single gated area where the team operates the product — reviewing content,
 managing users, tuning behavior, and watching the machinery. Reachable only to
 signed-in [admin](#admin) accounts.
+→ [admin-console](./admin-console.md)
+
+### Facts editor
+
+The broad admin screen for searching, editing, deactivating, or removing any
+fact already in the system — distinct from the [review queue](#review-queue),
+which only holds submissions awaiting a decision. Also where a
+[variant](#variant) is created and where
+[Resubmit for Moderation](#resubmit-for-moderation) lives.
 → [admin-console](./admin-console.md)
 
 ### Tier permissions grid
@@ -854,6 +1084,40 @@ with its own poll timer, re-entrancy guard, and concurrency bound, so slow work
 in one lane can never delay another's *scheduling*. What separates them is who
 is waiting and what each job costs. The isolation is at the scheduling level
 only — all lanes share one database connection pool.
+→ [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
+### Claim
+
+A worker taking a queued job so no other worker picks it up. An individual job
+carries **no lease**, so a job whose worker crashed still *reads* as claimed
+until the [recovery sweep](#recovery-sweep) reaches it — the queue table shows
+recorded state, not live state.
+→ [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
+### Recovery sweep
+
+The pass that puts a job whose process died mid-run back in the queue. Work is
+never silently lost, but recovery runs **on a deliberate delay** — a job must
+look stuck first — because a faster sweep would sometimes grab a job another
+instance is still legitimately working on and run it twice (for an email, that
+means a real person gets it twice). Not the same as the [entitlement
+sweep](#entitlement-sweep).
+→ [architecture-map](./architecture-map.md#async-jobs-and-queues)
+
+### Retry ceiling
+
+The maximum attempts a queue allows a job before it finalizes to `failed`.
+Persisted onto the row at finalization rather than re-resolved live, so a row's
+[abandoned-no-retry](#abandoned-no-retry) reading stays pinned to the ceiling
+that actually applied rather than whatever the config says today.
+→ [decisions.md](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
+
+### Retention
+
+The schedule on which old `done`/`failed` job rows are purged, per queue.
+**Retention is not an audit log** — `async_jobs` is operational state, not
+permanent history. The one deliberate exception is the alert about an abandoned
+email, kept so the evidence outlives the thing it's evidence about.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Two altitudes
