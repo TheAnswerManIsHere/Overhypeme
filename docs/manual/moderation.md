@@ -41,9 +41,10 @@ The review opens as a three-step wizard:
 1. **Triage.** The cheap first pass. The moderator sees the submitted fact, any
    near-duplicate it resembles, and who sent it, and either **rejects** it (with
    a reason) or **[provisionally approves](../ai-context/glossary.md#provisional-approval)** it. Provisional approval is the moment
-   the paid **[moderation prep](../ai-context/glossary.md#moderation-prep) and render work** — [enrichment](../ai-context/glossary.md#enrichment), visual-idea
-   drafting, and the per-image test renders — is allowed to begin; before it,
-   none of that moderation/render spend has happened. (Cheap pre-submit
+   the paid **[moderation prep](../ai-context/glossary.md#moderation-prep)** — [enrichment](../ai-context/glossary.md#enrichment) and visual-idea
+   drafting, with no renders yet — is allowed to begin; before it,
+   none of that moderation spend has happened. Test renders are a separate,
+   later spend that only unlocks once the Visual Concept is approved. (Cheap pre-submit
    affordances the [submitter](../ai-context/glossary.md#submitter) already used — tokenizing the fact, suggesting
    pronouns, duplicate-checking — do touch utility LLMs and embeddings; what
    Triage gates is the expensive moderation pipeline, not every LLM call ever
