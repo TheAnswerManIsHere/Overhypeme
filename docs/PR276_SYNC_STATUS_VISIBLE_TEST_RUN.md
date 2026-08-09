@@ -39,16 +39,28 @@ entries and no other new allow-list entries — but the gates below check the
 
 ## Live checks (run post-merge against the live app)
 
-Everything below is read-only **except** the "Run a real Sync Stripe data"
-step, which is a genuine live write — it's the intended verification target
-(the whole point is exercising the real sync against the real test-mode
-account) and non-destructive, but it is not framed as read-only.
+Two things below are genuine live writes, not read-only: the e2e spec (via
+the dev-only simulate route) and the "Run a real Sync Stripe data" step. Run
+them **in this order** — the e2e spec first, then the real sync — because the
+real sync is also this checklist's restore path for what the e2e spec leaves
+behind.
 
 ### A. The e2e spec — needs a live server and the real test-mode Stripe account
 
 `adminBillingSync.spec.ts` cannot run in CI: it needs a live server **and**
 the real test-mode Stripe account, so its assertions are unexecuted until
 Replit runs them. It also has two new steps and rewritten locators.
+
+**Live write, not read-only:** the new "still visible after reload" step
+drives the dev-only `POST /api/admin/stripe/sync/_test/simulate` route, which
+deletes and replaces this environment's `stripe._sync_status` rows for
+`plans` and leaves that resource in a simulated error state — a real,
+persistent mutation, not an observation. **Restore path:** run section B's
+"Run a real Sync Stripe data" step immediately after this one; a real sync
+overwrites the simulated rows with the account's actual state, which is the
+correct end state regardless of what `stripe._sync_status` held before this
+checklist started. Don't stop after the e2e spec without also running that
+step.
 
 - [ ] `pnpm --filter @workspace/overhype-me run e2e adminBillingSync`
 

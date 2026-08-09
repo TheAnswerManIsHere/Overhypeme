@@ -54,7 +54,10 @@ AI-proposed bubbles from the candidate Visual-concept generator. Touches:
   `SNAPSHOT_EXEMPT_TAGS` (added by a later follow-up commit, not this PR's
   own diff).
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
-- Other allow-list entries this PR added: none.
+- Other allow-list entries this PR added: `lib/api-zod/src/literalPromptString.ts`
+  registered in the codegen allowlist (`lib/api-spec/patch-generated.mjs`) —
+  confirm it's present so a codegen run doesn't silently drop the export (see
+  the Gotchas note below on why this matters).
 
 ## Live checks (read-only; run always)
 

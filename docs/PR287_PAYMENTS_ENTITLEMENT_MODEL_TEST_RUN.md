@@ -161,16 +161,27 @@ changed from what it was before this check ran.
       re-read.
 
 - [ ] **The relational validator rejects an incoherent set.** These pass every
-      individual range and still must be refused. All three are rejections —
-      nothing is written:
+      individual range and still must be refused. The `lease_ttl_seconds` →
+      `5` probe is safe as a fixed value — it's near the config's floor
+      regardless of the other keys' current settings. The other two are
+      relative to sibling keys, so a fixed number is only guaranteed invalid
+      against the *seed* defaults — on a live deployment where those siblings
+      were edited, the same fixed number can pass and permanently change
+      `admin_config`. Read the current `lease_ttl_seconds` and
+      `grace_sweep_interval_seconds` first, and derive each probe from what
+      you just read rather than the numbers below:
 
   | Write | Expected |
   |---|---|
   | `lease_ttl_seconds` → `5` | **400**, naming the derived floor (83s) |
-  | `lease_waiter_timeout_seconds` → `90` | **400** — a waiter may not outlive the lease it waits for |
-  | `grace_sweep_alert_after_seconds` → `1800` | **400** — an alert that fires before the sweep could have run again reports a healthy system as broken |
+  | `lease_waiter_timeout_seconds` → (current `lease_ttl_seconds` + 10) | **400** — a waiter may not outlive the lease it waits for; adding to the live-read value guarantees it outlives the lease regardless of what that value currently is |
+  | `grace_sweep_alert_after_seconds` → (current `grace_sweep_interval_seconds`, or lower) | **400** — an alert that fires before the sweep could have run again reports a healthy system as broken; a value at or below the live-read interval guarantees that regardless of what the interval currently is |
 
-  Each must leave the stored value unchanged. Confirm with a re-read.
+  Each must leave the stored value unchanged — confirm with a re-read. If any
+  probe unexpectedly returns **200**, restore it immediately to the value you
+  read at the start via the same endpoint, then flag it: an unexpected 200
+  here means the validator's actual boundary differs from what's documented
+  above, which is worth reporting on its own.
 
 - [ ] **The identity guard actually fires in this database.** Inside a
       transaction you intend to roll back, against a real entitlement row:

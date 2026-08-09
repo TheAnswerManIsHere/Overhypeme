@@ -51,25 +51,24 @@ below is what CI genuinely cannot see: the live app under real traffic.
    `RateLimit-Limit` / `RateLimit-Remaining` response headers, and does
    **not** carry legacy `X-RateLimit-*` headers.
 
-3. **A live video or PuLID image generation survives ordinary polling.**
-   Start a real video or image generation and let it run to completion.
-   Confirm the loading takeover never shows a failure screen mid-generation
-   under normal (non-adversarial) traffic — this is the regression surface
-   the poller retry-classification fix protects, and it's worth one real
-   end-to-end run beyond CI's unit-level 429-simulation tests. (This is
-   ordinary app usage being observed, not a test-only write — nothing here
-   needs a restore step.)
-
-4. **`Cache-Control: no-store` on a 429**, if one can be observed (e.g. via
+3. **`Cache-Control: no-store` on a 429**, if one can be observed (e.g. via
    browser devtools) — confirms an intermediate proxy won't cache a stale
    block and keep serving it after the window rotates.
 
-5. **Log volume stays sane under ordinary traffic.** No specific action
+4. **Log volume stays sane under ordinary traffic.** No specific action
    needed — just note whether the API server's logs show a `[rateLimit]
    global rate limit exceeded` line more than roughly once per second even
    during a heavier-than-usual traffic moment. It's throttled to at most one
    such line per second per process by design; more than that would indicate
    the throttle itself is broken.
+
+**Not run here: a live video/PuLID generation surviving ordinary polling.**
+Starting one is a genuine live write — it creates generation/job records and
+stored media and can incur an external-generation charge — with no restore
+path through this checklist. The poller retry-classification boundary this
+would exercise is covered by `GodModeLoadingTakeover`'s unit tests (named
+below); the live end-to-end version is ordinary product usage and belongs in
+the UAT instead.
 
 Proof tests guarding this PR's budgets (run in CI, listed for awareness — not
 run here):

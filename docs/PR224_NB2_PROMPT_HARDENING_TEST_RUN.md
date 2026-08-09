@@ -55,7 +55,9 @@ silently shrinking the moderator pool.
   `0088_trim_global_look_style_copy` (hand-authored DML) — all three are in
   `SNAPSHOT_EXEMPT_TAGS` — confirm all three entries are present.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
-- Other allow-list entries this PR added: none.
+- Other allow-list entries this PR added: `lib/api-zod/src/promptBudget.ts`
+  registered in the codegen allowlist (`lib/api-spec/patch-generated.mjs`) —
+  confirm it's present so a codegen run doesn't silently drop the export.
 - Pre-merge gates (install, typecheck, codegen drift) are assumed green;
   spot-check only if something above fails.
 

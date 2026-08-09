@@ -64,41 +64,42 @@ drifted mid-classify.
    idempotent even if re-run — but the tracker should skip it outright rather
    than re-running the SQL.) No backfill shipped with this migration.
 3. Manual API spot-checks against a **live** fact id (`$F`), with `$SID` an
-   admin session cookie. Steps 3.1, 3.3, and 3.5 are rejection probes —
-   nothing is written on their expected path. Steps 3.2 and 3.4 are real
-   writes; each has a capture-before/restore-after step called out inline.
+   admin session cookie. Steps 3.1, 3.2, and 3.4 are rejection probes —
+   nothing is written on their expected path. Step 3.3 is a real write with a
+   capture-before/restore-after step called out inline. The confirmed-edit
+   flow (which would otherwise be here) is **not** exercised in this
+   checklist — see the note below.
    1. Text change, no confirmation → `409` `TEXT_EDIT_REQUIRES_CONFIRMATION`,
       body has `impact` (currentStoredText, normalizedProposedText,
       expectedOldTextHash, affectedVariantCount,
       persistedMemeCount/liveMemeCount, refreshInFlight).
-   2. Confirm the edit using the hash from step 3.1's response —
-      `confirmTextEdit:{phrase:"CHANGE APPROVED FACT TEXT", reason:"<≥10
-      chars>", expectedOldTextHash:"<from 3.1>"}` → `200`; one new row in
-      `fact_text_edit_history`; `facts.last_processed_signature` for `$F` is
-      now null; Taxonomy Health lists `$F` as `stale_for_reprocess`. **Real
-      write — restore immediately after**: issue a second confirmed PATCH
-      through the same route, `text` set back to the value captured in
-      3.1's `impact.currentStoredText`, `expectedOldTextHash` taken from this
-      step's own response. Confirm the restore PATCH itself returns `200`.
-   3. Wrong `expectedOldTextHash` → `409` `TEXT_EDIT_STALE_BASELINE`, nothing
+   2. Wrong `expectedOldTextHash` → `409` `TEXT_EDIT_STALE_BASELINE`, nothing
       written.
-   4. Score-only PATCH (no `text`) on `$F` — note the current score value
+   3. Score-only PATCH (no `text`) on `$F` — note the current score value
       first → `200`, no confirmation, no audit row. **Real write — restore
       the original score afterward** with the same PATCH route.
-   5. A root with an active child variant review → `409`
+   4. A root with an active child variant review → `409`
       `DEPENDENT_VARIANT_IN_PROGRESS`, no write.
-   6. `GET /admin/facts/$F/text-edit-history` → newest-first entries;
+   5. `GET /admin/facts/$F/text-edit-history` → newest-first entries;
       `actor:null` renders as "deleted admin" in the UI when `performed_by`
       was nulled. Read-only.
-4. Timing-dependent, run if convenient — the two-transaction
-   approval-concurrency ordering (edit-wins vs. approval-wins) is covered by
-   design plus the service tests; a deterministic concurrent-transaction
-   harness is a CI/manual follow-up, not something this checklist can
-   automate. On a **staging** fact, start its production approval, re-word
-   the fact's text via PATCH before the approval transaction commits, then
-   let the approval complete. Expected: approval fails with
-   `FACT_TEXT_CHANGED_DURING_APPROVAL` and the fact stays inactive — nothing
-   is written on this expected path.
+
+**The confirmed-edit flow and the staging-approval-race check are not run
+here.** A confirmed edit on an approved fact writes a permanent
+`fact_text_edit_history` row and clears `facts.last_processed_signature` —
+re-editing the text back to its original value restores the visible text but
+adds a second permanent history row and leaves the signature null (still
+stale-for-reprocess) rather than restoring the pre-check state, so it doesn't
+fit either permitted write shape (a rejection probe, or a write with a full
+same-surface restore). Likewise, the two-transaction approval-concurrency
+race (start a staging fact's production approval, re-word its text via PATCH
+before the approval commits) makes an unconditional real write — the PATCH
+changes the stored text, clears the processing signature, and restarts prep —
+regardless of whether the approval itself fails as expected, and getting a
+full restore requires timing a live race by hand with no guaranteed outcome.
+Both flows are exercised end-to-end in the UAT instead, where they're
+ordinary product usage rather than a checklist step needing a guaranteed
+restore.
 
 ## What's deliberately NOT shipped
 
