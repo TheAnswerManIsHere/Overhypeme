@@ -147,6 +147,23 @@ the diff *is* the plan. While watching an implementation PR:
   generally correct, glaring issues only, no grammar/count nits), and
   pedantic findings that arrive anyway are declined against that rule in one
   pass.
+- **A Codex "usage limits for security reviews" bounce is not a real
+  finding-in-waiting — don't block on it (David, 2026-08-08).** The
+  connector's bounce comment ("You have reached your Codex usage limits
+  for security reviews. Please try again later.") does not correspond to
+  David's *visible weekly quota* — his own Codex analytics showed ~98% of
+  it remaining while the connector kept bouncing every `@codex review`
+  request on PR #371 with this exact message. That doesn't rule out some
+  other, undocumented limit specific to this feature; there's no
+  documentation either way, and no predictable time it clears. One retry
+  is fine, but past that: **don't keep retrying, don't treat the silence
+  as "no findings," and don't hold the PR waiting on a review that isn't
+  coming** — proceed as if that round's review is unavailable and move the
+  PR forward (merge-ready for docs-only/low-criticality artifacts; for
+  anything higher-stakes, say plainly that the round shipped without a
+  live Codex pass rather than silently treating it as clean). Note the
+  skip in the workstream/PR status rather than pretending a review
+  happened.
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or
