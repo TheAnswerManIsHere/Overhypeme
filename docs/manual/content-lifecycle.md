@@ -130,34 +130,48 @@ things: near-duplicate wordings stop competing for the same space in the
 catalogue, and a reader who prefers a different phrasing can pick one.
 Everything else about a variant is ordinary-fact machinery.
 
-**Where the link gets applied.** Two places, and both are a decision by staff,
-never by the submitting user:
+**Where the link gets applied.** Three places, and all are a decision by
+staff, never by the submitting user:
 
-- **At Triage, on a flagged near-duplicate.** When a submission arrives
-  carrying a duplicate match, the moderator's triage screen offers **Prep as
-  Variant of #N** next to the usual accept and reject, where #N is the matched
-  fact. Choosing it accepts the submission and records that fact as its parent.
-  This is the path the clutter problem is actually named after: a reworded
-  near-duplicate becomes an alternate phrasing of the fact it echoes, instead
-  of either a rejection or a second near-identical entry in the feed.
-- **From the Facts editor.** An admin can also write a variant directly against
-  a specific root. That's an authoring convenience, not a separate kind of
-  content: the text goes through the same grammar normalization as a fresh
-  fact, and it enters at the same first review step as anything else.
+- **At Triage, on any submission carrying a similarity match.** The duplicate
+  check attaches its nearest match to the submission whenever it finds one
+  with positive confidence — not only when that match was strong enough to
+  show the submitter a duplicate warning. The moderator's triage screen shows
+  **Prep as Variant of #N** whenever a match is attached, so the moderator is
+  making this call on more candidates than the submitter ever saw flagged;
+  choosing it accepts the submission and records the matched fact as its
+  parent. This is the path the clutter problem is actually named after: a
+  reworded near-duplicate becomes an alternate phrasing of the fact it echoes,
+  instead of either a rejection or a second near-identical entry in the feed.
+- **From the Facts editor, writing a new variant.** An admin can write a
+  variant directly against a specific root. That's an authoring convenience,
+  not a separate kind of content: the text goes through the same grammar
+  normalization as a fresh fact, and it enters at the same first review step
+  as anything else.
+- **From the Facts editor, reparenting an existing fact.** An admin can also
+  set (or clear) the **Parent ID** field on a fact that already exists,
+  turning an already-published root into a variant of another root, or a
+  variant back into a root. Unlike the other two, this doesn't go through
+  review — it's a direct edit to a live fact, gated only by the same
+  active-root invariant activation enforces.
 
-Either way, **a variant is reviewed like any other fact** — it earns its own
-classification, its own Visual Concept, and its own images, and none of that
-carries over from its parent. The parent link is revalidated before the
-variant can actually go live: see
+The first two both run **a variant through review like any other fact** — it
+earns its own classification, its own Visual Concept, and its own images, and
+none of that carries over from its parent. Reparenting is different: it acts
+on a fact that already cleared review, so nothing re-runs — only the parent
+link changes. In every case the parent link is revalidated before the fact can
+actually go (or stay) live: see
 [`moderation-workflow.md`'s activation chokepoint](../ai-context/moderation-workflow.md#the-activation-chokepoint--one-exit).
 
-**What the grouping changes.** Variants are kept out of the main fact list,
-the home-page hero, and the "more facts you'll like" rail, so a root and its
-rewordings never crowd each other on the surfaces people browse. On the root
-fact's own page they're listed under **Alternate Phrasings**, each linking to
-its own fact page; a variant's page carries a banner back to its root. The
-grouping is one level deep — a variant of a variant isn't allowed, so a new
-variant's target always has to be a root.
+**What the grouping changes.** Variants are kept out of the main fact list and
+the home-page hero, so a root and its rewordings never crowd each other on
+those surfaces. The "more facts you'll like" rail keeps them out of its own
+fact's group (a variant never recommends its own siblings or root) but not
+globally — see *Boundaries* below for the gap. On the root fact's own page
+variants are listed under **Alternate Phrasings**, each linking to its own
+fact page; a variant's page carries a banner back to its root. The grouping is
+one level deep — a variant of a variant isn't allowed, so a new variant's
+target always has to be a root.
 
 **What the grouping deliberately does not change.** A variant is otherwise a
 fully independent fact: its own page, its own votes and score, its own
@@ -268,19 +282,28 @@ for the funnel itself.
   the check before either has inserted, and both queue.
 - **A submitter's own pending facts are protected from flooding the review
   queue** — see `artifacts/api-server/src/lib/rateLimit.ts` for how.
-- **The variant grouping is applied per surface, not globally.** The main fact
-  list, the hero, and the related rail all exclude variants; the **Fact of the
-  Day** email picks from every active fact, so a variant can go out as the day's
+- **The variant grouping is applied per surface, not globally, and even
+  "excludes variants" is a per-branch guarantee, not a per-surface one.** The
+  main fact list and the hero filter to root facts outright. The related
+  rail only excludes a fact's own group (its root and siblings) — its
+  tag-overlap ranking branch has no root-only filter, so a variant belonging
+  to a *different* root can still surface there on a shared hashtag; only the
+  fallback (no-hashtag-overlap) branch is root-only. The **Fact of the Day**
+  email picks from every active fact, so a variant can go out as the day's
   fact on its own. A profile's submitted/liked lists also include variants —
   arguably correct there, since they're that user's own submissions, but it's
-  the same unfiltered read. Any new surface that lists facts has to opt into the
-  root-only filter itself.
-- **A near-duplicate match can point at a fact that is itself a variant.** The
-  duplicate check searches every active fact, variants included, so Triage can
-  offer *Prep as Variant of #N* where #N is a variant. Nothing refuses it at that
-  point — the one-level-deep rule is enforced at the final activation gate, after
-  the fact has already been through paid prep, and the moderator has to re-parent
-  it to the root to get it live.
+  the same unfiltered read. Any new surface that lists facts has to opt into
+  whatever filtering it wants; there's no shared root-only default to inherit.
+- **A near-duplicate match can point at a fact that is itself a variant, and
+  Triage sees it more often than a submitter's duplicate warning would
+  suggest.** The duplicate check searches every active fact, variants
+  included, and attaches its nearest match whenever confidence is positive —
+  not only when that match was strong enough to warn the submitter. So Triage
+  can offer *Prep as Variant of #N* where #N is a variant, on submissions the
+  submitter never saw flagged at all. Nothing refuses either case at that
+  point — the one-level-deep rule is enforced at the final activation gate,
+  after the fact has already been through paid prep, and the moderator has to
+  re-parent it to the root to get it live.
 
 ## Going deeper
 

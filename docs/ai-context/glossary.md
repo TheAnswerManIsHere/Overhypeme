@@ -16,9 +16,10 @@
   Product-wise it earns its keep by keeping near-duplicate wordings from
   cluttering the browse surfaces while still letting a reader pick the phrasing
   that lands best for them. It is **not** a third way facts get submitted — the
-  link is applied either by the admin variant route or by Triage's "Prep as
-  Variant of #N" on a flagged near-duplicate, to a fact travelling the ordinary
-  funnel. **A variant is otherwise a fully independent fact** — it owns its own
+  link is applied by the admin variant route, by Triage's "Prep as Variant of
+  #N" on a submission with any positive-confidence match, or (outside review
+  entirely) by an admin directly reparenting an existing fact. **A variant is
+  otherwise a fully independent fact** — it owns its own
   memes, taxonomy/enrichment, Visual Concept, and stock/AI images, and it
   inherits **no** metadata from its root.
   → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts),
