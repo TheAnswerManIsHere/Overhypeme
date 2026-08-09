@@ -212,6 +212,39 @@ function scheduleTransientRenderPurger() {
   schedule();
 }
 
+// Hourly: delete expired `rate_limit_counters` rows in bounded batches.
+//
+// That table had no production cleanup at all, so the first run after this
+// deploys faces the entire accumulated backlog — which is why the purger works
+// in batches under a budget rather than one statement. When a run stops on that
+// budget with rows still eligible it comes back in a minute instead of an hour,
+// so the one-time backlog drains promptly; steady state is one cheap hourly
+// pass. Every instance on autoscale runs this, which is safe: batches take
+// their rows FOR UPDATE SKIP LOCKED, so concurrent runs divide the work instead
+// of serializing on it.
+function scheduleRateLimitCounterPurger() {
+  const HOURLY_MS = 60 * 60 * 1000;
+  const BACKLOG_FOLLOW_UP_MS = 60 * 1000;
+  const schedule = (delayMs: number) => {
+    setTimeout(async () => {
+      let nextDelayMs = HOURLY_MS;
+      try {
+        const { runRateLimitCounterPurger } = await import("./jobs/rateLimitCounterPurger");
+        // The purger logs its own counts; a second log line here would double
+        // every run in the output.
+        const result = await runRateLimitCounterPurger();
+        if (result.budgetExhausted) nextDelayMs = BACKLOG_FOLLOW_UP_MS;
+      } catch (err) {
+        logger.error({ err }, "rate_limit_counters purge failed");
+      }
+      schedule(nextDelayMs);
+    }, delayMs).unref();
+  };
+  // Deliberately not at boot — the first minute is the busiest this process
+  // ever is, and nothing about this job is urgent to that degree.
+  schedule(BACKLOG_FOLLOW_UP_MS);
+}
+
 // Daily cron: send Fact of the Day at 9:00 UTC
 function scheduleDailyFactJob() {
   const schedule = () => {
@@ -383,6 +416,7 @@ backfillEmbeddings()
   .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
+scheduleRateLimitCounterPurger();
 // Engines: reconcile the typed code catalogue into the DB before pricing
 // cache so the active engines drive the cache refresh.
 reconcileEngines()
