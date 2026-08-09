@@ -309,9 +309,14 @@ export function buildEmailShell(bodyContent: string, footerNote: string): string
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Dark-only palette: tell mail clients not to apply their own dark-mode
+       transform, or they invert these already-dark colors into a light email. -->
+  <meta name="color-scheme" content="dark" />
+  <meta name="supported-color-schemes" content="dark" />
   <!--[if !mso]><!-->
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@600;700&display=swap');
+    :root { color-scheme: dark; supported-color-schemes: dark; }
   </style>
   <!--<![endif]-->
 </head>
