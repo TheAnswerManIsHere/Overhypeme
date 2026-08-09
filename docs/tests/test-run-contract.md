@@ -135,7 +135,7 @@ guard), but they run in CI, not here.
   doc — both bypass `run-test.sh`'s production-DB guard entirely (the guard
   never executes, so the test runs against whatever `DATABASE_URL` already
   points at — `heliumdb`, the live schema, on Replit). See
-  [`../TESTING.md`](../TESTING.md#quick-commands) for the full danger
+  [`./TESTING.md`](./TESTING.md#quick-commands) for the full danger
   explanation. This rule is api-server-specific: frontend Vitest commands
   (`pnpm --filter @workspace/overhype-me exec vitest run <file...>` /
   `run test`) aren't DB-backed and have no equivalent wrapper to route

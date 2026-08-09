@@ -13,7 +13,9 @@ run independently, so a cheap job never waits on a slow one.
 This is the exact behavior you reported on **Taxonomy Health "Send back to
 review"** and on the **moderation "test render"**.
 
-Reference: `docs/PR216_ASYNC_JOB_LANES_TEST_RUN.md` (engineering checklist).
+The transient engineering checklist was deleted after execution; see the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
+result.
 
 ---
 

@@ -11,7 +11,9 @@ In-app acceptance test for David. This does three things you asked for:
    prominent card now — the duplicate copy that lived down inside "Advanced
    Options" is gone.
 
-Sibling doc (for Replit): [`PR234_VSO_PRESENCE_BASED_TEST_RUN.md`](./PR234_VSO_PRESENCE_BASED_TEST_RUN.md).
+The transient engineering checklist was deleted after execution; see the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
+result.
 
 ## What changed, in plain terms
 

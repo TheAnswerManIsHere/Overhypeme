@@ -99,4 +99,5 @@ What happened (screenshot of the error or render status):
 ```
 
 See the engineering checklist + the §21 numbers table in
-[`PR224_NB2_PROMPT_HARDENING_TEST_RUN.md`](PR224_NB2_PROMPT_HARDENING_TEST_RUN.md).
+the transient engineering checklist (deleted after execution) and the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md).

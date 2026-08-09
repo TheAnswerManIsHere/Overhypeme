@@ -6,7 +6,9 @@ headline is a real bug fix: the video-style **preview-GIF upload** could be
 tricked into writing a file to the wrong place. Everything here is admin-only
 and, for normal use, **invisible** — valid actions behave exactly as before.
 
-Sibling doc (for Replit): [`PR218_ADMIN_INPUT_VALIDATION_TEST_RUN.md`](./PR218_ADMIN_INPUT_VALIDATION_TEST_RUN.md).
+The transient engineering checklist was deleted after execution; see the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
+result.
 
 ## What changed, in plain terms
 

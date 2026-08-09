@@ -3,7 +3,7 @@
 > Safe schema and data-change practices. Schema lives in `lib/db/src/schema/*.ts`
 > (Drizzle). Apply locally with `pnpm --filter @workspace/db push-force` then
 > `pnpm --filter @workspace/db run migrate`. Verify with the test runners in
-> [`testing-guide.md`](./testing-guide.md).
+> [`testing-guide.md`](../tests/testing-guide.md).
 
 ## Migration principles
 
@@ -53,7 +53,7 @@
   hand-authored pattern and check recent migrations for the convention.
 - Apply schema to the local public schema first (`push-force`), then run
   `migrate`, then re-clone the test schema (`run-test.sh --setup`) so tests see the
-  updated shape (see the api-context memory + `docs/TESTING.md`).
+  updated shape (see the api-context memory + `docs/tests/TESTING.md`).
 
 ### Adding a value to a Postgres enum
 

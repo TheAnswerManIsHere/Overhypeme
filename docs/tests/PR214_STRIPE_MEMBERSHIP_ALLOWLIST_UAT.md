@@ -7,7 +7,9 @@ successful payment — so once you start selling things that aren't membership
 for any active price, and still get upgraded. Now the server checks that the
 product you paid for is explicitly marked as a membership product.
 
-Sibling doc (for Replit): [`PR214_STRIPE_MEMBERSHIP_ALLOWLIST_TEST_RUN.md`](./PR214_STRIPE_MEMBERSHIP_ALLOWLIST_TEST_RUN.md).
+The transient engineering checklist was deleted after execution; see the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
+result.
 
 ## What changed, in plain terms
 

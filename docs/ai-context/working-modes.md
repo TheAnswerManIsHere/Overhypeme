@@ -55,7 +55,7 @@ to review.
 
 | Artifact class | Ceremony | Why |
 | --- | --- | --- |
-| **Transient, single-use process docs** — TEST_RUN checklists, one-off run notes, anything deleted after one execution by one person | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request. The cap ends the *loop*, never a fix: the one triage still fixes anything safety-relevant (see the next column). | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../engineering/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and gets fixed in the single triage. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
+| **Transient, single-use process docs** — TEST_RUN checklists, one-off run notes, anything deleted after one execution by one person | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request. The cap ends the *loop*, never a fix: the one triage still fixes anything safety-relevant (see the next column). | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and gets fixed in the single triage. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
 | **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **Write it, one review pass, ship.** No plan document, no convergence loop. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
 | **Product code** | Today's full feature ceremony — plan, review to convergence, approval. | Codex's review is a real net, but a subtly wrong behavior can reach users. |
 | **Migrations, backfills, auth, payments, the visual pipeline** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
@@ -423,7 +423,7 @@ Everything in Tier A, plus:
   the fixes that can reach past the reported symptom.
 - **A TEST_RUN doc only when the fix genuinely needs one** — i.e. when something
   can only be verified in Replit's environment (live DB state, live config/data).
-  Per [`../engineering/test-run-contract.md`](../engineering/test-run-contract.md),
+  Per [`../tests/test-run-contract.md`](../tests/test-run-contract.md),
   a TEST_RUN is not a default; most bug fixes need none, and one that re-verifies
   what CI already gates is waste.
 - **The strongest model tier available** for the fix itself.
@@ -438,7 +438,7 @@ product-visible, ship a written verification note in the PR body instead of
 a click-through UAT doc, regardless of how many or which triggers fired —
 the same ship-the-UI-surface exception feature mode already grants pure
 infra/refactor changes (see
-[`../engineering/testing-guide.md`](../engineering/testing-guide.md) and
+[`../tests/testing-guide.md`](../tests/testing-guide.md) and
 CLAUDE.md). A click-through script for a fix with no in-app surface to click
 through is manufactured ceremony, not verification. The moment the fix also
 touches anything product-visible — even indirectly, e.g. a codegen change
@@ -498,7 +498,7 @@ oracle and the Tier A/B bugfix oracle below.
    behavior; they say nothing about the neighbors, which is exactly where a
    small-looking fix does its damage.
 6. **Verify** — the touched tests + typecheck (see
-   [`../engineering/testing-guide.md`](../engineering/testing-guide.md)). A fix
+   [`../tests/testing-guide.md`](../tests/testing-guide.md)). A fix
    that breaks the build doesn't get committed.
 7. **One focused commit** — fix + its regression test together, message naming the
    bug and the fix.

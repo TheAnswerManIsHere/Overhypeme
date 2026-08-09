@@ -299,7 +299,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   empty precisely because no control measures it yet), after that replay
   validates the rubric — not before, and not as one combined effort.
 - **TEST_RUN checklist contract** (PR #263, #264). New
-  [`docs/engineering/test-run-contract.md`](../engineering/test-run-contract.md)
+  [`docs/tests/test-run-contract.md`](../tests/test-run-contract.md)
   restructures per-PR TEST_RUN checklists around what only Replit's live
   environment can verify (migration state, post-merge repo-health gates,
   live-config behavior, scoped tests), demotes the full sharded suite to an

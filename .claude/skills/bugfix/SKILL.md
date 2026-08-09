@@ -181,7 +181,7 @@ the PR back only delays the review that catches things.
    now owns that rule — the combined plan/UAT delivery ritual it used to live in
    was retired). A `TEST_RUN` doc only if something
    genuinely needs Replit's environment — per
-   [`test-run-contract.md`](../../../docs/engineering/test-run-contract.md), it
+   [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
    is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to the
    workstream issue's State of Play `Artifacts` field once committed** — the
    same instruction `pr-docs` follows for feature-mode UAT docs, so a

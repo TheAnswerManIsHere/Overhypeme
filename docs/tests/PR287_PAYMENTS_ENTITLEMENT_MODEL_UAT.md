@@ -16,7 +16,8 @@ still work exactly as before. That is the point: the model changed underneath,
 and the product should not feel different unless it was previously broken.
 
 Companion engineering checklist:
-[`PR287_PAYMENTS_ENTITLEMENT_MODEL_TEST_RUN.md`](PR287_PAYMENTS_ENTITLEMENT_MODEL_TEST_RUN.md).
+the transient engineering checklist (deleted after execution) and the
+[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md).
 **Have Replit run that first** — it checks the migration landed and the server
 came up, and there is no point clicking around if either failed.
 
