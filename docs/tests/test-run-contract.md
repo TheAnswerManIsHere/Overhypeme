@@ -162,6 +162,44 @@ guard), but they run in CI, not here.
   essay. Anything longer belongs in the plan or in
   [`deferred-work.md`](deferred-work.md).
 
+## Precision matters more than the stop/continue call (David, 2026-08-09)
+
+David directs Replit's failure posture per run (e.g. "stop and report on any
+error so one failure in a back-to-back batch doesn't cascade into the next")
+— that instruction is his to give each time, and it is not a checklist
+authoring concern. What the checklist owns is **being precise about what
+actually is a failure**, because whatever it calls a failure gets escalated
+under whatever posture is active. PR293 is the example: the run correctly
+stopped on David's stop-on-error instruction, but the checklist itself
+mischaracterized a value migration 0097 deliberately treats as a
+`RAISE WARNING` (`dangling`) as equivalent to the one value that's an actual
+invariant break (`linkable_but_unlinked`) — see the corrected
+`docs/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md` for the fix. Getting the
+must-flag/may-ignore line right in the doc is what keeps a correctly-obeyed
+stop instruction from firing on a false alarm.
+
+## Replit's handoff documents are ephemeral too (David, 2026-08-09)
+
+When Replit stops mid-run and writes a handoff document (`docs/CLAUDE_*_HANDOFF_*.md`
+or similar) describing what it ran, what it found, and where it stopped, that
+document is **transient in exactly the way a TEST_RUN checklist is** — a message
+in flight, not a record. Whoever picks it up **deletes it once every issue in it
+has been addressed**, in the same change that addresses them.
+
+Deleting it is not "losing the findings" — it is the forcing function that says
+where each finding actually belongs:
+
+- A wrong or stale instruction → fix the **checklist itself**.
+- A durable lesson → the relevant `docs/ai-context/` file (a generalizing gotcha
+  goes in [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)).
+- A settled call → [`decisions.md`](../ai-context/decisions.md).
+- Anything still open → a question to David, or a real issue — never a paragraph
+  left sitting in a handoff doc.
+
+A finding that survives only because a handoff document is still in the repo has
+not been addressed. If nothing in it belongs anywhere durable, that is the
+signal it was pure transit and the deletion costs nothing.
+
 ## Template
 
 ```markdown

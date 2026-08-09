@@ -10,7 +10,7 @@ per the CLAUDE.md tier table this belongs on **Sonnet**; if the session is
 on a higher tier when invoked, I say so and suggest switching before
 starting, but I don't block on it.
 
-The deliverable is one concise report at the end covering the five areas
+The deliverable is one concise report at the end covering the seven areas
 below. If an area has nothing to report, one line ("no open dependency
 PRs") — the discipline stays visible, the report stays short.
 
@@ -150,9 +150,41 @@ still has something to say; only the empty-volume commentary is skippable.
 Say "no loops closed this week" in one line and go straight to data health,
 rather than dropping the section entirely.
 
+## 7. Replit commit review
+
+Retrospective read of what Replit pushed straight to `main` this week — the
+only enforcement point on that path, since nothing gates the push itself.
+Full rationale in
+[`replit-environment.md`](../../../docs/ai-context/replit-environment.md).
+
+1. `git log --author="Replit Agent" --since="7 days ago" --oneline main`
+   (adjust the window to the last maintenance run, same as section 5). Filter
+   on the display name, **not** a specific email address — the repo's history
+   has commits from at least two Replit bot identities that share the name
+   ("Replit Agent <agent@replit.com>" and
+   "Replit Agent <replit-agent@bots.noreply.replit.com>"); an exact-email
+   filter would silently skip whichever one isn't currently active, and this
+   step is the only retrospective check on direct-to-`main` changes —
+   including migrations, auth, and payments — so a missed identity defeats
+   the whole point.
+2. **Skim** anything UI/copy/test-only — no deep read needed.
+3. **Actually read** anything touching a migration, schema, auth, or payment
+   path — full diff, not just the commit message (a Replit commit message is
+   a checkpoint label, not a description to trust at face value; see
+   `replit-environment.md`'s note on checkpoints vs. intent).
+4. Anything real found goes through the normal channel: a `/bugfix` PR, or a
+   flagged item for David in the numbered-question list. **Never revert or
+   modify Replit's work unilaterally** — this is a retrospective read, not a
+   gate, and it doesn't block or delay anything.
+5. One line in the report either way: "N Replit commits this week, nothing
+   found" or naming what was found and what happens next.
+
+If nothing landed from Replit this week, say so in one line and move on —
+same discipline as the other sections.
+
 ## Report delivery
 
-Single message, six short sections, worst news first. When something needs
+Single message, seven short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page — the chat

@@ -112,7 +112,10 @@ Agent sandboxes:
 [`docs/ai-context/codex-environment.md`](docs/ai-context/codex-environment.md) —
 what Codex's container can and cannot do (it boots without a database by
 default, so the api-server integration suite is unavailable there unless
-`CODEX_SETUP_DB=1`).
+`CODEX_SETUP_DB=1`);
+[`docs/ai-context/replit-environment.md`](docs/ai-context/replit-environment.md) —
+how Replit's live-environment access, auto-commit checkpoints, and direct-to-`main`
+push actually work, and why that push path is unguarded on purpose.
 
 ## Working agreement with David
 
