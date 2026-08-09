@@ -293,7 +293,7 @@ for the funnel itself.
   fact on its own. A profile's submitted/liked lists also include variants —
   arguably correct there, since they're that user's own submissions, but it's
   the same unfiltered read. Any new surface that lists facts has to opt into
-  whatever filtering it wants; there's no shared root-only default to inherit.
+  whatever filtering it wants; there's no shared root-only filter to inherit.
 - **A near-duplicate match can point at a fact that is itself a variant, and
   Triage sees it more often than a submitter's duplicate warning would
   suggest.** The duplicate check searches every active fact, variants
