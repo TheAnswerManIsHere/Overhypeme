@@ -1,12 +1,12 @@
-# Moderation
+# Chapter 3 · Moderation
 
 > How a user-submitted fact gets reviewed and either published or rejected —
-> the three human gates it passes through, and why the process is shaped to spend
+> the [three human gates](../ai-context/glossary.md#gate) it passes through, and why the process is shaped to spend
 > money only on submissions a human has already vouched for.
 >
 > **Overhype.me has two separate moderation systems**, and this chapter is
 > mostly about the first: *content quality* ("is this joke good enough to
-> publish?"). The second is *legal/safety* ("is this content illegal?") — a
+> publish?"). The second is *[legal/safety](../ai-context/glossary.md#legalsafety-moderation)* ("is this content illegal?") — a
 > completely separate track with different machinery, covered in its own
 > section at the end.
 >
@@ -18,12 +18,12 @@
 
 ## What it does
 
-Every fact entering the system — a user submission or an admin/API bulk
-import, including one an admin writes as a variant of an existing fact — lands
-in a review queue, not the live catalogue. There is no other way in: a fact
+Every fact entering the system — a user submission or an admin/API [bulk import](../ai-context/glossary.md#bulk-import),
+including one an admin writes as a [variant](../ai-context/glossary.md#variant) of an existing fact — lands
+in a [review queue](../ai-context/glossary.md#review-queue), not the live catalogue. There is no other way in: a fact
 cannot be created directly. A
-moderator walks it through three gates — **Triage**, **Visual Concept**, and
-**Test Renders** — and only a fact that clears all three goes live. The whole
+moderator walks it through three gates — **[Triage](../ai-context/glossary.md#triage)**, **[Visual Concept](../ai-context/glossary.md#visual-concept)**, and
+**[Test Renders](../ai-context/glossary.md#test-renders)** — and only a fact that clears all three goes live. The whole
 design exists to answer two questions cheaply and in order: *does this fact
 deserve to exist?*, then *does its joke work as a picture?*, and only then to
 spend the (real, per-image) money on rendering it.
@@ -40,11 +40,12 @@ The review opens as a three-step wizard:
 
 1. **Triage.** The cheap first pass. The moderator sees the submitted fact, any
    near-duplicate it resembles, and who sent it, and either **rejects** it (with
-   a reason) or **provisionally approves** it. Provisional approval is the moment
-   the paid **moderation prep and render work** — enrichment, visual-idea
-   drafting, and the per-image test renders — is allowed to begin; before it,
-   none of that moderation/render spend has happened. (Cheap pre-submit
-   affordances the submitter already used — tokenizing the fact, suggesting
+   a reason) or **[provisionally approves](../ai-context/glossary.md#provisional-approval)** it. Provisional approval is the moment
+   the paid **[moderation prep](../ai-context/glossary.md#moderation-prep)** — [enrichment](../ai-context/glossary.md#enrichment) and visual-idea
+   drafting, with no renders yet — is allowed to begin; before it,
+   none of that moderation spend has happened. Test renders are a separate,
+   later spend that only unlocks once the Visual Concept is approved. (Cheap pre-submit
+   affordances the [submitter](../ai-context/glossary.md#submitter) already used — tokenizing the fact, suggesting
    pronouns, duplicate-checking — do touch utility LLMs and embeddings; what
    Triage gates is the expensive moderation pipeline, not every LLM call ever
    made about the fact.)
@@ -53,13 +54,13 @@ The review opens as a three-step wizard:
    here. The moderator works on the **Visual Concept** — the plain-language
    "describe the picture" scene that is the authoritative description of how the
    gag works visually. They can accept one of several AI-drafted idea cards, edit
-   one, or write their own, then **"approve the visual gag."** Crucially, **no
+   one, or write their own, then **"approve the [visual gag](../ai-context/glossary.md#visual-gag)."** Crucially, **no
    test renders have run yet** — this gate is deliberately free. Approving the gag
    is what unlocks render spend.
 
-   Writing the concept (and the rest of the Visual Strategy Override, in
+   Writing the concept (and the rest of the [Visual Strategy Override](../ai-context/glossary.md#visual-strategy-override), in
    Advanced Options) is plain-English authoring — naming the subject naturally
-   is enough. Clicking Save auto-tokenizes it and shows the moderator the
+   is enough. Clicking Save [auto-tokenizes](../ai-context/glossary.md#tokenize) it and shows the moderator the
    personalized version before it persists, so the same scene works correctly
    no matter who the fact ends up rendered for.
 
@@ -76,7 +77,7 @@ on the moderator/admin to fix the underlying issue (retry prep, rework the
 concept, fix the render); the fact only ever moves forward to production once
 that's done, never sideways into rejected.
 
-**A "refresh" (re-processing an already-live fact with updated taxonomy or
+**A "refresh" (re-processing an already-live fact with updated [taxonomy](../ai-context/glossary.md#taxonomy) or
 enrichment) is a separate case, and it is never a fact rejection.** The fact
 already exists and stays published in the database no matter what happens to
 the refresh — declining just means the proposed update isn't promoted; the
@@ -85,32 +86,33 @@ succeeds. There's no "reason" picker for this (duplicate/spam/offensive
 questions don't apply to a fact that's already live) — just an optional note
 explaining why.
 
-Throughout, the queue and the modal show live status at two altitudes — a
+Throughout, the queue and the modal show live status at [two altitudes](../ai-context/glossary.md#two-altitudes) — a
 per-fact "what's happening now" (Enriching… → Generating visual ideas… → Ready
 for concept review → Rendering… → Renders ready) and an aggregate view — so a
-moderator never has to guess whether background work is running, done, or stuck.
+moderator never has to guess whether [background work](../ai-context/glossary.md#background-work) is running, done, or stuck.
 
 ### Taking a fact down, and bringing it back
 
-An admin can deactivate a live fact at any time from the Facts editor — that
+An admin can deactivate a live fact ([Active](../ai-context/glossary.md#active) → not) at any time from the [Facts editor](../ai-context/glossary.md#facts-editor) — that
 always works, immediately. Bringing one back is deliberately **not** a
 same-click undo: the Active toggle can't be switched back on directly, because
 doing so would skip the whole review this chapter describes. Instead, an
-inactive fact gets a **"Resubmit for Moderation"** button, which puts it back
-through the same three-gate review under its existing history — it re-enrichs,
-gets a fresh Visual Concept review, and needs production approval again before
-it's live. Nothing about a deactivated fact is ever truly stuck: it's always
-one resubmit away from re-entering the queue.
+inactive fact gets a **"[Resubmit for Moderation](../ai-context/glossary.md#resubmit-for-moderation)"** button, which re-enters
+it directly at prep and clears the two remaining gates — Visual Concept, then
+Test Renders — under its existing history; Triage is not presented again.
+Nothing about a deactivated fact is ever truly stuck: it's always one
+resubmit away from re-entering the queue.
 
 ### Underneath (plain-language machinery)
 
 A submission becomes a row in a review table with a coarse status
-(`pending/approved/rejected`) and a fine-grained **workflow stage** that drives
-the three gates. Provisional approval creates an **inactive "staging fact"** — a
+(`pending/approved/rejected`) and a fine-grained **[workflow stage](../ai-context/glossary.md#workflow-stage)** that drives
+the three gates. Provisional approval creates an **inactive "[staging fact](../ai-context/glossary.md#staging-fact)"** — a
 real catalogue row that isn't published yet — and all the paid prep (AI
-classification, stock-image lookup, test renders) runs against *that*, so the
-live catalogue is never touched by in-progress work. Approving for production
-simply flips the staging fact to live.
+classification, stock-image lookup) runs against *that*, with no renders yet;
+test renders are a separate, later spend that only unlocks once the Visual
+Concept is approved. The live catalogue is never touched by in-progress work.
+Approving for production simply flips the staging fact to live.
 
 Renders are **forced fresh** each time the gag is approved: the job that prepares
 them deliberately does not reuse any prior batch, so bouncing a fact back to the
@@ -137,7 +139,7 @@ abusive is a different and weaker kind of judgment. Overhype.me uses both
 kinds, but they don't apply uniformly to every path, and the second kind
 should not be described — or relied on — as though it were the first.
 
-If an image is refused, the person who uploaded it gets a plain,
+If an image is [refused](../ai-context/glossary.md#refused), the person who uploaded it gets a plain,
 deliberately unspecific message that the image can't be uploaded — it
 never says which check objected or why. That's on purpose: a detailed
 rejection reason is a free hint for anyone probing to find what gets
@@ -145,11 +147,12 @@ through.
 
 ### What happens to refused content
 
-Refused content is **quarantined**, which is a stronger thing than
-"hidden." The image is preserved as evidence in storage that has no
-serving path at all — no admin viewer, no share link, no way for anyone
-to look at it through the product. The upload itself simply fails; no
-meme is ever created from it.
+Refused content is, where it happens, **[quarantined](../ai-context/glossary.md#quarantine)** — a stronger thing
+than "hidden": preserved as evidence in storage the ordinary serve routes
+have no path to — no admin viewer, no share link. That is not the same as a
+proven absolute access-control guarantee against every code path; see the
+glossary entry. The upload itself simply fails; no meme is ever created from
+it.
 
 **Preservation isn't currently universal, though.** Some refusal paths
 block the content without keeping a copy of it, so "refused" and "kept as
@@ -245,7 +248,7 @@ or by anyone downstream, as if it did.
 
 - **The Visual Concept earned its own gate.** It used to be one control buried in
   a single bundled "visual review" step, and renders fired the instant
-  classification finished. But with a strong visual planner, the concept became
+  classification finished. But with a strong [visual planner](../ai-context/glossary.md#visual-planner), the concept became
   *the* description of how a gag works as a picture — so it now deserves a human
   eval on every fact, and renders shouldn't fire until that eval passes. That's
   why the flow was split into an explicit **Visual Concept** gate before **Test
@@ -282,8 +285,8 @@ or by anyone downstream, as if it did.
   the gag *before* spending on images.
 - **No render history.** A bounce discards the old batch and renders fresh; there
   is no "compare to the previous render" view.
-- **Stock images and test renders are review aids, not hard gates.** A moderator
-  can approve despite missing/stale renders, which records an auditable waiver —
+- **[Stock images](../ai-context/glossary.md#stock-image) and test renders are review aids, not hard gates.** A moderator
+  can approve despite missing/[stale renders](../ai-context/glossary.md#stale-render), which records an [auditable waiver](../ai-context/glossary.md#waiver) —
   not a silent skip. (Whether any render should become a *hard* gate is an open
   product question.)
 - **Visual ideas can fail or be absent.** Generation is a real AI call; a failed
@@ -294,7 +297,7 @@ or by anyone downstream, as if it did.
 ## Going deeper
 
 - Spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md) — stages,
-  staging facts, rejection paths, the refresh (send-back) cycle.
+  staging facts, rejection paths, the refresh ([send-back](../ai-context/glossary.md#send-back-to-review)) cycle.
 - Legal/safety spec:
   [`legal-safety-moderation.md`](../ai-context/legal-safety-moderation.md) —
   the scanning layers, quarantine, evidence retention, and the current

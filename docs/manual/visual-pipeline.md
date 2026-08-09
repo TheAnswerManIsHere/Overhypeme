@@ -1,12 +1,12 @@
-# Visual Pipeline
+# Chapter 5 · Visual Pipeline
 
 > How a fact becomes an AI-rendered image, whoever it's personalized for —
-> the shared pipeline behind moderation's test renders and an end user's AI
-> image memes. It isn't the only way Overhype.me produces a meme; the
-> not-yet-written *meme and video studio* chapter (see
-> [`README.md`](./README.md#contents)) covers the other paths. The
+> the shared pipeline behind moderation's [test renders](../ai-context/glossary.md#test-renders) and an end user's AI
+> image memes. It isn't the only way Overhype.me produces a meme;
+> [`meme-and-video-studio.md`](./meme-and-video-studio.md) covers the other
+> paths. The
 > moderator's experience of *using* this machinery — writing and approving
-> a Visual Concept — is [`moderation.md`](./moderation.md)'s chapter; this
+> a [Visual Concept](../ai-context/glossary.md#visual-concept) — is [`moderation.md`](./moderation.md)'s chapter; this
 > one is the pipeline underneath it.
 >
 > Deep spec: [`visual-pipeline.md`](../ai-context/visual-pipeline.md).
@@ -17,8 +17,8 @@
 Every render starts from one thing: a **Visual Concept** — a plain-English
 description of the scene, authored by a moderator (or picked from an
 AI-drafted option) and stored on the fact. From there, the pipeline is
-mechanical and the same for every fact: a planner turns the concept and the
-fact's other details into a structured scene plan, a compiler turns that
+mechanical and the same for every fact: a [planner](../ai-context/glossary.md#visual-planner) turns the concept and the
+fact's other details into a structured scene plan, a [compiler](../ai-context/glossary.md#compiler) turns that
 plan into the actual instructions sent to the image engine, and the engine
 renders it. The concept is the contract: what the picture is *of* is fixed
 the moment a concept exists, and the rest of the pipeline exists to carry
@@ -29,8 +29,8 @@ exact rendered result can still vary a little between one run and the next.
 
 ### The Visual Concept leads
 
-The compiled prompt sent to the image engine always opens with the Visual
-Concept, verbatim (once tokenized for whoever the fact is being personalized
+The [compiled prompt](../ai-context/glossary.md#compiled-prompt) sent to the image engine always opens with the Visual
+Concept, verbatim (once [tokenized](../ai-context/glossary.md#tokenize) for whoever the fact is being personalized
 for). Everything the pipeline adds after it — identity handling, role
 details, environment, lighting, style, the engine's safety rules — is either
 mechanical setup or an *additive* detail that earns its place only by adding
@@ -44,8 +44,8 @@ the joke to another person.
 ### Candidate concepts, so no moderator starts from a blank page
 
 Once a fact reaches Visual Concept review, the pipeline starts drafting
-candidate scenes in the background for a moderator to consider — full
-concepts, not just fragments, each usable regardless of which render mode
+[candidate scenes](../ai-context/glossary.md#candidate-visual-concepts) in the background for a moderator to consider — full
+concepts, not just fragments, each usable regardless of which [render mode](../ai-context/glossary.md#render-mode)
 the fact ends up using. Picking one adopts it whole; nothing from a
 candidate gets partially merged into what's already there, so a moderator
 is never left guessing which half of a scene came from where. See
@@ -69,14 +69,14 @@ overridden.)
 Not every fact renders the same way. Depending on what image material is
 available for whoever the fact is personalized for, the pipeline asks the
 engine to preserve a real uploaded likeness, preserve a non-human subject
-from a reference image, or render from description alone with no reference
+from a [reference image](../ai-context/glossary.md#reference-image), or render from description alone with no reference
 at all. Which mode applies is inferred automatically from the available
 image material, with room for a human override when the automatic read is
 wrong.
 
 ### Frozen at the moment of generation, not resolved live
 
-The specific identity and visual style a render uses are locked in the
+The specific identity and [visual style](../ai-context/glossary.md#look-style) a render uses are locked in the
 instant generation is requested — not re-looked-up later by whatever worker
 happens to pick up the job. That matters because a render doesn't
 necessarily run the moment it's requested, and identity or style
@@ -87,7 +87,7 @@ whatever happened to be true by the time a worker got to it.
 ### The engine gets a scene, never bare instructions to avoid text
 
 There's no rule anywhere in this pipeline against an image containing
-readable text. What's actually excluded is narrow and fixed: nothing that
+[readable text](../ai-context/glossary.md#readable-text-policy). What's actually excluded is narrow and fixed: nothing that
 identifies or brands the image is ever baked into the image itself as
 rendered text — a meme's caption and the fact's own wording are two
 examples; the [spec](../ai-context/visual-pipeline.md) carries the exact,
@@ -110,7 +110,7 @@ it for a given fact.
   actually decides how the joke reads, not a downstream detail.
 - **The engine-facing wording for a balloon has one author, because two
   authors writing about the same thing eventually disagree.** If both a
-  moderator's free-text Concept and the pipeline's own dedicated bubble
+  moderator's free-text Concept and the pipeline's own dedicated [bubble](../ai-context/glossary.md#speech-and-thought-bubbles)
   instruction described the same speech balloon, they could say different
   things about it — one authored ahead of time, one generated at compile
   time. Giving the pipeline sole authorship of the *wording sent to the
@@ -146,7 +146,7 @@ it for a given fact.
 - **A candidate concept being pickable doesn't guarantee it will still fit
   once actually saved** — a candidate is checked against its own scene and
   bubbles in isolation; whether it fits alongside everything else already
-  on that fact's Visual Strategy is checked again, separately, at the
+  on that fact's [Visual Strategy](../ai-context/glossary.md#visual-strategy-override) is checked again, separately, at the
   moment of saving.
 
 ## Going deeper
@@ -157,7 +157,7 @@ it for a given fact.
   retired mistakes this pipeline must not reintroduce.
 - Related: [`moderation.md`](./moderation.md) (the Visual Concept gate and
   the moderator's review experience), [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)
-  (enrichment as a planner *input*, never the prompt itself),
+  ([enrichment](../ai-context/glossary.md#enrichment) as a planner *input*, never the prompt itself),
   [`token-rendering-and-grammar.md`](../ai-context/token-rendering-and-grammar.md)
   (the same tokenizer core that personalizes both facts and authored
   Visual Concepts).

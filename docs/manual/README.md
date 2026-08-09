@@ -8,10 +8,10 @@
 >
 > **Read it front to back and you get the whole product.** The chapters below
 > are ordered to follow the core loop, not the codebase's module boundaries —
-> see *How to read this manual*. Some chapters are written today, the rest are
-> being filled in by the one-time backfill, and the *Contents* table below is
-> the live record of exactly which is which — not restated here as a count
-> that would only go stale again.
+> see *How to read this manual*. The one-time backfill that brought every
+> chapter to first-version coverage is complete; the *Contents* table below
+> stays the live record of what's written, not restated here as a count that
+> would only go stale again as the manual keeps growing.
 
 ## How to read this manual
 
@@ -123,10 +123,13 @@ Written incrementally by the **`/document` ceremony**
 ([`docs/ai-context/documentation-workflow.md`](../ai-context/documentation-workflow.md)):
 at the end of a feature build, the chapter for the touched area is created or
 updated as part of locking in that feature's learnings. There is no separate
-big-bang writing project — though a one-time **backfill of chapters for the
-areas below** is currently in progress, tracked in the
-[in-progress slices of `current-roadmap.md`](../ai-context/current-roadmap.md#in-progress-slices),
-to bring the manual to full first-version coverage.
+big-bang writing project as a matter of course — the one exception was a
+**one-time backfill** (approved by David 2026-07-30, closed out 2026-08-09)
+that brought the manual from 3 written chapters to the full **12** in reading
+order, plus 6 new `docs/ai-context/` subsystem specs for the areas that had
+none to link into; see
+[`current-roadmap.md`](../ai-context/current-roadmap.md#recently-merged-or-completed-work)
+for that pass's history. From here on, growth is incremental only.
 
 Chapters describe the system **as it is now**. History and chronology belong to
 `decisions.md` and git — no "changelog" sections accumulate here.
@@ -163,6 +166,33 @@ sentences over jargon; product terms per
 *what*. Unverified claims are marked **Needs David confirmation** rather than
 stated as fact.
 
+### Link each glossary term once per chapter
+
+A reader who lands mid-manual shouldn't have to already know what a *Visual
+Concept*, a *staging fact*, or a *recipe* is. So the **first** time a chapter
+uses a term defined in [`glossary.md`](../ai-context/glossary.md), it links to
+that term's anchor:
+
+```markdown
+a moderator authors the [Visual Concept](../ai-context/glossary.md#visual-concept)
+```
+
+**First occurrence only** — linking every mention turns a chapter into link
+soup. Later mentions stay plain text.
+
+This matters most for the ordinary English words that mean something specific
+here — *preview*, *grammar*, *recipe*, *root*, *lane*, *skipped*, *remove*,
+*rendering* — where a reader who doesn't follow the link may never realize
+they've misread the sentence. Several of those words name **more than one**
+thing (a submit-form *Preview*, a shared link's *rich preview*, the admin
+*compiled-prompt* preview), so link the sense the sentence actually means.
+
+Glossary anchors are generated from its `###` headings, so renaming a heading
+breaks every chapter link into it — rename deliberately and update the
+chapters in the same commit. `pnpm run check:docs` verifies that a linked
+*file* exists but **not** that an anchor within it does, so anchors are
+review-checked, not CI-checked.
+
 ## Contents
 
 In reading order. A chapter file appears only once it holds real content, so
@@ -183,8 +213,19 @@ In reading order. A chapter file appears only once it holds real content, so
 | 11 | [`admin-console.md`](./admin-console.md) | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | ✅ written |
 | 12 | [`background-work.md`](./background-work.md) | Async jobs, the scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
 
-When a chapter is added or an area renamed, update this table in the same
-commit.
+**This table is the source of truth for chapter numbers**, and the number now
+appears in two other places that must agree with it: each chapter's own `#
+Chapter N · Title` heading, and the `**Next:** chapter N — …` footer of the
+chapter before it. Inserting or reordering a chapter therefore renumbers a run
+of files, not just this table — do it in the same commit, and check the
+footers, which are the easiest of the three to miss. (Nothing enforces this
+yet; a consistency check is a good candidate for the Build job if it ever
+drifts.)
+
+Deliberately **not** written anywhere: "chapter N **of 12**." A total restated
+across twelve files is exactly the kind of count that goes stale the moment a
+chapter is added — this table stays the one place that knows how many there
+are.
 
 ## Outside this manual
 

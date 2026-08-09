@@ -1,4 +1,4 @@
-# Taxonomy and Enrichment
+# Chapter 4 · Taxonomy and Enrichment
 
 > How a submitted fact gets classified — its joke mechanism, tone, and
 > content-safety fit — and how that classification stays current as the
@@ -10,27 +10,27 @@
 
 ## What it does
 
-Every fact carries **enrichment** — structured metadata describing *how the
+Every fact carries **[enrichment](../ai-context/glossary.md#enrichment)** — structured metadata describing *how the
 joke works*, not what picture to draw for it. That includes its primary
-archetype (which joke mechanism it uses, from a fixed list), a subtype, a
+[archetype](../ai-context/glossary.md#archetype) (which joke mechanism it uses, from a fixed list), a [subtype](../ai-context/glossary.md#subtype), a
 broader set of scene/tone/composition modifiers, how strong the "overhype"
-fit is, adult-suitability, cultural references, named entities, suggested
-hashtags, and the AI's confidence in its own read. It's produced once at
+fit is, [adult-suitability](../ai-context/glossary.md#adult-suitability), cultural references, named entities, suggested
+[hashtags](../ai-context/glossary.md#hashtags), and the AI's confidence in its own read. It's produced once at
 moderation time and can be **refreshed**
 later — deliberately, by a human — as the classification model and prompts
 improve, without disturbing a fact's live content or any manual edit an admin
 made to it.
 
 Enrichment is explicitly **not** an image prompt. What the picture looks like
-is a separate concern, owned by the Visual Concept and the render pipeline
+is a separate concern, owned by the [Visual Concept](../ai-context/glossary.md#visual-concept) and the render pipeline
 (see [`visual-pipeline.md`](../ai-context/visual-pipeline.md)) — this area only answers
 "what kind of joke is this, and is it safe/on-brand?"
 
-**A variant is classified entirely on its own wording.** A variant fact
-(alternate phrasing of the same joke as a "root" fact, linked for kinship and
+**A [variant](../ai-context/glossary.md#variant) is classified entirely on its own wording.** A variant fact
+(alternate phrasing of the same joke as a "[root](../ai-context/glossary.md#root)" fact, linked for kinship and
 show/hide grouping only) gets its own enrichment, taxonomy, Visual Concept,
 and images — never its root's. Re-wording a root does **not** invalidate or
-re-enrich its variants. See *Variants are independent facts* in the
+[re-enrich](../ai-context/glossary.md#re-enrich) its variants. See *Variants are independent facts* in the
 [deep-spec doc](../ai-context/taxonomy-and-enrichment.md#variants-are-independent-facts).
 
 ## How it works
@@ -45,28 +45,28 @@ of joke.
 
 ### For the admin (Taxonomy Health)
 
-**Admin → Taxonomy Health** is where enrichment quality is monitored and
+**Admin → [Taxonomy Health](../ai-context/glossary.md#taxonomy-health)** is where enrichment quality is monitored and
 repaired. Every active fact rolls up into overlapping cards — a fact can
 appear under more than one at once. The core categories:
 
 - **Missing or invalid enrichment** — no classification exists yet, or one
   exists but fails validation. Fixed with **Re-enrich** (a real model
   call).
-- **Needs admin review** — a questionable content fit, or something
+- **[Needs admin review](../ai-context/glossary.md#needs-admin-review)** — a questionable content fit, or something
   flagged for human judgment. A few narrower cards break this down
   further today — low AI confidence and cultural references needing
   research each get their own dedicated card, following the same shape —
   but the underlying idea is the same across all of them: something needs
   a person's judgment, not just a re-run.
-- **Projection mismatch** — the "promoted" columns (archetype, subtype,
+- **[Projection mismatch](../ai-context/glossary.md#projection-mismatch)** — the "[promoted](../ai-context/glossary.md#promoted-columns)" columns (archetype, subtype,
   fit, suitability) drifted from what's actually stored in the enrichment
-  JSON. Fixed with **Repair projections** — instant, no model call, safe to
+  JSON. Fixed with **[Repair projections](../ai-context/glossary.md#repair-projections)** — instant, no model call, safe to
   run repeatedly.
-- **Stale enrichment version** — the fact was classified under an older
+- **[Stale enrichment version](../ai-context/glossary.md#stale-enrichment-version)** — the fact was classified under an older
   prompt version.
-- **Stale for reprocess** — the fact's enrichment is *good*, but it was
+- **[Stale for reprocess](../ai-context/glossary.md#stale-for-reprocess)** — the fact's enrichment is *good*, but it was
   produced under an older pipeline revision (see "Staleness has two different
-  meanings," below). Its only remediation is **Send back to review**.
+  meanings," below). Its only remediation is **[Send back to review](../ai-context/glossary.md#send-back-to-review)**.
 
 Each card's panel spells out exactly what the issue means, what fixing it
 costs (model call vs. free, safe-to-repeat vs. overwrite-risk), and which
@@ -78,17 +78,17 @@ safe to click twice.
 A fact's classification doesn't have to be right forever — an admin can send
 any live fact **back into moderation** for a fresh pass, one at a time from
 the Facts page or the Taxonomy Health list, or **in bulk**, bounded per click
-(see "A bulk send-back run is deliberately limited per click," below), from
+(see "A [bulk send-back](../ai-context/glossary.md#bulk-send-back) run is deliberately limited per click," below), from
 the Stale-for-reprocess card. Sending a fact back:
 
 - Keeps it fully live the whole time — the public feed and every reader-facing
   surface keep showing its current content, unaffected, until the refresh is
   actually approved.
-- Preserves everything a human already decided about it — manual overrides
+- Preserves everything a human already decided about it — [manual overrides](../ai-context/glossary.md#enrichment-override)
   and the moderator-authored Visual Concept both carry forward into the
   refresh candidate; only the AI's baseline classification is regenerated.
 - Puts the fact through the **same two human gates** every submission clears
-  — Visual Concept, then Test Renders — before the refreshed version can go
+  — Visual Concept, then [Test Renders](../ai-context/glossary.md#test-renders) — before the refreshed version can go
   live. **Sending a fact back only starts that cycle; it never finishes it on
   its own.** This holds no matter how many facts are queued at once: bulk
   send-back is strictly a faster way to *queue* refreshes, never a way to
@@ -107,7 +107,7 @@ conflate:
 1. **The classification prompt moved.** A fact was classified under an older
    version of the AI prompt — the older, narrower signal.
 2. **The processing pipeline moved.** A fact's *entire* processing
-   fingerprint — engine revision, taxonomy version, classification version,
+   fingerprint — [engine revision](../ai-context/glossary.md#engine-revision), taxonomy version, classification version,
    image-prompt and visual-strategy code versions — is older than the current
    one. This is "**stale for reprocess**": the fact's enrichment is perfectly
    valid, it just hasn't benefited from the latest thinking.
@@ -116,7 +116,7 @@ They overlap heavily on older facts (most legacy facts are both), but they
 clear differently. A direct **Re-enrich** can clear the first — it's a quick
 model call straight to the fact's columns. It **cannot** clear the second,
 because only a moderated refresh (send back → promote) actually re-stamps a
-fact's processing fingerprint. That's why the Stale-for-reprocess card offers
+fact's [processing fingerprint](../ai-context/glossary.md#processing-signature). That's why the Stale-for-reprocess card offers
 only "Send back to review," never a direct Re-enrich button, even for facts
 that are also flagged stale-enrichment-version.
 
@@ -164,7 +164,7 @@ side effect of an unrelated config change.
   bulk — promotes a refreshed fact on its own. A human approves the Visual
   Concept, then the Test Renders, exactly as for a first-time submission.
 - **A bulk send-back run is deliberately limited per click.** On a corpus with
-  a larger backlog (common right after a "Mark major update" bump, which
+  a larger backlog (common right after a "[Mark major update](../ai-context/glossary.md#mark-major-update)" bump, which
   can make most of the corpus stale at once), an admin clicks the button more
   than once over time. This is deliberate — it keeps the moderation queue
   from being flooded in one action. The limit itself is in
@@ -173,7 +173,7 @@ side effect of an unrelated config change.
   of bulk runs.** This stops a persistently-broken fact from silently eating
   a bulk run's capacity forever, and stops an admin from being able to declare a
   bulk migration "complete" while that fact sits invisibly excluded — its
-  failure streak (`repeatedFailureCount`) shows on the Taxonomy Health row
+  [failure streak](../ai-context/glossary.md#repeated-failure-count) (`repeatedFailureCount`) shows on the Taxonomy Health row
   list and the bulk-action response. The only way to clear the streak is to
   target that fact directly (single-fact or `scope: selected`), which is also
   the only path that resets the count.
@@ -197,7 +197,7 @@ side effect of an unrelated config change.
   (the two human gates a refresh passes through),
   [`visual-pipeline.md`](../ai-context/visual-pipeline.md) (the Visual Concept a refresh
   carries forward), [`async-ui-status.md`](../ai-context/async-ui-status.md)
-  (the two-altitude status rule bulk send-back follows).
+  (the [two-altitude](../ai-context/glossary.md#two-altitudes) status rule bulk send-back follows).
 - Rationale: the staleness/bulk-send-back entry in
   [`decisions.md`](../ai-context/decisions.md).
 

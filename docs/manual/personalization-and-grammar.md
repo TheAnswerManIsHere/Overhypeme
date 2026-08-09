@@ -1,6 +1,6 @@
-# Personalization and Grammar
+# Chapter 1 · Personalization and Grammar
 
-> How one fact template becomes a sentence about whoever's reading it — and
+> How one [fact](../ai-context/glossary.md#fact) template becomes a sentence about whoever's reading it — and
 > stays grammatically correct no matter which name or pronouns that turns
 > out to be.
 >
@@ -10,8 +10,8 @@
 ## What it does
 
 A fact isn't stored as finished prose — it's stored as a template with
-placeholders for a name and for pronouns, plus verb forms that can go either
-way depending on which pronoun set ends up filling them in. The same stored
+[placeholders](../ai-context/glossary.md#personalization-tokens) for a name and for pronouns, plus verb forms that can go either
+way depending on which [pronoun set](../ai-context/glossary.md#pronoun-set) ends up filling them in. The same stored
 template renders as a different, grammatically correct sentence for every
 reader: their name goes in, their pronouns go in, and every verb that needs
 to agree with those pronouns picks the right form automatically. Nobody
@@ -37,7 +37,7 @@ from their own current selection, never the author's.
 
 ### For whoever writes the words
 
-A submitter or moderator doesn't need to hand-type the placeholders — the
+A [submitter](../ai-context/glossary.md#submitter) or moderator doesn't need to hand-type the placeholders — the
 normal path is to write in plain English, naming the subject the usual way,
 and let the system convert that into a template automatically. An advanced,
 optional editor still lets someone view or hand-adjust the converted result
@@ -46,7 +46,7 @@ submitter sees happen to their own draft, belongs to
 [`content-lifecycle.md`](./content-lifecycle.md#for-the-submitter-writing-a-fact)
 (for a fact submission) and
 [`visual-pipeline.md`](./visual-pipeline.md) (for a moderator authoring a
-Visual Concept) — both routes end up going through the same underlying
+[Visual Concept](../ai-context/glossary.md#visual-concept)) — both routes end up going through the same underlying
 conversion, so a fact and a Visual Concept are personalized identically and
 never drift apart from each other.
 
@@ -57,7 +57,7 @@ into a sentence for a specific reader is a completely different one, and
 Overhype.me keeps them apart on purpose. The **conversion** step decides
 which words become placeholders and which verbs need to be able to change
 form — that's a one-time decision made when the text is written. The
-**rendering** step, run fresh for every reader, only ever fills in what the
+**[rendering](../ai-context/glossary.md#rendering)** step, run fresh for every reader, only ever fills in what the
 conversion step already decided needed filling in — it never makes new
 grammatical judgment calls of its own. Splitting the responsibility this
 way means a rendering bug can only ever be about substitution (the wrong
@@ -123,7 +123,7 @@ end up stored half-corrected depending on which door it came through.
 - Related: [`content-lifecycle.md`](./content-lifecycle.md) (the submission
   path that produces a template), [`visual-pipeline.md`](./visual-pipeline.md)
   (the Visual Concept authoring path that shares the same conversion).
-- Rationale: the tokenizer/grammar entries in
+- Rationale: the [tokenizer](../ai-context/glossary.md#tokenize)/grammar entries in
   [`decisions.md`](../ai-context/decisions.md).
 
 **Next:** chapter 2 — [`content-lifecycle.md`](./content-lifecycle.md), how

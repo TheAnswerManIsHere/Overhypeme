@@ -1,13 +1,13 @@
-# Public Site and Sharing
+# Chapter 7 · Public Site and Sharing
 
-> Home, search, the leaderboard, your own library, sharing, and merch —
+> Home, search, the leaderboard, your own [library](../ai-context/glossary.md#library), sharing, and [merch](../ai-context/glossary.md#merch) —
 > the surfaces where the loop actually closes: a visitor becomes a reader,
 > a reader becomes a sharer, and a share pulls the next visitor in.
 >
 > Deep spec: [`public-site-and-sharing.md`](../ai-context/public-site-and-sharing.md).
 > Related: [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)
-> (where hashtags come from), [`meme-and-video-studio.md`](./meme-and-video-studio.md)
-> (where a shareable meme comes from).
+> (where [hashtags](../ai-context/glossary.md#hashtags) come from), [`meme-and-video-studio.md`](./meme-and-video-studio.md)
+> (where a shareable [meme](../ai-context/glossary.md#meme) comes from).
 
 ## What it does
 
@@ -22,7 +22,7 @@ to your own library both require being signed in.
 ### Home
 
 The home page shows two things: one fact at a time in a rotating
-spotlight, and a scrolling grid of the newest facts underneath. Both are
+[spotlight](../ai-context/glossary.md#spotlight), and a scrolling grid of the newest facts underneath. Both are
 drawn from the same shared pool every visitor sees — nobody gets a
 different set of facts because of who they are. What *does* change per
 visitor is purely cosmetic: once you've typed a name (and Overhype.me has
@@ -31,7 +31,7 @@ re-renders with that name and those pronouns substituted in. The
 underlying set of facts you're looking at never changes based on that.
 
 The spotlight isn't a strict "best fact first" — it favors facts with a
-better rating, but leans random rather than always showing the single
+better [rating](../ai-context/glossary.md#rating), but leans random rather than always showing the single
 top-rated fact, so repeat visits (and hitting "next") don't just show the
 same handful of facts over and over. There's no infinite scroll or "load
 more" anywhere on the public site — what loads on first visit is what you
@@ -44,15 +44,15 @@ straightforward text match, not a smarter relevance search, so results
 always come back newest-first rather than "best match first." Typing a
 hashtag (with a `#`) searches for exactly that tag instead, and this is
 one of two ways hashtag browsing actually happens day to day: a hashtag
-pill on a fact card sends you to a search for that tag, while the
-hashtag rail and "Trending Topics" strip on the home page filter the home
+pill on a [fact card](../ai-context/glossary.md#fact-card) sends you to a search for that tag, while the
+hashtag rail and "[Trending Topics](../ai-context/glossary.md#trending-topics)" strip on the home page filter the home
 feed itself in place, without leaving the page. Either way, there's no
 dedicated hashtag directory page — the idea of one exists in the
 codebase, but it isn't reachable.
 
 ### Top Facts (the leaderboard)
 
-The Top Facts page ranks facts by their rating — always the same
+The [Top Facts](../ai-context/glossary.md#top-facts) page ranks facts by their rating — always the same
 all-time ranking, regardless of which time-range button you click on the
 page. **The week/month/all-time buttons don't currently change what's
 shown** — see Boundaries below. There's no ranking of *people* anywhere
@@ -150,13 +150,13 @@ whether anyone went on to buy anything.
   included. This doesn't mean everyone's content is invisible to
   everyone else: a public meme is still visible wherever it's shared or
   attached to a fact, the same as any public meme.
-- **Rich link previews only exist for meme links.** Sharing a fact page,
+- **[Rich link previews](../ai-context/glossary.md#rich-preview) only exist for meme links.** Sharing a fact page,
   a search result, or the home page itself doesn't produce a preview
   image/description the way sharing a meme does.
 - **Merch has no order or fulfillment tracking on Overhype.me's side** —
   once you're redirected to Zazzle, everything after that (whether you
   actually bought anything, sizing, shipping) is invisible to Overhype.me.
-- **Hearting a private meme isn't currently blocked the way viewing one
+- **[Hearting](../ai-context/glossary.md#heart) a private meme isn't currently blocked the way viewing one
   is.** Every other private-meme surface (the image itself, its rich
   preview, sharing it, ordering merch from it) correctly requires being
   the owner or an admin; the heart button doesn't yet carry that same
@@ -173,8 +173,8 @@ whether anyone went on to buy anything.
 - Rationale: the public-site and sharing entries in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 8 — *community and engagement*, ratings, comments,
-comment hearts, meme hearts, and the activity feed.
-[Not yet written](./README.md#contents).
+**Next:** chapter 8 — [`community-and-engagement.md`](./community-and-engagement.md),
+ratings, comments, comment hearts, meme hearts, and the
+[activity feed](../ai-context/glossary.md#activity-feed).
 
 *Verified against `d7a6847` (2026-08-09) · claim inventory in PR #373.*
