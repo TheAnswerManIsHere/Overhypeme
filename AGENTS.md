@@ -60,6 +60,9 @@ HTTP headers, or secrets** work, also read:
 - [`docs/ai-context/security-model.md`](docs/ai-context/security-model.md) —
   the security posture (auth, object/meme authz, membership grant trust,
   headers, secrets, the dev-admin-login gate)
+- [`docs/ai-context/accounts-and-auth.md`](docs/ai-context/accounts-and-auth.md) —
+  the operational shape of sign-in, account creation, and the account
+  lifecycle (routes, flows, session mechanics, role derivation)
 
 For **billing, Stripe webhooks, or membership** work specifically, also read:
 

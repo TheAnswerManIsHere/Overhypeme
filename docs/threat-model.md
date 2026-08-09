@@ -35,9 +35,10 @@ product is future scope only (see `product-brief.md`).
 | Vendors | Stripe (billing), OpenAI (enrichment/planning/embeddings), fal.ai (image/video gen + safety scan), Resend (email), hCaptcha, Sentry, Project Arachnid (external CSAM scan), NCMEC ISPWS (legal reporting, staged rollout) |
 | Hosting | Replit deployment (`REPLIT_DEPLOYMENT`), Cloudflare in front |
 
-Auth: Replit OIDC + Google/Apple OAuth + local email/password (bcryptjs), all
-resolving to **server-side opaque sessions** (`sid` cookie, Bearer fallback).
-There is no client-trusted JWT.
+Auth: Google/Apple OAuth + local email/password (bcryptjs), all resolving to
+**server-side opaque sessions** (`sid` cookie, Bearer fallback). There is no
+client-trusted JWT, and no Replit OIDC integration — Replit is a hosting
+target, not an auth provider, here.
 
 ## Assets, ranked
 
