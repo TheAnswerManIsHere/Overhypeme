@@ -65,7 +65,7 @@ we've sequenced for later.
     resumes growing — and resumes retaining live session tokens — with no
     surface that says so.
   - **Why deferred now.** The purge itself is the fix that mattered and it
-    ships in PR #361; a health surface is a second, larger change (an
+    ships in PR #369; a health surface is a second, larger change (an
     authenticated admin panel field plus the UI to show it, per the
     ship-the-surface rule), not a line of it. The grace sweep's
     `graceSweepHealth` is the model to copy when it's built.
@@ -88,7 +88,7 @@ we've sequenced for later.
     `adminConfig`/`getStripeSync` entries in
     [Code-level tech debt](#code-level-tech-debt) below — all five surfaced on
     the same 16-round review of the plan that became PR #308 (the fifth, the
-    `rate_limit_counters` retention gap, was fixed in PR #361 and is off this
+    `rate_limit_counters` retention gap, was fixed in PR #369 and is off this
     list). Prioritized
     **first** among these five by David's 2026-08-04 ordering decision — with
     most of this API's route files having had no other rate limiting before
