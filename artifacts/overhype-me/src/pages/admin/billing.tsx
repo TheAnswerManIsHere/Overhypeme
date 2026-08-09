@@ -741,12 +741,19 @@ export default function AdminBilling() {
                 {RESOURCE_DISPLAY_ORDER.map(resource => {
                   const row = syncStatus?.resources.find(r => r.resource === resource);
                   const status = row?.status ?? "idle";
+                  // During a sequential run, resources that have not started
+                  // yet are returned as idle because they have no persisted
+                  // _sync_status row. They are pending for this run, not
+                  // permanently "never synced".
+                  const displayStatus = status === "idle" && syncStatus?.inProgress
+                    ? "pending"
+                    : status;
                   let icon;
-                  if (status === "running") {
+                  if (displayStatus === "running") {
                     icon = <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />;
-                  } else if (status === "complete") {
+                  } else if (displayStatus === "complete") {
                     icon = <CheckCircle className="w-3.5 h-3.5 text-green-400" />;
-                  } else if (status === "error") {
+                  } else if (displayStatus === "error") {
                     icon = <XCircle className="w-3.5 h-3.5 text-destructive" />;
                   } else {
                     icon = <Circle className="w-3.5 h-3.5 text-muted-foreground" />;
@@ -756,17 +763,19 @@ export default function AdminBilling() {
                       key={resource}
                       className="flex items-center gap-2 text-xs flex-wrap"
                       data-testid={`sync-row-${resource}`}
-                      data-status={status}
+                      data-status={displayStatus}
                     >
                       {icon}
                       <span className="font-medium text-foreground w-32">{RESOURCE_LABELS[resource]}</span>
                       <span className="text-muted-foreground" data-testid={`sync-row-${resource}-detail`}>
-                        {status === "running"
+                        {displayStatus === "running"
                           ? "syncing…"
-                          : status === "complete"
+                          : displayStatus === "complete"
                             ? `${row?.syncedCount ?? 0} synced · ${formatRelative(row?.lastSyncedAt ?? null)}`
-                            : status === "error"
+                            : displayStatus === "error"
                               ? `error · ${(row?.errorMessage ?? "unknown").slice(0, 80)}`
+                              : displayStatus === "pending"
+                                ? "pending"
                               : row?.lastSyncedAt
                                 ? `pending · last synced ${formatRelative(row.lastSyncedAt)}`
                                 : "never synced — use Full sync"}
