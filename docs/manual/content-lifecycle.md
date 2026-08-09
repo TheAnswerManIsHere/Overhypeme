@@ -14,7 +14,7 @@
 A fact can enter Overhype.me exactly three ways — a signed-in user submits
 one, an admin or an external system imports a batch, or an admin creates a
 variant of a fact that's already live — and all three land in the same
-place: a pending review, not the live catalogue. There is no fourth path and
+place: a [pending review](../ai-context/glossary.md#pending-review), not the live catalogue. There is no fourth path and
 no shortcut in the product itself: nothing in the running application can
 create a fact directly outside this funnel. (Offline dev/ops tooling — a
 database seed script, a reseed utility — can insert facts directly; that's
@@ -114,7 +114,7 @@ it goes live.
 ### Creating a variant
 
 A variant is an alternate phrasing of a joke that's already live, created
-from the Facts editor against a specific **[root](../ai-context/glossary.md#root)** fact (a fact that has no
+from the [Facts editor](../ai-context/glossary.md#facts-editor) against a specific **[root](../ai-context/glossary.md#root)** fact (a fact that has no
 parent of its own — a variant of a variant isn't allowed; the target has to
 be the root). Creating one is a normal submission in every way that
 matters: the variant's text goes through the same grammar normalization as

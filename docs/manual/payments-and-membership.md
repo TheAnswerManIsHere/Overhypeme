@@ -22,7 +22,7 @@ exists, nobody sets its tier.** It's computed. At any moment, a user is
 Legendary if — and only if — they currently hold something that entitles
 them to it: a qualifying subscription (active, in trial, or in a bounded
 [grace window](../ai-context/glossary.md#grace-episode) after a failed payment), a [lifetime purchase](../ai-context/glossary.md#legendary-for-life), or an admin
-grant. Cancel the subscription, refund the purchase, or [revoke](../ai-context/glossary.md#revoke) the grant,
+grant. [Cancel](../ai-context/glossary.md#cancel) the subscription, refund the purchase, or [revoke](../ai-context/glossary.md#revoke) the grant,
 and the computed answer changes on its own. There is no button, script, or
 admin field that sets "Legendary" directly — with one narrow, designed
 exception: [reinstating](../ai-context/glossary.md#reinstate) a [deactivated](../ai-context/glossary.md#deactivate) user whose sources can't all be
@@ -41,8 +41,8 @@ as Legendary. From there:
 
 - **Cancel** ends the subscription at the end of the current billing period —
   access continues until then, exactly as you'd expect.
-- **Reactivate** undoes a pending cancellation before it takes effect.
-- **Switch to Annual** moves a monthly subscriber to the annual plan with a
+- **[Reactivate](../ai-context/glossary.md#reactivate)** undoes a pending cancellation before it takes effect.
+- **[Switch to Annual](../ai-context/glossary.md#switch-to-annual)** moves a monthly subscriber to the annual plan with a
   prorated charge shown before confirming — reliably so for the common case
   of a subscription with a single item. See *Boundaries & known limitations*
   below for the multi-item edge case.
@@ -111,7 +111,7 @@ grant — is one row in a table of **[entitlement sources](../ai-context/glossar
 changes, the system asks, right then, whether *any* of a user's sources
 currently qualifies and stores the answer: no unresolved dispute, correct
 lifecycle status, and — for the two Stripe-backed source types only — an
-allowlisted product; an admin grant is authorized by the admin's own action
+[allowlisted product](../ai-context/glossary.md#allowlisted-product); an admin grant is authorized by the admin's own action
 instead, not by a purchased product. A `membership_tier` column still
 exists on the user, but it's that computed answer, not a hand-set value — the
 one exception is a stored expiry: a request checks the stored tier against a
@@ -208,7 +208,7 @@ a comp from a real sale.
   is a real way to force the correction by hand today. This is a known,
   accepted gap — not an oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
-- **The stored tier column itself can lag reality between background sweeps
+- **The stored tier column itself can lag reality between [background sweeps](../ai-context/glossary.md#entitlement-sweep)
   — a failed or delayed sweep run stretches that lag further — and it can
   surface on the admin screen, though never in a way that affects access.**
   (See the deep spec for the sweep's cadence and failure handling.) Access is

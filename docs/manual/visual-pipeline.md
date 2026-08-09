@@ -69,14 +69,14 @@ overridden.)
 Not every fact renders the same way. Depending on what image material is
 available for whoever the fact is personalized for, the pipeline asks the
 engine to preserve a real uploaded likeness, preserve a non-human subject
-from a reference image, or render from description alone with no reference
+from a [reference image](../ai-context/glossary.md#reference-image), or render from description alone with no reference
 at all. Which mode applies is inferred automatically from the available
 image material, with room for a human override when the automatic read is
 wrong.
 
 ### Frozen at the moment of generation, not resolved live
 
-The specific identity and visual style a render uses are locked in the
+The specific identity and [visual style](../ai-context/glossary.md#look-style) a render uses are locked in the
 instant generation is requested — not re-looked-up later by whatever worker
 happens to pick up the job. That matters because a render doesn't
 necessarily run the moment it's requested, and identity or style
@@ -87,7 +87,7 @@ whatever happened to be true by the time a worker got to it.
 ### The engine gets a scene, never bare instructions to avoid text
 
 There's no rule anywhere in this pipeline against an image containing
-readable text. What's actually excluded is narrow and fixed: nothing that
+[readable text](../ai-context/glossary.md#readable-text-policy). What's actually excluded is narrow and fixed: nothing that
 identifies or brands the image is ever baked into the image itself as
 rendered text — a meme's caption and the fact's own wording are two
 examples; the [spec](../ai-context/visual-pipeline.md) carries the exact,

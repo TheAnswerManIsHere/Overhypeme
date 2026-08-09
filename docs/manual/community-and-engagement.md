@@ -6,7 +6,7 @@
 >
 > Deep spec: [`community-and-engagement.md`](../ai-context/community-and-engagement.md).
 > Related: [`moderation.md`](./moderation.md) (fact [moderation](../ai-context/glossary.md#moderation) — a
-> separate, more involved pipeline than comment moderation),
+> separate, more involved pipeline than [comment moderation](../ai-context/glossary.md#comment-moderation)),
 > [`public-site-and-sharing.md`](./public-site-and-sharing.md) (where a
 > fact's rating feeds into search and the leaderboard).
 

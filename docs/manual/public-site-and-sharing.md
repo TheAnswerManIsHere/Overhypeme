@@ -44,8 +44,8 @@ straightforward text match, not a smarter relevance search, so results
 always come back newest-first rather than "best match first." Typing a
 hashtag (with a `#`) searches for exactly that tag instead, and this is
 one of two ways hashtag browsing actually happens day to day: a hashtag
-pill on a fact card sends you to a search for that tag, while the
-hashtag rail and "Trending Topics" strip on the home page filter the home
+pill on a [fact card](../ai-context/glossary.md#fact-card) sends you to a search for that tag, while the
+hashtag rail and "[Trending Topics](../ai-context/glossary.md#trending-topics)" strip on the home page filter the home
 feed itself in place, without leaving the page. Either way, there's no
 dedicated hashtag directory page — the idea of one exists in the
 codebase, but it isn't reachable.

@@ -13,7 +13,7 @@
 A lot of what Overhype.me does is too slow, too unreliable, or too expensive to
 do inline while someone's request is waiting: classifying a fact's joke
 mechanism with an LLM, generating an AI image, sending a transactional email,
-finding a stock photo, re-running [enrichment](../ai-context/glossary.md#enrichment) on hundreds of facts at once,
+finding a [stock photo](../ai-context/glossary.md#stock-image), re-running [enrichment](../ai-context/glossary.md#enrichment) on hundreds of facts at once,
 repairing derived data. All of that runs as **[background work](../ai-context/glossary.md#background-work)** — recorded in
 the database rather than held in memory, so a server restart mid-run doesn't
 lose it. (One exception worth knowing: in a local setup with no email provider
@@ -61,9 +61,9 @@ Everything rides **one real database table**, not an in-memory queue or a
 separate pub/sub system. That single choice buys the property this whole
 chapter rests on: a crash or a redeploy never loses queued work, and at any
 moment an ordinary SQL query shows the queue's recorded state — what is
-waiting, what has been claimed, what failed. (Recorded, not live: an
+waiting, what has been [claimed](../ai-context/glossary.md#claim), what failed. (Recorded, not live: an
 individual job carries no lease, so a job a crashed worker left behind still
-reads as claimed until a recovery sweep picks it up. Whether the *workers*
+reads as claimed until a [recovery sweep](../ai-context/glossary.md#recovery-sweep) picks it up. Whether the *workers*
 themselves are alive is tracked separately — see the known limitation below.)
 The table's shape and the exact status flow are in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
@@ -112,7 +112,7 @@ carries three behaviors nothing else does:
   dependent**: it fires only where the abandoned-email alert setting has been
   switched on, so an environment that hasn't enabled it gets no notification.
 - **That alert is exempt from the usual cleanup.** Ordinary email rows are
-  purged on a retention schedule; the alert about a failed email is
+  purged on a [retention](../ai-context/glossary.md#retention) schedule; the alert about a failed email is
   deliberately kept, so the evidence outlives the thing it is evidence about.
 
 When delivery isn't configured at all (local development), the two directions
@@ -140,7 +140,7 @@ queue's items:
   `skipped` (a successful `done` row whose handler result says mid-run its
   work no longer applied — nothing to do with attempts or the ceiling) and
   `abandoned_no_retry` (derived from comparing a `failed` row's attempts
-  against its retry ceiling: the worker deliberately won't retry this one, a
+  against its [retry ceiling](../ai-context/glossary.md#retry-ceiling): the worker deliberately won't retry this one, a
   different story from having retried repeatedly and given up). Per lane: how many
   instances have a heartbeat row recent enough to
   still count as live (not necessarily still actively ticking this exact

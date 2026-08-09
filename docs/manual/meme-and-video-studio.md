@@ -13,9 +13,9 @@
 
 Once you've found a fact you want to make into a meme, the [studio](../ai-context/glossary.md#studio) is where
 you actually build it. You can build a meme from your own photo, a stock
-or template background, or — if you're Legendary — an AI-generated image
+or [template](../ai-context/glossary.md#template) background, or — if you're Legendary — an AI-generated image
 or a short AI-generated video built around your own likeness. Whichever
-background you choose, the studio composes it with the fact's text and
+[background](../ai-context/glossary.md#background) you choose, the studio composes it with the fact's text and
 saves it as your meme.
 
 ## How it works
@@ -23,7 +23,7 @@ saves it as your meme.
 ### Three ways to build a background
 
 - **Your own photo or a built-in background.** Upload a photo, or pick a
-  stock image or one of the built-in templates. This is available to
+  [stock image](../ai-context/glossary.md#stock-image) or one of the built-in templates. This is available to
   anyone signed in — no paid plan required.
 - **An AI-generated image.** Legendary members can generate a new
   background image built around a source photo — this shares the same

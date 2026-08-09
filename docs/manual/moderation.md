@@ -1,12 +1,12 @@
 # Moderation
 
 > How a user-submitted fact gets reviewed and either published or rejected —
-> the three human gates it passes through, and why the process is shaped to spend
+> the [three human gates](../ai-context/glossary.md#gate) it passes through, and why the process is shaped to spend
 > money only on submissions a human has already vouched for.
 >
 > **Overhype.me has two separate moderation systems**, and this chapter is
 > mostly about the first: *content quality* ("is this joke good enough to
-> publish?"). The second is *legal/safety* ("is this content illegal?") — a
+> publish?"). The second is *[legal/safety](../ai-context/glossary.md#legalsafety-moderation)* ("is this content illegal?") — a
 > completely separate track with different machinery, covered in its own
 > section at the end.
 >
@@ -91,7 +91,7 @@ moderator never has to guess whether [background work](../ai-context/glossary.md
 
 ### Taking a fact down, and bringing it back
 
-An admin can [deactivate](../ai-context/glossary.md#deactivate) a live fact at any time from the Facts editor — that
+An admin can [deactivate](../ai-context/glossary.md#deactivate) a live fact at any time from the [Facts editor](../ai-context/glossary.md#facts-editor) — that
 always works, immediately. Bringing one back is deliberately **not** a
 same-click undo: the Active toggle can't be switched back on directly, because
 doing so would skip the whole review this chapter describes. Instead, an
@@ -136,7 +136,7 @@ abusive is a different and weaker kind of judgment. Overhype.me uses both
 kinds, but they don't apply uniformly to every path, and the second kind
 should not be described — or relied on — as though it were the first.
 
-If an image is refused, the person who uploaded it gets a plain,
+If an image is [refused](../ai-context/glossary.md#refused), the person who uploaded it gets a plain,
 deliberately unspecific message that the image can't be uploaded — it
 never says which check objected or why. That's on purpose: a detailed
 rejection reason is a free hint for anyone probing to find what gets
@@ -281,7 +281,7 @@ or by anyone downstream, as if it did.
   the gag *before* spending on images.
 - **No render history.** A bounce discards the old batch and renders fresh; there
   is no "compare to the previous render" view.
-- **Stock images and test renders are review aids, not hard gates.** A moderator
+- **[Stock images](../ai-context/glossary.md#stock-image) and test renders are review aids, not hard gates.** A moderator
   can approve despite missing/[stale renders](../ai-context/glossary.md#stale-render), which records an [auditable waiver](../ai-context/glossary.md#waiver) —
   not a silent skip. (Whether any render should become a *hard* gate is an open
   product question.)

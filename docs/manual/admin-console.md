@@ -98,7 +98,7 @@ pages are actually getting traffic.
   doesn't correspond to a live page.
 - **There's no dedicated screen for browsing or managing every meme the
   way there is for facts.** The only meme-facing admin surfaces today
-  are the ones tied to moderation and to a legal/safety review path that
+  are the ones tied to moderation and to a [legal/safety](../ai-context/glossary.md#legalsafety-moderation) review path that
   doesn't yet have a purpose-built interface of its own.
 - **A small handful of settings tied to legal/safety reporting are
   visible in the general settings screen but can't actually be changed

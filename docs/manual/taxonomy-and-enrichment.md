@@ -14,7 +14,7 @@ Every fact carries **[enrichment](../ai-context/glossary.md#enrichment)** — st
 joke works*, not what picture to draw for it. That includes its primary
 [archetype](../ai-context/glossary.md#archetype) (which joke mechanism it uses, from a fixed list), a [subtype](../ai-context/glossary.md#subtype), a
 broader set of scene/tone/composition modifiers, how strong the "overhype"
-fit is, adult-suitability, cultural references, named entities, suggested
+fit is, [adult-suitability](../ai-context/glossary.md#adult-suitability), cultural references, named entities, suggested
 [hashtags](../ai-context/glossary.md#hashtags), and the AI's confidence in its own read. It's produced once at
 moderation time and can be **refreshed**
 later — deliberately, by a human — as the classification model and prompts
@@ -52,13 +52,13 @@ appear under more than one at once. The core categories:
 - **Missing or invalid enrichment** — no classification exists yet, or one
   exists but fails validation. Fixed with **Re-enrich** (a real model
   call).
-- **Needs admin review** — a questionable content fit, or something
+- **[Needs admin review](../ai-context/glossary.md#needs-admin-review)** — a questionable content fit, or something
   flagged for human judgment. A few narrower cards break this down
   further today — low AI confidence and cultural references needing
   research each get their own dedicated card, following the same shape —
   but the underlying idea is the same across all of them: something needs
   a person's judgment, not just a re-run.
-- **[Projection mismatch](../ai-context/glossary.md#projection-mismatch)** — the "promoted" columns (archetype, subtype,
+- **[Projection mismatch](../ai-context/glossary.md#projection-mismatch)** — the "[promoted](../ai-context/glossary.md#promoted-columns)" columns (archetype, subtype,
   fit, suitability) drifted from what's actually stored in the enrichment
   JSON. Fixed with **[Repair projections](../ai-context/glossary.md#repair-projections)** — instant, no model call, safe to
   run repeatedly.
@@ -173,7 +173,7 @@ side effect of an unrelated config change.
   of bulk runs.** This stops a persistently-broken fact from silently eating
   a bulk run's capacity forever, and stops an admin from being able to declare a
   bulk migration "complete" while that fact sits invisibly excluded — its
-  failure streak (`repeatedFailureCount`) shows on the Taxonomy Health row
+  [failure streak](../ai-context/glossary.md#repeated-failure-count) (`repeatedFailureCount`) shows on the Taxonomy Health row
   list and the bulk-action response. The only way to clear the streak is to
   target that fact directly (single-fact or `scope: selected`), which is also
   the only path that resets the count.

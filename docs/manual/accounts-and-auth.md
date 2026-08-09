@@ -122,7 +122,7 @@ Overhype.me distinguishes a handful of standing [roles](../ai-context/glossary.m
 always figured out fresh from your actual account state, never something
 stored on your session that could go stale or be tampered with. For the
 standard admin gate the product relies on almost everywhere, an admin who
-temporarily views the site "as a regular user" (to check what a member
+temporarily views the site "[as a regular user](../ai-context/glossary.md#view-as-regular-user)" (to check what a member
 actually sees) never actually loses their admin permissions on the backend
 while doing it — that toggle only changes what the interface shows them.
 A handful of narrower, more mechanical endpoints (scheduled-job triggers
