@@ -124,8 +124,14 @@ the PR. Tier A is the exception, by design.
   to **Opus** before I write it. That is the whole point of the tier: these are
   the fixes where a subtle error slips both nets. I don't switch myself; a
   system-reminder confirming the change is what tells me it happened.
-- **Tier C** — stop and escalate to David; it isn't a bug fix, so no model tier
-  applies to it here (feature mode picks one when the work restarts there).
+- **Tier C** — stop and escalate to David; it isn't a bug fix, so this mode
+  doesn't pick its model tier. Where it goes next does: non-trivial or
+  behavior-changing Tier C work **restarts in feature mode**, which picks the
+  tier there — but a genuinely **trivial database schema fix that David
+  explicitly green-lights runs migration ceremony directly, without
+  restarting anywhere** (see *When NOT to use this mode*), and that path is
+  **Opus, always** per the tier table's migrations row, never the Sonnet
+  triage tier it was diagnosed on.
 
 ## 3. Ship it — PR immediately, no waiting
 
@@ -207,12 +213,12 @@ the PR back only delays the review that catches things.
    property the plan-review loop relies on), commit
    `docs/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then **mark
    the PR ready for review** — round 1 fires once, on the complete diff,
-   UAT included. **First-use caveat:** "ready for review" triggering the
-   connector is expected (its own trigger phrase is "open a pull request
-   for review") but unverified in this repo — on the first draft-first fix,
-   confirm a review actually lands; if it doesn't, post one explicit
-   `@codex review` naming the full diff (the old flow's cost, paid once)
-   and record the verified answer here. Match the most recent surviving
+   UAT included. **The connector documents this trigger itself:** its review
+   boilerplate lists exactly three — "Open a pull request for review",
+   **"Mark a draft as ready"**, and commenting `@codex review` (observed on
+   PR #391, 2026-08-09). Still glance that round 1 actually lands on the
+   first draft-first fix; if it somehow doesn't, post one explicit
+   `@codex review` naming the full diff and correct this line. Match the most recent surviving
    `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
    CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
    which owns that rule). A `TEST_RUN` doc only if something genuinely
@@ -264,9 +270,15 @@ What is *bugfix-specific* about the loop:
   (step 3, with its first-use caveat) — so no `@codex review` on open.
   (The plan-review loop needs an explicit trigger only because its PR
   *stays* a draft.)
-- **A bugfix PR is product code — it passes the criticality gate.** I still
-  rate it and say the number per the gate, but a real fix is essentially
-  never single-digit: the gate ends loops on transient docs, not on fixes.
+- **The criticality gate rates the artifact the fix touches — never the fact
+  that it's a fix.** A fix to product code passes the gate normally; a real
+  product fix is essentially never single-digit. But routed entry means a bug
+  can be *in the docs*: when the whole diff is agent-facing markdown or a
+  transient checklist, that artifact's cap governs (1–2 rounds, and the
+  automatic first pass with no re-request, respectively) and the review
+  request states the docs-only light bar — exactly as if the same change had
+  arrived through feature mode. Entering through this mode never raises an
+  artifact's ceremony, and never lowers product code's.
 - **The re-reviewer's oracle is the bugfix oracle** (step 3), not a plan —
   it's what lets Codex ask "root cause or symptom-patch?" and "did this
   miss a caller?", so re-requests reference it the way feature loops
