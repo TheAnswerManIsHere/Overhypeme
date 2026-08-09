@@ -178,6 +178,16 @@ Full rationale in
    gate, and it doesn't block or delay anything.
 5. One line in the report either way: "N Replit commits this week, nothing
    found" or naming what was found and what happens next.
+6. **Check [`docs/handoff/`](../../../docs/handoff/README.md) for stale
+   files, excluding `README.md`** — that file is the folder's own durable
+   contract, not a handoff, and is expected to sit there indefinitely; only
+   dated handoff files (`<date>-<from>-to-<to>-<topic>.md`) count. Anything
+   older than ~7 days (`git log -1 --format=%cd <file>` per file, or
+   `git log --diff-filter=A` for when it was added) is a handoff nobody
+   addressed and deleted per its contract. Flag each one by name in the
+   report as a numbered decision item rather than deleting it yourself — a
+   stale handoff usually means the finding inside it needs David's eyes, not
+   just cleanup.
 
 If nothing landed from Replit this week, say so in one line and move on —
 same discipline as the other sections.
