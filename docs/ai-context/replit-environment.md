@@ -44,7 +44,10 @@ deliberate publish decision. Two consequences:
   2026-08-09 handoff described three changes as "uncommitted" when git showed
   they'd already been committed (and pushed) — the handoff was simply behind
   the checkpoints. When the two disagree, trust `git log` / `git status` over
-  the doc.
+  the doc. This is also why a handoff should describe *how to check* current
+  state rather than assert a snapshot of it — see
+  [`docs/handoff/README.md`](../handoff/README.md), where these documents now
+  live.
 - Replit's commits are mechanically identifiable by author **name** —
   `git log --author="Replit Agent"` — which is what makes a periodic
   retrospective review tractable without any push-side gate (see below). Use
