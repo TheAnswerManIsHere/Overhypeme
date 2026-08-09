@@ -32,10 +32,18 @@ always wins whenever it's set (which it is, on Replit). The instruction
 looks correct and does something else entirely — in PR #356 (2026-08-08)
 this cost 4 review rounds writing "disposable database" isolation for a
 live-workspace TEST_RUN checklist before the override was found as the
-actual reason none of the isolation attempts could have worked. If a
-checklist genuinely needs a different database than `TEST_DATABASE_URL`
-points to, say so explicitly and note that `TEST_DATABASE_URL` itself must
-be repointed (not just `DATABASE_URL`) — or, better, per
+actual reason none of the isolation attempts could have worked.
+
+**In a TEST_RUN doc, this is not a case for careful wording — it's a case
+for not writing the instruction at all.** Per
 [`test-run-contract.md`](../../docs/engineering/test-run-contract.md),
-don't write instructions to re-run these suites into a TEST_RUN doc at all;
-they already ran in CI on the merged code.
+a TEST_RUN checklist never sets `DATABASE_URL`, `TEST_DATABASE_URL`, or any
+other test-DB env var — Replit owns that connection, full stop. The suites
+this gotcha is about already passed in CI on the merged code, so the
+correct fix is cutting the re-run instruction, never repointing either
+variable to make it "safely" isolated.
+
+Outside a TEST_RUN doc — ordinary engineering work on the test runner
+itself, where setting up an isolated database on purpose is the actual
+task — the fix is different: repoint `TEST_DATABASE_URL` itself, not just
+`DATABASE_URL` (line 15 above is why `DATABASE_URL` alone never sticks).
