@@ -45,10 +45,14 @@ deliberate publish decision. Two consequences:
   they'd already been committed (and pushed) — the handoff was simply behind
   the checkpoints. When the two disagree, trust `git log` / `git status` over
   the doc.
-- Replit's commits are mechanically identifiable —
-  `git log --author="Replit Agent <agent@replit.com>"` — which is what makes
-  a periodic retrospective review tractable without any push-side gate (see
-  below).
+- Replit's commits are mechanically identifiable by author **name** —
+  `git log --author="Replit Agent"` — which is what makes a periodic
+  retrospective review tractable without any push-side gate (see below). Use
+  the name, not one specific email: the repo's history carries commits from
+  at least two Replit bot identities (`agent@replit.com` and
+  `replit-agent@bots.noreply.replit.com`) that share the display name, and an
+  exact-email filter would silently drop whichever one isn't currently
+  active.
 
 ## The push path has no external gate, and that's accepted
 
@@ -86,8 +90,8 @@ Nothing gates Replit's push, so the only enforcement point is after the
 fact — a code review David asks for, not a check anything blocks on. The
 weekly `/maintenance` pass (see
 [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md))
-sweeps commits authored `Replit Agent <agent@replit.com>` on `main` since the
-last run:
+sweeps commits authored `Replit Agent` (by name, across every identity it
+commits under) on `main` since the last run:
 
 - **Skim** UI/copy/test-only changes — seconds each, no deep read needed.
 - **Actually read** anything touching a migration, schema, auth, or payment

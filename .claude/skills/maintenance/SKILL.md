@@ -157,9 +157,16 @@ only enforcement point on that path, since nothing gates the push itself.
 Full rationale in
 [`replit-environment.md`](../../../docs/ai-context/replit-environment.md).
 
-1. `git log --author="Replit Agent <agent@replit.com>" --since="7 days ago"
-   --oneline main` (adjust the window to the last maintenance run, same as
-   section 5).
+1. `git log --author="Replit Agent" --since="7 days ago" --oneline main`
+   (adjust the window to the last maintenance run, same as section 5). Filter
+   on the display name, **not** a specific email address — the repo's history
+   has commits from at least two Replit bot identities that share the name
+   ("Replit Agent <agent@replit.com>" and
+   "Replit Agent <replit-agent@bots.noreply.replit.com>"); an exact-email
+   filter would silently skip whichever one isn't currently active, and this
+   step is the only retrospective check on direct-to-`main` changes —
+   including migrations, auth, and payments — so a missed identity defeats
+   the whole point.
 2. **Skim** anything UI/copy/test-only — no deep read needed.
 3. **Actually read** anything touching a migration, schema, auth, or payment
    path — full diff, not just the commit message (a Replit commit message is
