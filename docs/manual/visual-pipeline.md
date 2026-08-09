@@ -164,7 +164,7 @@ it for a given fact.
 - Rationale: the visual-pipeline entries in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 6 — *meme and video studio*, what an end user actually
-makes with this pipeline. [Not yet written](./README.md#contents).
+**Next:** chapter 6 — [`meme-and-video-studio.md`](./meme-and-video-studio.md),
+what an end user actually makes with this pipeline.
 
 *Verified against `0ea4ed8` (2026-08-08) · claim inventory in PR #361.*
