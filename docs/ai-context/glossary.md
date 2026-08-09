@@ -580,8 +580,12 @@ partially merged into what's already there.
 ### Visual planner
 
 The frontier-model step (`generateImagePromptPlan`) that realizes the Visual
-Concept into a structured plan. It never throws — it falls back with a recorded
-reason.
+Concept into a structured plan. **The plan call itself throws** on
+unrecoverable failure (`ImagePromptError`, caught by the async worker) — the
+no-throw guarantee belongs to a narrower piece inside it, engine resolution
+(`resolveImagePromptLLMSettings`), which falls back to the default utility
+LLM with a recorded reason rather than failing the whole plan over an engine
+problem.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Compiler
@@ -743,18 +747,20 @@ costs nothing extra per meme to produce.
 
 A Legendary-gated meme whose background is AI-generated — from a source photo
 when one is provided, or from description alone when it isn't; a source photo
-is not required. **Only the no-reference path shares the moderation pipeline**
-([visual planner](#visual-planner), compiler, durable worker). The
-reference-photo path is a separate, legacy synchronous route straight to the
-engine, with its own scene-prompt generation — it does not go through
-`generateImagePromptPlan` or the compiler, so Visual Concept and compiler
-guarantees don't cover it. **Visibility follows the same split.** The
-no-reference path joins that fact's shared gallery, usable by anyone who
-later makes a meme from the same fact. The reference-photo path is the
-opposite — a likeness generated from *your* photo is stored only against
-your own account, never added to the shared gallery. An AI *video* meme
-follows the reference-photo path's rule: tied to the one meme you made with
-it, not shared.
+is not required. **Which pipeline runs, and whether the result is shared,
+splits by studio route — not by whether a photo was involved.** The [two
+studio interfaces](#studio) migration means a source-photo generation can go
+either way: through the new guided builder's `/generate-v2` route, it shares
+the moderation pipeline ([visual planner](#visual-planner), compiler, durable
+worker) exactly like a no-reference generation does, and joins that fact's
+shared gallery the same way. Through the older builder's legacy `/generate`
+route, a source-photo generation instead calls a separate, synchronous
+function straight to the engine with its own scene-prompt generation — no
+`generateImagePromptPlan`, no compiler, and the result is stored privately
+against your own account, never added to the shared gallery. A no-reference
+generation on either route runs the shared pipeline and joins the gallery.
+An AI *video* meme runs its own separate system (PuLID-based, not this
+pipeline) and is always private, tied to the one meme you made with it.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ---
