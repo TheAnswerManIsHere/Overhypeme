@@ -24,6 +24,18 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Overhype.me Manual — one-time chapter backfill, closed out 2026-08-09.**
+  David approved the plan 2026-07-30; the pass brought the manual from 3
+  written chapters (moderation, taxonomy/enrichment, background work) to the
+  full **12** in reading order (9 newly written), plus 6 new
+  `docs/ai-context/` subsystem specs for the areas that had none to link
+  into (`accounts-and-auth.md`, `admin-console.md`,
+  `community-and-engagement.md`, `meme-and-video-studio.md`,
+  `public-site-and-sharing.md`, `token-rendering-and-grammar.md`).
+  [`docs/manual/README.md`](../manual/README.md)'s Contents table is the live
+  record of what's written. Growth from here on is incremental only, via the
+  `/document` ceremony at the end of each feature build — there is no
+  further big-bang writing project.
 - **Membership is derived from entitlements, not assigned per-event** (PR #287,
   from the plan reviewed on the closed-unmerged
   [PR #279](https://github.com/TheAnswerManIsHere/Overhypeme/pull/279), 32
@@ -483,18 +495,6 @@ priorities (moderation speed, render/enrichment quality, video). See
   unusual cadence like quarterly — with a function that renders every
   membership price in the catalog. See
   [`decisions.md`](./decisions.md#2026-07-28--the-lifetime-only-upgrade-bugs-real-root-cause-was-a-silently-failed-stripe-sync-not-plan-selection-logic).
-- **Overhype.me Manual — one-time chapter backfill.** David approved the plan
-  on 2026-07-30 and the pass has started. Target: **12 chapters in reading
-  order** (9 newly written) plus 6 new `docs/ai-context/` subsystem specs for
-  the areas that had none to link into. `docs/manual/README.md`'s Contents
-  table is the live record of which chapters are written — not restated here
-  as a count that would only go stale again (moderation, taxonomy/enrichment,
-  and background work were already written before this entry was last
-  touched; **background work** specifically was previously miswritten
-  elsewhere, under deferred work, as still outstanding — it is not). This
-  entry is
-  retired by the pass's final close-out PR, not before — so the roadmap never
-  claims the backfill is finished while chapters are missing.
 
 ## Pre-launch hardening (must-do before go-live)
 

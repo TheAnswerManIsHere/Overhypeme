@@ -8,10 +8,10 @@
 >
 > **Read it front to back and you get the whole product.** The chapters below
 > are ordered to follow the core loop, not the codebase's module boundaries —
-> see *How to read this manual*. Some chapters are written today, the rest are
-> being filled in by the one-time backfill, and the *Contents* table below is
-> the live record of exactly which is which — not restated here as a count
-> that would only go stale again.
+> see *How to read this manual*. The one-time backfill that brought every
+> chapter to first-version coverage is complete; the *Contents* table below
+> stays the live record of what's written, not restated here as a count that
+> would only go stale again as the manual keeps growing.
 
 ## How to read this manual
 
@@ -123,10 +123,13 @@ Written incrementally by the **`/document` ceremony**
 ([`docs/ai-context/documentation-workflow.md`](../ai-context/documentation-workflow.md)):
 at the end of a feature build, the chapter for the touched area is created or
 updated as part of locking in that feature's learnings. There is no separate
-big-bang writing project — though a one-time **backfill of chapters for the
-areas below** is currently in progress, tracked in the
-[in-progress slices of `current-roadmap.md`](../ai-context/current-roadmap.md#in-progress-slices),
-to bring the manual to full first-version coverage.
+big-bang writing project as a matter of course — the one exception was a
+**one-time backfill** (approved by David 2026-07-30, closed out 2026-08-09)
+that brought the manual from 3 written chapters to the full **12** in reading
+order, plus 6 new `docs/ai-context/` subsystem specs for the areas that had
+none to link into; see
+[`current-roadmap.md`](../ai-context/current-roadmap.md#recently-merged-or-completed-work)
+for that pass's history. From here on, growth is incremental only.
 
 Chapters describe the system **as it is now**. History and chronology belong to
 `decisions.md` and git — no "changelog" sections accumulate here.
