@@ -1,15 +1,25 @@
 # PR224 — NB2 prompt hardening · TEST_RUN (engineering)
 
-Technical safety-net checklist for Replit. Three slices: §12 terminal/retryable
-async failures, §10 measured prompt budget, §14 style-copy trim. Two migrations
-(0087 additive column, 0088 idempotent guarded UPDATE).
+Checklist for Replit (the technical safety net), run post-merge against the
+live workspace. Three slices: §12 terminal/retryable async failures, §10
+measured prompt budget, §14 style-copy trim. Two migrations (0087 additive
+column, 0088 idempotent guarded UPDATE). **Replit owns the database
+connection** — no `DATABASE_URL` / test-DB env is set anywhere in this doc;
+apply the repo's normal migration flow against Replit's own DB. The
+`_UAT.md` sibling (`docs/PR224_NB2_PROMPT_HARDENING_UAT.md`) is the durable,
+product-visible half.
 
-Replit owns the database connection — don't add `DATABASE_URL` / test-DB env
-here; apply the repo's normal migration/test flow against Replit's own DB.
+**No test suites in this checklist, deliberately.** This PR's behavior is
+covered by `asyncJobs.test.ts`, `promptBudget.test.ts`,
+`nanoBanana2Compiler.test.ts`, and `styleResolution.test.ts` — all of which
+already ran and passed in CI against a real Postgres, on this exact code.
+Re-running them here would verify the environment, not the code. Everything
+below is what CI genuinely cannot see: the state of the live database and
+the live app.
 
 ---
 
-## ✅ §21 numbers — APPROVED by David (2026-07-21)
+## §21 numbers — APPROVED by David (2026-07-21)
 
 The moderator authoring limits below are **derived** from
 `measureRequiredPromptBudget()` run against the real compiler. David revisited
@@ -45,48 +55,36 @@ silently shrinking the moderator pool.
   `0088_trim_global_look_style_copy` (hand-authored DML) — all three are in
   `SNAPSHOT_EXEMPT_TAGS` — confirm all three entries are present.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
-- Install/typecheck (`install --frozen-lockfile`, `typecheck:libs`, per-package
-  `typecheck`) — pre-merge gates assumed green; spot-check only if something
-  below fails.
+- Other allow-list entries this PR added: none.
+- Pre-merge gates (install, typecheck, codegen drift) are assumed green;
+  spot-check only if something above fails.
 
-## Full sharded suite — shared infra touched: yes
+## Live checks (read-only unless noted; run always)
 
-This PR touches the shared async-worker implementation
-(`artifacts/api-server/src/lib/asyncJobs.ts`) and registers a new
-`lib/api-zod/src/promptBudget.ts` module in the codegen allowlist
-(`lib/api-spec/patch-generated.mjs`) — both shared infra, so the full suite
-stays required.
+1. **Migration 0087 applied** — confirm `image_prompt_attempts.error_code`
+   exists (`varchar(64)`, nullable).
+2. **Migration 0088 applied** — confirm the 18 named `look_styles` rows now
+   carry the trimmed ≤180-char copy on both `prompt_suffix` and
+   `prompt_suffix_reference`; `none` is untouched (empty). Re-running
+   migration 0088: a second `migrate` skips it via the content-hash
+   tracker — confirm skipped, not re-applied, no changes. (Separately, the
+   guarded `UPDATE`'s own `WHERE` clauses are also SQL-level idempotent —
+   they match nothing once applied — but that's a distinct fact from the
+   tracker skip, not a substitute for it.)
+3. **Terminal render failure** — force a deterministic failure (e.g. an
+   attempt whose frozen enrichment snapshot is invalid) and confirm the queue
+   row goes `failed` after ONE attempt and the attempt row has both `error`
+   and a typed `error_code`.
+4. **Save-time budget rejection** (rejected-request probe — writes nothing
+   that persists) — PATCH `/admin/facts/:id/enrichment` (or the review
+   candidate endpoint) with a Visual Concept over 1500 raw chars, or with
+   ~110+ `{NAME}` tokens (raw small, rendered huge): expect **HTTP 400**
+   `visual_strategy_override_over_budget` with per-field `details`. A normal
+   Concept saves fine.
 
-```bash
-pnpm --filter @workspace/api-server test
-```
-
-**Stop the `artifacts/api-server: API Server` workflow first** to free
-test-DB connections — this checklist previously stalled here (the `pretest`
-chain hung against `heliumdb_test` while the dev workflow held connections
-open); that's an operational precondition to fix, not a reason to skip the
-suite the contract requires for a genuine shared-infra touch.
-
-## Targeted tests
-
-Never raw `node`/`tsx` execution — it bypasses `run-test.sh`'s production-DB
-guard:
-
-```bash
-bash artifacts/api-server/scripts/run-test.sh \
-  src/__tests__/asyncJobs.test.ts \
-  src/__tests__/promptBudget.test.ts \
-  src/__tests__/nanoBanana2Compiler.test.ts \
-  src/__tests__/styleResolution.test.ts
-```
-
-(Note: `asyncJobs.test.ts` has two PRE-EXISTING failures under the single-file
-runner — email "not configured" and a max-attempts case — that pass under the
-sharded runner; they are environmental, not from this PR. The two NEW async
-tests — terminal-first-attempt + retryable-still-retries — pass under the
-sharded runner.)
-
-What the new tests lock in:
+Proof tests guarding this PR's budgets (run in CI, listed for awareness):
+`asyncJobs.test.ts`, `promptBudget.test.ts`, `nanoBanana2Compiler.test.ts`,
+`styleResolution.test.ts`. What they lock in:
 - **§12** — `terminalFailure` marks the row `failed` on the FIRST attempt
   ignoring `maxAttempts`; a plain `{ok:false,error}` still retries (opt-in).
 - **§10** — the live-compiler budget proof (measured ≤ reserve; reserves+margin
@@ -98,25 +96,7 @@ What the new tests lock in:
 - **§14** — the 18+`none`=19 style catalogue is complete, no dup ids, none over
   `RENDER_STYLE_COPY_MAX_CHARS`.
 
-## Manual DB / behavior checks
-
-1. **Migration 0087** — confirm `image_prompt_attempts.error_code` exists
-   (`varchar(64)`, nullable).
-2. **Migration 0088** — confirm the 18 named `look_styles` rows now carry the
-   trimmed ≤180-char copy on both `prompt_suffix` and `prompt_suffix_reference`;
-   `none` is untouched (empty). Re-running the migration is a no-op (the guarded
-   WHERE clauses match nothing once applied).
-3. **Terminal render failure** — force a deterministic failure (e.g. an
-   attempt whose frozen enrichment snapshot is invalid) and confirm the queue
-   row goes `failed` after ONE attempt and the attempt row has both `error` and
-   a typed `error_code`.
-4. **Save-time budget rejection** — PATCH `/admin/facts/:id/enrichment` (or the
-   review candidate endpoint) with a Visual Concept over 1500 raw chars, or with
-   ~110+ `{NAME}` tokens (raw small, rendered huge): expect **HTTP 400**
-   `visual_strategy_override_over_budget` with per-field `details`. A normal
-   Concept saves fine.
-
-## What is deliberately NOT shipped
+## What's deliberately NOT shipped
 
 - **No look-style save validator.** `look_styles` has no admin edit route (it's
   migration-seeded); the 180-char copy bound is already enforced at resolve time
