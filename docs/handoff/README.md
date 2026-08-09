@@ -54,18 +54,22 @@ Z are uncommitted."
 ## Disclosure check — this repo is public
 
 A closed-unmerged PR and a deleted file both stay in public git history
-forever. Before writing anything here, apply the same check the plan-review
-channel uses: no live customer data, no credentials/secrets, no
-unpatched-vulnerability detail, no payment-fraud abuse paths. **Describe a
-live database row's shape and the problem with it — don't paste its actual
-contents.** The 2026-08-09 handoff that motivated this folder quoted real
-`ncmec_reports` row values (id, request metadata, timestamps) directly into
-a public commit; harmless that time because the rows were test artifacts,
-but the next handoff written mid-incident about auth, payments, or
-moderation might not have that luck. If a handoff would fail this check, it
-does not go in this folder — it stays on the manual/private path, same
-carve-out `plan-review-loop` uses for a plan that can't go through the
-public channel.
+forever. Before writing anything here, run the
+[canonical disclosure check](../ai-context/workstream-tracking.md#what-must-never-happen)
+— the same gate `plan-review-loop`, `working-modes.md`'s bugfix disclosure
+check, and `documentation-workflow.md`'s harvest-tracking section all
+reference rather than restate. This file does the same: it is not a second,
+narrower definition of what's excludable.
+
+**Describe a live database row's shape and the problem with it — don't
+paste its actual contents.** The 2026-08-09 handoff that motivated this
+folder quoted real `ncmec_reports` row values (id, request metadata,
+timestamps) directly into a public commit; harmless that time because the
+rows were test artifacts, but the next handoff written mid-incident about
+auth, payments, or moderation might not have that luck. If a handoff would
+fail the disclosure check, it does not go in this folder — it stays on the
+manual/private path, same carve-out `plan-review-loop` uses for a plan that
+can't go through the public channel.
 
 ## What this folder is not
 
