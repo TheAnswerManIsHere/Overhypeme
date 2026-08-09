@@ -13,7 +13,9 @@
 - **Database:** PostgreSQL + `pgvector`, Drizzle ORM (`lib/db`).
 - **API codegen:** OpenAPI 3.1 + Orval → generated React Query hooks
   (`lib/api-client-react`) and Zod schemas (`lib/api-zod`).
-- **Auth:** Replit OIDC + Google/Apple OAuth + local email/password (bcryptjs).
+- **Auth:** Google/Apple OAuth + local email/password (bcryptjs). No Replit
+  OIDC integration — see
+  [`accounts-and-auth.md`](accounts-and-auth.md#sign-in-methods).
 - **Build:** esbuild (backend), Vite (frontend), `tsc` (typecheck).
 
 ## Repository layout
