@@ -1351,7 +1351,7 @@
   and `fact_ai_meme_backfill` lanes) and a bounded repeated-failure circuit
   breaker added to bulk-send-back so a persistently-failing fact can't create
   an unbounded number of retry cycles nor be silently declared "migration
-  complete" while still excluded. See `docs/tests/CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md`
+  complete" while still excluded. See `docs/tests/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
   and `docs/tests/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
   This entry was a forward-looking "sites to fix" list at decision time — it
   now describes fixed behavior, not a plan.

@@ -171,17 +171,39 @@ WHERE quarantine_id IS NULL;
 ```
 
 Expected: `missing` can be any count — those are pre-stub rows with no
-`quarantineId` to link, and they're meant to stay `NULL` as the backlog
-audit's population. **`malformed`, `dangling`, and `linkable_but_unlinked`
-should all be zero, and any nonzero count needs flagging to David rather
-than accepting.** `linkable_but_unlinked` matters most: a row with a valid
-`quarantineId` pointing at a real `quarantined_memes` row that's *still*
-unlinked matches none of the other buckets, so without it the check could
-read "all clean" while the exact failure it exists to catch is present.
-Any of the three being nonzero means a row that should be linked isn't,
-which leaves `UQ_ncmec_reports_quarantine` unable to constrain it and lets
-the later orphan reconciler create a second report for the same hit —
-breaking the one-report-per-hit invariant.
+`quarantineId` to link, and they're meant to stay `NULL`.
+
+**`linkable_but_unlinked` must be zero, and a nonzero count needs flagging
+to David rather than accepting.** It's the bucket that matters: a row with a
+valid `quarantineId` pointing at a real `quarantined_memes` row that's
+*still* unlinked matches none of the other buckets, so without it the check
+could read "all clean" while the exact failure it exists to catch is
+present. Such a row leaves `UQ_ncmec_reports_quarantine` unable to constrain
+it and lets the later orphan reconciler create a second report for the same
+hit — breaking the one-report-per-hit invariant.
+
+**`malformed` and `dangling` being nonzero is NOT a stop condition — record
+them and keep going.** Both name a `quarantineId` that resolves to no
+`quarantined_memes` row at all, so there is nothing for the orphan
+reconciler's unreferenced-quarantine pass to find and no second report it
+can create; the duplicate-report risk above is specific to
+`linkable_but_unlinked`. Migration 0097 classifies both as a
+`RAISE WARNING` rather than an exception for exactly that reason — only
+`conflicting` (two reports claiming the same quarantine row) aborts it.
+Note the counts and the offending `ncmec_reports.id` values in the run
+report and move on. Do **not** write a repair migration, delete or fabricate
+rows, or relax the invariant to make the run green.
+
+Their disposition is already settled and needs no per-row decision: the
+platform has never been live, so every `ncmec_reports` / `quarantined_memes`
+row in the database today is a test artifact rather than evidence, and the
+activation runbook deletes all of them before the filing switch is thrown
+(David, 2026-08-07 — see the header of
+`artifacts/api-server/src/lib/moderation/ncmecWorker.ts`). That decision
+retired the "pre-activation backlog audit" these rows were originally
+deferred to, which is why `ncmec_backlog_audit_cutoff` /
+`ncmec_backlog_audit_completed_at` above — and 0097's `backlog_audited_at` /
+`backlog_audit_note` columns and its own warning text — are vestigial.
 
 ### 3. The reserved-config-key guard refuses filing-capable keys
 
