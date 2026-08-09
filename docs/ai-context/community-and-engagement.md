@@ -43,8 +43,9 @@ this is a one-time boot-time backfill (`backfillWilsonScores()`,
 `lib/seed.ts:710-747`, fired at `index.ts:411`) that only fixes legacy
 rows where `wilsonScore === 0 && upvotes+downvotes > 0` — a
 migration-safety net, not an ongoing recompute. `wilsonScore` feeds Home's
-hero weighting, Search/Leaderboard sort, and the related-facts tiebreak —
-all documented in
+hero weighting, the Leaderboard sort, and the related-facts tiebreak —
+**not Search**, which hardcodes `sort:"newest"` regardless of rating
+(`Search.tsx:25-29`) — all documented in
 [`public-site-and-sharing.md`](./public-site-and-sharing.md), not
 re-derived here.
 
@@ -91,7 +92,17 @@ posted, a comment can't be edited or withdrawn by its author.
 
 **Comment moderation is human-only, admin-initiated — not the fact
 pipeline, and not AI-assisted despite dead code suggesting otherwise.**
-`GET /admin/comments/pending` / `/flagged` feed the admin queue;
+`GET /admin/comments/pending` feeds the live moderation queue.
+**`GET /admin/comments/flagged` (`admin.ts:2192-2205`), by contrast, is
+unreachable in practice** — it selects rows where `status:"approved" &&
+flagged:true`, but neither live status-changing action produces that
+combination: `approve()` sets `approved` with `flagged:false`
+(`admin.ts:2237`), and `reject()` sets `flagged:true` but with
+`status:"rejected"`, not `"approved"` (`admin.ts:2266`). The only thing
+that could have produced an approved-and-flagged row is the AI
+`moderateComment` detector below, which has no caller. This "Flagged"
+admin tab is dead UI over an empty, unreachable query, not a working
+parallel queue to "Pending."
 `POST /admin/comments/:id/approve` (`admin.ts:2229-2253`) flips to
 approved, clears `flagged`, increments `factsTable.commentCount`, and
 notifies the author via `logActivity`; `POST /admin/comments/:id/reject`
@@ -141,11 +152,20 @@ for ratings. Both routes return the identical shape,
 dedicated file). Both `requireAuth`; every query filters to the caller's
 own `userId`.
 
-**This is strictly "status of my own activity," not a broader site
-feed.** No entry is ever about what someone else did to your content —
-every row is `logActivity({userId: <the actor themself>, ...})`
-describing their own submission/comment/review status. Confirmed live
-call sites (grep across the whole repo for `logActivity(`):
+**This is strictly "status of my own content," not a broader site
+feed of everyone's activity.** Every entry concerns the *viewer's own*
+submission or comment — but that's not the same as "the viewer's own
+action." For the moderation-outcome events, an admin is the one who
+acted (approving/rejecting), and the entry is logged under the content's
+author, not the admin who took the action — e.g.
+`logActivity({userId: current.authorId, actionType:"comment_approved",
+...})` inside the admin approve route (`admin.ts:2244-2250`), same
+pattern for `reviews.ts:809-815`'s fact-approval event. So the real
+invariant is "every entry is about the viewer's own content," not
+"every entry records something the viewer personally did" — what's
+still true is that no entry is ever about a *reaction* someone else gave
+to your content (see below). Confirmed live call sites (grep across the
+whole repo for `logActivity(`):
 `review_submitted`, `review_approved`, `review_rejected` (fact review
 lifecycle), `comment_posted`, `comment_approved`, `comment_rejected`
 (comment lifecycle). **Five declared `ActivityType` members are never

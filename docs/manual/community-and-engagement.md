@@ -27,9 +27,10 @@ tapping your existing rating again removes it, tapping the other one
 flips it. You can only have one active rating on a given fact at a time.
 Ratings feed directly into that fact's overall standing the moment you
 cast one — there's no waiting for a batch process — which is what
-determines where it lands in search results, the leaderboard, and the
-rotating spotlight on the home page (see
-[`public-site-and-sharing.md`](./public-site-and-sharing.md)).
+determines where it lands on the leaderboard and how often it turns up
+in the rotating spotlight on the home page. Search doesn't currently
+factor rating in at all — it's always newest-first, regardless of how a
+fact is rated (see [`public-site-and-sharing.md`](./public-site-and-sharing.md)).
 
 ### Leaving a comment
 
@@ -103,10 +104,8 @@ next-page/previous-page navigation rather than a single fixed list.
   types.
 - Related: [`moderation.md`](./moderation.md) (the separate, fuller fact
   moderation pipeline), [`public-site-and-sharing.md`](./public-site-and-sharing.md)
-  (how a fact's rating feeds search, the leaderboard, and the home
-  spotlight).
-- Rationale: the community/engagement entries in
-  [`decisions.md`](../ai-context/decisions.md).
+  (how a fact's rating feeds the leaderboard and the home spotlight —
+  not search).
 
 **Next:** chapter 9 — [`accounts-and-auth.md`](./accounts-and-auth.md),
 sign-in methods, the account lifecycle, verification and password
