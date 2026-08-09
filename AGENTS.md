@@ -41,6 +41,16 @@ For **taxonomy, enrichment, or moderation review** work, also read:
 - [`docs/ai-context/taxonomy-and-enrichment.md`](docs/ai-context/taxonomy-and-enrichment.md)
 - [`docs/ai-context/moderation-workflow.md`](docs/ai-context/moderation-workflow.md)
 
+For **CSAM/abuse scanning, quarantine, evidence retention, or NCMEC
+reporting** work — a system entirely separate from content-quality review
+— also read:
+
+- [`docs/ai-context/legal-safety-moderation.md`](docs/ai-context/legal-safety-moderation.md)
+  — the scanning layers, quarantine, evidence retention, and what is
+  live vs. deliberately unwired. **Note its header:** detection specifics
+  are deliberately omitted from that doc because this repo is public, and
+  must not be added to it.
+
 For **grammar, token rendering, or tokenizer** work, also read:
 
 - [`docs/ai-context/token-rendering-and-grammar.md`](docs/ai-context/token-rendering-and-grammar.md)

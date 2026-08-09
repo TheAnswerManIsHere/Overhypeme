@@ -441,18 +441,24 @@ deliberately excludes them and points here instead.
 - Two **separate** moderation systems: content-quality review
   (`pending_reviews` + workflow stages — see
   [`moderation-workflow.md`](./moderation-workflow.md)) and legal/safety
-  moderation (`quarantined_memes`/`ncmec_reports`, `lib/moderation/`). The
+  moderation (`quarantined_memes`/`ncmec_reports`/`ncmec_safety_audit_log`,
+  `lib/moderation/` — see
+  [`legal-safety-moderation.md`](./legal-safety-moderation.md), which owns
+  the detail and states which specifics are deliberately unpublished). The
   latter now has a real NCMEC CyberTipline reporting implementation
-  underway (schema + ISPWS HTTP client shipped in PR #293, phases 1–2 of
-  8 — see [`current-roadmap.md`](./current-roadmap.md#in-progress-slices));
+  underway (schema + ISPWS HTTP client in PR #293; the eligibility
+  predicate + waiting-state classifier in PR #349 — **phases 1–3 of 8**,
+  see [`current-roadmap.md`](./current-roadmap.md#in-progress-slices));
   `submitNcmecReport()` remains a stub (DB row + admin email, no live filing)
-  until the worker and reconciler land in later phases. **No dedicated
+  until the worker and reconciler land in later phases, and both filing
+  switches are seeded off. Note `quarantined_memes` is **write-only** —
+  no code reads it and nothing displays it. **No dedicated
   `/admin/safety` surface exists yet** — the seeded NCMEC keys are visible
   and editable today only through the generic `/admin/config` cards (the
   five filing-capable ones reject writes with a 403 per phase 1's
   reserved-key guard; `ncmec_safety_alert_email` and the two retry keys stay
-  plain editable cards). No manual chapter yet either, since there's no
-  purpose-built UI to document.
+  plain editable cards). The narrative half lives in
+  [`moderation.md`](../manual/moderation.md)'s legal/safety section.
 
 ## Test structure
 
