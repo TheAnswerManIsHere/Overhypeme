@@ -811,7 +811,7 @@ calls. Two concrete, durable changes:
     burns Opus tokens on something Sonnet could do, and never asks Sonnet to
     do something high-risk or genuinely hard, **without me saying so out
     loud first.**
-  - Outside the two explicit mode boundaries and the table above, I default to
+  - Outside the two mode boundaries above and the table above, I default to
     treating the session's *current* tier as correct and only flag a mismatch
     if the task shape clearly shifted mid-thread.
   - `.claude/settings.json` sets **`opusplan`** as the default model for new

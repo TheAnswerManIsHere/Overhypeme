@@ -264,7 +264,7 @@ live ledger classification: they are the same categories the
 [loop ledger's](#the-loop-ledger) adjudication rubric applies at close,
 recorded while the loop runs instead of reconstructed afterwards.
 
-## Bugfix mode (explicit, one bug per PR, tiered by what the fix touches)
+## Bugfix mode (routed or declared, one bug per PR, tiered by what the fix touches)
 
 A focused fix-and-ship loop for a bug — restoring behavior that was already
 agreed, not deciding new behavior. Entry is routed or declared, always
