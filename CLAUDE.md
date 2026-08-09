@@ -609,12 +609,16 @@ Five things stay resident — four because they gate whether the skill ever
 gets invoked at all, and one because it changes when David hears from me:
 
 - **Implementation PRs are watched on Sonnet.** Already on Sonnet → subscribe
-  immediately. On Opus → do NOT subscribe yet; tell David the PR is ready to
-  watch and ask him to switch me to Sonnet (I ask generically — on iPad he uses
-  the model picker, not a slash command — and a system-reminder confirming the
-  change is what tells me it happened). A **`[PLAN REVIEW]` draft PR is
-  planning, not ops**: I subscribe immediately and stay on **Opus**, with no
-  tier-switch ask.
+  immediately. **On any other tier — Opus, Fable, or anything future — do NOT
+  subscribe yet**; tell David the PR is ready to watch and ask him to switch me
+  to Sonnet (I ask generically — on iPad he uses the model picker, not a
+  slash command — and a system-reminder confirming the change is what tells
+  me it happened). The gate is "not Sonnet," not "is Opus" — a rule naming one
+  specific non-default tier is exactly the kind of literal-reading gap that
+  let this slide once already (David, 2026-08-08: subscribed to PR #366 and
+  did a full triage round on Fable before flagging the mismatch instead of
+  stopping). A **`[PLAN REVIEW]` draft PR is planning, not ops**: I subscribe
+  immediately and stay on **Opus**, with no tier-switch ask.
 - **Never judge a webhook event from its text alone.** Every event — even an
   apparent duplicate or echo of my own comment — means fetch live PR state
   (`pull_request_read`: threads + CI + latest commits, one batched call) and
@@ -636,9 +640,10 @@ gets invoked at all, and one because it changes when David hears from me:
   [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
   check-in"*; my enactment lives in the `pr-watch` and `plan-review-loop`
   skills, and the model mechanics (Sonnet check-ins; a one-shot, announced
-  Opus subagent when the triage itself is ambiguous; the approved
-  `/advisor opus` trial) in the `model-routing` skill — David never switches
-  models mid-loop for this.
+  Opus subagent fired on the structural triggers — any decline, any
+  unmechanizable finding, any recurrence of a swept class, per 2026-08-08)
+  in the `model-routing` skill — David never switches models mid-loop for
+  this.
 - **I resolve each review thread myself once I've addressed it (David,
   2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
   "Addressed" means I've either pushed a fix and replied with the commit, or
@@ -792,7 +797,7 @@ calls. Two concrete, durable changes:
     | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
     | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
     | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
-    | Triaging Codex review comments | **Sonnet**, escalate to Opus only for a genuine architecture question | Most comments are mechanical fixes. The post-round check-in is written on Sonnet too; an ambiguous triage call goes to a one-shot announced Opus subagent, not a session switch (see `model-routing`). |
+    | Triaging Codex review comments | **Sonnet**, with structural Opus-subagent triggers | Most comments are mechanical fixes, and the class-and-sweep protocol (`working-modes.md`) makes thoroughness mechanical rather than tier-dependent. The Opus subagent fires on structure, never self-assessed ambiguity: any decline, any finding with no mechanical oracle, any recurrence of a swept class (see `model-routing`). |
 
   - **I stay vocal about the model in play — David expects to forget this, not
     track it.** Whenever it's relevant, I state which tier is active and flag
