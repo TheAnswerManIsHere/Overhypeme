@@ -91,15 +91,15 @@ moderator never has to guess whether [background work](../ai-context/glossary.md
 
 ### Taking a fact down, and bringing it back
 
-An admin can [deactivate](../ai-context/glossary.md#deactivate) a live fact at any time from the [Facts editor](../ai-context/glossary.md#facts-editor) — that
+An admin can deactivate a live fact ([Active](../ai-context/glossary.md#active) → not) at any time from the [Facts editor](../ai-context/glossary.md#facts-editor) — that
 always works, immediately. Bringing one back is deliberately **not** a
 same-click undo: the Active toggle can't be switched back on directly, because
 doing so would skip the whole review this chapter describes. Instead, an
-inactive fact gets a **"[Resubmit for Moderation](../ai-context/glossary.md#resubmit-for-moderation)"** button, which puts it back
-through the same three-gate review under its existing history — it re-enrichs,
-gets a fresh Visual Concept review, and needs production approval again before
-it's live. Nothing about a deactivated fact is ever truly stuck: it's always
-one resubmit away from re-entering the queue.
+inactive fact gets a **"[Resubmit for Moderation](../ai-context/glossary.md#resubmit-for-moderation)"** button, which re-enters
+it directly at prep and clears the two remaining gates — Visual Concept, then
+Test Renders — under its existing history; Triage is not presented again.
+Nothing about a deactivated fact is ever truly stuck: it's always one
+resubmit away from re-entering the queue.
 
 ### Underneath (plain-language machinery)
 
@@ -107,9 +107,10 @@ A submission becomes a row in a review table with a coarse status
 (`pending/approved/rejected`) and a fine-grained **[workflow stage](../ai-context/glossary.md#workflow-stage)** that drives
 the three gates. Provisional approval creates an **inactive "[staging fact](../ai-context/glossary.md#staging-fact)"** — a
 real catalogue row that isn't published yet — and all the paid prep (AI
-classification, stock-image lookup, test renders) runs against *that*, so the
-live catalogue is never touched by in-progress work. Approving for production
-simply flips the staging fact to live.
+classification, stock-image lookup) runs against *that*, with no renders yet;
+test renders are a separate, later spend that only unlocks once the Visual
+Concept is approved. The live catalogue is never touched by in-progress work.
+Approving for production simply flips the staging fact to live.
 
 Renders are **forced fresh** each time the gag is approved: the job that prepares
 them deliberately does not reuse any prior batch, so bouncing a fact back to the
@@ -144,11 +145,12 @@ through.
 
 ### What happens to refused content
 
-Refused content is **[quarantined](../ai-context/glossary.md#quarantine)**, which is a stronger thing than
-"hidden." The image is preserved as evidence in storage that has no
-serving path at all — no admin viewer, no share link, no way for anyone
-to look at it through the product. The upload itself simply fails; no
-meme is ever created from it.
+Refused content is, where it happens, **[quarantined](../ai-context/glossary.md#quarantine)** — a stronger thing
+than "hidden": preserved as evidence in storage the ordinary serve routes
+have no path to — no admin viewer, no share link. That is not the same as a
+proven absolute access-control guarantee against every code path; see the
+glossary entry. The upload itself simply fails; no meme is ever created from
+it.
 
 **Preservation isn't currently universal, though.** Some refusal paths
 block the content without keeping a copy of it, so "refused" and "kept as

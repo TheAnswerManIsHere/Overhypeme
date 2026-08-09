@@ -97,8 +97,10 @@ that's an admin-only action, done on request. There are two versions:
   is **kept**, just no longer tied to a real account. It isn't deleted
   along with the account, and it isn't secretly left attributed to a name
   that no longer resolves to anyone. Anything tied to a legal or safety
-  report is deliberately kept fully intact regardless, for as long as that
-  kind of record needs to exist.
+  report is deliberately kept, for as long as that kind of record needs to
+  exist — the report row and its evidence survive a hard delete, though not
+  the attribution: who it's tied to is nulled out the same as ordinary
+  content.
 
 A deactivated account can be [reinstated](../ai-context/glossary.md#reinstate) by an admin, which signs it back in
 to normal life and re-checks what membership it should actually have — see
@@ -118,6 +120,7 @@ account; everything else only ever affects the one session it happens on.
 ### Who counts as what
 
 Overhype.me distinguishes a handful of standing [roles](../ai-context/glossary.md#role) — signed-out visitor,
+[Unregistered](../ai-context/glossary.md#unregistered) (an admin-created starting state, not the normal default),
 [registered](../ai-context/glossary.md#registered) user, [Legendary](../ai-context/glossary.md#legendary) member, admin — and which one applies to you is
 always figured out fresh from your actual account state, never something
 stored on your session that could go stale or be tampered with. For the

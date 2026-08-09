@@ -61,8 +61,11 @@ they happen.
 Two different screens exist for two different questions. One is a
 general settings editor for the product's overall configuration. The
 other is specifically about what each membership tier is allowed to do
-— a grid of features against tiers, so "can a free user do X" is always
-one clear answer in one place rather than scattered across code.
+— a grid of features against tiers, so "can a free user do X" is one
+clear answer in one place for the features actually wired to read it.
+Not every tier gate is: some are hard-coded straight into route
+middleware instead, so editing the grid doesn't change what those
+specific routes enforce.
 
 ### Watching the machinery
 

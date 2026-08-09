@@ -732,9 +732,13 @@ costs nothing extra per meme to produce.
 A Legendary-gated meme whose background is AI-generated, through the same
 [visual pipeline](#visual-concept) moderation uses — from a source photo when
 one is provided, or from description alone when it isn't; a source photo is
-not required. **It isn't private to you** — it joins that fact's shared
-gallery, usable by anyone who later makes a meme from the same fact. An AI
-*video* meme is the opposite: tied to the one meme you made with it.
+not required. **Visibility depends on which path generated it.** The
+no-reference path joins that fact's shared gallery, usable by anyone who
+later makes a meme from the same fact. The reference-photo path is the
+opposite — a likeness generated from *your* photo is stored only against
+your own account, never added to the shared gallery. An AI *video* meme
+follows the reference-photo path's rule: tied to the one meme you made with
+it, not shared.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ---
@@ -756,9 +760,10 @@ anywhere on the site — only a fact leaderboard.
 
 ### Wilson score
 
-The confidence bound on a fact's up/down votes (`facts.wilsonScore`) that,
-with score/comment/share counts, drives ranking.
-→ [architecture-map](./architecture-map.md)
+The confidence bound on a fact's up/down votes (`facts.wilsonScore`) that
+**alone** drives the leaderboard's ranking order. Comment and share counts
+are shown alongside a ranked fact but don't affect where it ranks.
+→ [public-site-and-sharing](./public-site-and-sharing.md#top-facts-the-leaderboard)
 
 ### Fact card
 
@@ -1076,7 +1081,11 @@ which only holds submissions awaiting a decision. Also where a
 ### Tier permissions grid
 
 The admin screen mapping features against membership tiers, so "can a free user
-do X" is one clear answer in one place rather than scattered across code. Kept
+do X" is one clear answer — **for the features actually wired to read this
+grid.** Not every tier gate is: some are hard-coded straight into route
+middleware (Legendary-only AI generation, for instance), so an admin editing
+the grid's cell doesn't change what that route enforces, and at least one
+grid entry (`meme_upload_photo`) is currently read by no route at all. Kept
 deliberately separate from the general settings editor, which answers a
 different question.
 → [admin-console](./admin-console.md)

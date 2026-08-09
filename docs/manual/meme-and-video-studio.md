@@ -51,12 +51,15 @@ An AI-generated image or video, by contrast, *is* a real file, since
 generating it is the expensive part — the meme recipe just points at that
 already-generated file.
 
-An AI-generated image you make from a fact isn't private to you — it joins
-that fact's shared gallery of AI images, visible to anyone who later makes
-a meme from the same fact, the same way a [Visual Concept](../ai-context/glossary.md#visual-concept) a moderator
+Whether an AI-generated image is private to you depends on how you made it.
+One generated without a source photo joins that fact's shared gallery of AI
+images, visible to anyone who later makes a meme from the same fact, the
+same way a [Visual Concept](../ai-context/glossary.md#visual-concept) a moderator
 authors is shared by everyone who sees that fact
-(see [`visual-pipeline.md`](./visual-pipeline.md)). An AI-generated video is
-different: it's yours, tied to the meme you made with it.
+(see [`visual-pipeline.md`](./visual-pipeline.md)). One generated from *your
+own* source photo is the opposite — it's yours, stored only against your
+account, never shared. An AI-generated video follows that same rule: it's
+yours, tied to the meme you made with it.
 
 ### Where your media lives
 
@@ -100,10 +103,12 @@ already-existing stock photo or template.
   removed; the video files behind an AI video meme currently are not.
   **Needs David confirmation** on whether that's accepted, known debt or
   an oversight to fix.
-- **An AI-generated image's visibility follows the fact, not the
-  person who made it** — if you generate one, expect other people making
-  memes from the same fact to be able to use it too, the same way a
-  moderator's Visual Concept is shared.
+- **An AI-generated image's visibility depends on how it was made, not on
+  who made it.** One generated without a source photo follows the fact —
+  expect other people making memes from the same fact to be able to use it
+  too, the same way a moderator's Visual Concept is shared. One generated
+  from your own source photo is yours alone; it never joins the shared
+  gallery.
 
 ## Going deeper
 
