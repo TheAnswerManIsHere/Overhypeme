@@ -1,11 +1,11 @@
 # Community and Engagement
 
-> How people react to what's on Overhype.me — rating a fact, hearting a
-> meme or a comment, leaving a comment of your own — and how you find out
+> How people react to what's on Overhype.me — [rating](../ai-context/glossary.md#rating) a fact, [hearting](../ai-context/glossary.md#heart) a
+> [meme](../ai-context/glossary.md#meme) or a comment, leaving a comment of your own — and how you find out
 > what happened to the things you submitted.
 >
 > Deep spec: [`community-and-engagement.md`](../ai-context/community-and-engagement.md).
-> Related: [`moderation.md`](./moderation.md) (fact moderation — a
+> Related: [`moderation.md`](./moderation.md) (fact [moderation](../ai-context/glossary.md#moderation) — a
 > separate, more involved pipeline than comment moderation),
 > [`public-site-and-sharing.md`](./public-site-and-sharing.md) (where a
 > fact's rating feeds into search and the leaderboard).
@@ -16,7 +16,7 @@ Once a fact exists, this is how people respond to it: rating it up or
 down, leaving a comment, and hearting a meme or a comment someone else
 made. It's also where you find out what happened to your own submitted
 facts and comments — approved, rejected, or still waiting — through a
-personal activity feed.
+personal [activity feed](../ai-context/glossary.md#activity-feed).
 
 ## How it works
 
@@ -28,7 +28,7 @@ flips it. You can only have one active rating on a given fact at a time.
 Ratings feed directly into that fact's overall standing the moment you
 cast one — there's no waiting for a batch process — which is what
 determines where it lands on the leaderboard and how often it turns up
-in the rotating spotlight on the home page. Search doesn't currently
+in the rotating [spotlight](../ai-context/glossary.md#spotlight) on the home page. Search doesn't currently
 factor rating in at all — it's always newest-first, regardless of how a
 fact is rated (see [`public-site-and-sharing.md`](./public-site-and-sharing.md)).
 
@@ -36,7 +36,7 @@ fact is rated (see [`public-site-and-sharing.md`](./public-site-and-sharing.md))
 
 Writing a comment asks you to prove you're a person (a quick
 verification step) before it's accepted, unless your account is
-exempted from that. Every comment goes into a review queue and only
+exempted from that. Every comment goes into a [review queue](../ai-context/glossary.md#review-queue) and only
 becomes visible to other readers once a human moderator approves it —
 there's no way to skip that step, and once a comment is posted you can't
 edit or take it back yourself.

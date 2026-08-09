@@ -5,14 +5,14 @@
 > machinery run.
 >
 > Deep spec: [`admin-console.md`](../ai-context/admin-console.md).
-> Field-level reference for the enrichment editor specifically:
+> Field-level reference for the [enrichment](../ai-context/glossary.md#enrichment) editor specifically:
 > [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md) (generated, never
 > hand-edited).
 
 ## What it does
 
 Everything an admin does to operate the product — reviewing submitted
-facts and comments, managing users, adjusting what each membership tier
+facts and comments, managing users, adjusting what each [membership tier](../ai-context/glossary.md#membership-tier)
 can do, watching background jobs and render quality, handling billing
 questions — happens behind one gated console, reachable only to
 signed-in admin accounts.
@@ -27,8 +27,8 @@ repeats.
 
 Admins sign in the same way anyone does (see
 [`accounts-and-auth.md`](./accounts-and-auth.md)); the console itself
-checks that role and turns visitors away otherwise. A sidebar groups
-every admin surface together, with a live counter on the moderation
+checks that [role](../ai-context/glossary.md#role) and turns visitors away otherwise. A sidebar groups
+every admin surface together, with a live counter on the [moderation](../ai-context/glossary.md#moderation)
 section so the team can see at a glance whether anything's waiting.
 
 ### Reviewing content
@@ -36,15 +36,15 @@ section so the team can see at a glance whether anything's waiting.
 New facts and comments both go through a review step before they're
 public — covered in full in [`moderation.md`](./moderation.md) and
 [`community-and-engagement.md`](./community-and-engagement.md). Beyond
-that review queue, there's a separate, broader facts screen for directly
+that [review queue](../ai-context/glossary.md#review-queue), there's a separate, broader facts screen for directly
 searching, editing, or removing any fact already in the system, plus
-tools for bulk-importing a batch of new facts at once and for
+tools for [bulk-importing](../ai-context/glossary.md#bulk-import) a batch of new facts at once and for
 re-running classification on facts that predate it.
 
 ### Managing people
 
 The users screen covers everything from finding an account to changing
-its role, deactivating or removing it (see
+its role, [deactivating](../ai-context/glossary.md#deactivate) or removing it (see
 [`accounts-and-auth.md`](./accounts-and-auth.md)) — plus a few things
 that live only here: manually granting or revoking a lifetime membership
 independent of any payment, manually marking an email verified, and
@@ -67,7 +67,7 @@ one clear answer in one place rather than scattered across code.
 ### Watching the machinery
 
 A handful of screens exist purely to keep an eye on things running in
-the background: the health of the job queues that do async work, the
+the background: the health of the [job queues](../ai-context/glossary.md#async-job-queue) that do async work, the
 quality of AI-rendered images against a curated reference set, and which
 pages are actually getting traffic.
 
@@ -84,7 +84,7 @@ pages are actually getting traffic.
   doesn't risk quietly touching the other.
 - **The enrichment field reference is generated instead of hand-written**
   because those fields are technical, numerous, and change as the
-  taxonomy evolves — a hand-maintained version would drift the moment
+  [taxonomy](../ai-context/glossary.md#taxonomy) evolves — a hand-maintained version would drift the moment
   someone added a field and forgot to update a doc; a generated one
   can't drift, and a build check catches it if it ever tries to.
 

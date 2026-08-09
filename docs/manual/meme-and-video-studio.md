@@ -1,17 +1,17 @@
 # Meme and Video Studio
 
 > How you actually turn a fact into a meme — with your own photo, an
-> AI-generated image, or an AI-generated video — and what's true about each
+> [AI-generated image](../ai-context/glossary.md#ai-image-meme), or an AI-generated video — and what's true about each
 > path underneath.
 >
 > Deep spec: [`meme-and-video-studio.md`](../ai-context/meme-and-video-studio.md).
 > Related: [`visual-pipeline.md`](./visual-pipeline.md) (the shared machinery
 > behind AI image generation), [`payments-and-membership.md`](./payments-and-membership.md)
-> (what Legendary unlocks).
+> (what [Legendary](../ai-context/glossary.md#legendary) unlocks).
 
 ## What it does
 
-Once you've found a fact you want to make into a meme, the studio is where
+Once you've found a fact you want to make into a meme, the [studio](../ai-context/glossary.md#studio) is where
 you actually build it. You can build a meme from your own photo, a stock
 or template background, or — if you're Legendary — an AI-generated image
 or a short AI-generated video built around your own likeness. Whichever
@@ -44,7 +44,7 @@ meme the same way underneath.
 ### What actually gets saved
 
 A meme you build from your own photo, a stock image, or a template isn't
-stored as a finished picture — it's saved as a **recipe**: which
+stored as a finished picture — it's saved as a **[recipe](../ai-context/glossary.md#recipe)**: which
 background you chose and what text goes with it. The actual image is
 composed fresh every time someone views it, not generated once and stored.
 An AI-generated image or video, by contrast, *is* a real file, since
@@ -53,7 +53,7 @@ already-generated file.
 
 An AI-generated image you make from a fact isn't private to you — it joins
 that fact's shared gallery of AI images, visible to anyone who later makes
-a meme from the same fact, the same way a Visual Concept a moderator
+a meme from the same fact, the same way a [Visual Concept](../ai-context/glossary.md#visual-concept) a moderator
 authors is shared by everyone who sees that fact
 (see [`visual-pipeline.md`](./visual-pipeline.md)). An AI-generated video is
 different: it's yours, tied to the meme you made with it.
@@ -115,8 +115,9 @@ already-existing stock photo or template.
   (what Legendary unlocks generally).
 - Rationale: the studio/media entries in [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 7 — *public site and sharing*, home, search, hashtags,
-leaderboard, profiles, OG cards, and merch — the surfaces the loop closes
-through. [Not yet written](./README.md#contents).
+**Next:** chapter 7 — [`public-site-and-sharing.md`](./public-site-and-sharing.md),
+home, search, [hashtags](../ai-context/glossary.md#hashtags), leaderboard,
+profiles, OG cards, and [merch](../ai-context/glossary.md#merch) — the surfaces
+the loop closes through.
 
 *Verified against `e9669d2` (2026-08-09) · claim inventory in PR #371.*

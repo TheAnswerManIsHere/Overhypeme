@@ -1,6 +1,6 @@
 # Payments & Membership
 
-> Free vs. Legendary: what membership unlocks, how someone gets it, and how
+> Free vs. [Legendary](../ai-context/glossary.md#legendary): what membership unlocks, how someone gets it, and how
 > the system decides — at any moment — whether they still have it.
 >
 > Deep spec: [`membership-entitlements.md`](../ai-context/membership-entitlements.md).
@@ -11,7 +11,7 @@
 
 ## What it does
 
-Overhype.me has two tiers: **Registered** (free — anyone with an account) and
+Overhype.me has two tiers: **[Registered](../ai-context/glossary.md#registered)** (free — anyone with an account) and
 **Legendary** (paid — unlocks private memes, AI identity memes, AI video
 generation, higher rate limits, and a higher generation spend budget).
 Legendary can be bought as a recurring subscription or a one-time "Legendary
@@ -21,14 +21,14 @@ The one thing worth understanding before anything else: **once an account
 exists, nobody sets its tier.** It's computed. At any moment, a user is
 Legendary if — and only if — they currently hold something that entitles
 them to it: a qualifying subscription (active, in trial, or in a bounded
-grace window after a failed payment), a lifetime purchase, or an admin
-grant. Cancel the subscription, refund the purchase, or revoke the grant,
+[grace window](../ai-context/glossary.md#grace-episode) after a failed payment), a [lifetime purchase](../ai-context/glossary.md#legendary-for-life), or an admin
+grant. Cancel the subscription, refund the purchase, or [revoke](../ai-context/glossary.md#revoke) the grant,
 and the computed answer changes on its own. There is no button, script, or
 admin field that sets "Legendary" directly — with one narrow, designed
-exception: reinstating a deactivated user whose sources can't all be
+exception: [reinstating](../ai-context/glossary.md#reinstate) a [deactivated](../ai-context/glossary.md#deactivate) user whose sources can't all be
 re-verified writes the tier directly rather than derive it from an
 incomplete set (see below). (Account creation itself is a separate,
-one-time case — a new account starts Registered or Unregistered by direct
+one-time case — a new account starts Registered or [Unregistered](../ai-context/glossary.md#unregistered) by direct
 choice, never Legendary; see the deep spec for the mechanics.)
 
 ## How it works
@@ -82,7 +82,7 @@ known gap described under *Boundaries & known limitations* below.
 by hand. There is deliberately **no tier dropdown** — an admin cannot type
 "Legendary" into a field. Instead:
 
-- **Grant Legendary for Life** creates a recorded grant: who granted it, when,
+- **[Grant Legendary for Life](../ai-context/glossary.md#admin-grant)** creates a recorded grant: who granted it, when,
   and why. It shows up distinctly from a real purchase (no amount, no
   payment id) so nobody mistakes a comp for revenue.
 - **Revoke** ends that grant. It stays visible in the history, marked
@@ -107,7 +107,7 @@ row is a narrower exception — see *Boundaries & known limitations* below.)
 ### The machinery
 
 Every source of membership — a subscription, a lifetime purchase, an admin
-grant — is one row in a table of **entitlement sources**. Whenever a source
+grant — is one row in a table of **[entitlement sources](../ai-context/glossary.md#entitlement-source)**. Whenever a source
 changes, the system asks, right then, whether *any* of a user's sources
 currently qualifies and stores the answer: no unresolved dispute, correct
 lifecycle status, and — for the two Stripe-backed source types only — an
@@ -243,3 +243,6 @@ a comp from a real sale.
   why a config write locks the whole related set.
 - [`stripe-payments-audit-findings.md`](../ai-context/stripe-payments-audit-findings.md) —
   the original audit; now history, but the record of what this model replaced.
+
+**Next:** chapter 11 — [`admin-console.md`](./admin-console.md), the admin
+surfaces and what each one is for.

@@ -1,8 +1,8 @@
 # Content Lifecycle
 
 > How a fact gets into Overhype.me in the first place — the three entrances
-> (a user's own submission, an admin or automated bulk import, and a new
-> variant of an existing fact) and the one funnel every entrance feeds
+> (a user's own submission, an admin or automated [bulk import](../ai-context/glossary.md#bulk-import), and a new
+> [variant](../ai-context/glossary.md#variant) of an existing fact) and the one funnel every entrance feeds
 > into. What happens once a fact is in the queue is
 > [`moderation.md`](./moderation.md)'s chapter, not this one.
 >
@@ -23,19 +23,19 @@ cover it.) That single funnel is what lets [`moderation.md`](./moderation.md)
 describe one review process and mean it for every fact, regardless of how it
 arrived.
 
-This chapter covers the entrances themselves — what a submitter sees, what
+This chapter covers the entrances themselves — what a [submitter](../ai-context/glossary.md#submitter) sees, what
 an importer sends, what a variant inherits from its parent — and the
 cheap, pre-review checks each one runs before a fact ever reaches a human.
-What happens after that hand-off (triage, enrichment, the Visual Concept and
-Test Renders gates, publication) belongs to moderation and taxonomy, and
+What happens after that hand-off ([triage](../ai-context/glossary.md#triage), [enrichment](../ai-context/glossary.md#enrichment), the [Visual Concept](../ai-context/glossary.md#visual-concept) and
+[Test Renders](../ai-context/glossary.md#test-renders) gates, publication) belongs to [moderation](../ai-context/glossary.md#moderation) and taxonomy, and
 this chapter links out rather than repeating it.
 
 ## How it works
 
 ### For the submitter (writing a fact)
 
-Submitting is a two-step form: **write**, then **preview**. While the
-submitter is writing, a **duplicate check** runs automatically in the
+Submitting is a two-step form: **write**, then **[preview](../ai-context/glossary.md#preview)**. While the
+submitter is writing, a **[duplicate check](../ai-context/glossary.md#duplicate-detection)** runs automatically in the
 background — no button needed — comparing the draft against existing facts
 and, if it finds a likely match, showing it so the submitter can decide for
 themselves whether to continue. It's advisory only: nothing stops a
@@ -46,32 +46,32 @@ the server with no duplicate flag attached at all, even against a real
 match.
 
 Moving from Write to Preview is a different kind of step — a **required,
-blocking** one. Clicking Preview sends the draft through a grammar pass that
-resolves the fact's `{NAME}` and pronoun placeholders into a preview across
-example names and pronoun sets, so the submitter can catch an awkward
+blocking** one. Clicking Preview sends the draft through a [grammar pass](../ai-context/glossary.md#grammar-pass) that
+resolves the fact's `{NAME}` and pronoun [placeholders](../ai-context/glossary.md#personalization-tokens) into a preview across
+example names and [pronoun sets](../ai-context/glossary.md#pronoun-set), so the submitter can catch an awkward
 conjugation before sending it in. A failed pass leaves the submitter on
 Write with an error rather than letting them continue; only a successful one
 reaches Preview.
 
-That normal path to Preview also fetches AI-suggested hashtags to pre-fill
+That normal path to Preview also fetches AI-suggested [hashtags](../ai-context/glossary.md#hashtags) to pre-fill
 the (editable) hashtags field — a non-blocking suggestion the submitter can
-keep, edit, or clear. (A submitter picking up an autosaved draft skips
+keep, edit, or clear. (A submitter picking up an [autosaved draft](../ai-context/glossary.md#autosaved-draft) skips
 straight to Preview with their saved template and doesn't trigger a fresh
 suggestion fetch.)
 
 Submitting requires being signed in. A onetime step also applies before a
 first fact can be submitted: anyone who isn't an admin or an existing
-Legendary member must complete onboarding (which includes a captcha check)
+[Legendary](../ai-context/glossary.md#legendary) member must complete [onboarding](../ai-context/glossary.md#onboarding) (which includes a captcha check)
 first; admins and Legendary members skip it. On submit, the server
 re-normalizes the fact's grammar independently of what the client already
 checked — a submission that reached the server without going through the
 Write-to-Preview grammar pass (an API client, a stale front-end) still gets
-the same cleanup applied, so every fact that reaches the review queue has
+the same cleanup applied, so every fact that reaches the [review queue](../ai-context/glossary.md#review-queue) has
 been through the same grammar pass regardless of how it arrived. (One
 submitter's own pending facts are also protected from flooding the queue —
 see *Boundaries & known limitations* below.)
 
-Successful submission notifies admins and logs an activity-feed entry for
+Successful submission notifies admins and logs an [activity-feed](../ai-context/glossary.md#activity-feed) entry for
 the submitter, who is later notified again when their fact clears or is
 rejected.
 
@@ -80,7 +80,7 @@ rejected.
 Bulk import exists in two forms that both do the same thing — turn a batch
 of fact texts into pending reviews — with different callers in mind:
 
-- **From the admin console**, an admin pastes facts as JSON, CSV, or one
+- **From the [admin console](../ai-context/glossary.md#admin-console)**, an admin pastes facts as JSON, CSV, or one
   fact per line and imports them in one action.
 - **Via API key**, an external system posts the same kind of batch
   programmatically, with an optional dry-run mode that validates without
@@ -93,7 +93,7 @@ admin-console import attributes the acting admin as submitter and always
 queues an empty hashtag list; an API-key import has no submitter at all but
 can carry caller-chosen hashtags; only a user submission carries
 duplicate-match metadata. Both import paths
-also **dedupe by exact (normalized) text** — against every existing fact row
+also **[dedupe](../ai-context/glossary.md#exact-text-dedupe) by exact (normalized) text** — against every existing fact row
 with that text, active or not, and against every review still waiting on a
 decision — before inserting anything, so re-running the same import twice,
 importing a fact someone already submitted, or importing a fact that used to
@@ -114,7 +114,7 @@ it goes live.
 ### Creating a variant
 
 A variant is an alternate phrasing of a joke that's already live, created
-from the Facts editor against a specific **root** fact (a fact that has no
+from the Facts editor against a specific **[root](../ai-context/glossary.md#root)** fact (a fact that has no
 parent of its own — a variant of a variant isn't allowed; the target has to
 be the root). Creating one is a normal submission in every way that
 matters: the variant's text goes through the same grammar normalization as
@@ -132,10 +132,10 @@ All three entrances — the submit route, both import routes, and variant
 creation — call the same function to create a pending review row, and
 nothing else in the codebase does. That row starts at the very first stage
 of the review pipeline; none of the entrances can hand a fact a head start.
-The **moderation-prep pipeline** — AI classification, image lookups, renders
+The **[moderation-prep pipeline](../ai-context/glossary.md#moderation-prep)** — AI classification, image lookups, renders
 — never runs at intake; that work only begins once a human moderator
 provisionally accepts a submission at Triage. (The cheap pre-submit
-affordances a submitter already used on the way in — the grammar/tokenize
+affordances a submitter already used on the way in — the grammar/[tokenize](../ai-context/glossary.md#tokenize)
 pass, the duplicate check, hashtag suggestions — do call utility models;
 [`moderation.md`](./moderation.md) draws this same distinction. What's
 gated at Triage is the paid moderation-prep pipeline specifically, not every
@@ -210,13 +210,13 @@ for the funnel itself.
 ## Going deeper
 
 - Spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md) — the
-  ingestion funnel, the activation chokepoint, and everything that happens
+  [ingestion funnel](../ai-context/glossary.md#ingestion-funnel), the activation chokepoint, and everything that happens
   to a fact after it's queued.
 - Related: [`moderation.md`](./moderation.md) (the three-gate review a
   queued fact goes through), [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)
   (what a fact's classification means and how it's produced), and
   [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues)
-  (the async lanes that run a fact's prep work once it's accepted).
+  (the async [lanes](../ai-context/glossary.md#lane) that run a fact's prep work once it's accepted).
 - Rationale: the fact-lifecycle entries in
   [`decisions.md`](../ai-context/decisions.md).
 

@@ -1,7 +1,7 @@
 # Accounts and Authentication
 
 > How you get an account on Overhype.me, what "signed in" actually means day
-> to day, and what happens to an account when it's deactivated or removed.
+> to day, and what happens to an account when it's [deactivated](../ai-context/glossary.md#deactivate) or removed.
 >
 > Deep spec: [`accounts-and-auth.md`](../ai-context/accounts-and-auth.md).
 > Security posture (trust boundaries, session security): [`security-model.md`](../ai-context/security-model.md).
@@ -36,27 +36,27 @@ asked to prove you know a password you never had.
 Registering with email and password asks for your name, an email, a
 password, and pronouns — the sign-up screen won't let you submit without
 picking pronouns. If you sign up with Google or Apple you're never asked
-for pronouns at all; your account quietly starts on a default pronoun set
+for pronouns at all; your account quietly starts on a default [pronoun set](../ai-context/glossary.md#pronoun-set)
 until you visit your profile and pick your own, the same place anyone can
 change them.
 
 There's no separate "guest" or "anonymous" tier of account — every account
 you can sign in as is a full `usersTable` row, not a lighter stand-in.
 What *can* feel like a lighter, more limited account right after signing
-up is really a second, one-time step layered on top: a short onboarding
+up is really a second, one-time step layered on top: a short [onboarding](../ai-context/glossary.md#onboarding)
 challenge (proving you're a person, not a bot) that a fresh account
 completes once before it can submit its first fact. Until that step is
 done, you can still sign in and look around; you're only stopped at the
 point of trying to submit something. (Admin-created accounts are a
-separate case — an admin can create an account that starts genuinely
-unregistered rather than at the normal default, which is its own distinct,
+separate case — an [admin](../ai-context/glossary.md#admin) can create an account that starts genuinely
+[unregistered](../ai-context/glossary.md#unregistered) rather than at the normal default, which is its own distinct,
 persisted state rather than something onboarding controls.)
 
 ### Verifying your email
 
 Registering with email and password sends a verification link, and clicking
 it — even from a browser where you're not currently signed in — signs you
-in. **Right now, verifying your email doesn't unlock anything you couldn't
+in. **Right now, [verifying your email](../ai-context/glossary.md#email-verification) doesn't unlock anything you couldn't
 already do** — it's a trust signal shown to moderators and admins, not a
 requirement checked anywhere before you submit a fact, comment, or anything
 else. The gate that actually matters for a first submission is the
@@ -90,7 +90,7 @@ that's an admin-only action, done on request. There are two versions:
   exactly as it was — facts, comments, and memes it authored stay live —
   but the product stops showing who made them once the account itself is
   deactivated, since attribution is only ever shown for an active account.
-- **Removing** an account goes further: it's a best-effort attempt to
+- **[Removing](../ai-context/glossary.md#remove)** an account goes further: it's a best-effort attempt to
   delete the account's own uploaded images and other personal data (not
   every category of upload is guaranteed to be caught), but content it
   created and other people might be relying on — facts, comments, memes —
@@ -100,7 +100,7 @@ that's an admin-only action, done on request. There are two versions:
   report is deliberately kept fully intact regardless, for as long as that
   kind of record needs to exist.
 
-A deactivated account can be reinstated by an admin, which signs it back in
+A deactivated account can be [reinstated](../ai-context/glossary.md#reinstate) by an admin, which signs it back in
 to normal life and re-checks what membership it should actually have — see
 [`payments-and-membership.md`](./payments-and-membership.md) for how that
 tier gets figured out.
@@ -117,8 +117,8 @@ account; everything else only ever affects the one session it happens on.
 
 ### Who counts as what
 
-Overhype.me distinguishes a handful of standing roles — signed-out visitor,
-registered user, Legendary member, admin — and which one applies to you is
+Overhype.me distinguishes a handful of standing [roles](../ai-context/glossary.md#role) — signed-out visitor,
+[registered](../ai-context/glossary.md#registered) user, [Legendary](../ai-context/glossary.md#legendary) member, admin — and which one applies to you is
 always figured out fresh from your actual account state, never something
 stored on your session that could go stale or be tampered with. For the
 standard admin gate the product relies on almost everywhere, an admin who
@@ -179,7 +179,7 @@ in a small corner, not how authorization works generally.
 - Security posture: [`security-model.md`](../ai-context/security-model.md) —
   trust boundaries, session security properties, rate limits.
 - Related: [`payments-and-membership.md`](./payments-and-membership.md) (how
-  a role and membership tier translate into what you can do and pay for).
+  a role and [membership tier](../ai-context/glossary.md#membership-tier) translate into what you can do and pay for).
 - Rationale: the auth entries in [`decisions.md`](../ai-context/decisions.md).
 
 **Next:** chapter 10 — [`payments-and-membership.md`](./payments-and-membership.md),

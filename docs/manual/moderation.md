@@ -18,11 +18,11 @@
 
 ## What it does
 
-Every fact entering the system — a user submission, an admin/API bulk import,
-or a new variant of an existing fact — lands in a review queue, not the live
+Every fact entering the system — a user submission, an admin/API [bulk import](../ai-context/glossary.md#bulk-import),
+or a new [variant](../ai-context/glossary.md#variant) of an existing fact — lands in a [review queue](../ai-context/glossary.md#review-queue), not the live
 catalogue. There is no other way in: a fact cannot be created directly. A
-moderator walks it through three gates — **Triage**, **Visual Concept**, and
-**Test Renders** — and only a fact that clears all three goes live. The whole
+moderator walks it through three gates — **[Triage](../ai-context/glossary.md#triage)**, **[Visual Concept](../ai-context/glossary.md#visual-concept)**, and
+**[Test Renders](../ai-context/glossary.md#test-renders)** — and only a fact that clears all three goes live. The whole
 design exists to answer two questions cheaply and in order: *does this fact
 deserve to exist?*, then *does its joke work as a picture?*, and only then to
 spend the (real, per-image) money on rendering it.
@@ -39,11 +39,11 @@ The review opens as a three-step wizard:
 
 1. **Triage.** The cheap first pass. The moderator sees the submitted fact, any
    near-duplicate it resembles, and who sent it, and either **rejects** it (with
-   a reason) or **provisionally approves** it. Provisional approval is the moment
-   the paid **moderation prep and render work** — enrichment, visual-idea
+   a reason) or **[provisionally approves](../ai-context/glossary.md#provisional-approval)** it. Provisional approval is the moment
+   the paid **[moderation prep](../ai-context/glossary.md#moderation-prep) and render work** — [enrichment](../ai-context/glossary.md#enrichment), visual-idea
    drafting, and the per-image test renders — is allowed to begin; before it,
    none of that moderation/render spend has happened. (Cheap pre-submit
-   affordances the submitter already used — tokenizing the fact, suggesting
+   affordances the [submitter](../ai-context/glossary.md#submitter) already used — tokenizing the fact, suggesting
    pronouns, duplicate-checking — do touch utility LLMs and embeddings; what
    Triage gates is the expensive moderation pipeline, not every LLM call ever
    made about the fact.)
@@ -52,13 +52,13 @@ The review opens as a three-step wizard:
    here. The moderator works on the **Visual Concept** — the plain-language
    "describe the picture" scene that is the authoritative description of how the
    gag works visually. They can accept one of several AI-drafted idea cards, edit
-   one, or write their own, then **"approve the visual gag."** Crucially, **no
+   one, or write their own, then **"approve the [visual gag](../ai-context/glossary.md#visual-gag)."** Crucially, **no
    test renders have run yet** — this gate is deliberately free. Approving the gag
    is what unlocks render spend.
 
-   Writing the concept (and the rest of the Visual Strategy Override, in
+   Writing the concept (and the rest of the [Visual Strategy Override](../ai-context/glossary.md#visual-strategy-override), in
    Advanced Options) is plain-English authoring — naming the subject naturally
-   is enough. Clicking Save auto-tokenizes it and shows the moderator the
+   is enough. Clicking Save [auto-tokenizes](../ai-context/glossary.md#tokenize) it and shows the moderator the
    personalized version before it persists, so the same scene works correctly
    no matter who the fact ends up rendered for.
 
@@ -75,7 +75,7 @@ on the moderator/admin to fix the underlying issue (retry prep, rework the
 concept, fix the render); the fact only ever moves forward to production once
 that's done, never sideways into rejected.
 
-**A "refresh" (re-processing an already-live fact with updated taxonomy or
+**A "refresh" (re-processing an already-live fact with updated [taxonomy](../ai-context/glossary.md#taxonomy) or
 enrichment) is a separate case, and it is never a fact rejection.** The fact
 already exists and stays published in the database no matter what happens to
 the refresh — declining just means the proposed update isn't promoted; the
@@ -84,18 +84,18 @@ succeeds. There's no "reason" picker for this (duplicate/spam/offensive
 questions don't apply to a fact that's already live) — just an optional note
 explaining why.
 
-Throughout, the queue and the modal show live status at two altitudes — a
+Throughout, the queue and the modal show live status at [two altitudes](../ai-context/glossary.md#two-altitudes) — a
 per-fact "what's happening now" (Enriching… → Generating visual ideas… → Ready
 for concept review → Rendering… → Renders ready) and an aggregate view — so a
-moderator never has to guess whether background work is running, done, or stuck.
+moderator never has to guess whether [background work](../ai-context/glossary.md#background-work) is running, done, or stuck.
 
 ### Taking a fact down, and bringing it back
 
-An admin can deactivate a live fact at any time from the Facts editor — that
+An admin can [deactivate](../ai-context/glossary.md#deactivate) a live fact at any time from the Facts editor — that
 always works, immediately. Bringing one back is deliberately **not** a
 same-click undo: the Active toggle can't be switched back on directly, because
 doing so would skip the whole review this chapter describes. Instead, an
-inactive fact gets a **"Resubmit for Moderation"** button, which puts it back
+inactive fact gets a **"[Resubmit for Moderation](../ai-context/glossary.md#resubmit-for-moderation)"** button, which puts it back
 through the same three-gate review under its existing history — it re-enrichs,
 gets a fresh Visual Concept review, and needs production approval again before
 it's live. Nothing about a deactivated fact is ever truly stuck: it's always
@@ -104,8 +104,8 @@ one resubmit away from re-entering the queue.
 ### Underneath (plain-language machinery)
 
 A submission becomes a row in a review table with a coarse status
-(`pending/approved/rejected`) and a fine-grained **workflow stage** that drives
-the three gates. Provisional approval creates an **inactive "staging fact"** — a
+(`pending/approved/rejected`) and a fine-grained **[workflow stage](../ai-context/glossary.md#workflow-stage)** that drives
+the three gates. Provisional approval creates an **inactive "[staging fact](../ai-context/glossary.md#staging-fact)"** — a
 real catalogue row that isn't published yet — and all the paid prep (AI
 classification, stock-image lookup, test renders) runs against *that*, so the
 live catalogue is never touched by in-progress work. Approving for production
@@ -144,7 +144,7 @@ through.
 
 ### What happens to refused content
 
-Refused content is **quarantined**, which is a stronger thing than
+Refused content is **[quarantined](../ai-context/glossary.md#quarantine)**, which is a stronger thing than
 "hidden." The image is preserved as evidence in storage that has no
 serving path at all — no admin viewer, no share link, no way for anyone
 to look at it through the product. The upload itself simply fails; no
@@ -244,7 +244,7 @@ or by anyone downstream, as if it did.
 
 - **The Visual Concept earned its own gate.** It used to be one control buried in
   a single bundled "visual review" step, and renders fired the instant
-  classification finished. But with a strong visual planner, the concept became
+  classification finished. But with a strong [visual planner](../ai-context/glossary.md#visual-planner), the concept became
   *the* description of how a gag works as a picture — so it now deserves a human
   eval on every fact, and renders shouldn't fire until that eval passes. That's
   why the flow was split into an explicit **Visual Concept** gate before **Test
@@ -282,7 +282,7 @@ or by anyone downstream, as if it did.
 - **No render history.** A bounce discards the old batch and renders fresh; there
   is no "compare to the previous render" view.
 - **Stock images and test renders are review aids, not hard gates.** A moderator
-  can approve despite missing/stale renders, which records an auditable waiver —
+  can approve despite missing/[stale renders](../ai-context/glossary.md#stale-render), which records an [auditable waiver](../ai-context/glossary.md#waiver) —
   not a silent skip. (Whether any render should become a *hard* gate is an open
   product question.)
 - **Visual ideas can fail or be absent.** Generation is a real AI call; a failed
@@ -293,7 +293,7 @@ or by anyone downstream, as if it did.
 ## Going deeper
 
 - Spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md) — stages,
-  staging facts, rejection paths, the refresh (send-back) cycle.
+  staging facts, rejection paths, the refresh ([send-back](../ai-context/glossary.md#send-back-to-review)) cycle.
 - Legal/safety spec:
   [`legal-safety-moderation.md`](../ai-context/legal-safety-moderation.md) —
   the scanning layers, quarantine, evidence retention, and the current

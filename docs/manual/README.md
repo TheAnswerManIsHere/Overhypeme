@@ -166,6 +166,33 @@ sentences over jargon; product terms per
 *what*. Unverified claims are marked **Needs David confirmation** rather than
 stated as fact.
 
+### Link each glossary term once per chapter
+
+A reader who lands mid-manual shouldn't have to already know what a *Visual
+Concept*, a *staging fact*, or a *recipe* is. So the **first** time a chapter
+uses a term defined in [`glossary.md`](../ai-context/glossary.md), it links to
+that term's anchor:
+
+```markdown
+a moderator authors the [Visual Concept](../ai-context/glossary.md#visual-concept)
+```
+
+**First occurrence only** — linking every mention turns a chapter into link
+soup. Later mentions stay plain text.
+
+This matters most for the ordinary English words that mean something specific
+here — *preview*, *grammar*, *recipe*, *root*, *lane*, *skipped*, *remove*,
+*rendering* — where a reader who doesn't follow the link may never realize
+they've misread the sentence. Several of those words name **more than one**
+thing (a submit-form *Preview*, a shared link's *rich preview*, the admin
+*compiled-prompt* preview), so link the sense the sentence actually means.
+
+Glossary anchors are generated from its `###` headings, so renaming a heading
+breaks every chapter link into it — rename deliberately and update the
+chapters in the same commit. `pnpm run check:docs` verifies that a linked
+*file* exists but **not** that an anchor within it does, so anchors are
+review-checked, not CI-checked.
+
 ## Contents
 
 In reading order. A chapter file appears only once it holds real content, so

@@ -13,8 +13,8 @@
 A lot of what Overhype.me does is too slow, too unreliable, or too expensive to
 do inline while someone's request is waiting: classifying a fact's joke
 mechanism with an LLM, generating an AI image, sending a transactional email,
-finding a stock photo, re-running enrichment on hundreds of facts at once,
-repairing derived data. All of that runs as **background work** — recorded in
+finding a stock photo, re-running [enrichment](../ai-context/glossary.md#enrichment) on hundreds of facts at once,
+repairing derived data. All of that runs as **[background work](../ai-context/glossary.md#background-work)** — recorded in
 the database rather than held in memory, so a server restart mid-run doesn't
 lose it. (One exception worth knowing: in a local setup with no email provider
 configured, an outgoing email is logged instead of being queued at all — see
@@ -26,7 +26,7 @@ something that cannot succeed. Which work that applies to, and why, is in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 
 Background work is invisible in the sense that a reader never sees a queue —
-but every **admin** surface that triggers it (Taxonomy Health, moderation
+but every **admin** surface that triggers it ([Taxonomy Health](../ai-context/glossary.md#taxonomy-health), moderation
 renders, bulk actions) has to make that work's progress fully visible, because
 an admin is actively watching and deciding what to do next.
 
@@ -42,7 +42,7 @@ the consumer side.
 
 Every admin surface that kicks off background work must show status at **two
 altitudes** — per item (this specific fact's row: queued → working →
-done/failed/skipped/still-running) and in aggregate (a running tally like
+done/failed/[skipped](../ai-context/glossary.md#skipped)/still-running) and in aggregate (a running tally like
 "7 of 25 done · 2 failed"). A single spinner with no per-item detail is
 considered a bug, not a valid loading state. **Taxonomy Health
 (`artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts`) is
@@ -51,8 +51,8 @@ pattern rather than inventing a new one. The full contract, including why
 "skipped" and "still running" are first-class states and why the UI never
 imposes a timeout on a legitimately long job, is
 [`async-ui-status.md`](../ai-context/async-ui-status.md) — this chapter
-doesn't restate it. The **Bulk Media Backfill** panel (Admin → Taxonomy
-Health) is a second reference implementation of the same two-altitude
+doesn't restate it. The **[Bulk Media Backfill](../ai-context/glossary.md#bulk-media-backfill)** panel (Admin → Taxonomy
+Health) is a second reference implementation of the same [two-altitude](../ai-context/glossary.md#two-altitudes)
 contract, for the corpus-wide stock-image and AI-meme backfill queues.
 
 ### The machinery
@@ -68,7 +68,7 @@ themselves are alive is tracked separately — see the known limitation below.)
 The table's shape and the exact status flow are in
 [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues).
 
-Work is drained by **independent scheduling lanes**, and the important word is
+Work is drained by **independent [scheduling lanes](../ai-context/glossary.md#lane)**, and the important word is
 *independent*: a lane that is saturated cannot hold up another. What separates
 them is **who is waiting, and how much each job costs to run**:
 
@@ -126,11 +126,11 @@ behave differently, and the distinction matters:
 
 ### Worker liveness and the Queue Health surface
 
-Every lane's worker publishes a **heartbeat** — a small row saying "instance
+Every lane's worker publishes a **[heartbeat](../ai-context/glossary.md#worker-lane-heartbeat)** — a small row saying "instance
 X is still ticking lane Y, N jobs in flight" — because the queue table alone
 can't tell you a worker has died: a `pending` row looks identical whether a
 worker is about to claim it or every worker crashed an hour ago. Admin →
-**Queue Health** is the fleet-wide view built on those heartbeats, and it's a
+**[Queue Health](../ai-context/glossary.md#queue-health)** is the fleet-wide view built on those heartbeats, and it's a
 **third** reference implementation of the two-altitude contract above — this
 time at the level of "is the whole background-work system alive," not one
 queue's items:
@@ -222,7 +222,7 @@ elsewhere.
   "subtler version" note in
   [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#async-enqueue-treated-as-completion).
 - **The video pipeline doesn't run through this queue yet.** A `fal_video`
-  queue exists in code as a placeholder for future work but isn't live.
+  queue exists in code as a [placeholder](../ai-context/glossary.md#personalization-tokens) for future work but isn't live.
 
 ## Going deeper
 
