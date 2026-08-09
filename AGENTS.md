@@ -64,6 +64,20 @@ HTTP headers, or secrets** work, also read:
   the operational shape of sign-in, account creation, and the account
   lifecycle (routes, flows, session mechanics, role derivation)
 
+For **the meme/video studio, AI image/video generation entry points, or
+media storage** work, also read:
+
+- [`docs/ai-context/meme-and-video-studio.md`](docs/ai-context/meme-and-video-studio.md) —
+  the three meme-building paths, the shared recipe/`imageSource` model,
+  the two live video-generation systems, tier gates, and where media lives
+
+For **home, search, hashtags, the leaderboard, profiles/library, OG cards,
+merch, or sharing** work, also read:
+
+- [`docs/ai-context/public-site-and-sharing.md`](docs/ai-context/public-site-and-sharing.md) —
+  the public-facing surfaces, what's actually live vs. dead/unreachable
+  code, and the sharing/tracking mechanics
+
 For **billing, Stripe webhooks, or membership** work specifically, also read:
 
 - [`docs/ai-context/membership-entitlements.md`](docs/ai-context/membership-entitlements.md) —

@@ -41,9 +41,16 @@ docs/                this documentation
 ## Frontend surfaces
 
 - **Public** (`artifacts/overhype-me/src/pages/`): `Home.tsx` (cold vs warm
-  visitor), `SubmitFact.tsx`, `TopFacts.tsx` (leaderboard), `Search.tsx`,
-  `Hashtags.tsx`, `Profile.tsx`, `ActivityFeed.tsx`, fact detail + comments,
-  merch (`WearIt.tsx`). The meme/video builders live under
+  visitor), `SubmitFact.tsx`, `TopFacts.tsx` (leaderboard), `Search.tsx`
+  (also the live hashtag-browsing surface — `Hashtags.tsx` exists in the
+  repo but its route redirects to `Home`, so it's unreachable in
+  production; see
+  [`public-site-and-sharing.md`](./public-site-and-sharing.md#hashtags)),
+  `Profile.tsx` (account settings), `Library.tsx` (the signed-in user's
+  own submissions/memes/images — see
+  [`public-site-and-sharing.md`](./public-site-and-sharing.md#profiles-and-library--the-self-view-split)),
+  `ActivityFeed.tsx`, fact detail + comments, merch (`WearIt.tsx`). The
+  meme/video builders live under
   `artifacts/overhype-me/src/components/` (not `pages/`): `components/meme-builder/`,
   `MemeStudio.tsx`, `MemeBuilder.tsx`, `VideoBuilder.tsx`, `MemeMagicVideo.tsx`.
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
