@@ -114,19 +114,42 @@ restricted object-storage prefix, inserts a `quarantined_memes` audit
 row, and — for a subset of quarantines, determined at the call site —
 calls `submitNcmecReport()`.
 
-**The bytes are never served to anyone.** The restricted prefix is owned
-by a synthetic `system:quarantine` principal, explicitly "so no end-user
-is the legal 'owner' of CSAM evidence" (`objectStorage.ts:254-271`), and
-both the public and private serve routes hard-404 anything under it
-*before* any ACL or auth check (`routes/storage.ts:151-154,193-199`).
-There is no admin viewer, no signed-URL path, no proxy. Evidence bytes
-are to be read in-process only; `ncmecClient.ts:27-33` states signed URLs
-for evidence are "forbidden, categorically."
+**The bytes are never served to anyone**, and it's worth being precise
+about *which* mechanism delivers that, because the code's comments
+describe an intent stronger than what is implemented.
+
+The protection that actually works: both the public and private serve
+routes hard-404 anything under the restricted prefix **before any ACL or
+auth check** (`routes/storage.ts:151-154,193-199`). There is no admin
+viewer, no signed-URL path, no proxy. Evidence bytes are to be read
+in-process only; `ncmecClient.ts:27-33` states signed URLs for evidence
+are "forbidden, categorically."
+
+**What is *not* implemented, despite the surrounding comments:** no
+synthetic `system:quarantine` owner is recorded on these objects.
+`uploadRestrictedObjectBuffer()` validates the prefix and delegates to
+the ordinary upload helper, which writes no ACL and no owner
+(`objectStorage.ts:260-273`). The stated intent — that no end-user is the
+legal "owner" of CSAM evidence — is achieved only insofar as the serve
+routes deny everyone; it is not backed by a recorded ownership principal.
+Do not cite an ownership guarantee here, and if one is wanted, it has to
+be built in the upload helper.
 
 **The original content is refused, not hidden.** Quarantine happens on
 the reject path — on upload the caller gets a 422 and no meme row is ever
 created; in generation the pipeline throws. There is consequently no
 artifact for anyone to review.
+
+**But refusal and preservation are separate events, and not every
+refusal preserves anything.** Some rejection paths return or throw
+without calling `quarantineImage()` — the content is still blocked, but
+no `quarantined_memes` row and no evidence bytes exist afterward. Treat
+"refused" and "preserved as evidence" as distinct properties; the first
+does not imply the second. Which paths differ is deliberately not mapped
+here (see the header) — read the call sites before relying on
+preservation for any particular flow. **If preservation is meant to be
+universal it currently isn't, and closing that is a code change, not a
+documentation one.**
 
 **Nothing exits quarantine.** Rows are soft-delete-capable but
 `deletedAt` is never written by any code. There is no release, appeal, or
@@ -145,8 +168,25 @@ no manual-escalation path.
 
 **The legal basis is stated in code: US 18 USC § 2258A** — once an ESP has
 actual knowledge of apparent CSAM, the report and supporting bytes must
-be preserved for at least 90 days (`ncmec.ts:10-16`,
-`schema/moderation.ts:81-86`).
+be preserved.
+
+> ### ⚠️ The retention period in this codebase is very likely stale
+>
+> The code comment and the schema default both say **90 days**
+> (`ncmec.ts:10-16`, `schema/moderation.ts:81-86`,
+> `evidence_retention_until` defaulting to `now() + interval '90 days'`).
+> **The REPORT Act (2024) amended § 2258A(h) to require preservation for
+> one year.** If that reading is right, the stored deadline is roughly
+> nine months short of the statutory minimum.
+>
+> **Nothing is currently destroyed early, because nothing deletes
+> evidence at all** (below) — so this is latent, not active. But the
+> planned retention worker must not take `evidence_retention_until` at
+> face value: building to the current default would delete federal
+> evidence before the preservation period expires. **Fix the default and
+> confirm the period with legal advice before any purge job is built.**
+> Tracked separately; this note is a warning to whoever builds that
+> worker, not a substitute for the fix.
 
 **This section describes the preservation half only, and citing the
 statute is not a claim of compliance with it.** § 2258A's *reporting*
@@ -155,17 +195,24 @@ CyberTipline filing" above. Do not read the detail below as evidence the
 obligation is discharged; it documents what is retained, not that anyone
 has been notified.
 
-Two mechanisms implement it: `ncmec_reports.evidence_retention_until`
-defaults to 90 days out and is NOT NULL
-(`schema/moderation.ts:96-99`), and `deleteObject()` refuses any
-`/restricted/` path without an explicit force flag
-(`objectStorage.ts:213-226`).
+Two mechanisms exist: `ncmec_reports.evidence_retention_until` is
+NOT NULL and carries a default deadline (`schema/moderation.ts:96-99`),
+and `deleteObject()` refuses any `/restricted/` path without an explicit
+force flag (`objectStorage.ts:213-226`).
 
-**No code ever passes that force flag.** The purge/retention worker does
-not exist, so in practice evidence is currently retained **indefinitely**,
-not for 90 days. Document this as "preserved for at least 90 days by
-design; no expiry job is built yet" — the floor is enforced, the ceiling
-isn't implemented.
+**Neither of these enforces a retention floor, and the doc previously
+claimed one.** `evidence_retention_until` is *stored data that nothing
+reads* — `deleteObject()` checks only the path and the force flag, never
+the deadline (`objectStorage.ts:220-226`), so any caller passing the flag
+can delete restricted evidence immediately regardless of how long it was
+meant to be kept. **The deadline check the statute requires does not
+exist anywhere; the retention worker will have to implement it.**
+
+What is true today is narrower and accidental: **no code passes the force
+flag at all**, so evidence is currently retained **indefinitely** — not
+because a floor is enforced, but because nothing deletes it. Describe the
+current state as "nothing deletes evidence yet," never as "the minimum is
+enforced."
 
 **Evidence deliberately survives a user hard-delete.** Three FKs are
 `ON DELETE SET NULL` on purpose — `ncmec_reports.user_id`,
@@ -176,13 +223,24 @@ the bytes all survive; the hard-delete's storage-cleanup step never
 touches the restricted prefix, and `deleteObject`'s guard would refuse it
 if it tried.
 
-**The audit ledger goes the other way, deliberately.**
+**The audit ledger is designed to go the other way** —
 `ncmec_safety_audit_log.report_id` is `ON DELETE RESTRICT` so a report
-with logged handling cannot be deleted at all, and `actor_user_id`
-carries **no** foreign key specifically so that deleting an admin account
-cannot erase attribution for suppressing a federal report;
-`actor_label` is NOT NULL and a mutation is refused rather than recorded
-anonymously (`schema/moderation.ts:309-352`).
+with logged handling can't be deleted, and `actor_user_id` carries **no**
+foreign key specifically so that deleting an admin account cannot erase
+attribution for suppressing a federal report; `actor_label` is NOT NULL
+and a mutation is refused rather than recorded anonymously
+(`schema/moderation.ts:309-352`).
+
+**That boundary is not enforced yet, and the design only holds once it
+is.** Migration 0097 is explicit that the ledger and its guard function
+belong to the application role until a DBA transfers them to a dedicated
+owner — and an owner can disable the append-only triggers. In the
+default state, the same role can therefore remove an audit entry and
+then delete the report the `ON DELETE RESTRICT` was protecting. The
+hardening step is a separate, superuser-run procedure documented in
+[`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md).
+**Until that runbook has been executed against an environment, describe
+this as the intended boundary, not an active guarantee.**
 
 ## What happens today when the reporting path fires
 

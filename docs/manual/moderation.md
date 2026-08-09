@@ -147,10 +147,13 @@ through.
 Refused content is **quarantined**, which is a stronger thing than
 "hidden." The image is preserved as evidence in storage that has no
 serving path at all — no admin viewer, no share link, no way for anyone
-to look at it through the product. It's deliberately recorded as owned by
-the system rather than by the person who uploaded it, so no user is the
-legal owner of that evidence. The upload itself simply fails; no meme is
-ever created from it.
+to look at it through the product. The upload itself simply fails; no
+meme is ever created from it.
+
+**Preservation isn't currently universal, though.** Some refusal paths
+block the content without keeping a copy of it, so "refused" and "kept as
+evidence" aren't the same thing today. The blocking works either way;
+what varies is whether there's a record afterward.
 
 Quarantine is a **one-way door**. There's no appeal, no release, and no
 re-review — by design, not by omission.
@@ -203,11 +206,20 @@ looked at by a person.
 ### Why it's separate from the review queue
 
 The two systems never touch, and that's structural rather than
-coincidental. Content quality is a *judgment* call a moderator makes about
-a joke; legal safety is a *bright-line* call the machine makes about
-legality. A moderator can't approve their way past a safety refusal —
-not because a rule forbids it, but because a refused upload never becomes
-a reviewable item in the first place.
+coincidental. Content quality is a judgment call a moderator makes about
+whether a joke is worth publishing; this track is an automated call made
+before a human is ever involved. A moderator can't approve their way past
+a refusal — not because a rule forbids it, but because a refused upload
+never becomes a reviewable item in the first place.
+
+**Don't read "legal/safety" as meaning every refusal here is a finding
+about legality.** The checks in this track aren't all the same kind of
+thing: one is a comparison against known illegal material, while another
+is an adjustable content-rating judgment that can even be affected by a
+user's own content preferences. A refusal from the second kind means
+"this tripped a content-safety filter," not "this was determined to be
+illegal" — and the records it produces shouldn't be read, by an operator
+or by anyone downstream, as if it did.
 
 ## Why it works this way
 
