@@ -170,7 +170,7 @@ In reading order. A chapter file appears only once it holds real content, so
 
 | # | Chapter | Covers | Status |
 | --- | --- | --- | --- |
-| 1 | `personalization-and-grammar.md` | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | not yet written |
+| 1 | [`personalization-and-grammar.md`](./personalization-and-grammar.md) | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | ✅ written |
 | 2 | [`content-lifecycle.md`](./content-lifecycle.md) | **Submit** — a fact's three entrances (user submission, admin/API-key bulk import, variant creation) and the one funnel they hand off into review through | ✅ written |
 | 3 | [`moderation.md`](./moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
 | 4 | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
