@@ -760,7 +760,10 @@ function straight to the engine with its own scene-prompt generation — no
 against your own account, never added to the shared gallery. A no-reference
 generation on either route runs the shared pipeline and joins the gallery.
 An AI *video* meme runs its own separate system (PuLID-based, not this
-pipeline) and is always private, tied to the one meme you made with it.
+pipeline) and is never added to any shared gallery — tied to the one meme
+you made with it. That's a storage fact, not an access-control one: like any
+other meme, a video defaults to public and only becomes private if the
+optional privacy flag is set.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ---

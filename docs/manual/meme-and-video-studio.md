@@ -63,8 +63,10 @@ later makes a meme from the same fact, the same way a
 authors is shared by everyone who sees that fact
 (see [`visual-pipeline.md`](./visual-pipeline.md)). Through the older
 builder's source-photo path, the opposite: it's yours, stored only against
-your account, never shared. An AI-generated video is always private,
-regardless of route: it's yours, tied to the meme you made with it.
+your account, never shared. An AI-generated video is never pooled into a
+shared gallery either way — it's tied to the meme you made with it — but
+that's a storage fact, not a privacy one: like any other meme, it's public
+unless you turn the privacy option on yourself.
 
 ### Where your media lives
 
