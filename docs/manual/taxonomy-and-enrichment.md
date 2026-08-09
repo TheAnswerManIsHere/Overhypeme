@@ -12,10 +12,11 @@
 
 Every fact carries **enrichment** — structured metadata describing *how the
 joke works*, not what picture to draw for it. That includes its primary
-archetype (which joke mechanism it uses, from a fixed list), a subtype, tone
-modifiers, how strong the "overhype" fit is, adult-suitability, cultural
-references, named entities, suggested hashtags, and the AI's confidence in
-its own read. It's produced once at moderation time and can be **refreshed**
+archetype (which joke mechanism it uses, from a fixed list), a subtype, a
+broader set of scene/tone/composition modifiers, how strong the "overhype"
+fit is, adult-suitability, cultural references, named entities, suggested
+hashtags, and the AI's confidence in its own read. It's produced once at
+moderation time and can be **refreshed**
 later — deliberately, by a human — as the classification model and prompts
 improve, without disturbing a fact's live content or any manual edit an admin
 made to it.
@@ -46,12 +47,17 @@ of joke.
 
 **Admin → Taxonomy Health** is where enrichment quality is monitored and
 repaired. Every active fact rolls up into overlapping cards — a fact can
-appear under more than one at once:
+appear under more than one at once. The core categories:
 
-- **Missing / invalid enrichment** — no classification exists, or it fails
-  validation. Fixed with **Re-enrich** (a real model call).
-- **Needs admin review** — low confidence, a questionable content fit, a
-  cultural reference or named entity flagged for human judgment.
+- **Missing or invalid enrichment** — no classification exists yet, or one
+  exists but fails validation. Fixed with **Re-enrich** (a real model
+  call).
+- **Needs admin review** — a questionable content fit, or something
+  flagged for human judgment. A few narrower cards break this down
+  further today — low AI confidence and cultural references needing
+  research each get their own dedicated card, following the same shape —
+  but the underlying idea is the same across all of them: something needs
+  a person's judgment, not just a re-run.
 - **Projection mismatch** — the "promoted" columns (archetype, subtype,
   fit, suitability) drifted from what's actually stored in the enrichment
   JSON. Fixed with **Repair projections** — instant, no model call, safe to
@@ -195,5 +201,7 @@ side effect of an unrelated config change.
 - Rationale: the staleness/bulk-send-back entry in
   [`decisions.md`](../ai-context/decisions.md).
 
-**Next:** chapter 5 — *visual pipeline*, how an authored Visual Concept becomes
-a rendered image. [Not yet written](./README.md#contents).
+**Next:** chapter 5 — [`visual-pipeline.md`](./visual-pipeline.md), how an
+authored Visual Concept becomes a rendered image.
+
+*Verified against `c9c6715` (2026-08-09) · claim inventory in PR #380.*
