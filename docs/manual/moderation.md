@@ -4,7 +4,16 @@
 > the three human gates it passes through, and why the process is shaped to spend
 > money only on submissions a human has already vouched for.
 >
-> Deep spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md).
+> **Overhype.me has two separate moderation systems**, and this chapter is
+> mostly about the first: *content quality* ("is this joke good enough to
+> publish?"). The second is *legal/safety* ("is this content illegal?") — a
+> completely separate track with different machinery, covered in its own
+> section at the end.
+>
+> Deep specs: [`moderation-workflow.md`](../ai-context/moderation-workflow.md)
+> (content quality),
+> [`legal-safety-moderation.md`](../ai-context/legal-safety-moderation.md)
+> (legal/safety).
 > Rationale history: [`decisions.md`](../ai-context/decisions.md).
 
 ## What it does
@@ -107,8 +116,128 @@ them deliberately does not reuse any prior batch, so bouncing a fact back to the
 Visual Concept step and re-approving always re-renders from scratch — even if the
 concept text didn't change.
 
+## The other moderation system: legal and safety
+
+Everything above is about whether a fact is *good enough* to publish.
+Running alongside it, and sharing nothing with it, is a second system
+asking a completely different question: **is this content illegal?**
+
+### What it does
+
+Images entering the product — a photo someone uploads to put their face
+in a meme, and imagery the AI generates — are checked by automated
+safety controls before they can become anything a user saves or shares.
+
+**Those controls are not all the same thing, and the difference is worth
+stating plainly.** Matching an image against known child sexual abuse
+material is a specific capability that works by comparison against an
+existing catalogue of it. Assessing a novel image for whether it looks
+abusive is a different and weaker kind of judgment. Overhype.me uses both
+kinds, but they don't apply uniformly to every path, and the second kind
+should not be described — or relied on — as though it were the first.
+
+If an image is refused, the person who uploaded it gets a plain,
+deliberately unspecific message that the image can't be uploaded — it
+never says which check objected or why. That's on purpose: a detailed
+rejection reason is a free hint for anyone probing to find what gets
+through.
+
+### What happens to refused content
+
+Refused content is **quarantined**, which is a stronger thing than
+"hidden." The image is preserved as evidence in storage that has no
+serving path at all — no admin viewer, no share link, no way for anyone
+to look at it through the product. The upload itself simply fails; no
+meme is ever created from it.
+
+**Preservation isn't currently universal, though.** Some refusal paths
+block the content without keeping a copy of it, so "refused" and "kept as
+evidence" aren't the same thing today. The blocking works either way;
+what varies is whether there's a record afterward.
+
+Quarantine is a **one-way door**. There's no appeal, no release, and no
+re-review — by design, not by omission.
+
+### Why the evidence is kept, and kept away from deletion
+
+US law obliges a platform that becomes aware of apparent child sexual
+abuse material to preserve the report and its supporting evidence for a
+minimum period. Overhype.me implements that in a few deliberate ways:
+storage refuses to delete anything in the protected area without an
+explicit override, and the records deliberately survive even a full
+account deletion — deleting a user detaches their name from the record
+but never removes the record or the evidence.
+
+The audit trail is protected in the opposite direction, too: a record
+that has been acted on can't be deleted at all, and the log of *who* acted
+on it deliberately isn't tied to their account — so removing an admin
+account can't erase the trace of what that admin did.
+
+### What's built, and what honestly isn't
+
+This is the part worth being precise about, because safety infrastructure
+described optimistically is worse than none.
+
+**Working today:** the scanning, the refusal, the quarantine, and the
+evidence preservation. Admin alerting exists but is only partially
+wired — some quarantines raise an alert and some currently don't.
+
+**Not working yet:** the actual reporting to the national clearinghouse
+that handles these referrals. The plumbing for it has been built and
+tested, but it's deliberately switched off and connected to nothing —
+**no report has ever been filed from this system.** Several later stages
+haven't been built at all: the worker that would submit reports, an admin
+screen for reviewing any of this, and alerting for when a submission
+*fails* (distinct from the partial alerting that exists today for some
+refusals). The settings that would turn filing on are locked: the product
+refuses to change them through the normal settings screen, precisely so
+nobody can switch on live reporting before the rest of it exists.
+
+**A gap worth naming:** a substantial share of refusals are recorded and
+then seen by nobody — there's no screen anywhere that shows those
+records, and alerting doesn't cover every case. The content is still
+blocked, every time; what's missing is a human ever looking at what was
+blocked, or being able to.
+
+**A consequence worth naming too:** because refusals are automated,
+permanent, and unreviewable, a false positive on an ordinary image is
+currently unappealable. There is no path to have a wrongly-refused image
+looked at by a person.
+
+### Why it's separate from the review queue
+
+The two systems never touch, and that's structural rather than
+coincidental. Content quality is a judgment call a moderator makes about
+whether a joke is worth publishing; this track is an automated call made
+before a human is ever involved. A moderator can't approve their way past
+a refusal — not because a rule forbids it, but because a refused upload
+never becomes a reviewable item in the first place.
+
+**Don't read "legal/safety" as meaning every refusal here is a finding
+about legality.** The checks in this track aren't all the same kind of
+thing: one is a comparison against known illegal material, while another
+is an adjustable content-rating judgment that can even be affected by a
+user's own content preferences. A refusal from the second kind means
+"this tripped a content-safety filter," not "this was determined to be
+illegal" — and the records it produces shouldn't be read, by an operator
+or by anyone downstream, as if it did.
+
 ## Why it works this way
 
+- **A refusal message says as little as possible, on purpose.** Telling
+  someone precisely why an image was rejected tells them what to change —
+  which is useful feedback for an ordinary mistake and an instruction
+  manual for someone deliberately probing the system. For this specific
+  category, the second concern wins.
+- **Quarantine preserves rather than deletes**, because for this category
+  the legal obligation runs the opposite direction from the usual privacy
+  instinct: the evidence has to survive, including surviving the deletion
+  of the account that produced it.
+- **The reporting switches are locked rather than merely left off.**
+  Being switched off and being impossible to switch on through the normal
+  admin screen are very different guarantees, and only the second one
+  prevents a well-meaning admin from activating a legally-consequential
+  integration before its safeguards exist.
 - **Cost-gating, in order.** Enrichment, image lookups, and renders all cost
   money. A cheap human triage gate first means no paid work runs on spam,
   duplicates, or low-quality submissions. → [Staged, cost-gated moderation](../ai-context/decisions.md)
@@ -165,6 +294,12 @@ concept text didn't change.
 
 - Spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md) — stages,
   staging facts, rejection paths, the refresh (send-back) cycle.
+- Legal/safety spec:
+  [`legal-safety-moderation.md`](../ai-context/legal-safety-moderation.md) —
+  the scanning layers, quarantine, evidence retention, and the current
+  built-vs-not state of NCMEC reporting. Note that specific detection
+  values are deliberately omitted from that document, and from this
+  chapter, so they aren't published in a public repo.
 - Related: [`visual-pipeline.md`](../ai-context/visual-pipeline.md) (the Visual
   Concept and how it becomes an image),
   [`taxonomy-and-enrichment.md`](../ai-context/taxonomy-and-enrichment.md)
@@ -177,3 +312,5 @@ concept text didn't change.
 **Next:** chapter 4 — [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md),
 what happens to an approved fact's classification and how a refresh keeps it
 current.
+
+*Verified against `4fd4c66` (2026-08-09) · claim inventory in PR #381.*
