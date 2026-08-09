@@ -1,58 +1,55 @@
 # PR #256 — Variant independence — TEST_RUN
 
-Engineering/automated checklist for Replit (the technical safety net). Verifies
-that `facts.parent_id` is kinship + show/hide only — a variant no longer
-inherits, is blocked by, or is denied its own metadata (enrichment, images, AI
-generation) — and that the new async-queue/circuit-breaker machinery behind the
-bulk-backfill routes is sound.
+Checklist for Replit (the technical safety net), run post-merge against the
+live workspace. Verifies that `facts.parent_id` is kinship + show/hide only —
+a variant no longer inherits, is blocked by, or is denied its own metadata
+(enrichment, images, AI generation) — and that the new async-queue/
+circuit-breaker machinery behind the bulk-backfill routes is sound.
+[`PR256_VARIANT_INDEPENDENCE_UAT.md`](./PR256_VARIANT_INDEPENDENCE_UAT.md) is
+the durable sibling.
 
-> **Replit owns the database connection.** Don't set `DATABASE_URL` or test-DB
-> env here — apply migrations and run the test files against whatever DB
-> Replit uses.
+**Replit owns the DB connection** — no `DATABASE_URL` / test-DB env is set
+anywhere in this doc.
 
-## 1. Apply the migration
+Pre-merge gates (install, typecheck, codegen drift) are assumed green;
+spot-check only if something below fails.
 
-- `pnpm --filter @workspace/db run migrate` ← applies `0093` (idempotent
-  `ALTER TABLE "facts" ADD COLUMN IF NOT EXISTS "ai_meme_backfill_status"
-  varchar(16)`).
-- Re-clone the test schema if your runner requires it after a migration.
+No test suites here — this PR's suites (named for awareness below) already
+ran and passed in CI on this exact code. Everything below is what CI cannot
+see: the live database and the live app. Nothing below writes a row except
+applying the migration itself (the deploy action, not a test probe).
 
-**Confirm it landed:** `facts.ai_meme_backfill_status` column exists,
-`varchar(16)`, nullable, no default — every existing row reads `NULL`. Running
-the migration a second time is a no-op (`IF NOT EXISTS`).
+## Repo-health gates (post-merge state — run always)
 
-## 2. Repo-health gates (post-merge state — run always)
-
-- `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`).
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes
+  (matches CI's `build.yml`).
 - `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
-  exemption this PR added: `0093_facts_ai_meme_backfill_status` is in
-  `SNAPSHOT_EXEMPT_TAGS` (mirrors the `0075_facts_pexels_status` precedent) —
-  confirm the entry is present.
+  `SNAPSHOT_EXEMPT_TAGS` entry this PR added:
+  `0093_facts_ai_meme_backfill_status` (mirrors the `0075_facts_pexels_status`
+  precedent) — confirm the entry is present.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean.
-- `pnpm run check:codegen-drift` — expected: clean (no hand-edited generated
-  files).
-- New `check:no-console` allowlist entry this PR added: `cliJobPoller.ts:78`
-  (intentional, see the file's own comment).
-- Typecheck (`typecheck:libs`, per-package `typecheck`/`tsc -b`) — pre-merge
-  gates assumed green; spot-check only if something below fails.
+- Other allow-list entries this PR added: `check:no-console` allowlist entry
+  `cliJobPoller.ts:78` (intentional, see the file's own comment).
 
-## 3. Full sharded suite — shared infra touched: yes
+## Live checks (read-only, except item 1)
 
-New async-queue/circuit-breaker machinery lands in the shared job/queue layer
-(`enqueueJob`, `async_jobs`) — shared infra, so the full run stays required
-alongside the targeted list below.
+1. **Apply migration `0093`** — `pnpm --filter @workspace/db run migrate`
+   (`ALTER TABLE "facts" ADD COLUMN IF NOT EXISTS "ai_meme_backfill_status"
+   varchar(16)`). Confirm `facts.ai_meme_backfill_status` exists:
+   `varchar(16)`, nullable, no default, every existing row reads `NULL`.
+2. Re-running `migrate`: a second run is **skipped by the content-hash
+   tracker** — the already-applied migration isn't re-executed, so this
+   confirms tracking rather than SQL-level idempotency — confirm skipped, no
+   changes.
+3. `SELECT dedupe_key FROM async_jobs WHERE queue = 'fact_ai_meme_backfill'
+   LIMIT 5;` — once the worker has processed a few jobs, dedupe keys follow
+   `fact_ai_meme_backfill:fact:<id>`.
+4. `SELECT ai_meme_backfill_status, count(*) FROM facts GROUP BY 1;` — new
+   rows are `NULL` until they pass through the bulk-backfill queue; processed
+   rows land on `ok`/`failed`/`skipped`.
 
-**Stop the `artifacts/api-server: API Server` workflow first** to free
-test-DB connections, or the `pretest` chain (push-force → migrate → codegen)
-can stall against the test database.
-
-## 4. Backend test files (run each; expect `# fail 0`)
-
-Runner: `BCRYPT_SALT_ROUNDS=4 bash artifacts/api-server/scripts/run-test.sh
-src/__tests__/<file>` (never raw `node`/`tsx` execution — it bypasses the
-script's production-DB guard; `run-test.sh` already sets
-`TEST_DB_ALLOW_EXIT_ON_IDLE` internally). New and touched files:
+Tests covering this PR (ran and passed in CI on the merged code — named for
+awareness, not re-run here):
 
 | File | Covers |
 |---|---|
@@ -73,40 +70,6 @@ script's production-DB guard; `run-test.sh` already sets
 | `factEnrichment.test.ts`, `factEnrichmentRepair.test.ts`, `redundantMechanism.test.ts` | Enrichment signature v7 bump + the `status`/`parentText` field removal from `enrichFact`'s input |
 | `ApprovedFactTextEditModal.test.tsx`, `patchFactDraft.test.ts`, `sendBackToReview.test.ts` (frontend) | Contract cleanup matching the backend changes |
 | `useBulkMediaBackfillActions.test.ts` **(NEW)**, `taxonomy-health.bulkMediaBackfill.test.tsx` **(NEW)** | The new Bulk Media Backfill panel: submit → poll → terminal counts, independent action-key state, confirm-before-fire |
-
-**Sharded full run:** `pnpm --filter @workspace/api-server test`. Expect **3
-pre-existing failures**, all in `factLifecycleClosure.test.ts`'s `DB CHECK —
-facts_active_requires_concept` suite (`REJECTS an active fact with null
-enrichment` / `...whitespace-only concept` / `...non-string JSON scalar`).
-Confirmed via `git stash` against a clean `main` before this PR — they exist
-identically there, unrelated to this change. Everything else: `# fail 0`.
-
-**Frontend:** `pnpm --filter @workspace/overhype-me test` (Vitest). Expect
-**843/843 pass** across 80 files.
-
-## 5. Manual DB checks (against Replit's DB)
-
-- `SELECT dedupe_key FROM async_jobs WHERE queue = 'fact_ai_meme_backfill'
-  LIMIT 5;` — after the worker has processed a few jobs, dedupe keys follow
-  `fact_ai_meme_backfill:fact:<id>`.
-- `SELECT ai_meme_backfill_status, count(*) FROM facts GROUP BY 1;` — new rows
-  are `NULL` until they run through the new bulk-backfill queue; processed
-  rows land on `ok`/`failed`/`skipped`.
-- Repeated-failure circuit breaker (raw SQL, no need to wait for real
-  failures): insert 3 `failed` rows into `async_jobs` for one fact
-  (`queue='fact_send_back'`, `dedupe_key='fact_send_back:<id>'`), then hit
-  `POST /admin/taxonomy-health/actions/bulk-send-back` with
-  `{"scope":"all_stale"}` — that fact must not appear in `jobs`, and the
-  response's `repeatedFailureCount` must be ≥ 1.
-
-## 6. Idempotency
-
-- Re-running migration `0093`'s `ADD COLUMN IF NOT EXISTS` a second time is a
-  no-op.
-- Re-running any of the three bulk-backfill routes (`backfill-images`,
-  `backfill-pexels`, `backfill-ai-memes`) against a fact whose job is still
-  in-flight dedupes onto the existing job (`deduped: true` in the response),
-  never double-enqueues.
 
 ## What's deliberately NOT shipped
 

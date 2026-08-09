@@ -1,88 +1,74 @@
-# PR #242 — Close the fact lifecycle — TEST_RUN
+# PR242 — Close the fact lifecycle · TEST_RUN
 
-Engineering/automated checklist for Replit (the technical safety net). This
-verifies the Phase 2 fact-lifecycle closure: activation is moderation-only +
-concept-gated (DB CHECK), and every ingestion path funnels into Stage-1 moderation.
+Checklist for Replit (the technical safety net), run post-merge against the
+live workspace. **Replit owns the DB connection** — no `DATABASE_URL` /
+test-DB env is set anywhere in this doc. Verifies the Phase 2 fact-lifecycle
+closure: activation is moderation-only + concept-gated (DB CHECK), and every
+ingestion path funnels into Stage-1 moderation.
 
-> **Replit owns the database connection.** Don't set `DATABASE_URL` or test-DB env
-> here — apply migrations and run the test files against whatever DB Replit uses.
+Pre-merge gates (install, typecheck, codegen drift — including the
+`POST /facts`-removal drift check) are assumed green; spot-check only if
+something below fails.
 
-## 1. Apply migrations + re-clone test schema
+**No test suites in this checklist, deliberately.** This closure is covered
+by `factLifecycleClosure.test.ts` (the `facts_active_requires_concept` CHECK
++ `activateFact`'s `ConceptMissingError` / `ParentNotActiveError` /
+`ActivationConflictError` paths), `routes.import.test.ts`,
+`routes.admin.test.ts`, `routes.reviews.test.ts`, `routes.facts.test.ts`,
+`routes.resubmitForModeration.test.ts` (the round-7 follow-up reactivation
+route), and `routes.admin.auth.test.ts` (drift guard — fails loudly if a new
+admin route ships without an `ADMIN_AUTH_ROUTES` entry) — all of which
+already ran and passed in CI against a real Postgres, on this exact code.
+Re-running them here would verify nothing new. Everything below is what CI
+genuinely *cannot* see: the state of the live database and the live app.
 
-Apply the schema to the local public schema, run migrations, then re-clone the
-test schema so tests see the new shape:
-
-- `pnpm --filter @workspace/db push-force`
-- `pnpm --filter @workspace/db run migrate`  ← applies `0091` (additive) then `0092` (backfill + CHECK)
-- Re-clone the test schema (`bash artifacts/api-server/scripts/run-test.sh --setup <any file>` does this once).
-
-**Confirm the migration landed:**
-- `pending_reviews.parent_fact_id` column exists (integer, nullable, FK → `facts.id` ON DELETE SET NULL).
-- `facts.is_active` default is now `false`.
-- CHECK constraint `facts_active_requires_concept` exists on `facts`.
-- Migration `0092` log line: `[0092] fact-lifecycle grandfather backfill: deactivated_no_valid_enrichment=…, orphan_children_deactivated=…, sentinel_concept_stamped=…`.
-
-## 2. Repo-health gates (post-merge state — run always)
-
+## Repo-health gates (post-merge state — run always)
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
-  CI's `build.yml`).
+  CI's `build.yml`)
 - `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
-  exemptions this PR added: `0091_fact_lifecycle_phase1_additive`
-  (hand-authored idempotent DDL) and `0092_fact_lifecycle_phase2_backfill_check`
-  (DML + the blocking CHECK constraint) are both in `SNAPSHOT_EXEMPT_TAGS` —
-  confirm both entries are present.
-- `node scripts/check-docs-accuracy.mjs` — expected: clean.
-- Typecheck (`typecheck:libs`, per-package `tsc -b`) — pre-merge gates assumed
-  green; spot-check only if something below fails.
+  `SNAPSHOT_EXEMPT_TAGS` entries this PR added:
+  `0091_fact_lifecycle_phase1_additive` (hand-authored idempotent DDL) and
+  `0092_fact_lifecycle_phase2_backfill_check` (DML + the blocking CHECK
+  constraint) — confirm both are present.
+- `node scripts/check-docs-accuracy.mjs` — expected: clean
+- Other allow-list entries this PR added: none
 
-## 3. Codegen drift (POST /facts removal) — run always, not a trivial re-check
+## Live checks (read-only; run always)
 
-- `pnpm --filter @workspace/api-spec run codegen` then `git diff --exit-code lib/api-zod/src/index.ts` is **clean** (the removed `createFact`/`CreateFactBody`/`CreateFactRequest` drop out of the generated modules, not the index line-list).
+Nothing below writes a row — check 4 is a rejected-insert probe, and a
+rejected insert persists nothing regardless of how many times it's run.
 
-## 4. Backend test files (run each; expect `# fail 0`)
-
-Runner: `bash artifacts/api-server/scripts/run-test.sh src/__tests__/<file>` (add
-`--setup` only on the first run to re-clone). Key files touched by this PR:
-
-| File | Expect | Covers |
-|---|---|---|
-| `factLifecycleClosure.test.ts` | 9/9 | **NEW** — the DB CHECK (active needs a non-empty string concept; inactive unconstrained) + `activateFact` (`ConceptMissingError` / `ParentNotActiveError` / `ActivationConflictError`, never activates on failure) |
-| `routes.import.test.ts` | 15/15 | API-key bulk import → Stage-1 **system** reviews (`submittedById=null`), `{queued,skipped,failed}`, dedup vs facts **and** unresolved reviews, raw hashtags on the review, no facts written |
-| `routes.admin.test.ts` | 45/45 | admin import/import-csv → queued reviews; variant → queued review carrying `parent_fact_id` (no active variant fact); cleanup clears reviews before users |
-| `routes.reviews.test.ts` | 55/55 | manual submit unchanged; provisional-approve threads the parent; production approval activates through `activateFact` |
-| `routes.facts.test.ts` | 31/31 | public feed still returns active facts; `POST /facts` is gone |
-| `routes.resubmitForModeration.test.ts` | 4/4 | **NEW** (round 7 follow-up) — `POST /admin/facts/:id/resubmit-for-moderation`: re-enters an INACTIVE fact at `prep_pending` reusing its existing id (no duplicate fact), preserves a variant's `parentId`, 404 missing / 409 `ALREADY_ACTIVE` / 409 `REVIEW_ALREADY_IN_PROGRESS` |
-| `routes.admin.auth.test.ts` | full suite | the new route is registered in `ADMIN_AUTH_ROUTES` (drift-guard test — fails loudly if a route is added without an entry) |
-
-**Sharded full run — shared infra touched: yes** (this migration flips
-`facts.is_active`'s default, adds a blocking CHECK constraint evaluated on
-every fact, and retires `POST /facts` across every ingestion path — broad
-enough blast radius to warrant the full run): `pnpm --filter @workspace/api-server test`.
-**Stop the `artifacts/api-server: API Server` workflow first** to free
-test-DB connections, or the `pretest` chain can stall against the test
-database. **Known
-environmental caveat in this container:** the sharded per-schema clone does **not**
-clone the external `stripe` schema, so some shards emit `relation "stripe.prices"
-does not exist` and cascade-cancel siblings. Those are infra, **not** this PR — every
-affected file passes in isolation and there are **0** `facts_active_requires_concept`
-violations across the suite. If your CI uses create-database mode (full schema clone),
-the stripe issue does not occur.
-
-## 5. Manual DB checks (against Replit's DB)
-
-- Insert an active fact with no concept via raw SQL → **rejected** by
-  `facts_active_requires_concept`. With a non-empty `enrichment ->
-  visualPromptStrategyOverride ->> coreSceneOverride` → allowed. Inactive with no
-  concept → allowed.
-- After migrate, confirm no active fact has a blank/absent concept:
-  `SELECT count(*) FROM facts WHERE is_active AND COALESCE(jsonb_typeof(enrichment #> '{visualPromptStrategyOverride,coreSceneOverride}')='string' AND (enrichment #>> '{visualPromptStrategyOverride,coreSceneOverride}') ~ '\S', false) = false;` → **0**.
-- Grandfathered sentinels are greppable: `coreSceneOverride = '{NAME} stands there confidently.'`.
-
-## 6. Idempotency
-
-- Re-run `0092` (or its statements): deactivate/orphan-sweep/sentinel steps are all
-  no-ops on a second pass; `ADD CONSTRAINT` is guarded (`IF NOT EXISTS` on
-  `pg_constraint`). Counts on the second run should be `0, 0, 0`.
+1. Migration `0091` (additive) then `0092` (backfill + CHECK) applied —
+   confirm:
+   - `pending_reviews.parent_fact_id` column exists (integer, nullable, FK →
+     `facts.id` ON DELETE SET NULL).
+   - `facts.is_active` default is now `false`.
+   - CHECK constraint `facts_active_requires_concept` exists on `facts`.
+   - The deploy log carries `0092`'s backfill line: `[0092] fact-lifecycle
+     grandfather backfill: deactivated_no_valid_enrichment=…,
+     orphan_children_deactivated=…, sentinel_concept_stamped=…` — confirms the
+     inline startup backfill ran once; don't re-trigger it to reproduce the
+     line.
+2. Re-running migration `0092`: a second `pnpm --filter @workspace/db run
+   migrate` is **skipped by the content-hash tracker** — confirm skipped, not
+   re-applied, no changes. (By design, not something this checklist
+   re-executes to prove: `ADD CONSTRAINT` is separately guarded with an `IF
+   NOT EXISTS` check against `pg_constraint`, and the backfill's
+   deactivate/orphan-sweep/sentinel steps each only touch rows that still
+   need it.)
+3. No active fact has a blank/absent concept — read-only count, verifying the
+   backfill actually caught every row that needed transforming:
+   `SELECT count(*) FROM facts WHERE is_active AND COALESCE(jsonb_typeof(enrichment #> '{visualPromptStrategyOverride,coreSceneOverride}')='string' AND (enrichment #>> '{visualPromptStrategyOverride,coreSceneOverride}') ~ '\S', false) = false;`
+   — expected: `0`.
+4. `facts_active_requires_concept` rejects a bad insert — attempt a raw-SQL
+   insert of an active fact with no concept → expected: **rejected** by the
+   constraint, before anything is written. (The constraint's other two cases
+   — active-with-concept allowed, inactive-without-concept allowed — are
+   already covered by `factLifecycleClosure.test.ts` in CI; skip exercising
+   them live, since a successful insert here would leave a real row with no
+   documented cleanup path.)
+5. Grandfathered sentinels are greppable: `coreSceneOverride = '{NAME} stands
+   there confidently.'`.
 
 ## What's deliberately NOT shipped
 

@@ -1,8 +1,8 @@
 # PR #276 — A failed Stripe sync stays visible — TEST_RUN
 
-Engineering checklist for Replit. Scoped to what **only this environment can
-verify** — the pre-merge gates below already passed in CI and locally, so they
-compress to one line rather than being re-run item by item.
+Checklist for Replit (the technical safety net), run post-merge against the
+live workspace. **Replit owns the DB connection** — no `DATABASE_URL` /
+test-DB env is set anywhere in this doc.
 
 Companion in-app acceptance test:
 [`PR276_SYNC_STATUS_VISIBLE_UAT.md`](PR276_SYNC_STATUS_VISIBLE_UAT.md).
@@ -16,22 +16,51 @@ derives an honest summary line, and the e2e spec is re-anchored from Tailwind
 class signatures onto `data-testid`. Frontend only — **no schema change, no
 migration, no backend change, no API change.**
 
-## Already green — do not re-run
+Pre-merge gates (install, typecheck, the full frontend Vitest suite,
+`check-docs-accuracy`, `check:codegen-drift`) are assumed green — they all
+passed locally and in CI on this exact code. **No test suites are re-run in
+this checklist, full or targeted** — everything below is what CI genuinely
+cannot see: a live server, the real test-mode Stripe account, and this
+environment's live `stripe._sync_status` state.
 
-`tsc -b`, the full frontend Vitest suite (85 files / 875 tests),
-`check-docs-accuracy`, and `check:codegen-drift` all pass locally and in CI.
-Nothing below re-verifies them.
+## Repo-health gates (post-merge state — run always)
 
-## 1. Repo health after merge
+This PR has no migration or schema change, so no new `SNAPSHOT_EXEMPT_TAGS`
+entries and no other new allow-list entries — but the gates below check the
+*merged* state of `main`, not this PR specifically, so run them regardless.
 
-- [ ] `pnpm install` completes on the merged tree.
-- [ ] The app builds and the admin Billing page loads without a console error.
+- `pnpm --filter @workspace/db validate-snapshots` — expected: passes
+  (matches CI's `build.yml`)
+- `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
+  `SNAPSHOT_EXEMPT_TAGS` entries this PR added: none
+- `node scripts/check-docs-accuracy.mjs` — expected: clean
+- Other allow-list entries this PR added (`check-no-console.mjs`,
+  `check-cycles.mjs`): none
 
-## 2. The e2e spec — the part that could not run in the container
+## Live checks (run post-merge against the live app)
 
-This is the main reason this doc exists. `adminBillingSync.spec.ts` needs a
-live server **and** the real test-mode Stripe account, so its assertions are
-unexecuted so far. It also has two new steps and rewritten locators.
+Two things below are genuine live writes, not read-only: the e2e spec (via
+the dev-only simulate route) and the "Run a real Sync Stripe data" step. Run
+them **in this order** — the e2e spec first, then the real sync — because the
+real sync is also this checklist's restore path for what the e2e spec leaves
+behind.
+
+### A. The e2e spec — needs a live server and the real test-mode Stripe account
+
+`adminBillingSync.spec.ts` cannot run in CI: it needs a live server **and**
+the real test-mode Stripe account, so its assertions are unexecuted until
+Replit runs them. It also has two new steps and rewritten locators.
+
+**Live write, not read-only:** the new "still visible after reload" step
+drives the dev-only `POST /api/admin/stripe/sync/_test/simulate` route, which
+deletes and replaces this environment's `stripe._sync_status` rows for
+`plans` and leaves that resource in a simulated error state — a real,
+persistent mutation, not an observation. **Restore path:** run section B's
+"Run a real Sync Stripe data" step immediately after this one; a real sync
+overwrites the simulated rows with the account's actual state, which is the
+correct end state regardless of what `stripe._sync_status` held before this
+checklist started. Don't stop after the e2e spec without also running that
+step.
 
 - [ ] `pnpm --filter @workspace/overhype-me run e2e adminBillingSync`
 
@@ -54,38 +83,31 @@ Confirm specifically:
       state."** Stubs the status endpoint with eight `idle` resources and
       asserts an amber `never` summary rather than a hidden panel.
 
-## 3. Against live config and data
+### B. Against live config and data (read-only, except where noted)
 
-Things the container's fixtures can't tell us.
+Things the container's fixtures can't tell us. This PR reads
+`stripe._sync_status` through the existing `/admin/stripe/sync/status`
+endpoint, which is unchanged — there is no migration or backfill involved.
 
 - [ ] Load Admin → Billing **cold** (no sync triggered this session). The panel
-      renders with the real last-run state — not blank, not a spinner.
+      renders with the real last-run state — not blank, not a spinner. If
+      `stripe._sync_status` happens to be empty on this environment, that's
+      the never-synced state and should render amber — see the UAT's item 5.
 - [ ] The **"· Last synced"** stamp in the Plans header matches the newest
       per-resource timestamp in `stripe._sync_status`. It's derived from those
       rows rather than from the in-process lock, so confirm it's still correct
       **after a server restart** — that's the case the old code got wrong.
-- [ ] Run a real **Sync Stripe data** against the live test-mode account and
-      confirm the summary goes green and the row counts are plausible.
+- [ ] **Live write, not read-only:** run a real **Sync Stripe data** against
+      the live test-mode account and confirm the summary goes green and the
+      row counts are plausible.
 - [ ] Confirm the summary reports the true state when `stripe._sync_status`
       holds a **mix** — some `complete`, at least one `error`. Expected: red
-      summary, not green, even though most rows are ✓.
+      summary, not green, even though most rows are correct.
 
-## 4. Targeted test files
+## Delete me
 
-Scoped to the touched surfaces; the full sharded suite is **not** needed here
-— this PR touches no shared infrastructure.
-
-- [ ] `pnpm --filter @workspace/overhype-me run test src/pages/admin/syncStatusSummary.test.ts`
-- [ ] `pnpm --filter @workspace/overhype-me run test src/pages/admin/`
-
-## 5. Database
-
-**Nothing to do.** No migration, no schema change, no backfill. This PR reads
-`stripe._sync_status` through the existing `/admin/stripe/sync/status`
-endpoint, which is unchanged.
-
-If `stripe._sync_status` happens to be empty on this environment, that's the
-never-synced state and should render amber — see the UAT's item 5.
+Transient — delete once the checklist has been run. The `_UAT.md` sibling is
+the durable half.
 
 ## Report back
 
