@@ -449,10 +449,8 @@ re-gather it when the work is scheduled.
     #2 slip through despite the rule already being documented from #1.
   - **Scope note (Codex review, PR #319, second pass).** The guard must NOT
     scan `docs/*_TEST_RUN.md`/similar historical docs — a repo-wide search
-    already finds a real, legitimate citation surviving there
-    (`docs/PR256_VARIANT_INDEPENDENCE_TEST_RUN.md` cites a `docs/plans/*`
-    file for the async-queue-hardening plan, long since gone from `main`, as
-    a "not built in this PR" note). A guard scoped only to implementation
+    already finds legitimate historical citations in the durable checklist
+    handoff and UAT records. A guard scoped only to implementation
     code comments (`artifacts/*/src/` **and** `lib/*/src/` — this repo ships
     real implementation source under both roots, e.g. `lib/db/src` and
     `lib/api-zod/src`, either of which could carry the same dangling
