@@ -101,7 +101,8 @@ the PR. Tier A is the exception, by design.
   to **Opus** before I write it. That is the whole point of the tier: these are
   the fixes where a subtle error slips both nets. I don't switch myself; a
   system-reminder confirming the change is what tells me it happened.
-- **Tier C** — stop and escalate to David regardless of tier; it isn't a bug fix.
+- **Tier C** — stop and escalate to David; it isn't a bug fix, so no model tier
+  applies to it here (feature mode picks one when the work restarts there).
 
 ## 3. Ship it — PR immediately, no waiting
 
@@ -190,11 +191,17 @@ the PR back only delays the review that catches things.
    PR open, and a push doesn't reliably re-trigger a review** (see step 4) —
    so it needs its own explicit `@codex review` once it's pushed, the same as
    any other fix-round commit. Don't let the PR reach convergence with a
-   commit Codex never actually saw.
+   commit Codex never actually saw. The criticality gate (step 4) doesn't
+   exempt this round: the artifact being rated is the **PR**, which is a
+   product-code fix, not the UAT markdown that happens to be the newest
+   commit on it.
 4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open* — including its
-   **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately; on
-   Opus (which a Tier B fix will have put me on) → tell David the PR is ready to
-   watch and ask him to switch me to Sonnet first.
+   **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately;
+   on **any other tier** — Opus (which a Tier B fix will have put me on),
+   Fable, or anything future — tell David the PR is ready to watch and ask him
+   to switch me to Sonnet first. The gate is "not Sonnet," not "is Opus":
+   naming one non-default tier is how this rule got read literally and missed
+   once already (David, 2026-08-08).
 
 ## 4. Drive the review to convergence
 
