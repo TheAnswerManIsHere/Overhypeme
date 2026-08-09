@@ -162,6 +162,22 @@ guard), but they run in CI, not here.
   essay. Anything longer belongs in the plan or in
   [`deferred-work.md`](deferred-work.md).
 
+## Precision matters more than the stop/continue call (David, 2026-08-09)
+
+David directs Replit's failure posture per run (e.g. "stop and report on any
+error so one failure in a back-to-back batch doesn't cascade into the next")
+— that instruction is his to give each time, and it is not a checklist
+authoring concern. What the checklist owns is **being precise about what
+actually is a failure**, because whatever it calls a failure gets escalated
+under whatever posture is active. PR293 is the example: the run correctly
+stopped on David's stop-on-error instruction, but the checklist itself
+mischaracterized a value migration 0097 deliberately treats as a
+`RAISE WARNING` (`dangling`) as equivalent to the one value that's an actual
+invariant break (`linkable_but_unlinked`) — see the corrected
+`docs/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md` for the fix. Getting the
+must-flag/may-ignore line right in the doc is what keeps a correctly-obeyed
+stop instruction from firing on a false alarm.
+
 ## Replit's handoff documents are ephemeral too (David, 2026-08-09)
 
 When Replit stops mid-run and writes a handoff document (`docs/CLAUDE_*_HANDOFF_*.md`
