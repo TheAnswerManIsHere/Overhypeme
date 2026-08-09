@@ -10,6 +10,16 @@ only if something below fails.
 Sibling: [`PR288_QUEUE_HEALTH_SURFACE_UAT.md`](./PR288_QUEUE_HEALTH_SURFACE_UAT.md)
 (David's click-through — the durable half of the pair).
 
+**No test suites in this checklist, deliberately.** This PR's queue-health work
+is covered by `workerHeartbeats.test.ts`, `queueHealth.test.ts`,
+`asyncJobs.test.ts`, `routes.admin.auth.test.ts`, and `routes.health.test.ts`,
+plus the full `@workspace/api-server` sharded suite (shared infra was touched —
+`lib/db/src/schema/` gained a table and `lib/db/src/index.ts` changed the pool
+`max`) — all of which already ran and passed in CI against this exact code.
+Re-running any of them here would verify nothing new. Everything below is what
+CI genuinely cannot see: the state of the live database and the live app.
+Nothing below writes a row.
+
 ## Repo-health gates (post-merge state — run always)
 
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
@@ -28,70 +38,7 @@ Sibling: [`PR288_QUEUE_HEALTH_SURFACE_UAT.md`](./PR288_QUEUE_HEALTH_SURFACE_UAT.
   registered without being declared there, so a failure means a route/table
   mismatch, not a broken gate.
 
-## Targeted tests (run always)
-
-```
-bash artifacts/api-server/scripts/run-test.sh \
-  src/__tests__/workerHeartbeats.test.ts \
-  src/__tests__/queueHealth.test.ts \
-  src/__tests__/asyncJobs.test.ts \
-  src/__tests__/routes.admin.auth.test.ts \
-  src/__tests__/routes.health.test.ts
-```
-
-Expected: **0 fail**. Known environmental failures: **none** — these ran clean
-locally four consecutive times with the three queue files in flight together.
-
-**Run this set at least twice.** Not superstition: the three queue files share
-the `worker_lane_heartbeats` table, and cross-file contamination there was a
-real bug during development (one file's cleanup wiped another's rows). A single
-green run would not have caught it; two would.
-
-Proof tests to note by name — these encode invariants, not example values, and
-are the ones worth reading if anything fails:
-
-- `publishes in_flight_count before awaiting handlers, so a wedged tick is
-  visible` — asserts the count is observable **while a handler is still
-  blocked**. If this regresses, Phase 2's wedged-lane alert becomes unable to
-  fire in the only case it exists for.
-- `stamps last_scheduled_at even when the re-entrancy guard skips the tick` —
-  a lane whose timer fires while its previous tick still runs is healthy-but-slow
-  and must not read as dead.
-- `reports a lane healthy when ONE instance is stale but another is scheduling
-  it` — the case that distinguishes the fleet-wide quantifier from "any stale
-  heartbeat". A test of only the fully-dead case passes against both the correct
-  and the incorrect implementation.
-- `runs lanes independently — a blocked bulk lane never suppresses the fast lane`
-  — **pre-existing**, guards PR #216/#256's isolation invariant. It went flaky
-  during this work and was fixed with an injectable `heartbeats` seam, not by
-  loosening the assertion. If it fails here, that is a real regression.
-- `keeps the reclaim cutoff clear of the slowest real handler` — pre-existing
-  from PR #283.
-
-Frontend: no Vitest tests were added for the page in this PR (see *What's
-deliberately NOT shipped*).
-
-## Full sharded suite — shared infra touched: **yes**
-
-`lib/db/src/schema/` gained a table and `lib/db/src/index.ts` changed the pool
-`max`, so the DB layer every test connects through is in scope.
-
-```
-pnpm --filter @workspace/api-server test
-```
-
-Stop the `artifacts/api-server: API Server` workflow first to free test-DB
-connections, or the `pretest` chain (push-force → migrate → codegen) stalls.
-
-**Watch specifically for connection-exhaustion symptoms** (`too many clients`,
-pool acquire timeouts). The pool `max` went from unset — pg's default of 10 — to
-an explicit 20 per process, which is the intended fix, but the sharded runner
-starts several processes at once and is the most likely place for a fleet-level
-arithmetic mistake to surface. If you see them, that is a real finding worth
-reporting rather than a flake; `DB_POOL_MAX` can be set lower as an immediate
-mitigation.
-
-## Manual DB / behavior checks (run always)
+## Live checks (read-only; run always)
 
 1. **Migration 0094 applied.** Confirm the table exists and its shape:
    - `worker_lane_heartbeats` with primary key `(instance_id, lane)`
@@ -103,10 +50,13 @@ mitigation.
    - `in_flight_count` `integer` NOT NULL default 0
    - index `worker_lane_heartbeats_last_scheduled_idx` on `last_scheduled_at`
 
-2. **Re-running migration 0094 is a no-op.** `CREATE TABLE IF NOT EXISTS`,
-   `CREATE INDEX IF NOT EXISTS`, and the config seed is
-   `INSERT … ON CONFLICT (key) DO NOTHING`. Nothing reads or rewrites an
-   existing row, so there is no backfill and nothing to roll back.
+2. **Re-running migration 0094: a second `migrate` is skipped by the
+   content-hash tracker** — confirm skipped, not re-applied, no changes. (The
+   underlying DDL is itself idempotent — `CREATE TABLE IF NOT EXISTS`,
+   `CREATE INDEX IF NOT EXISTS`, and the config seed's
+   `ON CONFLICT (key) DO NOTHING` — but the tracker prevents it from executing
+   a second time at all. There is no backfill in this migration, so there is
+   nothing to verify beyond the schema itself.)
 
 3. **The TTL config row seeded with its bounds.** Confirm `admin_config` has
    `instance_heartbeat_ttl_minutes` = `15`, `data_type` `integer`,
@@ -131,16 +81,16 @@ mitigation.
    unauthenticated by design, so that absence is a requirement, not an omission.
 
 6. **`GET /api/health/queues` returns 503 when a lane genuinely stalls —
-   covered by an automated test, not a manual step.** Stopping the API server
-   workflow to observe this doesn't work: that also stops the HTTP server that
-   owns this route, so the request fails to connect rather than returning the
-   documented 503, and in the autoscaled topology hitting another live
-   instance doesn't help either — that instance is scheduling all five lanes
-   too. The 200/503 wiring (and the minimal `{ok, ts, laneCount,
-   stalledLaneCount}` field set on *both* paths) is exercised directly against
-   real DB state, through the real `/api`-mounted path, in
-   `routes.health.test.ts`'s `GET /health/queues` suite, already covered by the
-   targeted test run above. Nothing to do here manually.
+   verified in CI, not here.** Stopping the API server workflow to observe
+   this doesn't work: that also stops the HTTP server that owns this route,
+   so the request fails to connect rather than returning the documented 503,
+   and in the autoscaled topology hitting another live instance doesn't help
+   either — that instance is scheduling all five lanes too. The 200/503 wiring
+   (and the minimal `{ok, ts, laneCount, stalledLaneCount}` field set on
+   *both* paths) is exercised directly against real DB state, through the
+   real `/api`-mounted path, in `routes.health.test.ts`'s `GET /health/queues`
+   suite, which already ran and passed in CI on this code. Nothing to do here
+   manually.
 
 7. **`GET /admin/queue-health` against real data** (authenticated as admin).
    Expect every registered queue to appear **even with zero rows** — a queue
@@ -163,6 +113,27 @@ mitigation.
    mode this was written against. **If no such rows exist, say so rather than
    inventing one** — the unit tests already cover the logic; this check is only
    about real data.
+
+Proof tests guarding this PR's invariants (already run and passed in CI, named
+here for awareness — read these first if anything above looks wrong):
+
+- `publishes in_flight_count before awaiting handlers, so a wedged tick is
+  visible` — asserts the count is observable **while a handler is still
+  blocked**. If this regresses, Phase 2's wedged-lane alert becomes unable to
+  fire in the only case it exists for.
+- `stamps last_scheduled_at even when the re-entrancy guard skips the tick` —
+  a lane whose timer fires while its previous tick still runs is healthy-but-slow
+  and must not read as dead.
+- `reports a lane healthy when ONE instance is stale but another is scheduling
+  it` — the case that distinguishes the fleet-wide quantifier from "any stale
+  heartbeat". A test of only the fully-dead case passes against both the correct
+  and the incorrect implementation.
+- `runs lanes independently — a blocked bulk lane never suppresses the fast lane`
+  — pre-existing, guards PR #216/#256's isolation invariant. It went flaky
+  during this work and was fixed with an injectable `heartbeats` seam, not by
+  loosening the assertion.
+- `keeps the reclaim cutoff clear of the slowest real handler` — pre-existing
+  from PR #283.
 
 ## What's deliberately NOT shipped
 
