@@ -18,7 +18,7 @@
 
 import { describe, it, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import {
   runRateLimitCounterPurger,
@@ -157,6 +157,54 @@ describe("runRateLimitCounterPurger", () => {
 
     // Every row deleted exactly once, by whichever run got to it.
     assert.equal(a.deleted + b.deleted, 200);
+    assert.equal(await countRateLimitCounters(), 0);
+  });
+
+  it("skips a row locked by another run instead of blocking on it (Codex round 1)", async () => {
+    // The test above only proved the two runs' totals summed to 200 with none
+    // left over — full serialization (each run waiting for the other's lock,
+    // one after another) satisfies that assertion just as well as real
+    // concurrency, so it never actually exercised SKIP LOCKED. This one holds
+    // a batch's rows locked-but-uncommitted in an explicit transaction and
+    // proves a concurrent purger run claims the OTHER rows instead of
+    // blocking on the held ones.
+    await seedCounters({ prefix: "lockproof-", count: 10, expired: true });
+
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      // Same shape as deleteOneBatch's own claim, but the transaction is left
+      // open — the lock is held, not released.
+      const held = await holder.query(
+        "SELECT key_hash FROM rate_limit_counters WHERE expires_at <= now() ORDER BY expires_at LIMIT 5 FOR UPDATE SKIP LOCKED",
+      );
+      assert.equal(held.rows.length, 5, "test setup: expected 5 rows available to lock");
+
+      // While those 5 are locked but uncommitted, a real purger run must skip
+      // them rather than block waiting for `holder` to finish. If it blocked,
+      // this call would hang until node:test's own timeout fails the test —
+      // completing at all, with exactly 5 deleted, is the proof it didn't.
+      const result = await runRateLimitCounterPurger({ batchSize: 10, maxBatches: 1 });
+      assert.equal(result.deleted, 5, "must delete only the 5 unlocked rows, not block on the 5 held ones");
+
+      const stillLocked = await db.execute<{ count: string }>(
+        sql`SELECT COUNT(*)::text AS count FROM rate_limit_counters WHERE key_raw LIKE 'lockproof-%'`,
+      );
+      assert.equal(
+        Number(stillLocked.rows[0]?.count ?? "0"),
+        5,
+        "the 5 held rows must still exist — SKIP LOCKED means skipped, not blocked-then-deleted",
+      );
+
+      await holder.query("ROLLBACK");
+    } finally {
+      holder.release();
+    }
+
+    // With the lock released, the previously-held rows are still expired and
+    // eligible — a follow-up run must be able to claim them.
+    const cleanup = await runRateLimitCounterPurger({ batchSize: 10, maxBatches: 1 });
+    assert.equal(cleanup.deleted, 5);
     assert.equal(await countRateLimitCounters(), 0);
   });
 });

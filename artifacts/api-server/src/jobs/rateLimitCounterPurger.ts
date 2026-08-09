@@ -43,10 +43,10 @@ export const DEFAULT_MAX_BATCHES = 20;
  * able to turn this job into a spinner (a batch size of 0 deletes nothing,
  * forever) or into the unbounded statement it exists to avoid.
  */
-const MIN_BATCH_SIZE = 1;
-const MAX_BATCH_SIZE = 50_000;
-const MIN_MAX_BATCHES = 1;
-const MAX_MAX_BATCHES = 1_000;
+export const MIN_BATCH_SIZE = 1;
+export const MAX_BATCH_SIZE = 50_000;
+export const MIN_MAX_BATCHES = 1;
+export const MAX_MAX_BATCHES = 1_000;
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
