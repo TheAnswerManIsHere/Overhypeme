@@ -16,11 +16,14 @@ interface Props {
  * Public / Private choice for a meme, shown next to the save action in both
  * builder surfaces (the MBFO wizard's Step 2 and the single-screen builder).
  *
- * Privacy is a Legendary-only entitlement: `createMemeRecord` silently forces
- * `isPublic: true` for every other tier. So for a non-Legendary viewer the
- * "Private" pill is **locked, never selectable** — tapping it opens the upgrade
- * modal and `onChange(false)` is unreachable. That keeps the control from ever
- * showing a state the server would quietly overwrite. Locked affordances follow
+ * Privacy is a Legendary-level entitlement: `createMemeRecord` rejects an
+ * explicit `isPublic: false` from anyone below it with a 403 rather than
+ * downgrading the meme to public. So for a non-Legendary viewer the "Private"
+ * pill is **locked, never selectable** — tapping it opens the upgrade modal and
+ * `onChange(false)` is unreachable. That keeps the control from ever offering a
+ * choice the save would then refuse. `tier` here already collapses admin into
+ * `legendary` (`roleToTier`), which matches the server's role-based gate.
+ * Locked affordances follow
  * the wizard's established language (dimmed pill + typeset LEGEND badge, no
  * emoji) rather than being hidden, so the entitlement is discoverable.
  *
