@@ -110,11 +110,15 @@ Flag any of these if they look off — they're the neighbors this fix sits next 
 
 ## One thing worth knowing
 
-If a meme's creator has since deleted their account, that meme's picture falls back
-to the generic name "Alex" — which is the same fallback the words under the picture
-have always used. Before this fix, that case would have shown `{NAME}` on the
-picture; now the two agree. You're unlikely to hit it, but if you see "Alex" on a
-very old meme, that's this, working as intended.
+If a meme's creator has since deleted their account, the **picture** falls back to
+the generic name "Alex" — before this fix it would have shown `{NAME}` instead, so
+this is strictly better. But the **words under the picture** don't fall back the
+same way: they're usually frozen from the moment the meme was made, so they keep
+showing the real name even after the creator is gone. That gap between the picture
+and the caption text is real, it predates this fix, and this PR doesn't close it —
+it's a separate, pre-existing quirk, tracked in #399. You're very unlikely to hit
+it (it needs a deleted creator on an old-enough meme), and if you do, "Alex" on the
+picture next to a real name in the caption is that quirk, not a new bug.
 
 ## If something's wrong
 
