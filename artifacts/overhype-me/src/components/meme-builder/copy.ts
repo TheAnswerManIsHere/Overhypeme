@@ -41,6 +41,19 @@ export const ACTION_COPY = {
   tryAiMode: "Try AI mode",
 } as const;
 
+/**
+ * Public/Private visibility control. `private` is a Legendary-only choice —
+ * `createMemeRecord` silently forces `isPublic: true` for every other tier, so
+ * the control must never let a lower tier *select* it (it upsells instead).
+ */
+export const VISIBILITY_COPY = {
+  groupLabel: "Who can see this meme",
+  public: "Public",
+  private: "Private",
+  privateHelper: "Only you. It stays out of the gallery and the link won't open for anyone else.",
+  lockBadge: "LEGEND",
+} as const;
+
 export const UPLOAD_ERROR_COPY = {
   "too-large": "That file is too big. Try one under 15 MB.",
   "invalid-format": "Use a JPEG, PNG, or WebP image.",

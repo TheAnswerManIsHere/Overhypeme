@@ -44,6 +44,8 @@ export interface WizardRuntimeState {
   pronouns?: string;
   textOptions?: MemeTextOptions;
   advancedOptions?: WizardAdvancedOptions;
+  /** Gallery visibility; undefined means "not chosen yet" and reads as public. */
+  isPublic?: boolean;
   generation: GenerationStatus;
 }
 
@@ -59,6 +61,7 @@ export type WizardAction =
   | { type: "set-pronouns"; pronouns: string }
   | { type: "set-text-options"; textOptions: MemeTextOptions }
   | { type: "set-advanced-options"; advancedOptions: WizardAdvancedOptions }
+  | { type: "set-is-public"; isPublic: boolean }
   | { type: "set-generation"; generation: GenerationStatus }
   | { type: "set-video-source-mode"; videoSourceMode: NonNullable<WizardAdvancedOptions["videoSourceMode"]> }
   | { type: "set-video-look-style-id"; videoLookStyleId: string }
@@ -117,6 +120,8 @@ function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntime
       return { ...state, textOptions: action.textOptions };
     case "set-advanced-options":
       return { ...state, advancedOptions: action.advancedOptions };
+    case "set-is-public":
+      return { ...state, isPublic: action.isPublic };
     case "set-generation":
       return { ...state, generation: action.generation };
     case "set-video-source-mode":
@@ -197,6 +202,7 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
       pronouns: state.pronouns,
       textOptions: state.textOptions,
       advancedOptions: state.advancedOptions,
+      isPublic: state.isPublic,
     };
     captureWizardState(snapshot);
   }, [
@@ -212,6 +218,7 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
     state.pronouns,
     state.textOptions,
     state.advancedOptions,
+    state.isPublic,
   ]);
 
   const clearDraft = useCallback(() => {
