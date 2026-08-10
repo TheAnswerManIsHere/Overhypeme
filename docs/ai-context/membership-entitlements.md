@@ -257,10 +257,15 @@ of, or OR-ed with, the feature lookup (`facts.ts`'s captcha bypass and
 wrong is silent by construction: the admin simply doesn't get the feature, and
 because most legendary gates in the codebase *are* role-based, the one that
 isn't looks like it works. It cost a private meme being published — see
-[`known-failure-patterns.md`](known-failure-patterns.md). The remaining
-tier-only lookups (`meme_rate_limit_high`, `meme_ai_background`,
-`video_generation`) still deny admins by this mechanism; each fails closed, so
-none is a leak, but none has been deliberately adjudicated either.
+[`known-failure-patterns.md`](known-failure-patterns.md). Two remaining
+tier-only lookups still deny admins by this exact mechanism —
+`meme_rate_limit_high` (`createMemeRecord.ts:176`, no `isAdmin` short-circuit
+before the call) and `meme_ai_background` (`render.ts:124`, same shape). Each
+fails closed, so neither is a leak, but neither has been deliberately
+adjudicated either. `video_generation` (`videos.ts:403-415`,
+`videoJobs.ts:87-96`) is **not** in this list — both routes resolve `isAdmin`
+first and skip the `hasFeature` call entirely when it's true, so admins are
+already exempt there.
 
 All route through `effectiveTierExpr()` / `effectiveTierPredicate()` /
 `effectiveTierForRow()` — an **expression**, not a stored predicate, because a

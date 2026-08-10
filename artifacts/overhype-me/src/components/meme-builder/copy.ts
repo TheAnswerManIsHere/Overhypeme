@@ -42,9 +42,10 @@ export const ACTION_COPY = {
 } as const;
 
 /**
- * Public/Private visibility control. `private` is a Legendary-only choice —
- * `createMemeRecord` silently forces `isPublic: true` for every other tier, so
- * the control must never let a lower tier *select* it (it upsells instead).
+ * Public/Private visibility control. `private` is a Legendary-level choice —
+ * `createMemeRecord` rejects an explicit `isPublic: false` from every other
+ * tier with a 403, so the control must never let a lower tier *select* it (it
+ * upsells instead) — the save would refuse it, not silently publish it.
  */
 export const VISIBILITY_COPY = {
   groupLabel: "Who can see this meme",

@@ -242,9 +242,12 @@ ignores the admin "view as user" toggle. `requireLegendary` is a shim for
 `generate-v2`, `analyze-source`, image delete); all AI video (both
 systems, via `hasFeature`/`isAtLeastLegendary`); PuLID-stylized photo
 memes (`imageTransform: "pulid"` → 403 `tier_mismatch` if not qualified,
-`createMemeRecord.ts:178-184`); private meme visibility (non-Legendary is
-silently forced `isPublic: true` regardless of what they request,
-`createMemeRecord.ts:174-179`); the higher daily-save-cap /
+`createMemeRecord.ts:182-184`); private meme visibility (a caller below
+Legendary who explicitly requests `isPublic: false` gets a 403, not a
+silent downgrade to public — see
+[`membership-entitlements.md`](membership-entitlements.md)'s reader
+inventory for why this has to resolve from the role, not the tier column,
+`createMemeRecord.ts:174-201`); the higher daily-save-cap /
 higher-rate-limit tier feature.
 
 **NOT gated by tier (auth-only):** `POST /memes` itself — any
