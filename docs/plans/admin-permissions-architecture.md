@@ -179,7 +179,89 @@ Code read so far: `artifacts/api-server/src/lib/tierFeatures.ts`,
 
 ## Current Behavior
 
-*(To be completed from the inventory sweeps.)*
+### The grid's actual contents
+
+Seven features exist. Ground truth verified against the database, then
+cross-checked against migrations `0013`/`0028`/`0029`/`0057` and `seed.ts`.
+
+| Feature key | unregistered | registered | legendary | admin | Read by code? |
+|---|---|---|---|---|---|
+| `comment_captcha_bypass` | false | false | true | true | yes (`facts.ts:472`) |
+| `meme_ai_background` | false | false | true | true | yes (`render.ts:124`) |
+| `meme_private_visibility` | false | false | true | true | yes (`createMemeRecord.ts:175`) |
+| `meme_rate_limit_high` | false | false | true | true | yes (`createMemeRecord.ts:176`) |
+| `meme_upload_photo` | false | **true** | true | true | **no — fully orphaned** |
+| `video_generation` | false | false | true | true | yes (`videos.ts:415`, `videoJobs.ts:96`) |
+| `engine_experiments` | **no row** | **no row** | **no row** | **no row** | **no — read via a parallel hardcoded path** |
+
+Five defects in the grid data itself, all found by this sweep:
+
+1. **`engine_experiments` has no permission rows at all.** Migration `0057`
+   inserted the feature definition but no tier rows, and it landed *after*
+   `0029`'s backfill, so nothing ever filled them. The admin UI renders four
+   unchecked boxes that create rows when toggled — but nothing reads them.
+2. **`video_generation`'s tier rows are force-overwritten on every server
+   boot.** `seed.ts:537-545` upserts them with
+   `ON CONFLICT … DO UPDATE SET enabled = EXCLUDED.enabled`, unlike every
+   other seeded row, which uses `DO NOTHING`. Any admin toggle of this
+   feature silently reverts on the next restart — while the admin UI states
+   "Changes take effect immediately without redeployment."
+3. **`meme_upload_photo` is dead configuration.** No code anywhere reads it.
+   Photo upload is actually governed by `uploadRateLimit.ts` plus
+   authentication. Migration `0028` exists specifically to correct this row's
+   value, for a row nothing consults.
+4. **`engine_experiments` is read through a parallel mechanism**, not the
+   grid: `engines.feature_flag_required` is resolved against a predicate
+   `videos.ts:820-822` hardcodes to `isAdmin ? () => true : () => false`. So
+   the grid row is decorative twice over.
+5. **`meme_rate_limit_high`'s description is factually wrong.** It reads
+   "100/hour instead of 10/hour"; the implementation is a rolling-24h save cap
+   of 200 vs 30 (`createMemeRecord.ts:221-228`). Verified directly.
+
+### Where an admin actually lands today
+
+Admin exemption is implemented **13+ separate times, three different ways** —
+an explicit `admin` key in one policy map, an `isAdmin` short-circuit in eight
+places, and the `isAtLeastLegendary(role)` ladder in the rest — while the
+grid's own admin column is unreachable.
+
+| Subsystem | Admin gets | Deliberate? |
+|---|---|---|
+| Resource governance (spend/req/concurrency/duration/payload) | Its own generous `admin` policy row | **Deliberate** — the one place `admin` is a first-class key, and the model this plan generalises |
+| Generation budget (`budgetGate`) | Unlimited (`Infinity`) | Deliberate, explicit branch |
+| Daily upload cap | Unlimited | Deliberate, documented |
+| Video jobs/day | Exempt | Deliberate |
+| Fact-submit rate limit | Exempt | Deliberate |
+| Comment CAPTCHA | Bypassed | Deliberate |
+| Private memes / PuLID | Allowed | Deliberate (PR #402) |
+| Video generation | Allowed | Deliberate short-circuit |
+| Engine visibility | All engines | Deliberate placeholder |
+| **Daily meme-save cap** | **30/day — the free-tier cap** | **Accidental** — keyed off the tier, in the same function that deliberately fixed two sibling gates to use the role |
+| **Fact-submit pending cap (10 unresolved)** | **Capped like everyone else** | **Accidental** — its sibling rate limiter two functions away exempts admins |
+| **`meme_ai_background`** | **Denied** | **Accidental** — tier-keyed, no role fallback |
+
+The two accidental denials are exactly the two gates that reached for
+`membership_tier` instead of the role. That is the same defect as PR #402,
+still live in two more places.
+
+### Other structural findings
+
+- **`effectiveTierExpr()` emits only `unregistered|registered|legendary`,
+  never `admin`.** This is the structural reason the grid's admin column is
+  dead: the only value that can reach `getTierFeatures()` is a membership
+  tier, by construction.
+- **`engines.tierRequirement` is stored on all 20 engines as `"legendary"`
+  and never enforced at runtime** — nothing outside the admin editor UI reads
+  it. Dead metadata that looks like a permission.
+- **The two meme save-cap config keys are unreachable.** They use a
+  dot-namespaced convention (`memes.free_tier_daily_save_cap`) no other key
+  uses, and neither is seeded by any migration or `seed.ts` — so they never
+  appear in the admin config UI and can only ever return code defaults.
+- **The client derives permissions 13 times.** `role === "legendary" || role
+  === "admin"` is duplicated verbatim across 12 components, plus a 13th
+  variant in `studioAdapter.ts` that *maps* admin→legendary — the mapping
+  implicated in PR #402. There is no shared client helper, and no
+  client-facing feature endpoint exists outside `/api/admin/feature-flags`.
 
 ## Source-of-Truth Analysis
 
