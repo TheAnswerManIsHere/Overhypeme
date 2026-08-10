@@ -6,8 +6,14 @@
 # default origin (the static SPA artifact) unchanged.
 #
 # Deploy:
+#   Deploy the main app FIRST and confirm it's live (curl -I a meme image URL,
+#   check the ETag reads meme-v<N>-... matching MEME_IMAGE_EDGE_CACHE_VERSION
+#   in src/index.ts) — THEN:
 #   pnpm worker:deploy
 # (which runs `wrangler deploy` against this config)
+# Deploying this Worker before the origin has the matching version lets the
+# edge cache the OLD bytes under the NEW cache key for a full s-maxage,
+# defeating the version bump. See README.md's Deploy section.
 #
 # Required env (set as Cloudflare Workers secret or in this repo's .env
 # loaded by the deploy script):

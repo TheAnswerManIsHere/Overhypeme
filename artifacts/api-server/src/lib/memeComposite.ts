@@ -18,7 +18,7 @@
 
 import { Buffer } from "node:buffer";
 import { generateMemeBuffer, type BackgroundSource, type FramingTransform, type TextOptions } from "./memeGenerator";
-import { renderPersonalized } from "./renderCanonical";
+import { renderPersonalized, CANONICAL_NAME } from "./renderCanonical";
 import { ObjectStorageService } from "./objectStorage";
 import { getPhotoById } from "./pexelsClient";
 import type { ImageSource } from "./validators/memeBuilder";
@@ -59,6 +59,91 @@ export interface ComposeMemeResult {
 }
 
 const defaultObjectStorage = new ObjectStorageService();
+
+/**
+ * Personalise the split caption halves the same way the fact text itself is
+ * personalised.
+ *
+ * The studio's split slider cuts the **raw template** into `topText` /
+ * `bottomText` and sends both over the wire, and `generateMemeBuffer` draws
+ * that pair in preference to `factText` whenever it is present. So
+ * personalising `factText` alone resolves a string that is then thrown away,
+ * and the finished image renders the literal `{NAME}`. Every render path that
+ * calls `renderPersonalized` for the fact text must call this for the options
+ * in the same breath.
+ *
+ * Each half is substituted independently, which is exactly what the client's
+ * `LivePreview` does (`renderFactSegments` per block) — so the server render
+ * stays byte-faithful to the preview the user approved.
+ */
+export function personalizeMemeTextOptions<T extends Pick<TextOptions, "topText" | "bottomText">>(
+  options: T | undefined,
+  name: string | null | undefined,
+  pronouns: string | null | undefined,
+): T | undefined {
+  if (!options) return options;
+  if (!name) return options;
+  const next = { ...options };
+  if (typeof next.topText === "string") {
+    next.topText = renderPersonalized(next.topText, name, pronouns);
+  }
+  if (typeof next.bottomText === "string") {
+    next.bottomText = renderPersonalized(next.bottomText, name, pronouns);
+  }
+  return next;
+}
+
+/** The columns a stored-recipe render needs from the fact row. */
+export interface StoredMemeFactRow {
+  text: string | null;
+  canonicalText: string | null;
+}
+
+/** The columns a stored-recipe render needs from the meme's creator. */
+export interface StoredMemeCreatorRow {
+  displayName: string | null;
+  pronouns: string | null;
+}
+
+/**
+ * Resolve the caption a stored meme recipe should be re-rendered with.
+ *
+ * A meme row stores the fact by reference (`fact_id`) plus a `text_options`
+ * blob whose `topText`/`bottomText` are the fact **template** cut in two by
+ * the studio's split slider. `generateMemeBuffer` draws that pair in
+ * preference to the fact sentence, so personalising only the sentence leaves
+ * the literal `{NAME}` in the finished image. Both must be personalised with
+ * the SAME identity — which is why this lives in one helper rather than being
+ * re-derived at each render endpoint (`/memes/:slug/image` and the two Zazzle
+ * exports each had their own copy, and each had the same hole).
+ *
+ * When the creator is gone (deleted/inactive user, or an anonymous meme) the
+ * caption falls back to the fact's canonical rendering, and the split halves
+ * are rendered canonically too so the two stay in agreement.
+ */
+export function resolveStoredMemeCaption(
+  fact: StoredMemeFactRow | undefined,
+  creator: StoredMemeCreatorRow | undefined,
+  storedTextOptions: unknown,
+): { factText: string; textOptions: TextOptions | undefined } {
+  const storedOptions = (storedTextOptions ?? undefined) as TextOptions | undefined;
+  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+
+  if (creator?.displayName && rawTemplate) {
+    return {
+      factText: renderPersonalized(rawTemplate, creator.displayName, creator.pronouns),
+      textOptions: personalizeMemeTextOptions(storedOptions, creator.displayName, creator.pronouns),
+    };
+  }
+
+  return {
+    factText: fact?.canonicalText ?? fact?.text ?? "",
+    // CANONICAL_NAME + they/them is precisely the identity `renderCanonical`
+    // (and therefore `facts.canonical_text`) uses, so the halves and the
+    // sentence resolve to the same words.
+    textOptions: personalizeMemeTextOptions(storedOptions, CANONICAL_NAME, "they/them"),
+  };
+}
 
 /**
  * Source-kind manifest. Each `imageSource.type` resolves to a
@@ -162,11 +247,12 @@ export async function composeMeme(
   opts: ComposeMemeOptions = {},
 ): Promise<ComposeMemeResult> {
   const factText = renderPersonalized(input.factTextTemplate, input.name, input.pronouns);
+  const textOptions = personalizeMemeTextOptions(input.textOptions, input.name, input.pronouns);
   const background = await resolveBackground(input.imageSource, opts);
   const buffer = await generateMemeBuffer(
     background,
     factText,
-    input.textOptions,
+    textOptions,
     input.aspectRatio ?? "landscape",
     input.framingTransform ?? null,
   );
