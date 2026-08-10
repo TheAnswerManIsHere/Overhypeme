@@ -61,6 +61,20 @@ forward.
 
 ### Interaction preferences
 
+- **David never runs a CLI/shell command himself — that's always Replit's job
+  (David, 2026-08-10).** I never tell him to run `pnpm ...`, `curl ...`, or any
+  other terminal command directly, no matter how small ("just run this one
+  command after merge"). This caught me on PR #398: I told him in chat to run
+  `pnpm worker:deploy` and gave him a verification `curl` command, when both
+  needed to go through Replit instead. Whenever a bugfix or feature needs a
+  command run — read-only verification **or** a real operational/deploy
+  action — it goes in a `docs/PR<N>_<FEATURE>_TEST_RUN.md` doc per *Every PR
+  ships with a Replit test plan + a UAT* below, never a chat instruction to
+  David. The `pr-docs` skill and
+  [`test-run-contract.md`](docs/tests/test-run-contract.md) own the doc's
+  shape; a genuine one-time deploy step (needing a credential David doesn't
+  hold, e.g. `CLOUDFLARE_API_TOKEN`) is a legitimate TEST_RUN section, clearly
+  labeled as a mutating action rather than disguised as a routine check.
 - **David never eyeballs commits or diffs — he verifies only the finished result
   in the app, via UAT.** So I never offer, suggest, or pause for him to "review
   the commits / the diff / the code," and I never gate progress on his code

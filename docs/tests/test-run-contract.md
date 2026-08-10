@@ -33,9 +33,18 @@ harmless to follow:
   cluster-scoped — no schema- or database-level isolation contains them), no
   successful writes to live `admin_config` or other production rows, no
   stopping of workflows without an explicit restart step. The permitted
-  writes are exactly two shapes: a request whose *rejection* is the thing
-  being tested (a 403 refusal probe writes nothing), and a write with a
-  restore path through the same surface, captured **before** the write.
+  writes are exactly three shapes: a request whose *rejection* is the thing
+  being tested (a 403 refusal probe writes nothing); a write with a restore
+  path through the same surface, captured **before** the write; and a
+  genuine one-time operational/deploy action that needs a credential or
+  environment David does not hold directly (David, 2026-08-10 — **David
+  never runs a CLI/shell command himself**, so a command that has to run at
+  all runs here, not as a chat instruction). The third shape must be **stated
+  as a mutating deploy step, never disguised as a routine check** — name what
+  it deploys, what credential it needs, and any ordering prerequisite (e.g.
+  confirm the origin is already live before deploying an edge Worker that
+  depends on it — see PR #398's `cloudflare/og-router` deploy for the
+  worked example).
 - **Read-only SQL is the workhorse.** Schema/catalog checks, count queries,
   backfill-outcome verification — all safe to run any number of times, and
   they cover what CI genuinely cannot see.
