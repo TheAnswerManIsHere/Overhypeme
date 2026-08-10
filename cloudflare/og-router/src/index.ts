@@ -27,6 +27,28 @@ interface Env {}
 
 const SLUG_RE = /^\/m\/([A-Za-z0-9_-]+)\/?$/;
 const STRIP_COOKIE_RE = /^\/api\/(memes\/[^/]+\/image|og(\/|$))/;
+const MEME_IMAGE_PATH_RE = /^\/api\/memes\/[^/]+\/image$/;
+
+/**
+ * Bump alongside `MEME_RENDER_VERSION` (artifacts/api-server/src/routes/
+ * memes.ts) whenever a change to the meme render pipeline changes what
+ * `generateMemeBuffer` draws for the same stored inputs.
+ *
+ * `MEME_RENDER_VERSION` only changes the origin's ETag — useless against a
+ * shared/edge cache entry that's still within its `s-maxage`, since an edge
+ * PoP serving a fresh cached response never re-contacts origin to learn a new
+ * ETag. Appending this version to the ORIGIN subrequest URL below (query
+ * strings are part of Cloudflare's default cache key) gives a render-pipeline
+ * change a genuinely fresh cache key, so a previously-cached meme image can
+ * never be served stale post-deploy. Scoped to the origin subrequest only —
+ * the PUBLIC url (the stored `meme.imageUrl`, and every consumer of it: the
+ * JSON API, `<img>`/`<video>` tags, Zazzle export, OG cards) is untouched.
+ *
+ * This Worker deploys independently of the main app (`pnpm worker:deploy` —
+ * see wrangler.toml) — bumping this constant does nothing until that deploy
+ * actually runs.
+ */
+const MEME_IMAGE_EDGE_CACHE_VERSION = 4;
 
 /**
  * Fetch the origin response and return a clone that has all `Set-Cookie`
@@ -35,7 +57,13 @@ const STRIP_COOKIE_RE = /^\/api\/(memes\/[^/]+\/image|og(\/|$))/;
  * would otherwise be poisoned by GCP's GAESA cookie.
  */
 async function fetchAndStripCookies(request: Request): Promise<Response> {
-  const originResponse = await fetch(request);
+  let originRequest: Request = request;
+  const url = new URL(request.url);
+  if (MEME_IMAGE_PATH_RE.test(url.pathname)) {
+    url.searchParams.set("rv", String(MEME_IMAGE_EDGE_CACHE_VERSION));
+    originRequest = new Request(url.toString(), request);
+  }
+  const originResponse = await fetch(originRequest);
   const cleaned = new Response(originResponse.body, originResponse);
   cleaned.headers.delete("Set-Cookie");
 
