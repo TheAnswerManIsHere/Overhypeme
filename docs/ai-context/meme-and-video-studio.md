@@ -18,40 +18,51 @@
 > path), `artifacts/api-server/src/lib/storageKeys.ts` +
 > `artifacts/api-server/src/lib/objectStorage.ts` (media storage).
 
-## Frontend entry points (two parallel flows currently coexist)
+## Frontend entry points (one is dead code today, kept for reference)
 
-Which UI a user sees is a build-time flag, `VITE_MBFO_WIZARD`
-(`FactDetail.tsx:30`, checked at `FactDetail.tsx:117-144,423-461`):
+Which UI mounts is a build-time flag, `VITE_MBFO_WIZARD`
+(`FactDetail.tsx:30`, checked at `FactDetail.tsx:117-144,423-461`). **The flag
+is pinned on, not runtime-configurable in this repo:**
+`artifacts/overhype-me/.env.local` is committed to git (force-added — the
+repo's `.gitignore` excludes `.env*` generally) and sets
+`VITE_MBFO_WIZARD=1`; nothing else in the repo (`.replit`, `replit.nix`, any
+CI workflow) ever sets or overrides it. So the Legacy branch below can never
+render in any build — dev or deployed — of this repo as it stands. Don't read
+the split as "two live paths"; verify with `git ls-files
+artifacts/overhype-me/.env.local` before assuming otherwise, since flipping
+that one committed line is all it would take to change this.
 
-- **Legacy** (`MBFO_WIZARD_ENABLED` false): `MemeStudio.tsx` — a hub of path
-  cards (`photo-image`, `ai-gallery`, `stock-image`, `gradient-image`,
-  `magic-video`, `manual-video`, `MemeStudio.tsx:62-69`). Image paths route
-  through `NewBuilderAdapter` (`MemeStudio.tsx:634-708`) into
-  `components/meme-builder/MemeBuilder.tsx` — **not** the older, no-longer-
-  mounted duplicate at `components/MemeBuilder.tsx` (legacy, per its own
-  header comment). Video paths go to `MemeStudioVideoTab.tsx` (manual) or
-  `MemeMagicVideo.tsx` (magic).
-- **New wizard** (`MBFO_WIZARD_ENABLED` true):
+- **Legacy, currently unreachable** (`MBFO_WIZARD_ENABLED` false):
+  `MemeStudio.tsx` — a hub of path cards (`photo-image`, `ai-gallery`,
+  `stock-image`, `gradient-image`, `magic-video`, `manual-video`,
+  `MemeStudio.tsx:62-69`). Image paths route through `NewBuilderAdapter`
+  (`MemeStudio.tsx:634-708`) into `components/meme-builder/MemeBuilder.tsx` —
+  **not** the older, no-longer-mounted duplicate at `components/MemeBuilder.tsx`
+  (legacy, per its own header comment — that one is unreachable from *any*
+  flag state, not just this one). Video paths go to `MemeStudioVideoTab.tsx`
+  (manual) or `MemeMagicVideo.tsx` (magic).
+- **New wizard, the only live path** (`MBFO_WIZARD_ENABLED` true):
   `components/meme-builder/wizard/MemeBuilderWizard.tsx`; its video step is
   `wizard/step2-video/Step2Video.tsx`.
 
-Both flows converge on the same backend.
+Both flows converge on the same backend, so this only matters for *frontend*
+work — a backend/route change still needs to consider both callers. A
+frontend change (like the visibility control below) only needs the wizard.
 
-**Where the visibility (Public/Private) choice lives.** One shared control,
-`meme-builder/parts/VisibilityToggle.tsx`, rendered next to the save action in
-both image surfaces: the wizard passes it through `WizardPrimaryAction`'s
-`aboveAction` slot (`step2-image/Step2Image.tsx`), the single-screen builder
-renders it directly above `ActionBar` (`meme-builder/MemeBuilder.tsx`). It is
-set **at creation time only** — no route or UI changes a meme's visibility
-afterwards. Because privacy is Legendary-only (see *Tier gates*), the "Private"
-pill is locked-but-visible for lower tiers: tapping opens
+**Where the visibility (Public/Private) choice lives.** `VisibilityToggle`
+(`meme-builder/parts/VisibilityToggle.tsx`), rendered next to the save action
+in the wizard's Step 2 via `WizardPrimaryAction`'s `aboveAction` slot
+(`step2-image/Step2Image.tsx`). Not wired into the single-screen builder —
+per the dead-path note above, it can't be reached, so there's nothing to wire.
+It is set **at creation time only** — no route or UI changes a meme's
+visibility afterwards. Because privacy is Legendary-only (see *Tier gates*),
+the "Private" pill is locked-but-visible for lower tiers: tapping opens
 `UnifiedUpgradeModal` and the private state is unreachable, so the control can
 never show a value `createMemeRecord` would silently overwrite. **Video memes
-have no visibility control on either flow** — `POST /memes/video-jobs`'
-`StartBody` accepts no privacy field and `videoPipelineRunner` calls
-`createMemeRecord` without `isPublic`, so every video meme is public (the
-retired `MemeStudioVideoTab` had one, wired to the legacy sync `/videos`
-route's `isPrivate`).
+have no visibility control** — `POST /memes/video-jobs`'s `StartBody` accepts
+no privacy field and `videoPipelineRunner` calls `createMemeRecord` without
+`isPublic`, so every video meme is public (the retired `MemeStudioVideoTab`
+had one, wired to the legacy sync `/videos` route's `isPrivate`).
 
 ## Backend entry point and the `imageSource` union
 
@@ -316,11 +327,13 @@ hard-delete as comprehensive across every meme type.
   / `requireLegendary`.
 - `artifacts/api-server/src/routes/admin.ts` — hard-delete storage
   cleanup (and its video-artifact gap).
-- Frontend: `components/MemeStudio.tsx` (legacy hub),
-  `components/meme-builder/MemeBuilder.tsx` (universal builder),
-  `components/meme-builder/wizard/` (new wizard),
+- Frontend: `components/MemeStudio.tsx` (legacy hub, currently unreachable —
+  see *Frontend entry points* above),
+  `components/meme-builder/MemeBuilder.tsx` (universal builder, same —
+  reachable only through the legacy hub),
+  `components/meme-builder/wizard/` (the wizard — the only live path),
   `components/MemeStudioVideoTab.tsx` / `MemeMagicVideo.tsx` (legacy
-  video UI), `components/meme-builder/wizard/step2-video/Step2Video.tsx`
+  video UI, same), `components/meme-builder/wizard/step2-video/Step2Video.tsx`
   + `GodModeLoadingTakeover.tsx` (new video UI), `components/AiBgPicker.tsx`
   (AI image polling).
 - Tests: `__tests__/createMemeRecord.test.ts`, `__tests__/videoJobs.test.ts`,

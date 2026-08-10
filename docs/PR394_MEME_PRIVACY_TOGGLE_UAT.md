@@ -3,11 +3,12 @@
 Your in-app acceptance test, David.
 
 **Why this exists.** You went to UAT meme privacy and there was nothing to
-click. The control existed in the old single-file builder and was never
-carried into either builder that actually ships, so **every meme ever made
-in the app was saved public** — the backend has honored a privacy choice
-this whole time, the app just never sent one. This PR puts the choice back,
-next to the save button, on both builder surfaces.
+click. The control existed in the old builder and was never carried into the
+wizard — the only builder that actually ships (`VITE_MBFO_WIZARD=1` is
+committed to git, so it's the only path any real build ever renders) — so
+**every meme ever made in the app was saved public**. The backend has
+honored a privacy choice this whole time; the app just never sent one. This
+PR puts the choice back, next to the save button, on wizard Step 2.
 
 **One thing to know before you test:** visibility is chosen **at creation
 time only**. There is no route and no UI anywhere in the product that
@@ -18,23 +19,18 @@ post-creation switch; it's a separate piece of work.
 
 ## Before you start
 
-- No feature flag for the control itself — it's live wherever the builder is.
+- No feature flag for the control itself — it's live wherever the wizard is,
+  which is everywhere.
 - You'll want **two accounts**: one Legendary, one plain registered. Plus a
   private/incognito window for the logged-out checks.
-- The app has two meme builders and which one you get is a build-time flag
-  (`VITE_MBFO_WIZARD`). **The control looks the same in both** — a
-  Public | Private pair sitting just above the save button — so you don't
-  need to know which one you're on. If you see a full-screen wizard that
-  asked "what kind of meme?" first, you're on the wizard; if you see a
-  single scrolling page with a Save button, you're on the other one.
 
 ## The main event
 
 ### 1. The control is there, and it defaults to Public
 
-- Log in as your **Legendary** account, go to `/facts/39/meme`, pick a photo
-  (any source).
-- Look just above the **Make my meme** / **Save meme** button.
+- Log in as your **Legendary** account, go to `/facts/39/meme`, pick "Image",
+  then pick a photo (any source).
+- Look just above the **Make my meme** button.
 - ✅ There's a Public | Private pair, with **Public** selected.
 - ✅ No explanatory sub-text while Public is selected — the row is one line.
 
@@ -87,19 +83,16 @@ post-creation switch; it's a separate piece of work.
 - ✅ No visibility control anywhere. You can't save a meme until you sign up,
   so a choice about a meme that can't exist yet would just be noise.
 
-### 7. The choice survives a reload (wizard only)
+### 7. The choice survives a reload
 
-- As **Legendary**, on the wizard, set Private, then reload the page
-  mid-build.
+- As **Legendary**, set Private, then reload the page mid-build.
 - ✅ The wizard restores your draft **with Private still selected**.
-- On the single-screen builder this resets to Public on reload — if that
-  bothers you, say so and I'll persist it there too.
 
 ## Layout check — the part that costs you screen space
 
-Adding the control to the wizard grows the fixed bar at the bottom of Step 2
-by about one row, which is viewport taken away from the scrolling controls.
-Worth an explicit look on your phone:
+Adding the control grows the fixed bar at the bottom of Step 2 by about one
+row, which is viewport taken away from the scrolling controls. Worth an
+explicit look on your phone:
 
 - ✅ On a phone, scroll the Step 2 controls all the way down — the **last**
   control (Advanced options) can still be reached and isn't stuck under the
@@ -115,8 +108,8 @@ cheaper on space, easier to miss. Your call; it's a small change either way.
 
 ## Known gap — video memes
 
-**Video memes have no visibility control, on either builder.** That flow's
-backend accepts no privacy field at all, so every video meme is public. It
-isn't part of this fix (it needs a change inside the async video pipeline)
-and it's tracked separately — so if you test a *video* meme and find no
-toggle, that's the known gap, not a failure of this PR.
+**Video memes have no visibility control.** That flow's backend accepts no
+privacy field at all, so every video meme is public. It isn't part of this
+fix (it needs a change inside the async video pipeline) and it's tracked
+separately — so if you test a *video* meme and find no toggle, that's the
+known gap, not a failure of this PR.
