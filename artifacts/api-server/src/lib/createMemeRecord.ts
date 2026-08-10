@@ -190,7 +190,7 @@ export async function createMemeRecord(
     throw new CreateMemeError(403, { error: "tier_mismatch" });
   }
 
-  // ── Tier gate: private visibility is legendary-only ──────────────────
+  // ── Tier gate: private visibility requires the entitlement above ─────
   // Fail CLOSED on an explicit private request we cannot honour. Coercing it
   // to public instead is how an entitlement mismatch became a data exposure:
   // the caller asked for owner-only, got a 201, and the meme was world-

@@ -74,7 +74,10 @@ describe("VisibilityToggle", () => {
 
   it("never reports private for a locked tier, even if handed isPublic=false", () => {
     // Defence in depth: a stale draft or a caller bug must not render a
-    // "Private" state the server would silently flip back to public.
+    // "Private" state — the server would now reject an unentitled caller's
+    // explicit request with a 403 rather than silently flipping it back to
+    // public, but this component still must not display private as active
+    // for a tier its own tier-only lock treats as unentitled.
     render(
       <VisibilityToggle
         isPublic={false}

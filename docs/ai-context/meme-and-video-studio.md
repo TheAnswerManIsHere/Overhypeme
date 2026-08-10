@@ -55,10 +55,16 @@ in the wizard's Step 2 via `WizardPrimaryAction`'s `aboveAction` slot
 (`step2-image/Step2Image.tsx`). Not wired into the single-screen builder —
 per the dead-path note above, it can't be reached, so there's nothing to wire.
 It is set **at creation time only** — no route or UI changes a meme's
-visibility afterwards. Because privacy is Legendary-only (see *Tier gates*),
-the "Private" pill is locked-but-visible for lower tiers: tapping opens
-`UnifiedUpgradeModal` and the private state is unreachable, so the control can
-never show a value `createMemeRecord` would silently overwrite. **Video memes
+visibility afterwards. The client's lock is tier-only —
+`tier !== "legendary"` — and does not consult the
+`meme_private_visibility` feature flag (see *Tier gates*), so the "Private"
+pill is locked-but-visible for every lower tier even when an operator has
+granted that tier the flag via Admin → Features: tapping opens
+`UnifiedUpgradeModal` and the private state is unreachable through this UI.
+That keeps the control from ever offering a choice `createMemeRecord` would
+now refuse outright (a 403, not a silent overwrite) — at the cost of also
+hiding the choice from a tier the server would actually honor it for; that
+combination has no UI path today. **Video memes
 have no visibility control** — `POST /memes/video-jobs`'s `StartBody` accepts
 no privacy field and `videoPipelineRunner` calls `createMemeRecord` without
 `isPublic`, so every video meme is public (the retired `MemeStudioVideoTab`
@@ -242,11 +248,13 @@ ignores the admin "view as user" toggle. `requireLegendary` is a shim for
 `generate-v2`, `analyze-source`, image delete); all AI video (both
 systems, via `hasFeature`/`isAtLeastLegendary`); PuLID-stylized photo
 memes (`imageTransform: "pulid"` → 403 `tier_mismatch` if not qualified,
-`createMemeRecord.ts:182-184`); private meme visibility (a caller below
-Legendary who explicitly requests `isPublic: false` gets a 403, not a
-silent downgrade to public — see
+`createMemeRecord.ts:182-184`); private meme visibility (Legendary-level by
+default, or any tier an operator has separately granted the
+`meme_private_visibility` feature flag via Admin → Features — a caller with
+neither who explicitly requests `isPublic: false` gets a 403, not a silent
+downgrade to public. See
 [`membership-entitlements.md`](membership-entitlements.md)'s reader
-inventory for why this has to resolve from the role, not the tier column,
+inventory for why the role-vs-tier resolution matters,
 `createMemeRecord.ts:174-201`); the higher daily-save-cap /
 higher-rate-limit tier feature.
 
