@@ -153,7 +153,38 @@ Decided with David in the pre-plan conversation on 2026-08-10.
    are operator dials, not product entitlements. They stay role-gated and out
    of the grid.
 
-7. **The wrong call must become impossible, not merely discouraged.** A
+7. **Numeric limits live in the grid too — the grid holds values, not just
+   checkboxes (David, 2026-08-10).** I recommended leaving dollar budgets,
+   upload caps and rate limits in `admin_config` with an admin bucket added,
+   on blast-radius grounds. David decided against it, and his reason
+   supersedes mine: *"a big issue I have is not remembering that a setting
+   somewhere else affects behavior. It should be clear and obvious from one
+   screen who is allowed to do what."* A permission you cannot see from the
+   permissions screen is not actually governed by it. So the grid becomes the
+   total picture, and the boundary is drawn as:
+
+   > **The grid holds anything that determines what a given account may do.
+   > `admin_config` keeps global system tuning that is identical for
+   > everybody.**
+
+   That rule is stated here because it is the thing that decides where the
+   *next* setting goes, and getting that wrong is how the grid drifts back
+   into being partial.
+
+8. **"View as user" is faithful, including the numeric exemptions (David,
+   2026-08-10).** Previewing as a registered user means hitting a registered
+   user's spend cap and upload cap, not keeping operator headroom. A preview
+   that silently retains privileges is how the PR #402 class survives
+   testing. David noted an override toggle can be added later if the
+   faithfulness gets in the way; it is not built now.
+
+9. **Admins may view any content but may not act on content they do not
+   own** (delete another user's meme, remove their link, cancel their job).
+   Confirmed by David as intended, and therefore documented as a decision
+   rather than left as an unwritten asymmetry a future reviewer would
+   "fix".
+
+10. **The wrong call must become impossible, not merely discouraged.** A
    tier-keyed `hasFeature(tier, key)` reachable from route code is how this bug
    class reproduces. The tier-keyed lookup is confined to the resolver module,
    and a CI guard fails the build if application code calls it directly —
@@ -394,13 +425,36 @@ A new module — `artifacts/api-server/src/lib/featureAccess.ts` — is the only
 code permitted to read the grid:
 
 ```
-resolveFeatures(principal) -> Set<featureKey>
-  = gridFeatures(principal.tier)
-  ∪ (principal.isAdmin ? gridFeatures('admin') : ∅)
+resolveEntitlements(principal) -> Map<featureKey, Entitlement>
+  = merge( gridRows(principal.tier),
+           principal.isAdmin ? gridRows('admin') : ∅ )
 
-can(principal, featureKey) -> boolean
-requireFeature(featureKey) -> express middleware
+Entitlement = { allowed: boolean, limit: number | null }   // null = unlimited
+
+can(principal, featureKey)      -> boolean
+limitFor(principal, featureKey) -> number | null
+requireFeature(featureKey)      -> express middleware
 ```
+
+**Every feature carries a value, and booleans are the degenerate case.** A
+boolean feature is `{allowed, limit: null}`; a metered one adds a number. The
+three states a metered cell can hold are:
+
+| Grid cell | Meaning |
+|---|---|
+| off | denied entirely |
+| on, no number | **unlimited** |
+| on, number | capped at that number |
+
+This is what lets today's hardcoded admin exemptions become *visible cells*
+reading "Unlimited" instead of `if (isAdmin) return Infinity` buried in a
+helper — which is the whole point of Settled Decision #7.
+
+**`merge` is "more permissive wins", the numeric analogue of the union.**
+`allowed` OR-s; `limit` takes the larger, with unlimited beating any number.
+An admin therefore never ends up with a *smaller* allowance than their own
+tier would have given them, exactly as the boolean union guarantees they never
+lose a feature.
 
 - **`principal`** is derived from `req.user` — carrying the *effective* tier
   and the *toggle-aware* admin flag — or the anonymous principal
@@ -486,7 +540,7 @@ the grid or from hardcoded application code.
 |---|---|---|---|
 | `comment_captcha_bypass` | legendary + admin skip comment captcha | ✗ / ✗ / ✓ / **✓** | none — admin cell becomes live |
 | `meme_private_visibility` | legendary + admin (post-#402) | ✗ / ✗ / ✓ / **✓** | none — admin cell becomes live |
-| `meme_rate_limit_high` | legendary only; **admins wrongly on the free cap** | ✗ / ✗ / ✓ / **✓** | **fixes an accidental denial**; description corrected to "200 saves/day instead of 30" |
+| `meme_rate_limit_high` | legendary only; **admins wrongly on the free cap** | *replaced by the metered `daily_meme_saves` below* | **fixes an accidental denial**; the boolean disappears in favour of the actual numbers, which also retires its wrong description |
 | `meme_ai_background` | legendary via `requireLegendary`; **admins wrongly denied** on the (dead) render gate | ✗ / ✗ / ✓ / **✓** | **fixes an accidental denial**; rewired to the reachable routes |
 | `video_generation` | legendary + admin, **cannot actually be switched off** | ✗ / ✗ / ✓ / **✓** | grid toggle starts working; boot overwrite removed |
 | `meme_upload_photo` | **dead row** — upload is authentication-only | ✗ / ✓ / ✓ / **✓** | **wired up for the first time**, matching today's real behaviour and resolving the three-way builder disagreement |
@@ -502,34 +556,115 @@ the grid or from hardcoded application code.
 | `ads_free` | client-only, `AdSlot.tsx:21` — no server gate exists | ✗ / ✗ / ✓ / **✓** |
 | `profile_photo_avatar` | client-only, `Navbar.tsx:46` — real photo vs. generated avatar | ✗ / ✗ / ✓ / **✓** |
 
-Every proposed row reproduces today's behaviour except the three marked as
-fixing an accidental denial. Nothing silently gains or loses access on
+### Metered rows — the numeric limits moving in from elsewhere
+
+Per Settled Decision #7. "∞" is the *unlimited* cell state, which is how
+today's hardcoded admin exemptions become visible. Every value below is what
+the system does today.
+
+| Proposed feature | Lives today in | u | r | l | **a** |
+|---|---|---|---|---|---|
+| `daily_meme_saves` | code constants 30 / 200, via the `meme_rate_limit_high` boolean | ✗ | 30 | 200 | **∞** ¹ |
+| `ai_generation_budget` (per budget period, USD) | `admin_config` `budget_limit_*_usd` | ✗ | 0.50 | 10.00 | **∞** |
+| `daily_photo_uploads` | `admin_config` `upload_rate_limit_*_per_day` | ✗ | 20 | 200 | **∞** |
+| `daily_video_jobs` | code constant 3, flat | ✗ | 3 | 3 | **∞** ² |
+| `fact_submits_per_minute` | code constant 5/60s | ✗ | 5 | ∞ | **∞** |
+| `pending_fact_submissions` | code constant 10, flat | ✗ | 10 | 10 | **∞** ³ |
+| `governance_daily_spend` (USD) | `resourceGovernance.POLICIES` | 0 | 3 | 20 | **200** |
+| `governance_monthly_spend` (USD) | same | 0 | 25 | 250 | **2000** |
+| `governance_requests_per_day` | same | 0 | 25 | 250 | **2000** |
+| `governance_concurrent_jobs` | same | 0 | 1 | 3 | **10** |
+| `governance_max_duration_sec` | same | 0 | 8 | 30 | **120** |
+| `governance_max_payload_mb` | same | 0 | 1.5 | 8 | **25** |
+
+¹ **fixes the accidental denial** — admins are currently on 30/day.
+² admins are currently exempt in code; ∞ makes that visible.
+³ **fixes the accidental cap** — admins are currently held to 10 like everyone
+else, unlike the sibling rate limiter which exempts them.
+
+The governance rows are the only place in the codebase that already models
+admin as a first-class tier with its own policy. Moving it into the grid
+generalises the one thing that was already right.
+
+### What deliberately stays in `admin_config`
+
+Applying the boundary rule from Settled Decision #7 — these are identical for
+every account, so they are system tuning, not permissions:
+`budget_period`, `user_max_images`, `max_memes_per_fact`,
+`ai_max_images_per_gender`, `pexels_photos_per_gender`,
+`bg_display_limit_stock` / `_gradient` / `_upload`, and the
+moderation fail-open switches. If any of these later needs to differ by tier,
+the rule says it moves to the grid at that point.
+
+**One per-user exception is retained and documented:**
+`users.monthly_generation_limit_override_usd`, set on the user-edit screen,
+overrides `ai_generation_budget` for a single account. That is a deliberate
+per-user override rather than a second source of tier truth, and the Features
+page will say so, so it does not become the next "setting somewhere else."
+
+Every proposed row reproduces today's behaviour except the four marked as
+fixing an accidental denial or cap. Nothing silently gains or loses access on
 migration day — the grid starts by describing what already happens, and from
 then on it is the thing that decides.
 
 ## Data Model and Migration Impact
 
-No schema change to `tier_feature_permissions` for the boolean half. One
-forward-only migration:
+### Schema
 
-1. Insert the five new `feature_flags` rows.
-2. Insert all four tier rows for every new key, and the four missing
-   `engine_experiments` rows, with the values in the tables above.
-3. Correct `meme_rate_limit_high`'s description.
-4. Backfill any `(tier, feature_key)` combination still missing, so the
-   invariant "every feature has exactly four rows" holds — then add a
-   **CHECK-equivalent guard** so `0057`'s failure mode (a feature added after
-   the backfill, with no rows) cannot recur. Because the seed lives in a
-   migration and the guard in the schema file, the schema declaration is added
-   alongside it per the repo's lost-constraint rule.
+Two additive columns, no table split — one table keeps the admin page a single
+screen, which is the requirement behind Settled Decision #7.
 
-Idempotent (`ON CONFLICT DO NOTHING` for inserts, targeted `DO UPDATE` only
-for the description). No backfill of user data, nothing destructive, so no
-rollback script is required beyond the ordinary forward fix. Row-state matrix:
-*new* keys insert; *existing* keys no-op; *partial* (some tiers present) fills
-the gaps; *no-op* on re-run.
+- `feature_flags` gains **`value_type`** (`'boolean' | 'integer' | 'decimal'`,
+  default `'boolean'`), **`unit`** (nullable display string — `USD`, `per day`,
+  `MB`), and nullable **`min_value` / `max_value`** for input validation,
+  mirroring how `admin_config` already describes its own editable values.
+- `tier_feature_permissions` gains a nullable **`limit_value`**
+  (`numeric(12,4)`). `NULL` on an enabled metered row means *unlimited*; it is
+  meaningless on a boolean row.
 
-The `video_generation` seed in `seed.ts` changes from
+A CHECK constraint enforces that `limit_value` is null whenever the feature's
+`value_type` is `'boolean'`, so the two shapes cannot be mixed up in data.
+Because a raw-SQL constraint that exists only in a migration has been lost in
+this repo before, the matching `check()` is declared in
+`lib/db/src/schema/featureFlags.ts` in the same PR.
+
+### Migration
+
+Forward-only, idempotent, in this order:
+
+1. Add the columns and the CHECK.
+2. Insert the new boolean `feature_flags` rows and their four tier rows each;
+   fill `engine_experiments`' four missing rows.
+3. Insert the metered `feature_flags` rows, then their tier rows — **reading
+   the current values out of `admin_config` where they live there**
+   (`budget_limit_*`, `upload_rate_limit_*`) rather than hardcoding, so an
+   operator who has already retuned them keeps their values. Code-constant
+   sources (save caps, governance policy, video jobs, submit limits) are
+   written from the constants.
+4. **Delete the migrated `admin_config` rows.** This is the step that actually
+   delivers David's requirement — if the old keys survive, there are now *two*
+   screens instead of one, which is worse than before. The config editor must
+   not still offer a budget limit that no longer does anything.
+5. Drop the `meme_rate_limit_high` boolean rows, superseded by
+   `daily_meme_saves`.
+6. Backfill any `(tier, feature_key)` combination still missing so the
+   invariant "every feature has exactly four rows" holds, and add the guard
+   that makes migration `0057`'s failure mode — a feature added later with no
+   rows — impossible to repeat.
+
+**Row-state matrix:** *new* key → insert; *existing* key → no-op; *partial*
+(some tiers present) → fill gaps only; *retuned by operator* → value preserved
+from `admin_config`; *re-run* → no-op throughout. Nothing is destructive
+except step 4/5, which delete rows this migration has just superseded — and
+both are guarded on the replacement rows existing first, so a partial failure
+cannot leave the system with neither.
+
+**Rollback:** the deletions in 4/5 are the only irreversible part, so the
+migration writes the pre-deletion `admin_config` values into the migration log
+before removing them. A rollback is a new forward migration restoring them
+from that record, per the repo's forward-only convention.
+
+Also in the same PR: the `video_generation` seed in `seed.ts` changes from
 `DO UPDATE SET enabled = EXCLUDED.enabled` to `DO NOTHING`, matching every
 other seeded row, so operator toggles survive a restart.
 
@@ -537,9 +672,12 @@ other seeded row, so operator toggles survive a restart.
 
 - An anonymous request resolves the `unregistered` row-set.
 - A registered user resolves their tier's row-set.
-- An admin resolves their tier's row-set **∪** the admin row-set.
-- An admin in "view as user" mode resolves their tier's row-set only, and
-  still reaches the admin console.
+- An admin resolves their tier's row-set merged with the admin row-set —
+  booleans OR-ed, limits taking the more permissive value.
+- **An admin in "view as user" mode resolves their tier's row-set only** —
+  including the metered rows, so they genuinely hit a registered user's spend
+  cap, upload cap and rate limits (Settled Decision #8). They still reach the
+  admin console, and can always leave the mode.
 - A grid toggle takes effect within the resolver's 60-second cache TTL, per
   process. **This is a real, stated property, not a bug** — but the admin UI's
   current claim that "changes take effect immediately" is corrected to name
@@ -552,10 +690,25 @@ rebuilt from `effectiveTierExpr()` on every request. Unchanged from today.
 
 ## Admin/User UX Impact
 
-- **Features console.** The Admin column stops being decorative. The column
-  header gains a note that admin rows *add to* the user's tier rather than
-  replacing it, so the union semantics are visible rather than folklore. The
-  "changes take effect immediately" copy is corrected.
+- **Features console — the main build of this project's UI half.** The page
+  becomes the single screen that answers "who is allowed to do what," which is
+  the requirement behind Settled Decision #7:
+  - Cells render by `value_type`: a checkbox for boolean features, a number
+    input with its unit for metered ones, each with an explicit **Unlimited**
+    state distinct from both zero and blank. Zero-versus-unlimited must never
+    be ambiguous — that distinction is the difference between "denied" and
+    "no cap."
+  - Rows are grouped by area (Memes, Video, Facts, Uploads, Spend,
+    Governance) rather than listed flat, because the metered rows roughly
+    triple the row count.
+  - The Admin column header states that admin values *add to* — never replace
+    — the user's tier, so the union and "more permissive wins" semantics are
+    visible rather than folklore.
+  - Values migrated out of the config editor carry a note saying this is now
+    their only home, and the per-user budget override is named on the page so
+    it does not become the next invisible setting.
+  - The "changes take effect immediately" copy is corrected to name the
+    propagation window.
 - **Every user-facing lock becomes truthful.** Controls the server would allow
   stop being hidden, and controls the server would reject stop being offered.
 - **View-as-user gains an exit.** A real admin in view-as-user mode sees an
@@ -615,6 +768,15 @@ each changed surface.
 
 ## Implementation Steps
 
+**Ordering note.** Folding the numeric limits in reorders the build. The
+client contract now ships *last*, because the payload it sends must carry the
+final entitlement shape — booleans and limits together. Defining that payload
+before the metered rows exist would mean building it twice. The cost is that
+the PR #402 *class* stays technically open until Phase 3; the mitigation is
+that Phase 1 makes the server correct and fail-closed, so the residual failure
+mode is a visible error rather than a silent one, and the specific privacy
+defect from #402 is already fixed on `main`.
+
 **Phase 1 — the resolver and the backend (one PR).**
 
 1. Add `featureAccess.ts` with `resolveFeatures` / `can` / `requireFeature`;
@@ -631,23 +793,36 @@ each changed surface.
 8. CI guard script + `build.yml` wiring.
 9. Tests 1-6, 8.
 
-**Phase 2 — the client contract (one PR).**
+**Phase 2 — metered limits, and the grid becomes total (one PR).**
 
-10. Add `features` to `AuthUser` at the spec; regenerate; verify codegen
-    against `lib/api-zod/src/index.ts` immediately.
-11. Client `can()` helper reading the payload; delete `roleToTier` and the 12
-    duplicated derivations.
-12. Reconcile the three upload rules and the engine dropdown's read/write
+10. Schema columns + CHECK + the matching `check()` in the schema file.
+11. Migration: metered features and their tier values, read from
+    `admin_config` where they live there; delete the migrated config rows and
+    the superseded `meme_rate_limit_high` rows.
+12. Move the seven numeric consumers onto `limitFor(...)` — `budgetGate`,
+    `uploadRateLimit`, the meme save cap, video jobs/day, the fact-submit
+    limiter, the pending-submission cap, and `resourceGovernance`'s policy
+    table.
+13. Rebuild the Features page for mixed cell types, grouping, and the
+    explicit Unlimited state.
+14. Apply view-as-user faithfully to the metered rows (Settled Decision #8).
+15. Tests for merge semantics on limits, zero-vs-unlimited, the config
+    migration preserving retuned values, and the two accidental caps lifting.
+
+**Phase 3 — the client contract (one PR).**
+
+16. Add the resolved entitlement set to `AuthUser` at the spec; regenerate;
+    verify against codegen immediately per the `lib/api-zod` gotcha.
+17. Client `can()` / `limitFor()` reading the payload; delete `roleToTier` and
+    the 12 duplicated derivations.
+18. Reconcile the three upload rules and the engine dropdown's read/write
     split.
-13. Fix the view-as-user re-entry path and the `AdminLayout` panel.
-14. Tests 7, plus client tests for the reconciled surfaces.
+19. Fix the view-as-user re-entry path and the `AdminLayout` panel.
+20. Test 7, plus client tests for the reconciled surfaces.
 
-Phase 1 is safe to ship alone — the server becomes correct and the client
-merely stays conservative. Phase 2 is what closes the divergence class, so it
-follows immediately rather than being deferred indefinitely.
-
-**Phase 3 — numeric per-tier configuration.** Scope depends on Question 2
-below; not planned in detail until that is settled.
+Each phase is independently shippable and independently UAT-able: Phase 1
+makes the server correct, Phase 2 makes the grid total and the admin screen
+the single answer, Phase 3 makes the client obey rather than guess.
 
 ## Risks and Mitigations
 
@@ -662,26 +837,32 @@ below; not planned in detail until that is settled.
 
 ## Questions for David
 
-Carried into the pre-approval conversation as numbered questions:
+All four resolved on 2026-08-10 and folded into *Settled Decisions* — kept
+here as the record of what was asked and answered:
 
-1. **The grid matrix above** — confirm each row, especially the five new keys
-   and whether `profile_photo_avatar` is worth a grid row at all.
-2. **Numeric per-tier configuration** (budgets, upload caps, save caps,
-   video-jobs/day, the resource-governance policy table): widen the grid to
-   hold limits, or keep them in `admin_config` with a proper admin bucket?
-3. **Does "view as user" also drop the numeric exemptions** (unlimited budget,
-   unlimited uploads, no rate limits), or only the grid features?
-4. **Admins can view any content but cannot act on content they don't own.**
-   Confirm that asymmetry is intended, so it can be documented as a decision
-   rather than an accident.
+1. **The grid matrix** — confirmed as proposed, including all five new boolean
+   keys and `profile_photo_avatar`.
+2. **Numeric per-tier configuration** — **fold it into the grid.** David
+   overrode my recommendation to defer; see Settled Decision #7 for his
+   reasoning and the boundary rule it produced.
+3. **Does "view as user" drop the numeric exemptions too** — **yes, stay
+   faithful.** An override toggle is possible later; not built now.
+4. **Admins view but do not act on others' content** — confirmed intended.
+
+No open questions. The remaining judgement calls are engineering ones and are
+resolved in this document.
 
 ## Definition of Done
 
 - Every product-feature gate in the codebase resolves through
   `featureAccess.ts`; the CI guard proves no others exist.
 - The Admin column is live, and toggling any cell changes behaviour.
-- The grid contains every tier-specific capability, and every key is both
-  referenced by code and fully populated across four tiers.
+- The grid contains every tier-specific capability **and every tier-specific
+  limit**, and every key is both referenced by code and fully populated across
+  four tiers.
+- **The Features page is the only screen that answers "who is allowed to do
+  what."** No tier-differentiated setting remains in the config editor, and
+  the one per-user override that exists is named on the page.
 - No client surface derives a permission it was not told.
 - An admin cannot demote themselves, cannot be the last admin removed, and can
   always leave view-as-user mode.
