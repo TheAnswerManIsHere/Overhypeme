@@ -163,7 +163,17 @@ Decided with David in the pre-plan conversation on 2026-08-10.
 
 ## Repo Context Inspected
 
-*(To be completed — inventory sweeps in progress.)*
+Three exhaustive sweeps were run over the codebase: backend authorization
+gates, client-side gates, and the grid/config data. Their findings are the
+*Current Behavior* section. Coverage: every route file under
+`artifacts/api-server/src/routes/`, every middleware, every `lib/` helper that
+makes an access decision, every client component that branches on role or
+tier, the `feature_flags` / `tier_feature_permissions` tables queried
+directly, and every migration touching them. Load-bearing or alarming claims
+were re-verified by hand before being written down — the fail-open budget
+gate, the ungated video parameters, the boot-time grid overwrite, the
+unreachable render gate, and the admin-mode lockout were each confirmed
+against the source rather than taken from a report.
 
 Docs read: `docs/ai-context/membership-entitlements.md`,
 `accounts-and-auth.md`, `known-failure-patterns.md` (the entitlement-gate
@@ -244,6 +254,88 @@ The two accidental denials are exactly the two gates that reached for
 `membership_tier` instead of the role. That is the same defect as PR #402,
 still live in two more places.
 
+### The backend: six grid calls, twelve contradictions
+
+Only **six** feature-grid call sites exist in the entire backend, and they
+handle admins four different ways (table in *Problem*). Everything else is
+role-hierarchy code. The sweep documented **twelve** places where one
+capability is gated in two places by two different rules. The ones that
+change behaviour today:
+
+| # | Capability | The divergence |
+|---|---|---|
+| 1 | **"Is this caller an admin?"** | **Six different spellings** across the codebase: `realUserRole === 'admin'`, `isRealAdmin`, `req.user.isAdmin`, a fresh `db.select(usersTable.isAdmin)`, a local `deriveUserRole` re-derivation, and `isAdminById`. The four DB-reading variants see only the stored column, so an admin granted via `ADMIN_USER_IDS` or `BOOTSTRAP_ADMIN_EMAIL` passes `requireAdmin` but gets **no budget exemption** (`budgetGate.ts:82`) and **no private-meme or PuLID rights on the pipeline path** (`createMemeRecord.ts:158`). `auth.ts:433` checks `isAdminById` but not `isAdminByEmail`, so a bootstrap-email-only admin cannot toggle admin mode at all. |
+| 2 | **Video generation cannot actually be turned off** | `videos.ts:414` denies a legendary user when the grid row is off; `videoJobs.ts:91-105` runs an `isAtLeastLegendary` short-circuit *first* and allows them. Same feature key, two gate shapes — so switching `video_generation` off in the grid does nothing on the wizard path. |
+| 3 | **PuLID / AI background: three vocabularies for one capability** | `render.ts:124` pure grid (denies admins), `createMemeRecord.ts:178` pure role, `memes.ts:1281`/`pulidJobs.ts:172` `requireLegendary`. |
+| 4 | **Four sites accidentally honour the admin-mode toggle** | `facts.ts:471`, `jobs.ts:26,44`, `affiliate.ts:16` read the toggle-aware `isAdmin` while the stated contract is that backend authorization ignores it. Two of those (`jobs.ts`) gate *running a cron job manually* — operational work that must not follow the toggle. |
+| 5 | **Two admin-only video parameters are not gated at all** | `videos.ts:573-577` consumes `adminGenerateAudio` and `adminNegativePrompt` with **no admin check**, while `adminDuration`/`adminAspectRatio`/`adminResolution`/`adminMode` three lines above are all `isAdmin &&`-guarded. Verified directly. Any legendary user can set the negative prompt and disable audio. |
+| 6 | **`budgetGate` fails OPEN** | `budgetGate.ts:118-122` catches any error and returns `allowed: true, limit: Infinity`. Verified directly. A gate that controls real fal.ai spend grants unlimited spend when it malfunctions — the only permission function in the codebase that fails open on error. |
+| 7 | **The grid editor accepts any tier string** | `setTierFeature` (`tierFeatures.ts:67`) does no validation, so `PATCH /admin/feature-flags` can write rows for tiers that do not exist. |
+
+Two further gates are dead rather than wrong: `injectMembershipTier`
+(`tierMiddleware.ts:74`) is exported and never mounted, and the PuLID gate at
+`render.ts:124` is **unreachable** — `deriveRenderMode` takes an optional
+`imageTransform` second argument that `render.ts:102` never passes, and
+`RenderRequestBody` has no such field, so `mode` can never be `"pulid"`.
+Verified directly. The practical exposure is small (producing a PuLID image
+still requires passing `requireLegendary` on `pulidJobs.ts:172`, and upload
+ownership is still checked), so this is a latent trap rather than a live
+bypass — but wiring `imageTransform` through, the obvious next step, would
+re-arm the exact PR #402 divergence.
+
+### The frontend: the client never learns what it may do
+
+**No user-facing API response carries an entitlement.** `AuthUser` and
+`UserProfile` carry role and tier only; `UserProfile`'s own doc comment
+instructs clients to *derive* access from the tier field. The grid is visible
+to exactly one client surface — `/admin/features` — which reads it in order to
+*edit* it, not to obey it.
+
+Consequences found:
+
+- **Every user-facing gate re-derives the rule by hand.** Roughly 60 sites.
+  `role === "legendary" || role === "admin"` appears verbatim 12 times.
+- **The Features console is half-inert by construction.** Four capabilities
+  are server-gated as *role OR grid flag* but client-gated as
+  `tier === "legendary"` only. If an operator grants `registered` the
+  `meme_private_visibility`, `comment_captcha_bypass`, or `video_generation`
+  flag, **the server allows it and the client keeps the control locked.** The
+  operator flips a switch and sees nothing happen.
+- **Three builder generations enforce three different upload rules** —
+  registered (`MemeBuilder.tsx:1226`), legendary (`MemeStudioVideoTab.tsx:296`,
+  `VideoBuilder.tsx:229`), registered (`Step2Image.tsx:514`) — for a server
+  capability that is authentication-only.
+- **The video Engine dropdown silently discards a non-admin's choice.** It
+  renders whenever more than one engine is returned, and `/api/engines`
+  returns flag-free engines to everyone; `videoJobs.ts:111-112` then drops a
+  non-admin's `videoEngineId` with no error. The user picks an engine, gets a
+  200, and receives a different model. This is dormant only while exactly one
+  flag-free video engine is active, and arms itself the moment an operator
+  activates a second one.
+- **The one place doing it right** is that same dropdown's *read* side —
+  visibility derived from a server-filtered list. It is also the highest-
+  severity live bug, because the write path re-derives the same permission
+  independently. Whichever pattern this plan adopts, the read gate and the
+  write gate must be one expression evaluated once.
+
+### The admin lockout is real, and it is live
+
+**Confirmed by direct inspection.** There are exactly three client call sites
+for `POST /auth/toggle-admin-mode`, and **all three are gated on the admin
+mode already being on**:
+
+- `AccountMenu.tsx:110-124` nests "Exit Admin" inside `if (isAdminModeOn)`.
+- `Profile.tsx:97` declares `const isRealAdmin = role === "admin"` — the
+  *effective* role, despite the name — so both of its toggle buttons
+  (`:1033`, `:1159`) disappear once admin mode is off.
+
+So once an admin turns "view as user" on, **no UI anywhere can turn it back
+off.** The server would happily toggle it back (`auth.ts:428-442` requires
+only `isRealAdmin`), and `AdminLayout` compounds the confusion by showing a
+real admin an "Access Denied" screen with first-time-setup instructions. This
+is precisely the self-reference lockout David anticipated, and it exists
+today.
+
 ### Other structural findings
 
 - **`effectiveTierExpr()` emits only `unregistered|registered|legendary`,
@@ -282,66 +374,323 @@ independent store.
 
 ## Proposed Design
 
-*(Detail to be completed; the shape is settled.)*
+### Two rails, named and kept apart
 
-**One resolver.** A single module resolves an authenticated (or anonymous)
-caller into a set of permitted feature keys, by union per Settled Decision #2,
-keyed on the toggle-aware role per #4. Every product-feature gate in the
-codebase calls it and nothing else. The tier-keyed primitive it wraps is not
-exported to application code, and CI enforces that.
+| | **Entitlement rail** | **Privilege rail** |
+|---|---|---|
+| Answers | "What product features does this account get?" | "What may this account do *to the system*?" |
+| Source of truth | The Feature Permission Grid | `requireRole` on `realUserRole` |
+| Runtime-editable | Yes, by an admin, no deploy | No — code |
+| Honours "view as user" | **Yes** | **No** |
+| Examples | private memes, video generation, AI backgrounds, captcha bypass | admin console, user management, moderation, config editing, the grid editor itself |
 
-**Two rails, kept apart.** Product entitlements resolve through the grid;
-operational privileges resolve through `requireRole` on `realUserRole`. The
-plan states, for every gate found in the sweep, which rail it belongs on.
+Keeping these apart is what makes David's bootstrap exception structural
+rather than a special case: **nothing that grants access to the admin console
+lives in the grid, so no grid configuration can lock an admin out.**
 
-**One client contract.** The server sends the resolved feature set on the auth
-payload; the client renders from it instead of deriving. This is what
-structurally closes the #402 class — the builder's `roleToTier` mapping and
-every sibling client-side derivation is deleted rather than corrected.
+### One resolver
 
-**Lockout guards.** Self-demotion and last-admin-removal guards on the admin
-user routes, which the codebase does not have today.
+A new module — `artifacts/api-server/src/lib/featureAccess.ts` — is the only
+code permitted to read the grid:
+
+```
+resolveFeatures(principal) -> Set<featureKey>
+  = gridFeatures(principal.tier)
+  ∪ (principal.isAdmin ? gridFeatures('admin') : ∅)
+
+can(principal, featureKey) -> boolean
+requireFeature(featureKey) -> express middleware
+```
+
+- **`principal`** is derived from `req.user` — carrying the *effective* tier
+  and the *toggle-aware* admin flag — or the anonymous principal
+  (`tier: 'unregistered'`, `isAdmin: false`) when there is no session. Taking
+  a principal rather than a tier string is the whole point: it is the seam
+  impersonation later slots into (Settled Decision #5).
+- **Union**, per Settled Decision #2.
+- **One admin predicate.** The six current spellings collapse to the
+  principal's flag, which is built from `isRealAdmin` in `authMiddleware`
+  (stored column **OR** `ADMIN_USER_IDS` **OR** bootstrap email) — so
+  env-granted and bootstrap admins stop silently losing entitlements.
+- **Fails closed** on a missing row, an unknown key, or a DB error.
+- **`hasFeature(tier, key)` stops being exported to application code.** The
+  tier-keyed primitive becomes module-private, and a CI guard
+  (`scripts/check-permission-chokepoint.mjs`, wired into `build.yml` beside
+  the existing `check:docs` / `check:codegen-drift` guards) fails the build if
+  any file outside `featureAccess.ts` references it, or if a product-feature
+  route reintroduces an inline role comparison. Per Settled Decision #7 and
+  the repo's standing "recurring failure patterns become CI guards" practice.
+
+### One client contract
+
+The resolved feature set ships to the client on the auth payload —
+`AuthUser.features: string[]`, computed by the **same** resolver the write
+paths use. The client obeys it instead of deriving:
+
+- `roleToTier` (`studioAdapter.ts:45-49`) — the PR #402 function — is deleted.
+- The 12 verbatim `role === "legendary" || role === "admin"` derivations and
+  the three contradictory upload rules collapse into `can('feature_key')`.
+- The Features console stops being half-inert: granting `registered` a flag
+  now visibly changes the UI, because the UI is reading the grid.
+- `AuthUser` is codegen-owned (`lib/api-spec/openapi.yaml` →
+  `lib/api-zod`), so the field is added at the spec and regenerated —
+  never hand-edited into `lib/api-zod/src/index.ts`, per that package's
+  standing codegen-drift gotcha.
+
+**Read gate and write gate must be one expression evaluated once.** The engine
+dropdown is the worked example of getting this wrong: its read side filters
+server-side and its write side re-derives independently, so a mismatch is
+silent.
+
+### Lockout and self-reference guards
+
+The exception David named, made concrete. Three guards, none of which exist
+today:
+
+1. **An admin may not remove their own admin flag** (`PATCH /admin/users/:id`).
+2. **The last active admin may not be demoted or deleted** — checked inside the
+   transaction, not before it, so two concurrent demotions cannot both pass.
+3. **"View as user" gains a re-entry path.** The toggle control is gated on
+   `realRole === 'admin'` rather than the effective role, so it is reachable in
+   both directions; `AdminLayout` shows a real admin in view-as-user mode a
+   "You are viewing as a user — exit admin mode" panel instead of the current
+   "Access Denied" screen.
+
+### Adjacent defects folded in
+
+These are all *permission checks disagreeing with each other*, which is the
+brief, so they are fixed here rather than separately:
+
+- `budgetGate` fails **closed** on error instead of granting infinite spend.
+- `adminGenerateAudio` / `adminNegativePrompt` get the admin gate their
+  siblings already have.
+- `video_generation`'s grid rows stop being force-overwritten on every boot.
+- `videos.ts` and `videoJobs.ts` resolve video generation through one call, so
+  turning the feature off in the grid actually turns it off.
+- `setTierFeature` validates the tier identifier.
+- `injectMembershipTier` (dead) and the unreachable `render.ts` PuLID gate are
+  removed — the latter replaced by a real, reachable gate.
+- The four operational sites reading the toggle-aware `isAdmin`
+  (`jobs.ts` ×2, `affiliate.ts`, `facts.ts`) are moved to the correct rail.
 
 ## Grid Intent Review
 
-*(To be completed — this section carries the full proposed matrix, feature by
-feature, with current vs. proposed value per tier, for David's confirmation.
-Every cell that changes meaning is called out. This is the section David
-reviews for product intent; it is not a mechanical migration.)*
+**This is the section that needs David's product judgement.** Every row below
+is a capability the system already has; the question is only what the grid
+should say about it. "Current" reflects live behaviour, whether it comes from
+the grid or from hardcoded application code.
+
+### Existing keys
+
+| Feature | Current behaviour | Proposed grid row (u / r / l / **a**) | Change |
+|---|---|---|---|
+| `comment_captcha_bypass` | legendary + admin skip comment captcha | ✗ / ✗ / ✓ / **✓** | none — admin cell becomes live |
+| `meme_private_visibility` | legendary + admin (post-#402) | ✗ / ✗ / ✓ / **✓** | none — admin cell becomes live |
+| `meme_rate_limit_high` | legendary only; **admins wrongly on the free cap** | ✗ / ✗ / ✓ / **✓** | **fixes an accidental denial**; description corrected to "200 saves/day instead of 30" |
+| `meme_ai_background` | legendary via `requireLegendary`; **admins wrongly denied** on the (dead) render gate | ✗ / ✗ / ✓ / **✓** | **fixes an accidental denial**; rewired to the reachable routes |
+| `video_generation` | legendary + admin, **cannot actually be switched off** | ✗ / ✗ / ✓ / **✓** | grid toggle starts working; boot overwrite removed |
+| `meme_upload_photo` | **dead row** — upload is authentication-only | ✗ / ✓ / ✓ / **✓** | **wired up for the first time**, matching today's real behaviour and resolving the three-way builder disagreement |
+| `engine_experiments` | **no rows**; admin-only via a hardcoded predicate | ✗ / ✗ / ✗ / **✓** | rows created, hardcoded predicate replaced |
+
+### New keys — capabilities that exist but are not in the grid
+
+| Proposed feature | Where it lives today | Proposed grid row (u / r / l / **a**) |
+|---|---|---|
+| `meme_pulid_stylize` | `requireLegendary` on `pulidJobs.ts:172` + a role check in `createMemeRecord` | ✗ / ✗ / ✓ / **✓** |
+| `fact_submit_captcha_bypass` | legendary/admin short-circuits in `reviews.ts:136`, `ai.ts:336` | ✗ / ✗ / ✓ / **✓** |
+| `fact_submit_rate_limit_bypass` | legendary/admin short-circuit in `rateLimit.ts:184` | ✗ / ✗ / ✓ / **✓** |
+| `ads_free` | client-only, `AdSlot.tsx:21` — no server gate exists | ✗ / ✗ / ✓ / **✓** |
+| `profile_photo_avatar` | client-only, `Navbar.tsx:46` — real photo vs. generated avatar | ✗ / ✗ / ✓ / **✓** |
+
+Every proposed row reproduces today's behaviour except the three marked as
+fixing an accidental denial. Nothing silently gains or loses access on
+migration day — the grid starts by describing what already happens, and from
+then on it is the thing that decides.
 
 ## Data Model and Migration Impact
 
-*(To be completed.)*
+No schema change to `tier_feature_permissions` for the boolean half. One
+forward-only migration:
+
+1. Insert the five new `feature_flags` rows.
+2. Insert all four tier rows for every new key, and the four missing
+   `engine_experiments` rows, with the values in the tables above.
+3. Correct `meme_rate_limit_high`'s description.
+4. Backfill any `(tier, feature_key)` combination still missing, so the
+   invariant "every feature has exactly four rows" holds — then add a
+   **CHECK-equivalent guard** so `0057`'s failure mode (a feature added after
+   the backfill, with no rows) cannot recur. Because the seed lives in a
+   migration and the guard in the schema file, the schema declaration is added
+   alongside it per the repo's lost-constraint rule.
+
+Idempotent (`ON CONFLICT DO NOTHING` for inserts, targeted `DO UPDATE` only
+for the description). No backfill of user data, nothing destructive, so no
+rollback script is required beyond the ordinary forward fix. Row-state matrix:
+*new* keys insert; *existing* keys no-op; *partial* (some tiers present) fills
+the gaps; *no-op* on re-run.
+
+The `video_generation` seed in `seed.ts` changes from
+`DO UPDATE SET enabled = EXCLUDED.enabled` to `DO NOTHING`, matching every
+other seeded row, so operator toggles survive a restart.
 
 ## Runtime Behavior
 
-*(To be completed.)*
+- An anonymous request resolves the `unregistered` row-set.
+- A registered user resolves their tier's row-set.
+- An admin resolves their tier's row-set **∪** the admin row-set.
+- An admin in "view as user" mode resolves their tier's row-set only, and
+  still reaches the admin console.
+- A grid toggle takes effect within the resolver's 60-second cache TTL, per
+  process. **This is a real, stated property, not a bug** — but the admin UI's
+  current claim that "changes take effect immediately" is corrected to name
+  the window, and the cache is busted on write in the writing process.
+- Any resolution failure denies.
+
+**Edge case worth stating:** a user whose paid entitlement lapses mid-session
+resolves the lower row-set on their next request, because the principal is
+rebuilt from `effectiveTierExpr()` on every request. Unchanged from today.
 
 ## Admin/User UX Impact
 
-*(To be completed.)*
+- **Features console.** The Admin column stops being decorative. The column
+  header gains a note that admin rows *add to* the user's tier rather than
+  replacing it, so the union semantics are visible rather than folklore. The
+  "changes take effect immediately" copy is corrected.
+- **Every user-facing lock becomes truthful.** Controls the server would allow
+  stop being hidden, and controls the server would reject stop being offered.
+- **View-as-user gains an exit.** A real admin in view-as-user mode sees an
+  explanatory panel with a working toggle instead of "Access Denied".
+- **No end-user-visible capability changes** except the three accidental
+  denials being lifted, all of which affect admins only.
 
 ## Security, Permissions, and Validation
 
-*(To be completed.)*
+- Every gate fails closed; `budgetGate` joins them.
+- Operational routes keep `requireRole` on `realUserRole` — unchanged, and now
+  enforced consistently at the four sites that read the toggle-aware flag.
+- Ownership checks are untouched and explicitly out of the grid. **The sweep
+  found that admins can *view* any meme but cannot *act* on one they don't own
+  (delete, remove a link, cancel a job) — that asymmetry is preserved and
+  documented as deliberate rather than left implicit.**
+- The grid editor validates tier identifiers.
+- Admin grant/revoke keeps its existing audit trail; the new lockout guards
+  return explicit errors rather than silently no-op'ing.
+- **No new trust boundary.** The client-visible feature list is a projection
+  of a server decision, never an input to one — the server re-resolves on
+  every request and never trusts a client-supplied feature claim.
 
 ## Testing Plan
 
-*(To be completed.)*
+Runner commands per `docs/tests/testing-guide.md`:
+`pnpm --filter @workspace/api-server test`, `pnpm --filter @workspace/db test`,
+`pnpm --filter @workspace/overhype-me test`.
+
+The invariant tests, not just the reported examples:
+
+1. **Union semantics** — for every feature key, an admin on each of the three
+   tiers resolves ⊇ what that tier alone resolves. Table-driven over the whole
+   grid, so a future key cannot escape it.
+2. **The PR #402 regression, generalised** — for every feature key, the set an
+   admin resolves is never smaller than a legendary user's, unless the admin
+   row is explicitly off. This is the test that would have caught #402, the two
+   still-live accidental denials, and the next one.
+3. **Every consulted key is reachable** — a test asserting each key referenced
+   in code exists in the grid with four tier rows, and each grid key is
+   referenced in code (catching both `meme_upload_photo`'s orphaning and
+   `engine_experiments`' missing rows).
+4. **Fail-closed** — DB error, unknown key, and missing row each deny, for
+   every gate including `budgetGate`.
+5. **View-as-user** — feature gates drop the admin union; `requireRole`
+   admin gates do not; the toggle is reachable in both directions.
+6. **Lockout guards** — self-demotion refused; last-admin demotion and deletion
+   refused; two concurrent demotions cannot both succeed.
+7. **Client/server agreement** — the client's rendered lock state for each
+   capability is asserted against the server's answer for the same principal,
+   so a future divergence fails CI rather than shipping.
+8. **Negative cases throughout** — an unregistered principal, an anonymous
+   principal, and a lapsed-legendary principal for each gate.
+
+Manual QA is the UAT doc, covering both the admin and non-admin experience of
+each changed surface.
 
 ## Implementation Steps
 
-*(To be completed.)*
+**Phase 1 — the resolver and the backend (one PR).**
+
+1. Add `featureAccess.ts` with `resolveFeatures` / `can` / `requireFeature`;
+   make `hasFeature` module-private.
+2. Migration: new keys, missing rows, corrected description, the
+   four-rows-per-feature guard. Fix the `seed.ts` overwrite.
+3. Move all six grid call sites and the five `requireLegendary` product routes
+   onto `requireFeature` / `can`.
+4. Move the hardcoded role-rank product gates (PuLID, captcha bypasses,
+   submit-rate bypass) onto the resolver.
+5. Move the four mis-railed operational sites onto `realUserRole`.
+6. Fix the adjacent defects listed under *Proposed Design*.
+7. Lockout guards on `PATCH`/`DELETE /admin/users/:id`.
+8. CI guard script + `build.yml` wiring.
+9. Tests 1-6, 8.
+
+**Phase 2 — the client contract (one PR).**
+
+10. Add `features` to `AuthUser` at the spec; regenerate; verify codegen
+    against `lib/api-zod/src/index.ts` immediately.
+11. Client `can()` helper reading the payload; delete `roleToTier` and the 12
+    duplicated derivations.
+12. Reconcile the three upload rules and the engine dropdown's read/write
+    split.
+13. Fix the view-as-user re-entry path and the `AdminLayout` panel.
+14. Tests 7, plus client tests for the reconciled surfaces.
+
+Phase 1 is safe to ship alone — the server becomes correct and the client
+merely stays conservative. Phase 2 is what closes the divergence class, so it
+follows immediately rather than being deferred indefinitely.
+
+**Phase 3 — numeric per-tier configuration.** Scope depends on Question 2
+below; not planned in detail until that is settled.
 
 ## Risks and Mitigations
 
-*(To be completed.)*
+| Risk | Mitigation |
+|---|---|
+| A capability is missed in the sweep and keeps an inline role check | The CI guard fails the build on any inline role comparison in a product-feature path; the sweep's inventory is the checklist, and tests 2-3 catch unreachable or unreferenced keys |
+| The union grants an admin something an operator meant to deny | Union is deliberate (Settled Decision #2); the Admin column is editable, so denial is one toggle away and now actually works |
+| A grid misconfiguration disables a capability broadly | Cannot affect console access by construction; every row's migration default reproduces today's behaviour, so day-one risk is zero and later changes are deliberate operator acts |
+| The 60s cache makes a toggle look broken | The window is stated in the UI copy; writes bust the cache in the writing process |
+| Codegen silently reverts the new `AuthUser` field | Verify against codegen immediately per the `lib/api-zod` gotcha; `check:codegen-drift` is the CI guard |
+| A large diff is hard to review | Split into two PRs at a natural seam; Phase 1 is server-only and fully testable |
 
 ## Questions for David
 
-*(To be completed — carried into the plan-review loop and surfaced as numbered
-questions.)*
+Carried into the pre-approval conversation as numbered questions:
+
+1. **The grid matrix above** — confirm each row, especially the five new keys
+   and whether `profile_photo_avatar` is worth a grid row at all.
+2. **Numeric per-tier configuration** (budgets, upload caps, save caps,
+   video-jobs/day, the resource-governance policy table): widen the grid to
+   hold limits, or keep them in `admin_config` with a proper admin bucket?
+3. **Does "view as user" also drop the numeric exemptions** (unlimited budget,
+   unlimited uploads, no rate limits), or only the grid features?
+4. **Admins can view any content but cannot act on content they don't own.**
+   Confirm that asymmetry is intended, so it can be documented as a decision
+   rather than an accident.
 
 ## Definition of Done
 
-*(To be completed.)*
+- Every product-feature gate in the codebase resolves through
+  `featureAccess.ts`; the CI guard proves no others exist.
+- The Admin column is live, and toggling any cell changes behaviour.
+- The grid contains every tier-specific capability, and every key is both
+  referenced by code and fully populated across four tiers.
+- No client surface derives a permission it was not told.
+- An admin cannot demote themselves, cannot be the last admin removed, and can
+  always leave view-as-user mode.
+- The three accidental admin denials, the fail-open budget gate, the two
+  ungated video parameters, the boot-time overwrite, and the silent engine
+  discard are all fixed, with tests.
+- `docs/ai-context/` updated: a new permissions section (or file) as the
+  single source of truth, with `membership-entitlements.md`'s reader-inventory
+  caveat, `accounts-and-auth.md`'s role-derivation section,
+  `admin-console.md`'s Features entry, and the
+  `known-failure-patterns.md` entitlement-gate entry all pointed at it.
+- TEST_RUN + UAT docs shipped in the same PRs.
