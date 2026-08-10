@@ -817,7 +817,16 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
     }
 
     // Store in object storage with a public ACL so Zazzle can fetch it directly
-    const subPath = `meme-exports/${slug}.jpg`;
+    // Render-versioned path (round 3, PR #398): /api/storage/objects/* is
+    // edge-cached for 24h (CACHE.PUBLIC_OBJECT, routes/storage.ts) same as the
+    // meme image itself, but this write OVERWRITES a fixed slug-keyed path —
+    // so a customer re-exporting the same meme after a render-pipeline fix
+    // could still hand Zazzle a URL an edge PoP already has cached from the
+    // pre-fix bytes. Folding MEME_RENDER_VERSION into the path means a
+    // content-changing fix always produces a URL nothing has cached yet,
+    // without needing the og-router Worker (which doesn't intercept this
+    // route) or a Cache-Control/ETag scheme this endpoint doesn't have.
+    const subPath = `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg`;
     await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
     await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
       owner: "system",
@@ -945,7 +954,16 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
       imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
     }
 
-    const subPath = `meme-exports/${slug}.jpg`;
+    // Render-versioned path (round 3, PR #398): /api/storage/objects/* is
+    // edge-cached for 24h (CACHE.PUBLIC_OBJECT, routes/storage.ts) same as the
+    // meme image itself, but this write OVERWRITES a fixed slug-keyed path —
+    // so a customer re-exporting the same meme after a render-pipeline fix
+    // could still hand Zazzle a URL an edge PoP already has cached from the
+    // pre-fix bytes. Folding MEME_RENDER_VERSION into the path means a
+    // content-changing fix always produces a URL nothing has cached yet,
+    // without needing the og-router Worker (which doesn't intercept this
+    // route) or a Cache-Control/ETag scheme this endpoint doesn't have.
+    const subPath = `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg`;
     await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
     await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
       owner: "system",

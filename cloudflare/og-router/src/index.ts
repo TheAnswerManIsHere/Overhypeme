@@ -47,6 +47,16 @@ const MEME_IMAGE_PATH_RE = /^\/api\/memes\/[^/]+\/image$/;
  * This Worker deploys independently of the main app (`pnpm worker:deploy` —
  * see wrangler.toml) — bumping this constant does nothing until that deploy
  * actually runs.
+ *
+ * DEPLOY ORDER MATTERS: deploy the origin (the app carrying the matching
+ * `MEME_RENDER_VERSION`) FIRST and confirm it's live — `curl -I` any meme
+ * image URL and check the ETag reads `meme-v<N>-...` — THEN run
+ * `pnpm worker:deploy`. Reversing the order caches the WRONG bytes under the
+ * new key: the first request at each edge PoP after the Worker deploy uses
+ * the fresh `rv` query param, but if the origin is still on the old version
+ * it serves old bytes, and the edge then pins those old bytes under the new
+ * key for a full `s-maxage` — silently defeating the whole point of bumping
+ * this version, for another 24h.
  */
 const MEME_IMAGE_EDGE_CACHE_VERSION = 4;
 
