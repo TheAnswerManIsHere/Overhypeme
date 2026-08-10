@@ -278,7 +278,7 @@ storage backend today, not legacy.
 | AI-generated meme background (shared gallery) | Yes | `aiBackgroundKey()`, `storageKeys.ts:14-29` — `ai-backgrounds/{hash2}/{factId}-{gender}-{uniqueKey}.{ext}` |
 | AI video: stylized still (Stage 1) | Yes | `video_jobs.stylizedStillObjectPath` |
 | AI video: final captioned video | Yes | `video_jobs.videoUrl` (sync path) / `videoObjectPath` on the meme row (async path) |
-| Zazzle merch export | Yes, public ACL | inline at `memes.ts:822-827` — `meme-exports/{slug}.jpg` |
+| Zazzle merch export | Yes, public ACL | inline at `memes.ts` (`zazzle-export`, `zazzle-redirect`) — `meme-exports/{slug}-v{MEME_RENDER_VERSION}.jpg` (render-versioned since PR #398 round 3, so a corrected re-export never collides with a stale edge-cached copy of an earlier render) |
 
 The `{hash2}` path segment is a 2-hex-char SHA-256 prefix of the filename
 (`hashPrefix()`, `storageKeys.ts:6-11`), used to avoid sequential-prefix

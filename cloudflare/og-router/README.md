@@ -16,8 +16,13 @@ edge then caches those old bytes under the new key for a full `s-maxage`,
 silently defeating the version bump for another 24h.
 
 ```bash
-# 1. Confirm the origin is already serving the version this Worker expects:
-curl -sI https://overhype.me/api/memes/<any-live-slug>/image | grep -i etag
+# 1. Confirm the origin is already serving the version this Worker expects.
+#    The bare URL goes THROUGH Cloudflare's edge — if this exact URL was
+#    fetched in the last 24h it can still be cache-served without ever
+#    reaching origin, showing you a stale ETag even after the origin has
+#    already deployed. Append a throwaway query param so this specific
+#    request is guaranteed to be a fresh cache key and actually hit origin:
+curl -sI "https://overhype.me/api/memes/<any-live-slug>/image?verify=$(date +%s)" | grep -i etag
 #    → must read meme-v<N>-... where N matches MEME_IMAGE_EDGE_CACHE_VERSION
 #      in src/index.ts. If it doesn't match yet, wait for the app deploy to
 #      finish (or roll back this Worker's version bump) before continuing.
