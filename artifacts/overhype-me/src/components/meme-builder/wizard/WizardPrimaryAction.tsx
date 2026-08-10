@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, type Ref } from "react";
 
 interface Props {
   label: string;
@@ -14,6 +14,14 @@ interface Props {
    * taken from the controls panel, so keep it to a single compact row.
    */
   aboveAction?: ReactNode;
+  /**
+   * Ref to the primary `<button>` itself — for callers that need to focus it
+   * programmatically (e.g. after an async generation completes). Deliberately
+   * NOT "the first button in this component," since `aboveAction` can render
+   * buttons of its own (the visibility toggle does): a caller that queried
+   * DOM order instead of using this ref would focus the wrong control.
+   */
+  buttonRef?: Ref<HTMLButtonElement>;
 }
 
 const BRAND_ORANGE = "#ff6b35";
@@ -25,6 +33,7 @@ export function WizardPrimaryAction({
   loading,
   subText,
   aboveAction,
+  buttonRef,
 }: Props) {
   return (
     <div
@@ -33,6 +42,7 @@ export function WizardPrimaryAction({
     >
       {aboveAction && <div className="mb-3">{aboveAction}</div>}
       <button
+        ref={buttonRef}
         type="button"
         onClick={onClick}
         disabled={disabled || loading}

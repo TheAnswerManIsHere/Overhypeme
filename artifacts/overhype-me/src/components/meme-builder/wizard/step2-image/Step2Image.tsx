@@ -284,6 +284,11 @@ export function Step2Image({
   };
 
   const wizardPrimaryActionRef = useRef<HTMLDivElement | null>(null);
+  // Dedicated ref to the primary CTA itself. Deliberately not
+  // `wizardPrimaryActionRef.current.querySelector("button")`: the visibility
+  // toggle above the CTA renders its own buttons, so DOM order alone can't
+  // tell "Make my meme" apart from "Public"/"Private".
+  const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handlePulidJobComplete = (generatedObjectPath: string) => {
     setPulidJobId(null);
@@ -300,11 +305,8 @@ export function Step2Image({
     // Defer until after React commits so the disabled→enabled transition is
     // already applied and screen readers announce the focus change correctly.
     requestAnimationFrame(() => {
-      const node = wizardPrimaryActionRef.current;
-      if (!node) return;
-      node.scrollIntoView({ behavior: "smooth", block: "end" });
-      const btn = node.querySelector("button");
-      if (btn) (btn as HTMLButtonElement).focus({ preventScroll: true });
+      wizardPrimaryActionRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      primaryButtonRef.current?.focus({ preventScroll: true });
     });
   };
 
@@ -472,10 +474,14 @@ export function Step2Image({
       <div className="flex-1 overflow-y-auto overscroll-y-none">
         {/* Bottom padding must clear the fixed action bar, which grows by a
             row when the visibility control is present — otherwise the last
-            control sits under it and can't be reached. */}
+            control sits under it and can't be reached. Sized for the bar's
+            TALLEST state (Private selected, whose helper line can wrap to
+            two lines) rather than tracking each state separately — a control
+            switching between Public/Private must never change whether the
+            scroll area's last item is reachable. */}
         <div
           className={`mx-auto max-w-md space-y-4 px-4 pt-4 ${
-            tier === "unregistered" ? "pb-24" : "pb-36"
+            tier === "unregistered" ? "pb-24" : "pb-56"
           }`}
         >
           <SourceSegmentedControl
@@ -554,6 +560,7 @@ export function Step2Image({
           onClick={handleMakeMyMeme}
           disabled={!sourceSelected}
           loading={saving}
+          buttonRef={primaryButtonRef}
           aboveAction={
             // Unregistered viewers can't save at all (the CTA routes them to
             // signup), so the visibility choice would be premature noise.
