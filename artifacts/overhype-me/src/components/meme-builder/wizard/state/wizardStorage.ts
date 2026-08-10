@@ -72,10 +72,12 @@ export interface PendingWizardState {
   textOptions?: MemeTextOptions;
   advancedOptions?: WizardAdvancedOptions;
   /**
-   * Gallery visibility for the meme this draft will save (Legendary-only;
-   * lower tiers are forced public server-side). Absent on drafts captured
-   * before this field existed — consumers default to `true`, matching both the
-   * server default and the pre-restore state of the control.
+   * Gallery visibility for the meme this draft will save (Legendary-level by
+   * default, or any tier an operator has granted `meme_private_visibility`
+   * via Admin → Features; a caller with neither requesting `false` gets a
+   * 403 from the save, not a silent downgrade). Absent on drafts captured
+   * before this field existed — consumers default to `true`, matching both
+   * the server default and the pre-restore state of the control.
    */
   isPublic?: boolean;
 }

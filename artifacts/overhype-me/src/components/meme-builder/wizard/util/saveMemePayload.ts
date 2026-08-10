@@ -31,7 +31,8 @@ export interface SaveMemePayload {
   /**
    * Gallery visibility. Always sent explicitly so the saved row reflects the
    * control the user actually saw, rather than relying on the server default.
-   * A non-Legendary caller is forced public server-side regardless.
+   * A non-Legendary-level caller who sends `false` is rejected with a 403 —
+   * the server never downgrades an explicit private request to public.
    */
   isPublic: boolean;
 }

@@ -171,17 +171,36 @@ export async function createMemeRecord(
     role = deriveUserRole(u.membershipTier, !!u.isAdmin);
   }
 
-  const [canPrivate, highRateLimit] = await Promise.all([
+  const [tierAllowsPrivate, highRateLimit] = await Promise.all([
     hasFeature(tier, "meme_private_visibility"),
     hasFeature(tier, "meme_rate_limit_high"),
   ]);
   const canPulid = isAtLeastLegendary(role);
-  const isPublic = canPrivate ? (input.isPublic ?? true) : true;
+  // Privacy is a legendary-LEVEL entitlement, and "legendary level" means the
+  // resolved *role* everywhere else in this function (see `canPulid`) — admin
+  // included. `membershipTier` alone is not that: an admin's stored tier is
+  // `registered` unless they separately hold a paid entitlement, and the
+  // feature-flag table is keyed by tier, so a tier-only lookup denied privacy
+  // to every admin. The builder maps admin → legendary and therefore offered
+  // them a Private control the save path then quietly ignored.
+  const canPrivate = isAtLeastLegendary(role) || tierAllowsPrivate;
 
   // ── Tier gate: PuLID-stylised memes are legendary-only ───────────────
   if (imageTransform === "pulid" && !canPulid) {
     throw new CreateMemeError(403, { error: "tier_mismatch" });
   }
+
+  // ── Tier gate: private visibility requires the entitlement above ─────
+  // Fail CLOSED on an explicit private request we cannot honour. Coercing it
+  // to public instead is how an entitlement mismatch became a data exposure:
+  // the caller asked for owner-only, got a 201, and the meme was world-
+  // readable at its permalink. Publishing what someone asked to keep private
+  // must never be a silent outcome. Omitting the field is not a request for
+  // privacy and still defaults to public, so pipeline callers are unaffected.
+  if (input.isPublic === false && !canPrivate) {
+    throw new CreateMemeError(403, { error: "Private memes are a Legendary feature." });
+  }
+  const isPublic = input.isPublic ?? true;
 
   // Identity → resolve into upload via the user's profile photo.
   if (imageSource.type === "identity") {

@@ -244,6 +244,29 @@ suggests "membership."
 | `artifacts/api-server/src/routes/admin.ts` | dashboard counts, the admin user list |
 | `artifacts/api-server/src/routes/users.ts`, `artifacts/api-server/src/routes/auth.ts`, `artifacts/api-server/src/routes/localAuth.ts` | login/profile payloads |
 
+**A tier read is not an entitlement check when admins are meant to qualify.**
+`membership_tier` is only ever `unregistered | registered | legendary` — admin
+is an orthogonal boolean, so an admin's stored tier is `registered` unless they
+separately hold a paid entitlement. `tier_feature_permissions` is keyed by
+tier, and its `admin` rows (seeded by migrations `0028`/`0029`) are therefore
+unreachable through `hasFeature(membershipTier, …)`: no caller ever passes
+`'admin'`. Any gate that should treat admin as legendary must resolve from the
+**role** — `isAtLeastLegendary(deriveUserRole(tier, isAdmin))` — either instead
+of, or OR-ed with, the feature lookup (`facts.ts`'s captcha bypass and
+`createMemeRecord`'s private-visibility gate both do the latter). Getting this
+wrong is silent by construction: the admin simply doesn't get the feature, and
+because most legendary gates in the codebase *are* role-based, the one that
+isn't looks like it works. It cost a private meme being published — see
+[`known-failure-patterns.md`](known-failure-patterns.md). Two remaining
+tier-only lookups still deny admins by this exact mechanism —
+`meme_rate_limit_high` (`createMemeRecord.ts:176`, no `isAdmin` short-circuit
+before the call) and `meme_ai_background` (`render.ts:124`, same shape). Each
+fails closed, so neither is a leak, but neither has been deliberately
+adjudicated either. `video_generation` (`videos.ts:403-415`,
+`videoJobs.ts:87-96`) is **not** in this list — both routes resolve `isAdmin`
+first and skip the `hasFeature` call entirely when it's true, so admins are
+already exempt there.
+
 All route through `effectiveTierExpr()` / `effectiveTierPredicate()` /
 `effectiveTierForRow()` — an **expression**, not a stored predicate, because a
 predicate is correct only when instantiated at `'legendary'`; at `'registered'`

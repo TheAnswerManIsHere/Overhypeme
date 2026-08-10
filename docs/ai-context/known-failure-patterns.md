@@ -1187,3 +1187,47 @@ the specific fixes named below over re-deriving them.
   the original is a no-op the tracker will never perform. Corollary for
   verification: "the migration is recorded as applied" is not evidence the
   constraint exists — query `pg_constraint` directly.
+
+## An entitlement gate that reads the tier column when the rule is role-based
+
+**Symptom:** a capability works for everyone it should — except admins, who
+are the people least likely to report it, because they assume they have
+everything. Nothing errors. The feature simply doesn't happen, and the caller
+is told it did.
+
+**Why it happens:** two vocabularies describe the same permission and only one
+of them includes admin. `users.membership_tier` is
+`unregistered | registered | legendary` and `is_admin` is an orthogonal
+boolean, so an admin's *stored tier* is `registered` unless they separately
+hold a paid entitlement. The role vocabulary
+(`deriveUserRole` → `isAtLeastLegendary`) folds the flag in; a
+`hasFeature(membershipTier, …)` lookup cannot, because the feature table is
+keyed by tier and no caller ever passes `'admin'` — the `admin` rows seeded in
+migrations `0028`/`0029` are unreachable by construction. Because most
+legendary gates in the codebase *are* role-based and work fine for admins, the
+one that isn't looks correct under exactly the account most likely to test it.
+
+**Avoid:** decide which vocabulary a gate speaks *before* writing it, and when
+admin should qualify, resolve from the role — `isAtLeastLegendary(role)`,
+optionally OR-ed with the feature lookup so a tier can still be granted the
+capability independently (`facts.ts`'s captcha bypass, and now
+`createMemeRecord`'s private-visibility gate). Sibling gates in the same
+function are the tell: `createMemeRecord` had `canPulid` on the role and
+`canPrivate` on the tier three lines apart.
+
+**And never coerce a denied *privacy* request into its permissive default.**
+The gate above was only half the defect. The other half was what it did on
+denial: it silently rewrote `isPublic: false` to `true` and returned 201. A
+capability quietly not applied is an annoyance; a *privacy* choice quietly not
+applied is a disclosure — the caller was told the save succeeded, and the meme
+was world-readable at its permalink. Fail closed and say so. An unhonourable
+security request is an error, never a downgrade.
+
+**Overhype:** PR #394 restored the builder's Public/Private control, and the
+first private meme saved through it was published anyway. The builder maps
+`admin → legendary` (`roleToTier`) so the Private pill was selectable and
+selected; `createMemeRecord` resolved the entitlement from the tier column,
+found `registered`, and coerced the meme public. Both surfaces believed they
+were consistent with the other — `VisibilityToggle`'s own comment claimed the
+control "can never display a value the server would silently overwrite,"
+which was true for every tier except the one the author was testing on.

@@ -7,10 +7,10 @@ import { VisibilityToggle } from "../parts/VisibilityToggle";
  * in the retired single-file builder, so every meme saved through the shipped
  * builders was public).
  *
- * The load-bearing property is the tier lock: privacy is Legendary-only and
- * `createMemeRecord` silently forces `isPublic: true` for everyone else, so a
- * lower tier must never be able to *select* Private — otherwise the UI shows a
- * state the server quietly overwrites.
+ * The load-bearing property is the tier lock: privacy is Legendary-level and
+ * `createMemeRecord` rejects an explicit `isPublic: false` from anyone below it
+ * with a 403, so a lower tier must never be able to *select* Private —
+ * otherwise the UI offers a choice the save would refuse.
  */
 describe("VisibilityToggle", () => {
   it("defaults to public and lets a legendary viewer switch to private", () => {
@@ -74,7 +74,10 @@ describe("VisibilityToggle", () => {
 
   it("never reports private for a locked tier, even if handed isPublic=false", () => {
     // Defence in depth: a stale draft or a caller bug must not render a
-    // "Private" state the server would silently flip back to public.
+    // "Private" state — the server would now reject an unentitled caller's
+    // explicit request with a 403 rather than silently flipping it back to
+    // public, but this component still must not display private as active
+    // for a tier its own tier-only lock treats as unentitled.
     render(
       <VisibilityToggle
         isPublic={false}

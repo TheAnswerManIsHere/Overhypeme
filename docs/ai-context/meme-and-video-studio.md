@@ -55,10 +55,16 @@ in the wizard's Step 2 via `WizardPrimaryAction`'s `aboveAction` slot
 (`step2-image/Step2Image.tsx`). Not wired into the single-screen builder —
 per the dead-path note above, it can't be reached, so there's nothing to wire.
 It is set **at creation time only** — no route or UI changes a meme's
-visibility afterwards. Because privacy is Legendary-only (see *Tier gates*),
-the "Private" pill is locked-but-visible for lower tiers: tapping opens
-`UnifiedUpgradeModal` and the private state is unreachable, so the control can
-never show a value `createMemeRecord` would silently overwrite. **Video memes
+visibility afterwards. The client's lock is tier-only —
+`tier !== "legendary"` — and does not consult the
+`meme_private_visibility` feature flag (see *Tier gates*), so the "Private"
+pill is locked-but-visible for every lower tier even when an operator has
+granted that tier the flag via Admin → Features: tapping opens
+`UnifiedUpgradeModal` and the private state is unreachable through this UI.
+That keeps the control from ever offering a choice `createMemeRecord` would
+now refuse outright (a 403, not a silent overwrite) — at the cost of also
+hiding the choice from a tier the server would actually honor it for; that
+combination has no UI path today. **Video memes
 have no visibility control** — `POST /memes/video-jobs`'s `StartBody` accepts
 no privacy field and `videoPipelineRunner` calls `createMemeRecord` without
 `isPublic`, so every video meme is public (the retired `MemeStudioVideoTab`
@@ -69,7 +75,7 @@ had one, wired to the legacy sync `/videos` route's `isPrivate`).
 `POST /memes` (`memes.ts:268-354`) requires `req.isAuthenticated()` (401
 otherwise, `memes.ts:270-273`) — **auth only, no tier check** for the base
 save. It's a thin delegate (`memes.ts:282-286`) to `createMemeRecord()`
-(`createMemeRecord.ts:139-426`), which the async video pipeline also calls
+(`createMemeRecord.ts:139-445`), which the async video pipeline also calls
 directly (bypassing HTTP), so every meme — however it was built — goes
 through this one insert path.
 
@@ -81,17 +87,17 @@ discriminated union, `ImageSourceSchema` (`memeBuilder.ts:77-114`):
 | `"template"` | Built-in gradient/template background | Pointer only (`templateId`) |
 | `"stock"` | Pexels stock photo | Pointer only (`pexelsPhotoId`, optional cached `photoUrl`) |
 | `"upload"` | User's own uploaded photo | Pointer (`uploadKey`) — bytes already landed via a separate upload call |
-| `"identity"` | "Use my profile photo" | Resolved server-side into `"upload"` pointing at the stored profile photo (`createMemeRecord.ts:187-200`); 400 if none exists |
+| `"identity"` | "Use my profile photo" | Resolved server-side into `"upload"` pointing at the stored profile photo (`createMemeRecord.ts:205-219`); 400 if none exists |
 | `"video"` | AI video meme | Pointer (`videoJobId`, `videoObjectPath`, `stillObjectPath`, `lookStyleId`, `motionPresetId`) — bytes already produced by the video pipeline |
 
 An AI-*generated* image background is just a file in object storage the
 user picks via the AI Gallery — it re-enters `createMemeRecord` as an
 `"upload"`-shaped `imageSource`, same as any other upload. The separate
 `imageTransform: "pulid"` flag marks a meme as PuLID-stylized for
-analytics/tier-gating (`createMemeRecord.ts:398`), independent of
+analytics/tier-gating (`createMemeRecord.ts:417`), independent of
 `imageSource.type`. `templateId` is derived server-side from the source
 (`"photo_stock"`, `"photo_upload"`, `"video"`, or the literal template id;
-`createMemeRecord.ts:292-297`).
+`createMemeRecord.ts:312-316`).
 
 ## Photo memes
 
@@ -120,12 +126,12 @@ served straight from a pre-rendered object instead
 (`memeKey(slug, ext)`, branch at `memes.ts:619-655`).
 
 Two structural safeguards on every save, independent of meme type: a
-tier-differentiated daily save cap (`createMemeRecord.ts:203-228`) and a
+tier-differentiated daily save cap (`createMemeRecord.ts:221-247`) and a
 short-lived idempotency check keyed on the caller + a canonicalized body
 hash, so a double-click can't create duplicate rows
-(`createMemeRecord.ts:50-77,230-251`). If the client sends a rendered
+(`createMemeRecord.ts:50-77,249-270`). If the client sends a rendered
 preview, it's classified for NSFW before persisting; a reject 422s and
-quarantines rather than saving (`createMemeRecord.ts:299-364`).
+quarantines rather than saving (`createMemeRecord.ts:318-371`).
 
 ## AI image memes
 
@@ -242,9 +248,14 @@ ignores the admin "view as user" toggle. `requireLegendary` is a shim for
 `generate-v2`, `analyze-source`, image delete); all AI video (both
 systems, via `hasFeature`/`isAtLeastLegendary`); PuLID-stylized photo
 memes (`imageTransform: "pulid"` → 403 `tier_mismatch` if not qualified,
-`createMemeRecord.ts:178-184`); private meme visibility (non-Legendary is
-silently forced `isPublic: true` regardless of what they request,
-`createMemeRecord.ts:174-179`); the higher daily-save-cap /
+`createMemeRecord.ts:188-191`); private meme visibility (Legendary-level by
+default, or any tier an operator has separately granted the
+`meme_private_visibility` feature flag via Admin → Features — a caller with
+neither who explicitly requests `isPublic: false` gets a 403, not a silent
+downgrade to public. See
+[`membership-entitlements.md`](membership-entitlements.md)'s reader
+inventory for why the role-vs-tier resolution matters,
+`createMemeRecord.ts:174-202`); the higher daily-save-cap /
 higher-rate-limit tier feature.
 
 **NOT gated by tier (auth-only):** `POST /memes` itself — any
