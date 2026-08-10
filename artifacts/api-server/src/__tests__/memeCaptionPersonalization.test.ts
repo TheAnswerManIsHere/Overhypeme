@@ -128,7 +128,7 @@ describe("personalizeMemeTextOptions", () => {
 
   it("passes through undefined options and undefined halves", () => {
     assert.equal(personalizeMemeTextOptions(undefined, "Nick", "he/him"), undefined);
-    const onlyTop = personalizeMemeTextOptions({ topText: "{NAME} wins" }, "Nick", "he/him");
+    const onlyTop = personalizeMemeTextOptions<TextOptions>({ topText: "{NAME} wins" }, "Nick", "he/him");
     assert.equal(onlyTop?.topText, "Nick wins");
     assert.equal(onlyTop?.bottomText, undefined);
   });
