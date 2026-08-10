@@ -237,8 +237,12 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
     assert.equal(out.textOptions?.fontSize, 30);
   });
 
-  it("leaves the generator nothing tokenized to draw, for any pronoun set", () => {
-    for (const pronouns of ["he/him", "she/her", "they/them", "ze/hir"]) {
+  it("leaves the generator nothing tokenized to draw, for every PRONOUN_ALLOWLIST set", () => {
+    // he/him, she/her, they/them, xe/xem, ze/zir — the exact set
+    // validators/memeBuilder.ts's PRONOUN_ALLOWLIST accepts on the
+    // meme-builder endpoints, so this is real coverage, not an arbitrary
+    // sample.
+    for (const pronouns of ["he/him", "she/her", "they/them", "xe/xem", "ze/zir"]) {
       const out = resolveStoredMemeCaption(
         { text: "{Subj} {keeps|keep} {POSS} cool.", canonicalText: "They keep their cool." },
         { displayName: "Sam", pronouns },
@@ -252,6 +256,31 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
         `${pronouns}: drew "${blocks.topText}" / "${blocks.bottomText}"`,
       );
     }
+  });
+
+  it("resolves ze/zir and xe/xem to their OWN forms on the split halves, not they/them's", () => {
+    // Round 1 regression: before this fix, resolveIdentityForms only
+    // special-cased he/she and silently fell through to their/theirs for
+    // every other subject — including two of PRONOUN_ALLOWLIST's own options.
+    // A raw {POSS} token (loud, self-reporting) is worse than nothing, but
+    // "their" instead of "zir" (quiet, plausible-looking, wrong) is worse
+    // still on a permanent shareable image. Pin the exact word, not just
+    // "no braces left".
+    const zir = resolveStoredMemeCaption(
+      { text: "{Subj} keeps {POSS} cool.", canonicalText: "They keep their cool." },
+      { displayName: "Sam", pronouns: "ze/zir" },
+      { topText: "{Subj} keeps", bottomText: "{POSS} cool." },
+    );
+    assert.equal(zir.textOptions?.topText, "Ze keeps");
+    assert.equal(zir.textOptions?.bottomText, "zir cool.");
+
+    const xyr = resolveStoredMemeCaption(
+      { text: "{Subj} keeps {POSS} cool.", canonicalText: "They keep their cool." },
+      { displayName: "Sam", pronouns: "xe/xem" },
+      { topText: "{Subj} keeps", bottomText: "{POSS} cool." },
+    );
+    assert.equal(xyr.textOptions?.topText, "Xe keeps");
+    assert.equal(xyr.textOptions?.bottomText, "xyr cool.");
   });
 
   it("falls back to the canonical identity for both when the creator is gone", () => {
