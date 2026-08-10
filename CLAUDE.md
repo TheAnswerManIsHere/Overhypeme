@@ -211,6 +211,18 @@ forward.
 
 ### Workflow tweaks (mechanical checks I've missed before)
 
+- **The plan-review disclosure check runs before the first PUSH, not before
+  the PR (2026-08-10).** The rule below says I run it "before creating the
+  PR" — but in practice I commit and push the plan to a branch well before
+  opening the PR, and this repo is public, so a plan naming unpatched
+  vulnerabilities is already exposed by the time the PR-creation step
+  arrives. The check therefore moves earlier: **before the first `git push`
+  of any plan document**, not before `create_pull_request`. Caught on the
+  admin-permissions plan, where the document listed a fail-open spend gate
+  and an auth-bypass with file:line and was pushed to a public branch before
+  I checked. (David reviewed and chose to publish anyway — pre-launch, no
+  live site — but the ordering was wrong independently of how that call
+  went.)
 - **`lib/api-zod` exports: verify against codegen immediately, not later.**
   Codegen owns `lib/api-zod/src/index.ts` and silently wipes hand-added
   exports. The full gotcha and the exact procedure live in
