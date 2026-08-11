@@ -58,6 +58,14 @@ attached_assets/
 # Claude Code personal/local settings (machine-specific, not shared)
 .claude/settings.local.json
 
+# Claude Code user config dir for the in-Repl install (CLAUDE_CONFIG_DIR in
+# .replit). Holds OAuth credentials + session history. It lives inside the
+# workspace only because that's what persists across Repl restarts — it must
+# NEVER be committed: this repo is public, and Replit Agent auto-commits the
+# workspace at checkpoints, so an untracked credentials dir WILL eventually be
+# swept into a pushed commit without this entry.
+.claude-user/
+
 # Secrets — never commit env files (allow *.example templates)
 .env
 .env.*
