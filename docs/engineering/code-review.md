@@ -30,6 +30,16 @@ must-not-change, does it match the settled decisions rather than a plausible
 alternative. Flag a dropped or narrowed requirement even if the code itself
 never mentions it — the absence is the finding.
 
+**If the plan cites a direction, check the code against that too, not just
+the plan's own Product Intent.** A plan built under
+[the increment test](../ai-context/working-modes.md#the-increment-test) can
+correctly build a narrower increment while its direction still carries
+constraints on that increment (a boundary rule, an invariant, a decision
+already settled at the direction level) — a PR that satisfies the plan's
+stated intent while violating its direction is exactly the "internally sound,
+quietly wrong" shape this oracle exists to catch. Missing Direction on a PR
+whose plan cited one is itself a finding.
+
 The oracle also carries **Approved-plan source** — the exact final revision
 those words came from (plan-review PR + final plan commit sha, or the plan
 filename + content hash on the private/manual path), plus the date David

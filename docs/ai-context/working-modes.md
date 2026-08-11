@@ -81,6 +81,103 @@ rather than reviewing a description of it.
 before any plan is written. Do not default to the heavier path "to be safe":
 this failure mode has a real cost and it is the one that has actually happened.
 
+### Directions and plans are different artifacts (David, 2026-08-11)
+
+The ceremony table above answers *how much* review an artifact earns. This
+answers **what the artifact is** — and getting it wrong is what let PR #404's
+plan grow from 877 to roughly 1,370 lines **during its own review**, across
+three rounds that ran 24 → 14 → 21 findings.
+
+- A **direction** states an end state: "one screen governs everything an
+  account may do." It is **totalising by nature** — that is its job — and it
+  carries the product decisions that constrain every increment beneath it. It
+  lives with the other shared context docs in `docs/ai-context/`, is reviewed
+  **once** for soundness, and is updated as later discoveries land.
+- A **plan** builds **one bounded increment** toward a direction and **cites
+  the direction it serves**. Its intent sentence says what *this increment*
+  makes true — never what the end state is.
+- **The plan-review loop only ever runs on plans, never on a direction.** A
+  direction has no implementation to be wrong about, so adversarial review of
+  one produces specification rather than correction. (This is about the
+  `[PLAN REVIEW]` loop specifically — it says nothing about code-review loops
+  on implementation PRs, feature or bugfix, which keep running exactly as
+  described elsewhere in this doc and in the `bugfix` skill.)
+
+**Why the split is load-bearing.** PR #404's Product Intent was David's own
+totalising sentence — "any and all permissions… exclusively… one source of
+truth." Stated as the intent of a *single plan*, a universal quantifier makes
+every subsequent discovery in-scope **by definition**. When review surfaced
+the per-user override contradiction, the intent said it belonged. When it
+surfaced engine access, the intent said that belonged too. The document had no
+way to say "true, and *next*" — only "true, so *in*." The intent was not
+wrong; it was a direction wearing a plan's clothes.
+
+**A discovery has three destinations, not two: in-scope, rejected, and next
+plan.** The third one is what was missing. The scope that broke PR #404 came
+from genuine discoveries the pre-plan sweep and the review loop are *designed*
+to surface — they did not exist at intake to be decomposed away, so
+"decompose harder up front" would not have helped. Somewhere to put a
+mid-flight discovery would have.
+
+Worth stating plainly, because it decides what to fix and what to leave alone:
+across all 59 findings in that loop, **not one overturned a decision from the
+pre-plan conversation.** Union semantics, the two rails, the bootstrap
+carve-out, preview-drops-to-registered — all held under adversarial review.
+The front of the process worked. The artifact fed to it contained three
+projects.
+
+**A direction that duplicates or contradicts an existing canonical doc is not
+a new artifact — it's a routing bug.** [`product-direction.md`](./product-direction.md)
+already exists and already declares itself the winning source for current
+direction and settled decisions; most subsystems already have a canonical
+`docs/ai-context/<subsystem>.md`. Writing a direction means updating the
+matching existing doc (adding or revising its end-state statement), never
+standing up a parallel file — the single-canonical-home rule in
+[`documentation-workflow.md`](./documentation-workflow.md#step-2--route-each-learning-to-its-one-canonical-home)
+governs directions exactly as it governs any other learning. A direction earns
+a genuinely new file only when no existing doc owns its area, and a new file
+gets added to `AGENTS.md`'s routing per that same rule — it does not get to
+skip the step just because it's the "totalising" artifact type.
+
+**A direction is subject to the same public-disclosure check a plan is, before
+it is committed — not after.** A totalising end-state statement can itself
+contain unpatched-vulnerability details, an auth-bypass shape, or an
+abuse/fraud path, and unlike a plan-review PR (closed, unmerged, still public
+history but never on `main`), a direction that updates a canonical
+`docs/ai-context/` doc goes live on `main` directly. Run the canonical
+disclosure check —
+[`workstream-tracking.md`](./workstream-tracking.md#what-must-never-happen)'s
+definition, the one every other disclosure gate in this repo references rather
+than restates — before committing a direction; a direction that fails it takes
+the same private/manual path a disclosure-carve-out workstream would.
+
+### The increment test
+
+**A universal quantifier in the intent sentence means you're holding a
+direction, not a plan.** "All", "every", "everything", "any and all",
+"exclusively" — any of these, needed to say what the intent means, is the
+signal. Write or update the direction first (per the routing rule above), then
+cut the first increment out of it and plan that one. Don't narrow the
+requester's words to make the test pass — the totalising sentence stays intact
+in the direction, which is exactly where it belongs.
+
+**A *Phases* section that separates independently shippable pieces means each
+phase was probably its own plan.** The distinction is **independent
+deliverability**, not the mere presence of ordered steps — a single increment
+can legitimately need an ordered migrate → rollout → verify sequence, and that
+is not a split signal. It's a split signal when a phase could ship, be
+correct, and be verified **on its own**, without a later phase landing (PR
+#404 had three phases before round 1, each a separable subsystem: resolver,
+metered limits, engine bands). `AGENTS.md`'s planning steps ("propose a
+phased plan") describe this ordered-steps case, not the split case, and are
+not in tension with this test once read that way.
+
+**Narrowing to one increment is a stated decision, not a silent scope
+drop.** [`agent-working-rules.md`](./agent-working-rules.md#pre-plan-intent-is-the-source-of-truth)'s
+pre-plan-intent rule carries the exception directly: narrowing to increment A
+is not the failure it catches, provided B is named in the plan's cited
+direction rather than silently absent.
+
 ### Review loops need a stopping rule, not just a convergence target
 
 A review loop's exit condition cannot be "keep going until the reviewer stops
@@ -102,6 +199,18 @@ will keep finding things, and each fix adds surface for the next round.
 - **Findings must fall round over round.** If a round produces **more** findings
   than the one before it, stop and reassess **with David** before starting
   another round. Report the count trend plainly.
+- **The artifact must not grow while it is being reviewed (David,
+  2026-08-11).** Record its size at round 1 and state the current size in every
+  re-review request, beside the finding trend. **Growth past roughly 50% means
+  the artifact has stopped being reviewed and started being written** — the
+  correct output at that point is a split and a backlog, not another round.
+  This is a **second, independent tripwire**, and it exists because a *falling*
+  finding count hides it completely: PR #404 grew 877 → ~1,370 lines (+56%)
+  while rounds 1 and 2 fell 24 → 14 and looked like convergence. The mechanism
+  is that fixes add **machinery** — an endpoint, a reservation system, an
+  advisory lock, a column — and each piece of machinery is fresh surface for
+  the next round, which is how round 3 rose to 21 findings with roughly 14 of
+  them against scope that did not exist when the loop started.
 - **Cap by artifact class.** Transient single-use docs: **the automatic first
   pass only — never a re-request** (see the ceremony table above). Agent-facing
   markdown: **1–2 rounds.** Product code: the existing soft cap, and the

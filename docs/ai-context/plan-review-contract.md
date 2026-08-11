@@ -107,7 +107,7 @@ itself never mentions the missing piece.
 ## Re-reviews (round 2 onward)
 
 A plan review is a loop: you review, the author revises, you review again. From
-the second round on, three additional obligations apply.
+the second round on, four additional obligations apply.
 
 **1. The diff is not the scope.** GitHub presents a re-review as a markdown diff
 — a handful of changed paragraphs. **That diff tells you what moved; it does not
@@ -144,7 +144,33 @@ this paragraph means *without having done the classification*, not "without
 posting a comment about it" — the GitHub surface's silence is a transport
 limitation you've confirmed, not the failure this paragraph is warning against.
 
-**3. Apply at least one lens you have not applied yet.** Convergence measures
+**3. Report scope the plan did not have last round (David, 2026-08-11).** A
+plan under review is supposed to shrink toward correctness, not grow. Each
+round, note whether the plan has acquired a **new mechanism** since your last
+pass — a new table, role, endpoint, config domain, lock, or subsystem. Growth
+is invisible to the finding count (it happens just as readily while counts
+*fall*), and the author is the party least able to see it. **A plan whose new
+findings mostly attach to scope added after review began has stopped being
+reviewed and started being written**, and the correct output is a split, not
+another round. See
+[*A plan that grew during its own review*](./known-failure-patterns.md#a-plan-that-grew-during-its-own-review).
+
+**How this obligation is discharged depends on delivery surface, same as
+everything else in *Output* below.** On full-document delivery, say so
+plainly in your own write-up whether or not a defect accompanies it — this
+surface has no constraint against a freestanding observation. **On the GitHub
+structured-review transport, this surface's own limits apply** (see *Output*
+→ *Structured defect pass*): there is no channel for a non-defect note, so a
+new mechanism with no accompanying finding is not something you post here —
+naming growth with no defect is the **loop driver's** job (Claude tracks the
+plan's line count in the findings ledger every round; that is the mechanical
+substitute for this obligation on this surface). What you owe on this
+transport: when a new mechanism **does** produce a finding, fold the growth
+observation into that finding's text, the same way *Verified*/*Unable to
+verify* fold into a Required Revision or Recommended Improvement per the
+structured-pass rules below.
+
+**4. Apply at least one lens you have not applied yet.** Convergence measures
 *consistency*, not *quality* — a reviewer that missed a major issue in round 1
 and keeps missing it will converge cleanly on a broken plan. So every re-review
 makes one fresh attempt to invalidate the plan from an angle the earlier rounds
@@ -323,6 +349,22 @@ instances and anchors):
 - Inventing architecture that doesn't match the repo.
 - Leaving old/deprecated paths reachable after introducing a replacement.
 - Skipping old/new/partial/failed data states in a migration or backfill plan.
+
+**One more, and it applies to the plan's shape rather than its content:**
+
+- **A direction wearing a plan's clothes.** If the plan's stated intent needs a
+  universal quantifier to say what it means — "all", "every", "everything",
+  "any and all", "exclusively" — it is describing an **end state**, not a
+  bounded increment, and every discovery made during review becomes in-scope by
+  definition. A *Phases* section whose phases are **independently
+  shippable** — each could be correct and verified on its own without a later
+  phase landing — is the same signal: each phase was probably its own plan.
+  An ordered migrate → rollout → verify sequence *within* one increment is
+  not this signal. Raise it as a finding on round 1. This is the one failure the
+  loop itself cannot correct, because the intent sentence is what decides
+  whether any given finding is in scope, and it is a decision only David can
+  make. Definitions:
+  [`working-modes.md`](./working-modes.md#directions-and-plans-are-different-artifacts-david-2026-08-11).
 
 **Then check these as the plan warrants:**
 

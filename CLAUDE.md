@@ -375,6 +375,36 @@ not start implementing, I do not re-fire the prompt in a loop, and I wait for
 David's explicit words. When unsure whether I've been approved, I assume I have
 not.
 
+## Before the plan: the increment test, and now-vs-next
+
+The shared truth — what a **direction** is, what a **plan** is, the mechanical
+**increment test** (universal quantifier ⇒ direction; independently-shippable
+*Phases* ⇒ split), the direction-routing rule, and that the plan-review loop
+only ever runs on plans — all live in
+[`working-modes.md`](docs/ai-context/working-modes.md#the-increment-test) and
+bind Codex too, so per this file's single-source-of-truth rule I don't restate
+them. What's mine is when I apply it: **I run the increment test before
+writing a line of plan**, using `.agents/PLANS.md`'s Preflight section as
+where that happens.
+
+**Scope that arrives mid-flight is framed now vs. next.** Any decision during
+planning *or* review that adds a **new mechanism** — a new table, a new role, a
+new config domain, a new endpoint — gets exactly one question put to David:
+*this plan, or the next one?* **The default is next.** It is overridden only
+when the current plan cannot be **correct** without the addition — never
+because the end state needs it, which is always true and is what the direction
+is for.
+
+**A scope question from me carries three options, never two.** The failure on
+PR #404 wasn't David's answer, it was my framing: I asked whether numeric
+limits should go into the grid *now* or be left *out* — scope-in versus
+scope-out. He chose in, reasoning about the end state, which was the right
+reasoning applied to the wrong question. *Now vs. next* was never on the table,
+and when a split was finally proposed after the stopping rule fired, he took it
+immediately. So every scope question I raise offers **now / next / never**,
+each with its ramification. A two-option scope question is a bug in the
+question, not a decision for David to make.
+
 ## Plan review runs through the Codex draft-PR loop
 
 **Standing rule (David, 2026-07-22): plan review runs automatically through
@@ -418,7 +448,11 @@ loaded:
   every re-review request**. If a round returns **more** findings than the one
   before it, I stop and reassess with David before starting another round — a
   rising count means the artifact or the ceremony is wrong, not that I should
-  try harder. Agent-facing markdown caps at **1–2 rounds** (and normally has
+  try harder. **I track the plan file's line count the same way and state it in
+  the same breath (David, 2026-08-11)** — the growth tripwire in
+  [`working-modes.md`](docs/ai-context/working-modes.md) fires at roughly +50%
+  from round 1, and it is the tripwire a *falling* finding count hides. When it
+  fires, the output is a split and a backlog, not another round. Agent-facing markdown caps at **1–2 rounds** (and normally has
   no loop at all — see the ceremony-tiering rule above). **I also triage:
   every finding gets fix / accept-and-document / escalate, stated explicitly.**
   Codex marks everything "Required Revision" because that is its job;
@@ -560,7 +594,13 @@ paste its Product Intent / Must Not Change / Settled Decisions verbatim into
 the PR's oracle section before requesting the first review — from the
 `[PLAN REVIEW]` PR body, or from the final approved plan document when the
 plan went through the manual/private path (no `[PLAN REVIEW]` PR exists
-there, but the oracle still applies). **A bugfix PR fills the same section
+there, but the oracle still applies). **If the plan cites a direction, I paste
+that too (David, 2026-08-11)** — Product Intent alone only covers what *this
+increment* makes true; the direction carries the product decisions that
+constrain every increment beneath it, and code that satisfies the narrower
+increment intent while violating the direction is exactly the kind of quietly
+non-compliant PR this oracle exists to catch. "n/a" only when the plan itself
+recorded that no direction applied. **A bugfix PR fills the same section
 with the *bugfix oracle*, not "n/a — no plan"** — reviewing a fix against
 nothing but itself can't catch the failure that matters most: the symptom
 disappears while a neighbor breaks. **Tier A/B** fills fix tier, reported
