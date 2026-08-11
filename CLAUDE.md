@@ -253,12 +253,12 @@ forward.
 ### Workflow tweaks (mechanical checks I've missed before)
 
 - **The plan-review disclosure check runs before the first PUSH, not before
-  the PR (2026-08-10).** The rule below says I run it "before creating the
-  PR" — but in practice I commit and push the plan to a branch well before
-  opening the PR, and this repo is public, so a plan naming unpatched
-  vulnerabilities is already exposed by the time the PR-creation step
-  arrives. The check therefore moves earlier: **before the first `git push`
-  of any plan document**, not before `create_pull_request`. Caught on the
+  the PR (2026-08-10).** *Plan review runs through the Codex draft-PR loop*
+  below states the canonical timing — before the first `git push` of the plan
+  document, not before `create_pull_request` — and this entry is the record of
+  why: I commit and push the plan to a branch well before opening the PR, and
+  this repo is public, so a plan naming unpatched vulnerabilities is already
+  exposed by the time the PR-creation step arrives. Caught on the
   admin-permissions plan, where the document listed a fail-open spend gate
   and an auth-bypass with file:line and was pushed to a public branch before
   I checked. (David reviewed and chose to publish anyway — pre-launch, no
@@ -458,8 +458,11 @@ loaded:
   unpatched-vulnerability details, auth-bypass specifics, secrets/credentials,
   payment-fraud abuse paths, private customer/commercial data, or embargoed
   plans **does NOT go through the public PR channel** — it stays on the
-  manual/private review path. I run this check before creating the PR, not
-  after.
+  manual/private review path. **I run this check before the first `git push`
+  of the plan document, not before `create_pull_request`** — see *Workflow
+  tweaks*' entry on this below for why the earlier moment is the one that
+  matters on a public repo (I typically push the plan to a branch well before
+  opening the PR).
 - **The plan-review PR is never merged**, and its branch is **never reused for
   implementation**. A `docs/plans/` file reaches `main` only if David
   explicitly asks to keep it.
