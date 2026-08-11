@@ -51,6 +51,10 @@ Thumbs.db
 !.local/tasks/
 !.local/tasks/**
 attached_assets/
+# npm-global installs in the Repl (e.g. Claude Code via `npm install -g`)
+# land under the workspace's .config so they persist across restarts —
+# tool binaries, not project files; keep them out of checkpoint commits.
+.config/
 
 # Claude Code agent worktrees (per-session ephemeral)
 .claude/worktrees/
