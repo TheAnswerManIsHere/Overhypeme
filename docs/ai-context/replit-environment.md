@@ -87,6 +87,38 @@ those runs against a Replit-authored change before it reaches `main`. Don't
 describe Replit as having "no CI"; describe it accurately as running its own
 CI, separate from the repo's.
 
+## GitHub ⇄ Repl sync and Publish (shared fact, not tool-specific)
+
+Any agent that can trigger a Replit connector's `publish_app` — Claude Code
+today, potentially others later — needs this before calling it: **Publish
+does not pull from GitHub.** It deploys whatever is currently checked out in
+the Repl's own workspace, not whatever is newest on GitHub. Two separate
+mechanisms determine what that workspace contains:
+
+- **GitHub → Repl** happens only if two-way sync is enabled in Replit's Git
+  pane, or someone pulls manually (`git pull origin main`, or the Pull action
+  in the Git pane). A push to `main` on GitHub does not, by itself, reach the
+  Repl.
+- **Repl → Publish** takes a snapshot of the Repl's *current* workspace —
+  pulled files, locally committed files, and any locally uncommitted files
+  are all included — and builds/deploys that snapshot. It does not re-check
+  GitHub as part of publishing.
+
+So the only safe release sequence is: GitHub push to `main` → confirm/trigger
+the Repl sync (auto-sync, or a manual pull) → **verify the Repl's checked-out
+commit SHA matches the pushed commit** → Publish. Branch name and a clean
+working tree are *not* sufficient verification on their own — a Repl can be
+on `main`, clean, and still behind if sync hasn't completed or propagated
+yet, which would let this exact check wave through the stale-code Publish it
+was meant to prevent.
+
+*(Source: reported live by Replit Agent via a connector `ask_question` call
+against the Overhype.me Repl, 2026-08-11 — an AI agent's account of Replit's
+own behavior, not independently cross-checked against Replit's official
+Git-sync/Publish documentation. Treat as a strong working assumption; confirm
+against Replit's own docs or a controlled non-production test before this
+sequence gates an actual production release.)*
+
 ## The one thing that IS ours: a periodic retrospective read
 
 Nothing gates Replit's push, so the only enforcement point is after the

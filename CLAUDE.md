@@ -803,22 +803,17 @@ it lives here rather than in the shared docs.
   full TEST_RUN round-trip through David. But its answer is an AI agent's
   natural-language summary, not deterministic command output — it never
   substitutes for the TEST_RUN doc where the evidence itself is the point (a
-  merge gate, a bugfix regression check).
+  post-merge live-environment check, a bugfix regression check).
 - **`update_app_using_prompt` is NEVER used on Overhype.me.** It would let a
   second AI edit the app's code directly inside the Repl, outside git —
   bypassing the PR → Codex review → squash-merge pipeline this whole repo's
   safety net depends on, and creating drift between the Repl and the GitHub
   repo that's supposed to be the single source of truth.
-- **Git sync and Publish are two separate steps, and Publish does NOT pull
-  from GitHub.** Confirmed via `ask_question` against the Overhype.me Repl
-  (2026-08-11): a GitHub push only updates the Repl's working copy if
-  two-way sync is enabled in Replit's Git pane, or someone pulls manually
-  (`git pull origin main` or the Git pane's Pull action). `publish_app` then
-  deploys whatever snapshot is currently in the Repl's workspace at that
-  moment — it does **not** implicitly pull first. So a push to `main` with
-  sync off, followed by Publish, silently deploys stale code. The safe
-  sequence: GitHub push → confirm/trigger Repl sync → verify the Repl is on
-  `main` with a clean tree → Publish.
+- **Git sync and Publish mechanics are a shared, cross-agent fact, not
+  Claude-specific — see
+  [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)**
+  for how GitHub pushes reach a Repl and what `publish_app` actually deploys.
+  My addition here is only the authorization layer, below.
 - **`publish_app` stays a per-use, explicitly-asked action, not automatic** —
   it's production-facing. We haven't started using it yet; we're deferring
   until closer to actually going live, at which point we still need to design
