@@ -170,6 +170,25 @@ The author's review request on a docs-only PR states this bar explicitly
 ("docs-only — light review per code-review.md"), so the reviewer calibrates
 from the request itself, not just from this file.
 
+**Loop-ledger records get the same light bar, split by which half of the
+record a finding touches (David, 2026-08-11).** A `.agents/metrics/loops/
+<pr>.json` record has a mechanical half (`derive()`'s numbers) and a
+judgment half (hand-typed causes and prose explaining them — see
+`working-modes.md`'s *The loop ledger*). Only flag: **(a)** a mechanical
+value that's actually wrong — a causal count that doesn't sum to
+`findings`, a date/PR number/schema violation, anything `check-loop-metrics
+.mjs` would itself reject; or **(b)** a judgment claim that's factually
+wrong about what happened in the loop (e.g. claiming a finding was fixed
+when the diff shows it wasn't). **Not** a finding: a defensible read of an
+ambiguous rubric provision, or imprecise *phrasing* in the prose that
+explains a causal label which is itself correct — three review rounds on
+PR #406 were exactly this shape (the counts were right every round; only
+the wording justifying them kept getting relitigated), which is the
+concrete cost this carve-out exists to stop paying twice. The author's
+review request on a loop-ledger PR states this bar explicitly too
+("ledger record — light review per code-review.md, mechanical-or-factual
+findings only"), matching the docs-only convention above.
+
 ## Runtime correctness
 
 - Does it do what the plan/intent says, including edge cases?
