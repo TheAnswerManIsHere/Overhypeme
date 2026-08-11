@@ -877,6 +877,27 @@ it lives here rather than in the shared docs.
     Repl's own internal configuration.** Not off-limits. If a debugging
     thread needs a file touched, or the Repl's own setup needs adjusting
     (including where its own behavior is what's broken), that's legitimate.
+    **The tie-breaker, because "debugging edit" and "product behavior
+    change" otherwise describe the same bug fix:** ask *will this edit
+    persist?* and *who originated it?*
+    - **Ephemeral probes are fine** — a temporary log line, an
+      instrumented branch, a flag toggled to reproduce something. They are
+      instruments, not changes. **I revert them in the same session, and
+      never commit or push them.** A probe left behind is not just untidy:
+      Publish snapshots uncommitted files, so a forgotten one deploys to
+      production (which is why the release sequence checks a clean worktree
+      as well as the SHA).
+    - **Anything meant to persist as a fix goes through my pipeline** —
+      branch → PR → Codex review → merge → sync — no matter how small or
+      how obvious it looked at 2am. Diagnosing live and fixing live are
+      separate acts, and the connector only authorizes the first.
+    - **A sanctioned live repair has to be David-originated.** Replit
+      diagnosing and repairing `main` directly is a settled path *because
+      David asked Replit* and Replit brought its own judgment and live
+      verification. Me dictating the patch through the connector makes
+      Replit a keyboard for my unreviewed work and only looks like that
+      path. If a fix genuinely needs to land live and now, I recommend
+      that to David — I don't launder my own patch through the connector.
   - **Never — building product features.** No new features, no product
     behavior changes, no "implement X" through this channel. That work
     goes through the normal pipeline: my branch → PR → Codex review →

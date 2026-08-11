@@ -110,12 +110,22 @@ mechanisms determine what that workspace contains:
 
 So the only safe release sequence is: GitHub push to `main` → **manually**
 trigger the Repl sync (`git pull`, or the Git pane's Pull/Sync Changes
-action — never assume it already happened) → **verify the Repl's
-checked-out commit SHA matches the pushed commit** → Publish. Branch name
-and a clean working tree are *not* sufficient verification on their own — a
-Repl can be on `main`, clean, and still behind if the manual sync step was
-skipped, which would let this exact check wave through the stale-code
-Publish it was meant to prevent.
+action — never assume it already happened) → **verify two things together,
+that the Repl's checked-out commit SHA matches the pushed commit *and* that
+its worktree is clean** → Publish.
+
+Both halves are load-bearing, and neither is sufficient alone:
+
+- **SHA match without a clean worktree** still publishes the wrong thing.
+  Publish snapshots uncommitted files too (above), so a leftover local edit
+  — a debugging probe someone forgot to revert, most likely — ships to
+  production even though HEAD is exactly right.
+- **A clean worktree without a SHA match** proves nothing about freshness. A
+  Repl can sit on `main`, spotlessly clean, and simply be behind because the
+  manual sync never ran.
+
+Check only one and the other becomes the hole. Check the branch name alone
+and both are.
 
 *(Source and a live lesson in the caveat below: an initial `ask_question`
 pass against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
