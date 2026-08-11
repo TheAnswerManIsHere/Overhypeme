@@ -1053,6 +1053,17 @@ achieving. That question now has a formal gate — rate the artifact 1–100 on
 single-digit artifacts never loop
 ([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)).
 
+**A fifth instance belongs to a different pattern, and is filed separately
+(PR #404, 2026-08-11).** The admin-permissions plan loop shares this entry's
+surface — correct findings, late-round fixes specifying machinery — but its
+root cause is neither an unachievable guarantee nor a criticality mismatch:
+the plan's *boundary moved* while it was being reviewed, growing 56% across
+three rounds because a totalising Product Intent made every discovery in-scope
+by definition. Diagnosing it as this pattern would prescribe the wrong fix
+(cut the subject / stop the loop) instead of the right one (split the artifact
+and keep going on the smaller half). See
+[*A plan that grew during its own review*](#a-plan-that-grew-during-its-own-review).
+
 ### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 
 **Looks like:** writing a from-scratch recognizer — tokenizer plus rules —
@@ -1086,6 +1097,60 @@ completeness. See the
 [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
 and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
 docstring section.
+
+## A plan that grew during its own review
+
+**Looks like:** a plan-review loop where the finding counts look *fine* — they
+may even be falling — while the plan file itself keeps getting longer. Each
+round's fixes are correct. Each fix adds a mechanism (an endpoint, a
+reservation system, a lock, a column, a role). The next round then finds
+problems in the *previous round's solutions* rather than in the original
+design, and the loop silently converts itself from reviewing a document into
+writing one. **Dangerous:** every existing tripwire can read green. The
+finding-count rule only fires on a *rise*, and growth routinely happens while
+counts fall — so the loop looks like convergence right up until the round
+where all the newly-added surface comes due at once.
+
+**The tell is the document, not the findings.** Two questions catch it:
+*is the plan longer than when review started?* and *do this round's findings
+attach to the original design, or to scope that has been added since?* If most
+findings attach to recent additions, the artifact under review is no longer
+the artifact that was approved for review.
+
+**Root cause is almost always one document serving as both an end-state vision
+and a build plan.** A totalising Product Intent — "any and all X",
+"exclusively", "one source of truth" — makes every discovery in-scope *by
+definition*: the document has no way to say "true, and next," only "true, so
+in." **Avoid:** separate **directions** (end states, reviewed once, never
+looped) from **plans** (one bounded increment, citing its direction), per
+[`working-modes.md`](./working-modes.md#directions-and-plans-are-different-artifacts-david-2026-08-11);
+apply the increment test *before* writing (universal quantifier ⇒ direction;
+needs a *Phases* section ⇒ each phase was a plan); record the plan's line count
+at round 1 and state it every round; and frame mid-flight scope as **now vs.
+next**, defaulting to next.
+
+**Overhype:** PR #404 (workstream #405), 2026-08-10/11 — the admin-permissions
+plan ran three rounds at **24 → 14 → 21** findings while growing **877 →
+~1,370 lines (+56%)**. The rounds-1-to-2 fall looked like convergence and
+concealed the growth entirely; round 3's rise is what finally tripped the
+existing stopping rule. Of round 3's 21 findings, roughly 7 attached to the
+original core and roughly **14 attached to scope added after review began**
+(metered limits, a tester role, engine bands). The diagnostic fact that
+separates this from the entries above: across all 59 findings, **not one
+overturned a decision from the pre-plan conversation** — the loop was working
+correctly on an artifact that contained three projects. The specific miss was
+a framing one: when the scope question was put to David, the options offered
+were *widen the grid now* or *leave it out*; **now vs. next was never on the
+table**, and when a split was finally proposed he took it immediately. The
+process changes this produced are #408.
+
+**Not the same as *chasing completeness against an adversarial reviewer***
+(above), though they co-occur and PR #404 shows both. That entry is about
+loops whose *subject* is wrong — an unachievable guarantee, or an artifact
+whose criticality never justified the rounds. This one is about a loop whose
+subject is legitimate and whose *boundary* keeps moving. The distinction
+decides the fix: the other entry's is to cut the subject or stop the loop;
+this one's is to **split the artifact and keep going on the smaller half**.
 
 ## PostgreSQL role/constraint verification traps that look safe and aren't
 

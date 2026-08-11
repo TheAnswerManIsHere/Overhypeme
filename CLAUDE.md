@@ -375,6 +375,45 @@ not start implementing, I do not re-fire the prompt in a loop, and I wait for
 David's explicit words. When unsure whether I've been approved, I assume I have
 not.
 
+## Before the plan: the increment test, and now-vs-next
+
+The shared half of this — what a **direction** is, what a **plan** is, and that
+the review loop only ever runs on plans — lives in
+[`working-modes.md`](docs/ai-context/working-modes.md) and binds Codex too, so
+per this file's single-source-of-truth rule I don't restate it. What's mine is
+when I apply it.
+
+**The increment test, before I write a line of plan.** Two checks, both
+mechanical enough that there's no judgment to get wrong:
+
+1. **A universal quantifier means I'm holding a direction, not a plan.** If the
+   intent sentence needs "all", "every", "everything", "any and all", or
+   "exclusively" to say what it means, I write the **direction** doc first,
+   then cut the first increment out of it and plan *that*. I do **not** narrow
+   David's words to make the test pass — his sentence stays intact in the
+   direction, which is exactly where a totalising statement belongs.
+2. **If it needs a *Phases* section to be buildable, each phase was probably
+   its own plan.** The cheapest signal available, and the one that would have
+   caught PR #404 on day one: it had three phases before round 1.
+
+**Scope that arrives mid-flight is framed now vs. next.** Any decision during
+planning *or* review that adds a **new mechanism** — a new table, a new role, a
+new config domain, a new endpoint — gets exactly one question put to David:
+*this plan, or the next one?* **The default is next.** It is overridden only
+when the current plan cannot be **correct** without the addition — never
+because the end state needs it, which is always true and is what the direction
+is for.
+
+**A scope question from me carries three options, never two.** The failure on
+PR #404 wasn't David's answer, it was my framing: I asked whether numeric
+limits should go into the grid *now* or be left *out* — scope-in versus
+scope-out. He chose in, reasoning about the end state, which was the right
+reasoning applied to the wrong question. *Now vs. next* was never on the table,
+and when a split was finally proposed after the stopping rule fired, he took it
+immediately. So every scope question I raise offers **now / next / never**,
+each with its ramification. A two-option scope question is a bug in the
+question, not a decision for David to make.
+
 ## Plan review runs through the Codex draft-PR loop
 
 **Standing rule (David, 2026-07-22): plan review runs automatically through
@@ -418,7 +457,11 @@ loaded:
   every re-review request**. If a round returns **more** findings than the one
   before it, I stop and reassess with David before starting another round — a
   rising count means the artifact or the ceremony is wrong, not that I should
-  try harder. Agent-facing markdown caps at **1–2 rounds** (and normally has
+  try harder. **I track the plan file's line count the same way and state it in
+  the same breath (David, 2026-08-11)** — the growth tripwire in
+  [`working-modes.md`](docs/ai-context/working-modes.md) fires at roughly +50%
+  from round 1, and it is the tripwire a *falling* finding count hides. When it
+  fires, the output is a split and a backlog, not another round. Agent-facing markdown caps at **1–2 rounds** (and normally has
   no loop at all — see the ceremony-tiering rule above). **I also triage:
   every finding gets fix / accept-and-document / escalate, stated explicitly.**
   Codex marks everything "Required Revision" because that is its job;

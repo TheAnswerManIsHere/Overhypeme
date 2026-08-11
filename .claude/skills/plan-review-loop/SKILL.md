@@ -139,10 +139,20 @@ have a draft plan, and the disclosure check passes:
    applied. See the contract's *Re-reviews* section.
 
    ## Findings ledger
-   <Round-by-round, maintained by me: each finding, its status, and the lens
-   each round applied. Cross-round state lives here so it survives whatever
-   Codex does or doesn't carry between rounds.>
+   <Round-by-round, maintained by me: each finding, its status, the lens each
+   round applied, and the plan file's line count for that round. Cross-round
+   state lives here so it survives whatever Codex does or doesn't carry
+   between rounds. The line count is not decoration — it is the growth
+   tripwire's only record, and a round-1 baseline that was never written down
+   cannot be compared against later.>
    ```
+
+   **Record the plan file's round-1 line count in the ledger before triggering
+   the first review** (`wc -l docs/plans/PLAN_<SLUG>.md`). It is the baseline
+   the growth tripwire in
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)
+   measures against, and it is unrecoverable after the fact once revisions
+   land.
 2. **Subscribe** with `subscribe_pr_activity` immediately — regardless of model
    tier, and **without asking to switch tiers.** The Sonnet gate under *Watching
    the PRs I open* is for *implementation* PRs (ops-shaped work); a
@@ -166,7 +176,19 @@ have a draft plan, and the disclosure check passes:
    impossible-as-specified — and a continue/stop recommendation), delivered as
    a 🛑 NEED YOU banner, waiting for David's go — with every finding written
    in **product English** per that contract's 2026-08-08 addition (David's
-   four-question template; outcomes, never mechanics). Skip-on-clean applies: a
+   four-question template; outcomes, never mechanics).
+   **The check-in carries the plan's line count next to the finding count
+   (David, 2026-08-11)** — "round 3: 21 findings, 24 → 14 → 21; plan 1,370
+   lines, +56% from round 1" — because the growth tripwire is the one a
+   falling finding count conceals, and an unstated number is one I can talk
+   myself past. If growth has passed roughly +50%, the recommendation I bring
+   is **stop and split**, not another round: everything added since round 1 is
+   a fork candidate per step 10's amendment, and each addition goes to David as
+   a **now / next / never** question per `CLAUDE.md`, defaulting to *next*.
+   The same framing applies to any single finding whose fix would introduce a
+   **new mechanism** — a table, a role, a config domain, an endpoint — whether
+   or not the tripwire has fired: the fix does not go in silently just because
+   a reviewer's finding motivated it. Skip-on-clean applies: a
    clean or trivial-nits-only round doesn't pause — under the minimum-3-rounds
    rule in step 7 it proceeds straight to the next lens with a one-line
    status. After the go (or on a clean round), I revise the plan
@@ -290,6 +312,27 @@ have a draft plan, and the disclosure check passes:
     to need its own attention — by then Codex's context on the existing PR
     is already established and cheaper to keep using than to rebuild fresh
     on a new one; the upfront split only pays off when decided upfront.
+
+    **Amendment (David, 2026-08-11): that rule covers *reviewed* material
+    only.** What it protects is accumulated review context, and **brand-new
+    scope added mid-loop has none to lose** — so forking *unreviewed*
+    additions out of the plan is not just allowed, it is the expected move.
+    The two cases are opposites and must not be confused:
+
+    - **Reviewed material** — in the plan since round 1, already attacked
+      across rounds. Stays. Forking it discards exactly the context this
+      rule exists to preserve.
+    - **Unreviewed scope** — a mechanism added at round *N* in response to a
+      finding or a mid-flight discovery. Forking it costs **nothing**,
+      because there is no review history attached to it yet. It leaves as a
+      backlog item and a line in the ledger, and the current plan reverts to
+      the scope it had before the addition.
+
+    This is the exit that did not exist during PR #404, which is why its
+    only available response to a mid-flight discovery was to absorb it. When
+    the growth tripwire fires (step 4), this is the mechanism that acts on
+    it: everything added since round 1 is a fork candidate by default, and
+    the *now vs. next* question goes to David per `CLAUDE.md`.
 11. **Close out.** When converged: close the draft PR **without merging**
     (`update_pull_request`, state `closed`) with a closing comment recording the
     final review status, unsubscribe, then ask David for approval — linking the
