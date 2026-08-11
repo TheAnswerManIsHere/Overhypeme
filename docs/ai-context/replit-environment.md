@@ -10,6 +10,53 @@ how the rest of us treat its output. Sibling to
 [`codex-environment.md`](codex-environment.md); AGENTS.md links both under
 "Agent sandboxes."
 
+## Claude Code can run *inside* the Repl — and the repo's agent config is not written for it
+
+Claude Code is installed in the Repl's shell (2026-08-11), which makes it a
+third actor: a **live-environment operator** — diagnostics, ops, `TEST_RUN`
+execution — distinct from Claude Code on the Web, which is the builder. It is
+powerful like Replit Agent, not constrained like the web sandbox: it holds the
+Repl's git credentials and can reach the running app.
+
+**The trap: `.claude/settings.json` is versioned, so it follows the repo into
+the Repl and is applied verbatim there.** Every setting in it was written for
+a disposable container, and two of them are actively wrong in a live
+environment:
+
+- **`"defaultMode": "bypassPermissions"`** — an unsupervised agent against the
+  real app, database, and `main`. Overridden Repl-side; see below.
+- **The `SessionStart` hook running `scripts/setup-test-db.sh`** — it
+  apt-installs packages, starts a Postgres cluster, creates a SUPERUSER role,
+  force-pushes a schema, and `pnpm install`s into the working copy. That last
+  one dirties the worktree that Publish snapshots. Fixed in the script itself,
+  which now exits early when Replit environment variables are present.
+
+### The Repl requires a `.claude/settings.local.json` that is NOT in git
+
+Local settings take precedence over the versioned project settings, and
+`.claude/settings.local.json` is gitignored — so the Repl's override cannot
+live in the repo, and this note is the only record that it must exist.
+Its contents:
+
+```json
+{
+  "permissions": { "defaultMode": "default" },
+  "model": "sonnet"
+}
+```
+
+`defaultMode: default` restores normal permission prompting; `model: sonnet`
+matches the ops tier this session works at. **If the Repl is ever rebuilt or
+this file goes missing, Claude Code there silently reverts to bypassing
+permissions against the live environment** — so re-create it before using an
+in-Repl session, and treat its absence as a stop condition, not a nuisance.
+
+Known limitation, deliberately left alone: the versioned settings also set
+`env.DATABASE_URL` to the sandbox's local test database, which an in-Repl
+session inherits. That means it cannot query the real database — safe by
+default, and fine for git/log/ops work, but it must be addressed deliberately
+before an in-Repl session is used for database-touching `TEST_RUN` steps.
+
 ## Authoritative on what IS; the repo docs are authoritative on what SHOULD BE
 
 Replit has one advantage none of the rest of us have: it can read live server
