@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Idempotent test DB setup for an agent sandbox.
 #
-# This is NOT used by the production app or by Replit. It exists solely to give
-# an agent a working Postgres so it can run integration tests in its own sandbox
-# before pushing code. Reads/writes nothing outside the sandbox.
+# This must NEVER run in the production app or in the Replit environment. It
+# exists solely to give an agent a working Postgres so it can run integration
+# tests in its own DISPOSABLE sandbox before pushing code.
 #
 # Two callers:
 #   * Claude — .claude/settings.json SessionStart hook, every session.
@@ -11,6 +11,21 @@
 #     defaults to a DB-less fast boot (docs/ai-context/codex-environment.md).
 
 set -euo pipefail
+
+# ── 0. Refuse to run in Replit ────────────────────────────────────────────────
+# The SessionStart hook above is declared in the VERSIONED .claude/settings.json,
+# so it follows the repo anywhere Claude Code runs — including a Claude Code
+# session started in the Repl's own shell, which is the LIVE environment (real
+# app, real database, push access to main), not a sandbox. Everything below
+# assumes disposable: it apt-installs packages, starts a Postgres cluster,
+# creates a SUPERUSER role, force-pushes a schema, and will `pnpm install` into
+# the working copy if node_modules is absent. None of that belongs in the Repl,
+# where an unwanted `pnpm install` alone would dirty the worktree that Publish
+# snapshots. Bail out before any of it can start.
+if [ -n "${REPL_ID:-}" ] || [ -n "${REPLIT_DEV_DOMAIN:-}" ] || [ -n "${REPL_SLUG:-}" ]; then
+  echo "[setup-test-db] Replit environment detected — skipping sandbox test-DB setup (by design)."
+  exit 0
+fi
 
 DB_NAME="overhype_test"
 DB_USER="overhype"
