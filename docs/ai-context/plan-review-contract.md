@@ -356,8 +356,11 @@ instances and anchors):
   universal quantifier to say what it means — "all", "every", "everything",
   "any and all", "exclusively" — it is describing an **end state**, not a
   bounded increment, and every discovery made during review becomes in-scope by
-  definition. A *Phases* section is the same signal: each phase was probably
-  its own plan. Raise it as a finding on round 1. This is the one failure the
+  definition. A *Phases* section whose phases are **independently
+  shippable** — each could be correct and verified on its own without a later
+  phase landing — is the same signal: each phase was probably its own plan.
+  An ordered migrate → rollout → verify sequence *within* one increment is
+  not this signal. Raise it as a finding on round 1. This is the one failure the
   loop itself cannot correct, because the intent sentence is what decides
   whether any given finding is in scope, and it is a decision only David can
   make. Definitions:

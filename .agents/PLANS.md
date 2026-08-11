@@ -42,9 +42,10 @@ Invariants and out-of-scope behavior — what should explicitly stay the same.
 
 ## Settled Decisions
 Decisions already made during the pre-plan conversation, and why (design
-choices, trade-offs resolved before writing this plan). These three sections
-— Product Intent, Must Not Change, Settled Decisions — are the oracle a
-reviewer checks the eventual implementation PR against, verbatim (see
+choices, trade-offs resolved before writing this plan). These four sections
+— Direction, Product Intent, Must Not Change, Settled Decisions — are the
+oracle a reviewer checks the eventual implementation PR against, verbatim
+(see
 [`docs/engineering/code-review.md`](../docs/engineering/code-review.md#the-review-oracle-the-pr-body)).
 
 ## Repo Context Inspected

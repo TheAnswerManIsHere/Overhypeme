@@ -1125,7 +1125,9 @@ in." **Avoid:** separate **directions** (end states, reviewed once, never
 looped) from **plans** (one bounded increment, citing its direction), per
 [`working-modes.md`](./working-modes.md#directions-and-plans-are-different-artifacts-david-2026-08-11);
 apply the increment test *before* writing (universal quantifier ⇒ direction;
-needs a *Phases* section ⇒ each phase was a plan); record the plan's line count
+a *Phases* section whose phases are independently shippable ⇒ each phase was
+a plan — an ordered migrate/rollout/verify sequence within one increment is
+not this signal); record the plan's line count
 at round 1 and state it every round; and frame mid-flight scope as **now vs.
 next**, defaulting to next.
 

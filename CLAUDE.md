@@ -594,7 +594,13 @@ paste its Product Intent / Must Not Change / Settled Decisions verbatim into
 the PR's oracle section before requesting the first review — from the
 `[PLAN REVIEW]` PR body, or from the final approved plan document when the
 plan went through the manual/private path (no `[PLAN REVIEW]` PR exists
-there, but the oracle still applies). **A bugfix PR fills the same section
+there, but the oracle still applies). **If the plan cites a direction, I paste
+that too (David, 2026-08-11)** — Product Intent alone only covers what *this
+increment* makes true; the direction carries the product decisions that
+constrain every increment beneath it, and code that satisfies the narrower
+increment intent while violating the direction is exactly the kind of quietly
+non-compliant PR this oracle exists to catch. "n/a" only when the plan itself
+recorded that no direction applied. **A bugfix PR fills the same section
 with the *bugfix oracle*, not "n/a — no plan"** — reviewing a fix against
 nothing but itself can't catch the failure that matters most: the symptom
 disappears while a neighbor breaks. **Tier A/B** fills fix tier, reported

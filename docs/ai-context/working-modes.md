@@ -144,10 +144,12 @@ it is committed — not after.** A totalising end-state statement can itself
 contain unpatched-vulnerability details, an auth-bypass shape, or an
 abuse/fraud path, and unlike a plan-review PR (closed, unmerged, still public
 history but never on `main`), a direction that updates a canonical
-`docs/ai-context/` doc goes live on `main` directly. Run the same check the
-plan-review loop runs — [`CLAUDE.md`](../../CLAUDE.md)'s *disclosure check
-comes first* — before committing a direction; a direction that fails it takes
-the same private/manual path a disclosure-carve-out plan would.
+`docs/ai-context/` doc goes live on `main` directly. Run the canonical
+disclosure check —
+[`workstream-tracking.md`](./workstream-tracking.md#what-must-never-happen)'s
+definition, the one every other disclosure gate in this repo references rather
+than restates — before committing a direction; a direction that fails it takes
+the same private/manual path a disclosure-carve-out workstream would.
 
 ### The increment test
 
@@ -172,15 +174,9 @@ not in tension with this test once read that way.
 
 **Narrowing to one increment is a stated decision, not a silent scope
 drop.** [`agent-working-rules.md`](./agent-working-rules.md#pre-plan-intent-is-the-source-of-truth)'s
-rule — "if the conversation said A and B but the plan only covers A, the plan
-is wrong" — guards against an agent quietly dropping part of the agreed intent
-with no trace. Deliberately scoping a plan to one increment is not that
-failure, **provided** the plan says so out loud: it names its direction, its
-Product Intent states what *this increment* makes true (not the end state),
-and anything left for later is visible in the direction doc rather than
-silently absent. A plan that narrows to A without naming B anywhere is still
-wrong under the pre-plan-intent rule — the increment test changes *where* B is
-recorded, not whether it has to be recorded at all.
+pre-plan-intent rule carries the exception directly: narrowing to increment A
+is not the failure it catches, provided B is named in the plan's cited
+direction rather than silently absent.
 
 ### Review loops need a stopping rule, not just a convergence target
 

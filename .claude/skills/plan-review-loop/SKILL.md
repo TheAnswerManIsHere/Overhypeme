@@ -190,10 +190,10 @@ have a draft plan, and the disclosure check passes:
    lines, +56% from round 1" — because the growth tripwire is the one a
    falling finding count conceals, and an unstated number is one I can talk
    myself past. If growth has passed roughly +50%, the recommendation I bring
-   is **stop and split**, not another round: whatever has not yet been through
-   a review round is a fork candidate per step 10's amendment, and each
-   addition goes to David as a **now / next / never** question per
-   `CLAUDE.md`, defaulting to *next*.
+   is **stop and split**, not another round: per step 10's amendment,
+   everything added since round 1 is a split candidate regardless of review
+   status once the tripwire has fired, and each addition goes to David as a
+   **now / next / never** question per `CLAUDE.md`, defaulting to *next*.
    The same framing applies to any single finding whose fix would introduce a
    **new mechanism** — a table, a role, a config domain, an endpoint — whether
    or not the tripwire has fired: the fix does not go in silently just because
@@ -322,36 +322,48 @@ have a draft plan, and the disclosure check passes:
     is already established and cheaper to keep using than to rebuild fresh
     on a new one; the upfront split only pays off when decided upfront.
 
-    **Amendment (David, 2026-08-11): that rule covers *reviewed* material
-    only.** What it protects is accumulated review context, and **brand-new
+    **Amendment (David, 2026-08-11): that rule covers *reviewed* material by
+    default, and the growth tripwire (step 4) is the override.** What the
+    original rule protects is accumulated review context, and **brand-new
     scope added mid-loop has none to lose** — so forking *unreviewed*
-    additions out of the plan is not just allowed, it is the expected move.
-    The two cases are opposites and must not be confused:
+    additions out of the plan is not just allowed, it is the expected move,
+    cost-free, any time:
 
     - **Reviewed material** — has been through at least one review round,
       whether it was in the plan since round 1 or added at round *N* and then
-      survived round *N+1*'s pass. Stays, and forking it discards exactly the
-      review context this rule exists to preserve — the "added mid-loop"
-      history does not by itself make something unreviewed once a round has
-      actually attacked it.
+      survived round *N+1*'s pass. Stays put by default; forking it on a
+      routine basis discards the review context this rule exists to
+      preserve. The test is **"has a round reviewed this since it was
+      added,"** not "when was it added" — a mechanism added at round 3 and
+      reviewed at round 4 is reviewed material by round 5, exactly like
+      anything else.
     - **Unreviewed scope** — added since the *most recent* round, so no round
       has attacked it yet. Forking it costs **nothing**, because there is no
       review history attached to it. It leaves as a backlog item and a line
       in the ledger, and the current plan reverts to the scope it had before
       the addition.
 
-    The test is **"has a round reviewed this since it was added,"** not "when
-    was it added" — a mechanism added at round 3 and reviewed at round 4 is
-    reviewed material by round 5, exactly like anything else. The growth
-    tripwire firing at round *N* does not retroactively make everything added
-    since round 1 unreviewed; it only reaches whatever the *most recent*
-    round hasn't yet attacked.
+    **The growth tripwire overrides the "reviewed material stays" default,
+    because it is a size judgment, not a review-completeness one.** If
+    growth accumulates gradually — each addition reviewed before the next
+    one lands — the plan can cross +50% while nothing is ever, at any single
+    moment, "unreviewed." Reading the rule above as an absolute would make
+    the tripwire's mandated split (step 4: growth past ~50% means split and
+    backlog, unconditionally) unreachable in exactly the shape PR #404 took.
+    So: when the tripwire fires, **everything added since round 1 is a split
+    candidate regardless of review status** — but reviewed material forked
+    out this way carries its accumulated findings and ledger rows into the
+    successor plan-review PR rather than losing them; only genuinely
+    unreviewed material is dropped to a plain backlog item. This is what
+    keeps the two rules compatible: routine mid-loop forking still protects
+    reviewed context by leaving it in place, and the tripwire still protects
+    itself by being allowed to reach it when size, not review status, is the
+    problem.
 
     This is the exit that did not exist during PR #404, which is why its
-    only available response to a mid-flight discovery was to absorb it. When
-    the growth tripwire fires (step 4), this is the mechanism that acts on
-    it: whatever hasn't yet been through a review round is a fork candidate,
-    and the *now vs. next* question goes to David per `CLAUDE.md`.
+    only available response to a mid-flight discovery was to absorb it. The
+    *now vs. next* question for each forked-out piece goes to David per
+    `CLAUDE.md`.
 11. **Close out.** When converged: close the draft PR **without merging**
     (`update_pull_request`, state `closed`) with a closing comment recording the
     final review status, unsubscribe, then ask David for approval — linking the
