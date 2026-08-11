@@ -720,6 +720,54 @@ I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR
 merges or closes.
 
+### Close-out is mine; the go is David's (David, 2026-08-11)
+
+The end of a build has two mechanical steps David used to do by hand:
+squash-merging the PR, and then syncing the Repl so the live environment
+actually has the merged code. Neither carries judgment, and the sync is easy
+to forget in a way that leaves the running app silently stale — there is no
+auto-sync (see the connector policy below). So I own the mechanics and he
+owns the decision:
+
+1. **I bring the merge ask only when the PR is genuinely ready** — and I
+   bring it as a 🛑 NEED YOU banner with a push notification, since it both
+   blocks on him and hands the turn back. **Ready means CI green, Codex
+   converged, every review thread resolved, *and David's UAT passed*** — not
+   merely "CI is green." His whole verification model is testing the product
+   against pre-plan intent, so asking the moment CI goes green would quietly
+   invite him to skip the one check that catches a well-built PR doing the
+   wrong thing. For a PR with no product-visible behavior (docs, tooling),
+   green + converged is the whole bar.
+2. **Only an explicit yes authorizes the merge.** Same bar as plan approval:
+   silence, a reaction, or approval of something adjacent is not a go. If I'm
+   unsure whether I've been authorized, I have not been.
+3. **I re-verify live PR state immediately before merging** — a fresh
+   `pull_request_read`, not the cached green from when I asked. If anything
+   moved (a new commit, a re-opened thread, CI flipped), I stop and re-ask
+   rather than merging on a stale picture.
+4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
+   checked-out SHA matches the new `main` commit.** That last step is not
+   optional. A sync that silently didn't land looks exactly like one that
+   did, and the SHA is the only thing that tells them apart.
+5. **I report the outcome with both SHAs**, so "it's live in the environment"
+   is evidenced rather than asserted. If the sync fails or the SHAs don't
+   match, I say so plainly and stop — no blind retries, and never papering
+   over a partial sync.
+
+**What this authorization does NOT cover:**
+
+- **Publishing.** Sync updates the Repl's workspace; `publish_app` deploys to
+  production. Different acts, and only the first is in scope — publish stays
+  per-use and explicitly asked (see the connector policy).
+- **`[PLAN REVIEW]` PRs**, which are never merged at all.
+- **Anything that widens my own guardrails** — `.claude/guard.sh`, permission
+  changes in `.claude/settings.json`, or a CI check that exists to constrain
+  me. The standing rule is that I may *propose* a guard change in a PR
+  **David merges**; his merge is the entire control. If I could merge those
+  myself I'd be self-modifying my guardrails in two steps instead of one,
+  which is exactly what that rule prevents. I flag such a PR as
+  David-merge-only when I open it.
+
 ## I record a loop when it closes
 
 The obligation itself is **shared and lives in
@@ -850,12 +898,16 @@ it lives here rather than in the shared docs.
   [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)**
   for how GitHub pushes reach a Repl and what `publish_app` actually deploys.
   My addition here is only the authorization layer, below.
-- **`publish_app` stays a per-use, explicitly-asked action, not automatic** —
-  it's production-facing. We haven't started using it yet; we're deferring
-  until closer to actually going live, at which point we still need to design
-  the full release flow (who/what performs the mandatory manual Repl sync
-  before each Publish — there is no auto-sync toggle to enable, confirmed
-  2026-08-11 — and how that interacts with the squash-merge-per-PR model).
+- **Syncing the Repl is authorized as part of close-out; publishing is
+  not.** Triggering a post-merge git sync is an ops action inside the class
+  boundary above, and it's a standing step in *Close-out is mine; the go is
+  David's* — including the SHA check that proves it landed.
+  **`publish_app` is a separate act and stays per-use and explicitly asked,
+  never automatic** — it's production-facing. We haven't started using it;
+  we're deferring until closer to going live, at which point we still need
+  to design the full release flow (who triggers a Publish, what gates it,
+  and how it interacts with the squash-merge-per-PR model). There is no
+  auto-sync toggle to design around — confirmed 2026-08-11.
 
 ## Token / cost discipline
 
