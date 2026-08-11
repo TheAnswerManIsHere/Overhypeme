@@ -95,29 +95,39 @@ does not pull from GitHub.** It deploys whatever is currently checked out in
 the Repl's own workspace, not whatever is newest on GitHub. Two separate
 mechanisms determine what that workspace contains:
 
-- **GitHub → Repl** happens only if two-way sync is enabled in Replit's Git
-  pane, or someone pulls manually (`git pull origin main`, or the Pull action
-  in the Git pane). A push to `main` on GitHub does not, by itself, reach the
-  Repl.
+- **GitHub → Repl is always a manual step. There is no auto-sync.** An
+  earlier `ask_question` pass (below) reported an opt-in "two-way sync"
+  toggle in the Git pane; a follow-up diagnostic against the live Repl
+  disproved that — the Git pane exposes explicit **Pull**, **Push**, and
+  **Sync Changes** controls only, no persistent auto-sync setting. A push to
+  `main` on GitHub never reaches the Repl on its own; someone (or some agent)
+  must run `git pull origin main` or use one of those Git-pane actions every
+  time.
 - **Repl → Publish** takes a snapshot of the Repl's *current* workspace —
   pulled files, locally committed files, and any locally uncommitted files
   are all included — and builds/deploys that snapshot. It does not re-check
   GitHub as part of publishing.
 
-So the only safe release sequence is: GitHub push to `main` → confirm/trigger
-the Repl sync (auto-sync, or a manual pull) → **verify the Repl's checked-out
-commit SHA matches the pushed commit** → Publish. Branch name and a clean
-working tree are *not* sufficient verification on their own — a Repl can be
-on `main`, clean, and still behind if sync hasn't completed or propagated
-yet, which would let this exact check wave through the stale-code Publish it
-was meant to prevent.
+So the only safe release sequence is: GitHub push to `main` → **manually**
+trigger the Repl sync (`git pull`, or the Git pane's Pull/Sync Changes
+action — never assume it already happened) → **verify the Repl's
+checked-out commit SHA matches the pushed commit** → Publish. Branch name
+and a clean working tree are *not* sufficient verification on their own — a
+Repl can be on `main`, clean, and still behind if the manual sync step was
+skipped, which would let this exact check wave through the stale-code
+Publish it was meant to prevent.
 
-*(Source: reported live by Replit Agent via a connector `ask_question` call
-against the Overhype.me Repl, 2026-08-11 — an AI agent's account of Replit's
-own behavior, not independently cross-checked against Replit's official
-Git-sync/Publish documentation. Treat as a strong working assumption; confirm
-against Replit's own docs or a controlled non-production test before this
-sequence gates an actual production release.)*
+*(Source and a live lesson in the caveat below: an initial `ask_question`
+pass against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
+auto-sync" toggle that does not actually exist — Replit Agent's own account
+of Replit's behavior was wrong. A follow-up diagnostic, explicitly
+instructed not to touch any code and to `git fetch`/inspect the Git pane,
+corrected it: no auto-sync toggle is visible, only explicit Pull/Push/Sync
+Changes controls, so manual sync is mandatory, not merely the safe default
+when auto-sync is off. This is exactly why `ask_question` output is
+diagnostics, not verification evidence — the first answer was fluent,
+specific, and false. Confirm against Replit's own product docs if this ever
+needs to be authoritative rather than a working assumption.)*
 
 ## The one thing that IS ours: a periodic retrospective read
 

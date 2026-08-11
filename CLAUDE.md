@@ -804,11 +804,17 @@ it lives here rather than in the shared docs.
   natural-language summary, not deterministic command output — it never
   substitutes for the TEST_RUN doc where the evidence itself is the point (a
   post-merge live-environment check, a bugfix regression check).
-- **`update_app_using_prompt` is NEVER used on Overhype.me.** It would let a
-  second AI edit the app's code directly inside the Repl, outside git —
-  bypassing the PR → Codex review → squash-merge pipeline this whole repo's
-  safety net depends on, and creating drift between the Repl and the GitHub
-  repo that's supposed to be the single source of truth.
+- **`update_app_using_prompt` is NEVER used on Overhype.me to write or edit
+  code.** It would let a second AI edit the app's code directly inside the
+  Repl, outside git — bypassing the PR → Codex review → squash-merge
+  pipeline this whole repo's safety net depends on, and creating drift
+  between the Repl and the GitHub repo that's supposed to be the single
+  source of truth. **The one narrow, explicitly-David-authorized exception:**
+  it's the connector's only mutating tool, so a scoped, code-touching-nothing
+  ops/diagnostic request (e.g. "check git status against origin/main, do not
+  write or edit any code") goes through it too — David asked for exactly
+  this on 2026-08-11 to test the Git-sync claim below. That's per-use and
+  David-directed, not a standing carve-out I reach for on my own.
 - **Git sync and Publish mechanics are a shared, cross-agent fact, not
   Claude-specific — see
   [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)**
@@ -817,9 +823,9 @@ it lives here rather than in the shared docs.
 - **`publish_app` stays a per-use, explicitly-asked action, not automatic** —
   it's production-facing. We haven't started using it yet; we're deferring
   until closer to actually going live, at which point we still need to design
-  the full release flow (who/what triggers the Git-sync step, whether to
-  enable Replit's auto-sync, how this interacts with the
-  squash-merge-per-PR model).
+  the full release flow (who/what performs the mandatory manual Repl sync
+  before each Publish — there is no auto-sync toggle to enable, confirmed
+  2026-08-11 — and how that interacts with the squash-merge-per-PR model).
 
 ## Token / cost discipline
 
