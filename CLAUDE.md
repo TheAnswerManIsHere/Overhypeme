@@ -799,22 +799,52 @@ it lives here rather than in the shared docs.
   workspace snapshot to production), and `create_app_from_prompt` (spins up
   new Repls — not relevant to Overhype.me work).
 - **`ask_question` is a diagnostics/triage channel, not verification
-  evidence.** I can use it mid-triage to inspect Repl-side state without a
-  full TEST_RUN round-trip through David. But its answer is an AI agent's
-  natural-language summary, not deterministic command output — it never
-  substitutes for the TEST_RUN doc where the evidence itself is the point (a
-  post-merge live-environment check, a bugfix regression check).
-- **`update_app_using_prompt` is NEVER used on Overhype.me to write or edit
-  code.** It would let a second AI edit the app's code directly inside the
-  Repl, outside git — bypassing the PR → Codex review → squash-merge
-  pipeline this whole repo's safety net depends on, and creating drift
-  between the Repl and the GitHub repo that's supposed to be the single
-  source of truth. **The one narrow, explicitly-David-authorized exception:**
-  it's the connector's only mutating tool, so a scoped, code-touching-nothing
-  ops/diagnostic request (e.g. "check git status against origin/main, do not
-  write or edit any code") goes through it too — David asked for exactly
-  this on 2026-08-11 to test the Git-sync claim below. That's per-use and
-  David-directed, not a standing carve-out I reach for on my own.
+  evidence — and it answers from understanding, not execution.** I can use
+  it mid-triage to inspect Repl-side state without a full TEST_RUN
+  round-trip through David. But its answer is an AI agent's natural-language
+  summary, not deterministic command output — it never substitutes for the
+  TEST_RUN doc where the evidence itself is the point (a post-merge
+  live-environment check, a bugfix regression check). **Worse than
+  imprecise, it can be confidently wrong:** on 2026-08-11 it described an
+  opt-in "two-way auto-sync" Git-pane toggle that does not exist, in fluent
+  detail, and I wrote it into the docs before David caught it. So for any
+  question whose answer is a *fact about live state* — what commit is
+  checked out, is this env var set, what's in the log — prefer a scoped
+  execute-and-report through `update_app_using_prompt` (below), which
+  actually runs the command. `ask_question` is the lighter reach for
+  "explain how this works," not the more reliable one for "what is true
+  right now."
+- **`update_app_using_prompt` is governed by the *class of request*, not
+  banned as a tool (David, 2026-08-11 — replacing the blanket ban I wrote
+  hours earlier).** It is the connector's **only** mutating channel:
+  every action in the Replit environment — git commands, log reads,
+  environment checks, file edits — goes through this one call. Banning the
+  tool bans the environment, which is the opposite of what it's for.
+  - **Allowed, and genuinely valuable — ops, diagnostics, debugging.** Ask
+    it to run git commands and report back, read server logs, check
+    environment/config state, or investigate why something is failing
+    live. This answers questions about the *running* system that no diff
+    can, and it's the reason to have the connector at all.
+  - **Allowed with care — file edits in service of debugging, or the
+    Repl's own internal configuration.** Not off-limits. If a debugging
+    thread needs a file touched, or the Repl's own setup needs adjusting
+    (including where its own behavior is what's broken), that's legitimate.
+  - **Never — building product features.** No new features, no product
+    behavior changes, no "implement X" through this channel. That work
+    goes through the normal pipeline: my branch → PR → Codex review →
+    squash-merge.
+  - **The line is whose work dodges review, not whether a file changed.**
+    Replit pushing its own live repairs straight to `main` is a settled,
+    sanctioned path (see
+    [`replit-environment.md`](docs/ai-context/replit-environment.md)) — not
+    drift, and not something to prevent. What "never" rules out is *me*
+    using the connector to get my own implementation work built by a second
+    AI, laundering it around the review David's safety net depends on.
+  - **Scope every request and say what it must not touch.** Replit Agent
+    defaults to *building* — its tool contract tells it to change how the
+    app behaves — so an unscoped ops question can come back as a feature.
+    The 2026-08-11 git-sync diagnostic is the model: state the ops intent
+    up front, and instruct it explicitly not to write or edit code.
 - **Git sync and Publish mechanics are a shared, cross-agent fact, not
   Claude-specific — see
   [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)**
