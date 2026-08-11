@@ -68,11 +68,17 @@ quality.
 
 ## Permissions direction
 
-> **End state:** one screen answers "who is allowed to do what," for
-> everything an account may do. David, 2026-08-10: *"I want all functions that
-> check permissions to exclusively use this matrix so there is only ever one
-> place to check and one source of truth for what different accounts can do in
-> the system."*
+> **End state:** one screen answers "who is allowed to do what," for every
+> **product entitlement** an account may hold. David, 2026-08-10: *"I want all
+> functions that check permissions to exclusively use this matrix so there is
+> only ever one place to check and one source of truth for what different
+> accounts can do in the system."* His words were totalising; the two-rail
+> split immediately below is how that intent is honoured without also making
+> operational **privileges** — admin console access chief among them —
+> runtime-editable, which would reopen the lockout risk the whole effort exists
+> to close. The grid is the single source of truth **for entitlements**;
+> privileges stay code-owned, deliberately off this screen, and are documented
+> rather than displayed there.
 
 The **Feature Permission Grid** (`tier_feature_permissions`) is that screen.
 Reaching the end state is incremental; the constraints below bind every
@@ -114,8 +120,17 @@ this direction exists to close.
 
 **Settled and not to be re-litigated per increment:** the union semantics
 above; "view as user" normalizing to `registered` so a preview is faithful,
-while console access ignores the toggle; admins may *view* any content but not
-*act* on content they don't own; engine access granted by **band**
+while console access ignores the toggle; admins may *view* any ordinary
+content (a meme, a fact, a comment) but not *act* on content they don't own
+outside their granted moderation/operational privileges — this is about
+ownership on user-generated content, never a viewing right, and it does not
+touch or loosen the moderation privileges that already let an admin approve,
+reject, or otherwise act on submissions they didn't create; **quarantined and
+restricted CSAM/abuse evidence is categorically excluded from admin viewing**
+regardless of this rule — [`legal-safety-moderation.md`](./legal-safety-moderation.md)
+governs that boundary and wins any conflict, there is deliberately no admin
+viewer for that content, and no permissions increment may add one; engine
+access granted by **band**
 (standard / premium / experimental) rather than per engine, so a new model is
 labelled rather than added to the grid; admin-only creation dials (model,
 duration, resolution, engine override) are operator tools, not entitlements;
