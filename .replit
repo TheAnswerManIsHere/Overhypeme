@@ -1,5 +1,12 @@
 modules = ["nodejs-24", "python-3.11", "postgresql-16"]
 
+# Claude Code (installed in the Repl shell) keeps its user config — OAuth
+# credentials, session history — in the workspace so it survives Repl
+# restarts ($HOME does not persist). The directory is gitignored; see
+# .gitignore for why that entry is load-bearing in a public repo.
+[env]
+CLAUDE_CONFIG_DIR = "/home/runner/workspace/.claude-user"
+
 [[artifacts]]
 id = "artifacts/api-server"
 
