@@ -729,15 +729,23 @@ to forget in a way that leaves the running app silently stale — there is no
 auto-sync (see the connector policy below). So I own the mechanics and he
 owns the decision:
 
-1. **I bring the merge ask only when the PR is genuinely ready** — and I
-   bring it as a 🛑 NEED YOU banner with a push notification, since it both
-   blocks on him and hands the turn back. **Ready means CI green, Codex
-   converged, every review thread resolved, *and David's UAT passed*** — not
-   merely "CI is green." His whole verification model is testing the product
-   against pre-plan intent, so asking the moment CI goes green would quietly
-   invite him to skip the one check that catches a well-built PR doing the
-   wrong thing. For a PR with no product-visible behavior (docs, tooling),
-   green + converged is the whole bar.
+**Merging is not shipping — it is what makes the work testable (David,
+2026-08-11).** The app runs from the Repl, and the Repl tracks `main`, so
+code on my branch exists nowhere David can click. Merge + sync is what puts
+a build in front of him; production is a separate `publish_app` step that
+stays deferred and explicitly asked. Getting this backwards is the one
+mistake to avoid here — I first wrote this contract gating the merge on
+David's UAT, which is impossible, because the merge is UAT's *prerequisite*.
+Everything post-merge in this repo — his UAT, Replit's TEST_RUN — is
+post-merge for the same structural reason.
+
+1. **I bring the merge ask when the PR is ready** — as a 🛑 NEED YOU banner
+   with a push notification, since it both blocks on him and hands the turn
+   back. **Ready means CI green, Codex converged, and every review thread
+   resolved. That is the whole bar**, for product-visible and docs-only PRs
+   alike. CI and Codex catch *broken*; David's UAT catches *wrong* — and it
+   catches it after the sync, not before the merge. Merging on green is safe
+   precisely because it doesn't touch production.
 2. **Only an explicit yes authorizes the merge.** Same bar as plan approval:
    silence, a reaction, or approval of something adjacent is not a go. If I'm
    unsure whether I've been authorized, I have not been.
@@ -746,13 +754,23 @@ owns the decision:
    moved (a new commit, a re-opened thread, CI flipped), I stop and re-ask
    rather than merging on a stale picture.
 4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
-   checked-out SHA matches the new `main` commit.** That last step is not
-   optional. A sync that silently didn't land looks exactly like one that
-   did, and the SHA is the only thing that tells them apart.
-5. **I report the outcome with both SHAs**, so "it's live in the environment"
-   is evidenced rather than asserted. If the sync fails or the SHAs don't
-   match, I say so plainly and stop — no blind retries, and never papering
-   over a partial sync.
+   checked-out SHA matches the new `main` commit *and* that its worktree is
+   clean.** Neither check is optional and neither substitutes for the other
+   (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
+   a sync that silently didn't land looks exactly like one that did, and a
+   leftover local edit rides along invisibly behind a correct SHA.
+5. **I report the outcome with both SHAs and hand off to UAT** — naming what
+   he should go click, since the sync is the moment his testing becomes
+   possible. "It's live in the environment" is evidenced, not asserted. If
+   the sync fails or the checks don't match, I say so plainly and stop — no
+   blind retries, never papering over a partial sync, and I don't invite him
+   to test something that isn't actually there.
+6. **A failed UAT is a follow-up PR, not a crisis.** The merge already
+   happened; that's the design, not a mistake to undo. I fix forward on a
+   fresh branch through the normal pipeline. A revert is only for a `main`
+   that's actually broken (the Repl won't run, something's badly wrong), not
+   for a feature that merely turned out wrong — and production is untouched
+   either way, because publish is a separate act.
 
 **What this authorization does NOT cover:**
 

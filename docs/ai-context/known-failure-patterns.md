@@ -126,6 +126,23 @@ NOT to reintroduce):** blanket "no readable text"; `gpt-4o-mini`/`gpt-image-1`/F
 as the render path; enrichment-time visual preview as source of truth; violence
 auto-softeners; `enrichment_pending` stage name (it's `prep_pending`).
 
+## A verification step placed where it cannot physically run
+
+**Looks like:** writing a workflow that gates step N on evidence only
+producible at step N+1 — most often treating post-merge verification as a
+pre-merge gate. **Dangerous:** the contract reads as *more* rigorous, so it
+survives review on its plausibility; in practice it either deadlocks (waiting
+for evidence that cannot exist) or gets silently ignored, and the real gate
+goes undefined. **Avoid:** for every check in a workflow, ask *where does the
+thing being tested physically live at this moment, and can the tester reach
+it?* **Overhype:** the app runs from the Repl, and the Repl tracks `main`, so
+**everything that tests running behavior is post-merge** — David's UAT and
+Replit's `TEST_RUN` alike. Merge + sync is what makes a build testable;
+production is the separate, deferred `publish_app` step. This misfired twice
+in one day on PR #413 (2026-08-11): Codex caught a `TEST_RUN`-as-merge-gate
+example, and David caught the same shape in the close-out contract two turns
+later, where the merge was gated on a UAT the merge is a prerequisite for.
+
 ## Async enqueue treated as completion
 
 **Looks like:** reporting a job "done" when it was only *queued*; a single global
