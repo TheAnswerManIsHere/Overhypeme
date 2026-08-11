@@ -87,6 +87,58 @@ those runs against a Replit-authored change before it reaches `main`. Don't
 describe Replit as having "no CI"; describe it accurately as running its own
 CI, separate from the repo's.
 
+## GitHub ⇄ Repl sync and Publish (shared fact, not tool-specific)
+
+Any agent that can trigger a Replit connector's `publish_app` — Claude Code
+today, potentially others later — needs this before calling it: **Publish
+does not pull from GitHub.** It deploys whatever is currently checked out in
+the Repl's own workspace, not whatever is newest on GitHub. Two separate
+mechanisms determine what that workspace contains:
+
+- **GitHub → Repl is always a manual step. There is no auto-sync.** An
+  earlier `ask_question` pass (below) reported an opt-in "two-way sync"
+  toggle in the Git pane; a follow-up diagnostic against the live Repl
+  disproved that — the Git pane exposes explicit **Pull**, **Push**, and
+  **Sync Changes** controls only, no persistent auto-sync setting. A push to
+  `main` on GitHub never reaches the Repl on its own; someone (or some agent)
+  must run `git pull origin main` or use one of those Git-pane actions every
+  time.
+- **Repl → Publish** takes a snapshot of the Repl's *current* workspace —
+  pulled files, locally committed files, and any locally uncommitted files
+  are all included — and builds/deploys that snapshot. It does not re-check
+  GitHub as part of publishing.
+
+So the only safe release sequence is: GitHub push to `main` → **manually**
+trigger the Repl sync (`git pull`, or the Git pane's Pull/Sync Changes
+action — never assume it already happened) → **verify two things together,
+that the Repl's checked-out commit SHA matches the pushed commit *and* that
+its worktree is clean** → Publish.
+
+Both halves are load-bearing, and neither is sufficient alone:
+
+- **SHA match without a clean worktree** still publishes the wrong thing.
+  Publish snapshots uncommitted files too (above), so a leftover local edit
+  — a debugging probe someone forgot to revert, most likely — ships to
+  production even though HEAD is exactly right.
+- **A clean worktree without a SHA match** proves nothing about freshness. A
+  Repl can sit on `main`, spotlessly clean, and simply be behind because the
+  manual sync never ran.
+
+Check only one and the other becomes the hole. Check the branch name alone
+and both are.
+
+*(Source and a live lesson in the caveat below: an initial `ask_question`
+pass against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
+auto-sync" toggle that does not actually exist — Replit Agent's own account
+of Replit's behavior was wrong. A follow-up diagnostic, explicitly
+instructed not to touch any code and to `git fetch`/inspect the Git pane,
+corrected it: no auto-sync toggle is visible, only explicit Pull/Push/Sync
+Changes controls, so manual sync is mandatory, not merely the safe default
+when auto-sync is off. This is exactly why `ask_question` output is
+diagnostics, not verification evidence — the first answer was fluent,
+specific, and false. Confirm against Replit's own product docs if this ever
+needs to be authoritative rather than a working assumption.)*
+
 ## The one thing that IS ours: a periodic retrospective read
 
 Nothing gates Replit's push, so the only enforcement point is after the

@@ -720,6 +720,72 @@ I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR
 merges or closes.
 
+### Close-out is mine; the go is David's (David, 2026-08-11)
+
+The end of a build has two mechanical steps David used to do by hand:
+squash-merging the PR, and then syncing the Repl so the live environment
+actually has the merged code. Neither carries judgment, and the sync is easy
+to forget in a way that leaves the running app silently stale — there is no
+auto-sync (see the connector policy below). So I own the mechanics and he
+owns the decision:
+
+**Merging is not shipping — it is what makes the work testable (David,
+2026-08-11).** The app runs from the Repl, and the Repl tracks `main`, so
+code on my branch exists nowhere David can click. Merge + sync is what puts
+a build in front of him; production is a separate `publish_app` step that
+stays deferred and explicitly asked. Getting this backwards is the one
+mistake to avoid here — I first wrote this contract gating the merge on
+David's UAT, which is impossible, because the merge is UAT's *prerequisite*.
+Everything post-merge in this repo — his UAT, Replit's TEST_RUN — is
+post-merge for the same structural reason.
+
+1. **I bring the merge ask when the PR is ready** — as a 🛑 NEED YOU banner
+   with a push notification, since it both blocks on him and hands the turn
+   back. **Ready means CI green, Codex converged, and every review thread
+   resolved. That is the whole bar**, for product-visible and docs-only PRs
+   alike. CI and Codex catch *broken*; David's UAT catches *wrong* — and it
+   catches it after the sync, not before the merge. Merging on green is safe
+   precisely because it doesn't touch production.
+2. **Only an explicit yes authorizes the merge.** Same bar as plan approval:
+   silence, a reaction, or approval of something adjacent is not a go. If I'm
+   unsure whether I've been authorized, I have not been.
+3. **I re-verify live PR state immediately before merging** — a fresh
+   `pull_request_read`, not the cached green from when I asked. If anything
+   moved (a new commit, a re-opened thread, CI flipped), I stop and re-ask
+   rather than merging on a stale picture.
+4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
+   checked-out SHA matches the new `main` commit *and* that its worktree is
+   clean.** Neither check is optional and neither substitutes for the other
+   (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
+   a sync that silently didn't land looks exactly like one that did, and a
+   leftover local edit rides along invisibly behind a correct SHA.
+5. **I report the outcome with both SHAs and hand off to UAT** — naming what
+   he should go click, since the sync is the moment his testing becomes
+   possible. "It's live in the environment" is evidenced, not asserted. If
+   the sync fails or the checks don't match, I say so plainly and stop — no
+   blind retries, never papering over a partial sync, and I don't invite him
+   to test something that isn't actually there.
+6. **A failed UAT is a follow-up PR, not a crisis.** The merge already
+   happened; that's the design, not a mistake to undo. I fix forward on a
+   fresh branch through the normal pipeline. A revert is only for a `main`
+   that's actually broken (the Repl won't run, something's badly wrong), not
+   for a feature that merely turned out wrong — and production is untouched
+   either way, because publish is a separate act.
+
+**What this authorization does NOT cover:**
+
+- **Publishing.** Sync updates the Repl's workspace; `publish_app` deploys to
+  production. Different acts, and only the first is in scope — publish stays
+  per-use and explicitly asked (see the connector policy).
+- **`[PLAN REVIEW]` PRs**, which are never merged at all.
+- **Anything that widens my own guardrails** — `.claude/guard.sh`, permission
+  changes in `.claude/settings.json`, or a CI check that exists to constrain
+  me. The standing rule is that I may *propose* a guard change in a PR
+  **David merges**; his merge is the entire control. If I could merge those
+  myself I'd be self-modifying my guardrails in two steps instead of one,
+  which is exactly what that rule prevents. I flag such a PR as
+  David-merge-only when I open it.
+
 ## I record a loop when it closes
 
 The obligation itself is **shared and lives in
@@ -785,6 +851,102 @@ enactment:
   **a CLAUDE.md rule I've broken twice is a candidate for a hook** (like
   `.claude/guard.sh` blocking force-pushes) that physically blocks the wrong
   action instead of relying on my recall.
+
+## The Replit connector (MCP) — policy (David, 2026-08-11)
+
+This is my tool (like subagent dispatch above), not something Codex uses, so
+it lives here rather than in the shared docs.
+
+- **What it enables:** `list_apps` / `search_apps` / `resolve_app_by_name`
+  (read-only lookup of our Repls), `ask_question` (read-only natural-language
+  Q&A against a Repl's code or live behavior, answered by Replit Agent),
+  `update_app_using_prompt` (writes code directly into a Repl from a prose
+  prompt), `publish_app` / `get_publish_status` (deploys the Repl's current
+  workspace snapshot to production), and `create_app_from_prompt` (spins up
+  new Repls — not relevant to Overhype.me work).
+- **`ask_question` is a diagnostics/triage channel, not verification
+  evidence — and it answers from understanding, not execution.** I can use
+  it mid-triage to inspect Repl-side state without a full TEST_RUN
+  round-trip through David. But its answer is an AI agent's natural-language
+  summary, not deterministic command output — it never substitutes for the
+  TEST_RUN doc where the evidence itself is the point (a post-merge
+  live-environment check, a bugfix regression check). **Worse than
+  imprecise, it can be confidently wrong:** on 2026-08-11 it described an
+  opt-in "two-way auto-sync" Git-pane toggle that does not exist, in fluent
+  detail, and I wrote it into the docs before David caught it. So for any
+  question whose answer is a *fact about live state* — what commit is
+  checked out, is this env var set, what's in the log — prefer a scoped
+  execute-and-report through `update_app_using_prompt` (below), which
+  actually runs the command. `ask_question` is the lighter reach for
+  "explain how this works," not the more reliable one for "what is true
+  right now."
+- **`update_app_using_prompt` is governed by the *class of request*, not
+  banned as a tool (David, 2026-08-11 — replacing the blanket ban I wrote
+  hours earlier).** It is the connector's **only** mutating channel:
+  every action in the Replit environment — git commands, log reads,
+  environment checks, file edits — goes through this one call. Banning the
+  tool bans the environment, which is the opposite of what it's for.
+  - **Allowed, and genuinely valuable — ops, diagnostics, debugging.** Ask
+    it to run git commands and report back, read server logs, check
+    environment/config state, or investigate why something is failing
+    live. This answers questions about the *running* system that no diff
+    can, and it's the reason to have the connector at all.
+  - **Allowed with care — file edits in service of debugging, or the
+    Repl's own internal configuration.** Not off-limits. If a debugging
+    thread needs a file touched, or the Repl's own setup needs adjusting
+    (including where its own behavior is what's broken), that's legitimate.
+    **The tie-breaker, because "debugging edit" and "product behavior
+    change" otherwise describe the same bug fix:** ask *will this edit
+    persist?* and *who originated it?*
+    - **Ephemeral probes are fine** — a temporary log line, an
+      instrumented branch, a flag toggled to reproduce something. They are
+      instruments, not changes. **I revert them in the same session, and
+      never commit or push them.** A probe left behind is not just untidy:
+      Publish snapshots uncommitted files, so a forgotten one deploys to
+      production (which is why the release sequence checks a clean worktree
+      as well as the SHA).
+    - **Anything meant to persist as a fix goes through my pipeline** —
+      branch → PR → Codex review → merge → sync — no matter how small or
+      how obvious it looked at 2am. Diagnosing live and fixing live are
+      separate acts, and the connector only authorizes the first.
+    - **A sanctioned live repair has to be David-originated.** Replit
+      diagnosing and repairing `main` directly is a settled path *because
+      David asked Replit* and Replit brought its own judgment and live
+      verification. Me dictating the patch through the connector makes
+      Replit a keyboard for my unreviewed work and only looks like that
+      path. If a fix genuinely needs to land live and now, I recommend
+      that to David — I don't launder my own patch through the connector.
+  - **Never — building product features.** No new features, no product
+    behavior changes, no "implement X" through this channel. That work
+    goes through the normal pipeline: my branch → PR → Codex review →
+    squash-merge.
+  - **The line is whose work dodges review, not whether a file changed.**
+    Replit pushing its own live repairs straight to `main` is a settled,
+    sanctioned path (see
+    [`replit-environment.md`](docs/ai-context/replit-environment.md)) — not
+    drift, and not something to prevent. What "never" rules out is *me*
+    using the connector to get my own implementation work built by a second
+    AI, laundering it around the review David's safety net depends on.
+  - **Scope every request and say what it must not touch.** Replit Agent
+    defaults to *building* — its tool contract tells it to change how the
+    app behaves — so an unscoped ops question can come back as a feature.
+    The 2026-08-11 git-sync diagnostic is the model: state the ops intent
+    up front, and instruct it explicitly not to write or edit code.
+- **Git sync and Publish mechanics are a shared, cross-agent fact, not
+  Claude-specific — see
+  [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)**
+  for how GitHub pushes reach a Repl and what `publish_app` actually deploys.
+  My addition here is only the authorization layer, below.
+- **Syncing the Repl is authorized as part of close-out; publishing is
+  not.** Triggering a post-merge git sync is an ops action inside the class
+  boundary above, and it's a standing step in *Close-out is mine; the go is
+  David's* — including the SHA check that proves it landed.
+  **`publish_app` is a separate act and stays per-use and explicitly asked,
+  never automatic** — it's production-facing. We haven't started using it;
+  we're deferring until closer to going live, at which point we still need
+  to design the full release flow (who triggers a Publish, what gates it,
+  and how it interacts with the squash-merge-per-PR model). There is no
+  auto-sync toggle to design around — confirmed 2026-08-11.
 
 ## Token / cost discipline
 
