@@ -106,8 +106,17 @@ whether the feature does what David wants does.)
 
 The intent agreed *before the plan* is what the work is verified against — not the
 plan, the PR title, or the code. If the conversation said "users should be able to
-A and B" and the plan only covers A, the plan is wrong — revise it. If you notice
-during implementation that the intent implied a missing piece, pause and ask.
+A and B" and the plan only covers A **with no trace of B anywhere**, the plan is
+wrong — revise it. If you notice during implementation that the intent implied a
+missing piece, pause and ask.
+
+**Deliberately scoping a plan to one increment is not this failure, provided the
+plan says so.** Per [`working-modes.md`](./working-modes.md#the-increment-test),
+a plan can narrow to increment A while B is named explicitly in the plan's cited
+direction — the intent is not silently narrowed, it's split across two documents
+on purpose, and the plan's own Product Intent states that it covers A only. What
+this rule catches is B going missing entirely, with nothing — not the plan, not
+a direction, not a note anywhere — recording that it was ever part of the intent.
 
 ## What a good plan contains
 

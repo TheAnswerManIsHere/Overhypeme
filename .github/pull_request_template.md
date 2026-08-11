@@ -61,6 +61,12 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
 
 <!-- Feature mode -->
 **Approved-plan source:**
+**Direction:** <!-- the direction this plan cited, linked, if any — carries the
+     product decisions constraining every increment beneath it. A plan whose
+     Product Intent is deliberately narrower than the direction (see
+     docs/ai-context/working-modes.md#the-increment-test) still owes the code
+     review every applicable direction constraint, not just the plan's own
+     Settled Decisions. "n/a" only if the plan itself said no direction applied. -->
 **Product intent:**
 **Must not change:**
 **Settled decisions:**

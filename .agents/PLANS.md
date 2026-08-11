@@ -11,21 +11,41 @@
 
 ---
 
+## Preflight: is this a plan, or a direction?
+
+**Run the increment test before filling in anything below** —
+[`../docs/ai-context/working-modes.md`](../docs/ai-context/working-modes.md#the-increment-test)
+defines it (universal quantifier ⇒ direction; a *Phases* section separating
+independently-shippable pieces ⇒ each phase was its own plan) and where a
+direction lives once you write one. If either check trips, stop and split
+before filling in anything below. Scope that arrives *later* — during planning
+or during review — is framed **now vs. next**, defaulting to **next** unless
+this plan cannot be *correct* without it. Adding it because the end state
+needs it is what the direction is for.
+
 ## Problem
 What problem are we solving? Include the concrete user/admin/runtime symptom.
 
+## Direction
+Which direction does this plan serve? Link it, and say in one sentence what
+this increment makes true that wasn't true before. If there genuinely is no
+direction — some work stands alone — say so explicitly rather than leaving
+this blank.
+
 ## Product Intent
 What outcome does David want? (If you're unsure of the intent, ask David before
-planning further — don't guess.)
+planning further — don't guess.) State it as what **this increment** makes
+true. The end state belongs in the Direction above, not here.
 
 ## Must Not Change
 Invariants and out-of-scope behavior — what should explicitly stay the same.
 
 ## Settled Decisions
 Decisions already made during the pre-plan conversation, and why (design
-choices, trade-offs resolved before writing this plan). These three sections
-— Product Intent, Must Not Change, Settled Decisions — are the oracle a
-reviewer checks the eventual implementation PR against, verbatim (see
+choices, trade-offs resolved before writing this plan). These four sections
+— Direction, Product Intent, Must Not Change, Settled Decisions — are the
+oracle a reviewer checks the eventual implementation PR against, verbatim
+(see
 [`docs/engineering/code-review.md`](../docs/engineering/code-review.md#the-review-oracle-the-pr-body)).
 
 ## Repo Context Inspected

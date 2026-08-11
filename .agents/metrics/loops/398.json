@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "pr": 398,
+  "closedAt": "2026-08-10T22:57:05Z",
+  "mechanical": {
+    "title": "fix(memes): personalize the split caption halves, not just the fact text",
+    "cohort": "bugfix",
+    "size": {
+      "files": 16,
+      "added": 1018,
+      "removed": 40
+    },
+    "rounds": 5,
+    "findings": 12,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-10T01:15:37Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-10T03:18:48Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-10T03:35:13Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-08-10T03:45:59Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-08-10T06:30:03Z",
+        "source": "review",
+        "findings": 3
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-10T01:05:31Z",
+      "last_review_at": "2026-08-10T06:30:03.000Z",
+      "hours": 5.4
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 6, "prop": 3, "wrong": 2, "reRaised": 1, "invalid": 0 },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "diagnosis, reproduction, and the initial fix ran interleaved with a long multi-hour session covering unrelated conversation and async waits on webhook events/background subagents — no clean timestamp separates preflight from the rest of the session, so recorded as unknown rather than estimated.",
+    "breakersFired": "Round 5's rising-finding-count stopping rule (working-modes.md's review-loop stopping rule — findings went 3/2/2/2/3 round over round; the round-5 rise triggered a pause-and-check-in with David before requesting round 6, rather than auto-continuing). The model-routing skill's 'any decline' Opus-subagent trigger (SKILL.md ~lines 105-115: dispatched BEFORE a decline posts, so it fires on the intended action at that moment, not a post-hoc taxonomic label) fired four times in R1-R2: at the moment of dispatch I was about to respond to each finding by not fixing/acting on it, which is exactly the situation the trigger exists to check — independent of whether the eventual disposition, once actually classified against this repo's precise decline-vs-accept-and-document vocabulary (working-modes.md:209-213), turned out to be a true decline or not. None of these four turned out to be true declines: none were refuted and none rested on David ruling the underlying concern not-real; all four were accept-and-document territory. R1's pronoun-resolver finding and R2's CDN-cache finding: the challenge overturned my initial no-fix instinct into an actual code fix — the pronoun finding partially (fix ze/xe, accept-and-document the residual custom-format scope) and the CDN finding fully (fixed outright, a real lever I'd missed). R1's legacy-token finding and R2's identity-drift finding: the challenge confirmed accept-and-document (real defect, correctly scoped out of this PR) was the right disposition, in the identity-drift case with added nuance (broadened the tracking issue from one trigger to three). None of the four were mechanically-oracle-less by design (several, including the pronoun gap, are directly test-verifiable — the trigger that actually applied was 'any decline' in the sense above, not 'no mechanical oracle') and none were recurrences (nothing to recur from yet at R1-R2). Round 4's swept-class-recurrence trigger (a finding recurring from an earlier round should route to a fresh Opus-subagent challenge) did NOT run through a fresh subagent that round — I responded directly, pointing back to round 1's already-accept-and-documented disposition (David's explicit scope ruling: the underlying gap is real, deprioritized pre-launch — accept-and-document, NOT a decline, since he conceded the defect rather than ruling it not-real; an earlier draft of this field mislabeled this as a decline and was corrected on reflection, independently re-verified). Recording the missing subagent dispatch as a partial/adapted application of the recurrence rule, not a clean firing of it — distinct from the four Opus challenges that did fire cleanly in R1-R2 on the decline trigger."
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "Self-authored at loop close, 2026-08-10 (Claude Code, Sonnet). Cause classification: R1's 3 findings (pronoun resolver gap, legacy-token gap, my own UAT doc's inaccurate claim) are new_ground — none had an earlier round-of-this-loop fix to be caused by (round 1 reviews the original submission). R2's 2 findings (picture-vs-caption identity drift confirmed via git blame as pre-existing; CDN edge-cache staleness rooted in the original MEME_RENDER_VERSION bump) are both new_ground — pre-existing defects exposed by, not caused by, the loop's own fixes. R3's deploy-ordering hazard is propagation (round 2's Worker-versioning mechanism is the reason it exists at all); R3's Zazzle-export cache gap is new_ground (pre-existing property of /api/storage/objects/*'s cache header + the fixed export path, unrelated to round 2's fix, exposed by round 1's render fix making a corrected re-export meaningful for the first time). R4's misplaced deploy-order warning is wrong_fix (round 3's fix didn't resolve what it claimed — an operator following the actual runbook still wouldn't see it); R4's custom-pronoun-parity recurrence is reRaised (restates R1's finding with no new information, no failed fix attempt between them). R1's pronoun finding was NOT wholly accept-and-documented, which is why it stays new_ground rather than invalid despite the R4 recurrence citing a David decision: I fixed the ze/xe forms plus a pipe-leak guard in round 1 itself (shipped, tested), and only the residual broader scope (full arbitrary-custom-format parsing) was accept-and-documented into #400 under David's pre-launch scope call — that residual, not the whole R1 finding, is what recurs as R4's reRaised. Per working-modes.md's invalid rubric, invalid requires disposal \"by rebuttal rather than a fix\" (its own stated parallel to refutation-by-evidence) — a finding that produced shipped code fails that standard regardless of whether part of its scope was later deprioritized, and \"doubt is resolved toward valid\" points the same direction. Reclassifying R1 to invalid would also move the self-inflicted share from 5/12 to 5/11 (invalid falls out of both numerator and denominator) — i.e. it would make the loop look BETTER, the opposite of a self-flattering error, which is some evidence this isn't motivated reasoning. R2's identity-drift finding is likewise new_ground, not invalid, on the SAME evidence-bar test, from the opposite direction: it produced no fix at all (fully accept-and-documented into a broadened #399), but neither of invalid's two paths applies either — it was not refuted (git blame CONFIRMED it as real and pre-existing) and David was never escalated to for a ruling on this specific finding (the Opus-subagent challenge that validated the accept-and-document call is a distinct mechanism from 'settled by an explicit product/scope decision from David', which the rubric names specifically). This PR's own review (#406) correctly caught, across two rounds, that my breakersFired field misused this repo's defined decline-vs-accept-and-document vocabulary (working-modes.md:209-213) twice: first calling four accept-and-document dispositions 'declines' loosely, then over-correcting round 4's response into a 'true decline' when it was actually pointing back to round 1's accept-and-document disposition (David conceded the defect as real and made a scope/priority call, which is accept-and-document's definition, not a ruling that it isn't a defect). Both corrected. No causal count changed at any point — this loop genuinely contains zero true declines in the ledger's strict sense (nothing was ever refuted, and David's one scope ruling conceded rather than denied the underlying defect), which is consistent with, not contradicted by, 0 invalid. R5's three findings are: verification-command cache blind spot — wrong_fix (the command was introduced in round 3 specifically to close the ordering-hazard concern, and didn't fully close it); constant-drift-with-no-guard and stale architecture docs — both propagation (neither defect is possible without round 2's and round 3's respective fixes existing). 0 invalid: every finding investigated turned out real, including two (R1's pronoun gap, R2's identity-drift) I initially leaned toward accept-and-document-with-no-fix on, and only confirmed as fix-worthy (R1 partially, R2's sibling CDN finding fully) or correctly-scoped-as-is after dispatching an adversarial Opus-subagent challenge against my own reasoning."
+}

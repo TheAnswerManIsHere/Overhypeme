@@ -117,8 +117,16 @@ have a draft plan, and the disclosure check passes:
    Passed. This plan contains no unpatched vulnerability details, secrets,
    private customer information, fraud-enabling details, or embargoed material.
 
+   ## Direction
+   <Which direction this plan serves, linked, and the one sentence naming what
+   this increment makes true. If genuinely none applies, say so — never leave
+   this silently blank.>
+
    ## Product intent
-   <What David asked this feature to accomplish — verbatim or faithful.>
+   <What THIS INCREMENT accomplishes — never the end state, which belongs in
+   Direction above. If David's own words were totalising ("all", "every",
+   "exclusively"), that sentence goes in the Direction, and this section
+   states the narrower thing this plan actually builds.>
 
    ## Must not change
    <Invariants / out-of-scope behavior.>
@@ -139,10 +147,20 @@ have a draft plan, and the disclosure check passes:
    applied. See the contract's *Re-reviews* section.
 
    ## Findings ledger
-   <Round-by-round, maintained by me: each finding, its status, and the lens
-   each round applied. Cross-round state lives here so it survives whatever
-   Codex does or doesn't carry between rounds.>
+   <Round-by-round, maintained by me: each finding, its status, the lens each
+   round applied, and the plan file's line count for that round. Cross-round
+   state lives here so it survives whatever Codex does or doesn't carry
+   between rounds. The line count is not decoration — it is the growth
+   tripwire's only record, and a round-1 baseline that was never written down
+   cannot be compared against later.>
    ```
+
+   **Record the plan file's round-1 line count in the ledger before triggering
+   the first review** (`wc -l docs/plans/PLAN_<SLUG>.md`). It is the baseline
+   the growth tripwire in
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)
+   measures against, and it is unrecoverable after the fact once revisions
+   land.
 2. **Subscribe** with `subscribe_pr_activity` immediately — regardless of model
    tier, and **without asking to switch tiers.** The Sonnet gate under *Watching
    the PRs I open* is for *implementation* PRs (ops-shaped work); a
@@ -166,7 +184,20 @@ have a draft plan, and the disclosure check passes:
    impossible-as-specified — and a continue/stop recommendation), delivered as
    a 🛑 NEED YOU banner, waiting for David's go — with every finding written
    in **product English** per that contract's 2026-08-08 addition (David's
-   four-question template; outcomes, never mechanics). Skip-on-clean applies: a
+   four-question template; outcomes, never mechanics).
+   **The check-in carries the plan's line count next to the finding count
+   (David, 2026-08-11)** — "round 3: 21 findings, 24 → 14 → 21; plan 1,370
+   lines, +56% from round 1" — because the growth tripwire is the one a
+   falling finding count conceals, and an unstated number is one I can talk
+   myself past. If growth has passed roughly +50%, the recommendation I bring
+   is **stop and split**, not another round: per step 10's amendment,
+   everything added since round 1 is a split candidate regardless of review
+   status once the tripwire has fired, and each addition goes to David as a
+   **now / next / never** question per `CLAUDE.md`, defaulting to *next*.
+   The same framing applies to any single finding whose fix would introduce a
+   **new mechanism** — a table, a role, a config domain, an endpoint — whether
+   or not the tripwire has fired: the fix does not go in silently just because
+   a reviewer's finding motivated it. Skip-on-clean applies: a
    clean or trivial-nits-only round doesn't pause — under the minimum-3-rounds
    rule in step 7 it proceeds straight to the next lens with a one-line
    status. After the go (or on a clean round), I revise the plan
@@ -290,6 +321,49 @@ have a draft plan, and the disclosure check passes:
     to need its own attention — by then Codex's context on the existing PR
     is already established and cheaper to keep using than to rebuild fresh
     on a new one; the upfront split only pays off when decided upfront.
+
+    **Amendment (David, 2026-08-11): that rule covers *reviewed* material by
+    default, and the growth tripwire (step 4) is the override.** What the
+    original rule protects is accumulated review context, and **brand-new
+    scope added mid-loop has none to lose** — so forking *unreviewed*
+    additions out of the plan is not just allowed, it is the expected move,
+    cost-free, any time:
+
+    - **Reviewed material** — has been through at least one review round,
+      whether it was in the plan since round 1 or added at round *N* and then
+      survived round *N+1*'s pass. Stays put by default; forking it on a
+      routine basis discards the review context this rule exists to
+      preserve. The test is **"has a round reviewed this since it was
+      added,"** not "when was it added" — a mechanism added at round 3 and
+      reviewed at round 4 is reviewed material by round 5, exactly like
+      anything else.
+    - **Unreviewed scope** — added since the *most recent* round, so no round
+      has attacked it yet. Forking it costs **nothing**, because there is no
+      review history attached to it. It leaves as a backlog item and a line
+      in the ledger, and the current plan reverts to the scope it had before
+      the addition.
+
+    **The growth tripwire overrides the "reviewed material stays" default,
+    because it is a size judgment, not a review-completeness one.** If
+    growth accumulates gradually — each addition reviewed before the next
+    one lands — the plan can cross +50% while nothing is ever, at any single
+    moment, "unreviewed." Reading the rule above as an absolute would make
+    the tripwire's mandated split (step 4: growth past ~50% means split and
+    backlog, unconditionally) unreachable in exactly the shape PR #404 took.
+    So: when the tripwire fires, **everything added since round 1 is a split
+    candidate regardless of review status** — but reviewed material forked
+    out this way carries its accumulated findings and ledger rows into the
+    successor plan-review PR rather than losing them; only genuinely
+    unreviewed material is dropped to a plain backlog item. This is what
+    keeps the two rules compatible: routine mid-loop forking still protects
+    reviewed context by leaving it in place, and the tripwire still protects
+    itself by being allowed to reach it when size, not review status, is the
+    problem.
+
+    This is the exit that did not exist during PR #404, which is why its
+    only available response to a mid-flight discovery was to absorb it. The
+    *now vs. next* question for each forked-out piece goes to David per
+    `CLAUDE.md`.
 11. **Close out.** When converged: close the draft PR **without merging**
     (`update_pull_request`, state `closed`) with a closing comment recording the
     final review status, unsubscribe, then ask David for approval — linking the

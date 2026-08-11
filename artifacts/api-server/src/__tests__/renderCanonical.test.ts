@@ -207,6 +207,69 @@ describe("renderPersonalized — they/them (plural)", () => {
   });
 });
 
+// ── PRONOUN_ALLOWLIST's neopronoun sets (ze/zir, xe/xem) ──────────────────────
+// Regression for PR #398 round 1: these are first-class, selectable options on
+// the meme-builder endpoints (validators/memeBuilder.ts's PRONOUN_ALLOWLIST),
+// not an obscure edge case. Before this fix, resolveIdentityForms only
+// special-cased he/she and fell through to the they/them possessive/reflexive
+// forms for everything else — so a "ze/zir" or "xe/xem" user's {POSS}/{POSS_PRO}/
+// {REFL} silently rendered "their"/"theirs"/"themselves" instead of their own
+// pronoun's forms, on any surface that calls renderPersonalized — including,
+// as of this PR, the split-caption halves baked into a saved meme image.
+describe("renderPersonalized — ze/zir (singular, zir-family forms)", () => {
+  it("renders SUBJ/OBJ from the input, POSS/POSS_PRO/REFL from the zir family", () => {
+    assert.equal(renderPersonalized("{SUBJ}", "Sam", "ze/zir"), "ze");
+    assert.equal(renderPersonalized("{OBJ}", "Sam", "ze/zir"), "zir");
+    assert.equal(renderPersonalized("{POSS}", "Sam", "ze/zir"), "zir");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", "ze/zir"), "zirs");
+    assert.equal(renderPersonalized("{REFL}", "Sam", "ze/zir"), "zirself");
+  });
+
+  it("capitalized tokens", () => {
+    assert.equal(renderPersonalized("{Subj}", "Sam", "ze/zir"), "Ze");
+    assert.equal(renderPersonalized("{Poss}", "Sam", "ze/zir"), "Zir");
+    assert.equal(renderPersonalized("{Refl}", "Sam", "ze/zir"), "Zirself");
+  });
+
+  it("uses the singular branch for {singular|plural}", () => {
+    assert.equal(renderPersonalized("{keeps|keep}", "Sam", "ze/zir"), "keeps");
+  });
+
+  it("a complete sentence", () => {
+    assert.equal(
+      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Sam", "ze/zir"),
+      "Sam has done zir work zirself.",
+    );
+  });
+});
+
+describe("renderPersonalized — xe/xem (singular, xyr-family forms)", () => {
+  it("renders SUBJ/OBJ from the input, POSS/POSS_PRO/REFL from the xyr family", () => {
+    assert.equal(renderPersonalized("{SUBJ}", "Sam", "xe/xem"), "xe");
+    assert.equal(renderPersonalized("{OBJ}", "Sam", "xe/xem"), "xem");
+    assert.equal(renderPersonalized("{POSS}", "Sam", "xe/xem"), "xyr");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", "xe/xem"), "xyrs");
+    assert.equal(renderPersonalized("{REFL}", "Sam", "xe/xem"), "xemself");
+  });
+
+  it("capitalized tokens", () => {
+    assert.equal(renderPersonalized("{Subj}", "Sam", "xe/xem"), "Xe");
+    assert.equal(renderPersonalized("{Poss}", "Sam", "xe/xem"), "Xyr");
+    assert.equal(renderPersonalized("{Refl}", "Sam", "xe/xem"), "Xemself");
+  });
+
+  it("uses the singular branch for {singular|plural}", () => {
+    assert.equal(renderPersonalized("{keeps|keep}", "Sam", "xe/xem"), "keeps");
+  });
+
+  it("a complete sentence", () => {
+    assert.equal(
+      renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Sam", "xe/xem"),
+      "Sam has done xyr work xemself.",
+    );
+  });
+});
+
 describe("renderPersonalized — edge cases", () => {
   it("null pronouns defaults to they/them (plural)", () => {
     assert.equal(renderPersonalized("{SUBJ}", "Sam", null), "they");
@@ -215,6 +278,27 @@ describe("renderPersonalized — edge cases", () => {
 
   it("undefined pronouns defaults to they/them (plural)", () => {
     assert.equal(renderPersonalized("{SUBJ}", "Sam", undefined), "they");
+  });
+
+  // A pipe-delimited custom pronoun set ("xe|xem|xyr|xyrs|xemself|s") is a
+  // format only the client's resolveMap understands today — this resolver
+  // does not parse it. Regression for PR #398 round 1: naive `"/"`-splitting
+  // on a string with no "/" previously yielded the ENTIRE raw pipe string as
+  // the literal SUBJ token value (e.g. "{SUBJ}" → "xe|xem|xyr|xyrs|xemself|s"),
+  // which is worse than an unresolved token — it looks like real (garbled)
+  // output. Must fall back to the they/them default instead.
+  it("pipe-delimited custom pronouns fall back to they/them, never leak raw text", () => {
+    const custom = "xe|xem|xyr|xyrs|xemself|s";
+    assert.equal(renderPersonalized("{SUBJ}", "Sam", custom), "they");
+    assert.equal(renderPersonalized("{OBJ}", "Sam", custom), "them");
+    assert.equal(renderPersonalized("{POSS}", "Sam", custom), "their");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", custom), "theirs");
+    assert.equal(renderPersonalized("{REFL}", "Sam", custom), "themselves");
+    assert.equal(renderPersonalized("{keeps|keep}", "Sam", custom), "keep");
+  });
+
+  it("a pipe with no slash at all still falls back cleanly (no crash, no leak)", () => {
+    assert.equal(renderPersonalized("{SUBJ}", "Sam", "garbled|input"), "they");
   });
 
   it("unknown token is left unchanged", () => {

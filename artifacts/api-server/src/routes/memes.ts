@@ -25,6 +25,7 @@ import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
+import { resolveStoredMemeCaption } from "../lib/memeComposite";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
 import { memeKey } from "../lib/storageKeys";
@@ -109,8 +110,13 @@ const LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT = 200;
  * v3 — 2026-05: fixed JPEG encode quality bug — `OUTPUT_JPEG_QUALITY`
  * was being passed as 0.9 to a 0-100 integer API, producing tiny ~22KB
  * files with chunky 8×8 block artifacts on every photo meme. Now 90.
+ * v4 — 2026-08: the split caption halves stored in `text_options` are the RAW
+ * fact template, and the renderer draws them in preference to the
+ * personalised `factText` — so every split-caption meme baked a literal
+ * `{NAME}` into the image. The halves are now personalised alongside the fact
+ * text, which changes the output for every already-saved split-caption meme.
  */
-const MEME_RENDER_VERSION = 3;
+const MEME_RENDER_VERSION = 4;
 
 /**
  * Idempotency map for /api/memes POSTs. Protects against double-clicks and
@@ -672,12 +678,8 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
       : Promise.resolve(undefined),
   ]);
 
-  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-  const factText = creator?.displayName && rawTemplate
-    ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
-    : (fact?.canonicalText ?? fact?.text ?? "");
+  const { factText, textOptions } = resolveStoredMemeCaption(fact, creator, meme.textOptions);
   const source = meme.imageSource as StoredImageSource;
-  const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 
   let background: BackgroundSource;
 
@@ -793,12 +795,8 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
           : Promise.resolve(undefined),
       ]);
 
-      const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-      const factText = creator?.displayName && rawTemplate
-        ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
-        : (fact?.canonicalText ?? fact?.text ?? "");
+      const { factText, textOptions } = resolveStoredMemeCaption(fact, creator, meme.textOptions);
       const source = meme.imageSource as StoredImageSource;
-      const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 
       let background: BackgroundSource;
       if (source.type === "template") {
@@ -819,7 +817,16 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
     }
 
     // Store in object storage with a public ACL so Zazzle can fetch it directly
-    const subPath = `meme-exports/${slug}.jpg`;
+    // Render-versioned path (round 3, PR #398): /api/storage/objects/* is
+    // edge-cached for 24h (CACHE.PUBLIC_OBJECT, routes/storage.ts) same as the
+    // meme image itself, but this write OVERWRITES a fixed slug-keyed path —
+    // so a customer re-exporting the same meme after a render-pipeline fix
+    // could still hand Zazzle a URL an edge PoP already has cached from the
+    // pre-fix bytes. Folding MEME_RENDER_VERSION into the path means a
+    // content-changing fix always produces a URL nothing has cached yet,
+    // without needing the og-router Worker (which doesn't intercept this
+    // route) or a Cache-Control/ETag scheme this endpoint doesn't have.
+    const subPath = `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg`;
     await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
     await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
       owner: "system",
@@ -926,12 +933,8 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
           : Promise.resolve(undefined),
       ]);
 
-      const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-      const factText = creator?.displayName && rawTemplate
-        ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
-        : (fact?.canonicalText ?? fact?.text ?? "");
+      const { factText, textOptions } = resolveStoredMemeCaption(fact, creator, meme.textOptions);
       const source = meme.imageSource as StoredImageSource;
-      const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 
       let background: BackgroundSource;
       if (source.type === "template") {
@@ -951,7 +954,16 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
       imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
     }
 
-    const subPath = `meme-exports/${slug}.jpg`;
+    // Render-versioned path (round 3, PR #398): /api/storage/objects/* is
+    // edge-cached for 24h (CACHE.PUBLIC_OBJECT, routes/storage.ts) same as the
+    // meme image itself, but this write OVERWRITES a fixed slug-keyed path —
+    // so a customer re-exporting the same meme after a render-pipeline fix
+    // could still hand Zazzle a URL an edge PoP already has cached from the
+    // pre-fix bytes. Folding MEME_RENDER_VERSION into the path means a
+    // content-changing fix always produces a URL nothing has cached yet,
+    // without needing the og-router Worker (which doesn't intercept this
+    // route) or a Cache-Control/ETag scheme this endpoint doesn't have.
+    const subPath = `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg`;
     await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
     await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
       owner: "system",
