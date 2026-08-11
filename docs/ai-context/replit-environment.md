@@ -31,12 +31,14 @@ environment:
   one dirties the worktree that Publish snapshots. Fixed in the script itself,
   which now exits early when Replit environment variables are present.
 
-### The Repl requires a `.claude/settings.local.json` that is NOT in git
+### The Repl requires a local-settings override that is NOT in git
 
-Local settings take precedence over the versioned project settings, and
-`.claude/settings.local.json` is gitignored — so the Repl's override cannot
-live in the repo, and this note is the only record that it must exist.
-Its contents:
+Local settings take precedence over the versioned project settings, and the
+local-settings filename is gitignored — so the Repl's override cannot live in
+the repo, and this note is the only record that it must exist. It sits in the
+Repl workspace at `/home/runner/workspace/.claude/settings.local.json` (an
+absolute Repl path, deliberately — the file exists only there, never in a
+checkout), with these contents:
 
 ```json
 {
