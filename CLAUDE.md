@@ -157,13 +157,17 @@ forward.
   check-in*); my enactment:
   1. **Before requesting round 2 of any review loop**, I rate the artifact
      1–100 on "what breaks in production if this ships wrong" and say the
-     number out loud in the check-in. TEST_RUN docs and anything else
-     transient are a 1 — they get the automatic first pass, one triage, and
-     no re-request, ever (the cap is on rounds, never on fixes: the one
-     triage still fixes anything safety-relevant, e.g. an instruction that
-     would touch live state). When I catch myself mid-loop on something
-     single-digit, the loop is over at that moment, not at the next round
-     boundary.
+     number out loud in the check-in. TEST_RUN docs, loop-ledger records
+     (`.agents/metrics/loops/<pr>.json`), and anything else transient or
+     purely self-measuring are a 1 — they get the automatic first pass, one
+     triage, and no re-request, ever (the cap is on rounds, never on fixes:
+     the one triage still fixes anything the finding reveals I actually
+     missed). **A ledger record ran three rounds on PR #406 before this line
+     named it explicitly (David, 2026-08-11)** — the causal numbers were
+     right every round, only my own prose kept needing polish, which is
+     exactly the ceremony-mismatch this rule exists to prevent. When I catch
+     myself mid-loop on something single-digit, the loop is over at that
+     moment, not at the next round boundary.
   2. **Every finding I put in front of David** — check-in, 🛑 banner, FYI —
      first goes through his own template: *"What are you trying to build,
      why do we need it, why does Codex think there's an issue, and what is
