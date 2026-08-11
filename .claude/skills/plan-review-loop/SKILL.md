@@ -117,8 +117,16 @@ have a draft plan, and the disclosure check passes:
    Passed. This plan contains no unpatched vulnerability details, secrets,
    private customer information, fraud-enabling details, or embargoed material.
 
+   ## Direction
+   <Which direction this plan serves, linked, and the one sentence naming what
+   this increment makes true. If genuinely none applies, say so — never leave
+   this silently blank.>
+
    ## Product intent
-   <What David asked this feature to accomplish — verbatim or faithful.>
+   <What THIS INCREMENT accomplishes — never the end state, which belongs in
+   Direction above. If David's own words were totalising ("all", "every",
+   "exclusively"), that sentence goes in the Direction, and this section
+   states the narrower thing this plan actually builds.>
 
    ## Must not change
    <Invariants / out-of-scope behavior.>
@@ -182,9 +190,10 @@ have a draft plan, and the disclosure check passes:
    lines, +56% from round 1" — because the growth tripwire is the one a
    falling finding count conceals, and an unstated number is one I can talk
    myself past. If growth has passed roughly +50%, the recommendation I bring
-   is **stop and split**, not another round: everything added since round 1 is
-   a fork candidate per step 10's amendment, and each addition goes to David as
-   a **now / next / never** question per `CLAUDE.md`, defaulting to *next*.
+   is **stop and split**, not another round: whatever has not yet been through
+   a review round is a fork candidate per step 10's amendment, and each
+   addition goes to David as a **now / next / never** question per
+   `CLAUDE.md`, defaulting to *next*.
    The same framing applies to any single finding whose fix would introduce a
    **new mechanism** — a table, a role, a config domain, an endpoint — whether
    or not the tripwire has fired: the fix does not go in silently just because
@@ -319,20 +328,30 @@ have a draft plan, and the disclosure check passes:
     additions out of the plan is not just allowed, it is the expected move.
     The two cases are opposites and must not be confused:
 
-    - **Reviewed material** — in the plan since round 1, already attacked
-      across rounds. Stays. Forking it discards exactly the context this
-      rule exists to preserve.
-    - **Unreviewed scope** — a mechanism added at round *N* in response to a
-      finding or a mid-flight discovery. Forking it costs **nothing**,
-      because there is no review history attached to it yet. It leaves as a
-      backlog item and a line in the ledger, and the current plan reverts to
-      the scope it had before the addition.
+    - **Reviewed material** — has been through at least one review round,
+      whether it was in the plan since round 1 or added at round *N* and then
+      survived round *N+1*'s pass. Stays, and forking it discards exactly the
+      review context this rule exists to preserve — the "added mid-loop"
+      history does not by itself make something unreviewed once a round has
+      actually attacked it.
+    - **Unreviewed scope** — added since the *most recent* round, so no round
+      has attacked it yet. Forking it costs **nothing**, because there is no
+      review history attached to it. It leaves as a backlog item and a line
+      in the ledger, and the current plan reverts to the scope it had before
+      the addition.
+
+    The test is **"has a round reviewed this since it was added,"** not "when
+    was it added" — a mechanism added at round 3 and reviewed at round 4 is
+    reviewed material by round 5, exactly like anything else. The growth
+    tripwire firing at round *N* does not retroactively make everything added
+    since round 1 unreviewed; it only reaches whatever the *most recent*
+    round hasn't yet attacked.
 
     This is the exit that did not exist during PR #404, which is why its
     only available response to a mid-flight discovery was to absorb it. When
     the growth tripwire fires (step 4), this is the mechanism that acts on
-    it: everything added since round 1 is a fork candidate by default, and
-    the *now vs. next* question goes to David per `CLAUDE.md`.
+    it: whatever hasn't yet been through a review round is a fork candidate,
+    and the *now vs. next* question goes to David per `CLAUDE.md`.
 11. **Close out.** When converged: close the draft PR **without merging**
     (`update_pull_request`, state `closed`) with a closing comment recording the
     final review status, unsubscribe, then ask David for approval — linking the

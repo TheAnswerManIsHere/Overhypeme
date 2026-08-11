@@ -377,24 +377,15 @@ not.
 
 ## Before the plan: the increment test, and now-vs-next
 
-The shared half of this — what a **direction** is, what a **plan** is, and that
-the review loop only ever runs on plans — lives in
-[`working-modes.md`](docs/ai-context/working-modes.md) and binds Codex too, so
-per this file's single-source-of-truth rule I don't restate it. What's mine is
-when I apply it.
-
-**The increment test, before I write a line of plan.** Two checks, both
-mechanical enough that there's no judgment to get wrong:
-
-1. **A universal quantifier means I'm holding a direction, not a plan.** If the
-   intent sentence needs "all", "every", "everything", "any and all", or
-   "exclusively" to say what it means, I write the **direction** doc first,
-   then cut the first increment out of it and plan *that*. I do **not** narrow
-   David's words to make the test pass — his sentence stays intact in the
-   direction, which is exactly where a totalising statement belongs.
-2. **If it needs a *Phases* section to be buildable, each phase was probably
-   its own plan.** The cheapest signal available, and the one that would have
-   caught PR #404 on day one: it had three phases before round 1.
+The shared truth — what a **direction** is, what a **plan** is, the mechanical
+**increment test** (universal quantifier ⇒ direction; independently-shippable
+*Phases* ⇒ split), the direction-routing rule, and that the plan-review loop
+only ever runs on plans — all live in
+[`working-modes.md`](docs/ai-context/working-modes.md#the-increment-test) and
+bind Codex too, so per this file's single-source-of-truth rule I don't restate
+them. What's mine is when I apply it: **I run the increment test before
+writing a line of plan**, using `.agents/PLANS.md`'s Preflight section as
+where that happens.
 
 **Scope that arrives mid-flight is framed now vs. next.** Any decision during
 planning *or* review that adds a **new mechanism** — a new table, a new role, a

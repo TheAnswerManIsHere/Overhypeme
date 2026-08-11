@@ -147,15 +147,28 @@ limitation you've confirmed, not the failure this paragraph is warning against.
 **3. Report scope the plan did not have last round (David, 2026-08-11).** A
 plan under review is supposed to shrink toward correctness, not grow. Each
 round, note whether the plan has acquired a **new mechanism** since your last
-pass — a new table, role, endpoint, config domain, lock, or subsystem — and say
-so plainly, whether or not you have a defect finding about it. This is a
-first-class observation, not a stylistic aside: growth is invisible to the
-finding count (it happens just as readily while counts *fall*), and the author
-is the party least able to see it. **A plan whose new findings mostly attach to
-scope added after review began has stopped being reviewed and started being
-written**, and the correct output is a split, not another round. Naming the
-growth is what lets the author and David make that call. See
+pass — a new table, role, endpoint, config domain, lock, or subsystem. Growth
+is invisible to the finding count (it happens just as readily while counts
+*fall*), and the author is the party least able to see it. **A plan whose new
+findings mostly attach to scope added after review began has stopped being
+reviewed and started being written**, and the correct output is a split, not
+another round. See
 [*A plan that grew during its own review*](./known-failure-patterns.md#a-plan-that-grew-during-its-own-review).
+
+**How this obligation is discharged depends on delivery surface, same as
+everything else in *Output* below.** On full-document delivery, say so
+plainly in your own write-up whether or not a defect accompanies it — this
+surface has no constraint against a freestanding observation. **On the GitHub
+structured-review transport, this surface's own limits apply** (see *Output*
+→ *Structured defect pass*): there is no channel for a non-defect note, so a
+new mechanism with no accompanying finding is not something you post here —
+naming growth with no defect is the **loop driver's** job (Claude tracks the
+plan's line count in the findings ledger every round; that is the mechanical
+substitute for this obligation on this surface). What you owe on this
+transport: when a new mechanism **does** produce a finding, fold the growth
+observation into that finding's text, the same way *Verified*/*Unable to
+verify* fold into a Required Revision or Recommended Improvement per the
+structured-pass rules below.
 
 **4. Apply at least one lens you have not applied yet.** Convergence measures
 *consistency*, not *quality* — a reviewer that missed a major issue in round 1

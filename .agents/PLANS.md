@@ -13,23 +13,15 @@
 
 ## Preflight: is this a plan, or a direction?
 
-**Run this before filling in anything below.** A **plan** builds one bounded
-increment; a **direction** states an end state, is reviewed once, and is never
-put through the review loop. The distinction is defined in
-[`../docs/ai-context/working-modes.md`](../docs/ai-context/working-modes.md).
-
-- **Universal quantifier in the intent sentence** — "all", "every",
-  "everything", "any and all", "exclusively" — ⇒ this is a **direction**. Write
-  the direction first, then cut the first increment out of it and plan that
-  one. Do not narrow the requester's words to make the test pass; their
-  sentence belongs in the direction intact.
-- **Does it need a *Phases* section to be buildable?** Then each phase was
-  probably its own plan. Split before writing.
-
-If either check trips, stop and split. Scope that arrives *later* — during
-planning or during review — is framed **now vs. next**, defaulting to **next**
-unless this plan cannot be *correct* without it. Adding it because the end
-state needs it is what the direction is for.
+**Run the increment test before filling in anything below** —
+[`../docs/ai-context/working-modes.md`](../docs/ai-context/working-modes.md#the-increment-test)
+defines it (universal quantifier ⇒ direction; a *Phases* section separating
+independently-shippable pieces ⇒ each phase was its own plan) and where a
+direction lives once you write one. If either check trips, stop and split
+before filling in anything below. Scope that arrives *later* — during planning
+or during review — is framed **now vs. next**, defaulting to **next** unless
+this plan cannot be *correct* without it. Adding it because the end state
+needs it is what the direction is for.
 
 ## Problem
 What problem are we solving? Include the concrete user/admin/runtime symptom.
