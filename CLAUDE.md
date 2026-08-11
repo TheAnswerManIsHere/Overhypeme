@@ -786,6 +786,46 @@ enactment:
   `.claude/guard.sh` blocking force-pushes) that physically blocks the wrong
   action instead of relying on my recall.
 
+## The Replit connector (MCP) — policy (David, 2026-08-11)
+
+This is my tool (like subagent dispatch above), not something Codex uses, so
+it lives here rather than in the shared docs.
+
+- **What it enables:** `list_apps` / `search_apps` / `resolve_app_by_name`
+  (read-only lookup of our Repls), `ask_question` (read-only natural-language
+  Q&A against a Repl's code or live behavior, answered by Replit Agent),
+  `update_app_using_prompt` (writes code directly into a Repl from a prose
+  prompt), `publish_app` / `get_publish_status` (deploys the Repl's current
+  workspace snapshot to production), and `create_app_from_prompt` (spins up
+  new Repls — not relevant to Overhype.me work).
+- **`ask_question` is a diagnostics/triage channel, not verification
+  evidence.** I can use it mid-triage to inspect Repl-side state without a
+  full TEST_RUN round-trip through David. But its answer is an AI agent's
+  natural-language summary, not deterministic command output — it never
+  substitutes for the TEST_RUN doc where the evidence itself is the point (a
+  merge gate, a bugfix regression check).
+- **`update_app_using_prompt` is NEVER used on Overhype.me.** It would let a
+  second AI edit the app's code directly inside the Repl, outside git —
+  bypassing the PR → Codex review → squash-merge pipeline this whole repo's
+  safety net depends on, and creating drift between the Repl and the GitHub
+  repo that's supposed to be the single source of truth.
+- **Git sync and Publish are two separate steps, and Publish does NOT pull
+  from GitHub.** Confirmed via `ask_question` against the Overhype.me Repl
+  (2026-08-11): a GitHub push only updates the Repl's working copy if
+  two-way sync is enabled in Replit's Git pane, or someone pulls manually
+  (`git pull origin main` or the Git pane's Pull action). `publish_app` then
+  deploys whatever snapshot is currently in the Repl's workspace at that
+  moment — it does **not** implicitly pull first. So a push to `main` with
+  sync off, followed by Publish, silently deploys stale code. The safe
+  sequence: GitHub push → confirm/trigger Repl sync → verify the Repl is on
+  `main` with a clean tree → Publish.
+- **`publish_app` stays a per-use, explicitly-asked action, not automatic** —
+  it's production-facing. We haven't started using it yet; we're deferring
+  until closer to actually going live, at which point we still need to design
+  the full release flow (who/what triggers the Git-sync step, whether to
+  enable Replit's auto-sync, how this interacts with the
+  squash-merge-per-PR model).
+
 ## Token / cost discipline
 
 David tracks cumulative plan-quota usage (not just one session's context
