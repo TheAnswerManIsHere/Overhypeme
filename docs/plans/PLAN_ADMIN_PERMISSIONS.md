@@ -163,45 +163,6 @@ Decided with David in the pre-plan conversation on 2026-08-10.
    `engine_experiments` was pointing at the second thing under a name that
    described the first, which is why the original decision mis-sorted it.
 
-12. **Engine access is granted by BAND, not per engine (David, 2026-08-10).**
-    One grid row per engine cannot survive the release cadence David
-    described — every new FLUX/Seedance/Veo model would add a row. Instead
-    each engine carries a **band** (`standard` / `premium` / `experimental`),
-    and the grid grants bands to tiers. A new model is labelled on the engines
-    page and is immediately available to whoever holds that band — no grid
-    change, no deploy. **Multiple engines per band is the expected case**, not
-    an edge one (David confirmed).
-
-    Consequences: `engines.tierRequirement` — today a permission-shaped column
-    nothing enforces — is **repurposed as the band label** rather than
-    deleted, so engine *classification* stays with the engine (where metadata
-    belongs) while engine *permission* lives in the grid (where permission
-    belongs). Band access covers all four modalities (i2i, t2i, i2v, t2v)
-    because the band is a property of the engine, not the pipeline. Band
-    access and the spend budget **compose**: holding `premium` says which
-    engines you may pick, `ai_generation_budget` still says how much you may
-    spend, which is the intended shape when premium engines cost more per
-    render.
-
-    **Default selection is separate from access.** The system default engine
-    per kind is unchanged; holding a band lets a user *choose* among engines
-    in bands they hold. This is what resolves the silent-discard defect: the
-    picker lists engines the principal may use and the save path accepts
-    exactly that set — one expression evaluated once, per *Proposed Design*.
-
-13. **The per-user spend override is replaced by a `tester` role (David,
-    2026-08-10).** Its purpose was giving test users more spend during
-    testing. A per-user dollar value on one person's edit page is invisible
-    from the permissions screen — the exact failure mode Settled Decision #7
-    exists to remove. A `tester` flag, orthogonal like `isAdmin`, gets its own
-    grid column, composes through the same union, and is revocable with one
-    toggle. **Two limits of this, accepted with David:** a role cannot express
-    a one-off per-person amount (all testers share one allowance), and it does
-    not expire — so an unrevoked tester keeps elevated spend indefinitely.
-    Expiring grants are noted as follow-up work, not built here; the role is
-    still strictly better than the override on visibility, which is the
-    problem being solved.
-
 7. **Numeric limits live in the grid too — the grid holds values, not just
    checkboxes (David, 2026-08-10).** I recommended leaving dollar budgets,
    upload caps and rate limits in `admin_config` with an admin bucket added,
@@ -246,6 +207,59 @@ Decided with David in the pre-plan conversation on 2026-08-10.
    following the repo's established "recurring failure patterns become CI
    guards" practice (`check-docs-accuracy`, `check-codegen-drift`,
    the migration-snapshot validator).
+11. **Engine access is granted by BAND, not per engine (David, 2026-08-10).**
+    One grid row per engine cannot survive the release cadence David
+    described — every new FLUX/Seedance/Veo model would add a row. Instead
+    each engine carries a **band** (`standard` / `premium` / `experimental`),
+    and the grid grants bands to tiers. A new model is labelled on the engines
+    page and is immediately available to whoever holds that band — no grid
+    change, no deploy. **Multiple engines per band is the expected case**, not
+    an edge one (David confirmed).
+
+    Consequences: `engines.tierRequirement` — today a permission-shaped column
+    nothing enforces — is **repurposed as the band label** rather than
+    deleted, so engine *classification* stays with the engine (where metadata
+    belongs) while engine *permission* lives in the grid (where permission
+    belongs). Band access covers all four modalities (i2i, t2i, i2v, t2v)
+    because the band is a property of the engine, not the pipeline. Band
+    access and the spend budget **compose**: holding `premium` says which
+    engines you may pick, `ai_generation_budget` still says how much you may
+    spend, which is the intended shape when premium engines cost more per
+    render.
+
+    **Default selection is separate from access.** The system default engine
+    per kind is unchanged; holding a band lets a user *choose* among engines
+    in bands they hold. This is what resolves the silent-discard defect: the
+    picker lists engines the principal may use and the save path accepts
+    exactly that set — one expression evaluated once, per *Proposed Design*.
+
+12. **The per-user spend override is replaced by a `tester` role (David,
+    2026-08-10).** Its purpose was giving test users more spend during
+    testing. A per-user dollar value on one person's edit page is invisible
+    from the permissions screen — the exact failure mode Settled Decision #7
+    exists to remove. A `tester` flag, orthogonal like `isAdmin`, gets its own
+    grid column, composes through the same union, and is revocable with one
+    toggle. **Two limits of this, accepted with David:** a role cannot express
+    a one-off per-person amount (all testers share one allowance), and it does
+    not expire — so an unrevoked tester keeps elevated spend indefinitely.
+    Expiring grants are noted as follow-up work, not built here; the role is
+    still strictly better than the override on visibility, which is the
+    problem being solved.
+
+
+13. **A queued job is authorized as of when it was submitted, not when it
+    runs (David, 2026-08-11).** Codex asked whether a job sitting in the queue
+    should use the entitlements captured at enqueue or re-resolve the current
+    grid at execution. David: *"Do whatever is easier because that situation
+    has an infinitesimal chance of happening."* Easier and already half-built
+    is the snapshot — the principal is persisted with the job regardless, so
+    the entitlement values and engine band ride along with it. Accepted
+    consequence, stated rather than discovered later: a feature revoked while
+    a job is queued still completes that one job. Jobs here are short and the
+    exposure is a single render. **Not built:** an immediate-cancel path for
+    abuse revocation, which is the one case where the money genuinely needs to
+    stop — noted as follow-up, deliberately out of scope on the same
+    rarity grounds.
 
 ## Repo Context Inspected
 
@@ -490,18 +504,28 @@ leaving its siblings unclassified. Either that is a permission or it is not.
 
 So the model gains an explicit third rail:
 
-| | **Identity prerequisite** |
-|---|---|
-| Answers | "Are you a signed-in account at all?" |
-| Source of truth | `req.isAuthenticated()` — deliberately not configurable |
-| Why not in the grid | Granting these to `unregistered` is incoherent: they write rows owned by a user id that would not exist |
+| | **Identity prerequisite** | **Deliberately public** |
+|---|---|---|
+| Answers | "Are you a signed-in account at all?" | "Nothing — anyone may do this" |
+| Source of truth | `req.isAuthenticated()` — deliberately not configurable | the allowlist entry itself |
+| Why not in the grid | Granting these to `unregistered` is incoherent: they write rows owned by a user id that would not exist | there is nothing to grant; the capability is already universal |
+| Examples | commenting, rating, hearts, share intents | `GET /facts`, `GET /hashtags`, `GET /memes/templates`, public meme permalinks |
 
-**Every product route is classified into exactly one of the three rails, and
+**The public category is not a loophole — it is the point of the allowlist**
+(added 2026-08-11, Codex round 2). Browsing without an account is core product
+behaviour stated in the product brief, and a three-category model would have
+forced the CI guard either to reject those routes or to demand a gate on them.
+But "public" must be *declared*, never inferred from the absence of a gate —
+inferring it is exactly how an accidentally ungated mutation would pass. So
+the allowlist distinguishes a route explicitly marked public from one that is
+merely unclassified, and the guard rejects the second.
+
+**Every product route is classified into exactly one of the four rails, and
 the classification is checked in** as an allowlist the CI guard reads. A route
-that is neither resolver-gated nor listed as an identity prerequisite fails the
-build. That is what makes the exhaustiveness claim provable rather than
-asserted — the guard stops looking for *bad* patterns and starts requiring an
-*approved* one.
+that is not resolver-gated, privilege-gated, or listed as an identity
+prerequisite or deliberately public fails the build. That is what makes the
+exhaustiveness claim provable rather than asserted — the guard stops looking
+for *bad* patterns and starts requiring an *approved* one.
 
 `meme_upload_photo` is resolved into this frame rather than left ambiguous: it
 stays a **grid feature**, because unlike commenting it is a capability David
@@ -516,9 +540,12 @@ A new module — `artifacts/api-server/src/lib/featureAccess.ts` — is the only
 code permitted to read the grid:
 
 ```
+principal = { tier, isAdmin, isTester }
+
 resolveEntitlements(principal) -> Map<featureKey, Entitlement>
   = merge( gridRows(principal.tier),
-           principal.isAdmin ? gridRows('admin') : ∅ )
+           principal.isAdmin  ? gridRows('admin')  : ∅,
+           principal.isTester ? gridRows('tester') : ∅ )
 
 Entitlement = { allowed: boolean, limit: number | null }   // null = unlimited
 
@@ -581,12 +608,22 @@ finding at line 482). The resolver already supports the `unregistered`
 row-set, so the client contract must be able to carry it — see *One client
 contract*.
 
-- **`principal`** is derived from `req.user` — carrying the *effective* tier
-  and the *toggle-aware* admin flag — or the anonymous principal
-  (`tier: 'unregistered'`, `isAdmin: false`) when there is no session. Taking
-  a principal rather than a tier string is the whole point: it is the seam
-  impersonation later slots into (Settled Decision #5).
-- **Union**, per Settled Decision #2.
+- **`principal`** is derived from `req.user` — carrying the *effective* tier,
+  the *toggle-aware* admin flag, and the tester flag — or the anonymous
+  principal (`tier: 'unregistered'`, both flags false) when there is no
+  session. Taking a principal rather than a tier string is the whole point: it
+  is the seam impersonation later slots into (Settled Decision #5).
+- **Three overlay sources, not two** (corrected 2026-08-11, Codex round 2).
+  The first revision added the `tester` role to *Settled Decisions* and the
+  grid but left the resolver merging only tier and admin — so the role that
+  replaced the per-user spend override would have granted nothing, which is
+  strictly worse than the override it replaced. The grid therefore has **five
+  columns** (`unregistered`, `registered`, `legendary`, `admin`, `tester`),
+  the row-set integrity rule is **five rows per feature**, and every
+  every column statement in this document means five. The grid tables below
+  show the four **base** columns; the `tester` overlay's values are specified
+  once, in *The `tester` column*, because it is deliberately sparse.
+- **Union**, per Settled Decision #2, extended over all three overlays.
 - **One admin predicate.** The six current spellings collapse to the
   principal's flag, which is built from `isRealAdmin` in `authMiddleware`
   (stored column **OR** `ADMIN_USER_IDS` **OR** bootstrap email) — so
@@ -617,13 +654,20 @@ resolver the write paths use. Three corrections from Codex round 1:
   and any future `unregistered` grant would be unreachable. Entitlements
   become a sibling field of `user`, populated for authenticated and anonymous
   callers alike.
-- **The client must revalidate** (line 684). The 60-second window is the
-  *server* resolver's cache; the client payload is a snapshot taken when
+- **The client must revalidate, and needs a signal it can actually observe**
+  (line 684, reopened in round 2). The 60-second window is the *server*
+  resolver's cache; the client payload is a snapshot taken when
   `AuthProvider` mounts, with no interval and no invalidation, so an open tab
-  could hold a stale lock indefinitely while the server has already switched.
-  The payload carries a grid version, and the client revalidates on that
-  version changing and on window focus, so an open client converges inside the
-  advertised window without a reload.
+  could hold a stale lock indefinitely. The first fix — "revalidate when the
+  grid version changes" — was **circular**: the version lives inside the very
+  payload the client would have to re-fetch to notice it changed, and window
+  focus does nothing for a tab that never loses focus. Corrected: the client
+  **polls a dedicated, cacheable `GET /entitlements/version`** on a fixed
+  cadence at or below the advertised window, and re-fetches the full
+  entitlement payload only when that cheap value moves. Window focus stays as
+  an additional trigger, not the mechanism. Acceptance is a continuously
+  focused tab converging on both a grant and a revoke with no reload and no
+  local write.
 
 The client obeys it instead of deriving:
 
@@ -658,8 +702,18 @@ today:
    stated over the *invariant* rather than over the two operations that first
    came to mind: no `PATCH` or `DELETE` sequence, including concurrent
    demotion-plus-deactivation, may reduce the count of active admins to zero.
-   Checked inside the transaction, not before it, so two concurrent attempts
-   cannot both pass.
+
+   **A transaction alone does not deliver this** (corrected 2026-08-11, Codex
+   round 2). At Postgres's default `READ COMMITTED`, two transactions
+   demoting or deactivating *different* admin rows both read a count of two,
+   both conclude they are safe, and both commit — leaving zero. The rows they
+   write don't overlap, so nothing serializes them. The guard therefore needs
+   an explicit shared serialization point: **every demotion, deactivation and
+   deletion path takes the same advisory lock** (or equivalently locks a
+   singleton guard row) before counting, so the check and the write are
+   serialized against each other regardless of which rows they touch.
+   Acceptance is a deterministic concurrent test where two operations against
+   *different* admin rows cannot both commit.
 3. **"View as user" gains a re-entry path.** The toggle control is gated on
    `realRole === 'admin'` rather than the effective role, so it is reachable in
    both directions; `AdminLayout` shows a real admin in view-as-user mode a
@@ -761,9 +815,21 @@ on migration day and this one deliberately does not — an anonymous caller with
 no account is denied video generation outright (the `unregistered` row is ✗),
 so removing IP-scoping loses nothing.
 
+**"Atomic" is not a specification — the limiter needs a durable reservation**
+(Codex round 2). Counting `video_jobs` rows cannot enforce the cap for two
+reasons: a count-then-insert lets concurrent requests both pass the check, and
+`startVideoJob` currently **catches a failed insert and proceeds with an
+in-memory job**, so vendor work can run having never been counted. Specified
+instead: both creation routes go through one **reservation transaction**
+against a durable per-account counter, keyed idempotently on the request, which
+must commit before any vendor call is made. If the reservation cannot persist,
+the job does not start — no uncounted spend, ever. Release semantics on
+failure are part of the same transaction. Acceptance is concurrent cross-route
+testing at the cap boundary plus a forced insert failure that launches nothing.
+
 ### Engine bands
 
-Per Settled Decision #12. The band is a label on the engine; these rows grant
+Per Settled Decision #11. The band is a label on the engine; these rows grant
 bands to tiers. Adding a new model never adds a row here.
 
 | Proposed feature | u | r | l | **a** |
@@ -778,15 +844,48 @@ opening a better class of engine to Legendary is one cell. `engine_experiments`
 is retired in favour of these three; `engines.tierRequirement` becomes the band
 label rather than being dropped.
 
+**The legacy-to-band migration has to be explicit, or every engine
+disappears** (added 2026-08-11, Codex round 2). All 20 engines currently carry
+`tierRequirement: "legendary"`, which is not one of the three bands — so a
+literal implementation would leave every engine in no granted band and empty
+both the picker and the submission path. Specified instead:
+
+- **Every existing engine is assigned a band by name in the migration**, not
+  by a blanket rule: the current default engines become `standard`, the four
+  engines that carried `engine_experiments` become `experimental`, and the
+  remainder become `premium`. The per-engine mapping is enumerated in the
+  migration so it is reviewable rather than inferred.
+- **The column is constrained to the three band values** at the database and
+  API layers, and the engine-editor UI offers exactly those.
+- **Unknown or null bands fail closed** — such an engine is invisible to
+  everyone except through the admin override path, rather than defaulting into
+  a band someone holds.
+- Boot reconciliation must not silently reintroduce a legacy value; an engine
+  definition carrying one fails startup validation rather than being coerced.
+
+Tested with an empty band, a null band, and a boot reconciliation pass.
+
 ### The `tester` column
 
-Per Settled Decision #13, the grid gains a fifth column. It composes exactly
+Per Settled Decision #12, the grid gains a fifth column. It composes exactly
 like the admin column — union with the account's tier, more permissive wins —
-and is expected to be used almost exclusively on the metered rows (a raised
-`ai_generation_budget`, chiefly). It replaces
-`users.monthly_generation_limit_override_usd`, which is **removed**, not
-merely documented: leaving it would preserve a per-account permission outside
-the grid, which is the thing Settled Decision #7 forbids.
+and it replaces `users.monthly_generation_limit_override_usd`, which is
+**removed**, not merely documented: leaving it would preserve a per-account
+permission outside the grid, which is the thing Settled Decision #7 forbids.
+
+**Its seed values, stated in full so the grid is fully determined** (the
+tables above show the four base columns; this is the fifth):
+
+| Row group | `tester` seed value | Why |
+|---|---|---|
+| Every boolean feature | **off** | A tester is a spend allowance, not a feature grant. Anything they should also *see* is granted through their real tier, so testing stays representative. |
+| `ai_generation_budget` | **on, unlimited** | The whole purpose of the role, and the only cell that reproduces what the removed override was used for. |
+| `governance_daily_spend` / `governance_monthly_spend` | **on, unlimited** | Otherwise the resource governor cancels out the budget grant and the role does nothing. |
+| Every other metered row | **off** | Contributes no limit under the merge rule, so a tester keeps their own tier's caps for everything except spend. |
+
+The sparseness is deliberate: a tester should experience the product as their
+tier does, differing only in what they are allowed to spend while doing it. A
+tester who is also an admin gets the admin overlay too, by the same merge.
 
 ⁴ **Units are canonicalised at the boundary, explicitly** (Codex round 1, line
 578). The operator-facing value is megabytes (1.5 / 8 / 25) because that is
@@ -813,11 +912,14 @@ every account, so they are system tuning, not permissions:
 moderation fail-open switches. If any of these later needs to differ by tier,
 the rule says it moves to the grid at that point.
 
-**One per-user exception is retained and documented:**
-`users.monthly_generation_limit_override_usd`, set on the user-edit screen,
-overrides `ai_generation_budget` for a single account. That is a deliberate
-per-user override rather than a second source of tier truth, and the Features
-page will say so, so it does not become the next "setting somewhere else."
+**No per-user exception survives.** An earlier revision of this section
+retained `users.monthly_generation_limit_override_usd` as a documented
+carve-out; that text contradicted Settled Decision #12, the schema section,
+and the Definition of Done, all of which drop it (Codex round 2 — correctly
+flagged as a live contradiction an implementer could have followed either way
+round). The override is **removed**: no schema column, no API field, no UI
+control, no runtime reader. Its purpose is served by the `tester` column,
+which is visible on the very screen this plan makes authoritative.
 
 Every proposed row reproduces today's behaviour except the four marked as
 fixing an accidental denial or cap. Nothing silently gains or loses access on
@@ -839,7 +941,7 @@ screen, which is the requirement behind Settled Decision #7.
   (`numeric(12,4)`). `NULL` on an enabled metered row means *unlimited*; it is
   meaningless on a boolean row.
 
-Plus `users.is_tester` (Settled Decision #13), and
+Plus `users.is_tester` (Settled Decision #12), and
 `users.monthly_generation_limit_override_usd` is **dropped**.
 
 **Two integrity rules, neither of which a CHECK constraint can express**
@@ -870,7 +972,17 @@ in a migration has been silently lost in this repo before.
 
 Forward-only, idempotent, in this order:
 
-1. Add the columns, the triggers, and `feature_config_backup` (step 5).
+**Ordering correction (Codex round 2).** The previous list created an empty
+backup table in step 1, deleted the old configuration in step 4, and copied
+"pre-deletion" values in step 5 — producing an empty recovery artifact while
+claiming to back up before deleting. The copy now happens **before any
+destructive statement**, and its observed row count is verified before the
+migration is allowed to proceed to cleanup.
+
+0. Create `feature_config_backup` and **copy every key this migration will
+   retire into it, with counts logged and verified non-zero** where source
+   rows exist. Nothing destructive runs until this has succeeded.
+1. Add the columns and the triggers.
 2. Insert the new boolean `feature_flags` rows and their full row-sets via the
    transactional creation API; retire `engine_experiments` in favour of the
    three band rows.
@@ -889,16 +1001,44 @@ Forward-only, idempotent, in this order:
    removes the boot-time seeds **and** removes the Config-page key handling,
    verified by a repo-wide search plus a restart test proving none of the
    migrated keys is recreated, read, or rendered.
-5. **Back up before deleting, to a real table** (Codex round 1, line 665). The
-   migration tracker stores only a SQL hash and a timestamp, so "the migration
-   log" was never a recovery artifact. Pre-deletion keys and values are copied
-   into a `feature_config_backup` table — durable, queryable, with observed
-   row counts logged — so a rollback forward-migration can reconstruct the
-   exact prior state from database state alone.
-6. Drop the `meme_rate_limit_high` rows, superseded by `daily_meme_saves`, and
-   the `monthly_generation_limit_override_usd` column, superseded by the
-   `tester` column.
-7. Backfill any missing combination so every feature has a complete row-set.
+5. **Backfill `users.is_tester` from the override before dropping it**
+   (Codex round 2). The accounts carrying a non-null
+   `monthly_generation_limit_override_usd` *are* today's test accounts —
+   dropping the column without converting them silently strips the elevated
+   budget the `tester` role exists to preserve. Every account with a non-null
+   override becomes a tester; their original per-account values go to
+   `feature_config_backup` alongside the config keys; matched / migrated /
+   skipped counts are reported. Null, zero and positive overrides are each
+   tested, and the migration is rerun-safe.
+6. Drop the `meme_rate_limit_high` rows, superseded by `daily_meme_saves`.
+7. Backfill any missing combination so every feature has a complete
+   **five-column** row-set.
+
+The `monthly_generation_limit_override_usd` **column drop does not happen
+here** — see *Rollout staging* below.
+
+### Rollout staging — expand, then contract
+
+Added 2026-08-11 (Codex round 2), and it changes the shape of Phase 2. The
+previous plan dropped the override column and deleted config keys in the same
+rollout that removed their readers. During a rolling deploy both generations
+run at once, so a surviving old instance would query a dropped column, and an
+old instance restarting after the migration would re-seed retired keys through
+`ensureSchema()` — re-creating exactly what step 4 removed, which is the same
+boot-time-recreation defect this plan already documents twice.
+
+So the destructive half is staged:
+
+- **Expand.** Ship code that reads the grid, tolerates both schemas, and stops
+  every old read, write and seed of the retired sources —
+  `budgetGate.ts:82`, `routes/admin.ts:282-288`, `pages/admin/users.tsx`, and
+  the `seed.ts` entries. Data migrates; nothing is dropped.
+- **Drain.** All old instances retire.
+- **Contract.** Only then drop `monthly_generation_limit_override_usd` and
+  delete the retired `admin_config` rows.
+
+Acceptance: an old-server/new-schema and a new-server/old-schema compatibility
+test, plus a rolling-restart test proving no retired key is recreated.
 
 ### Value resolution — the part that was underspecified
 
@@ -1002,7 +1142,15 @@ rebuilt from `effectiveTierExpr()` on every request. Unchanged from today.
   grant unlimited vendor spend, raise concurrency, or bypass CAPTCHA. An
   append-only audit row per mutation captures actor, tier column, feature,
   old and new `enabled`, old and new `limit_value`, and timestamp. Failed
-  writes produce no audit row.
+  writes produce no audit row. **The prior state must be read under a lock**
+  (Codex round 2): at `READ COMMITTED`, two concurrent edits to one cell can
+  both read the same old value and both record it, so the audit trail would
+  show two transitions from the same origin and lose the real intermediate
+  state — which is precisely what makes it useless for reconstruction. The
+  cell row is locked (or guarded by an optimistic version predicate) before
+  the prior state is read, and the cell write and its audit row commit in that
+  same transaction. Two concurrent edits either serialize into two honest
+  transitions or one fails visibly.
 - **A cell is written atomically and validated server-side** (Codex round 1,
   line 700). `enabled` and `limit_value` are coupled state: written
   separately, the intermediate enabled-with-no-value state means *unlimited*
@@ -1040,7 +1188,7 @@ The invariant tests, not just the reported examples:
    account** without it — which is exactly what #402 violated. PR #402 itself
    is kept as a concrete named regression case on top of the property test.
 3. **Every consulted key is reachable** — a test asserting each key referenced
-   in code exists in the grid with four tier rows, and each grid key is
+   in code exists in the grid with a complete five-column row-set, and each grid key is
    referenced in code (catching both `meme_upload_photo`'s orphaning and
    `engine_experiments`' missing rows).
 4. **Fail-closed** — DB error, unknown key, and missing row each deny, for
@@ -1114,9 +1262,19 @@ So the contract is defined once, up front, and both sides move together.
 2. **Classify every product route** into entitlement / privilege / identity
    prerequisite, and check the classification in as the allowlist the CI guard
    reads.
-3. Migration: new boolean keys and full row-sets via the transactional
-   creation API, the two integrity triggers, `engine_experiments` retired.
-   Fix the `seed.ts` `video_generation` overwrite.
+3. Migration: **add `value_type` / `unit` / `min_value` / `max_value` and
+   `limit_value` here, in Phase 1**, then the two integrity triggers, then new
+   boolean keys and full row-sets via the transactional creation API;
+   `engine_experiments` retired. Fix the `seed.ts` `video_generation`
+   overwrite.
+
+   *Why the columns move earlier (Codex round 2):* the boolean-value trigger
+   reads `feature_flags.value_type` and `tier_feature_permissions.limit_value`,
+   which the previous split did not create until Phase 2 — so Phase 1 could
+   not have created its own promised trigger, and its row-integrity tests
+   could not have passed. Adding the columns in Phase 1 keeps each phase
+   applicable on its own from the preceding production schema; Phase 2 then
+   *populates* metered rows rather than introducing the shape.
 4. Move all six grid call sites and the five `requireLegendary` product routes
    onto `requireFeature` / `can`; collapse `facts.ts`'s role-OR-grid
    expression into one resolver call.
@@ -1142,8 +1300,13 @@ So the contract is defined once, up front, and both sides move together.
 
 **Phase 2 — metered limits, and the grid becomes total (one PR).**
 
-14. Schema columns, `users.is_tester`, `feature_config_backup`; drop
-    `monthly_generation_limit_override_usd`.
+14. `users.is_tester` and `feature_config_backup`. **The tester assignment
+    path ships with the flag, not after it** (Codex round 2): a toggle on the
+    Users page replacing the per-user override control, `PATCH
+    /admin/users/:id` extended with server-side boolean validation, and
+    actor-attributed grant/revoke history — otherwise the role exists with no
+    way to assign it and the override it replaces is already gone. The column
+    drop is deferred to *Rollout staging*'s contract step, not done here.
 15. Migration with the preflight reconciliation and the debug-mode abort;
     **retire every old source** — rows, boot-time seeds, and Config-page key
     handling together — verified by repo-wide search and a restart test.
@@ -1203,7 +1366,7 @@ resolved in this document.
 - The Admin column is live, and toggling any cell changes behaviour.
 - The grid contains every tier-specific capability **and every tier-specific
   limit**, and every key is both referenced by code and fully populated across
-  four tiers.
+  all five columns.
 - **The Features page is the only screen that answers "who is allowed to do
   what."** No tier-differentiated setting remains in the config editor, no
   boot-time seed recreates one, and no per-account permission survives outside
