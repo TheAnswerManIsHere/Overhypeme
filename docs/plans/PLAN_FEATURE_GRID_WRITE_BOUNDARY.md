@@ -247,40 +247,99 @@ to Plan 1a's application code, and it is behaviour-preserving.
 
 ### Triggers
 
-Two trigger functions, both installed by the migration, both firing for every
-writer including the owner:
+**The triggers, not the revokes, are what enforce anything before the runbook
+runs** — a trigger is not an ACL, so it fires for the table owner too. That
+makes their event coverage the load-bearing detail, and the first draft of
+this plan got it wrong in three ways that migration `0097` had already
+solved. What follows carries `0097`'s actual mechanics forward rather than
+its shape.
+
+**Every trigger below is `ENABLE ALWAYS`, not the PostgreSQL default.**
+`0097:881-889` records a verified reproduction against this repository's
+PostgreSQL 16 target: a role holding `GRANT SET ON PARAMETER
+session_replication_role` — a real, grantable privilege independent of table
+or function ownership — can `SET session_replication_role = replica` in its
+own session and an origin-enabled (`'O'`) trigger simply does not fire.
+UPDATE, DELETE and TRUNCATE all went through uncaught in that reproduction.
+`ALWAYS` triggers fire regardless. The one trade-off `0097` names and this
+plan inherits: an `ALWAYS` trigger also fires during logical-replication
+apply, which this database's setup does not exercise today.
+
+Four trigger functions:
 
 1. **`feature_flags_require_complete_rowset()`** — a **deferred constraint
    trigger** (`CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED`) on
-   `feature_flags`, checked at transaction commit. Asserts that every
-   `feature_flags` row has a `tier_feature_permissions` row for each of the
-   four tiers. Deferral is what lets `create_feature_flag`'s multi-statement
-   insert be legal — the parent row exists alone momentarily, which an
-   immediate trigger would reject. `engine_experiments` is excluded by
-   explicit key match, not by a general "incomplete is sometimes fine"
-   predicate that a future feature could also satisfy.
+   `feature_flags`, checked at commit. Asserts every `feature_flags` row has
+   a `tier_feature_permissions` row for each of the four tiers. Deferral is
+   what makes `create_feature_flag`'s multi-statement insert legal — the
+   parent exists alone momentarily, which an immediate trigger would reject.
+   `engine_experiments` is excluded by explicit key match, not by a general
+   "incomplete is sometimes fine" predicate a future feature could satisfy.
 
-2. **`tier_feature_permissions_protect_rows()`** — a row-level `BEFORE
-   DELETE` trigger on `tier_feature_permissions` that rejects deleting a row
-   whose parent feature still exists. `delete_feature_flag` is exempted by
-   setting a transaction-local flag (`SET LOCAL
-   overhype.feature_flag_deleting = '<key>'`) that the trigger checks — a
-   deliberately narrow exemption keyed to the specific feature being removed,
-   not a blanket bypass switch.
+2. **`tier_feature_permissions_guard_rows()`** — a row-level `BEFORE DELETE
+   OR UPDATE` trigger on `tier_feature_permissions`. **`UPDATE` coverage is
+   not optional, and a `DELETE`-only trigger leaves two live holes** that the
+   deferred completeness trigger cannot catch, because that trigger is
+   attached to `feature_flags` and a child-row update never schedules it:
 
-**Both are documented in `lib/db/src/schema/featureFlags.ts`, not declared
-there.** Drizzle's `pgTable` can represent columns, checks, indexes and
-foreign keys — not trigger functions or constraint triggers. The repository
-already handles this exactly this way: `moderation.ts:301-309` documents the
-NCMEC append-only trigger in a comment while migration `0097` owns the SQL.
-The raw SQL migration is authoritative.
+   - **`UPDATE ... SET enabled = ...`** changes a cell with no audit row and
+     no revision bump. In the unhardened state the revoke cannot stop this,
+     so without an `UPDATE` trigger the plan's central "a cell cannot change
+     without its audit row" claim is simply false until the runbook runs.
+     The trigger therefore rejects any `enabled` change that did not arrive
+     through `set_tier_feature` (detected by the same transaction-local flag
+     mechanism as below).
+   - **`UPDATE ... SET tier = 'bogus'`** moves one of the four required rows
+     to an unknown tier, leaving the original tier missing — producing
+     exactly the incomplete state the resolver cannot handle. `tier` is an
+     unconstrained `varchar` in `featureFlags.ts` today, so nothing else
+     prevents it. The trigger rejects any change to `tier` or `feature_key`
+     outright: those are identity, and a row that needs a different identity
+     is a different row.
 
-What actually protects against silent loss is therefore **a catalog-level
-regression test**, not a schema declaration: a test queries `pg_trigger` /
-`pg_proc` and asserts both trigger functions exist, both triggers exist,
-both are enabled (`tgenabled` not `'D'`), and the completeness trigger is
-deferrable. A future migration that drops or disables either fails CI
-immediately.
+   Deletion of an individual row for a feature that still exists is rejected
+   as before. `delete_feature_flag` is exempted by a transaction-local flag
+   (`SET LOCAL overhype.feature_flag_deleting = '<key>'`) keyed to the
+   specific feature being removed — not a blanket bypass switch.
+
+3. **`tier_feature_permissions_no_truncate()`** and
+   **`feature_flags_no_truncate()`** — **statement-level** `BEFORE TRUNCATE`
+   triggers. **A row-level trigger does not fire on `TRUNCATE` at all**
+   (`0097:891-894` says exactly this, and covers its ledger with a dedicated
+   statement trigger for the same reason). Without these, the owner can erase
+   the entire grid with one statement in either boundary state. The same
+   protection covers `entitlement_grid_revision` and
+   `tier_feature_permission_audit` — see below and *The revision singleton's
+   lifecycle*.
+
+4. **`entitlement_grid_revision_protect()`** — `BEFORE DELETE` (row) plus
+   `BEFORE TRUNCATE` (statement) on the revision table, both rejecting
+   unconditionally except for the break-glass role. See *The revision
+   singleton's lifecycle*.
+
+**All are documented in `lib/db/src/schema/featureFlags.ts`, not declared
+there.** Drizzle's `pgTable` models columns, checks, indexes and foreign keys
+— not trigger functions or constraint triggers. `moderation.ts:301-309`
+documents the NCMEC trigger the same way while `0097` owns the SQL.
+
+**The catalog regression test verifies exact wiring, not existence.**
+Existence plus `tgenabled != 'D'` is insufficient, and `0097:900-925` spells
+out why: a same-named trigger recreated with the wrong function, the wrong
+events, or left origin-only satisfies a name-and-enabled check while leaving
+the table genuinely unguarded. Worse, an *extra* event silently breaks
+ordinary writes while still reporting correctly wired. So the test asserts,
+per trigger:
+
+- `tgenabled = 'A'` — `ALWAYS`, never `'O'`
+- `tgfoid = to_regprocedure('<the exact expected function>()')`
+- **`tgtype` by exact equality, not a subset check** — using `0097`'s
+  documented bit meanings (1 = ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE,
+  16 = UPDATE, 32 = TRUNCATE), so the row guard is
+  `1+2+8+16 = 27` and each truncate guard is `2+32 = 34`
+- the completeness trigger is deferrable and initially deferred
+
+`featurePermissionsBoundaryStatus()` applies the identical predicate, so CI
+and the runtime reporter cannot disagree about whether the wiring is real.
 
 ### The revision singleton's lifecycle
 
@@ -295,9 +354,13 @@ on exactly one row existing. That reliance is enforced here:
 - **Idempotent initialization.** `INSERT ... ON CONFLICT (id) DO NOTHING`
   with `revision = 0`, so a clean install, a re-run, and a database that
   already has the row all converge.
-- **Deletion protection.** A `BEFORE DELETE` trigger on the table rejects
-  unconditionally. There is no legitimate reason to delete the row, and its
-  absence would make the version endpoint fail and grid writes unstamped.
+- **Deletion protection, covering `TRUNCATE` as well as `DELETE`.** A
+  `BEFORE DELETE` row trigger *and* a `BEFORE TRUNCATE` statement trigger,
+  both `ENABLE ALWAYS`, both rejecting except for the break-glass role. The
+  `TRUNCATE` half is not redundant: a row trigger does not fire on
+  `TRUNCATE`, so a `DELETE`-only guard would let the owner drop the singleton
+  with one statement — after which the version endpoint fails and grid writes
+  go unstamped.
 - **The bump is `UPDATE entitlement_grid_revision SET revision = revision + 1
   WHERE id = 1 RETURNING revision`**, issued inside each write function's
   transaction. Being a single-row update, concurrent writers serialize on the
@@ -319,7 +382,7 @@ procedure therefore transfers, explicitly:
 
 - `ALTER TABLE` → `feature_flags`, `tier_feature_permissions`,
   `tier_feature_permission_audit`, `entitlement_grid_revision`
-- `ALTER FUNCTION` → the three write functions and the three trigger
+- `ALTER FUNCTION` → the three write functions and the four trigger
   functions (completeness, row protection, revision deletion protection),
   each named individually
 - `ALTER SCHEMA`, only where the application role owns the containing schema
@@ -329,11 +392,33 @@ procedure therefore transfers, explicitly:
 ...to `overhype_feature_grid_owner`, with `overhype_feature_grid_maintenance`
 as the break-glass role, both created **by the superuser** so the application
 role gains no membership. The application role is then re-granted exactly
-what it needs and no more: `SELECT` on all four tables, `INSERT` on the audit
-table, `EXECUTE` on the three write functions, and sequence usage where
-applicable — but **not** `INSERT`/`UPDATE`/`DELETE` on `feature_flags`,
-`tier_feature_permissions`, or `entitlement_grid_revision`, and not
-`UPDATE`/`DELETE` on the audit table.
+what it needs and no more: `SELECT` on all four tables, `EXECUTE` on the
+three write functions, and sequence usage where applicable — but **not**
+`INSERT`/`UPDATE`/`DELETE` on `feature_flags`, `tier_feature_permissions`, or
+`entitlement_grid_revision`, and **not `INSERT` on the audit table either.**
+
+**Withholding audit `INSERT` is deliberate, and a correction to an earlier
+draft** that re-granted it reflexively by analogy with the NCMEC ledger. That
+ledger's application code appends to it directly; here it does not.
+`set_tier_feature` is `SECURITY DEFINER` owned by the grid-owner role, so it
+writes the audit row under *its* privileges and the application never needs
+the grant. Leaving it would let any code path or session holding the app's
+credentials append a **phantom audit row** — a recorded change that never
+happened — into a table this same design deliberately makes hard to correct.
+The app role's grant on the audit table is `SELECT` only.
+
+**`overhype_feature_grid_maintenance` gets real grants, or it is
+decoration.** A `NOLOGIN` role with no privileges cannot perform the
+correction the runbook promises it exists for. It receives `SELECT, INSERT,
+UPDATE, DELETE` on all four tables, and **every trigger guard tests for it
+explicitly** — each rejection is skipped when `pg_has_role(current_user,
+'overhype_feature_grid_maintenance', 'usage')`, which is what makes even the
+unconditional revision-deletion guard survivable during a real correction.
+Granting the role is the audit trail, exactly as in
+`ncmec-audit-ledger-hardening.md`'s break-glass section: grant to a named
+human role for the duration, revoke afterwards, never to `<app>` — and
+`featurePermissionsBoundaryStatus()` reports a grant to `<app>` as
+unenforced.
 
 ### `featurePermissionsBoundaryStatus()`
 
@@ -341,14 +426,34 @@ In `lib/db/src/index.ts`, alongside `ncmecAuditBoundaryStatus()` and
 reporting the same shape. `boundaryEnforced: true` only when all hold:
 
 1. The application role owns none of the four tables.
-2. The application role owns none of the six functions.
-3. The application role cannot effectively assume either new role — covering
+2. The application role owns none of the trigger or write functions.
+3. **The application role owns — and cannot effectively assume the owner of —
+   every distinct schema those tables and functions live in.** Table and
+   function ownership alone is not sufficient: a role owning the *containing
+   schema* can `DROP SCHEMA ... CASCADE` and remove the protected objects
+   despite owning none of them individually. `lib/db/src/index.ts:163-190`
+   documents this as a **reproduction, not a theory** — a role holding only
+   schema ownership successfully dropped the target — and
+   `ncmecAuditBoundaryStatus()` accordingly checks the table schema and the
+   function schema independently. This function does the same, over every
+   distinct schema in use, since the tables and functions need not share one.
+4. The application role cannot effectively assume either new role — covering
    `INHERIT` membership, `SET ROLE` membership, and any admin-option chain
-   that would let it grant itself the role (the NCMEC function's existing
-   `pg_has_role` triad plus `pg_auth_members` check).
-4. All three triggers exist and are enabled.
-5. The application role holds no direct `INSERT`/`UPDATE`/`DELETE` on the
-   three non-audit tables, and no `UPDATE`/`DELETE` on the audit table.
+   that would let it grant itself the role (the NCMEC function's `pg_has_role`
+   triad plus its `pg_auth_members` check).
+5. All triggers exist with **exactly** the wiring specified above —
+   `tgenabled = 'A'`, the expected `tgfoid`, and exact `tgtype` equality — not
+   merely present and not-disabled.
+6. **The application role holds no *effective* write privilege on the four
+   tables**, checked as the role rather than by reading direct grants.
+   Revoking from `<app>` does not remove a privilege inherited from another
+   role, granted to `PUBLIC`, or granted at **column level** — and a
+   column-level `UPDATE` on `tier_feature_permissions.enabled` alone is
+   sufficient to change a cell without the function, the audit row, or the
+   revision bump. So the check uses `has_table_privilege` **and**
+   `has_any_column_privilege` for each of `INSERT`/`UPDATE`/`DELETE`, plus
+   `SELECT`-only on the audit table, with inherited-grant, `PUBLIC`-grant and
+   column-grant negative fixtures in the test.
 
 Unlike NCMEC's, this function's result **gates nothing** (Settled Decision
 #2). It is reported at `/admin/health` alongside the existing NCMEC status
@@ -362,11 +467,32 @@ so an operator can see which state the deployment is in.
 today or is introduced by Plan 1a. This plan adds functions, triggers,
 grants, and one documentation file.
 
-**Migration contents**, forward-only and idempotent:
+**The migration must stay replayable in the hardened state, which
+unconditional `CREATE OR REPLACE` is not.** Once the runbook transfers
+ownership, the application's migration role can no longer `CREATE OR REPLACE
+FUNCTION` a function it does not own, nor `DROP TRIGGER` on a table it does
+not own — so a replay against a hardened database would fail on its own
+supported configuration. `0097:875-925` already solves this with an
+ownership-aware branch, and this migration takes the same shape:
 
-1. The three trigger functions and their triggers
-   (`CREATE OR REPLACE FUNCTION`; `DROP TRIGGER IF EXISTS` then `CREATE
-   TRIGGER`).
+- **If the application role still owns the objects** (the unhardened state,
+  and every fresh install) → create/replace them normally.
+- **If it does not** (the hardened state) → **verify instead of alter.** Assert
+  each function and trigger exists with exactly the expected wiring — the same
+  `tgenabled`/`tgfoid`/`tgtype` predicate the catalog test and
+  `featurePermissionsBoundaryStatus()` use — and succeed silently when it
+  matches. On drift, fail with an actionable message naming the object and
+  the DBA action required, rather than attempting an alteration that cannot
+  succeed.
+
+This is also why the verification predicate is defined once and shared three
+ways: the migration's verify branch, the CI catalog test, and the runtime
+status reporter must not be able to disagree.
+
+**Migration contents**, forward-only and idempotent in both boundary states:
+
+1. The four trigger functions and their triggers, `ENABLE ALWAYS`, via the
+   ownership-aware branch above.
 2. The three `SECURITY DEFINER` write functions, with fixed `search_path`,
    `REVOKE EXECUTE ... FROM PUBLIC`, and `GRANT EXECUTE` to the application
    role.
@@ -422,8 +548,11 @@ user-visible surface of this plan.
   authorization — Plan 1a's `requireRole('admin')` remains the only thing
   that decides who may call it, and this plan does not move authorization
   into the database.
-- The audit table stays append-only: `INSERT` and `SELECT` re-granted,
-  `UPDATE`/`DELETE` withheld, matching the NCMEC ledger's treatment.
+- The audit table stays append-only **and unforgeable**: the app role gets
+  `SELECT` only, with `INSERT` reaching it solely through `set_tier_feature`'s
+  definer rights, so the ledger cannot contain a change that never happened.
+  This is deliberately stricter than the NCMEC ledger, whose application code
+  does append directly.
 - The break-glass role exists so that a genuine correction is a deliberate,
   attributable act outside the application, as documented in the runbook.
 
@@ -449,21 +578,58 @@ Runner commands per `docs/tests/testing-guide.md`:
    row at `revision = 0`; re-running initialization changes nothing; a second
    row is rejected; deletion is rejected; two concurrent `set_tier_feature`
    calls produce two distinct consecutive revisions.
-6. **Catalog assertions.** All three trigger functions and all three triggers
-   exist and are enabled; the completeness trigger is deferrable; all three
-   write functions are `SECURITY DEFINER` with a non-empty, fixed
-   `search_path` and carry no `EXECUTE` grant to `PUBLIC`.
-7. **`featurePermissionsBoundaryStatus()` reports honestly.** It returns
-   `false` against the ordinary (unhardened) test database, naming which of
-   the five conditions failed; and — where a hardened fixture is available in
-   CI — `true` after the runbook's transfers. The false case is the one that
-   must always run, since it is the state every developer machine is in.
-8. **The unhardened state is fully functional.** With no ownership transfer
-   performed, every grid operation Plan 1a performs still succeeds — proving
-   Settled Decision #2's claim that skipping the runbook breaks nothing.
-9. **Migration prerequisite.** Running this migration against a database
-   lacking Plan 1a's two tables fails with the explicit error, not a partial
-   install.
+6. **Every unsanctioned write is rejected in the *unhardened* state.** This
+   is the set the triggers must carry alone, since the revokes are
+   ineffective against the owner until the runbook runs — so each of these
+   runs as the owning application role:
+   - `UPDATE tier_feature_permissions SET enabled = ...` directly → rejected,
+     and the cell, audit table and revision are all unchanged.
+   - `UPDATE tier_feature_permissions SET tier = 'bogus'` → rejected (the
+     incomplete-row-set path the `feature_flags`-attached completeness
+     trigger cannot see).
+   - `UPDATE tier_feature_permissions SET feature_key = ...` → rejected.
+   - `TRUNCATE tier_feature_permissions`, `TRUNCATE feature_flags`,
+     `TRUNCATE entitlement_grid_revision` → each rejected, proving the
+     statement-level triggers cover what row triggers cannot.
+   - `DELETE FROM entitlement_grid_revision` → rejected.
+7. **Catalog assertions, by exact wiring.** For every trigger: `tgenabled =
+   'A'` (not merely `!= 'D'`), the expected `tgfoid`, and `tgtype` by exact
+   equality against the documented bit values — with a negative fixture that
+   recreates a same-named trigger with an *extra* event and asserts the check
+   fails, since that is the false-positive the exact match exists to catch.
+   Plus: the completeness trigger is deferrable and initially deferred, and
+   all three write functions are `SECURITY DEFINER` with a non-empty fixed
+   `search_path` and no `EXECUTE` grant to `PUBLIC`.
+8. **`featurePermissionsBoundaryStatus()` reports honestly, in both states —
+   and the hardened case is mandatory, not conditional.** The repository
+   already demonstrates the fixture this needs:
+   `lib/db/src/ncmecAuditBoundaryStatus.test.ts:36-37,95,121,187` creates
+   `LOGIN`/`NOLOGIN` roles and queries status through a restricted pool. The
+   hardened state is exactly where the `SECURITY DEFINER` and
+   ownership-transfer claims can fail, so leaving its test optional would
+   mean CI never proves them. An isolated hardened fixture therefore asserts:
+   all three write functions remain callable, direct writes are denied, and
+   the status reports `true`. The unhardened case asserts `false` and names
+   which condition failed — it is the state every developer machine is in.
+9. **Effective-privilege negatives.** With ownership transferred, the status
+   still reports `false` when the app role reaches a write through (a) an
+   inherited grant from another role, (b) a grant to `PUBLIC`, or (c) a
+   column-level `UPDATE` on `tier_feature_permissions.enabled` — three
+   fixtures, because a direct-grant check passes all three while the cell is
+   still writable.
+10. **Break-glass works as documented.** A session holding
+    `overhype_feature_grid_maintenance` can perform the correction the
+    runbook describes — including deleting and restoring the revision row —
+    while the same statements from the app role are rejected.
+11. **The unhardened state is fully functional.** With no ownership transfer,
+    every grid operation Plan 1a performs still succeeds — proving Settled
+    Decision #2's claim that skipping the runbook breaks nothing.
+12. **The migration replays in both states.** Re-running it against an
+    unhardened database is a no-op; re-running against a *hardened* one takes
+    the verify branch, succeeds without attempting an alteration it cannot
+    perform, and fails with the actionable message when a trigger has drifted.
+13. **Migration prerequisite.** Running against a database lacking Plan 1a's
+    two tables fails with the explicit error, not a partial install.
 
 Manual QA is the UAT doc: an operator confirms grid editing still works
 end-to-end and that `/admin/health` reports the boundary state.
@@ -472,24 +638,34 @@ end-to-end and that `/admin/health` reports the boundary state.
 
 One PR.
 
-1. Migration: the three trigger functions and triggers; the revision-deletion
-   protection trigger; the prerequisite check for Plan 1a's tables.
-2. Migration: the three `SECURITY DEFINER` write functions with fixed
-   `search_path`, `REVOKE ... FROM PUBLIC`, and `GRANT EXECUTE` to the
-   application role.
-3. Migration: the revokes on the four tables, with the honest comment, and
-   the residual-state `RAISE WARNING`.
-4. Rewrite Plan 1a's `setTierFeature` as a thin wrapper over
+1. **Define the trigger-wiring predicate once**, in a form the migration's
+   verify branch, the catalog test, and `featurePermissionsBoundaryStatus()`
+   all consume — so the three cannot disagree about whether the wiring is
+   real.
+2. Migration: the four trigger functions and their triggers — the deferred
+   completeness trigger, the `DELETE OR UPDATE` row guard, the two
+   statement-level `TRUNCATE` guards, and the revision-table pair — all
+   `ENABLE ALWAYS`, installed through the ownership-aware create-or-verify
+   branch. Plus the prerequisite check for Plan 1a's tables.
+3. Migration: the three `SECURITY DEFINER` write functions with fixed
+   `search_path` and schema-qualified references, `REVOKE EXECUTE ... FROM
+   PUBLIC`, and `GRANT EXECUTE` to the application role.
+4. Migration: the revokes on the four tables, with the honest comment that
+   they bind nobody until the runbook runs, and the residual-state
+   `RAISE WARNING` naming the role and schemas.
+5. Rewrite Plan 1a's `setTierFeature` as a thin wrapper over
    `set_tier_feature`, and its feature creation/deletion callers over
    `create_feature_flag` / `delete_feature_flag`.
-5. `featurePermissionsBoundaryStatus()` in `lib/db/src/index.ts`; wire it
-   into `/admin/health`.
-6. Document all three triggers in `lib/db/src/schema/featureFlags.ts` (as
-   comments, per `moderation.ts`'s precedent) and add the
-   single-row `CHECK` to the revision table's Drizzle declaration if Plan 1a
-   has not already.
-7. Write `docs/engineering/feature-permissions-boundary-hardening.md`.
-8. Tests 1-9.
+6. `featurePermissionsBoundaryStatus()` in `lib/db/src/index.ts`, covering
+   all six conditions including per-schema ownership and effective/
+   column-level privileges; wire it into `/admin/health`.
+7. Document all triggers in `lib/db/src/schema/featureFlags.ts` (as comments,
+   per `moderation.ts`'s precedent) and add the single-row `CHECK` to the
+   revision table's Drizzle declaration if Plan 1a has not already.
+8. Write `docs/engineering/feature-permissions-boundary-hardening.md`,
+   including the maintenance role's grants and the break-glass procedure.
+9. Tests 1-13, including the hardened-state fixture modelled on
+   `ncmecAuditBoundaryStatus.test.ts`.
 
 ## Risks and Mitigations
 
