@@ -154,7 +154,8 @@ re-litigated here.
    any conflict; not touched by this plan in any case, since it has no admin
    viewer today and this plan adds none).
 8. **Queued work is authorized as of submission, not execution** — the
-   resolved principal is persisted with the job rather than re-derived at
+   resolved principal *and* the resolved boolean decision for the feature(s)
+   that job type gates are persisted with the job, rather than re-derived at
    completion. Accepted consequence: a feature revoked while a job is
    in-flight still completes that one job.
 
@@ -171,6 +172,14 @@ record. Additionally re-inspected for this scoped plan:
 (admin-mode toggle), `lib/db/src/schema/featureFlags.ts`, migrations `0013`/
 `0028`/`0029`/`0057`, `artifacts/overhype-me/src/pages/admin/features.tsx`,
 `routes/storage.ts:77-90`, `routes/users.ts:524-526` (avatar write paths).
+Round 2 additionally inspected: `docs/engineering/ncmec-audit-ledger-
+hardening.md` and `lib/db/src/schema/moderation.ts:280-320` (the ownership-
+hardening and trigger-documentation pattern this plan now follows),
+`lib/db/src/migrate.ts` and `docs/engineering/migrations-and-backfills.md`
+(the canonical runner's actual result/notice/re-run behavior),
+`artifacts/api-server/src/lib/seed.ts:500-545`, `Onboard.tsx:113-139`,
+`users.ts:178-202,372-385,551-565`, and
+`docs/ai-context/meme-and-video-studio.md:255-276`.
 
 ## Current Behavior
 
@@ -278,10 +287,20 @@ valid routes or force an authentication gate onto public browsing. Both
 categories must be **declared** in the allowlist, never inferred from an
 absent gate, so an accidentally ungated mutation still fails the guard.
 
-`meme_upload_photo` is resolved into this frame deliberately: it stays a
-**grid feature**, because unlike commenting it is a capability David may
-genuinely want to withhold from a tier, and the grid already carries the row.
-Its authentication-only siblings are recorded as identity prerequisites.
+**`meme_upload_photo`'s resolution is an open product question, not a
+plan decision** (corrected — Codex round 2, line 284, verified against
+`meme-and-video-studio.md:268-275`, which itself already flags this and asks
+for confirmation before either reading is relied on). No route or
+`createMemeRecord` code path reads this row today — a repo-wide grep finds
+only the migration files that seeded and later flipped it. Whether it should
+become a live entitlement (gating photo-upload meme creation, matching the
+`registered`+ row already seeded) or stay retired as a dead flag (in which
+case photo-upload meme creation is an identity prerequisite, free to any
+authenticated user, matching its actual behaviour today) is David's call —
+see *Questions for David*. This plan does not wire it either way until
+answered. Its authentication-only siblings (commenting, rating, hearts,
+share intents) are unaffected either way and are recorded as identity
+prerequisites.
 
 **The allowlist needs a fifth entry, or the CI guard rejects code this plan
 deliberately leaves alone** (added — Codex round 1, line 720, verified
@@ -329,6 +348,15 @@ limitFor(principal, featureKey) -> number | null            // returns null
 requireFeature(featureKey)      -> express middleware
 ```
 
+**The `Map` is a server-internal detail; the wire format is a plain object**
+(corrected — Codex round 2, line 313: `res.json()` serializes a native `Map`
+as `{}`, so shipping it literally through the HTTP contract would deliver no
+entries). `resolveEntitlements` returns a `Map` for O(1) server-side lookups
+in `can`/`limitFor`; the client contract (below) converts it to
+`Record<FeatureKey, Entitlement>` at the HTTP boundary, and the OpenAPI spec
+declares the entitlements field as an object with `additionalProperties: {
+$ref: '#/components/schemas/Entitlement' }`, not the internal `Map` type.
+
 **The entitlement shape is typed `{allowed, limit}` from the start**, even
 though `limit` is always `null` in this plan. A boolean feature is the
 degenerate case of a metered one, and defining the type this way now means
@@ -375,18 +403,29 @@ no client-side breaking change when metered rows arrive.
   route is neither resolver-gated nor listed in the four-rail allowlist.
 
 **The principal must travel with the work, not be re-derived at the far
-end.** Deriving the principal in `authMiddleware` is necessary but not
-sufficient: `createMemeRecord`, `videoPipelineRunner` and `aiMemePipeline`
-all take a bare `userId` and re-read the stored admin flag from the database
-for the **boolean** gates they own (PuLID, private visibility), which cannot
-see the session-scoped view-as-user state. Left alone, an admin previewing
-as a registered user would still bypass this plan's boolean gates through
-every background path. So the resolved principal becomes an explicit
-**snapshot** parameter threaded through those interfaces, and persisted
-alongside queued work so an async job resolves against the principal that
-enqueued it (Settled Decision #8). Every call site is enumerated in
-*Implementation Steps*; none may keep its own user lookup for the boolean
-decisions they make.
+end — and what travels must be the resolved decision, not only the
+principal** (corrected — Codex round 2, line 387: persisting `{tier,
+isAdmin}` alone and calling `can(principal, featureKey)` against the *live*
+grid at execution time still re-resolves against whatever the grid says by
+then, which is exactly what Settled Decision #8 promises not to do).
+Deriving the principal in `authMiddleware` is necessary but not sufficient:
+`createMemeRecord`, `videoPipelineRunner` and `aiMemePipeline` all take a
+bare `userId` and re-read the stored admin flag from the database for the
+**boolean** gates they own (PuLID, private visibility), which cannot see the
+session-scoped view-as-user state. Left alone, an admin previewing as a
+registered user would still bypass this plan's boolean gates through every
+background path.
+
+So at enqueue time, the caller resolves entitlements for exactly the
+feature key(s) that job type gates (e.g. `meme_pulid_stylize`,
+`meme_private_visibility`) and persists the **resolved boolean decision**
+for each, alongside the principal, as an explicit snapshot on the job
+record. The background path reads the persisted decision directly; it never
+calls `can()` again at execution time for a gate already decided at
+enqueue. This is what makes "the already-authorized job completes" literally
+true rather than an accidental side effect of an unchanged grid. Every call
+site is enumerated in *Implementation Steps*; none may keep its own user
+lookup, or a fresh `can()` call, for the boolean decisions they make.
 
 **`checkBudget` is explicitly excluded from this list** (corrected — Codex
 round 1, line 702, verified against `budgetGate.ts:78-101`). Its entire job
@@ -425,15 +464,42 @@ resolver the write paths use:
   re-fetch the payload to notice the version moved — which is why the version
   lives at its own endpoint, not inside the entitlement response.)
 
+  **The grid revision is a durable, atomically-advanced value, not merely a
+  named field** (corrected — Codex round 2, line 436: naming a revision
+  field doesn't define where it lives or how it advances, which permits a
+  stale cached row-set to be labeled with a freshly-read version). A new
+  singleton table, `entitlement_grid_revision` (one row, `revision
+  bigint`), is incremented in the **same transaction** as every grid cell
+  write — `setTierFeature` and the creation/deletion functions all bump it
+  before commit. The resolver loads a feature's row-set and the current
+  revision together from **one snapshot** (a single transaction/query), so
+  the two can never come from different instants; the cached entry and the
+  entitlement payload are both stamped with that same value.
+
   **Observing a new version and then fetching an unversioned payload does
   not prove the two agree** (corrected — Codex round 1, line 379). A second
   process, or the same process between the permission-row commit and its own
   cache bust, can still serve its stale resolver cache to that fetch — the
   version has already moved, so the client never polls again, and it settles
   permanently on a stale lock. The entitlement payload itself therefore
-  carries the resolver revision it was computed from; the client compares
-  that embedded revision against the version it observed and retries the
-  fetch until they agree, rather than trusting a single round-trip.
+  carries the resolver revision it was computed from — read from that same
+  one-snapshot load, never independently — and the client compares that
+  embedded revision against the version it observed and retries the fetch
+  until they agree, rather than trusting a single round-trip.
+
+  **The version signal must also move when the *principal* changes, not
+  only the grid** (corrected — Codex round 2, line 426: a Legendary
+  entitlement lapsing, or an admin grant/revoke, changes nothing about the
+  grid itself, so a grid-only revision never notifies an open client of its
+  own tier changing). `GET /entitlements/version` returns `{ gridRevision,
+  principalFingerprint }`, not `gridRevision` alone. `principalFingerprint`
+  is derived fresh from the same `req.user` the request handler already
+  rebuilds from the database on every call (per *Must Not Change* — no new
+  read), using the identical `{tier, isAdmin}` normalization the resolver
+  itself applies, so a lapsed tier, an admin grant/revoke, or a view-as-user
+  toggle all change the value with no extra query. The client refetches the
+  full payload whenever either component of the pair changes from what it
+  last observed.
 
 The client obeys it instead of deriving:
 
@@ -487,15 +553,31 @@ Three guards, none of which exist today:
    cancellation, session revocation — *before* the DB mutation that actually
    removes admin access. A guard attached only to that final write would
    correctly reject the last-admin case, but only after the damage the
-   rejection was supposed to prevent has already happened. So the serialized
-   check-and-reserve is the **first** action in both the hard-delete and
-   soft-delete handlers, inside the same advisory-lock transaction: it
-   verifies the operation would not zero the active-admin count and commits
-   a durable reservation before any cleanup step runs. Cleanup proceeds only
-   once that reservation is committed; a later cleanup-stage failure follows
-   the route's existing `currentStage` recovery path unchanged, and does not
-   reopen the lockout race, because the reservation — not the final row
-   state — is what a concurrent request checks against.
+   rejection was supposed to prevent has already happened.
+
+   **The reservation is a concrete, named early mutation, not an abstract
+   term** (corrected — Codex round 2, line 498: the prior draft said
+   "commits a durable reservation" without specifying what it is, so a
+   concurrent request had nothing to actually count). The reservation *is*
+   `users.is_active = false` on the target row, written inside the same
+   advisory-lock transaction as the count check, before any cleanup step
+   runs. This is the same column `authMiddleware`'s query and the
+   active-admin count query already filter on, so a second concurrent
+   request against a *different* admin correctly observes the reduced live
+   count and can itself be rejected in turn — the serialization holds
+   because the count and the write happen in the same locked transaction,
+   and every subsequent counter reads the committed result.
+
+   Soft-delete's existing `deactivate` stage already performs this exact
+   write; the fix reorders it to run **first**, inside the lock transaction,
+   ahead of the `stripe`/`sessions` stages, rather than last. Hard-delete
+   gains a new first stage, `reserve`, that performs the identical
+   `is_active = false` write inside the lock transaction before `collect`/
+   `membership`/`nullify`/`delete` proceed. A later cleanup-stage failure in
+   either flow follows the route's existing `currentStage` recovery path
+   unchanged and does not reopen the lockout race, because a deactivated row
+   is what every concurrent request already checks against, independent of
+   how far cleanup itself has progressed.
 3. **"View as user" gains a re-entry path — and the toggle route itself is
    fixed, not just the UI in front of it** (corrected — Codex round 1, line
    428, verified against `auth.ts:427-435` and `authMiddleware.ts:122`). The
@@ -531,21 +613,33 @@ Permission checks disagreeing with each other, in this plan's scope:
   PuLID gate (its `imageTransform` parameter is never threaded through, so
   `mode` can never be `"pulid"`) are removed; PuLID access is provided by a
   real, reachable gate instead.
-- **Three operational sites move to the privilege rail**: `jobs.ts` ×2 and
-  `affiliate.ts` move from the toggle-aware `isAdmin` to `realUserRole`.
-  `facts.ts` does **not** join them — its check *is* the
-  `comment_captcha_bypass` entitlement decision, which is supposed to honour
-  the toggle under Settled Decision #3. It collapses into a single resolver
-  call instead.
+- **Five operational sites move to the privilege rail**: `jobs.ts` ×2,
+  `affiliate.ts`, and — found on a fresh repo-wide sweep (corrected — Codex
+  round 2, line 535, verified against `users.ts:178-202,372-385`) —
+  `GET /users/me`'s admin-notification-settings projection and
+  `PATCH /users/me/notifications` both move from re-reading only
+  `users.is_admin` directly to the canonical `isRealAdmin`/`realUserRole`
+  resolution. Without this fix, `ADMIN_USER_IDS`- and bootstrap-email-
+  granted admins can neither see nor change their own admin notification
+  preferences — the same three-mechanism gap the toggle-admin-mode fix
+  above closes, recurring at a second site. `facts.ts` does **not** join
+  this list — its check *is* the `comment_captcha_bypass` entitlement
+  decision, which is supposed to honour the toggle under Settled Decision
+  #3. It collapses into a single resolver call instead.
 - `meme_rate_limit_high`'s grid description is corrected (it currently
   claims "100/hour instead of 10/hour"; the real behaviour is a 200-vs-30
   daily save cap) — cosmetic, but wrong copy on the one screen this plan
   makes authoritative should not survive the migration.
-- **The custom-avatar write path is gated, not just the display.** Both
-  `POST /storage/upload-avatar` and `POST /users/me/profile-image` require
-  `can('custom_avatar')` before accepting a client-supplied avatar image;
-  the Navbar display check is replaced by reading the same entitlement from
-  the client contract instead of deriving from role.
+- **The custom-avatar write path is gated at the display-selection boundary,
+  not the photo upload.** `PATCH /users/me`'s direct `avatarSource: 'photo'`
+  write requires `can('custom_avatar')`; `POST /users/me/profile-image`'s
+  same side effect is skipped rather than rejected for an unentitled caller,
+  so free photo-upload onboarding always succeeds (see *Grid Intent Review*
+  for why the two are gated differently). Neither upload route
+  (`POST /storage/upload-avatar`, `POST /users/me/profile-image`) is gated —
+  uploading and storing a photo stays entitlement-free, as it is today. The
+  Navbar display check is replaced by reading the same entitlement from the
+  client contract instead of deriving from role.
 
 ## Grid Intent Review
 
@@ -562,7 +656,7 @@ except the two marked as fixing an accidental denial.
 | `meme_rate_limit_high` | legendary only; **admins wrongly on the free cap** | ✗ / ✗ / ✓ / **✓** | **fixes an accidental denial**; description text corrected; stays boolean here, superseded by Plan 2's metered `daily_meme_saves` |
 | `meme_ai_background` | legendary via `requireLegendary`; **admins wrongly denied** on the (dead) render gate | ✗ / ✗ / ✓ / **✓** | **fixes an accidental denial**; rewired to the reachable routes |
 | `video_generation` | legendary + admin, **cannot actually be switched off** | ✗ / ✗ / ✓ / **✓** | grid toggle starts working; boot overwrite removed |
-| `meme_upload_photo` | dead row — upload is authentication-only | ✗ / ✓ / ✓ / **✓** | wired up for the first time, resolving the three-way builder disagreement |
+| `meme_upload_photo` | dead row — upload is authentication-only | ✗ / ✓ / ✓ / **✓** | **pending David's confirmation** (see *Questions for David*) — either wired up for the first time as shown, or left permanently dead and reclassified as an identity prerequisite |
 
 **`engine_experiments` is explicitly untouched** — left exactly as it is
 today (no rows, admin-only via a hardcoded predicate). Plan 3 replaces it
@@ -590,16 +684,36 @@ remove a capability that is free today, directly violating this plan's own
 
 The actual paid capability is `usersTable.avatarSource` — `'avatar'`
 (generated icon, the default) versus `'photo'` (the uploaded image, shown in
-the nav per `Navbar.tsx:49`). Uploading a photo stays entitlement-free, as it
-is today; **setting `avatarSource = 'photo'` requires `can('custom_avatar')`**.
-Two write paths set it, both gated: `POST /users/me/profile-image`
-(`users.ts:563`, which sets it as a side effect of a successful upload) and
-`PATCH /users/me` (`users.ts:282-286`, which accepts it directly and was an
-unaddressed bypass in the first draft of this row). A registered user may
-still upload and store a photo — for onboarding, for identity-meme
-generation — they simply cannot select it as their displayed avatar without
-the entitlement, matching today's real behaviour on upload and changing only
-the one boundary David named as the intended upsell.
+the nav per `Navbar.tsx:49`). Uploading and storing a photo stays entirely
+entitlement-free, as it is today, **and the upload endpoint always succeeds
+regardless of entitlement** — it is not one of the two gated write paths.
+
+**`POST /users/me/profile-image` and `PATCH /users/me` are gated
+differently, because one is bundled with free onboarding and the other is a
+standalone selection request** (corrected — Codex round 2, line 598,
+verified against `Onboard.tsx:125-139` and `users.ts:551-565`).
+`POST /users/me/profile-image` atomically stores the photo *and* sets
+`avatarSource = 'photo'` as one side effect of a successful upload — and
+`Onboard.tsx` calls exactly this route to finish free photo onboarding. A
+hard rejection on missing `can('custom_avatar')` would fail that same
+onboarding request for every registered, non-paying user, which the first
+draft of this row got wrong. So this endpoint never rejects: the upload and
+photo storage always succeed; the `avatarSource = 'photo'` flip only fires
+when the caller holds `can('custom_avatar')` — otherwise the endpoint
+returns success with the photo stored and `avatarSource` left unchanged,
+silently skipping the flip rather than rejecting the request it's bundled
+with. `PATCH /users/me` (`users.ts:282-286`) is a standalone, explicit
+selection request with no onboarding dependency riding on it — it keeps the
+hard `403` when a caller without the entitlement requests
+`avatarSource: 'photo'` directly, which was an unaddressed bypass in the
+first draft of this row.
+
+A registered user may still upload and store a photo — for onboarding, for
+identity-meme generation — every time, entitlement or not; they simply
+cannot make it their *displayed* avatar without the entitlement, whether
+they ask for that as a side effect of upload (silently skipped) or directly
+via `PATCH` (rejected). This matches today's real behaviour on upload and
+changes only the one boundary David named as the intended upsell.
 
 Nothing else in this plan changes end-user-visible behaviour except the two
 accidental admin denials being lifted.
@@ -620,18 +734,50 @@ added a feature definition with no tier rows, and nothing caught it. A CHECK
 constraint cannot require child rows to exist, and a CI seed test cannot
 prevent production drift or a direct row deletion.
 
-**A "sanctioned creation function" that coexists with ordinary `INSERT`
-privilege on `feature_flags` enforces nothing** (corrected — Codex round 1,
-line 521). Nothing about the function's existence stops a caller — a future
-migration, a script, an admin tool that grows a second write path — from
-inserting a `feature_flags` row directly and recreating `0057`'s exact
-failure. Enforced instead by:
+**Revoking `feature_flags` `INSERT` from the application role does not
+create a real boundary, for the same structural reason documented in
+[`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)**
+(corrected — Codex round 2, line 633, verified against
+`docs/engineering/migrations-and-backfills.md` and `lib/db/src/migrate.ts`).
+Migrations run as the application role, so that role **owns** every object
+its migrations create — and Postgres ownership bypasses ACL checks
+entirely, regardless of what a `REVOKE` statement says. `REVOKE INSERT ON
+feature_flags FROM <app>` issued by `<app>` against a table `<app>` owns is
+a no-op for `<app>` itself; only a non-owner connection is actually
+affected. The round-1 claim that this closes "no direct-insert path left to
+bypass, not merely a discouraged one" overstated what a same-role REVOKE can
+deliver.
 
-- The application's database role's `INSERT` privilege on `feature_flags`
-  is **revoked**; the transactional creation function runs as the sole
-  grantee (`SECURITY DEFINER`, or an equivalent owner-privilege pattern), so
-  there is no direct-insert path left to bypass, not merely a discouraged
-  one.
+This plan does not re-derive that argument — it applies the repo's existing
+answer. The migration creates the objects below and reports residual state
+exactly as `0097` does for the NCMEC ledger; a companion runbook,
+[`docs/engineering/feature-permissions-boundary-hardening.md`](../engineering/feature-permissions-boundary-hardening.md)
+(new, mirroring `ncmec-audit-ledger-hardening.md`'s structure), gives the
+superuser procedure to transfer ownership of `feature_flags`,
+`tier_feature_permissions`, `tier_feature_permission_audit`, the creation
+function, and both triggers to a dedicated `overhype_feature_flags_owner` /
+`overhype_feature_flags_maintenance` role pair, granting the application
+role back exactly what it needs. `featurePermissionsBoundaryStatus()`
+(`lib/db/src/index.ts`, alongside `ncmecAuditBoundaryStatus()`) reports
+whether that hardening has actually been applied.
+
+**Unlike the NCMEC ledger, nothing in this plan gates on
+`boundaryEnforced`.** A misconfigured feature flag is not a legal-filing-
+severity risk, and the CI guard plus the creation-function-only application
+code path already stop every caller *this plan's own code* introduces from
+bypassing it. The unhardened state is a defense against a future, buggy, or
+malicious direct write outside this codebase — not against today's
+application code — which is the same "if you skip this: nothing breaks, and
+nothing files" framing the NCMEC doc states explicitly. This plan states it
+explicitly too, rather than repeating the overclaim Codex caught.
+
+The migration still installs, immediately and regardless of hardening:
+
+- The application role's `INSERT` privilege on `feature_flags` is revoked
+  (defense-in-depth against any non-owner connection, and honest about not
+  being a boundary against the owner until hardened); the transactional
+  creation function is the sanctioned path for every caller this plan's own
+  code contains.
 - A **deferred constraint trigger** on `feature_flags`, checked at
   transaction commit rather than immediately after the row insert, asserts
   that a complete four-row `tier_feature_permissions` set exists for the new
@@ -648,9 +794,25 @@ failure. Enforced instead by:
   explicitly, not by a general "some rows are allowed to be incomplete"
   escape hatch that a future feature could also slip through.
 
-Both get matching declarations in `lib/db/src/schema/featureFlags.ts`,
-because a raw-SQL constraint living only in a migration has been silently
-lost in this repo before.
+**Both triggers are documented, not declared, in
+`lib/db/src/schema/featureFlags.ts`** (corrected — Codex round 2, line 653,
+verified against `moderation.ts:301-309`). Drizzle's `pgTable` cannot model
+trigger functions or deferred constraint triggers — the existing NCMEC
+append-only trigger is likewise only documented there, not declared, for
+the same reason. The raw SQL in the migration stays authoritative; what
+actually prevents the silent-loss failure mode this plan is guarding
+against is a **regression test asserting both triggers exist and are
+enabled** via a catalog query (`pg_trigger` / `information_schema.triggers`),
+so a future migration that drops or disables either fails CI immediately.
+
+**`seed.ts:531-545`'s direct startup `INSERT`s into `feature_flags` and
+`tier_feature_permissions` for `video_generation` are deleted** (added —
+Codex round 2, line 633, following from the same finding).
+`video_generation` already has a complete row-set in the database this
+migration ships against; these two seed steps are already fully redundant
+`ON CONFLICT DO NOTHING` no-ops, and leaving them running is a second,
+competing write path into the same tables this whole section exists to give
+exactly one path.
 
 **A new table stores the grid-mutation audit trail** (added — Codex round 1,
 line 613: the plan promised this record but never specified where it lives,
@@ -659,11 +821,17 @@ today). `tier_feature_permission_audit` — append-only, no `UPDATE` or
 `DELETE` grant on the application role, matching the pattern
 `membership_history` already uses in this schema for the same reason.
 Columns: `id`, `actor_id` (FK to `users`, `ON DELETE SET NULL` so a later
-account deletion doesn't destroy the historical record), `tier`,
-`feature_key` (FK to `feature_flags`), `enabled_before`, `enabled_after`,
-`created_at`. The cell write and its audit row commit in the same
-transaction — a write that fails leaves no audit row, per the Security
-section below.
+account deletion doesn't destroy the historical record), **`feature_key`
+(plain text, no foreign key — corrected, Codex round 2, line 664, verified
+against the FK's default `NO ACTION` behavior)**, `tier`, `enabled_before`,
+`enabled_after`, `created_at`. A live FK on `feature_key` would either block
+feature deletion once any audit row references it (`NO ACTION`) or delete
+the historical record along with the feature (`CASCADE`) — both wrong for an
+append-only history table. `feature_key` is stored as a denormalized
+historical fact, the same reasoning `actor_id`'s `SET NULL` already applies
+to the acting user: the record must survive its referent's deletion. The
+cell write and its audit row commit in the same transaction — a write that
+fails leaves no audit row, per the Security section below.
 
 ### Migration
 
@@ -681,12 +849,22 @@ Forward-only, idempotent, nothing destructive:
    are deliberately left as-is — backfilling rows for a feature Plan 3 is
    about to retire is wasted work.
 
-   **Emits observable counts** (corrected — Codex round 1, line 544): rows
-   inserted, features already complete (no-op), and `engine_experiments`
-   rows explicitly skipped-by-design. A clean re-run reports zero inserted
-   and the same skip count, which is the migration's own idempotency
-   assertion — a nonzero insert count on a re-run is a bug, not drift to
-   shrug off.
+   **The counts are written to a durable, queryable table — not emitted
+   through a channel the canonical runner discards** (corrected — Codex
+   round 2, line 688, verified against `lib/db/src/migrate.ts`). The runner
+   ignores statement result rows, installs no notice handler, and skips an
+   already-applied migration by hash rather than re-executing its body — so
+   an in-migration `SELECT` or `RAISE NOTICE` is invisible on a normal run,
+   and a normal re-run can't happen at all to prove idempotency. The
+   backfill instead inserts one row per run into a small
+   `feature_permissions_migration_log` table (`id`, `migration_name`,
+   `inserted_count`, `skipped_count`, `ran_at`) — rows inserted, features
+   already complete (no-op), and `engine_experiments` rows explicitly
+   skipped-by-design. Idempotency is proved by an integration test that
+   calls the backfill's exported function directly **twice** in one test
+   (bypassing the runner's skip-by-hash gate, which a normal deploy never
+   does), asserting the second call's logged `inserted_count` is zero — not
+   by relying on a real re-run that the runner will never actually perform.
 
 Also in the same PR: the `video_generation` seed in `seed.ts` changes from
 `DO UPDATE SET enabled = EXCLUDED.enabled` to `DO NOTHING`, matching every
@@ -806,34 +984,52 @@ The invariant tests, not just the reported examples:
     deleting an individual required row, are both rejected by the database.
 11. **Grid-editor safety** — invalid direct API writes leave the cell
     unchanged; every successful change is attributed in the audit trail and
-    every rejected one writes nothing.
+    every rejected one writes nothing; deleting a feature that has existing
+    audit rows succeeds and those rows remain queryable afterward, unaffected
+    by the deletion (`feature_key` is a denormalized historical field, not a
+    live FK).
 12. **Client contract completeness** — logged-out clients consume every
     `unregistered` value without fabricating a user; an open client
     converges on a grid change within the advertised window without a
     reload.
 13. **The custom-avatar entitlement gate is at the selection boundary, not
-    the upload.** A registered user can upload and store a photo via both
-    routes without any entitlement; the same user's attempt to set
-    `avatarSource = 'photo'` via either `POST /users/me/profile-image`'s
-    side effect or a direct `PATCH /users/me` is rejected; a legendary or
-    admin account's selection succeeds via either path; the existing
-    display-only client check is fully replaced, not left running alongside
-    the new server check.
-14. **The active-admin lockout guard blocks before cleanup, not after.** A
-    last-admin hard-delete and soft-delete attempt are both rejected before
-    any object-storage deletion or Stripe cancellation call is made — proven
-    by asserting no such call occurs, not merely that the final row is
-    unchanged. A concurrent last-admin deletion and a routine non-last-admin
-    deletion don't interfere with each other.
-15. **The revoked `INSERT` privilege and the deferred completeness trigger**
-    — a direct `INSERT` into `feature_flags` bypassing the creation function
-    is rejected by privilege, not merely discouraged by convention; a
-    creation-function call that would leave an incomplete row-set is
-    rejected at commit.
+    the upload, and the two write paths fail differently by design.** A
+    registered user can upload and store a photo via both upload routes
+    without any entitlement, every time. That same user's
+    `POST /users/me/profile-image` call still succeeds (200, photo stored)
+    but leaves `avatarSource` unchanged — the flip is silently skipped, not
+    rejected. That same user's direct `PATCH /users/me { avatarSource:
+    'photo' }` is rejected (403). A legendary or admin account's selection
+    succeeds via either path — the side-effect flip fires, and the direct
+    `PATCH` is accepted. The existing display-only client check is fully
+    replaced, not left running alongside the new server check.
+14. **The active-admin lockout guard blocks before cleanup, not after, via
+    a concrete durable reservation.** A last-admin hard-delete and
+    soft-delete attempt are both rejected before any object-storage deletion
+    or Stripe cancellation call is made — proven by asserting no such call
+    occurs, not merely that the final row is unchanged. After a legitimate
+    (non-last-admin) deletion's reservation commits, a concurrent request
+    against a different admin observes the reduced active-admin count
+    immediately, proving the reservation — not the eventual final row state
+    — is what the count reads. A concurrent last-admin deletion and a
+    routine non-last-admin deletion don't interfere with each other.
+15. **The deferred completeness trigger, and the boundary status
+    reporter.** A creation-function call that would leave an incomplete
+    row-set is rejected at commit, regardless of hardening state. Separately,
+    `featurePermissionsBoundaryStatus()` correctly reports `false` against
+    an unhardened test database and (where a hardened fixture is available)
+    `true` after the runbook's ownership transfer — proving the status
+    check reflects real Postgres ownership state, not merely the presence of
+    a REVOKE statement in the migration.
 16. **Entitlement payload/version correlation** — a client that observes a
     version bump but receives a payload computed from the prior revision
     retries rather than accepting the stale result; the retry converges once
     a payload actually carrying the observed revision is served.
+17. **Principal-change invalidation** — a tier lapsing mid-session, an admin
+    grant/revoke, and a view-as-user toggle each change
+    `principalFingerprint` even though the grid itself doesn't move; an open
+    client observes the change and refetches, converging on the new
+    entitlement set without a reload.
 
 Manual QA is the UAT doc, covering both the admin and non-admin experience of
 each changed surface.
@@ -851,40 +1047,57 @@ below is independently shippable on its own.
    the allowlist the CI guard reads.
 3. Migration: revoke direct `INSERT` on `feature_flags`, add the
    transactional creation function, the deferred completeness trigger, the
-   deletion-protection trigger, the audit table, the five new boolean
-   features and their row-sets, the description-text fix, the row backfill
-   excluding `engine_experiments` (with observable counts). Fix the
-   `seed.ts` `video_generation` overwrite.
+   deletion-protection trigger, the audit table (non-FK `feature_key`), the
+   `entitlement_grid_revision` singleton and its atomic bump on every grid
+   write, the `feature_permissions_migration_log` table, the five new
+   boolean features and their row-sets, the description-text fix, the row
+   backfill excluding `engine_experiments` (with counts logged, not
+   emitted). Delete `seed.ts:531-545`'s now-redundant `video_generation`
+   seed steps (the earlier "fix the overwrite" is superseded — the steps go
+   away entirely). Write
+   `docs/engineering/feature-permissions-boundary-hardening.md`, mirroring
+   `ncmec-audit-ledger-hardening.md`, and add the catalog-level trigger
+   existence/enabled-state regression test.
 4. Move all six existing grid call sites and the five `requireLegendary`
    product routes onto `requireFeature` / `can`; collapse `facts.ts`'s
    role-OR-grid expression into one resolver call. Add the one named,
    temporary CI-guard exception for `GET /engines`'s deferred-to-Plan-3
    predicate.
 5. Move the hardcoded role-rank product gates (PuLID, the two fact-submit
-   bypasses, ad-free) onto the resolver; add `custom_avatar`, gating both
-   write paths to `avatarSource = 'photo'` (`users.ts:282-286,563`) — never
-   the underlying photo-upload routes, which stay entitlement-free.
-6. Move the three genuinely mis-railed operational sites (`jobs.ts` ×2,
-   `affiliate.ts`) onto `realUserRole`. Fix `POST /auth/toggle-admin-mode`'s
-   admin check to include the `isAdminByEmail` path.
-7. **Thread the principal snapshot** through `createMemeRecord`,
-   `videoPipelineRunner` and `aiMemePipeline` for the boolean gates they own,
-   persisting it with queued work; delete their internal user lookups.
-   `checkBudget` is explicitly untouched — its numeric resolution is Plan 2's
-   scope.
+   bypasses, ad-free) onto the resolver; add `custom_avatar`. `PATCH
+   /users/me` (`users.ts:282-286`) rejects an unentitled caller's direct
+   `avatarSource: 'photo'` write; `POST /users/me/profile-image`
+   (`users.ts:563`) always stores the photo and skips the same flip for an
+   unentitled caller instead of rejecting, so onboarding always succeeds.
+   Neither upload route is gated. (`meme_upload_photo` waits on David's
+   answer to *Questions for David* before it's wired either way.)
+6. Move the five genuinely mis-railed operational sites (`jobs.ts` ×2,
+   `affiliate.ts`, `GET /users/me`'s admin-notification projection,
+   `PATCH /users/me/notifications`) onto `realUserRole`. Fix
+   `POST /auth/toggle-admin-mode`'s admin check to include the
+   `isAdminByEmail` path.
+7. **Thread the principal and the resolved boolean decision** through
+   `createMemeRecord`, `videoPipelineRunner` and `aiMemePipeline` for the
+   gates they own, persisting both with queued work so the background path
+   reads the decision rather than re-resolving it; delete their internal
+   user lookups. `checkBudget` is explicitly untouched — its numeric
+   resolution is Plan 2's scope.
 8. Fix the adjacent defects listed under *Proposed Design*.
 9. Lockout guards: the advisory-lock-serialized active-admin invariant,
    with the check-and-reserve step running before any irreversible cleanup
    in both the hard- and soft-delete handlers; the view-as-user re-entry
    path and the `AdminLayout` panel.
-10. **The client contract**: typed entitlement map as a sibling of `user`,
-    populated for anonymous callers too, with the version-polling
-    revalidation. Added at the spec, regenerated, verified against codegen
+10. **The client contract**: `Record<FeatureKey, Entitlement>` (converted
+    from the resolver's internal `Map` at the HTTP boundary) as a sibling of
+    `user`, populated for anonymous callers too, carrying the resolver
+    revision it was computed from, with `/entitlements/version` returning
+    `{gridRevision, principalFingerprint}` and the client retrying on
+    mismatch. Added at the spec, regenerated, verified against codegen
     immediately per the `lib/api-zod` gotcha. Delete `roleToTier` and the
     duplicated derivations; reconcile the three upload rules.
 11. Grid-mutation audit trail and locked-read cell writes.
 12. CI guard script + `build.yml` wiring.
-13. Tests 1-13.
+13. Tests 1-17.
 
 ## Risks and Mitigations
 
@@ -899,8 +1112,30 @@ below is independently shippable on its own.
 
 ## Questions for David
 
-None. Every decision this plan needs was settled in the direction (#412) or
-the original PR #404 conversation. The scope boundary itself (what's in this
+**One — is `meme_upload_photo` a removed check or an intended-but-never-
+wired one?** (Surfaced by `meme-and-video-studio.md:268-275`, which already
+asked this before this plan existed, and by Codex round 2 catching that this
+plan answered it without your input.) The row exists in
+`tier_feature_permissions`, seeded and later flipped on for `registered`,
+but no route or `createMemeRecord` code path reads it — photo-upload meme
+creation is gated by nothing beyond authentication today.
+
+1. **It's an intended entitlement** — wire it up as this plan otherwise
+   assumed: gate photo-upload meme creation (including direct
+   `POST /storage/upload-meme` calls and reuse of already-stored uploads,
+   not just the client's three-way rule) behind `can('meme_upload_photo')`,
+   matching the seeded `registered`+ row. *Ramification:* a currently-free
+   capability becomes gated for `unregistered` users on this PR's merge — a
+   real, if narrow, behavior change beyond "no other end-user-visible
+   capability changes."
+2. **It's a removed check** — reclassify it as an identity prerequisite
+   (free to any authenticated user, matching today's actual code) and
+   remove the vestigial grid row entirely rather than wiring it to a check
+   nothing enforces. *Ramification:* the grid stops claiming a capability it
+   was never really gating; no behavior changes for any user.
+
+Everything else this plan needs was settled in the direction (#412) or the
+original PR #404 conversation. The scope boundary itself (what's in this
 plan vs. Plan 2 vs. Plan 3) was David's own call, made explicitly after the
 growth tripwire fired.
 
