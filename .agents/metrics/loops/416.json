@@ -21,6 +21,6 @@
     "preOpenPreflightMin": 0,
     "breakersFired": "none"
   },
-  "adjudication": { "status": "never-run" },
-  "notes": "No review posted; zero findings across zero rounds. Sampling predicate (pr%5==0 or findings>=30) does not select this PR. (The PR body's own flagged open question — whether .replit's [env] PATH actually propagates — was resolved empirically post-merge, not through review; unrelated to this loop's findings count.)"
+  "adjudication": { "status": "n/a" },
+  "notes": "No review posted; zero findings across zero rounds, so adjudication is n/a (zero valid-finding denominator). (The PR body's own flagged open question — whether .replit's [env] PATH actually propagates — was resolved empirically post-merge, not through review; unrelated to this loop's findings count.)"
 }

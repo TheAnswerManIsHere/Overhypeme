@@ -21,6 +21,6 @@
     "preOpenPreflightMin": 0,
     "breakersFired": "none"
   },
-  "adjudication": { "status": "completed", "population": 0, "disagreements": 0 },
-  "notes": "Sampling predicate fires (415 % 5 == 0), but zero findings were posted at all (no review, only the routine dependency-review bot comment) — no triage decisions exist for a subagent to adjudicate, so the blind pass is recorded as completed over its (empty) full finding population rather than dispatched for literally nothing to review."
+  "adjudication": { "status": "n/a" },
+  "notes": "Sampling predicate fires (415 % 5 == 0), but zero findings were posted at all (no review, only the routine dependency-review bot comment) — zero valid-finding denominator makes the settled state n/a, not completed/never-run, so no subagent was dispatched for literally nothing to review."
 }
