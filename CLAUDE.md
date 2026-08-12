@@ -864,6 +864,15 @@ it lives here rather than in the shared docs.
   prompt), `publish_app` / `get_publish_status` (deploys the Repl's current
   workspace snapshot to production), and `create_app_from_prompt` (spins up
   new Repls — not relevant to Overhype.me work).
+- **There is no push/notification channel — every call is a one-shot poll,
+  and a "busy" reply means the question was NOT queued.** Both `ask_question`
+  and `update_app_using_prompt` can return `phase: "busy"` while Replit
+  Agent is still working an earlier request; the tool's own response says
+  plainly that a busy reply is dropped, not remembered, so I have to
+  explicitly re-ask the same question again once it clears, not just wait
+  passively. Unlike `subscribe_pr_activity`, nothing arrives here on its
+  own. When I say "checking" I mean I'm about to re-issue the call in this
+  same turn — not that I'll find out later without prompting.
 - **`ask_question` is a diagnostics/triage channel, not verification
   evidence — and it answers from understanding, not execution.** I can use
   it mid-triage to inspect Repl-side state without a full TEST_RUN

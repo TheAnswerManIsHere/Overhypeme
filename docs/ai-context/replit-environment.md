@@ -69,8 +69,15 @@ checkout), with these contents:
 
 ```json
 {
-  "permissions": { "defaultMode": "default" },
-  "model": "sonnet"
+  "model": "sonnet",
+  "env": { "DATABASE_URL": "<the dev database, heliumdb — see below>" },
+  "permissions": {
+    "defaultMode": "default",
+    "deny": ["Bash(git commit:*)", "Bash(git push:*)", "Bash(gh auth:*)",
+             "Bash(python3 -c:*)", "Bash(node -e:*)", "Read(**/.env*)", "…"],
+    "allow": ["Bash(git status:*)", "Bash(git log:*)", "Bash(ls:*)",
+              "Bash(cat:*)", "Bash(grep:*)", "Bash(find:*)", "…"]
+  }
 }
 ```
 
@@ -80,11 +87,27 @@ this file goes missing, Claude Code there silently reverts to bypassing
 permissions against the live environment** — so re-create it before using an
 in-Repl session, and treat its absence as a stop condition, not a nuisance.
 
-Known limitation, deliberately left alone: the versioned settings also set
-`env.DATABASE_URL` to the sandbox's local test database, which an in-Repl
-session inherits. That means it cannot query the real database — safe by
-default, and fine for git/log/ops work, but it must be addressed deliberately
-before an in-Repl session is used for database-touching `TEST_RUN` steps.
+**Why a curated `deny`/`allow` split, not just `defaultMode: default` alone
+(David, 2026-08-11):** the first version of this file shipped with
+`defaultMode: default` and nothing else, and it failed in practice within the
+same session — one-off approvals to repeated prompts silently accumulate as
+standing grants, and a human clicking through a wall of prompts will not
+review each one closely. That produced live grants for `git commit`,
+`git push`, `gh auth`, and arbitrary `python3 -c` execution — the exact
+review-bypass and code-execution risk the whole in-Repl operator role exists
+to avoid. **`deny` takes precedence over `allow`, which is what makes it
+fatigue-proof:** even a mis-click on a future prompt can't grant a denied
+command. The paired `allow` list exists so ordinary read-only ops (`git
+status`, `ls`, `grep`, log reads) don't keep re-prompting — the goal is
+prompts becoming rare enough to actually be read, not merely fewer.
+
+The `env.DATABASE_URL` now points at the real **dev** database (`heliumdb`),
+not the sandbox test database it originally inherited from the versioned
+settings — wired in deliberately so in-Repl sessions can do real diagnostics
+and, eventually, database-touching `TEST_RUN` steps. **Production (`neondb`
+on Neon) is not present anywhere in this file, or anywhere else in the Repl's
+environment, and that is deliberate** — see the production-guard gap noted
+below.
 
 ## Authoritative on what IS; the repo docs are authoritative on what SHOULD BE
 
@@ -214,6 +237,28 @@ when auto-sync is off. This is exactly why `ask_question` output is
 diagnostics, not verification evidence — the first answer was fluent,
 specific, and false. Confirm against Replit's own product docs if this ever
 needs to be authoritative rather than a working assumption.)*
+
+## Dev and production are two separate databases, and the safety guard only knows about one of them
+
+**`heliumdb`** (on the `helium` host) is the **development** database — the
+one wired into the Repl's local Claude Code settings (above) and the one
+`assert_not_production` (`artifacts/api-server/scripts/lib/test-db.sh`) was
+written to protect, back when dev and prod shared that same name. **Production
+is a separate database, `neondb`, hosted on Neon** — a different provider
+entirely, not just a different name on the same Postgres server.
+
+**The guard does not know `neondb` exists.** `assert_not_production` refuses
+by exact name (`heliumdb`, `production`), by substring (anything containing
+`prod`), and by two env-var extension lists
+(`TEST_DB_PROTECTED_NAMES`/`TEST_DB_PROTECTED_HOSTS`) that are unset in this
+Repl. `neondb` matches none of those. **Nothing in the Repl's environment
+holds a production credential today** (confirmed via env-var name inventory,
+2026-08-11), which is the only reason this is a documented gap and not an
+active incident — the moment a prod credential does land somewhere a test
+runner or destructive script could reach, this guard would wave it through.
+Tracked as deferred work in
+[`deferred-work.md`](../engineering/deferred-work.md#security--patching); fix
+before any prod credential enters this environment, not after.
 
 ## The one thing that IS ours: a periodic retrospective read
 

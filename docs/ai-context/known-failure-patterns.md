@@ -1315,3 +1315,28 @@ found `registered`, and coerced the meme public. Both surfaces believed they
 were consistent with the other — `VisibilityToggle`'s own comment claimed the
 control "can never display a value the server would silently overwrite,"
 which was true for every tier except the one the author was testing on.
+
+## Permission-prompt fatigue defeats a "safe" default with no curated allow/deny list
+
+**Looks like:** a genuinely risky tool or environment (one that can push to
+`main`, touch a live database, execute arbitrary code) gets its access gated
+by ordinary per-action permission prompts — no deny list, just a `default`/
+`ask` mode — reasoning that "it'll ask before anything dangerous" is
+sufficient. **Dangerous:** it fails exactly when review matters most. A human
+facing a *wall* of prompts during real work does not read each one; they
+start clicking through, and one-off "allow" clicks silently persist as
+standing grants. On 2026-08-11 this produced live, accumulated permission for
+an in-Repl agent session to `git commit`, `git push`, `gh auth`, and run
+arbitrary `python3 -c` code — the exact review-bypass and code-execution risk
+the session's whole operator role existed to prevent — not because anyone
+decided to grant it, but because clicking "allow" sixty times is what using
+the tool felt like. **Avoid:** for any environment where a mistaken grant has
+real blast radius, pair the prompting default with an explicit **deny list**
+that takes precedence over `allow` — that's what makes the design
+fatigue-proof, since even a reflexive click on a future prompt can't cross a
+denied boundary. Then curate a **generous allow list of genuinely low-risk,
+read-only operations** (status/log/diff reads, `ls`/`grep`/`find`, env
+reads) so that prompts become rare enough to actually be read, not merely
+fewer — one prompt an hour gets scrutinized, fifty a session get clicked
+through. **Overhype:** the local settings override in the Repl (see
+[`replit-environment.md`](replit-environment.md#the-repl-requires-a-local-settings-override-that-is-not-in-git)).
