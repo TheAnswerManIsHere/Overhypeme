@@ -101,21 +101,6 @@ we've sequenced for later.
     [`replit-environment.md`](../ai-context/replit-environment.md#dev-and-production-are-two-separate-databases-and-the-safety-guard-only-knows-about-one-of-them)
     for the full topology.
 
-- **`CLAUDE_CONFIG_DIR` is defined twice for the Repl** — once as a Replit
-  Secret, once in `.replit`'s versioned `[env]` block (added PR #414) —
-  and it's unconfirmed which one is actually taking effect.
-  - **What.** Two sources of truth for one value. Not a conflict today (both
-    currently hold the same path), but a latent one: if they're ever changed
-    independently, whichever one Replit actually reads wins silently.
-  - **Why deferred now.** Determining which one wins requires deleting the
-    Secret and confirming the variable still resolves after a Repl restart —
-    a live test that didn't happen amid the same day's higher-priority
-    fixes (permissions, the restart-persistence launcher).
-  - **Cost of waiting.** Low — low blast radius, and the values agree today.
-  - **Revisit trigger.** Next Repl restart where someone is already in the
-    environment to check `echo $CLAUDE_CONFIG_DIR` before and after deleting
-    the Secret; or the first time the two values are found to disagree.
-
 - **The autoscale connection budget is unenforced and slightly wrong (found on PR #299's review, deferred by PR #308).**
   - **What.** `.replit` selects `deploymentTarget = "autoscale"` with no
     maximum instance count, so `lib/db/src/index.ts:45-67`'s "safe up to 19
