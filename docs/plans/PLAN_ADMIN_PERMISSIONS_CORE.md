@@ -55,8 +55,19 @@ grid or account edits.
 
 ## Sibling plans
 
-Three plans share this direction. Each is independently shippable; none
-blocks another's approval.
+Three plans share this direction. Each is independently **approvable** — none
+waits on another's review — but approval order and *deploy* order are not the
+same thing, and one ordering constraint is real:
+
+> **1a must merge and deploy before 1b.** 1b's migration fails fast if this
+> plan's tables are absent, and this plan's migration performs a direct
+> `tier_feature_permissions` deletion that 1b's protection trigger would
+> reject (see *Migration*). Shipping 1b first therefore either fails at
+> startup or forces this plan's deletion to be rewritten through
+> `delete_feature_flag`. This is recorded in both plans' completion criteria
+> so the split cannot be scheduled in the unsafe order.
+
+Plans 2 and 3 carry no such constraint against each other; both assume 1a.
 
 | | Scope | Status |
 |---|---|---|
@@ -430,6 +441,16 @@ recorded what authorized it. So:
   `authorization_snapshot jsonb NOT NULL` — holding `{tier, isAdmin,
   decisions: {<featureKey>: boolean}, resolvedAt}`. It is part of the row, not
   a sidecar, so it cannot be written separately or partially.
+- **The invariant is per-writer, not per-module: every insert into
+  `video_jobs` carries a snapshot resolved from its own request's principal.**
+  `videoPipelineRunner` is not the only one — `POST /videos/generate` inserts
+  a job directly (`videos.ts:532-545`), and that route resolves its own
+  `video_generation` decision at submission time and writes it in the same
+  insert. Neither a migration-style "predates this plan" snapshot nor any
+  other placeholder is acceptable from a live writer: the column exists to
+  record what actually authorized *this* job. Because the column is
+  `NOT NULL` with no default, the compiler enumerates the writers — any insert
+  that omits it fails to typecheck, so this list cannot silently go stale.
 - **Successful persistence becomes a precondition for starting the job**, not
   a best-effort side task. The existing `catch` that proceeds in-memory is
   replaced by a failure: no row, no job. This is a deliberate behaviour change
@@ -677,6 +698,16 @@ as everywhere else, and the re-entry test covers all three grant mechanisms.
   check *is* the `comment_captcha_bypass` entitlement decision, which is
   supposed to honour the toggle under Settled Decision #3, so it collapses
   into a resolver call instead.
+- **Alert *recipient selection* moves with them, not just the settings
+  screen.** All four recipient queries in `lib/adminNotify.ts`
+  (`:110`, `:185`, `:364`, `:472` — general admin alerts, dispute alerts,
+  abandoned-email alerts, fraud warnings) filter on `users.is_admin = true`.
+  Moving only the read/write paths above would let an `ADMIN_USER_IDS`- or
+  bootstrap-granted admin enable the preference and still receive nothing,
+  including time-sensitive fraud and dispute warnings. Recipient selection
+  resolves real-admin status the same canonical way, and delivery is tested
+  for all three grant mechanisms. This is the *real* admin flag in every case —
+  view-as-user changes what an admin can do, never who gets paged.
 - `meme_rate_limit_high`'s grid description is corrected (it claims "100/hour
   instead of 10/hour"; the real behaviour is a 200-vs-30 daily save cap) —
   cosmetic, but wrong copy on the one screen this plan makes authoritative.
@@ -840,9 +871,13 @@ Plus `id`, `migration_name`, `ran_at`, and `deleted_rows jsonb` (the
 `meme_upload_photo` rows captured before deletion, per *On the one deletion*
 below). Idempotency is proved by an integration
 test that calls the backfill's exported function **twice** in one test —
-bypassing the runner's skip-by-hash gate, which a normal deploy never does —
-asserting the second call logs `inserted_count = 0` while the other two are
-unchanged.
+bypassing the runner's skip-by-hash gate, which a normal deploy never does.
+The second call must log `inserted_count = 0` and the same
+`engine_experiments_skipped_count`. `already_complete_count` **rises** on the
+second run and asserting it unchanged would be wrong: the features the first
+run repaired are, by definition, complete on the second. The assertion is that
+no further rows were inserted and every feature is now accounted for as
+complete — not that all three counts are unchanged.
 
 **`seed.ts:531-545`'s startup `INSERT`s for `video_generation` are deleted
 outright.** They are redundant with the grid rows this migration guarantees,
@@ -861,12 +896,22 @@ no-op throughout.
 [`migrations-and-backfills.md:120-121,153`](../engineering/migrations-and-backfills.md)
 requires that anything destructive carry an explicit recovery/rollback
 description, so here it is. The five rows removed belong to a feature no code
-reads, so nothing can regress from their absence. **Recovery is a single
-forward insert** re-creating the parent and its four tier rows — and to make
-that answerable from the database rather than from this document, the
-migration captures the five rows into a `deleted_rows jsonb` field on this
-run's `feature_permissions_migration_log` row *before* deleting them. No
-separate backup artifact is warranted at five rows of configuration.
+reads, so nothing can regress from their absence. **Recovery re-creates the
+parent and its four tier rows from captured values** — and to make that
+answerable from the database rather than from this document, the migration
+captures the five rows into a `deleted_rows jsonb` field on this run's
+`feature_permissions_migration_log` row *before* deleting them. No separate
+backup artifact is warranted at five rows of configuration.
+
+**Recovery is most likely to be wanted *after* both plans have shipped, so it
+is written for that state.** Once Plan 1b lands, direct grid inserts are no
+longer available to the application role, and a plain `INSERT` recovery
+instruction would be a procedure nobody can execute. So: **post-1b, recovery
+is `create_feature_flag` followed by `set_tier_feature` for each tier**,
+passing the captured values — which additionally makes the restoration itself
+audited and revision-bumped, as any other grid change is. Pre-1b, the direct
+insert is equivalent and available. Both paths read from the same
+`deleted_rows` capture; only the write mechanism differs.
 
 ## Runtime Behavior
 
@@ -1028,9 +1073,13 @@ The invariant tests, not just the reported examples:
     `video_jobs` insert failure starts no job (replacing today's proceed-in-
     memory behaviour); a persisted job keeps its submission-time decision and
     completes even after the grid revokes the feature; and a restart between
-    enqueue and execution preserves the decision.
+    enqueue and execution preserves the decision. Covers **both** `video_jobs`
+    entry points — `videoPipelineRunner` and `POST /videos/generate` — each
+    recording its own request's decision rather than a placeholder.
 20. **Migration observability** — the backfill logs all three counts; a second
-    direct invocation logs `inserted_count = 0` with the other two unchanged.
+    direct invocation logs `inserted_count = 0` and an unchanged
+    `engine_experiments_skipped_count`, with `already_complete_count` risen to
+    cover what the first run repaired.
 
 Manual QA is the UAT doc, covering the admin and non-admin experience of each
 changed surface.
@@ -1143,7 +1192,21 @@ own calls.
   Features entry, and `known-failure-patterns.md`'s entitlement-gate entry all
   point at `featureAccess.ts` as the chokepoint.
 - TEST_RUN + UAT docs shipped in the same PR.
+- **This plan is merged and deployed before Plan 1b (PR #422)** — see *Sibling
+  plans* for why the order is load-bearing in both directions.
 - **Explicitly not done here, by design:** the grid's write-side enforcement
   (Plan 1b), numeric limits and the `tester` overlay (Plan 2), engine bands
   (Plan 3), and the two standalone bugfixes (#409, #410) — all tracked
   separately, none blocking this plan's approval or merge.
+
+## Accepted risks, declined in review
+
+Three round-4 findings were declined rather than fixed. Recorded here so the
+reasoning is inspectable and a later reviewer does not re-raise them as
+oversights.
+
+| Declined | Why |
+|---|---|
+| **Reactivation racing deletion cleanup.** `PATCH /admin/users/:id` can set `is_active = true` on an account whose deletion cleanup is mid-flight, since the reservation reuses the ordinary inactive flag. In principle two admins deleting each other with interleaved reactivation could remove both. | Requires two admins acting within the cleanup window — hundreds of milliseconds — on a console with a handful of operators. Crucially, the outcome is **recoverable without database surgery**: `ADMIN_USER_IDS` (`auth.ts:28`) grants admin from configuration, independent of any database row, so a total-lockout state is undone by setting an environment variable. A distinct reservation state plus a serialization interlock is a new mechanism priced well above that blast radius. Revisit if the operator count grows or if the config grant paths are ever removed. |
+| **Staging the `NOT NULL` snapshot across a rolling deploy.** If old and new server instances serve concurrently while the migration commits, old instances would fail every job insert. | The cited evidence does not support the premise: `migrate.ts:25-28` documents advisory-lock contention between instances *racing to migrate*, not old and new binaries *serving* simultaneously. Our own `replit-environment.md` describes restart-and-snapshot deployment, not rolling instances. Designing a staged constraint around a deployment topology we have not confirmed we have is speculative work; the deploy model gets confirmed with Replit instead, and this is revisited only if it turns out to be rolling. |
+| **View-as-user in the self-avatar projection.** An admin in view-as-user mode would still see their own custom photo on Navbar/Profile while every other entitlement previews as registered. | Correct, and cosmetic. One avatar, in a preview mode only admins can enter, showing a real photo the account genuinely owns. No entitlement is escalated and nothing a real user sees is affected. Not worth splitting the projection into self-versus-public variants and carrying that distinction through every call site. |
