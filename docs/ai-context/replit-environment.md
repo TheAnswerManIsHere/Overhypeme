@@ -122,8 +122,8 @@ not the sandbox test database it originally inherited from the versioned
 settings — wired in deliberately so in-Repl sessions can do real diagnostics
 and, eventually, database-touching `TEST_RUN` steps. **Production (`neondb`
 on Neon) is not present anywhere in this file, or anywhere else in the Repl's
-environment, and that is deliberate** — see the production-guard gap noted
-below.
+environment, and that is deliberate** — see the dev/prod split noted below,
+which the production guard now protects explicitly.
 
 ## Authoritative on what IS; the repo docs are authoritative on what SHOULD BE
 
@@ -254,27 +254,21 @@ diagnostics, not verification evidence — the first answer was fluent,
 specific, and false. Confirm against Replit's own product docs if this ever
 needs to be authoritative rather than a working assumption.)*
 
-## Dev and production are two separate databases, and the safety guard only knows about one of them
+## Dev and production are two separate databases
 
 **`heliumdb`** (on the `helium` host) is the **development** database — the
-one wired into the Repl's local Claude Code settings (above) and the one
-`assert_not_production` (`artifacts/api-server/scripts/lib/test-db.sh`) was
-written to protect, back when dev and prod shared that same name. **Production
+one wired into the Repl's local Claude Code settings (above). **Production
 is a separate database, `neondb`, hosted on Neon** — a different provider
 entirely, not just a different name on the same Postgres server.
 
-**The guard does not know `neondb` exists.** `assert_not_production` refuses
-by exact name (`heliumdb`, `production`), by substring (anything containing
-`prod`), and by two env-var extension lists
-(`TEST_DB_PROTECTED_NAMES`/`TEST_DB_PROTECTED_HOSTS`) that are unset in this
-Repl. `neondb` matches none of those. **Nothing in the Repl's environment
-holds a production credential today** (confirmed via env-var name inventory,
-2026-08-11), which is the only reason this is a documented gap and not an
-active incident — the moment a prod credential does land somewhere a test
-runner or destructive script could reach, this guard would wave it through.
-Tracked as deferred work in
-[`deferred-work.md`](../engineering/deferred-work.md#security--patching); fix
-before any prod credential enters this environment, not after.
+`assert_not_production` (`artifacts/api-server/scripts/lib/test-db.sh`) refuses
+by exact name (`heliumdb`, `neondb`, `production`), by substring (anything
+containing `prod`), by a generic `neon.tech` host marker, and by two env-var
+extension lists (`TEST_DB_PROTECTED_NAMES`/`TEST_DB_PROTECTED_HOSTS`, both
+unset in this Repl). `neondb` and the host marker were added as guard
+defaults once the dev/prod split meant `heliumdb` no longer implied
+production — see [`TESTING.md`](../tests/TESTING.md#production-guard-safety-critical)
+for the full matrix.
 
 ## The one thing that IS ours: a periodic retrospective read
 
