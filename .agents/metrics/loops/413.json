@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "pr": 413,
+  "closedAt": "2026-08-11T20:30:48Z",
+  "mechanical": {
+    "title": "Document Replit connector policy in CLAUDE.md",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 3,
+      "added": 231,
+      "removed": 0
+    },
+    "rounds": 2,
+    "findings": 6,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-11T17:51:42Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-11T18:31:32Z",
+        "source": "review",
+        "findings": 2
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-11T17:46:52Z",
+      "last_review_at": "2026-08-11T18:31:32.000Z",
+      "hours": 0.7
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 5, "prop": 1, "wrong": 0, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": 0,
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "5 of 6 findings were new defects in what I wrote (a missing SHA check, shared facts misplaced in an agent-only file, a wrong TEST_RUN characterization, an internal epistemic contradiction, a policy tie-breaker gap). 1 (round 2's 'require a clean workspace before Publish') was prop: my own round-1 fix over-corrected clean-tree to SHA-only when the answer was both. Converged in 2 rounds on a falling trend (4->2); no breaker fired. Sampling predicate (pr%5==0 or findings>=30) does not select this PR."
+}

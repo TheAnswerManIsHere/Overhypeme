@@ -192,9 +192,54 @@ Full rationale in
 If nothing landed from Replit this week, say so in one line and move on —
 same discipline as the other sections.
 
+## 8. Branch hygiene sweep
+
+Added 2026-08-12, after a one-off audit found ~24 stale branches had
+accumulated while GitHub's "Automatically delete head branches" setting was
+off (David has since turned it on). With that setting enabled, a merged
+PR's branch cleans up on its own — this section exists for the two shapes
+it doesn't cover: **closed-but-unmerged** PR branches, and branches with
+**no PR at all**.
+
+1. `mcp__github__list_branches`, paginated. Skip `main` and any branch
+   matching `plan-review/<slug>-combined` outright — that shape
+   deliberately has no PR (per the plan-review-loop skill's split-loop
+   close-out), so it's the one branch whose commit only the branch itself
+   retains (see CLAUDE.md's *Approved-plan source* note). Never a deletion
+   candidate, full stop, regardless of age.
+2. For everything else, check PR state
+   (`mcp__github__list_pull_requests` with `head:owner:branch`,
+   `state: all`) rather than trusting the branch-list page's own PR-status
+   icon — a branch can carry more than one PR over its life (verified
+   2026-08-12: `claude/test-run-checklist-structure-lsxraz` alone had
+   three), and the UI surfaces only one.
+   - **Merged** → shouldn't exist if auto-delete is working. Report it as
+     a signal the setting may have lapsed, not just a routine delete
+     candidate.
+   - **Closed, unmerged** → safe-to-delete candidate. Note the reason if
+     the PR body states one (superseded by #N, diagnostic-only, an
+     explicit "DO NOT MERGE" plan-review PR) — usually a one-line lookup
+     that saves David re-deriving it.
+   - **Open** → never a candidate; skip silently, no need to report active
+     work every week.
+   - **No PR found at all** → do **not** default to "safe." Report
+     separately as *needs a look*, not *safe to delete* — a branch with
+     real, unique commits and no PR is exactly the shape that turned out
+     to hold unaccounted-for work in the 2026-08-12 audit
+     (`claude/pr-250-merge-conflicts-8m5oqs` never had one, and its 4
+     commits weren't captured anywhere else).
+3. Report as a short list: branch name, its PR if any, recommended
+   disposition. **I never delete a branch myself** — no tool in this
+   environment reaches branch deletion (`git push --delete` hangs on this
+   repo's proxy, and there is no GitHub MCP delete-branch call), so the
+   list is always for David to act on via GitHub's own branch-list trash
+   icon.
+4. If nothing's found beyond `main`, exempt branches, and active work, one
+   line: "branch hygiene: clean, N branches total, all active or exempt."
+
 ## Report delivery
 
-Single message, seven short sections, worst news first. When something needs
+Single message, eight short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page — the chat
