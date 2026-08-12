@@ -87,8 +87,11 @@ The runners point `DATABASE_URL` at the isolated test DB themselves:
 - The targeted `run-test.sh` uses a single cached test schema; the live/public
   schema is never touched.
 - **Production guard:** the runner refuses to run when `DATABASE_URL` points at
-  `heliumdb` (prod *and* dev share that name) or `NODE_ENV=production`. Use
-  `heliumdb_test` on Replit (`TEST_DATABASE_URL`), `overhype_test` in CI/sandbox.
+  `heliumdb` (Replit **dev**, not production), `neondb` (production, hosted on
+  Neon), a `*.neon.tech` host, `NODE_ENV=production`, or anything matching
+  `*prod*`. Use `heliumdb_test` on Replit (`TEST_DATABASE_URL`), `overhype_test`
+  in CI/sandbox. See [`TESTING.md`](TESTING.md#production-guard-safety-critical)
+  for the full name/host matrix.
 - Tests **create their own domain rows** (facts, reviews, pricing, moderation
   state, etc.) — the runner does not copy dev/prod data. External services (Pexels,
   object storage, pricing, embeddings, image/video generation, Stripe) must be
