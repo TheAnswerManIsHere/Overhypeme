@@ -198,7 +198,7 @@ migrations `0013`/`0028`/`0029`/`0057`, `pages/admin/features.tsx`,
 | `meme_ai_background` | ✗ | ✗ | ✓ | ✓ | yes — **admins wrongly denied** |
 | `meme_private_visibility` | ✗ | ✗ | ✓ | ✓ | yes |
 | `meme_rate_limit_high` | ✗ | ✗ | ✓ | ✓ | yes — **admins wrongly on the free cap** |
-| `meme_upload_photo` | ✗ | ✓ | ✓ | ✓ | **no — fully orphaned** |
+| `meme_upload_photo` | ✗ | ✓ | ✓ | ✓ | **no — fully orphaned; this plan deletes it** |
 | `video_generation` | ✗ | ✗ | ✓ | ✓ | yes — **cannot be switched off** |
 | `engine_experiments` | no rows | | | | no — **out of scope, Plan 3** |
 
@@ -305,11 +305,35 @@ grandfathers that one site, tagged deferred-to-Plan-3. A *new* inline check
 anywhere else still fails the build, and Plan 3's implementation removes the
 exception.
 
-**`meme_upload_photo` is an open product question, not a plan decision.** No
-route reads this row today — a repo-wide grep finds only the migrations that
-seeded and later flipped it, and `meme-and-video-studio.md:268-275` already
-flagged it as needing David's confirmation before either reading is relied
-on. See *Questions for David*. This plan wires it neither way until answered.
+**`meme_upload_photo` is retired as a vestigial row, not wired up** (David,
+2026-08-12, answering the question `meme-and-video-studio.md:268-275` raised
+before this plan existed and Codex round 2 caught this plan answering on its
+own). No route reads the row today — a repo-wide grep finds only the
+migrations that seeded and later flipped it. Photo-upload meme creation is
+therefore reclassified as an **identity prerequisite**, matching what the
+code actually does.
+
+The reasoning, recorded because the row looks superficially like it belongs:
+its values are ✗/✓/✓/✓, so the only distinction it encodes is
+unregistered-versus-registered — and that is already enforced one layer down,
+since an upload needs an account to own the stored file and unregistered
+users cannot save memes at all. Wiring it up would add a deny branch that is
+unreachable in practice, and leave a checkbox on the grid that either does
+nothing or, if anyone unchecked `registered`, would silently gut the core
+personalization loop from the one screen whose whole promise is that it is
+safe to configure at runtime. Every row in this grid should be a real dial.
+
+This is the *consistent* outcome rather than an exception to it: commenting,
+rating, and hearts are all gated registered-versus-unregistered and are
+deliberately identity prerequisites for exactly this reason. Keeping the row
+would have been the inconsistency.
+
+**Left open deliberately:** if photo-upload memes ever become a Legendary
+upsell, that is a real product decision with its own enforcement boundary to
+design (covering direct `POST /storage/upload-meme` calls and reuse of
+already-stored uploads, not just the client rule) — and adding the row back
+is then one call to Plan 1b's creation function plus the gate. Retiring it
+now forecloses nothing.
 
 ### One resolver
 
@@ -672,7 +696,7 @@ except the two accidental denials.
 | `meme_rate_limit_high` | legendary only; **admins wrongly on free cap** | ✗/✗/✓/**✓** | **fixes an accidental denial**; description corrected; superseded by Plan 2's metered `daily_meme_saves` |
 | `meme_ai_background` | legendary; **admins wrongly denied** on the dead render gate | ✗/✗/✓/**✓** | **fixes an accidental denial**; rewired to reachable routes |
 | `video_generation` | legendary + admin, **cannot be switched off** | ✗/✗/✓/**✓** | grid toggle starts working; boot overwrite removed |
-| `meme_upload_photo` | dead row — upload is authentication-only | ✗/✓/✓/**✓** | **pending David** (see *Questions*) — either wired up as shown, or retired and reclassified as an identity prerequisite |
+| `meme_upload_photo` | dead row — upload is authentication-only | **row deleted** | **retired** (David, 2026-08-12) — reclassified as an identity prerequisite; the row encoded only the registered-vs-unregistered distinction that authentication already enforces. No behaviour changes for anyone. |
 
 **`engine_experiments` is explicitly untouched** — no rows, admin-only via a
 hardcoded predicate. Plan 3 replaces it entirely.
@@ -770,17 +794,31 @@ overclaimed; closing it is exactly 1b's scope.
 
 ### Migration
 
-Forward-only, idempotent, nothing destructive:
+Forward-only and idempotent. **One destructive step** — see below.
 
 1. Create the three new tables and the `video_jobs` column; initialize the
    revision row; backfill existing `video_jobs` snapshots.
 2. Insert the five new boolean `feature_flags` rows and their full four-row
    tier sets.
 3. Correct `meme_rate_limit_high`'s description text.
-4. Backfill any missing `(tier, feature_key)` combination among the existing,
-   non-`engine_experiments` features. `engine_experiments`'s missing rows are
-   deliberately left alone — backfilling a feature Plan 3 is about to retire
-   is wasted work.
+4. **Delete `meme_upload_photo`** — its four `tier_feature_permissions` rows
+   first, then the `feature_flags` parent, guarded by `IF EXISTS` so a re-run
+   and an already-clean database both no-op. This is the only destructive
+   statement in the plan.
+5. Backfill any missing `(tier, feature_key)` combination among the
+   remaining, non-`engine_experiments` features. `engine_experiments`'s
+   missing rows are deliberately left alone — backfilling a feature Plan 3
+   is about to retire is wasted work.
+
+**The deletion is safe to do with plain SQL only because this migration
+precedes Plan 1b's.** Once 1b ships, its deletion-protection trigger rejects
+removing an individual `tier_feature_permissions` row for a feature that
+still exists, and `delete_feature_flag` becomes the only sanctioned path.
+That ordering already holds — 1b's migration fails fast if this plan's tables
+are absent (see [1b's *Data Model*](./PLAN_FEATURE_GRID_WRITE_BOUNDARY.md)) —
+but it is now load-bearing in a second way, so it is stated here rather than
+left implicit. If for any reason 1b lands first, this step must go through
+`delete_feature_flag` instead.
 
 **The backfill's counts go to a durable table, not a channel the runner
 discards.** The canonical runner (`lib/db/src/migrate.ts`) ignores statement
@@ -798,7 +836,9 @@ neither:
 | `already_complete_count` | Whether the database was clean going in |
 | `engine_experiments_skipped_count` | Whether the deliberate exception was honoured |
 
-Plus `id`, `migration_name`, `ran_at`. Idempotency is proved by an integration
+Plus `id`, `migration_name`, `ran_at`, and `deleted_rows jsonb` (the
+`meme_upload_photo` rows captured before deletion, per *On the one deletion*
+below). Idempotency is proved by an integration
 test that calls the backfill's exported function **twice** in one test —
 bypassing the runner's skip-by-hash gate, which a normal deploy never does —
 asserting the second call logs `inserted_count = 0` while the other two are
@@ -813,9 +853,20 @@ cannot be switched off today. Deleting both steps is the fix; changing one to
 architecture is giving exactly one.
 
 **Row-state matrix:** *new* key → insert; *existing and complete* → no-op;
-*existing and partial* → fill gaps only; *re-run* → no-op throughout. Nothing
-is deleted, so no backup artifact or rollback plan is needed beyond an
-ordinary forward fix.
+*existing and partial* → fill gaps only; *`meme_upload_photo`* → delete
+(children then parent, `IF EXISTS`); *already-deleted* → no-op; *re-run* →
+no-op throughout.
+
+**On the one deletion.**
+[`migrations-and-backfills.md:120-121,153`](../engineering/migrations-and-backfills.md)
+requires that anything destructive carry an explicit recovery/rollback
+description, so here it is. The five rows removed belong to a feature no code
+reads, so nothing can regress from their absence. **Recovery is a single
+forward insert** re-creating the parent and its four tier rows — and to make
+that answerable from the database rather than from this document, the
+migration captures the five rows into a `deleted_rows jsonb` field on this
+run's `feature_permissions_migration_log` row *before* deleting them. No
+separate backup artifact is warranted at five rows of configuration.
 
 ## Runtime Behavior
 
@@ -846,10 +897,11 @@ behaviour.
 ## Admin/User UX Impact
 
 - **Features console.** Renders as today — a checkbox per (tier, feature) cell
-  — but the Admin column genuinely changes behaviour, and five new rows
-  appear. The column header states that admin values *add to*, never replace,
-  the user's tier. (Value-type-aware rendering, grouping, and the Unlimited
-  state are Plan 2's UI work.)
+  — but the Admin column genuinely changes behaviour, five new rows appear,
+  and one dead row (`meme_upload_photo`) disappears. The column header states
+  that admin values *add to*, never replace, the user's tier.
+  (Value-type-aware rendering, grouping, and the Unlimited state are Plan 2's
+  UI work.)
 - **Every user-facing lock becomes truthful.** Controls the server would allow
   stop being hidden; controls the server would reject stop being offered.
 - **View-as-user gains an exit** — an explanatory panel with a working toggle
@@ -900,9 +952,13 @@ The invariant tests, not just the reported examples:
 2. **The PR #402 regression, generalised as own-tier monotonicity.** Adding
    the admin overlay never makes an account worse off. PR #402 itself is kept
    as a named regression case.
-3. **Every consulted key is reachable** — every key referenced in code exists
-   in the grid with a complete four-row set, and every grid key (except
-   `engine_experiments`) is referenced in code.
+3. **Every consulted key is reachable, and no orphans remain** — every key
+   referenced in code exists in the grid with a complete four-row set, and
+   every grid key (except `engine_experiments`) is referenced in code. This
+   is the test that would have caught `meme_upload_photo` originally, and it
+   now fails if any future migration reintroduces an unread row. Includes an
+   explicit assertion that `meme_upload_photo` and its four tier rows are
+   gone, and that a re-run of the deletion no-ops.
 4. **Fail-closed** — DB error, unknown key, and missing row each deny, for
    every gate.
 5. **View-as-user** — feature gates drop to `registered`; `requireRole` gates
@@ -991,8 +1047,9 @@ here would be a further plan split, not an implementation detail.
 3. Migration: the three new tables, the `video_jobs.authorization_snapshot`
    column and its backfill, the revision row's initialization, the five new
    boolean features and their row-sets, the description fix, and the row
-   backfill excluding `engine_experiments` with its three logged counts.
-   Delete `seed.ts:531-545` outright.
+   backfill excluding `engine_experiments` with its three logged counts, and
+   the `meme_upload_photo` deletion (children then parent, captured into
+   `deleted_rows` first). Delete `seed.ts:531-545` outright.
 4. Move all six existing grid call sites and the five `requireLegendary`
    product routes onto `requireFeature` / `can`; collapse `facts.ts`'s
    role-OR-grid expression into one resolver call. Add the named, temporary
@@ -1001,7 +1058,8 @@ here would be a further plan split, not an implementation detail.
    bypasses, ad-free) onto the resolver. Add `custom_avatar`: `PATCH
    /users/me` rejects an unentitled `avatarSource: 'photo'`; `POST
    /users/me/profile-image` stores the photo and skips the flip. Neither
-   upload route is gated. (`meme_upload_photo` waits on David's answer.)
+   upload route is gated. Classify photo-upload meme creation as an identity
+   prerequisite in the allowlist — no gate is added for it.
 6. Add the effective-avatar projection and move all five public consumers onto
    it (`Navbar.tsx`, `Profile.tsx`, `facts.ts` ×3), with batch resolution for
    the two `facts.ts` maps.
@@ -1046,24 +1104,12 @@ here would be a further plan split, not an implementation detail.
 
 ## Questions for David
 
-**One — is `meme_upload_photo` a removed check or an intended-but-never-wired
-one?** (Raised by `meme-and-video-studio.md:268-275` before this plan existed;
-Codex round 2 caught that the plan had answered it without asking.) The row
-exists in `tier_feature_permissions`, seeded and later flipped on for
-`registered`, but no route or `createMemeRecord` path reads it — photo-upload
-meme creation is gated by nothing beyond authentication today.
-
-1. **It's an intended entitlement** — wire it up: gate photo-upload meme
-   creation behind `can('meme_upload_photo')`, including direct `POST
-   /storage/upload-meme` calls and reuse of already-stored uploads, not just
-   the client's three-way rule. *Ramification:* a currently-free capability
-   becomes gated for `unregistered` users on merge — a real, if narrow,
-   behaviour change beyond "no other end-user-visible capability changes."
-2. **It's a removed check** — reclassify as an identity prerequisite (free to
-   any authenticated user, matching today's code) and remove the vestigial
-   grid row rather than wiring it to a check nothing enforces.
-   *Ramification:* the grid stops claiming a capability it never gated; no
-   behaviour changes for anyone.
+**None.** The one that stood — `meme_upload_photo`'s classification — was
+answered on 2026-08-12: retire the row, reclassify photo-upload meme creation
+as an identity prerequisite. The reasoning is recorded under *Proposed
+Design*, including what would reopen it (making photo-upload memes a
+Legendary upsell, which is a separate product decision with its own
+enforcement boundary).
 
 Everything else was settled in the direction (#412) or the original PR #404
 conversation. The scope boundaries — Plan 1b, Plan 2, Plan 3 — were David's
@@ -1079,7 +1125,9 @@ own calls.
   admin whose own tier already grants a feature sees no change from toggling
   Admin off — the union working correctly, not a bug).
 - The grid contains every capability previously gated by an inline role check,
-  as a boolean row, fully populated across all four columns.
+  as a boolean row, fully populated across all four columns — and contains no
+  row that no code reads (`meme_upload_photo` deleted; `engine_experiments`
+  the one declared, Plan-3-owned exception).
 - No client surface derives a permission it was not told; the entitlement
   payload is the sole input to every lock/unlock decision in scope, and stays
   correlated with both halves of the version pair.
