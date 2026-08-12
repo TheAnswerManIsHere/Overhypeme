@@ -114,11 +114,24 @@ forward.
      deep evidence/verification for the Codex threads and the plan, not this
      banner.
   3. **Fire a push notification at those moments** (the `PushNotification`
-     tool) so David gets pulled back to the app. Scope: when I'm **blocked on
-     his input/decision**, AND at **major completions** that hand the turn back
-     to him (plan converged & ready for approval, PR green/ready, build done) —
-     the natural "come back" points. Not for routine progress. When unsure,
-     bias to *fewer* notifications, not more.
+     tool) so David gets pulled back to the app. **Every 🛑 NEED YOU banner
+     gets a notification — no exceptions, no judgment call (David,
+     2026-08-11).** The banner and the notification are one action, not two:
+     if I am writing the banner, I am firing the notification in the same
+     turn. This is stricter than the old "when I'm blocked" phrasing, which
+     left me room to skip one for a question that felt small — and I did,
+     on the engine-bands confirmation in the permissions plan, which is
+     exactly the miss David is correcting. **The consequence of missing one
+     is that the work silently stalls:** he does not see chat unless he
+     opens the app, and a banner he never learns about is a blocked session
+     nobody knows is blocked. When I catch myself thinking "this question is
+     minor enough to skip the notification," the answer is that it was
+     apparently major enough to stop and ask, so it gets one.
+     **Also** fire at **major completions** that hand the turn back to him
+     (plan converged & ready for approval, PR green/ready, build done). Not
+     for routine progress — there, still bias to *fewer*. The "bias to fewer"
+     guidance governs the discretionary completions only; it has never
+     governed 🛑, and now explicitly does not.
 - **A second, non-blocking "FYI" marker for autonomy-era judgment calls
   (David, 2026-08-06).** Now that I resolve review threads myself once
   addressed (see the pr-watch discipline below) instead of leaving every one
@@ -188,17 +201,27 @@ forward.
      pedantic findings on a docs PR anyway, they get declined against that
      rule in one triage pass — not fixed to be polite.
 - **Never narrate webhook echoes of my own replies — in chat or on GitHub
-  itself (David, 2026-07-27; expanded 2026-08-07).** While watching a PR,
-  events that turn out to be my own comments bouncing back still get the
-  silent live-state check the watching rules require — but they produce
-  **zero output on either surface**. No "echo of my own reply — no action
-  needed" lines in chat, and — this is the part I've gotten wrong — no reply
-  comment posted back on the GitHub thread saying so either (e.g. "That's an
-  echo of my own comment"). An echo gets no response of any kind, full stop;
-  they bury the signal the sparse-chat rule exists to protect, and a GitHub
-  reply to my own echo is just noise in the PR thread. Silence does not mean
+  itself (David, 2026-07-27; expanded 2026-08-07; tightened again
+  2026-08-11).** While watching a PR, events that turn out to be my own
+  comments bouncing back still get the silent live-state check the watching
+  rules require — but they produce **zero output on either surface**. No
+  reply comment posted back on the GitHub thread saying so, and **no
+  sentence about them in chat either — not even a short one.**
+
+  **The third-time tightening is about the chat half specifically.** The
+  rule already said "zero output," and I still opened two consecutive turns
+  in the permissions-plan session with *"Those webhook events are echoes of
+  my own replies — no action"* and *"Those last events are echoes of my own
+  replies — no action."* Both were, in my head, efficient status. To David
+  they are the thing this rule exists to delete: he is scanning for 🛑 and
+  👀, and every line of echo bookkeeping is one more line to scan past.
+
+  So the test is mechanical, not judgment-based: **if the only thing I would
+  be reporting is that an event required no action, I write nothing at
+  all** — I do not compress it, caveat it, or fold it into the first clause
+  of a sentence that goes on to say something useful. Silence does not mean
   I skipped the verification; it means the verification found nothing worth
-  responding to.
+  responding to, which is the normal case and needs no announcement.
 - **Work split into "Phase 1 / Phase 2 / …", spelled out — never "P1/P2" or
   ad-hoc names (David, 2026-07-23).** When I chop one feature into sequential
   deliverables, I label the pieces **Phase N**, written out. I do **not**
@@ -229,6 +252,18 @@ forward.
 
 ### Workflow tweaks (mechanical checks I've missed before)
 
+- **The plan-review disclosure check runs before the first PUSH, not before
+  the PR (2026-08-10).** *Plan review runs through the Codex draft-PR loop*
+  below states the canonical timing — before the first `git push` of the plan
+  document, not before `create_pull_request` — and this entry is the record of
+  why: I commit and push the plan to a branch well before opening the PR, and
+  this repo is public, so a plan naming unpatched vulnerabilities is already
+  exposed by the time the PR-creation step arrives. Caught on the
+  admin-permissions plan, where the document listed a fail-open spend gate
+  and an auth-bypass with file:line and was pushed to a public branch before
+  I checked. (David reviewed and chose to publish anyway — pre-launch, no
+  live site — but the ordering was wrong independently of how that call
+  went.)
 - **`lib/api-zod` exports: verify against codegen immediately, not later.**
   Codegen owns `lib/api-zod/src/index.ts` and silently wipes hand-added
   exports. The full gotcha and the exact procedure live in
@@ -423,8 +458,11 @@ loaded:
   unpatched-vulnerability details, auth-bypass specifics, secrets/credentials,
   payment-fraud abuse paths, private customer/commercial data, or embargoed
   plans **does NOT go through the public PR channel** — it stays on the
-  manual/private review path. I run this check before creating the PR, not
-  after.
+  manual/private review path. **I run this check before the first `git push`
+  of the plan document, not before `create_pull_request`** — see *Workflow
+  tweaks*' entry on this below for why the earlier moment is the one that
+  matters on a public repo (I typically push the plan to a branch well before
+  opening the PR).
 - **The plan-review PR is never merged**, and its branch is **never reused for
   implementation**. A `docs/plans/` file reaches `main` only if David
   explicitly asks to keep it.
