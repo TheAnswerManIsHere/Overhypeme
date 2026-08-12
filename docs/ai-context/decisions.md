@@ -13,6 +13,54 @@
 
 ---
 
+### 2026-08-11 · Claude drives PR close-out (merge + Repl sync); David's UAT gates nothing pre-merge
+- **Decision:** Once a PR is CI-green, Codex-converged, and every review
+  thread is resolved, Claude asks David for an explicit go, then owns the
+  mechanics end to end: squash-merge, trigger the Repl's git sync, and verify
+  both the synced SHA and a clean worktree before reporting done. David's UAT
+  happens **after** that, not before — it is not part of the merge bar.
+- **Why:** the first version of this contract gated the merge on David's UAT
+  passing, which is structurally impossible — the app runs from the Repl,
+  the Repl tracks `main`, so code on a branch exists nowhere David can click
+  until *after* merge and sync. Merging is what makes the work testable, not
+  a reward for having already tested it. CI and Codex review catch *broken*;
+  David's UAT catches *wrong*, and it can only run once the sync has put the
+  build in front of him. A failed UAT afterward is a normal fix-forward PR,
+  not a crisis — the merge already happened, and production is untouched
+  either way because publishing stays a separate, explicitly-asked step.
+- **Reference:** [`CLAUDE.md`](../../CLAUDE.md)'s *Close-out is mine; the go
+  is David's* section.
+- **Revisit if:** the Repl ever stops being the thing David actually tests
+  against (e.g. a staging environment is introduced), which would change
+  what "makes the work testable" means.
+
+### 2026-08-11 · The Replit connector's mutating tool is governed by request class, not banned outright
+- **Decision:** `update_app_using_prompt` (the Replit MCP connector's only
+  mutating channel — every action in the Repl, from a `git log` to a file
+  edit, goes through it) is allowed for ops/diagnostics/debugging and for
+  file edits in service of debugging or the Repl's own configuration; it is
+  never used to build product features. The dividing line is **whose work
+  dodges review**, not whether a file changed on disk — Replit Agent's own
+  direct pushes to `main` are a separate, already-sanctioned path because
+  Replit brings its own judgment and live verification to that act.
+- **Why:** the first version of this policy was a blanket ban on the tool,
+  written the same day the connector was first evaluated. It didn't survive
+  contact with real use: the tool is the connector's *only* way to reach the
+  Repl at all, so banning it bans the environment, including the diagnostic
+  and verification uses that are the entire reason to have the connector.
+  The real risk was never "a file changes" — it was Claude routing its own
+  implementation work through a second AI to dodge the PR → Codex review →
+  squash-merge pipeline. Naming that boundary directly, instead of banning
+  the tool that happens to be adjacent to it, let genuinely valuable live
+  diagnostics (which caught a materially wrong claim about Replit's own
+  sync behavior within the same session) stay available.
+- **Reference:** [`CLAUDE.md`](../../CLAUDE.md)'s *The Replit connector
+  (MCP) — policy* section.
+- **Revisit if:** a future incident shows the class boundary itself is
+  undecidable in the moment it matters (the debugging-edit vs.
+  product-behavior-change tie-breaker already added once, per Codex review
+  on PR #413, is the model for tightening it further if it recurs).
+
 ### 2026-08-09 · Bugfix-mode entry is routed and announced, not explicit-only
 - **Decision:** Claude classifies each work request by shape: clearly
   bugfix-shaped requests enter the bugfix workflow with a one-line

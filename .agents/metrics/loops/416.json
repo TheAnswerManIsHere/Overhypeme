@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "pr": 416,
+  "closedAt": "2026-08-12T03:48:39Z",
+  "mechanical": {
+    "title": "Make `claude` survive Repl restarts via a git-tracked launcher",
+    "cohort": "feature/code",
+    "size": {
+      "files": 3,
+      "added": 89,
+      "removed": 0
+    },
+    "rounds": 0,
+    "findings": 0,
+    "perRound": [],
+    "reviewInterval": null,
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 0, "prop": 0, "wrong": 0, "reRaised": 0, "invalid": 0 },
+    "preOpenPreflightMin": 0,
+    "breakersFired": "none"
+  },
+  "adjudication": { "status": "n/a" },
+  "notes": "No review posted; zero findings across zero rounds, so adjudication is n/a (zero valid-finding denominator). (The PR body's own flagged open question — whether .replit's [env] PATH actually propagates — was resolved empirically post-merge, not through review; unrelated to this loop's findings count.)"
+}

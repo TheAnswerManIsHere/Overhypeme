@@ -77,6 +77,30 @@ we've sequenced for later.
   - **Revisit trigger.** Next time the admin health panel is touched for
     another reason, or the first time this job is suspected of not running.
 
+- **`assert_not_production`'s protected-name/host defaults don't recognize
+  `neondb` (production, on Neon) — only `heliumdb` (the shared name dev and
+  prod used to have).**
+  - **What.** `artifacts/api-server/scripts/lib/test-db.sh`'s guard refuses a
+    destructive test-DB operation whose target matches `heliumdb`,
+    `production`, a `*prod*` substring, or the `TEST_DB_PROTECTED_NAMES` /
+    `TEST_DB_PROTECTED_HOSTS` env-var extension lists — none of which match
+    `neondb` or a Neon hostname. Add `neondb` and a generic `neon.tech` host
+    marker to the script's own defaults (not a repo-specific endpoint, which
+    stays out of the public repo) so the guard protects prod without needing
+    per-environment env-var configuration to do it.
+  - **Why deferred now.** Discovered 2026-08-11 while setting up Claude Code
+    inside the Repl; confirmed via an env-var name inventory that **no
+    production credential exists anywhere in that environment today**, so
+    there is currently nothing for the guard's blind spot to fail to catch.
+  - **Cost of waiting.** Zero today; not bounded. The moment any workflow
+    puts a `neondb`/Neon credential into an environment this guard runs in —
+    the Repl, CI, a future automation — the gap becomes live and the guard
+    would wave a destructive operation straight through to production.
+  - **Revisit trigger.** Before any production database credential is ever
+    added to the Repl's environment or any CI job — not after. See
+    [`replit-environment.md`](../ai-context/replit-environment.md#dev-and-production-are-two-separate-databases-and-the-safety-guard-only-knows-about-one-of-them)
+    for the full topology.
+
 - **The autoscale connection budget is unenforced and slightly wrong (found on PR #299's review, deferred by PR #308).**
   - **What.** `.replit` selects `deploymentTarget = "autoscale"` with no
     maximum instance count, so `lib/db/src/index.ts:45-67`'s "safe up to 19

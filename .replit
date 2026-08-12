@@ -5,13 +5,17 @@ modules = ["nodejs-24", "python-3.11", "postgresql-16"]
 # restarts ($HOME does not persist). The directory is gitignored; see
 # .gitignore for why that entry is load-bearing in a public repo.
 #
+# CLAUDE_CONFIG_DIR is set via a Replit Secret, not here — David settled
+# that as the single source of truth (2026-08-12), so it is deliberately
+# NOT duplicated in this file. See deferred-work.md's now-resolved entry
+# for why a second declaration briefly existed here.
+#
 # PATH puts scripts/bin on the front so `claude` resolves to the git-tracked
 # launcher at scripts/bin/claude. The installer's own pointer lives at
 # ~/.local/bin/claude, which $HOME's restart wipe destroys; the launcher is
 # restored by git sync instead, and re-resolves the persistent payload at
 # call time. See scripts/bin/claude for the full rationale.
 [env]
-CLAUDE_CONFIG_DIR = "/home/runner/workspace/.claude-user"
 PATH = "/home/runner/workspace/scripts/bin:${PATH}"
 
 [[artifacts]]

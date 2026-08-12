@@ -622,7 +622,11 @@ commits, David has explicitly said "don't open a PR for this," or a
 **plan-review channel branch** — `plan-review/<slug>` (its PR is opened by
 the loop itself and never merged) and `plan-review/<slug>-combined` (which
 deliberately has **no** PR; see the plan-review-loop skill's close-out).
-Those carry a plan, not a unit of work.
+Those carry a plan, not a unit of work. **Deletion once the work has
+shipped:** a `plan-review/<slug>` branch with a real PR is safe to delete —
+the PR itself keeps the plan commit resolvable, not the branch (see the
+*Approved-plan source* note below). A `-combined` branch has no PR, so it is
+the one exception that must be kept — nothing else retains its commit.
 
 **The PR body carries the approved plan as the reviewer's oracle
 (David, 2026-07-25).** Without it, Codex can only review an implementation PR
@@ -658,12 +662,23 @@ approved. So the provenance line names the artifact precisely, in one of three
 forms:
 
 - **Single-PR loop:** `Plan-review PR #<N>, final plan commit <sha>, approved by
-  David on <date>` (the `plan-review/*` branches are never deleted in this
-  environment, so that sha stays resolvable).
-- **Split loop (step 10):** the combined commit belongs to *no* PR, so citing one
-  subsystem PR would silently omit the others. Name them all plus the artifact
-  David actually approved: `Plan-review PRs #<N1>, #<N2>[, …]; combined plan
-  commit <sha> on plan-review/<slug>-combined, approved by David on <date>`.
+  David on <date>` — resolvable indefinitely because **the PR retains it**
+  (GitHub keeps a closed PR's commits reachable via its own ref, independent
+  of the source branch), not because the branch does. Verified empirically
+  2026-08-12: `get_commit` resolved a merged PR's head commit in full after
+  its source branch had already been deleted. **This means an ordinary
+  `plan-review/<slug>` branch — one with a real PR — is safe to delete once
+  its work has shipped; there is no standing "never delete" rule for it.**
+  (An earlier version of this line claimed otherwise and was wrong — it
+  conflated branch retention with PR retention, which is what actually
+  provides resolvability.)
+- **Split loop (step 10):** the combined commit belongs to *no* PR (see
+  below), so **this is the one case where the branch itself must be kept** —
+  deleting it would genuinely orphan the commit, since nothing else retains
+  it. Citing one subsystem PR would also silently omit the others, so name
+  them all plus the combined artifact: `Plan-review PRs #<N1>, #<N2>[, …];
+  combined plan commit <sha> on plan-review/<slug>-combined, approved by
+  David on <date>`.
 - **Manual/private path** (plan never committed): the filename plus a
   `shasum -a 256` of the exact file I delivered for approval, plus the date.
 
@@ -902,6 +917,15 @@ it lives here rather than in the shared docs.
   prompt), `publish_app` / `get_publish_status` (deploys the Repl's current
   workspace snapshot to production), and `create_app_from_prompt` (spins up
   new Repls — not relevant to Overhype.me work).
+- **There is no push/notification channel — every call is a one-shot poll,
+  and a "busy" reply means the question was NOT queued.** Both `ask_question`
+  and `update_app_using_prompt` can return `phase: "busy"` while Replit
+  Agent is still working an earlier request; the tool's own response says
+  plainly that a busy reply is dropped, not remembered, so I have to
+  explicitly re-ask the same question again once it clears, not just wait
+  passively. Unlike `subscribe_pr_activity`, nothing arrives here on its
+  own. When I say "checking" I mean I'm about to re-issue the call in this
+  same turn — not that I'll find out later without prompting.
 - **`ask_question` is a diagnostics/triage channel, not verification
   evidence — and it answers from understanding, not execution.** I can use
   it mid-triage to inspect Repl-side state without a full TEST_RUN
