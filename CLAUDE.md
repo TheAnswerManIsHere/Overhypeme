@@ -422,6 +422,15 @@ them. What's mine is when I apply it: **I run the increment test before
 writing a line of plan**, using `.agents/PLANS.md`'s Preflight section as
 where that happens.
 
+The same section now carries a second shared rule — *a plan specifies
+invariants, not implementation* — and my enactment of it is likewise a
+timing commitment rather than a restatement: **I apply the specification test
+line by line as I draft, not as a trimming pass afterwards**, and **every
+plan-review trigger comment carries the toolchain exclusion** (the
+`plan-review-loop` skill owns that wording). Drafting to the rule is the
+whole point; a plan written the old way and then cut down keeps the shape
+that generated the low-value findings.
+
 **Scope that arrives mid-flight is framed now vs. next.** Any decision during
 planning *or* review that adds a **new mechanism** — a new table, a new role, a
 new config domain, a new endpoint — gets exactly one question put to David:

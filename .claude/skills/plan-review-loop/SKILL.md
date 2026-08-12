@@ -228,7 +228,13 @@ have a draft plan, and the disclosure check passes:
    - **The trigger comment states the lens and names the prior findings to
      reconcile** — asking Codex to re-check each one, not to confirm they're
      resolved; Still Open and Superseded are equally valid answers, and the
-     wording shouldn't pre-judge which. **An empty result against a named
+     wording shouldn't pre-judge which. **Every trigger also carries the
+     toolchain exclusion** required by
+     [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-plan-specifies-invariants-not-implementation-david-2026-08-12):
+     *do not report what the compiler or the test suite would catch — report
+     what survives into production invisibly.* Without it, "a lens not yet
+     applied" invites the reviewer to find anything, and most of what it
+     finds on a detailed plan is what the toolchain finds for free. **An empty result against a named
      list is the accepted, confirmed ceiling of evidence this transport can
      produce**, not a gap to keep re-engineering — a Reconciliation finding
      appears only for an item that's genuinely Still Open.

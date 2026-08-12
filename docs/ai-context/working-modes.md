@@ -178,6 +178,64 @@ pre-plan-intent rule carries the exception directly: narrowing to increment A
 is not the failure it catches, provided B is named in the plan's cited
 direction rather than silently absent.
 
+### A plan specifies invariants, not implementation (David, 2026-08-12)
+
+**The test, applied to any line you are about to write into a plan: if the
+plan never mentioned this, what would catch it?** If the answer is the
+compiler, the test suite, or a code reviewer looking at the diff, the line is
+costing review rounds to find what the toolchain finds for free. If the answer
+is *nothing*, the line is why plan review exists.
+
+**Where this came from.** PR #421's round 4 produced eight findings. Traced
+against that question: the compiler would have caught one (a required column
+with no default makes an uncovered insert fail to typecheck), running the test
+would have caught another (an assertion that could not be true), diff review
+probably a third. One was plan-only and worth nothing. **One was plan-only and
+load-bearing** — two sibling plans whose deploy order was constrained in both
+directions, which no compiler, test, or single-PR reviewer can see. One in
+eight justified the round.
+
+Contrast PR #422's first round: ten findings on PostgreSQL enforcement
+mechanics — trigger event coverage, `ENABLE ALWAYS`, statement-level TRUNCATE,
+ownership reach. **Not one is catchable by a compiler, a test, or a diff
+review.** A security boundary wired wrong compiles, passes, and reports
+success while being fake. So the answer is not "write shorter plans" — it is
+**cut by category**.
+
+**Stop specifying:**
+
+- **Call-site enumeration.** State the invariant — *every writer to this table
+  carries the snapshot* — and let the compiler enumerate the writers. A list of
+  call sites in a plan is a list that goes stale silently; a `NOT NULL` column
+  is a list that cannot.
+- **Test assertions and their expected values.** State what must be true. The
+  engineer writing the test derives the assertion, and a wrong one fails
+  loudly.
+- **Step-by-step implementation sequences** for ordinary code. Ordered steps
+  for a *migration* are a different thing and stay.
+
+**Keep at full depth** — the four things no downstream check can catch:
+
+1. **Data model and migration shape.** Often irreversible.
+2. **Security and privilege boundaries.** The wrong version is
+   indistinguishable from the right one at runtime.
+3. **Sequencing and dependencies between separate plans or PRs.** Structurally
+   invisible to any reviewer looking at one diff.
+4. **Product semantics.** Whether this is the right behaviour at all.
+
+**The trap to avoid: the plan is the reviewer's oracle for the *code*.** A
+David-approved plan's intent and invariants are pasted into the implementation
+PR so the reviewer can catch a build that quietly narrowed scope. A vaguer plan
+makes that unfalsifiable. So the plan stays **precise about intent and
+invariants** while becoming **less detailed about implementation** — different
+axes. Length is not precision: #421 ran to 1212 lines and still contradicted
+itself about which sibling shipped first.
+
+**Say this in the review request.** A reviewer asked for "a lens not yet
+applied" will go find anything. Tell it plainly: *do not report what the
+compiler or the test suite would catch — report what survives into production
+invisibly.* That one sentence is most of the win, and it costs nothing.
+
 ### Review loops need a stopping rule, not just a convergence target
 
 A review loop's exit condition cannot be "keep going until the reviewer stops
