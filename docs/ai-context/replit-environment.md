@@ -31,6 +31,33 @@ environment:
   one dirties the worktree that Publish snapshots. Fixed in the script itself,
   which now exits early when Replit environment variables are present.
 
+### `$HOME` is wiped on every restart — which is why `claude` kept vanishing
+
+The Repl has two filesystems, and the difference governs everything above and
+below: **`/home/runner` is an ephemeral overlayfs layer, wiped on every
+container restart. `/home/runner/workspace` is a persistent btrfs volume.**
+
+Claude Code's native installer straddles that line badly. Its ~300MB payload
+lands in the workspace (`.local/share/claude/versions/<version>`) and
+survives fine — but it is reachable only via a symlink at
+`~/.local/bin/claude`, which does not. After a restart the binary is still
+perfectly intact and `claude` is nonetheless "command not found". Restarts
+are frequent and unannounced: two inside 90 minutes on 2026-08-11.
+
+Re-running the installer works but only re-creates a pointer in the same
+doomed location. The durable fix is **`scripts/bin/claude`** — a git-tracked
+launcher that git sync restores like any other repo file, with
+`scripts/bin` placed on `PATH` by `.replit`'s `[env]` block. It resolves the
+newest installed payload **at call time** rather than being a symlink,
+because the payload path is version-numbered and carries no
+`current`/`latest` manifest: a pinned link would keep working after a
+`claude update` while silently launching the old binary.
+
+Two things this deliberately does *not* do. It does not reinstall anything —
+if the payload is genuinely absent it prints the installer command and exits
+`127`. And it does not put `$HOME` back in the loop; nothing about the fix
+depends on a file under `/home/runner` surviving, because none of them do.
+
 ### The Repl requires a local-settings override that is NOT in git
 
 Local settings take precedence over the versioned project settings, and the
