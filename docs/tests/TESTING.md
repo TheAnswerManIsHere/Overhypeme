@@ -129,7 +129,7 @@ point `DATABASE_URL` here?".
 
 | Name | Meaning | Safe target? |
 |---|---|---|
-| `heliumdb` | Replit **prod *and* dev** database name (they share it) | **No** — production guard refuses |
+| `heliumdb` | Replit **dev** database name. **Not** production — see the note below the table. | **No** — production guard refuses |
 | `heliumdb_test` | On Replit: the **test database** (`TEST_DATABASE_URL` in `.replit` points here). In `run-test.sh`: the cached **schema** of the same name. | Yes |
 | `overhype_test` | CI / sandbox test database | Yes |
 | `heliumdb_t_*` | Full-suite template database | Temporary, runner-owned |
@@ -143,17 +143,23 @@ called `heliumdb_test` inside whatever database it targets. Different layer, sam
 label. (Note: the hyphenated `heliumdb-test` is not used anywhere — the configured
 name is the underscore form.)
 
+**Production is a separate database, not `heliumdb`.** `heliumdb` (on the
+`helium` host) is **development only**. Production is `neondb`, hosted on
+Neon — a different provider entirely. This table used to describe `heliumdb`
+as shared between prod and dev; that stopped being true, and the guard below
+was never updated for the split — see the production-guard section for what
+that means in practice.
+
 ---
 
-## Production guard (safety-critical)
+## Production guard (safety-critical) — has a real blind spot against `neondb`
 
 Both runners call `assert_not_production` before doing anything destructive. It
 refuses to run when:
 
 - `NODE_ENV` is `production` (case-insensitive); or
-- the target database name is `heliumdb` (Overhype's prod **and** dev share that
-  exact name), `production`, anything containing `prod`, or any name listed in
-  `TEST_DB_PROTECTED_NAMES`; or
+- the target database name is `heliumdb`, `production`, anything containing
+  `prod`, or any name listed in `TEST_DB_PROTECTED_NAMES`; or
 - the host matches a marker in `TEST_DB_PROTECTED_HOSTS`.
 
 The match on `heliumdb` is **exact**, which is why `heliumdb_test`,
@@ -161,6 +167,18 @@ The match on `heliumdb` is **exact**, which is why `heliumdb_test`,
 allowed. To run tests, point `DATABASE_URL` at the **test** database
 (`heliumdb_test` on Replit — via `TEST_DATABASE_URL` — `overhype_test` in
 CI/sandbox) — never at `heliumdb`.
+
+**None of the checks above recognize `neondb` — production itself.** It isn't
+named `heliumdb`, isn't named `production`, and contains no `prod` substring,
+so refusing `heliumdb` protects *dev*, not prod. `TEST_DB_PROTECTED_NAMES` /
+`TEST_DB_PROTECTED_HOSTS` could close this by env-var configuration, but
+neither is set anywhere in the environments this guard actually runs in
+today. Tracked in
+[`deferred-work.md`](../engineering/deferred-work.md#security--patching); see
+[`replit-environment.md`](../ai-context/replit-environment.md#dev-and-production-are-two-separate-databases-and-the-safety-guard-only-knows-about-one-of-them)
+for the full topology. No production credential exists in any environment
+this guard runs in as of 2026-08-11, which is the only reason this is a
+tracked gap and not an active incident.
 
 ---
 

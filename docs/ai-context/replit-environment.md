@@ -76,10 +76,26 @@ checkout), with these contents:
     "deny": ["Bash(git commit:*)", "Bash(git push:*)", "Bash(gh auth:*)",
              "Bash(python3 -c:*)", "Bash(node -e:*)", "Read(**/.env*)", "…"],
     "allow": ["Bash(git status:*)", "Bash(git log:*)", "Bash(ls:*)",
-              "Bash(cat:*)", "Bash(grep:*)", "Bash(find:*)", "…"]
+              "Bash(wc:*)", "Bash(ps:*)", "Bash(which:*)", "…"]
   }
 }
 ```
+
+**Deliberately excluded from `allow`, even though they look like ordinary
+read-only ops: `cat`, `head`, `tail`, `grep`, `rg`, `find`.** The first
+version of this file included them, and a Codex review on PR #417 caught
+why that defeated the design: `Bash(cat:*)` reads `.env` fine even though
+`Read(**/.env*)` denies it — the deny is scoped to Claude Code's own `Read`
+tool, and a shell command is a different door into the same file that rule
+doesn't cover. The same gap applies to any utility that can print file
+*content* (`head`, `tail`, `grep`, `rg`), not just `cat`. `find` is worse in
+a different way: `-exec` lets it run an arbitrary command, including
+anything else on the deny list, through a prefix (`find`) the rule never
+inspects past. There's no narrower glob that fixes this — the permission
+syntax matches a command prefix, not its flags or arguments — so the
+correct fix is exclusion, not a tighter pattern. Routine file-content
+reads go through Claude Code's own `Read` tool instead, which already
+enforces the same deny rule correctly.
 
 `defaultMode: default` restores normal permission prompting; `model: sonnet`
 matches the ops tier this session works at. **If the Repl is ever rebuilt or

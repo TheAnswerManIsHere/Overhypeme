@@ -1334,9 +1334,18 @@ the tool felt like. **Avoid:** for any environment where a mistaken grant has
 real blast radius, pair the prompting default with an explicit **deny list**
 that takes precedence over `allow` — that's what makes the design
 fatigue-proof, since even a reflexive click on a future prompt can't cross a
-denied boundary. Then curate a **generous allow list of genuinely low-risk,
-read-only operations** (status/log/diff reads, `ls`/`grep`/`find`, env
+denied boundary. Then curate a **generous allow list of genuinely low-risk
+operations that cannot read arbitrary file content or execute another
+command through themselves** (status/log/diff reads, `ls`, `ps`, env
 reads) so that prompts become rare enough to actually be read, not merely
 fewer — one prompt an hour gets scrutinized, fifty a session get clicked
-through. **Overhype:** the local settings override in the Repl (see
-[`replit-environment.md`](replit-environment.md#the-repl-requires-a-local-settings-override-that-is-not-in-git)).
+through. **The allow list itself needs the same scrutiny as the deny
+list, not just the presence of one:** a first draft of this exact list
+allowed `cat`/`grep`/`find` as "obviously read-only," and a review caught
+that each defeats the design in its own way — `cat`/`grep` read file
+content through a door (a raw shell command) the `Read`-tool-scoped deny
+rules don't cover, and `find -exec` runs an arbitrary command, including
+anything else on the deny list, through a prefix the rule never inspects
+past. **Overhype:** the local settings override in the Repl (see
+[`replit-environment.md`](replit-environment.md#the-repl-requires-a-local-settings-override-that-is-not-in-git),
+which also has the corrected list and the full reasoning).
