@@ -27,7 +27,7 @@
 import { type Request } from "express";
 import { usersTable } from "@workspace/db/schema";
 import { and, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
-import { BOOTSTRAP_ADMIN_EMAIL } from "./auth";
+import { BOOTSTRAP_ADMIN_EMAIL, isAdminByEmail } from "./auth";
 
 /** The ids in ADMIN_USER_IDS, read at call time so tests can vary the env. */
 function adminUserIds(): string[] {
@@ -78,6 +78,19 @@ export function isRealAdminSql(): SQL {
  */
 export function isReachableAdminSql(): SQL {
   return and(isRealAdminSql(), eq(usersTable.isActive, true))!;
+}
+
+/**
+ * The row-level answer, for batch projections that have already fetched the
+ * user rows and must not issue a query per subject. Same three mechanisms,
+ * evaluated in JS rather than SQL.
+ */
+export function isRealAdminRow(row: {
+  id: string;
+  email: string | null;
+  isAdmin: boolean | null;
+}): boolean {
+  return !!(row.isAdmin || adminUserIds().includes(row.id) || isAdminByEmail(row.email));
 }
 
 /**

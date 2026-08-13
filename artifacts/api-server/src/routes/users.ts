@@ -1,3 +1,4 @@
+import { can, principalFromRequest } from "../lib/featureAccess";
 import { isRealAdminRequest } from "../lib/adminIdentity";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
@@ -288,6 +289,24 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     if (avatarSource !== "avatar" && avatarSource !== "photo") {
       res.status(400).json({ error: "avatarSource must be 'avatar' or 'photo'" }); return;
     }
+    // The custom-avatar gate lives HERE, at the display selection — never at
+    // the photo upload. Uploading and storing a photo stays entirely
+    // entitlement-free: the upload routes are the shared onboarding/profile
+    // flow, and the resulting image is the identity photo PuLID meme and video
+    // generation consume. Gating the upload would break free onboarding for
+    // every registered user and remove a capability that is free today.
+    //
+    // This is the standalone, explicit selection request with no onboarding
+    // riding on it, so an unentitled caller gets a 403 rather than a silent
+    // skip. (POST /users/me/profile-image, which bundles the flip with an
+    // upload Onboard.tsx depends on, deliberately behaves differently.)
+    if (avatarSource === "photo" && !(await can(principalFromRequest(req), "custom_avatar"))) {
+      res.status(403).json({
+        error: "custom_avatar_required",
+        message: "A custom avatar photo is a Legendary feature. Upgrade your membership to unlock it.",
+      });
+      return;
+    }
     updates.avatarSource = avatarSource;
   }
 
@@ -549,6 +568,16 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
 
   const newProfileImageUrl = `/api/storage${objectPath}`;
 
+  // The photo is ALWAYS stored — this endpoint always succeeds. What is gated
+  // is only the flip to `avatarSource: 'photo'`, and an unentitled caller has
+  // it silently skipped rather than being rejected.
+  //
+  // The asymmetry with PATCH /users/me is deliberate, not an oversight: this
+  // endpoint atomically bundles the upload with the flip, and Onboard.tsx calls
+  // it to finish free photo onboarding. A 403 here would fail onboarding for
+  // every non-paying registered user.
+  const mayFlipToPhoto = await can(principalFromRequest(req), "custom_avatar");
+
   await db.transaction(async (tx) => {
     await tx.execute(sql`
       UPDATE upload_image_metadata
@@ -561,7 +590,10 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
       WHERE object_path = ${objectPath}
     `);
     await tx.update(usersTable)
-      .set({ profileImageUrl: newProfileImageUrl, avatarSource: "photo" })
+      .set({
+        profileImageUrl: newProfileImageUrl,
+        ...(mayFlipToPhoto ? { avatarSource: "photo" as const } : {}),
+      })
       .where(eq(usersTable.id, userId));
   });
 
