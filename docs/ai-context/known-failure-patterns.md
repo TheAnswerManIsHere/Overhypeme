@@ -1279,17 +1279,30 @@ the specific fixes named below over re-deriving them.
   `nextval(...)`. The entry above already stated the general rule, but its
   parenthetical enumerated only `check()`/index/FK — and a sequence isn't any
   of those, which is exactly how a documented pattern recurred in a new
-  shape. **Read that list as illustrative, never exhaustive: anything created
-  by raw migration SQL needs a schema declaration** (sequences via
-  `pgSequence`), or the next `push` silently removes it.
+  shape. **Read that list as illustrative rather than exhaustive — but the
+  rule is bounded by what `push` actually reconciles**, which is the object
+  types drizzle-kit introspects: tables, columns, constraints, indexes, enums,
+  and sequences (the last via `pgSequence`). It does **not** extend to
+  functions and triggers — drizzle-kit does not model those at all, so `push`
+  leaves them untouched and there is no declaration to add. Verified rather
+  than assumed: 0095's own `membership_entitlements_guard_immutable` function
+  and its trigger are undeclared and have survived many pushes intact, in the
+  same migration whose sequences did not. Stating the rule as "anything in raw
+  SQL needs a declaration" would send the next author hunting for a
+  declaration that cannot exist.
   **What hid it for so long is worth more than the fix:** the drop needs
   *two* pushes to be observable — the first creates from a pristine database,
-  the second reconciles against a schema that never mentioned the object. So
-  GitHub CI, which builds an ephemeral Postgres and runs push+migrate exactly
-  once, is structurally incapable of catching this class and stays green
-  forever; only a PERSISTENT database (Replit's `heliumdb_test`, a long-lived
-  sandbox) reaches the second push. A green CI is therefore not evidence the
-  schema is push-safe. Verified empirically before fixing: second push-force
+  the second reconciles against a schema that never mentioned the object.
+  GitHub CI builds an ephemeral Postgres and runs push+migrate exactly **once**
+  per database, so it never reaches the state that exposes the drop and stays
+  green; only a PERSISTENT database (Replit's `heliumdb_test`, a long-lived
+  sandbox) gets a second push. **A green CI is therefore not evidence the
+  schema is push-safe** — but note that this is a property of how the workflow
+  is currently shaped, *not* an inherent limit: pushing a second time within
+  one job and asserting the objects survive would reproduce the whole
+  transition in CI. That guard is deliberately deferred to its own change
+  rather than bundled here (David, 2026-08-13); until it lands, this class is
+  caught by nothing but the rule above. Verified empirically before fixing: second push-force
   dropped both sequences, exited 0, and logged nothing. Verification
   corollary matching the one above — query `pg_class WHERE relkind='S'`, and
   when a persistent test database starts failing where CI passes, suspect this

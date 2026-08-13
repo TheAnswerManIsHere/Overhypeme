@@ -180,13 +180,27 @@ for the full topology.
 
 ## CI gate + parity contract
 
-`.github/workflows/build.yml` defines two jobs that run on every PR to `main`:
+`.github/workflows/build.yml` defines these jobs, which run on every PR to
+`main`:
 
-- **`Build`** — install, validate migration snapshots, and `pnpm run build`
-  (typecheck + build).
+- **`Classify changed paths`** — decides whether the heavy suites below can be
+  skipped for a docs-only PR. Every failure path falls back to running
+  everything; push-to-main skips classification entirely.
+- **`Build`** — install, validate migration snapshots, the repo-health guards
+  (docs accuracy, codegen drift, loop-metrics, CI-classifier and Bash-guard
+  logic), and `pnpm run build` (typecheck + build). **Never** skipped.
 - **`Test`** — the api-server suite against a real Postgres + pgvector service
   container, with `DATABASE_URL` set to `overhype_test`. The suite's own runner
-  does all DB setup (per-worker clones); CI just supplies the database.
+  does all DB setup (per-worker clones); CI just supplies the database. This
+  job also runs the **`@workspace/db`** suite, against a *separate*
+  `overhype_db_test` database — see the job's "Prepare database" step for why
+  that separation is a correctness requirement, not tidiness.
+- **`Frontend Test`** — the `@workspace/overhype-me` vitest suite (jsdom; no
+  server or DB).
+- **`E2E Smoke`** — Playwright route-load smoke against the real dev stack
+  (api-server + Vite), the regression net for the crash/reload-loop bug class.
+
+The last three are gated by the classifier and report success when skipped.
 
 For frontend, package/workspace-script, Vite/build-config, or build-time
 environment-variable changes, reproduce the Build gate locally/sandbox-side with
@@ -228,13 +242,12 @@ valid command passed).
 
 ## Not yet in the CI gate (fast-follow)
 
-- frontend vitest (`@workspace/overhype-me`) — covered by the separate
-  **`Frontend Test`** job (`pnpm --filter @workspace/overhype-me test`).
-- `lib/db` migration tests — covered by the **`Test`** job's "Run @workspace/db
-  test suite" step, against its own `overhype_db_test` database (see that job's
-  "Prepare database" step for why it's a separate database from api-server's
-  `overhype_test`).
-- `lib/redact` — still **not** covered by any CI job; genuinely a fast-follow.
+- **`lib/redact`** — not covered by any CI job. Run it by hand
+  (`pnpm --filter @workspace/redact test`) when touching that package.
+
+Frontend vitest and the `lib/db` migration tests used to be listed here; both
+are now gated (the `Frontend Test` job and the `Test` job's `@workspace/db`
+step respectively) and are described in the CI section above.
 
 ---
 
