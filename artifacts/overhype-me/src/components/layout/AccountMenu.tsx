@@ -115,13 +115,20 @@ export function AccountMenu({ children }: AccountMenuProps) {
         onSelect: () => navigate("/admin"),
         group: "footer",
       });
-      items.push({
-        label: "Exit Admin",
-        icon: <ShieldOff className="w-4 h-4" />,
-        onSelect: () => { setOpen(false); void handleToggleAdminMode(); },
-        group: "footer",
-      });
     }
+    // The toggle is gated on being a REAL admin, not on admin mode already
+    // being on. Gating it on `isAdminModeOn` was a live lockout: every client
+    // call site was gated that way, so once a real admin turned "view as user"
+    // on, no UI anywhere could turn it back off. Operational privilege ignores
+    // the toggle, so this entry is always reachable for a real admin.
+    items.push({
+      label: isAdminModeOn ? "Exit Admin" : "Resume Admin",
+      icon: isAdminModeOn
+        ? <ShieldOff className="w-4 h-4" />
+        : <ShieldCheck className="w-4 h-4 text-primary" />,
+      onSelect: () => { setOpen(false); void handleToggleAdminMode(); },
+      group: "footer",
+    });
     items.push({
       label: forgetConfirm ? "Confirm: erase everything?" : "Forget Me",
       icon: <Eraser className="w-4 h-4" />,

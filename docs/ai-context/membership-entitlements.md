@@ -244,28 +244,57 @@ suggests "membership."
 | `artifacts/api-server/src/routes/admin.ts` | dashboard counts, the admin user list |
 | `artifacts/api-server/src/routes/users.ts`, `artifacts/api-server/src/routes/auth.ts`, `artifacts/api-server/src/routes/localAuth.ts` | login/profile payloads |
 
-**A tier read is not an entitlement check when admins are meant to qualify.**
-`membership_tier` is only ever `unregistered | registered | legendary` — admin
-is an orthogonal boolean, so an admin's stored tier is `registered` unless they
-separately hold a paid entitlement. `tier_feature_permissions` is keyed by
-tier, and its `admin` rows (seeded by migrations `0028`/`0029`) are therefore
-unreachable through `hasFeature(membershipTier, …)`: no caller ever passes
-`'admin'`. Any gate that should treat admin as legendary must resolve from the
-**role** — `isAtLeastLegendary(deriveUserRole(tier, isAdmin))` — either instead
-of, or OR-ed with, the feature lookup (`facts.ts`'s captcha bypass and
-`createMemeRecord`'s private-visibility gate both do the latter). Getting this
-wrong is silent by construction: the admin simply doesn't get the feature, and
-because most legendary gates in the codebase *are* role-based, the one that
-isn't looks like it works. It cost a private meme being published — see
-[`known-failure-patterns.md`](known-failure-patterns.md). Two remaining
-tier-only lookups still deny admins by this exact mechanism —
-`meme_rate_limit_high` (`createMemeRecord.ts:176`, no `isAdmin` short-circuit
-before the call) and `meme_ai_background` (`render.ts:124`, same shape). Each
-fails closed, so neither is a leak, but neither has been deliberately
-adjudicated either. `video_generation` (`videos.ts:403-415`,
-`videoJobs.ts:87-96`) is **not** in this list — both routes resolve `isAdmin`
-first and skip the `hasFeature` call entirely when it's true, so admins are
-already exempt there.
+**Every product-feature permission resolves through one function.**
+`artifacts/api-server/src/lib/featureAccess.ts` is the chokepoint: it is the
+only module permitted to read `tier_feature_permissions`, and
+`scripts/check-permission-chokepoint.mjs` (wired into `build.yml`) fails the
+build if anything else references the tier-keyed lookup or reads those tables.
+Route code asks `can(principal, key)` — never about a tier string.
+
+*Why the tier-keyed lookup had to become unreachable.* `membership_tier` is
+only ever `unregistered | registered | legendary` — admin is an orthogonal
+boolean, so an admin's stored tier is `registered` unless they separately hold
+a paid entitlement. The grid's `admin` rows (seeded by `0028`/`0029`) were
+therefore unreachable by construction: no caller ever passed `'admin'`. Every
+gate where an admin should qualify grew a hand-written exception, thirteen-plus
+of them in three different shapes, and two of those silently denied admins by
+accident. Getting it wrong is invisible: the admin simply doesn't get the
+feature, and because most legendary gates *are* role-based, the one that isn't
+looks like it works. It cost a private meme being published — see
+[`known-failure-patterns.md`](known-failure-patterns.md).
+
+*What replaced it.* Resolution is a **union**, never an override:
+`features(tier) ∪ (isAdmin ? features('admin') : ∅)`. The Admin column is live,
+so toggling it changes behaviour with no deploy, and an admin who also holds a
+paid entitlement never *loses* a feature by being an admin. Every gate fails
+closed on a missing row, an unknown key, or a database error.
+
+*Principal construction normalizes explicitly.* `req.user.membershipTier` is
+not toggle-aware — "view as user" flips `isAdmin` but leaves the tier at the
+account's real paid tier — so a naive read would give a legendary-holding admin
+in preview mode every Legendary feature. `principalFromRequest` drops the tier
+to `registered` when previewing. Feature gates honour the toggle deliberately;
+operational privilege never does.
+
+*Two rails, kept apart.* Operational privileges (console access, user
+management, moderation, config) stay on `requireRole` over `realUserRole` and
+are **not** grid features. That separation is what makes admin lockout
+impossible by configuration: nothing that grants console access lives in the
+grid. `adminIdentity.ts` is the single definition of "really an admin", over
+all three grant mechanisms (stored column, `ADMIN_USER_IDS`,
+`BOOTSTRAP_ADMIN_EMAIL`).
+
+*Queued work is authorized as of submission.* `video_jobs.authorization_snapshot`
+persists the resolved decision alongside the principal, and background paths
+read it rather than re-resolving — otherwise an admin previewing as a user
+would bypass every gate through the background path, and a grid change
+mid-flight would retroactively change what a running job was allowed to do.
+
+*The client is told, never derives.* `/auth/user` ships the resolved
+entitlement map as a sibling of `user` (populated for anonymous callers too),
+stamped with both `gridRevision` and `principalFingerprint`.
+`GET /entitlements/version` is the revalidation probe and is never
+shared-cached. `roleToTier` — the PR #402 function — is deleted.
 
 All route through `effectiveTierExpr()` / `effectiveTierPredicate()` /
 `effectiveTierForRow()` — an **expression**, not a stored predicate, because a

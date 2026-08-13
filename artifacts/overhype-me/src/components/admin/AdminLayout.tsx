@@ -8,6 +8,8 @@ import {
   CreditCard,
   LogOut,
   Shield,
+  ShieldCheck,
+  ShieldOff,
   ChevronRight,
   ShoppingBag,
   Settings,
@@ -51,6 +53,20 @@ const NAV_ITEMS = [
 
 const COLLAPSED_KEY = "admin_sidebar_collapsed";
 
+/**
+ * Leaves "view as user" mode. Deliberately server-driven: the toggle route
+ * authorizes through the same real-admin resolution as everywhere else, over
+ * all three grant mechanisms, so a bootstrap-email-only admin can use it too.
+ */
+async function resumeAdmin(): Promise<void> {
+  try {
+    await fetch("/api/auth/toggle-admin-mode", { method: "POST", credentials: "include" });
+  } catch {
+    /* best-effort — the reload re-reads real state either way */
+  }
+  window.location.reload();
+}
+
 export function isAdminNavItemActive(location: string, href: string, exact?: boolean): boolean {
   if (exact) return location === href;
   return location === href || location.startsWith(`${href}/`);
@@ -58,7 +74,7 @@ export function isAdminNavItemActive(location: string, href: string, exact?: boo
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const [location] = useLocation();
-  const { isAuthenticated, logout, isLoading, role } = useAuth();
+  const { isAuthenticated, logout, isLoading, role, realRole } = useAuth();
   const [pendingReviews, setPendingReviews] = useState(0);
   const [pendingComments, setPendingComments] = useState(0);
   const [collapsed, setCollapsed] = useState(() => {
@@ -75,6 +91,10 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   };
 
   const isAdmin = role === "admin";
+  // A REAL admin currently previewing as a user. Operational privilege ignores
+  // the toggle, so this person still has console access — they are just looking
+  // at the site through a registered account's eyes.
+  const previewingAsUser = realRole === "admin" && role !== "admin";
 
   useEffect(() => {
     if (isLoading || !isAdmin) return;
@@ -103,6 +123,37 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted-foreground">Loading…</div>
+      </div>
+    );
+  }
+
+  // A real admin in "view as user" mode is NOT denied — they are previewing.
+  // Showing them "Access Denied" here compounded the lockout: the one screen
+  // that could explain the state instead told them they had lost access.
+  if (previewingAsUser) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="text-center space-y-4 max-w-md">
+          <ShieldOff className="w-16 h-16 text-primary mx-auto" />
+          <h1 className="text-2xl font-bold text-foreground">Viewing as a user</h1>
+          <p className="text-muted-foreground">
+            You still have admin access — you are previewing the site as a
+            registered member, so admin screens are hidden.
+          </p>
+          <button
+            type="button"
+            onClick={() => { void resumeAdmin(); }}
+            className="inline-flex items-center gap-2 rounded-sm bg-primary px-4 py-2 font-display text-sm font-bold uppercase tracking-wider text-primary-foreground"
+            data-testid="admin-resume"
+          >
+            <ShieldCheck className="w-4 h-4" /> Resume admin
+          </button>
+          <div>
+            <Link href="/" className="text-primary hover:underline text-sm">
+              ← Back to site
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }

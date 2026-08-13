@@ -69,10 +69,35 @@ Two distinct pages, not one:
   display limit). A global Debug-Mode toggle swaps every key to its
   debug value set.
 - **`/admin/features`** — the tier × feature-flag matrix
-  (`unregistered/registered/legendary/admin` × feature keys). Confirmed
-  actually read by `tierFeatures.ts` and consumed in `memes.ts`,
-  `videos.ts`, `render.ts`, `facts.ts`, `videoJobs.ts` — this one is
-  genuinely wired end to end, unlike some of the findings below.
+  (`unregistered/registered/legendary/admin` × feature keys), read by
+  `artifacts/api-server/src/lib/featureAccess.ts`, which is the only module
+  permitted to touch the grid tables.
+
+  **The Admin column is live.** It used to be decorative: the grid is keyed by
+  tier, an admin's stored tier is `registered`, and no code path ever passed
+  `'admin'` — so those rows were unreachable by construction and every
+  admin exemption was hand-written in application code instead. Resolution is
+  now a union (`features(tier) ∪ features('admin')`), so toggling an Admin cell
+  changes what admins can do with no deploy. The column header states that
+  admin values *add to*, never replace, the user's own tier: an admin whose tier
+  already grants a feature sees no change from switching Admin off, which is the
+  union working correctly rather than a bug.
+
+  **A toggle takes effect within the resolver's cache TTL (60s), per process.**
+  The writing process busts its own cache immediately; others converge within
+  the window. Open clients poll `GET /entitlements/version` and re-fetch when
+  either the grid revision or their own principal fingerprint moves.
+
+  **Every cell change is audited** — actor, tier, feature, before/after,
+  timestamp — in `tier_feature_permission_audit`, with the prior value read
+  under a row lock so two concurrent edits record two honest transitions rather
+  than both reporting the same stale "before". A rejected write produces no
+  audit row and no revision bump.
+
+  Making the write side *unbypassable* (sanctioned functions, triggers, revoked
+  privileges, the ownership runbook) is Plan 1b's scope. Until it ships, these
+  invariants hold because `featureAccess.ts` is the only writer — a convention,
+  not a boundary.
 
 **A subtle, currently-live "looks editable but isn't" gap:** five seeded
 NCMEC-related `admin_config` keys (CyberTipline filing config) reject
