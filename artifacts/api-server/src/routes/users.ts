@@ -1,3 +1,4 @@
+import { isRealAdminRequest } from "../lib/adminIdentity";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
@@ -175,7 +176,11 @@ router.get("/users/me", async (req: Request, res: Response) => {
       .limit(50),
   ]);
 
-  const isAdmin = userRow?.isAdmin === true;
+  // The canonical real-admin resolution, not a re-read of the stored column.
+  // An ADMIN_USER_IDS- or bootstrap-granted admin was previously unable to even
+  // SEE their own admin notification preferences here, because this projection
+  // only knew about mechanism 1 of 3.
+  const isAdmin = isRealAdminRequest(req);
 
   res.json({
     id: userId,
@@ -373,13 +378,9 @@ router.patch("/users/me/notifications", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const [userRow] = await db
-    .select({ isAdmin: usersTable.isAdmin })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
-
-  if (!userRow?.isAdmin) {
+  // Same three-mechanism gap as the projection in GET /users/me: an env- or
+  // bootstrap-granted admin could neither see nor change these settings.
+  if (!isRealAdminRequest(req)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
