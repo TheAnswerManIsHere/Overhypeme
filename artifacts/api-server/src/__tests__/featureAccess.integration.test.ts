@@ -203,24 +203,40 @@ describe("grid completeness", () => {
     }
   });
 
-  it("the retired rows and their tier rows are gone", async () => {
-    // Both retired for the same reason: no code read them and no user action
-    // corresponded to them. Re-deleting is a no-op — the migration guards on
-    // membership in the retired-keys array, and a second invocation of the
-    // backfill is exercised under "migration observability" below.
-    for (const retired of ["meme_upload_photo", "meme_ai_background"]) {
-      const flags = await db
-        .select({ key: featureFlagsTable.key })
-        .from(featureFlagsTable)
-        .where(eq(featureFlagsTable.key, retired));
-      assert.equal(flags.length, 0, `${retired} should have been retired`);
+  it("meme_upload_photo and its tier rows are gone", async () => {
+    // Retired because no code read it AND no user action corresponded to it —
+    // its values encoded only the registered-vs-unregistered distinction that
+    // authentication already enforces. Re-deleting is a no-op; a second
+    // invocation of the backfill is exercised under "migration observability".
+    const flags = await db
+      .select({ key: featureFlagsTable.key })
+      .from(featureFlagsTable)
+      .where(eq(featureFlagsTable.key, "meme_upload_photo"));
+    assert.equal(flags.length, 0, "meme_upload_photo should have been retired");
 
-      const perms = await db
-        .select({ tier: tierFeaturePermissionsTable.tier })
-        .from(tierFeaturePermissionsTable)
-        .where(eq(tierFeaturePermissionsTable.featureKey, retired));
-      assert.equal(perms.length, 0, `${retired} tier rows should have been retired`);
-    }
+    const perms = await db
+      .select({ tier: tierFeaturePermissionsTable.tier })
+      .from(tierFeaturePermissionsTable)
+      .where(eq(tierFeaturePermissionsTable.featureKey, "meme_upload_photo"));
+    assert.equal(perms.length, 0, "meme_upload_photo tier rows should have been retired");
+  });
+
+  it("meme_ai_background is NOT retired — a dead reader is not a dead capability", async () => {
+    // The distinction that nearly cost us this row: its only reader was an
+    // unreachable gate in render.ts, which makes it look like a second
+    // meme_upload_photo. But the capability is live and user-facing — the AI
+    // Background Picker's generate button — and was gated by requireLegendary
+    // in memes.ts, which is precisely the inline-role-check category this plan
+    // moves INTO the grid.
+    const [flag] = await db
+      .select({ key: featureFlagsTable.key })
+      .from(featureFlagsTable)
+      .where(eq(featureFlagsTable.key, "meme_ai_background"));
+    assert.ok(flag, "meme_ai_background must remain a real dial");
+    assert.ok(
+      (FEATURE_KEYS as readonly string[]).includes("meme_ai_background"),
+      "and the resolver must consult it",
+    );
   });
 });
 

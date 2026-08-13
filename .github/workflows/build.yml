@@ -233,6 +233,12 @@ jobs:
       - name: Codegen drift check
         run: pnpm run check:codegen-drift
 
+      # The permission chokepoint. A tier-keyed hasFeature() reachable from route
+      # code is how PR #402's bug class reproduces, so the guard makes the wrong
+      # call impossible rather than merely discouraged.
+      - name: Permission chokepoint check
+        run: pnpm run check:permissions
+
       - name: Build app
         run: pnpm run build
         env:

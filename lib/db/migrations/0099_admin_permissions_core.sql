@@ -171,8 +171,14 @@ DECLARE
   v_already_complete integer := 0;
   v_skipped integer := 0;
   v_deleted jsonb;
-  -- Rows retired by this plan. See the capture block below for why each goes.
-  v_retired_keys text[] := ARRAY['meme_upload_photo', 'meme_ai_background'];
+  -- Rows retired by this plan. See the capture block below for why.
+  --
+  -- `meme_ai_background` is deliberately NOT here. It looks like a dead row —
+  -- its only *reader* was an unreachable gate in render.ts — but the capability
+  -- is real and reachable: the AI Background Picker's generate button hits four
+  -- `requireLegendary` routes in memes.ts. That is the inline-role-check
+  -- category this plan moves INTO the grid, not out of it.
+  v_retired_keys text[] := ARRAY['meme_upload_photo'];
 BEGIN
   -- Features already carrying a complete four-row set, measured BEFORE this
   -- run's inserts. This count legitimately RISES on a second run: the features
