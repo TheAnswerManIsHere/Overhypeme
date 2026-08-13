@@ -178,6 +178,52 @@ pre-plan-intent rule carries the exception directly: narrowing to increment A
 is not the failure it catches, provided B is named in the plan's cited
 direction rather than silently absent.
 
+### The affected-surface inventory (David, 2026-08-13)
+
+**Run this before Problem/Direction are drafted, not after — it's what tells
+you whether the increment you're about to cut is the right one.** Any change
+that touches a *pattern* rather than a single call site — a permission shape,
+a data-derivation rule, a naming convention, anything with plausible siblings
+— gets a mechanical inventory before the plan's scope is written down, using
+the same discipline the class-sweep protocol already requires at fix time
+(*"A finding names an instance; the fix owes the class"*, below): name the
+class, write the `grep`/`ls`/`find` oracle that finds every instance, run it,
+and scope the plan against the actual hit list — not a recalled one.
+
+**This is the same move, moved earlier.** The class-sweep protocol exists
+because a reviewer's cited instance is never guaranteed to be every instance.
+Running that discovery step at *plan entry* instead of waiting for review to
+find the gaps one round at a time is strictly cheaper — a `grep` costs
+seconds; a review round costs a full loop iteration. PR #425 is the origin
+case in both directions at once: the plan moved the tier-derived permission
+gates it *already knew about*, and the CI guard built mid-loop (round 1)
+would have produced the complete inventory in about two seconds if it had
+existed at plan-entry instead of being invented three review rounds in. Three
+rounds of findings were substantially the enumeration this section would have
+front-loaded.
+
+**What this is not**: an argument for enumerating call sites *inside the plan
+document* — the specification test right below still says the compiler
+should enumerate typed call sites, not the prose. The inventory here is a
+**discovery step that determines scope**, run once before drafting; its
+output is "these N files match the pattern, so the plan covers all N" (or
+explicitly phases/defers some of them), not a list pasted into the plan for a
+reviewer to check off. A raw-SQL / untyped-writer surface — exactly the
+carve-out the specification test names below — is where this matters most:
+the compiler cannot enumerate those sites at review time, so if the inventory
+didn't find them at plan time, nothing will until production.
+
+**Bugfix mode gets the identical discipline at diagnosis, not planning**
+— per-bug step 5 (*Establish the blast radius*) below is this same inventory,
+oracle-backed, scaled to one bug's call graph instead of a repo-wide pattern.
+
+**If the inventory is expensive or the pattern's boundary is genuinely
+fuzzy, say so as a Settled Decision** ("inventoried via `grep -rn
+<pattern>`, N hits, list attached; M borderline cases excluded because
+<reason>") rather than skipping it silently — an inventory that ran and
+found nothing new is worth stating too, since a reviewer otherwise has no
+way to tell "there was nothing to find" from "this was never done."
+
 ### A plan specifies invariants, not implementation (David, 2026-08-12)
 
 **The test, applied to any line you are about to write into a plan: if the
@@ -814,10 +860,15 @@ oracle and the Tier A/B bugfix oracle below.
    fixing it forever, and it must prove the **general invariant** with negative
    cases, not just the reported input (see *One-example bug fixes*).
 4. **Make the smallest correct fix** and confirm the new test passes.
-5. **Establish the blast radius.** What else calls this code, shares this path, or
-   depends on this behavior — and what you checked. Regression tests pin the fixed
-   behavior; they say nothing about the neighbors, which is exactly where a
-   small-looking fix does its damage.
+5. **Establish the blast radius — oracle-backed, not recalled.** What else
+   calls this code, shares this path, or depends on this behavior? This is
+   the affected-surface inventory (above) at bug scale: name the pattern
+   (the function, the table, the shape of derivation the bug lives in), write
+   the `grep`/callers-search that finds every site matching it, and state
+   what it found — not a memory of "what calls this." Regression tests pin
+   the fixed behavior; they say nothing about the neighbors, which is exactly
+   where a small-looking fix does its damage, and "I checked the obvious
+   callers" is exactly the gap a mechanical search closes for free.
 6. **Verify — scoped by step 5, not by the diff (David, 2026-08-09).** The
    touched tests + typecheck (see
    [`../tests/testing-guide.md`](../tests/testing-guide.md)), **plus the

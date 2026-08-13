@@ -431,6 +431,16 @@ plan-review trigger comment carries the toolchain exclusion** (the
 whole point; a plan written the old way and then cut down keeps the shape
 that generated the low-value findings.
 
+**Between those two — after the increment test, before drafting — sits the
+affected-surface inventory (David, 2026-08-13).** Same shared-doc rule: the
+what and why live in
+[`working-modes.md`](docs/ai-context/working-modes.md#the-affected-surface-inventory-david-2026-08-13),
+`.agents/PLANS.md`'s Preflight section is where it happens, and my enactment
+is the same timing discipline as the other two — I run the class-and-oracle
+sweep *before* Problem/Direction are drafted, not as a gap review discovers
+later. Born from PR #425's review loop doing three rounds of enumeration a
+`grep` would have done at plan entry.
+
 **Scope that arrives mid-flight is framed now vs. next.** Any decision during
 planning *or* review that adds a **new mechanism** — a new table, a new role, a
 new config domain, a new endpoint — gets exactly one question put to David:
