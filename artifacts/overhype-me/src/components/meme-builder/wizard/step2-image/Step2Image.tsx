@@ -232,6 +232,21 @@ export function Step2Image({
     setTab(next);
   };
 
+  // `canPulidStylize` only reached the segmented control's chrome
+  // (SourceSegmentedControl locks the tab), not `tab` state itself — so an
+  // account that lands on "ai-you" without clicking there (the tier-based
+  // pickDefaultSourceTab() default above, or a restored draft with
+  // stylizeWithAi cached from before a revocation) kept the live AiSourcePanel
+  // mounted with a locked chrome around it, whose Create/save actions reach
+  // endpoints that now 403. Round 3 of PR #425's review caught this; the
+  // panel render below is also gated directly as defense in depth.
+  useEffect(() => {
+    if (tab === "ai-you" && !canPulidStylize) {
+      setTab("self-upload");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPulidStylize]);
+
   const handleStockSelect = (image: StockImage) => {
     setStockSelectedId(image.id);
     setStockSelectedUrl(image.url);
@@ -522,7 +537,7 @@ export function Step2Image({
             />
           )}
 
-          {tab === "ai-you" && (
+          {tab === "ai-you" && canPulidStylize && (
             <AiSourcePanel
               factId={factId}
               selected={aiStylingImage}

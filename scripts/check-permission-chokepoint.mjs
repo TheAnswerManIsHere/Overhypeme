@@ -23,6 +23,14 @@
  * checks the two properties that actually carry the invariant, and it names the
  * one grandfathered exception explicitly so the exception cannot spread
  * silently.
+ *
+ * ALLOWLIST matching is per-LINE, not per-file: an entry only suppresses the
+ * violation on the exact line whose text it matches, not the rest of its
+ * file — round 3 of PR #425's review found this guard sharing the identical
+ * file-level bug its frontend sibling
+ * (`scripts/check-permission-chokepoint-frontend.mjs`) was fixed for in
+ * round 2, so a new inline gate added anywhere else in `admin.ts` or
+ * `videos.ts` would otherwise pass CI unnoticed.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -37,7 +45,8 @@ const CHOKEPOINT = "artifacts/api-server/src/lib/featureAccess.ts";
 
 /**
  * Named, temporary exceptions. Each MUST carry the plan that will remove it —
- * an exception without an owner is just a hole.
+ * an exception without an owner is just a hole. Matching is per-line (see
+ * below): an entry only exempts the exact line its pattern matches.
  */
 const ALLOWLIST = [
   {
@@ -64,6 +73,18 @@ const ALLOWLIST = [
       "refuses to write `legendary` directly because that tier is granted " +
       "through the entitlement model. Permanent — this is the derived-tier " +
       "invariant, not an inline role check.",
+  },
+  {
+    file: "artifacts/api-server/src/routes/admin.ts",
+    pattern: /if \(membershipTier === "legendary"\) \{/,
+    reason:
+      "The second half of the same POST /admin/users grant logic (Settled " +
+      "decision 8): having refused to write `legendary` directly onto the new " +
+      "row (the entry above), this decides whether to ALSO write the admin " +
+      "grant record — because the requested tier was legendary, not because " +
+      "anything is being gated. Found by round 3 of PR #425's review, which " +
+      "caught the file-level allowlist letting this second occurrence of the " +
+      "same pattern through unexamined. Permanent, same as the entry above.",
   },
 ];
 
@@ -110,11 +131,15 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** Strips comments so a rule NAMED in prose doesn't look like a violation. */
+/**
+ * Blanks out comment bodies (block and full-line) while preserving every
+ * newline, so a rule NAMED in prose doesn't look like a violation AND the
+ * line numbers reported below still point at the real line.
+ */
 function stripComments(source) {
   return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ""))
+    .replace(/^(\s*)\/\/.*$/gm, "$1");
 }
 
 const violations = [];
@@ -125,51 +150,62 @@ for (const file of files) {
   if (rel === CHOKEPOINT) continue;
 
   const raw = readFileSync(file, "utf8");
-  const source = stripComments(raw);
+  const rawLines = raw.split("\n");
+  const sourceLines = stripComments(raw).split("\n");
+  const fileAllowlist = ALLOWLIST.filter((entry) => entry.file === rel);
 
-  // 1. The tier-keyed lookup is module-private.
-  if (/\bhasFeature\s*\(/.test(source)) {
-    violations.push({
-      file: rel,
-      message:
-        "references hasFeature(). The tier-keyed lookup is private to featureAccess.ts — " +
-        "ask can(principal, key) instead, so admin resolves through the grid's union " +
-        "rather than through a hand-written exception.",
-    });
-  }
+  // The privilege rail legitimately owns these two modules — file-level,
+  // not per-line, since neither carries any allowlisted product gate at all.
+  const isPrivilegeRailModule =
+    rel === "artifacts/api-server/src/middlewares/tierMiddleware.ts" ||
+    rel === "artifacts/api-server/src/lib/userRole.ts";
 
-  // 2. Nothing else reads the grid tables.
-  for (const table of GRID_TABLES) {
-    if (source.includes(table)) {
+  for (let i = 0; i < sourceLines.length; i++) {
+    const line = sourceLines[i];
+
+    // 1. The tier-keyed lookup is module-private.
+    if (/\bhasFeature\s*\(/.test(line)) {
       violations.push({
         file: rel,
+        line: i + 1,
         message:
-          `reads the grid directly (${table}). featureAccess.ts is the only module ` +
-          "permitted to touch tier_feature_permissions.",
+          "references hasFeature(). The tier-keyed lookup is private to featureAccess.ts — " +
+          "ask can(principal, key) instead, so admin resolves through the grid's union " +
+          "rather than through a hand-written exception.",
       });
-      break;
     }
-  }
 
-  // 3. No new inline role comparisons in product-feature paths.
-  for (const { pattern, hint } of INLINE_ROLE_GATES) {
-    if (!pattern.test(source)) continue;
+    // 2. Nothing else reads the grid tables.
+    for (const table of GRID_TABLES) {
+      if (line.includes(table)) {
+        violations.push({
+          file: rel,
+          line: i + 1,
+          message:
+            `reads the grid directly (${table}). featureAccess.ts is the only module ` +
+            "permitted to touch tier_feature_permissions.",
+        });
+        break;
+      }
+    }
 
-    const allowed = ALLOWLIST.some((entry) => entry.file === rel && entry.pattern.test(source));
-    if (allowed) continue;
+    // 3. No new inline role comparisons in product-feature paths.
+    if (isPrivilegeRailModule) continue;
+    for (const { pattern, hint } of INLINE_ROLE_GATES) {
+      if (!pattern.test(line)) continue;
 
-    // The privilege rail legitimately owns these two modules.
-    if (rel === "artifacts/api-server/src/middlewares/tierMiddleware.ts") continue;
-    if (rel === "artifacts/api-server/src/lib/userRole.ts") continue;
+      const allowed = fileAllowlist.some((entry) => entry.pattern.test(rawLines[i]));
+      if (allowed) continue;
 
-    violations.push({ file: rel, message: hint });
+      violations.push({ file: rel, line: i + 1, message: hint });
+    }
   }
 }
 
 if (violations.length > 0) {
   console.error("[check-permission-chokepoint] FAILED\n");
   for (const v of violations) {
-    console.error(`  ${v.file}\n    ${v.message}\n`);
+    console.error(`  ${v.file}:${v.line}\n    ${v.message}\n`);
   }
   console.error(
     "Every product-feature permission must resolve through artifacts/api-server/src/lib/featureAccess.ts.\n" +

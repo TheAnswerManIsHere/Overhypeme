@@ -410,6 +410,16 @@ export default function Profile() {
     }
   }
 
+  // The EFFECTIVE selection, not the raw stored value. `avatarSource` can be
+  // "photo" for an account whose `custom_avatar` entitlement has since
+  // lapsed (the documented no-backfill case — see getAvatarUrl() above,
+  // which already falls back to the generated avatar for exactly this
+  // account). Before this, the pills read the raw stored value directly, so
+  // a revoked account saw Photo highlighted with no Crown and a tap that did
+  // nothing — describing a selection the server had already stopped
+  // honouring. Round 3 of PR #425's review caught this.
+  const photoSelected = canCustomAvatar && (profile?.avatarSource ?? "avatar") === "photo";
+
   /**
    * The Photo button's click handler. Selecting "photo" is a standalone
    * PATCH /users/me request, which the server now rejects with 403 for an
@@ -420,7 +430,7 @@ export default function Profile() {
    * so the state is discoverable before the tap, not just after.
    */
   function handlePhotoSelect() {
-    if ((profile?.avatarSource ?? "avatar") === "photo") return;
+    if (photoSelected) return;
     if (!canCustomAvatar) { setLocation("/pricing"); return; }
     void toggleAvatarSource();
   }
@@ -1132,9 +1142,9 @@ export default function Profile() {
               <div className="mt-2 flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
                 <button
                   disabled={avatarSourceToggling}
-                  onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
+                  onClick={() => photoSelected && toggleAvatarSource()}
                   className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    (profile.avatarSource ?? "avatar") === "avatar"
+                    !photoSelected
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
@@ -1146,7 +1156,7 @@ export default function Profile() {
                   disabled={avatarSourceToggling}
                   onClick={handlePhotoSelect}
                   className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    (profile.avatarSource ?? "avatar") === "photo"
+                    photoSelected
                       ? "bg-primary text-primary-foreground"
                       : canCustomAvatar
                         ? "text-muted-foreground hover:text-foreground"
@@ -1154,14 +1164,14 @@ export default function Profile() {
                   }`}
                   title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
                 >
-                  <Image className="w-3 h-3" /> Photo{!canCustomAvatar && (profile.avatarSource ?? "avatar") !== "photo" && (
+                  <Image className="w-3 h-3" /> Photo{!canCustomAvatar && !photoSelected && (
                     <Crown className="w-2.5 h-2.5 ml-0.5" />
                   )}
                 </button>
               </div>
             )}
           </div>
-          
+
           <div className="flex-1 text-center md:text-left z-10">
             <h1 className="text-3xl md:text-4xl font-display uppercase tracking-wide text-foreground mb-2">
               {profile.displayName ?? profile.email}
@@ -1338,9 +1348,9 @@ export default function Profile() {
                         <button
                           type="button"
                           disabled={avatarSourceToggling}
-                          onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
+                          onClick={() => photoSelected && toggleAvatarSource()}
                           className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                            (profile.avatarSource ?? "avatar") === "avatar"
+                            !photoSelected
                               ? "bg-primary text-primary-foreground"
                               : "text-muted-foreground hover:text-foreground"
                           }`}
@@ -1352,7 +1362,7 @@ export default function Profile() {
                           disabled={avatarSourceToggling}
                           onClick={handlePhotoSelect}
                           className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                            (profile.avatarSource ?? "avatar") === "photo"
+                            photoSelected
                               ? "bg-primary text-primary-foreground"
                               : canCustomAvatar
                                 ? "text-muted-foreground hover:text-foreground"
@@ -1360,7 +1370,9 @@ export default function Profile() {
                           }`}
                           title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
                         >
-                          <Image className="w-3 h-3" /> Photo
+                          <Image className="w-3 h-3" /> Photo{!canCustomAvatar && !photoSelected && (
+                            <Crown className="w-2.5 h-2.5 ml-0.5" />
+                          )}
                         </button>
                       </div>
                     </div>

@@ -1184,9 +1184,15 @@ components:
       required: [gridRevision, principalFingerprint]
       properties:
         gridRevision:
-          # Advances on every grid cell write, in the same transaction.
+          # Advances on every grid cell write, in the same transaction. Plain
+          # `integer` (no int64 format): the DB column is bigint, but
+          # featureAccess.ts already coerces it with Number(...) before it
+          # ever reaches JSON, and the React client / runtime Zod validator /
+          # use-auth.ts all treat it as a number — int64 made orval emit
+          # `bigint` in the generated api-zod contract alone, a type no
+          # consumer or the real payload could produce. Round 3 of PR #425's
+          # review caught this.
           type: integer
-          format: int64
         principalFingerprint:
           # Moves when the PRINCIPAL changes though the grid does not — a
           # lapsing entitlement, an admin grant/revoke, a view-as-user toggle.

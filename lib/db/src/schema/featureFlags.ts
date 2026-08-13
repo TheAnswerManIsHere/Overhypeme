@@ -1,4 +1,4 @@
-import { pgTable, varchar, boolean, timestamp, primaryKey, serial, integer, text, bigint, jsonb, check } from "drizzle-orm/pg-core";
+import { pgTable, varchar, boolean, timestamp, primaryKey, serial, integer, text, bigint, jsonb, check, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { usersTable } from "./auth";
 
@@ -44,7 +44,14 @@ export const tierFeaturePermissionAuditTable = pgTable("tier_feature_permission_
   enabledBefore: boolean("enabled_before"),
   enabledAfter: boolean("enabled_after").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  // Must match migration 0099's raw-SQL index exactly (same name, same
+  // column) — drizzle-kit push reconciles the live DB against this schema,
+  // not against migration history, so an index the migration created but
+  // this declaration omits reads as drift and gets silently dropped on the
+  // next push. Round 3 of PR #425's review caught this.
+  index("tier_feature_permission_audit_created_at_idx").on(t.createdAt),
+]);
 
 export type TierFeaturePermissionAudit = typeof tierFeaturePermissionAuditTable.$inferSelect;
 export type InsertTierFeaturePermissionAudit = typeof tierFeaturePermissionAuditTable.$inferInsert;

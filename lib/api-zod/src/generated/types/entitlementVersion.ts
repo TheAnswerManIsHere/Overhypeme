@@ -7,6 +7,6 @@
  */
 
 export interface EntitlementVersion {
-  gridRevision: bigint;
+  gridRevision: number;
   principalFingerprint: string;
 }
