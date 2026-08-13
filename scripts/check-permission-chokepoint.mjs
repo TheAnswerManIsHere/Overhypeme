@@ -160,7 +160,8 @@ for (const file of files) {
 
   const raw = readFileSync(file, "utf8");
   const rawLines = raw.split("\n");
-  const sourceLines = stripComments(raw).split("\n");
+  const strippedSource = stripComments(raw);
+  const sourceLines = strippedSource.split("\n");
   const fileAllowlist = ALLOWLIST.filter((entry) => entry.file === rel);
 
   // The privilege rail legitimately owns these two modules — file-level,
@@ -197,16 +198,34 @@ for (const file of files) {
         break;
       }
     }
+  }
 
-    // 3. No new inline role comparisons in product-feature paths.
-    if (isPrivilegeRailModule) continue;
+  // 3. No new inline role comparisons in product-feature paths.
+  //
+  // Scanned over the WHOLE comment-stripped source, not line by line: round 6
+  // of PR #425's review demonstrated (with an injected probe) that a gate
+  // formatter-wrapped across two lines — the identifier and `===` on one
+  // line, `"legendary"` on the next — passed the old per-line scan even
+  // though every pattern's own `\s*` already matches across newlines; the
+  // per-line SPLIT, not the patterns, was what defeated them. Match offsets
+  // are mapped back to the lines they span so allowlisting stays
+  // occurrence-scoped rather than reverting to file-level.
+  if (!isPrivilegeRailModule) {
     for (const { pattern, hint } of INLINE_ROLE_GATES) {
-      if (!pattern.test(line)) continue;
+      const globalPattern = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+      let match;
+      while ((match = globalPattern.exec(strippedSource)) !== null) {
+        const startLine = strippedSource.slice(0, match.index).split("\n").length - 1;
+        const endLine = strippedSource.slice(0, match.index + match[0].length).split("\n").length - 1;
+        const rawSpan = rawLines.slice(startLine, endLine + 1).join("\n");
 
-      const allowed = fileAllowlist.some((entry) => entry.pattern.test(rawLines[i]));
-      if (allowed) continue;
+        const allowed = fileAllowlist.some((entry) => entry.pattern.test(rawSpan));
+        if (!allowed) {
+          violations.push({ file: rel, line: startLine + 1, message: hint });
+        }
 
-      violations.push({ file: rel, line: i + 1, message: hint });
+        if (globalPattern.lastIndex === match.index) globalPattern.lastIndex++;
+      }
     }
   }
 }

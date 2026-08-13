@@ -177,20 +177,34 @@ for (const file of files) {
   const rel = relative(REPO_ROOT, file).split(sep).join("/");
   const raw = readFileSync(file, "utf8");
   const rawLines = raw.split("\n");
-  const sourceLines = stripComments(raw).split("\n");
+  const strippedSource = stripComments(raw);
   const fileAllowlist = ALLOWLIST.filter((entry) => entry.file === rel);
 
-  for (let i = 0; i < sourceLines.length; i++) {
-    const line = sourceLines[i];
-    for (const { pattern, hint } of INLINE_TIER_GATES) {
-      if (!pattern.test(line)) continue;
-
-      // Match against the RAW line (not comment-stripped) so an allowlist
+  // Scanned over the WHOLE comment-stripped source, not line by line: round 6
+  // of PR #425's review demonstrated (with an injected probe) that a gate
+  // formatter-wrapped across two lines — the identifier and `===` on one
+  // line, `"legendary"` on the next — passed the old per-line scan even
+  // though every pattern's own `\s*` already matches across newlines; the
+  // per-line SPLIT, not the patterns, was what defeated them. Match offsets
+  // are mapped back to the lines they span so allowlisting stays
+  // occurrence-scoped rather than reverting to file-level. Same fix as the
+  // backend guard's sibling pattern.
+  for (const { pattern, hint } of INLINE_TIER_GATES) {
+    const globalPattern = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+    let match;
+    while ((match = globalPattern.exec(strippedSource)) !== null) {
+      const startLine = strippedSource.slice(0, match.index).split("\n").length - 1;
+      const endLine = strippedSource.slice(0, match.index + match[0].length).split("\n").length - 1;
+      // Match against the RAW span (not comment-stripped) so an allowlist
       // pattern can reference surrounding syntax exactly as written.
-      const allowed = fileAllowlist.some((entry) => entry.pattern.test(rawLines[i]));
-      if (allowed) continue;
+      const rawSpan = rawLines.slice(startLine, endLine + 1).join("\n");
 
-      violations.push({ file: rel, line: i + 1, message: hint });
+      const allowed = fileAllowlist.some((entry) => entry.pattern.test(rawSpan));
+      if (!allowed) {
+        violations.push({ file: rel, line: startLine + 1, message: hint });
+      }
+
+      if (globalPattern.lastIndex === match.index) globalPattern.lastIndex++;
     }
   }
 }

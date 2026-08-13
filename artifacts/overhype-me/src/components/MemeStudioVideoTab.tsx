@@ -248,6 +248,16 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // component goes too.
   const [isVideoPrivate, setIsVideoPrivate] = useState(defaultPrivate ?? false);
 
+  // Reconcile away from a private selection the entitlement no longer covers.
+  // Round 6 of PR #425's review found gating the toggle's RENDER on
+  // `canSetPrivate` (added earlier this round) hid the only control that
+  // could clear a `true` value, so a user who selected Private before a
+  // revocation kept sending `isPrivate: true` to a route that now 403s it,
+  // with no visible way to fix their own stuck state.
+  useEffect(() => {
+    if (!canSetPrivate && isVideoPrivate) setIsVideoPrivate(false);
+  }, [canSetPrivate, isVideoPrivate]);
+
   const selectedStyle = videoStyles.find((s) => s.id === selectedStyleId) ?? videoStyles[0];
 
   // ── Load prefetched Pexels photos on mount ────────────────────────────────

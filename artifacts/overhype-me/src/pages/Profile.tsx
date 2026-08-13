@@ -93,8 +93,17 @@ function ProfilePhotoThumbnailPicker({
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading, login, logout, role, can, refreshUser } = useAuth();
-  const isRealAdmin = role === "admin";
+  const { isAuthenticated, isLoading: authLoading, login, logout, role, realRole, can, refreshUser } = useAuth();
+  // `realRole` is the toggle-INDEPENDENT admin status; `role` is the
+  // preview-aware effective one. Round 6 of PR #425's review found this page
+  // aliasing `isRealAdmin` to `role === "admin"`, which meant every admin
+  // control here — including the only way to leave view-as-user mode — vanished
+  // the moment an admin turned preview on, since AccountMenu.tsx (this page's
+  // own dropdown trigger) never actually mounts its "Resume Admin" item
+  // anywhere reachable. Matches AccountMenu.tsx's `isRealAdmin`/`isAdminModeOn`
+  // split.
+  const isRealAdmin = realRole === "admin";
+  const isAdminModeOn = role === "admin";
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false }
@@ -1055,7 +1064,7 @@ export default function Profile() {
                 <Crown className="w-4 h-4" /> Go Legendary
               </Button>
             )}
-            {isRealAdmin && (
+            {isRealAdmin && isAdminModeOn && (
               <Button variant="outline" onClick={() => setLocation("/admin")} className="gap-2 border-primary/40 text-primary hover:text-primary hover:border-primary">
                 <ShieldCheck className="w-4 h-4" /> Admin Panel
               </Button>
@@ -1070,7 +1079,11 @@ export default function Profile() {
                 }}
                 className="gap-2 text-muted-foreground hover:text-foreground"
               >
-                <ShieldOff className="w-4 h-4" /> Exit Admin
+                {isAdminModeOn ? (
+                  <><ShieldOff className="w-4 h-4" /> Exit Admin</>
+                ) : (
+                  <><ShieldCheck className="w-4 h-4 text-primary" /> Resume Admin</>
+                )}
               </Button>
             )}
             {isRealAdmin && (!forgetMeConfirm ? (
@@ -1185,7 +1198,7 @@ export default function Profile() {
                 <Pencil className="w-4 h-4" /> Edit Profile
               </Button>
             )}
-            {isRealAdmin && (
+            {isRealAdmin && isAdminModeOn && (
               <Button variant="outline" onClick={() => setLocation("/admin")} className="gap-2 border-primary/40 text-primary hover:text-primary hover:border-primary">
                 <ShieldCheck className="w-4 h-4" /> Admin Panel
               </Button>
@@ -1200,7 +1213,11 @@ export default function Profile() {
                 }}
                 className="gap-2 text-muted-foreground hover:text-foreground"
               >
-                <ShieldOff className="w-4 h-4" /> Exit Admin
+                {isAdminModeOn ? (
+                  <><ShieldOff className="w-4 h-4" /> Exit Admin</>
+                ) : (
+                  <><ShieldCheck className="w-4 h-4 text-primary" /> Resume Admin</>
+                )}
               </Button>
             )}
             {isRealAdmin && (!forgetMeConfirm ? (
