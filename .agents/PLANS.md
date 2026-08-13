@@ -23,6 +23,15 @@ or during review — is framed **now vs. next**, defaulting to **next** unless
 this plan cannot be *correct* without it. Adding it because the end state
 needs it is what the direction is for.
 
+**Then, for every line you write below, apply the specification test** —
+[`working-modes.md`](../docs/ai-context/working-modes.md#a-plan-specifies-invariants-not-implementation-david-2026-08-12):
+*if the plan never mentioned this, what would catch it?* Compiler, test
+suite, or diff review ⇒ leave it out; nothing ⇒ that is what this document is
+for. State invariants, not call-site lists or test assertions. Keep full depth
+on the four uncatchable categories: data model and migration shape, security
+and privilege boundaries, sequencing between separate plans, and product
+semantics.
+
 ## Problem
 What problem are we solving? Include the concrete user/admin/runtime symptom.
 

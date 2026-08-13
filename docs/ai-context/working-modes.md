@@ -178,6 +178,119 @@ pre-plan-intent rule carries the exception directly: narrowing to increment A
 is not the failure it catches, provided B is named in the plan's cited
 direction rather than silently absent.
 
+### A plan specifies invariants, not implementation (David, 2026-08-12)
+
+**The test, applied to any line you are about to write into a plan: if the
+plan never mentioned this, what would catch it?** If the answer is the
+compiler, the test suite, or a code reviewer looking at the diff, the line is
+costing review rounds to find what the toolchain finds for free. If the answer
+is *nothing*, the line is why plan review exists.
+
+**Where this came from.** PR #421's round 4 produced eight findings. Traced
+against that question: the compiler would have caught one (a required column
+with no default makes an uncovered insert fail to typecheck), running the test
+would have caught another (an assertion that could not be true), diff review
+probably a third. One was plan-only and worth nothing. **One was plan-only and
+load-bearing** — two sibling plans whose deploy order was constrained in both
+directions, which no compiler, test, or single-PR reviewer can see. One in
+eight justified the round.
+
+Contrast PR #422's first round: ten findings on PostgreSQL enforcement
+mechanics — trigger event coverage, `ENABLE ALWAYS`, statement-level TRUNCATE,
+ownership reach. **Not one is catchable by a compiler, a test, or a diff
+review.** A security boundary wired wrong compiles, passes, and reports
+success while being fake. So the answer is not "write shorter plans" — it is
+**cut by category**.
+
+**Stop specifying:**
+
+- **Call-site enumeration — but only where the call sites are statically
+  typed.** State the invariant (*every writer to this table carries the
+  snapshot*) and let the compiler enumerate the writers: a list of call sites
+  in a plan goes stale silently, while a `NOT NULL` column on a Drizzle-typed
+  insert is a list that cannot.
+
+  **The exception is load-bearing in this repo, and a review of this very rule
+  caught it: raw `db.execute(sql\`INSERT INTO …\`)` is not checked against the
+  table type.** Ten tables here are written that way — `admin_config`,
+  `ncmec_reports`, `upload_image_metadata`, `quarantined_memes` and others —
+  so a raw writer compiles clean and fails only when that production path
+  reaches the database. **A plan that changes a table's write contract
+  therefore still owes a repo-wide writer inventory** (`grep` for the table
+  name, not just the typed call sites), and says which writers are raw. The
+  compiler is a substitute for enumeration exactly as far as the writers are
+  typed, and no further.
+- **Test assertions and their expected values.** State what must be true. The
+  engineer writing the test derives the assertion, and a wrong one fails
+  loudly.
+- **Step-by-step implementation sequences** for ordinary code. Ordered steps
+  for a *migration* are a different thing and stay.
+
+**Keep at full depth** — the four things no downstream check can catch:
+
+1. **Data model and migration shape.** Often irreversible.
+2. **Security and privilege boundaries.** The wrong version is
+   indistinguishable from the right one at runtime.
+3. **Sequencing and dependencies between separate plans or PRs.** Structurally
+   invisible to any reviewer looking at one diff.
+4. **Product semantics.** Whether this is the right behaviour at all.
+
+**The trap to avoid: the plan is the reviewer's oracle for the *code*.** A
+David-approved plan's intent and invariants are pasted into the implementation
+PR so the reviewer can catch a build that quietly narrowed scope. A vaguer plan
+makes that unfalsifiable. So the plan stays **precise about intent and
+invariants** while becoming **less detailed about implementation** — different
+axes. Length is not precision: #421 ran to 1212 lines and still contradicted
+itself about which sibling shipped first.
+
+**And "the plan is the oracle" is only true of the sections the PR actually
+pastes.** `.github/pull_request_template.md` carries **Direction, Product
+Intent, Must Not Change, Settled Decisions** — nothing else, and
+[`code-review.md`](../engineering/code-review.md#the-review-oracle-the-pr-body)
+points the reviewer at those fields rather than the whole plan. An invariant
+that this rule keeps at full depth but leaves sitting in a *Data Model*,
+*Security* or *Runtime Behavior* section is therefore **not in the oracle at
+all**, and an implementation can violate it invisibly — the precise failure
+the oracle exists to prevent.
+
+So a plan owes one of two things for every load-bearing invariant: **state it
+in one of the four pasted sections**, or **paste it into the PR's oracle block
+explicitly alongside them**. *Must Not Change* is usually the natural home —
+an invariant worth protecting is, by definition, something that must not
+change. This was found by Codex reviewing this very rule, which is a fair
+demonstration of the rule's own point: no compiler or test could have caught a
+plan-review policy that quietly excluded half its own subject matter.
+
+**Say this in the review request.** A reviewer asked for "a lens not yet
+applied" will go find anything. Tell it plainly: *do not report what the
+compiler or the test suite would catch — report what survives into production
+invisibly.* That one sentence is most of the win, and it costs nothing.
+
+**The same line decides how many rounds to spend, not just what to write
+(David, 2026-08-13).** Once a plan's *design claims* are settled, remaining
+findings are mechanics — and mechanics are what implementation verifies best
+and cheapest:
+
+- **Design claims must be settled in the plan.** What is a boundary versus a
+  convention, what depends on what, which invariant holds in which state.
+  Code review structurally cannot catch a wrong design that has been
+  faithfully implemented, so these are worth as many rounds as they take.
+- **Mechanics can ride to implementation.** Which PostgreSQL function raises
+  on which argument, whether a fixture setup still passes, whether a count
+  assertion is coherent. These announce themselves the moment code runs, with
+  a stack trace and a line number, which is more than any review round
+  produces.
+
+**So a loop's real exit condition is "the design claims are right," not "the
+reviewer stopped finding things."** PR #422 reached that point at round 2,
+when the false claim at the centre of the plan — that triggers enforce
+anything before an ownership transfer the owner can undo — was found and
+corrected. Everything the round found after that was PostgreSQL mechanics,
+bought at review-round prices. The residual risk is covered three ways
+regardless: the plan mandates its own negative tests, Codex reviews the
+implementation diff against the plan as oracle, and crash-class defects
+surface on first run.
+
 ### Review loops need a stopping rule, not just a convergence target
 
 A review loop's exit condition cannot be "keep going until the reviewer stops
@@ -211,6 +324,50 @@ will keep finding things, and each fix adds surface for the next round.
   advisory lock, a column — and each piece of machinery is fresh surface for
   the next round, which is how round 3 rose to 21 findings with roughly 14 of
   them against scope that did not exist when the loop started.
+- **But the tripwire's output is not always a split — it depends on *what kind*
+  of growth fired it (David, 2026-08-13).** Two kinds look identical on the
+  line count and call for opposite responses:
+
+  | Growth | Looks like | Correct output |
+  |---|---|---|
+  | **Scope accretion** — the artifact absorbed a second deliverable | New sections about a subsystem the plan didn't originally own | **Split.** This is what the tripwire was written for. |
+  | **Depth** — findings against one coupled mechanism, answered | The same sections getting longer and more precise | **Cap the loop and go to implementation.** Splitting a coupled mechanism manufactures an ordering dependency and reviews neither half honestly. |
+
+  PR #421 was the first kind: hardening material accreting inside an
+  entitlements plan, and the two halves were genuinely separable. PR #422 was
+  the second: 545 → 1029 lines because reviewers found real defects in one
+  boundary whose migration and runbook halves are meaningless apart.
+  **Recommending a split there was pattern-matching the rule instead of
+  reading the situation** — and the proposed seam was the exact
+  plan-to-plan ordering dependency both reviewers had just flagged as the
+  riskiest thing about the *first* split. Splitting twice to avoid review
+  rounds trades a bounded problem for an unbounded one.
+
+  So the menu at a fired tripwire is **split / cap-and-implement / stop**, and
+  the question that picks between them is *did the artifact take on new scope,
+  or get deeper about the scope it had?*
+- **Oscillation is its own stopping condition (David, 2026-08-13).** When a
+  round's findings are dominated by **failures of the previous round's
+  fixes**, the loop is not converging, it is oscillating — and more rounds do
+  not fix that, because prose cannot be executed. PR #422's round 2 carried
+  three `Reconciliation — Still Open` findings against round 1's fixes, plus
+  two fixes that were themselves new defects: a bypass flag any caller could
+  forge, and a guard that would crash every un-hardened database. **The
+  correct response is implementation**, which is the only thing that
+  actually verifies a mechanism. Track this alongside the count and the size;
+  a *falling* count hides it exactly as it hides growth.
+- **A fix that requires inventing a new mechanism is a signal, not a
+  solution.** When answering a finding means adding a flag, a state column, or
+  a protocol the design did not already have, stop and ask whether the design
+  is wrong instead. PR #422's forgeable GUC exemption existed only because the
+  plan was trying to authenticate a sanctioned caller in a state where no
+  authentication is possible; the real fix deleted the mechanism and corrected
+  the claim above it. See *now vs. next* — the same default applies to
+  mechanisms arriving via review, not just via scope requests.
+- **Severity badges are not a triage input.** Two of PR #422 round 2's
+  P2-badged findings were runtime crashes: `has_any_column_privilege(...,
+  'DELETE')` raises, and `pg_has_role` raises on a role that does not exist
+  yet. Read what a finding *does*, never what it is labelled.
 - **Cap by artifact class.** Transient single-use docs: **the automatic first
   pass only — never a re-request** (see the ceremony table above). Agent-facing
   markdown: **1–2 rounds.** Product code: the existing soft cap, and the
@@ -356,6 +513,41 @@ report.** The check-in carries:
    another fix attempt.
 4. **A recommendation** — continue / stop and ship / escalate — and then the
    loop waits. David decides.
+5. **The flip condition: the one fact that would reverse the recommendation
+   (David, 2026-08-13).** One line, always. Two failure modes it catches, and
+   both have happened here:
+   - **No flip condition can be named.** A recommendation nothing could
+     reverse was not reasoned to; it was looked up.
+   - **The named fact is already true.** That is the recommendation failing in
+     the act of being written, caught before it reaches David.
+
+**A recommendation that carries an unrefuted argument against itself does not
+ship (David, 2026-08-13).** Either refute the counter-argument explicitly, or
+the recommendation flips to follow it. **A caveat that cannot be refuted *is*
+the recommendation.**
+
+This is not a general call for humility — it names a specific, mechanically
+detectable failure. On PR #422 the recommendation to split ended with a
+paragraph explaining that splitting a coupled mechanism would manufacture an
+ordering dependency at the exact seam both reviewers had just flagged as the
+riskiest thing about the previous split. The counter-argument was correct,
+unanswered, and appended as a disclaimer under a recommendation it should have
+reversed. One round earlier, a report recommending fixes for eight findings
+also contained the observation that seven of them were toolchain-catchable.
+
+**The shape is always the same: the right answer was already in the output,
+demoted to commentary.** The recommendation came from applying a rule; the
+situation-reading arrived afterwards and was not allowed to change the
+conclusion. So the check is structural rather than a matter of thinking
+harder — before sending any recommendation, find every sentence in it that
+argues the other way, and treat each one as a stop signal rather than a
+hedge.
+
+**The check-in shows the argument against the recommendation, never a
+sanitized case for it.** This is the safeguard with a perfect record in this
+repo: both times a recommendation was wrong, David caught it *because* the
+counter-argument was there in full for him to read. Whatever else changes
+about check-ins, that property is preserved deliberately.
 
 **Fixes are implemented only after David's go.** The pause sits *before* the
 round's fix work, not after, because the waste in a runaway loop is

@@ -422,6 +422,15 @@ them. What's mine is when I apply it: **I run the increment test before
 writing a line of plan**, using `.agents/PLANS.md`'s Preflight section as
 where that happens.
 
+The same section now carries a second shared rule — *a plan specifies
+invariants, not implementation* — and my enactment of it is likewise a
+timing commitment rather than a restatement: **I apply the specification test
+line by line as I draft, not as a trimming pass afterwards**, and **every
+plan-review trigger comment carries the toolchain exclusion** (the
+`plan-review-loop` skill owns that wording). Drafting to the rule is the
+whole point; a plan written the old way and then cut down keeps the shape
+that generated the low-value findings.
+
 **Scope that arrives mid-flight is framed now vs. next.** Any decision during
 planning *or* review that adds a **new mechanism** — a new table, a new role, a
 new config domain, a new endpoint — gets exactly one question put to David:
@@ -489,8 +498,17 @@ loaded:
   try harder. **I track the plan file's line count the same way and state it in
   the same breath (David, 2026-08-11)** — the growth tripwire in
   [`working-modes.md`](docs/ai-context/working-modes.md) fires at roughly +50%
-  from round 1, and it is the tripwire a *falling* finding count hides. When it
-  fires, the output is a split and a backlog, not another round. Agent-facing markdown caps at **1–2 rounds** (and normally has
+  from round 1, and it is the tripwire a *falling* finding count hides. **When
+  it fires I present the full menu — split / cap-and-implement / stop — and
+  say which kind of growth fired it (David, 2026-08-13).** "Split" is the
+  answer for *scope accretion*, not for a coupled mechanism that merely got
+  deeper; I recommended splitting PR #422 by pattern-matching the rule, at a
+  seam that would have manufactured a third ordering dependency, and David
+  caught it. **I also report oscillation** — a round dominated by failures of
+  the previous round's fixes — as its own stopping condition, since prose
+  cannot be executed and only implementation converges that. Both live in
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s stopping-rule
+  section. Agent-facing markdown caps at **1–2 rounds** (and normally has
   no loop at all — see the ceremony-tiering rule above). **I also triage:
   every finding gets fix / accept-and-document / escalate, stated explicitly.**
   Codex marks everything "Required Revision" because that is its job;
@@ -750,13 +768,24 @@ gets invoked at all, and one because it changes when David hears from me:
   and bring David the report with a continue/stop recommendation as a
   🛑 NEED YOU banner, waiting for his go before pushing fixes. Clean or
   trivial-nits-only rounds skip the pause (fix silently, one status line).
+  **Every recommendation carries its flip condition, and no recommendation
+  ships carrying an unrefuted argument against itself (David, 2026-08-13).**
+  Before sending, I re-read my own draft for sentences arguing the other way
+  and treat each as a stop signal, not a hedge — that is the mechanical form
+  of a tendency David caught twice in one session, where the correct answer
+  was already in my output, demoted to a caveat under a
+  recommendation it should have reversed. A caveat I cannot refute *is* the
+  recommendation.
   The shared contract is
   [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
   check-in"*; my enactment lives in the `pr-watch` and `plan-review-loop`
   skills, and the model mechanics (Sonnet check-ins; a one-shot, announced
   Opus subagent fired on the structural triggers — any decline, any
-  unmechanizable finding, any recurrence of a swept class, per 2026-08-08)
-  in the `model-routing` skill — David never switches models mid-loop for
+  unmechanizable finding, any recurrence of a swept class, per 2026-08-08;
+  and a one-shot **adversarial Fable subagent** on the loop's judgment
+  moments — a fired tripwire, a rising count, an oscillation signal, any
+  split/cap/stop call, or a missing-or-already-true flip condition, per
+  2026-08-13) in the `model-routing` skill — David never switches models mid-loop for
   this.
 - **I resolve each review thread myself once I've addressed it (David,
   2026-08-06 — reversing the prior "never resolve, that's David's" rule).**

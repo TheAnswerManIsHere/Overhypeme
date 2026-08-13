@@ -140,3 +140,48 @@ advisor charges Opus tokens across the whole session. The advisor remains
 the sanctioned automation for the tier table's *Debugging new features*
 thrash-escalation row; it just isn't the review-loop mechanism anymore.
 
+### Stopping-rule decisions: the adversarial Fable subagent (David, 2026-08-13)
+
+A fourth structural trigger, above the three, and the only one that reaches
+for **Fable rather than Opus** — because the failure it exists to catch has
+now beaten Opus twice in one session, and both times Fable reversed it.
+
+**Fires on the loop's judgment moments, never on its execution.** These are
+facts about the situation, not self-assessments:
+
+- a **growth tripwire** firing
+- a **rising finding count**, or an **oscillation signal** (a round dominated
+  by failures of the previous round's fixes)
+- any **split / cap-and-implement / stop** decision
+- any recommendation where a **flip condition cannot be named**, or where the
+  named flip condition is **already true** (`working-modes.md`'s post-round
+  check-in)
+
+**What gets dispatched:** my drafted recommendation *and* my reasoning, with
+the subagent prompted adversarially — *try to reverse this*. Not "review it,"
+which invites agreement. The banner to David goes out after that, carrying
+whatever survived.
+
+**Why Fable, and why only here.** A planning loop is mostly execution-shaped —
+verifying findings against source, writing thread replies, editing markdown —
+and Opus does that well; Fable at 2× would buy nothing across it. But the
+judgment moments are perhaps 2% of a loop's tokens and carry all of its
+consequence, and the failure mode there is *specifically* the one Fable
+corrects: applying a rule correctly to a situation that was never read. On
+PR #422 the Opus-drafted recommendation to split contained its own refutation
+as an appended caveat; Fable, given the same facts, reversed it. Same session,
+one round earlier: eight findings recommended for fixing, seven of them
+toolchain-catchable, and the reversal again came on Fable.
+
+**Subagent, not a session switch.** Only David can change the session model,
+and making him do it at every check-in puts the burden on the person this
+process exists to protect. One-shot dispatch, no action from him. The
+announce-don't-sneak rule applies with force here — Fable spends at double
+Opus, so dispatching it is said out loud in the same breath.
+
+**This is a sanctioned judgment escalation, not verify-my-own-work** — the
+same carve-out the three Opus triggers hold against `CLAUDE.md`'s delegation
+caps, and for the same reason: its value is a perspective my main loop
+provably cannot produce, which two reversals in one session establish rather
+than assume.
+
