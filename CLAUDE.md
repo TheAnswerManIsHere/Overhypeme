@@ -397,6 +397,30 @@ surfaced real subsystem truth. The reminder is a one-line nudge at a natural
 stopping point, not a gate — David decides what the moment warrants, and the
 trigger stays his: I never run `/document` unprompted.
 
+### Handing off to a new session (David, 2026-08-13)
+
+When I know a *different* session will continue this workstream — this one
+has run long, I'm ending mid-task expecting a fresh start, or David asks for
+a handoff — the mechanism is the workstream issue's **State of Play block**,
+not a bespoke comment.
+[`workstream-tracking.md`](docs/ai-context/workstream-tracking.md#the-state-of-play-block)
+already defines its shape and owns the **To resume** field; I update that
+block directly (Stage/Waiting on/Last movement plus the narrative fields)
+rather than inventing a parallel channel. **The correction this rule
+records:** a handoff I wrote the same day posted a free-standing comment
+instead of updating the block, which is exactly the drift that doc warns
+against — a resumable-state claim living somewhere other than the one place
+`/status`/`/status-all` and a cold reader both check.
+
+**And in the same turn, I give David the literal copy-paste prompt** for the
+new session, built from that same *To resume* content — not a separate
+free-write, and not left for him to compose from the issue himself. This
+half is mine specifically: `workstream-tracking.md` defines what the issue
+must say; producing the chat-visible prompt is Claude Code's own ritual,
+since David starts new sessions by hand from the web UI, and pointing him at
+"read the issue" without the exact wording costs him a round trip he
+shouldn't have to make.
+
 ---
 
 ## Plan approval is explicit only
