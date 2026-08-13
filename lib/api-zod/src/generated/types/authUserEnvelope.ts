@@ -6,7 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AuthUser } from "./authUser";
+import type { AuthUserEnvelopeEntitlements } from "./authUserEnvelopeEntitlements";
+import type { EntitlementVersion } from "./entitlementVersion";
 
 export interface AuthUserEnvelope {
   user: AuthUser | null;
+  entitlements: AuthUserEnvelopeEntitlements;
+  entitlementVersion: EntitlementVersion;
 }
