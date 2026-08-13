@@ -483,6 +483,41 @@ report.** The check-in carries:
    another fix attempt.
 4. **A recommendation** — continue / stop and ship / escalate — and then the
    loop waits. David decides.
+5. **The flip condition: the one fact that would reverse the recommendation
+   (David, 2026-08-13).** One line, always. Two failure modes it catches, and
+   both have happened here:
+   - **No flip condition can be named.** A recommendation nothing could
+     reverse was not reasoned to; it was looked up.
+   - **The named fact is already true.** That is the recommendation failing in
+     the act of being written, caught before it reaches David.
+
+**A recommendation that carries an unrefuted argument against itself does not
+ship (David, 2026-08-13).** Either refute the counter-argument explicitly, or
+the recommendation flips to follow it. **A caveat that cannot be refuted *is*
+the recommendation.**
+
+This is not a general call for humility — it names a specific, mechanically
+detectable failure. On PR #422 the recommendation to split ended with a
+paragraph explaining that splitting a coupled mechanism would manufacture an
+ordering dependency at the exact seam both reviewers had just flagged as the
+riskiest thing about the previous split. The counter-argument was correct,
+unanswered, and appended as a disclaimer under a recommendation it should have
+reversed. One round earlier, a report recommending fixes for eight findings
+also contained the observation that seven of them were toolchain-catchable.
+
+**The shape is always the same: the right answer was already in the output,
+demoted to commentary.** The recommendation came from applying a rule; the
+situation-reading arrived afterwards and was not allowed to change the
+conclusion. So the check is structural rather than a matter of thinking
+harder — before sending any recommendation, find every sentence in it that
+argues the other way, and treat each one as a stop signal rather than a
+hedge.
+
+**The check-in shows the argument against the recommendation, never a
+sanitized case for it.** This is the safeguard with a perfect record in this
+repo: both times a recommendation was wrong, David caught it *because* the
+counter-argument was there in full for him to read. Whatever else changes
+about check-ins, that property is preserved deliberately.
 
 **Fixes are implemented only after David's go.** The pause sits *before* the
 round's fix work, not after, because the waste in a runaway loop is

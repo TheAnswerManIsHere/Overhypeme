@@ -768,13 +768,24 @@ gets invoked at all, and one because it changes when David hears from me:
   and bring David the report with a continue/stop recommendation as a
   🛑 NEED YOU banner, waiting for his go before pushing fixes. Clean or
   trivial-nits-only rounds skip the pause (fix silently, one status line).
+  **Every recommendation carries its flip condition, and no recommendation
+  ships carrying an unrefuted argument against itself (David, 2026-08-13).**
+  Before sending, I re-read my own draft for sentences arguing the other way
+  and treat each as a stop signal, not a hedge — that is the mechanical form
+  of a tendency David caught twice in one session, where the correct answer
+  was already in my output, demoted to a caveat under a
+  recommendation it should have reversed. A caveat I cannot refute *is* the
+  recommendation.
   The shared contract is
   [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
   check-in"*; my enactment lives in the `pr-watch` and `plan-review-loop`
   skills, and the model mechanics (Sonnet check-ins; a one-shot, announced
   Opus subagent fired on the structural triggers — any decline, any
-  unmechanizable finding, any recurrence of a swept class, per 2026-08-08)
-  in the `model-routing` skill — David never switches models mid-loop for
+  unmechanizable finding, any recurrence of a swept class, per 2026-08-08;
+  and a one-shot **adversarial Fable subagent** on the loop's judgment
+  moments — a fired tripwire, a rising count, an oscillation signal, any
+  split/cap/stop call, or a missing-or-already-true flip condition, per
+  2026-08-13) in the `model-routing` skill — David never switches models mid-loop for
   this.
 - **I resolve each review thread myself once I've addressed it (David,
   2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
