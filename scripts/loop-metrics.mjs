@@ -1207,7 +1207,7 @@ async function main() {
   await writeFile(path, `${JSON.stringify(scaffoldRecord(derived), null, 2)}\n`);
   console.log(
     `wrote ${path}\n` +
-      `  Next: fill "judgment" (causes, preOpenPreflightMin, breakersFired), then set "adjudication".\n` +
+      `  Next: fill "judgment" (causes, newGroundTerritory, preOpenPreflightMin, breakersFired), then set "adjudication".\n` +
       `  Sampling predicate: pr % 5 === 0 (${derived.pr % 5 === 0 ? "yes" : "no"}) or findings >= 30 ` +
       `(${derived.findings} findings) → ${derived.pr % 5 === 0 || derived.findings >= 30 ? "ADJUDICATE" : "never-run"}.\n` +
       `  Commit it on any open PR EXCEPT #${derived.pr} itself.`,

@@ -105,6 +105,29 @@ export function judgmentProblems(record) {
     }
   }
   if (!j.breakersFired) problems.push("breakersFired is missing");
+  // Optional territory split of causes.new (recorded for loops closing from
+  // 2026-08-13; absent on older records — see working-modes.md's rubric).
+  // When present it must be internally coherent: two non-negative integers
+  // summing exactly to causes.new, so a hand-typed record can't silently
+  // claim a territory mix the causal counts contradict.
+  if (j.newGroundTerritory !== undefined) {
+    const t = j.newGroundTerritory;
+    for (const k of ["inDiff", "preExisting"]) {
+      if (!Number.isInteger(t?.[k]) || t[k] < 0) {
+        problems.push(`judgment.newGroundTerritory.${k} must be a non-negative integer`);
+      }
+    }
+    const newCount = j.causes?.new;
+    if (
+      Number.isInteger(t?.inDiff) && Number.isInteger(t?.preExisting) &&
+      Number.isInteger(newCount) && t.inDiff + t.preExisting !== newCount
+    ) {
+      problems.push(
+        `judgment.newGroundTerritory sums to ${t.inDiff + t.preExisting} but causes.new is ${newCount} — ` +
+          `the territory split must cover exactly the new-ground findings`,
+      );
+    }
+  }
   return problems;
 }
 

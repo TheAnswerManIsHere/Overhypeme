@@ -309,9 +309,38 @@ will keep finding things, and each fix adds surface for the next round.
   loop was still the wrong place to spend tokens. Rate the artifact 1–100 on
   "what breaks in production if this is wrong"; a TEST_RUN checklist is a 1,
   and nothing rated in the single digits earns a second round.
-- **Findings must fall round over round.** If a round produces **more** findings
-  than the one before it, stop and reassess **with David** before starting
-  another round. Report the count trend plainly.
+- **The count trend is a tripwire, not a verdict (David, 2026-08-13 —
+  superseding "findings must fall round over round").** Report the trend
+  plainly every round, and let a rising count still force a hard pause before
+  any further round — but what the pause produces is a *classification*, not
+  an automatic stop. The rule this supersedes said a rising count "means the
+  artifact or the ceremony is wrong"; PR #425 falsified that interpretation
+  three rounds running (6 → 7 → 8, each rise mostly the reviewer widening
+  into pre-existing code while the diff itself converged), and a *falling*
+  count was already known to hide oscillation and growth. What actually
+  carried the continue/stop decision every time the tripwire fired was the
+  causal-and-territory sort of the findings — so that sort is the decision
+  rule, and the count is merely one of the tripwires (alongside artifact
+  growth and oscillation) that forces it to happen:
+
+  | Bucket | What it is | Decision |
+  |---|---|---|
+  | **Oscillation** — findings repairing an earlier round's fixes | propagation / wrong-fix / re-raised dominating the round | **Stop.** More prose rounds cannot converge this; implementation or reassessment can. |
+  | **Class recurrence** — a sibling instance of an already-swept class | the sweep protocol's process-failure flag | **Continue**: finish the class, name the process miss in the check-in. Converges fast. |
+  | **New ground, in the diff** — fresh defects in code this loop touched | ordinary review progress | **Continue**, normal triage. |
+  | **New ground, pre-existing** — defects in code the diff never touched | the reviewer ran out of diff and started auditing the repo | **A now / next / never scope decision per finding — never "another round" by default.** Closer to a convergence signal than a failure: the diff stopped yielding. |
+
+  **Territory is the dimension the causal flag alone misses.** "New ground"
+  lumps a defect in this PR's fresh code together with a years-old bug the
+  reviewer wandered into, and the two demand opposite responses — so a
+  finding is classified on both axes: cause (the ledger rubric's vocabulary)
+  and territory (in this loop's diff, or outside it).
+- **Impact ranks the fixes; it does not drive the loop (David, 2026-08-13).**
+  A high-impact pre-existing finding earns *urgency in whatever vehicle it's
+  routed to* — usually a promptly-scheduled follow-up — not another round of
+  this loop. A low-impact oscillation finding is still a stop signal.
+  Causality and territory decide whether the loop continues; impact decides
+  how fast each routed finding gets fixed, wherever it lands.
 - **The artifact must not grow while it is being reviewed (David,
   2026-08-11).** Record its size at round 1 and state the current size in every
   re-review request, beside the finding trend. **Growth past roughly 50% means
@@ -372,16 +401,19 @@ will keep finding things, and each fix adds surface for the next round.
   pass only — never a re-request** (see the ceremony table above). Agent-facing
   markdown: **1–2 rounds.** Product code: the existing soft cap, and the
   ~20-round figure is a backstop, not a budget.
-- **A rising count is a signal about the artifact or the process, not a reason
-  to try harder.** Two live examples, both 2026-08-05: PR #329's guard (9, 11,
-  12, 19 — an unbounded parsing surface) and PR #333's plan (12, 1, 4, 6, 12 —
-  ceremony mismatched to a markdown file, with later rounds specifying
-  guarantees the platform could not provide). And the one that produced the
-  criticality gate itself, 2026-08-08: PR #356's TEST_RUN doc ran **five
-  rounds and 36 findings on a checklist that gets deleted after a single
-  run** — every finding technically correct, every round a misallocation,
-  resolved by cutting the findings' whole subject (re-running CI-covered test
-  suites) out of the doc rather than fixing round 5.
+- **The historical record reads cleanly under the bucket rubric — the
+  diagnosis, never the number, was the decision every time.** PR #329's guard
+  (9, 11, 12, 19 — 2026-08-05) was new-ground-in-diff against an unbounded
+  parsing surface: the artifact really was the problem. PR #333's plan (12,
+  1, 4, 6, 12 — same day) was ceremony mismatched to a markdown file, with
+  later rounds specifying guarantees the platform could not provide. PR
+  #356's TEST_RUN doc (2026-08-08) ran **five rounds and 36 findings on a
+  checklist that gets deleted after a single run** — every finding correct,
+  every round a misallocation, and the origin of the criticality gate. And
+  PR #425 (6, 7, 8 — 2026-08-13) was majority pre-existing territory plus a
+  pair of half-applied fixes: a scope decision wearing a divergence costume.
+  Four rising or high counts, four different correct responses — which is
+  the whole case for classifying before deciding.
 
 ### Findings are triaged against the artifact's real risk
 
@@ -467,9 +499,14 @@ David, every substantive round.**
 **When a review round's findings land: triage first, implement nothing,
 report.** The check-in carries:
 
-1. **Count + trend** — this round's finding count against the prior rounds'
-   ("round 3: 4 findings; 9 → 6 → 4"). A rising count is flagged as a stop
-   candidate in the same breath, per the stopping rule above.
+1. **Count + trend, then the bucket mix that interprets it (David,
+   2026-08-13)** — this round's finding count against the prior rounds'
+   ("round 3: 4 findings; 9 → 6 → 4"), followed in the same breath by the
+   stopping rule's classification: how many findings are oscillation /
+   class recurrence / new ground in the diff / new ground in pre-existing
+   code. **The mix, not the count, carries the continue/stop weight** — a
+   rising count still forces this classification to be presented, but the
+   count alone is never reported as the reason to stop.
 2. **Per finding** (grouped where natural): what it is, which part of the
    feature or fix it affects, and the triage verdict — fix /
    accept-and-document / escalate / decline — with a plain statement of
@@ -505,12 +542,17 @@ report.** The check-in carries:
    script, or environment-variable precedence. If the sentence would have to
    be rewritten when the mechanism changes, it's describing the mechanism —
    rewrite it as the outcome instead.
-3. **The causal flag, explicitly.** Is the finding **new ground**, or is it
-   **repairing something an earlier round's fix introduced** (propagation /
-   wrong-fix, in the loop ledger's rubric vocabulary), or is it **demanding a
-   guarantee the platform or configuration cannot provide** (the NCMEC case)?
-   An impossible-as-specified finding is named as such and never absorbed as
-   another fix attempt.
+3. **The causal flag, explicitly — and for new ground, the territory.** Is
+   the finding **new ground**, or is it **repairing something an earlier
+   round's fix introduced** (propagation / wrong-fix, in the loop ledger's
+   rubric vocabulary), or is it **demanding a guarantee the platform or
+   configuration cannot provide** (the NCMEC case)? An
+   impossible-as-specified finding is named as such and never absorbed as
+   another fix attempt. New-ground findings additionally say **which
+   territory** they sit in — code this loop's diff touched, or pre-existing
+   code the reviewer widened into — because the latter routes to a
+   now/next/never scope decision rather than a fix-by-default (per the
+   stopping rule's bucket table).
 4. **A recommendation** — continue / stop and ship / escalate — and then the
    loop waits. David decides.
 5. **The flip condition: the one fact that would reverse the recommendation
@@ -1199,6 +1241,23 @@ and the blind adjudicator use:
   adjudicator. This default does not extend to the new-ground-vs-propagation
   test above: an *exposed* pre-existing defect is new ground by definition,
   not an ambiguous case defaulting to self-inflicted.
+- **`newGroundTerritory` — the territory split of `causes.new` (David,
+  2026-08-13; recorded for loops closing from this date, absent on older
+  records).** The judgment block additionally carries
+  `newGroundTerritory: { inDiff, preExisting }`: of the new-ground findings,
+  how many were in code this loop's diff touched versus code the reviewer
+  widened into? **The two must sum exactly to `causes.new`.** This exists to
+  evaluate the stopping rule's bucket rubric with data instead of anecdote:
+  the self-inflicted share measures fix quality, but a loop can have a
+  spotless causal record and still run long because the reviewer left the
+  diff and started auditing the repo — PR #425's rounds were exactly that
+  shape, and without this field the record would show only "lots of new
+  ground," indistinguishable from a genuinely defective diff. The ambiguous
+  default here leans `inDiff` (the bias that makes *this* loop look worse,
+  matching the self-inflicted default's direction). A high `preExisting`
+  share across records is not a review-loop failure signal — it is a
+  discovery/pre-planning signal: the affected-surface inventory was
+  incomplete before the plan was written.
 
 **Why the full population, not a sample (David, 2026-07-27).** Earlier drafts
 adjudicated a 30% sample, inheriting the assumption that a *human* would do
