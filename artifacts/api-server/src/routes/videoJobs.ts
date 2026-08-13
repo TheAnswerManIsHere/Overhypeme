@@ -25,7 +25,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { deriveUserRole, isAtLeastLegendary } from "../lib/userRole";
-import { hasFeature } from "../lib/tierFeatures";
+import { can, principalFromRequest } from "../lib/featureAccess";
 import {
   startVideoJob,
   getVideoJob,
@@ -88,20 +88,17 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
   const role = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
   const isAdmin = role === "admin";
 
-  if (!isAdmin) {
-    // Legendary users are always allowed; below that we additionally check
-    // the `video_generation` feature flag in case it's enabled for a lower
-    // tier via admin override.
-    if (!isAtLeastLegendary(role)) {
-      const allowed = await hasFeature(dbTier, "video_generation");
-      if (!allowed) {
-        res.status(403).json({
-          error: "VIDEO_GENERATION_LOCKED",
-          message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
-        });
-        return;
-      }
-    }
+  // The SAME resolver call `POST /videos/generate` makes, so turning
+  // `video_generation` off in the grid turns it off on both routes. This site
+  // previously layered a role-rank short-circuit in front of the grid lookup,
+  // which is how one capability came to be gated by two different rules.
+  const principal = principalFromRequest(req);
+  if (!(await can(principal, "video_generation"))) {
+    res.status(403).json({
+      error: "VIDEO_GENERATION_LOCKED",
+      message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
   }
 
   // Resolve engine row first so we can surface engine-shaped validation
@@ -132,6 +129,7 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
       resolution: parsed.data.resolution,
       aspectRatio: parsed.data.aspectRatio as AspectRatio,
       framingFocus: parsed.data.framingFocus ?? null,
+      principal,
       name: parsed.data.name ?? null,
       pronouns: parsed.data.pronouns ?? null,
       renderedFactText: parsed.data.renderedFactText ?? null,

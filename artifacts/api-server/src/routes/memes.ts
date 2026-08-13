@@ -35,7 +35,8 @@ import { quarantineImage } from "../lib/moderation/quarantine";
 import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requireLegendary } from "../middlewares/tierMiddleware";
-import { hasFeature } from "../lib/tierFeatures";
+import { principalFromRequest } from "../lib/featureAccess";
+import { resolveMemeDecisions } from "../lib/createMemeRecord";
 import { isAtLeastLegendary, deriveUserRole } from "../lib/userRole";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
@@ -299,8 +300,10 @@ router.post("/memes", async (req: Request, res: Response) => {
     }
   }
 
-  const dbTier = req.user.membershipTier ?? "unregistered";
-  const userRoleForPulid = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
+  // Resolved here, at submission time, from the request's principal — which is
+  // the only place "view as user" is visible. `createMemeRecord` applies these
+  // rather than re-deriving them.
+  const decisions = await resolveMemeDecisions(principalFromRequest(req));
 
   try {
     const result = await createMemeRecord({
@@ -315,8 +318,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       name: parsed.data.name,
       pronouns: parsed.data.pronouns,
       previewImageBase64: parsed.data.previewImageBase64,
-      resolvedRole: userRoleForPulid,
-      resolvedTier: dbTier,
+      decisions,
     });
 
     if (result.idempotent) {

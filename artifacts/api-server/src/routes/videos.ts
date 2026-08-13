@@ -8,7 +8,7 @@ import { eq, and, gte, desc, or, asc } from "drizzle-orm";
 import { getCachedPrice } from "../lib/falPricing.js";
 import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
 import { checkBudget, recordCost } from "../lib/budgetGate.js";
-import { hasFeature } from "../lib/tierFeatures.js";
+import { buildAuthorizationSnapshot, can, principalFromRequest } from "../lib/featureAccess.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { userCanReadObject, userOwnsAiReferenceImage } from "../lib/objectAccess.js";
 import type { File } from "@google-cloud/storage";
@@ -410,16 +410,19 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  // Video generation is a Legendary-tier feature; admins are always exempt
-  if (!isAdmin) {
-    const allowed = await hasFeature(userTier, "video_generation");
-    if (!allowed) {
-      res.status(403).json({
-        error: "VIDEO_GENERATION_LOCKED",
-        message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
-      });
-      return;
-    }
+  // One resolver call decides this, for everyone. The admin exemption is not a
+  // short-circuit in front of the grid any more — it is the admin row of the
+  // grid, unioned in by the resolver — so turning `video_generation` off in the
+  // Admin column now actually turns it off for admins, and an admin previewing
+  // as a user is treated as one.
+  const principal = principalFromRequest(req);
+  const videoGenerationAllowed = await can(principal, "video_generation");
+  if (!videoGenerationAllowed) {
+    res.status(403).json({
+      error: "VIDEO_GENERATION_LOCKED",
+      message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
   }
 
   const clientIp = getClientIp(req);
@@ -541,6 +544,13 @@ router.post("/videos/generate", async (req, res) => {
       ipAddress: clientIp,
       userId: req.isAuthenticated() ? req.user.id : null,
       isPrivate: parsed.data.isPrivate ?? false,
+      // This route is the SECOND writer of `video_jobs`, and it records its own
+      // request's decision rather than deferring to the pipeline's. A
+      // placeholder here would be a live writer claiming not to know what
+      // authorized the job it is creating.
+      authorizationSnapshot: buildAuthorizationSnapshot(principal, {
+        video_generation: videoGenerationAllowed,
+      }),
     })
     .returning();
 

@@ -107,7 +107,12 @@ import {
   resolveFactEnrichmentSystemPrompt,
   hashPromptText,
 } from "../lib/factEnrichmentConfig";
-import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
+import {
+  getAllTierFeatureMatrix,
+  setTierFeature,
+  UnknownFeatureError,
+  UnknownTierError,
+} from "../lib/featureAccess";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -3476,21 +3481,24 @@ router.patch("/admin/feature-flags", requireAdmin, async (req: Request, res: Res
     return;
   }
 
-  const [flag] = await db
-    .select({ key: featureFlagsTable.key })
-    .from(featureFlagsTable)
-    .where(eq(featureFlagsTable.key, featureKey))
-    .limit(1);
-
-  if (!flag) {
-    res.status(404).json({ error: "Feature flag not found" });
-    return;
+  // Validation lives in setTierFeature, server-side: the API is reachable
+  // directly, so a client-side constraint is not a control. The tier is checked
+  // against the real column set — it previously accepted any string, silently
+  // writing rows no resolver would ever read.
+  try {
+    const { gridRevision } = await setTierFeature(tier, featureKey, enabled, req.user?.id ?? null);
+    res.json({ tier, featureKey, enabled, gridRevision });
+  } catch (err) {
+    if (err instanceof UnknownFeatureError) {
+      res.status(404).json({ error: "Feature flag not found" });
+      return;
+    }
+    if (err instanceof UnknownTierError) {
+      res.status(400).json({ error: "Unknown tier", tier });
+      return;
+    }
+    throw err;
   }
-
-  await setTierFeature(tier, featureKey, enabled);
-  bustTierFeaturesCache();
-
-  res.json({ tier, featureKey, enabled });
 });
 
 router.post("/admin/_debug/sentry", requireAdmin, (req: Request, res: Response) => {

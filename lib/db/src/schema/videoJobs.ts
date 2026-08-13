@@ -58,6 +58,21 @@ export const videoJobsTable = pgTable("video_jobs", {
   errorMessage: text("error_message"),
   ipAddress: varchar("ip_address", { length: 45 }).notNull(),
   userId: text("user_id"),
+  /**
+   * What authorized this job, resolved at SUBMISSION time — never re-derived at
+   * execution. Shape: `{ tier, isAdmin, decisions: {<featureKey>: boolean}, resolvedAt }`.
+   *
+   * NOT NULL with no default, deliberately: it is part of the row rather than a
+   * sidecar, so it cannot be written separately or partially, and every
+   * statically-typed insert site must supply it or fail to typecheck. (That
+   * enumeration argument holds for `video_jobs` specifically because it has no
+   * raw-SQL writers — verified — and does NOT generalize to tables that do.)
+   *
+   * A live writer must record its own request's decision. Neither a
+   * migration-style "predates this plan" snapshot nor any other placeholder is
+   * acceptable from a live writer.
+   */
+  authorizationSnapshot: jsonb("authorization_snapshot").notNull(),
   isPrivate: boolean("is_private").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Set when the pipeline reaches stage1_review (the user-approval checkpoint). */

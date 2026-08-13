@@ -16,7 +16,7 @@ import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { logger } from "../lib/logger";
-import { hasFeature } from "../lib/tierFeatures";
+import { can, principalFromRequest } from "../lib/featureAccess";
 import { verifyCaptcha } from "../lib/captcha";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull, not, like, or } from "drizzle-orm";
@@ -462,14 +462,16 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // `req.user.membershipTier` is rebuilt from the DB on every authenticated
-  // request by authMiddleware, so it's always fresh. Intentional premium-tier
-  // exception: legendary members and admins always skip per-comment captcha.
-  // The direct tier/admin check is the authoritative gate; the tier features
-  // table entry is a secondary check that can extend the bypass to other tiers.
-  const userDbTier = req.user.membershipTier ?? "unregistered";
-  const isLegendaryOrAdmin = userDbTier === "legendary" || !!req.user.isAdmin;
-  const captchaBypass = isLegendaryOrAdmin || await hasFeature(userDbTier, "comment_captcha_bypass");
+  // ONE expression, one source of truth. This site used to OR a direct
+  // tier/admin comparison together with a grid lookup — "the direct check is
+  // authoritative; the table entry is a secondary check" — which is two rules
+  // for one capability and exactly the shape this plan exists to remove. The
+  // admin half is not a short-circuit in front of the grid; it is the grid's
+  // admin row, unioned in by the resolver.
+  //
+  // This gate deliberately honours "view as user": an admin previewing as a
+  // registered user gets the registered experience, captcha included.
+  const captchaBypass = await can(principalFromRequest(req), "comment_captcha_bypass");
 
   if (!captchaBypass) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
