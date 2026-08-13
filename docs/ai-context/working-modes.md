@@ -335,12 +335,31 @@ will keep finding things, and each fix adds surface for the next round.
   reviewer wandered into, and the two demand opposite responses — so a
   finding is classified on both axes: cause (the ledger rubric's vocabulary)
   and territory (in this loop's diff, or outside it).
+
+  **Bucket precedence, so every finding routes exactly one way.** The
+  overlap case is a sibling instance of a class an earlier round claimed to
+  sweep — the sweep protocol classifies that as wrong-fix for the *ledger's
+  causal accounting*, which would also read as oscillation here. For the
+  *loop decision*, the **first** recurrence of a swept class is class
+  recurrence (continue: escalated re-name, re-sweep, process miss named in
+  the check-in) — one faulty sweep is a fixable mistake, not evidence that
+  prose can't converge. A **second** recurrence of the *same* class joins
+  oscillation: at that point the sweep mechanism itself is failing and
+  another prose round won't fix it. The two axes deliberately diverge on
+  this case — the bucket routes this loop's next step; the cause feeds the
+  self-inflicted share — and a check-in states both when they differ.
 - **Impact ranks the fixes; it does not drive the loop (David, 2026-08-13).**
   A high-impact pre-existing finding earns *urgency in whatever vehicle it's
   routed to* — usually a promptly-scheduled follow-up — not another round of
   this loop. A low-impact oscillation finding is still a stop signal.
   Causality and territory decide whether the loop continues; impact decides
-  how fast each routed finding gets fixed, wherever it lands.
+  how fast each routed finding gets fixed, wherever it lands. **The
+  criticality gate above remains the outer gate and fires first**: buckets
+  route continuation only for an artifact the gate already admitted. "Impact
+  never drives the loop" means a finding's severity buys no *extra* rounds
+  inside an admitted loop — it does not resurrect a loop the criticality
+  gate already ended, and a single-digit-criticality artifact still gets no
+  second round no matter how its findings classify.
 - **The artifact must not grow while it is being reviewed (David,
   2026-08-11).** Record its size at round 1 and state the current size in every
   re-review request, beside the finding trend. **Growth past roughly 50% means

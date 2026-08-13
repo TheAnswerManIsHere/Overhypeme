@@ -494,15 +494,13 @@ loaded:
   2026-08-05).** I track the finding count per round and **state the trend in
   every re-review request**. If a round returns **more** findings than the one
   before it, I pause before any further round — **but the count is a tripwire
-  that forces classification, never a verdict on its own (David, 2026-08-13,
-  after PR #425's rising counts turned out to be the reviewer widening into
-  pre-existing code, not the artifact diverging).** The pause's output is the
-  bucket sort in [`working-modes.md`](docs/ai-context/working-modes.md)'s
-  stopping rule — oscillation / class recurrence / new-ground-in-diff /
-  new-ground-pre-existing — and the bucket mix, presented to David, is what
-  decides continue vs. stop vs. scope-out. Pre-existing-territory findings
-  route to now/next/never, never to "another round" by default; impact ranks
-  the fixes but never drives the loop. **I track the plan file's line count the same way and state it in
+  that forces classification, never a verdict on its own (David,
+  2026-08-13).** What the classification is, how findings bucket, and what
+  each bucket decides live in
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s stopping-rule
+  section — the shared contract, not restated here. My enactment: I run that
+  bucket sort at the pause, lead the check-in with the bucket mix, and David
+  decides from it. **I track the plan file's line count the same way and state it in
   the same breath (David, 2026-08-11)** — the growth tripwire in
   [`working-modes.md`](docs/ai-context/working-modes.md) fires at roughly +50%
   from round 1, and it is the tripwire a *falling* finding count hides. **When
