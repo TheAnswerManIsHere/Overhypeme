@@ -108,6 +108,15 @@ import {
   hashPromptText,
 } from "../lib/factEnrichmentConfig";
 import {
+  assertAdminPopulationSurvives,
+  assertNotSelfDemotion,
+  crossesBootstrapBoundary,
+  reserveAccountForDeletion,
+  respondToGuardError,
+  type ReservationOutcome,
+} from "../lib/adminLockoutGuard";
+import { isRealAdminSql } from "../lib/adminIdentity";
+import {
   getAllTierFeatureMatrix,
   setTierFeature,
   UnknownFeatureError,
@@ -295,6 +304,41 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     }
   }
 
+  // ── Lockout guards ──────────────────────────────────────────────────────
+  // Four mutation kinds can remove an admin's console access. Three are
+  // obvious; the fourth is an email change, because authMiddleware derives
+  // real-admin status partly FROM the email — so changing the last
+  // bootstrap-email-only admin's address removes their access without touching
+  // isAdmin or isActive, invisible to a guard scoped to the other three.
+  const demoting = updates.isAdmin === false;
+  const deactivating = updates.isActive === false;
+
+  let emailCrossesBootstrap = false;
+  if (updates.email !== undefined) {
+    const [current] = await db
+      .select({ email: usersTable.email })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    emailCrossesBootstrap = crossesBootstrapBoundary(
+      current?.email,
+      updates.email as string | null,
+    );
+  }
+
+  const removesAdminAccess = demoting || deactivating || emailCrossesBootstrap;
+
+  if (removesAdminAccess) {
+    try {
+      // An admin may not remove their own admin flag. Checked before the
+      // population count, so the error names the real reason.
+      if (demoting) assertNotSelfDemotion(req.user?.id, id);
+    } catch (err) {
+      if (respondToGuardError(err, res)) return;
+      throw err;
+    }
+  }
+
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "No valid fields to update" });
     return;
@@ -322,7 +366,17 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     ? await refreshSourcesForReinstatement(id)
     : { complete: true, verifiedSourceIds: new Set<number>() };
 
-  const [updated] = await db.transaction(async (tx) => {
+  let updated;
+  try {
+    [updated] = await db.transaction(async (tx) => {
+    // The lock, the count, and the write are ONE transaction. Splitting them
+    // leaves the race the guard exists to close: at READ COMMITTED two
+    // transactions removing DIFFERENT admin rows both read a count of two and
+    // both commit, because the rows they write don't overlap.
+    if (removesAdminAccess) {
+      await assertAdminPopulationSurvives(tx, id);
+    }
+
     const [row] = await tx
       .update(usersTable)
       .set(updates)
@@ -438,7 +492,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
 
     const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     return [fresh];
-  });
+    });
+  } catch (err) {
+    if (respondToGuardError(err, res)) return;
+    throw err;
+  }
 
   if (!updated) {
     res.status(404).json({ error: "User not found" });
@@ -459,7 +517,11 @@ router.get("/admin/administrators", requireAdmin, async (_req: Request, res: Res
       isActive: usersTable.isActive,
     })
     .from(usersTable)
-    .where(eq(usersTable.isAdmin, true))
+    // All three grant mechanisms, not the stored column alone. This listing is
+    // what an operator looks at to answer "how many admins do we have?" before
+    // demoting someone, so showing them a subset of the real population is
+    // exactly the wrong place to be approximate.
+    .where(isRealAdminSql())
     .orderBy(usersTable.displayName);
   res.json({ administrators: admins });
 });
@@ -470,13 +532,30 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
   const hard = req.query["hard"] === "true";
 
-  if (hard) {
-    // Verify the user exists before doing any cleanup work
-    const [userToDelete] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
-    if (!userToDelete) { res.status(404).json({ error: "User not found" }); return; }
+  // ── Reserve BEFORE any irreversible work ────────────────────────────────
+  // Both delete paths run object-storage deletion, Stripe cancellation, and
+  // session revocation before the DB mutation that removes admin access. A
+  // guard on the final write would reject the last-admin case correctly but
+  // only after the damage it exists to prevent — so the reservation
+  // (is_active = false, under the population lock) runs first, and an
+  // already-reserved target resumes rather than 404ing.
+  let reservation: ReservationOutcome;
+  try {
+    assertNotSelfDemotion(req.user?.id, id);
+    reservation = await reserveAccountForDeletion(id);
+  } catch (err) {
+    if (respondToGuardError(err, res)) return;
+    throw err;
+  }
+  if (reservation.status === "not_found") {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  const resuming = reservation.status === "resuming";
 
+  if (hard) {
     // stage tracks which logical phase is running so the UI can show accurate progress on error
-    type HardDeleteStage = "collect" | "membership" | "nullify" | "delete";
+    type HardDeleteStage = "reserve" | "collect" | "membership" | "nullify" | "delete";
     let currentStage: HardDeleteStage = "collect";
 
     try {
@@ -641,15 +720,22 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
       const sessionsRevoked = deletedSessions.length;
 
-      // Step 3: Mark user inactive
+      // Step 3: Confirm the deactivation the reservation already performed.
+      //
+      // The reservation above IS this write — it was moved ahead of the Stripe
+      // and session stages so the last-admin case is rejected before any
+      // irreversible work. What remains here is reading back the row, which
+      // deliberately no longer filters on `isActive = true`: that filter is
+      // what turned a resumed half-done deletion into a bogus 404.
       currentStage = "deactivate";
-      const [updated] = await db.update(usersTable)
-        .set({ isActive: false })
-        .where(and(eq(usersTable.id, id), eq(usersTable.isActive, true)))
-        .returning();
-      if (!updated) { res.status(404).json({ error: "User not found or already inactive", stage: currentStage }); return; }
+      const [updated] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, id))
+        .limit(1);
+      if (!updated) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
 
-      res.json({ success: true, deleted: false, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
+      res.json({ success: true, deleted: false, resumed: resuming, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
     } catch (e) {
       logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
       res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });

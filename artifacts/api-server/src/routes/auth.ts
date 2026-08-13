@@ -1,3 +1,4 @@
+import { isRealAdminRequest } from "../lib/adminIdentity";
 import * as oidc from "openid-client";
 import * as Sentry from "@sentry/node";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -424,14 +425,16 @@ router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
     return;
   }
 
-  const [dbUser] = await db
-    .select({ isAdmin: usersTable.isAdmin })
-    .from(usersTable)
-    .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
-    .limit(1);
-
-  const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
-  if (!isRealAdmin) {
+  // The canonical resolution, over all three grant mechanisms — the same one
+  // authMiddleware already computed for this request.
+  //
+  // This site used to run its own query and check `isAdmin || isAdminById(...)`,
+  // omitting the `isAdminByEmail(...)` clause. A bootstrap-email-only admin
+  // therefore passed every other gate in the system and then got a 403 from the
+  // one route that lets them LEAVE preview mode — defeating the no-lockout
+  // guarantee for exactly the account the bootstrap carve-out exists to
+  // protect, since no UI anywhere can turn the toggle back off once it is on.
+  if (!isRealAdminRequest(req)) {
     res.status(403).json({ error: "Not an admin" });
     return;
   }

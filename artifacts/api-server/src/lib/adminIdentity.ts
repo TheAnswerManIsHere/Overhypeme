@@ -26,7 +26,7 @@
 
 import { type Request } from "express";
 import { usersTable } from "@workspace/db/schema";
-import { and, eq, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { BOOTSTRAP_ADMIN_EMAIL } from "./auth";
 
 /** The ids in ADMIN_USER_IDS, read at call time so tests can vary the env. */
@@ -50,7 +50,11 @@ export function isRealAdminSql(): SQL {
   const clauses: SQL[] = [eq(usersTable.isAdmin, true)];
 
   if (ids.length > 0) {
-    clauses.push(sql`${usersTable.id} = ANY(${ids})`);
+    // `inArray`, not `= ANY(${ids})`: drizzle binds a JS array as a single
+    // parameter, so the ANY form reaches Postgres as a scalar and the clause
+    // silently matches nothing — which would make env-granted admins invisible
+    // to the very count that decides whether the last admin may be removed.
+    clauses.push(inArray(usersTable.id, ids));
   }
 
   // Case-insensitive, matching `isAdminByEmail`'s `toLowerCase()` comparison.
