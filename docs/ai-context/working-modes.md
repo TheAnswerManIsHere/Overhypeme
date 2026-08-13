@@ -236,6 +236,31 @@ applied" will go find anything. Tell it plainly: *do not report what the
 compiler or the test suite would catch — report what survives into production
 invisibly.* That one sentence is most of the win, and it costs nothing.
 
+**The same line decides how many rounds to spend, not just what to write
+(David, 2026-08-13).** Once a plan's *design claims* are settled, remaining
+findings are mechanics — and mechanics are what implementation verifies best
+and cheapest:
+
+- **Design claims must be settled in the plan.** What is a boundary versus a
+  convention, what depends on what, which invariant holds in which state.
+  Code review structurally cannot catch a wrong design that has been
+  faithfully implemented, so these are worth as many rounds as they take.
+- **Mechanics can ride to implementation.** Which PostgreSQL function raises
+  on which argument, whether a fixture setup still passes, whether a count
+  assertion is coherent. These announce themselves the moment code runs, with
+  a stack trace and a line number, which is more than any review round
+  produces.
+
+**So a loop's real exit condition is "the design claims are right," not "the
+reviewer stopped finding things."** PR #422 reached that point at round 2,
+when the false claim at the centre of the plan — that triggers enforce
+anything before an ownership transfer the owner can undo — was found and
+corrected. Everything the round found after that was PostgreSQL mechanics,
+bought at review-round prices. The residual risk is covered three ways
+regardless: the plan mandates its own negative tests, Codex reviews the
+implementation diff against the plan as oracle, and crash-class defects
+surface on first run.
+
 ### Review loops need a stopping rule, not just a convergence target
 
 A review loop's exit condition cannot be "keep going until the reviewer stops
@@ -269,6 +294,50 @@ will keep finding things, and each fix adds surface for the next round.
   advisory lock, a column — and each piece of machinery is fresh surface for
   the next round, which is how round 3 rose to 21 findings with roughly 14 of
   them against scope that did not exist when the loop started.
+- **But the tripwire's output is not always a split — it depends on *what kind*
+  of growth fired it (David, 2026-08-13).** Two kinds look identical on the
+  line count and call for opposite responses:
+
+  | Growth | Looks like | Correct output |
+  |---|---|---|
+  | **Scope accretion** — the artifact absorbed a second deliverable | New sections about a subsystem the plan didn't originally own | **Split.** This is what the tripwire was written for. |
+  | **Depth** — findings against one coupled mechanism, answered | The same sections getting longer and more precise | **Cap the loop and go to implementation.** Splitting a coupled mechanism manufactures an ordering dependency and reviews neither half honestly. |
+
+  PR #421 was the first kind: hardening material accreting inside an
+  entitlements plan, and the two halves were genuinely separable. PR #422 was
+  the second: 545 → 1029 lines because reviewers found real defects in one
+  boundary whose migration and runbook halves are meaningless apart.
+  **Recommending a split there was pattern-matching the rule instead of
+  reading the situation** — and the proposed seam was the exact
+  plan-to-plan ordering dependency both reviewers had just flagged as the
+  riskiest thing about the *first* split. Splitting twice to avoid review
+  rounds trades a bounded problem for an unbounded one.
+
+  So the menu at a fired tripwire is **split / cap-and-implement / stop**, and
+  the question that picks between them is *did the artifact take on new scope,
+  or get deeper about the scope it had?*
+- **Oscillation is its own stopping condition (David, 2026-08-13).** When a
+  round's findings are dominated by **failures of the previous round's
+  fixes**, the loop is not converging, it is oscillating — and more rounds do
+  not fix that, because prose cannot be executed. PR #422's round 2 carried
+  three `Reconciliation — Still Open` findings against round 1's fixes, plus
+  two fixes that were themselves new defects: a bypass flag any caller could
+  forge, and a guard that would crash every un-hardened database. **The
+  correct response is implementation**, which is the only thing that
+  actually verifies a mechanism. Track this alongside the count and the size;
+  a *falling* count hides it exactly as it hides growth.
+- **A fix that requires inventing a new mechanism is a signal, not a
+  solution.** When answering a finding means adding a flag, a state column, or
+  a protocol the design did not already have, stop and ask whether the design
+  is wrong instead. PR #422's forgeable GUC exemption existed only because the
+  plan was trying to authenticate a sanctioned caller in a state where no
+  authentication is possible; the real fix deleted the mechanism and corrected
+  the claim above it. See *now vs. next* — the same default applies to
+  mechanisms arriving via review, not just via scope requests.
+- **Severity badges are not a triage input.** Two of PR #422 round 2's
+  P2-badged findings were runtime crashes: `has_any_column_privilege(...,
+  'DELETE')` raises, and `pg_has_role` raises on a role that does not exist
+  yet. Read what a finding *does*, never what it is labelled.
 - **Cap by artifact class.** Transient single-use docs: **the automatic first
   pass only — never a re-request** (see the ceremony table above). Agent-facing
   markdown: **1–2 rounds.** Product code: the existing soft cap, and the

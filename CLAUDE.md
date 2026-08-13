@@ -498,8 +498,17 @@ loaded:
   try harder. **I track the plan file's line count the same way and state it in
   the same breath (David, 2026-08-11)** — the growth tripwire in
   [`working-modes.md`](docs/ai-context/working-modes.md) fires at roughly +50%
-  from round 1, and it is the tripwire a *falling* finding count hides. When it
-  fires, the output is a split and a backlog, not another round. Agent-facing markdown caps at **1–2 rounds** (and normally has
+  from round 1, and it is the tripwire a *falling* finding count hides. **When
+  it fires I present the full menu — split / cap-and-implement / stop — and
+  say which kind of growth fired it (David, 2026-08-13).** "Split" is the
+  answer for *scope accretion*, not for a coupled mechanism that merely got
+  deeper; I recommended splitting PR #422 by pattern-matching the rule, at a
+  seam that would have manufactured a third ordering dependency, and David
+  caught it. **I also report oscillation** — a round dominated by failures of
+  the previous round's fixes — as its own stopping condition, since prose
+  cannot be executed and only implementation converges that. Both live in
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s stopping-rule
+  section. Agent-facing markdown caps at **1–2 rounds** (and normally has
   no loop at all — see the ceremony-tiering rule above). **I also triage:
   every finding gets fix / accept-and-document / escalate, stated explicitly.**
   Codex marks everything "Required Revision" because that is its job;
