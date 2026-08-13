@@ -203,18 +203,24 @@ describe("grid completeness", () => {
     }
   });
 
-  it("meme_upload_photo and its tier rows are gone, and re-deleting no-ops", async () => {
-    const flags = await db
-      .select({ key: featureFlagsTable.key })
-      .from(featureFlagsTable)
-      .where(eq(featureFlagsTable.key, "meme_upload_photo"));
-    assert.equal(flags.length, 0, "meme_upload_photo should have been retired");
+  it("the retired rows and their tier rows are gone", async () => {
+    // Both retired for the same reason: no code read them and no user action
+    // corresponded to them. Re-deleting is a no-op — the migration guards on
+    // membership in the retired-keys array, and a second invocation of the
+    // backfill is exercised under "migration observability" below.
+    for (const retired of ["meme_upload_photo", "meme_ai_background"]) {
+      const flags = await db
+        .select({ key: featureFlagsTable.key })
+        .from(featureFlagsTable)
+        .where(eq(featureFlagsTable.key, retired));
+      assert.equal(flags.length, 0, `${retired} should have been retired`);
 
-    const perms = await db
-      .select({ tier: tierFeaturePermissionsTable.tier })
-      .from(tierFeaturePermissionsTable)
-      .where(eq(tierFeaturePermissionsTable.featureKey, "meme_upload_photo"));
-    assert.equal(perms.length, 0, "meme_upload_photo tier rows should have been retired");
+      const perms = await db
+        .select({ tier: tierFeaturePermissionsTable.tier })
+        .from(tierFeaturePermissionsTable)
+        .where(eq(tierFeaturePermissionsTable.featureKey, retired));
+      assert.equal(perms.length, 0, `${retired} tier rows should have been retired`);
+    }
   });
 });
 

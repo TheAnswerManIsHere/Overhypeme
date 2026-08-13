@@ -1,9 +1,16 @@
 -- Plan 1a — One resolver, one client contract, no admin lockout (PR #421, workstream #405).
 --
--- Forward-only and idempotent. ONE destructive step: the `meme_upload_photo`
--- deletion, which captures the removed rows into
--- `feature_permissions_migration_log.deleted_rows` BEFORE deleting them so
--- recovery is answerable from the database rather than from a document.
+-- Forward-only and idempotent. ONE destructive step: retiring the two dead
+-- feature rows (`meme_upload_photo`, `meme_ai_background`), which captures the
+-- removed rows into `feature_permissions_migration_log.deleted_rows` BEFORE
+-- deleting them so recovery is answerable from the database rather than from a
+-- document.
+--
+-- Recovery, post-Plan-1b: `create_feature_flag` then `set_tier_feature` per
+-- tier, passing the captured values — which additionally makes the restoration
+-- audited and revision-bumped, as any other grid change is. Pre-1b a direct
+-- INSERT of the same captured values is equivalent and available. Both read
+-- from the same `deleted_rows` capture; only the write mechanism differs.
 --
 -- ORDERING NOTE — this migration MUST run before Plan 1b's (PR #422). The
 -- deletion below is a direct `tier_feature_permissions` row delete, which 1b's
@@ -164,6 +171,8 @@ DECLARE
   v_already_complete integer := 0;
   v_skipped integer := 0;
   v_deleted jsonb;
+  -- Rows retired by this plan. See the capture block below for why each goes.
+  v_retired_keys text[] := ARRAY['meme_upload_photo', 'meme_ai_background'];
 BEGIN
   -- Features already carrying a complete four-row set, measured BEFORE this
   -- run's inserts. This count legitimately RISES on a second run: the features
@@ -192,16 +201,26 @@ BEGIN
     v_skipped := 0;
   END IF;
 
-  -- Capture the vestigial row-set before removing it, so recovery reads from
-  -- the database. Only populated on the run that actually deletes something.
+  -- Capture the vestigial row-sets before removing them, so recovery reads
+  -- from the database. Only populated on the run that actually deletes
+  -- something.
+  --
+  -- Two rows retire here, for the same reason: no code read them and no user
+  -- action corresponded to them.
+  --   • meme_upload_photo  — encoded only the registered-vs-unregistered
+  --                          distinction authentication already enforces.
+  --   • meme_ai_background — its only reader was the unreachable render.ts
+  --                          gate; AI backgrounds are system-generated per
+  --                          fact and served to everyone, so there was no
+  --                          user-facing capability for a dial to govern.
   SELECT jsonb_build_object(
            'feature_flags', (
              SELECT coalesce(jsonb_agg(to_jsonb(f)), '[]'::jsonb)
-             FROM feature_flags f WHERE f.key = 'meme_upload_photo'
+             FROM feature_flags f WHERE f.key = ANY(v_retired_keys)
            ),
            'tier_feature_permissions', (
              SELECT coalesce(jsonb_agg(to_jsonb(p)), '[]'::jsonb)
-             FROM tier_feature_permissions p WHERE p.feature_key = 'meme_upload_photo'
+             FROM tier_feature_permissions p WHERE p.feature_key = ANY(v_retired_keys)
            )
          )
     INTO v_deleted;
@@ -213,8 +232,8 @@ BEGIN
 
   -- Children first, then the parent. Both are no-ops on a re-run and on an
   -- already-clean database.
-  DELETE FROM tier_feature_permissions WHERE feature_key = 'meme_upload_photo';
-  DELETE FROM feature_flags WHERE key = 'meme_upload_photo';
+  DELETE FROM tier_feature_permissions WHERE feature_key = ANY(v_retired_keys);
+  DELETE FROM feature_flags WHERE key = ANY(v_retired_keys);
 
   -- Fill only the gaps. `false` is the correct default: it is exactly what the
   -- resolver already infers from a missing row, so filling a gap changes no
