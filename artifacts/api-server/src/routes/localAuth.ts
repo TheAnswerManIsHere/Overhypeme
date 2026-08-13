@@ -14,6 +14,8 @@ import { ipFromRequest } from "../lib/transientRenderLog";
 import { logger } from "../lib/logger";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 import { effectiveTierForRow } from "../lib/membershipState";
+import { crossesBootstrapBoundary, respondToGuardError, withAdminPopulationGuard } from "../lib/adminLockoutGuard";
+import { isRealAdminRow } from "../lib/adminIdentity";
 
 const router: IRouter = Router();
 
@@ -471,11 +473,40 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
   }
 
   if (record.pendingEmail) {
-    // Email change verification — promote pendingEmail to email
-    await db
-      .update(usersTable)
-      .set({ email: record.pendingEmail, pendingEmail: null, emailVerifiedAt: new Date() })
-      .where(eq(usersTable.id, record.userId));
+    // Email change verification — promote pendingEmail to email. This is a
+    // SECOND path (besides PATCH /admin/users/:id) that can cross the
+    // bootstrap-admin-email boundary, so it needs the same lockout guard:
+    // round 2 of PR #425's review found the last bootstrap-email-only admin
+    // could confirm a pending non-bootstrap address here and silently lose
+    // console access with no guard catching it.
+    const [current] = await db
+      .select({ id: usersTable.id, email: usersTable.email, isAdmin: usersTable.isAdmin })
+      .from(usersTable)
+      .where(eq(usersTable.id, record.userId))
+      .limit(1);
+
+    const removesAdminAccess =
+      !!current &&
+      crossesBootstrapBoundary(current.email, record.pendingEmail) &&
+      isRealAdminRow(current) &&
+      !isRealAdminRow({ id: current.id, email: record.pendingEmail, isAdmin: current.isAdmin });
+
+    const promoteEmail = (tx: { update: typeof db.update }) =>
+      tx
+        .update(usersTable)
+        .set({ email: record.pendingEmail, pendingEmail: null, emailVerifiedAt: new Date() })
+        .where(eq(usersTable.id, record.userId));
+
+    if (removesAdminAccess) {
+      try {
+        await withAdminPopulationGuard(record.userId, promoteEmail);
+      } catch (err) {
+        if (respondToGuardError(err, res)) return;
+        throw err;
+      }
+    } else {
+      await promoteEmail(db);
+    }
   } else {
     // New account email verification
     await db

@@ -12,6 +12,7 @@ import { eq, sql } from "drizzle-orm";
 import { getConfigString, getConfigFloat } from "./adminConfig";
 import { logger } from "./logger";
 import { effectiveTierExpr } from "./membershipState";
+import { isRealAdminRow } from "./adminIdentity";
 
 export interface BudgetStatus {
   allowed: boolean;
@@ -79,13 +80,22 @@ export async function checkBudget(
     const [user] = await db
       // Effective tier: this decides which SPENDING limit applies, from its
       // own select, so it bypasses the authMiddleware chokepoint too.
-      .select({ membershipTier: effectiveTierExpr(), isAdmin: usersTable.isAdmin, monthlyGenerationLimitOverrideUsd: usersTable.monthlyGenerationLimitOverrideUsd })
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        membershipTier: effectiveTierExpr(),
+        isAdmin: usersTable.isAdmin,
+        monthlyGenerationLimitOverrideUsd: usersTable.monthlyGenerationLimitOverrideUsd,
+      })
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);
 
     const tier = user?.membershipTier ?? "unregistered";
-    const isAdmin = user?.isAdmin ?? false;
+    // The canonical three-mechanism check, not the raw column — an env- or
+    // bootstrap-granted admin (no `is_admin` row) was silently paying like a
+    // regular user. Round 2 of PR #425's review caught this.
+    const isAdmin = !!user && isRealAdminRow(user);
 
     // Admins are exempt from budget limits
     if (isAdmin) {

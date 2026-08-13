@@ -106,6 +106,23 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
     return;
   }
 
+  // `video_generation` and `meme_pulid_stylize` are two independent grid
+  // rows — a tier (or an admin previewing as user) can have one without the
+  // other. The "stylize-then-video" mode runs the PuLID stage before video
+  // generation, so it needs its own check here rather than inheriting the
+  // video gate above. Round 2 of PR #425's review found this path ran PuLID
+  // regardless of the recorded decision.
+  if (parsed.data.sourceMode === "stylize-then-video") {
+    const canPulidStylize = await can(principal, "meme_pulid_stylize");
+    if (!canPulidStylize) {
+      res.status(403).json({
+        error: "PULID_STYLIZE_LOCKED",
+        message: "AI face styling is a Legendary feature. Upgrade your membership to unlock it.",
+      });
+      return;
+    }
+  }
+
   // Resolve engine row first so we can surface engine-shaped validation
   // failures (unknown engine, not-a-video-engine) with a precise 400 before
   // we touch the budget gate. Non-admins get the default; admins can pass

@@ -115,7 +115,7 @@ import {
   respondToGuardError,
   type ReservationOutcome,
 } from "../lib/adminLockoutGuard";
-import { isRealAdminSql } from "../lib/adminIdentity";
+import { isReachableAdminSql, isRealAdminRow, isRealAdminSql } from "../lib/adminIdentity";
 import {
   getAllTierFeatureMatrix,
   setTierFeature,
@@ -313,17 +313,34 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   const demoting = updates.isAdmin === false;
   const deactivating = updates.isActive === false;
 
+  // A crossing alone isn't enough: if the target is ALSO a real admin via
+  // `is_admin` (or the env allowlist) before AND after this update, losing
+  // the bootstrap-email grant removes nothing — they're still reachable
+  // through the other mechanism. Round 2 of PR #425's review caught this:
+  // the boundary-crossing check alone would reject changing a genuinely
+  // multi-mechanism admin's email as `last_admin` even though nothing is
+  // actually being removed.
   let emailCrossesBootstrap = false;
   if (updates.email !== undefined) {
     const [current] = await db
-      .select({ email: usersTable.email })
+      .select({ id: usersTable.id, email: usersTable.email, isAdmin: usersTable.isAdmin })
       .from(usersTable)
       .where(eq(usersTable.id, id))
       .limit(1);
-    emailCrossesBootstrap = crossesBootstrapBoundary(
-      current?.email,
-      updates.email as string | null,
-    );
+    if (
+      current &&
+      crossesBootstrapBoundary(current.email, updates.email as string | null)
+    ) {
+      const nextIsAdmin =
+        updates.isAdmin !== undefined ? (updates.isAdmin as boolean) : current.isAdmin;
+      const wasAdmin = isRealAdminRow(current);
+      const willBeAdmin = isRealAdminRow({
+        id: current.id,
+        email: updates.email as string | null,
+        isAdmin: nextIsAdmin,
+      });
+      emailCrossesBootstrap = wasAdmin && !willBeAdmin;
+    }
   }
 
   const removesAdminAccess = demoting || deactivating || emailCrossesBootstrap;
@@ -2486,10 +2503,13 @@ router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Reque
 });
 
 router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+  // The canonical reachable-admin predicate, not the raw is_admin column —
+  // an env- or bootstrap-only admin was silently skipped by this bulk
+  // opt-in. Round 2 of PR #425's review caught this.
   const updated = await db
     .update(usersTable)
     .set({ adminNotifications: true })
-    .where(and(eq(usersTable.isAdmin, true), eq(usersTable.isActive, true)))
+    .where(isReachableAdminSql())
     .returning({ id: usersTable.id, email: usersTable.email, adminNotifications: usersTable.adminNotifications });
   res.json({ success: true, updated });
 });

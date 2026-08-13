@@ -69,9 +69,15 @@ describe("MemeBuilderWizard", () => {
   });
 
   it("back arrow returns to Step 1 from Step 2 with state preserved", async () => {
-    // Legendary viewer so the video card is tappable (free/anon would open
-    // the upgrade modal instead of advancing).
-    renderWizard({ viewerContext: { ...VIEWER, tier: "legendary" } });
+    // Entitled viewer so the video card is tappable (an unentitled viewer
+    // would open the upgrade modal instead of advancing).
+    renderWizard({
+      viewerContext: {
+        ...VIEWER,
+        tier: "legendary",
+        entitlements: { video_generation: { allowed: true, limit: null } },
+      },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^video$/i }));
     expect(await screen.findByRole("heading", { name: /pick a photo, choose your options/i }, S2)).toBeTruthy();
 

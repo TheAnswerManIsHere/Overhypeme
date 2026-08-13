@@ -33,6 +33,7 @@ import {
   __computeProgressForTests,
   type JobState,
 } from "../lib/videoPipelineRunner.js";
+import { setTierFeature } from "../lib/featureAccess.js";
 
 const USER_PREFIX = "t-vj-";
 const FACT_TEXT_PREFIX = "t-vj-fact ";
@@ -181,6 +182,58 @@ describe("POST /api/memes/video-jobs", () => {
     });
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "VIDEO_GENERATION_LOCKED");
+  });
+
+  // video_generation and meme_pulid_stylize are two independent grid rows —
+  // round 2 of PR #425's review found "stylize-then-video" ran the PuLID
+  // stage regardless of the recorded meme_pulid_stylize decision. Proves the
+  // general invariant (a tier entitled to video but NOT to PuLID is refused
+  // this specific mode), not just "legendary can, registered can't".
+  it("returns 403 PULID_STYLIZE_LOCKED for stylize-then-video when video_generation is granted but meme_pulid_stylize is not", async () => {
+    const revoked = await setTierFeature("legendary", "meme_pulid_stylize", false, null);
+    try {
+      const userId = await createTestUser({ tier: "legendary" });
+      const factId = await insertFact();
+      const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+      const res = await request(app).post("/api/memes/video-jobs").send({
+        factId,
+        sourceMode: "stylize-then-video",
+        sourceImagePath: "/objects/test.jpg",
+        lookStyleId: "cinematic",
+        lengthSeconds: 4,
+        resolution: "720p",
+        aspectRatio: "landscape",
+      });
+      assert.equal(res.status, 403);
+      assert.equal(res.body.error, "PULID_STYLIZE_LOCKED");
+    } finally {
+      await setTierFeature("legendary", "meme_pulid_stylize", revoked.enabledBefore ?? true, null);
+    }
+  });
+
+  it("does NOT block use-photo-as-is when meme_pulid_stylize is revoked but video_generation is granted", async () => {
+    const revoked = await setTierFeature("legendary", "meme_pulid_stylize", false, null);
+    try {
+      const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+      const factId = await insertFact();
+      const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+      __setPipelineTestHooks({
+        runStage1: async () => ({ stillObjectPath: "/objects/styled.jpg" }),
+        classifyStill: async () => "accept",
+      });
+      const res = await request(app).post("/api/memes/video-jobs").send({
+        factId,
+        sourceMode: "use-photo-as-is",
+        sourceImagePath: "/objects/test.jpg",
+        lengthSeconds: 4,
+        resolution: "720p",
+        aspectRatio: "landscape",
+      });
+      assert.equal(res.status, 200);
+      assert.ok(typeof res.body.jobId === "string");
+    } finally {
+      await setTierFeature("legendary", "meme_pulid_stylize", revoked.enabledBefore ?? true, null);
+    }
   });
 
   it("happy path: returns 200 {jobId} and transitions through stage1 → stage1_review", async () => {

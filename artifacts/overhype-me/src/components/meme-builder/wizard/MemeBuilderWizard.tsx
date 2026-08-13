@@ -100,7 +100,7 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
             <Step1ArtifactType
               selected={state.artifactType}
               onSelect={handleSelectArtifactType}
-              tier={viewerContext.tier}
+              canVideoGeneration={viewerContext.entitlements?.["video_generation"]?.allowed === true}
             />
           ) : (
             <Step2BackgroundAndText

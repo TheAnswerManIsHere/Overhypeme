@@ -9,10 +9,10 @@
  * `entitlements` map and `can(featureKey)`) exists precisely so the client
  * never re-derives a product-feature gate from `tier`/`role` on its own. A
  * NEW `tier === "legendary"` (or `role === "legendary"`, or
- * `membershipTier === "legendary"`) guarding what renders or what a user can
- * do is the same two-vocabulary shape PR #402 shipped with, just on the
- * other side of the wire — and PR #425's review round found six of them
- * already in the tree.
+ * `membershipTier === "legendary"` — or a NEGATIVE form of any of those,
+ * `tier !== "legendary"`) guarding what renders or what a user can do is the
+ * same two-vocabulary shape PR #402 shipped with, just on the other side of
+ * the wire.
  *
  * This guard does NOT flag `role === "admin"` (or `isRealAdmin`-style
  * checks). Those are the privilege rail — operational/debug UI, not a
@@ -25,7 +25,9 @@
  * infer "display vs. gate" from syntax, this guard names each legitimate
  * display site explicitly in the allowlist, the same discipline the backend
  * guard uses for its own three exceptions. A pattern with no matching
- * allowlist entry fails the build.
+ * allowlist entry on the SAME LINE fails the build — matching is line-level,
+ * not file-level, so an allowlisted file isn't blanket-immune: a second,
+ * unrelated violation added anywhere else in that file still fails.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -39,7 +41,9 @@ const FRONTEND_SRC = join(REPO_ROOT, "artifacts/overhype-me/src");
  * Named, permanent exceptions — membership-status display, UX-default
  * pickers, and the one identity-mapper chokepoint that legitimately derives
  * a legacy tier label from `role`. Each carries why it isn't a product
- * gate, mirroring the backend guard's ALLOWLIST discipline.
+ * gate, mirroring the backend guard's ALLOWLIST discipline. Matching is
+ * per-LINE (see below): an entry only suppresses the violation on the exact
+ * line whose text it matches, not the rest of its file.
  */
 const ALLOWLIST = [
   {
@@ -54,7 +58,12 @@ const ALLOWLIST = [
   {
     file: "artifacts/overhype-me/src/pages/memePage/useViewerCell.ts",
     pattern: /role === "legendary" \|\| role === "admin"/,
-    reason: "Membership badge on the meme detail view — status display, not a feature gate.",
+    reason:
+      "isLegendaryRole() now feeds ONLY the 'other' branches (viewing someone " +
+      "else's meme) — whether a marketing upsell card is shown, not any actual " +
+      "capability. The OWN-meme branch, which used to share this same role check " +
+      "and really did gate the PuLID flow, now takes canPulidStylize (the " +
+      "resolved meme_pulid_stylize entitlement) as an input instead.",
   },
   {
     file: "artifacts/overhype-me/src/components/layout/AccountMenu.tsx",
@@ -111,19 +120,26 @@ const ALLOWLIST = [
 /**
  * Inline tier/role comparisons used as PRODUCT-FEATURE gates. `role ===
  * "admin"` is deliberately NOT matched — that's the privilege rail.
+ *
+ * `[!=]==` matches both `===` and `!==` in one pattern — round 2 of PR #425's
+ * review found `tier !== "legendary"` (a negative gate) sailing through when
+ * this only matched `===`. Loose `==`/`!=` aren't matched: this repo's lint
+ * config forbids loose equality, so they can't occur, and `!(tier ===
+ * "legendary")` still contains a literal `===` substring the pattern already
+ * catches.
  */
 const INLINE_TIER_GATES = [
   {
-    pattern: /\bmembershipTier\s*===\s*["']legendary["']/,
-    hint: "a raw membershipTier === 'legendary' comparison — use can('<feature_key>') instead",
+    pattern: /\bmembershipTier\s*[!=]==\s*["']legendary["']/,
+    hint: "a raw membershipTier === / !== 'legendary' comparison — use can('<feature_key>') instead",
   },
   {
-    pattern: /\btier\s*===\s*["']legendary["']/,
-    hint: "a raw tier === 'legendary' comparison — use can('<feature_key>') instead",
+    pattern: /\btier\s*[!=]==\s*["']legendary["']/,
+    hint: "a raw tier === / !== 'legendary' comparison — use can('<feature_key>') instead",
   },
   {
-    pattern: /\brole\s*===\s*["']legendary["']/,
-    hint: "a raw role === 'legendary' comparison — use can('<feature_key>') instead",
+    pattern: /\brole\s*[!=]==\s*["']legendary["']/,
+    hint: "a raw role === / !== 'legendary' comparison — use can('<feature_key>') instead",
   },
 ];
 
@@ -143,9 +159,15 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** Strips comments so a rule NAMED in prose doesn't look like a violation. */
+/**
+ * Blanks out comment bodies (block and full-line) while preserving every
+ * newline, so a rule NAMED in prose doesn't look like a violation AND the
+ * line numbers reported below still point at the real line.
+ */
 function stripComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ""))
+    .replace(/^(\s*)\/\/.*$/gm, "$1");
 }
 
 const violations = [];
@@ -154,22 +176,29 @@ const files = walk(FRONTEND_SRC);
 for (const file of files) {
   const rel = relative(REPO_ROOT, file).split(sep).join("/");
   const raw = readFileSync(file, "utf8");
-  const source = stripComments(raw);
+  const rawLines = raw.split("\n");
+  const sourceLines = stripComments(raw).split("\n");
+  const fileAllowlist = ALLOWLIST.filter((entry) => entry.file === rel);
 
-  for (const { pattern, hint } of INLINE_TIER_GATES) {
-    if (!pattern.test(source)) continue;
+  for (let i = 0; i < sourceLines.length; i++) {
+    const line = sourceLines[i];
+    for (const { pattern, hint } of INLINE_TIER_GATES) {
+      if (!pattern.test(line)) continue;
 
-    const allowed = ALLOWLIST.some((entry) => entry.file === rel && entry.pattern.test(raw));
-    if (allowed) continue;
+      // Match against the RAW line (not comment-stripped) so an allowlist
+      // pattern can reference surrounding syntax exactly as written.
+      const allowed = fileAllowlist.some((entry) => entry.pattern.test(rawLines[i]));
+      if (allowed) continue;
 
-    violations.push({ file: rel, message: hint });
+      violations.push({ file: rel, line: i + 1, message: hint });
+    }
   }
 }
 
 if (violations.length > 0) {
   console.error("[check-permission-chokepoint-frontend] FAILED\n");
   for (const v of violations) {
-    console.error(`  ${v.file}\n    ${v.message}\n`);
+    console.error(`  ${v.file}:${v.line}\n    ${v.message}\n`);
   }
   console.error(
     "Every product-feature gate must resolve through useAuth().can('<feature_key>') — " +

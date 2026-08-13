@@ -520,6 +520,22 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
     ...(await resolveMemeDecisions(input.principal)),
   });
 
+  // Defense-in-depth: the route already rejects an unentitled
+  // "stylize-then-video" submission, but this is the one place that can't be
+  // bypassed by a caller who skips the route check — the snapshot recorded
+  // above is what the pipeline (and the persisted meme record) actually acts
+  // on, so it's the last point that can still refuse to run PuLID for an
+  // account that isn't entitled to it.
+  if (
+    input.sourceMode === "stylize-then-video" &&
+    !decisionFromSnapshot(authorizationSnapshot, "meme_pulid_stylize")
+  ) {
+    throw new VideoJobError(403, {
+      error: "PULID_STYLIZE_LOCKED",
+      message: "AI face styling is a Legendary feature. Upgrade your membership to unlock it.",
+    });
+  }
+
   // ── Persist the DB row ───────────────────────────────────────────
   // Persistence is a PRECONDITION for starting the job, not a best-effort side
   // task. This used to catch the failure, log a warning, and proceed on
@@ -1231,6 +1247,12 @@ async function resumeFromStage2(jobId: string): Promise<void> {
       aspectRatio: job.aspectRatio,
       name: job.name ?? undefined,
       pronouns: (job.pronouns as never) ?? undefined,
+      // Makes createMemeRecord's own `imageTransform === "pulid" && !canPulid`
+      // gate reachable for this path — without this, that gate never fires
+      // for a video's underlying image no matter what stylized it. The
+      // `startVideoJob`-time check above already refuses an unentitled
+      // submission; this is the same decision, recorded on the persisted row.
+      imageTransform: job.sourceMode === "stylize-then-video" ? "pulid" : undefined,
       // Read back, never re-resolved. This runs long after submission; calling
       // the resolver here would answer against whatever the grid says NOW,
       // which is precisely what the snapshot exists to prevent.
