@@ -153,6 +153,12 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // either entitlement couldn't move this screen.
   const canVideo = can("video_generation");
   const canAiBackground = can("meme_ai_background");
+  // Independently configurable from video_generation — round 5 of PR #425's
+  // review found this toggle rendered unconditionally while the server-side
+  // gate (videos.ts) only checked video_generation, letting anyone with video
+  // access get the private-visibility perk for free. Matches the image
+  // path's `canSetPrivate` gate in MemeBuilder.tsx.
+  const canSetPrivate = can("meme_private_visibility");
   const profileImageUrl = user?.profileImageUrl ?? null;
   const { pronouns } = usePersonName();
   const { styles: videoStyles } = useVideoStyles();
@@ -912,27 +918,29 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
           {videoState.status !== "done" && (
             <>
-              {/* Public / Private toggle */}
-              <div className="flex items-center gap-3 mb-4 p-3 bg-secondary border border-border rounded-sm">
-                <button
-                  onClick={() => setIsVideoPrivate(false)}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
-                    !isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Globe className="w-3.5 h-3.5" /> Public
-                </button>
-                <button
-                  onClick={() => setIsVideoPrivate(true)}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
-                    isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Lock className="w-3.5 h-3.5" /> Private
-                </button>
-              </div>
+              {/* Public / Private toggle (premium) */}
+              {canSetPrivate && (
+                <div className="flex items-center gap-3 mb-4 p-3 bg-secondary border border-border rounded-sm">
+                  <button
+                    onClick={() => setIsVideoPrivate(false)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
+                      !isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Globe className="w-3.5 h-3.5" /> Public
+                  </button>
+                  <button
+                    onClick={() => setIsVideoPrivate(true)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
+                      isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Lock className="w-3.5 h-3.5" /> Private
+                  </button>
+                </div>
+              )}
               <Button
                 onClick={() => void handleGenerateVideo()}
                 disabled={videoState.status === "generating" || !selectedBgUrl}

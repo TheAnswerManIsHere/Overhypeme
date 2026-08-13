@@ -429,6 +429,21 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
+  // meme_private_visibility is a separate, independently configurable grid
+  // cell — `video_generation` alone does not imply it. Round 5 of PR #425's
+  // review found this route persisting `isPrivate: true` unchecked, so a
+  // caller with only the generation entitlement got the private-visibility
+  // perk for free; `createMemeRecord.ts` fails closed on the same
+  // combination and this route now matches that shape.
+  const privateVisibilityAllowed = await can(principal, "meme_private_visibility");
+  if (parsed.data.isPrivate && !privateVisibilityAllowed) {
+    res.status(403).json({
+      error: "PRIVATE_VISIBILITY_LOCKED",
+      message: "Private videos are a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
+  }
+
   const clientIp = getClientIp(req);
 
   if (!isAdmin) {
@@ -554,6 +569,7 @@ router.post("/videos/generate", async (req, res) => {
       // authorized the job it is creating.
       authorizationSnapshot: buildAuthorizationSnapshot(principal, {
         video_generation: videoGenerationAllowed,
+        meme_private_visibility: privateVisibilityAllowed,
       }),
     })
     .returning();
