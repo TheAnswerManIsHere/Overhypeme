@@ -228,12 +228,13 @@ valid command passed).
 
 ## Not yet in the CI gate (fast-follow)
 
-The `Test` job currently runs the **api-server** suite only. These are not in the
-gate yet and are tracked as a fast-follow — don't pretend they're covered:
-
-- frontend vitest (`@workspace/overhype-me`)
-- `lib/redact`
-- `lib/db` migration tests
+- frontend vitest (`@workspace/overhype-me`) — covered by the separate
+  **`Frontend Test`** job (`pnpm --filter @workspace/overhype-me test`).
+- `lib/db` migration tests — covered by the **`Test`** job's "Run @workspace/db
+  test suite" step, against its own `overhype_db_test` database (see that job's
+  "Prepare database" step for why it's a separate database from api-server's
+  `overhype_test`).
+- `lib/redact` — still **not** covered by any CI job; genuinely a fast-follow.
 
 ---
 

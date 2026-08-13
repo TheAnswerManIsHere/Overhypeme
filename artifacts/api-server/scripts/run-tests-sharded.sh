@@ -160,7 +160,17 @@ launch_and_wait() {
   local pids=() k url; local -A pid_obj=()
   for (( k=1; k<=shards; k++ )); do
     url="${WORKER_URLS[$k]}"
-    run_files "$url" "$iso" -- --test-shard="${k}/${shards}" "$GLOB" &
+    # Route each worker's combined stdout/stderr through a prefixing `sed` via
+    # process substitution, NOT a pipe (`run_files ... | sed ...`). A pipe would
+    # background the whole pipeline and make `$!` the PID of `sed` (the pipeline's
+    # last command), not `run_files`'s exec'd node — breaking the signal-cleanup
+    # kill in do_cleanup (see test-db.sh's run_files comment: it EXECs specifically
+    # so a background caller's `$!` is node's own PID). Process substitution keeps
+    # `run_files` itself directly backgrounded — the sed reader is a separate PID
+    # captured nowhere — so `$!` is unaffected. `sed -u` keeps output line-buffered
+    # so shards interleave close to real time instead of arriving in stalled chunks.
+    run_files "$url" "$iso" -- --test-shard="${k}/${shards}" "$GLOB" \
+      > >(sed -u "s/^/[shard ${k}\/${shards}] /") 2>&1 &
     pids+=("$!"); pid_obj[$!]="${WORKER_OBJS[$k]}"
   done
   WORKER_PIDS=("${pids[@]}")
