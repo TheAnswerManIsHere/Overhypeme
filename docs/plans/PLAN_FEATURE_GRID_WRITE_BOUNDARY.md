@@ -55,18 +55,25 @@ seed of this document and arrive here already addressed; they are named in
 *Findings Inherited From Plan 1a's Review* below rather than starting from
 zero, per the plan-review-loop skill's step-10 amendment.
 
-**Both plans are independently shippable, in either order.** Plan 1a is
-correct without this one: its own code paths maintain every invariant above,
-and its *Must Not Change* already states that nothing gates on the hardened
-state. This plan is correct without Plan 1a's resolver work too — the
-mechanisms below constrain the grid tables, which exist today.
+**Independently *approvable*; NOT deployable in either order.** An earlier
+revision of this section claimed order-independence, which review correctly
+identified as contradicting this plan's own migration prerequisite. Both
+plans now state the constraint identically:
 
-**The dependency is one of content, not correctness:** this plan hardens
-three objects Plan 1a introduces (the audit table, the revision singleton,
-the creation path). Sequencing this plan second is therefore the obvious
-order and the one assumed throughout, but if Plan 1a slips, the pieces of
-this plan that touch only today's `feature_flags` / `tier_feature_permissions`
-still stand alone.
+> **Plan 1a must merge and deploy before this one.** This plan hardens three
+> objects Plan 1a introduces (the audit table, the revision singleton, the
+> creation path), so its migration aborts without Plan 1a's journal entry —
+> see *Data Model*. In the other direction, Plan 1a's migration performs a
+> direct `tier_feature_permissions` deletion that this plan's row guard would
+> reject.
+
+The reviews stay independent — neither waits on the other's approval, which
+is what made the split work. Only the deploy order is fixed.
+
+**Plan 1a is correct without this one.** Its own code paths maintain every
+invariant above, and its *Must Not Change* already states that nothing gates
+on the hardened state. What this plan adds is that those invariants stop
+depending on the calling code being well-behaved.
 
 ## Product Intent
 
@@ -812,75 +819,79 @@ the fixtures reach their state:
 Tests below are numbered continuing from that rewrite, which is item 0 and is
 a completion criterion, not an optional cleanup.
 
-1. **Completeness is enforced.** A direct `INSERT` into `feature_flags`
-   without tier rows is rejected at commit; the same insert via
-   `create_feature_flag` succeeds. `engine_experiments`'s existing incomplete
-   row-set does not trip the trigger.
-2. **Individual row deletion is rejected**, while `delete_feature_flag`
-   removes the whole set successfully.
-3. **Audit rows survive feature deletion.** A feature with audit history is
-   deleted through the sanctioned function; the audit rows remain queryable,
-   with their `feature_key` intact.
-4. **Cell writes are atomic across all three effects.** `set_tier_feature`
-   changes the cell, writes exactly one audit row with correct
-   before/after values, and advances the revision — and a failure injected at
-   any point leaves none of the three.
-5. **The revision singleton's lifecycle.** A clean install has exactly one
-   row at `revision = 0`; re-running initialization changes nothing; a second
-   row is rejected; deletion is rejected; two concurrent `set_tier_feature`
-   calls produce two distinct consecutive revisions.
-6. **Every unsanctioned write is rejected in the *unhardened* state.** This
-   is the set the triggers must carry alone, since the revokes are
-   ineffective against the owner until the runbook runs — so each of these
-   runs as the owning application role:
-   - `UPDATE tier_feature_permissions SET enabled = ...` directly → rejected,
-     and the cell, audit table and revision are all unchanged.
-   - `UPDATE tier_feature_permissions SET tier = 'bogus'` → rejected (the
-     incomplete-row-set path the `feature_flags`-attached completeness
-     trigger cannot see).
-   - `UPDATE tier_feature_permissions SET feature_key = ...` → rejected.
-   - `TRUNCATE tier_feature_permissions`, `TRUNCATE feature_flags`,
-     `TRUNCATE entitlement_grid_revision` → each rejected, proving the
-     statement-level triggers cover what row triggers cannot.
-   - `DELETE FROM entitlement_grid_revision` → rejected.
-7. **Catalog assertions, by exact wiring.** For every trigger: `tgenabled =
-   'A'` (not merely `!= 'D'`), the expected `tgfoid`, and `tgtype` by exact
-   equality against the documented bit values — with a negative fixture that
-   recreates a same-named trigger with an *extra* event and asserts the check
-   fails, since that is the false-positive the exact match exists to catch.
-   Plus: the completeness trigger is deferrable and initially deferred, and
-   all three write functions are `SECURITY DEFINER` with a non-empty fixed
-   `search_path` and no `EXECUTE` grant to `PUBLIC`.
-8. **`featurePermissionsBoundaryStatus()` reports honestly, in both states —
-   and the hardened case is mandatory, not conditional.** The repository
-   already demonstrates the fixture this needs:
+The invariants below are what the suite must prove. Mechanics stated once in
+*Proposed Design* are referenced, not restated — the assertions are the
+implementer's to write, except where an assertion's *shape* is itself the
+specification, which is the case for the negative security cases in 4 and 6.
+
+1. **The sanctioned functions do what they claim, and nothing partial
+   survives a failure.** Creation produces a complete row-set, deletion
+   removes one, a cell write produces its audit row and revision bump, and a
+   failure injected at any point in any of them leaves none of its effects.
+   `engine_experiments`'s incomplete row-set does not trip completeness, and a
+   deleted feature's audit history remains queryable.
+2. **`set_tier_feature` on a nonexistent cell errors before writing
+   anything** — no phantom audit row, no revision bump.
+3. **The revision singleton holds.** Exactly one row; re-initialization is a
+   no-op; a second row, its deletion, and its truncation are all rejected;
+   concurrent writers get distinct consecutive revisions.
+4. **The negative set the guards must reject, each issued as the owning
+   application role against an *unhardened* database.** This list is the
+   specification, not an example of one — it is what "the guard rail works"
+   means before hardening:
+   - direct `UPDATE ... SET enabled`, with the cell, audit table and revision
+     all verified unchanged afterwards
+   - `UPDATE ... SET tier` and `UPDATE ... SET feature_key` (identity columns;
+     the incomplete-row-set path the `feature_flags`-attached completeness
+     trigger structurally cannot see)
+   - individual child-row `DELETE` for a feature that still exists
+   - `TRUNCATE` of each of the four tables separately — the audit table
+     included, which an earlier revision asserted and did not specify
+   - `DELETE FROM entitlement_grid_revision`
+
+   Conversely, the two cases in *Accepted by construction* — direct `INSERT`
+   into `tier_feature_permissions`, direct `DELETE FROM feature_flags` — are
+   **not** in this list, and a test asserting they are rejected would be
+   asserting something this plan deliberately does not promise.
+5. **Wiring and body integrity, with a negative fixture for each.** Exact
+   `tgenabled`/`tgfoid`/`tgtype` per *Triggers*, plus `prosecdef`,
+   `proconfig`, and the per-function source digest. Two fixtures matter more
+   than the positive case: a same-named trigger recreated with an **extra**
+   event (which a subset check passes), and a function body replaced via
+   `CREATE OR REPLACE` (which every OID-based check passes). Both must fail
+   the predicate.
+6. **The status function reports honestly in both states, and the hardened
+   case is mandatory.** Hardened is where the `SECURITY DEFINER` and
+   ownership-transfer claims can actually fail, so a conditional test would
+   mean CI never proves the half of this plan that can break. The fixture
+   already exists in this repo —
    `lib/db/src/ncmecAuditBoundaryStatus.test.ts:36-37,95,121,187` creates
-   `LOGIN`/`NOLOGIN` roles and queries status through a restricted pool. The
-   hardened state is exactly where the `SECURITY DEFINER` and
-   ownership-transfer claims can fail, so leaving its test optional would
-   mean CI never proves them. An isolated hardened fixture therefore asserts:
-   all three write functions remain callable, direct writes are denied, and
-   the status reports `true`. The unhardened case asserts `false` and names
-   which condition failed — it is the state every developer machine is in.
-9. **Effective-privilege negatives.** With ownership transferred, the status
-   still reports `false` when the app role reaches a write through (a) an
-   inherited grant from another role, (b) a grant to `PUBLIC`, or (c) a
-   column-level `UPDATE` on `tier_feature_permissions.enabled` — three
-   fixtures, because a direct-grant check passes all three while the cell is
-   still writable.
-10. **Break-glass works as documented.** A session holding
-    `overhype_feature_grid_maintenance` can perform the correction the
-    runbook describes — including deleting and restoring the revision row —
-    while the same statements from the app role are rejected.
-11. **The unhardened state is fully functional.** With no ownership transfer,
-    every grid operation Plan 1a performs still succeeds — proving Settled
-    Decision #2's claim that skipping the runbook breaks nothing.
-12. **The migration replays in both states.** Re-running it against an
-    unhardened database is a no-op; re-running against a *hardened* one takes
-    the verify branch, succeeds without attempting an alteration it cannot
-    perform, and fails with the actionable message when a trigger has drifted.
-13. **Migration prerequisite.** Running against a database lacking Plan 1a's
-    two tables fails with the explicit error, not a partial install.
+   `LOGIN`/`NOLOGIN` roles and queries status through a restricted pool.
+   Hardened: all three write functions still callable, direct writes denied,
+   status `true`. Unhardened: `false`, naming the failing condition.
+   Plus the effective-privilege negatives a direct-grant check would miss —
+   inherited grant, `PUBLIC` grant, and column-level `UPDATE (enabled)`.
+7. **No guard depends on a role that may not exist.** Every guard and the
+   status function behave correctly on a database where
+   `overhype_feature_grid_maintenance` has never been created — the state of
+   every developer machine, and the one where an unguarded `pg_has_role` turns
+   ordinary sanctioned writes into errors.
+8. **Break-glass performs the correction the runbook documents**, including
+   deleting and restoring the revision row, while the same statements from the
+   app role are rejected.
+9. **The unhardened state is fully functional** — every grid operation Plan 1a
+   performs succeeds with no ownership transfer, which is Settled Decision
+   #2's claim.
+10. **The migration replays in both states**, taking the verify branch when it
+    cannot alter, and failing with the actionable message on drift.
+11. **The prerequisite is enforced against Plan 1a's journal entry**, not
+    table existence: a database whose tables were created by `drizzle-kit
+    push` without Plan 1a's migration having run must be rejected, since that
+    is the case the existence check silently passed.
+12. **The runbook is atomic and re-runnable.** An error partway leaves the
+    database in the unhardened state with the application's `SELECT` intact;
+    a re-run over a partially-hardened database converges rather than failing
+    on already-created roles.
 
 Manual QA is the UAT doc: an operator confirms grid editing still works
 end-to-end and that `/admin/health` reports the boundary state.
@@ -924,9 +935,9 @@ One PR.
 
 | Risk | Mitigation |
 |---|---|
-| The `SECURITY DEFINER` functions become their own escalation path | Fixed `search_path`, schema-qualified references, no dynamic SQL, no `EXECUTE` to `PUBLIC`, and catalog test 6 asserting all of it |
+| The `SECURITY DEFINER` functions become their own escalation path | Fixed `search_path`, schema-qualified references, no dynamic SQL, no `EXECUTE` to `PUBLIC`, and test 5 asserting all of it, including a replaced-body negative fixture |
 | Hardening is never run, so the boundary is imagined | `featurePermissionsBoundaryStatus()` reports it, `/admin/health` surfaces it, and this plan states plainly that unhardened is defense-in-depth only |
-| Hardening *is* run and breaks grid editing | Exactly what `SECURITY DEFINER` prevents; test 8 covers unhardened, and the runbook's verification section covers hardened |
+| Hardening *is* run and breaks grid editing | Exactly what `SECURITY DEFINER` prevents; test 6 covers both states with the hardened case mandatory, and test 9 covers the unhardened state staying fully functional |
 | The trigger exemption becomes a general bypass | The exemption is function-owner identity, which the application role cannot assume after hardening. The forgeable `SET LOCAL` GUC an earlier revision specified is removed — see *Triggers* |
 | Plan 1a ships or deploys after this plan | The migration aborts on Plan 1a's absent journal entry; the runbook additionally requires Plan 1a's code deployed (see *Data Model*) |
 | This diverges from the NCMEC pattern over time | Both are cited from each other's docs; the divergence that exists today (gating) is stated as a decision, not left implicit |
