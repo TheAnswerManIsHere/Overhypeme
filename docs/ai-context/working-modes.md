@@ -204,10 +204,22 @@ success while being fake. So the answer is not "write shorter plans" — it is
 
 **Stop specifying:**
 
-- **Call-site enumeration.** State the invariant — *every writer to this table
-  carries the snapshot* — and let the compiler enumerate the writers. A list of
-  call sites in a plan is a list that goes stale silently; a `NOT NULL` column
-  is a list that cannot.
+- **Call-site enumeration — but only where the call sites are statically
+  typed.** State the invariant (*every writer to this table carries the
+  snapshot*) and let the compiler enumerate the writers: a list of call sites
+  in a plan goes stale silently, while a `NOT NULL` column on a Drizzle-typed
+  insert is a list that cannot.
+
+  **The exception is load-bearing in this repo, and a review of this very rule
+  caught it: raw `db.execute(sql\`INSERT INTO …\`)` is not checked against the
+  table type.** Ten tables here are written that way — `admin_config`,
+  `ncmec_reports`, `upload_image_metadata`, `quarantined_memes` and others —
+  so a raw writer compiles clean and fails only when that production path
+  reaches the database. **A plan that changes a table's write contract
+  therefore still owes a repo-wide writer inventory** (`grep` for the table
+  name, not just the typed call sites), and says which writers are raw. The
+  compiler is a substitute for enumeration exactly as far as the writers are
+  typed, and no further.
 - **Test assertions and their expected values.** State what must be true. The
   engineer writing the test derives the assertion, and a wrong one fails
   loudly.
@@ -230,6 +242,24 @@ makes that unfalsifiable. So the plan stays **precise about intent and
 invariants** while becoming **less detailed about implementation** — different
 axes. Length is not precision: #421 ran to 1212 lines and still contradicted
 itself about which sibling shipped first.
+
+**And "the plan is the oracle" is only true of the sections the PR actually
+pastes.** `.github/pull_request_template.md` carries **Direction, Product
+Intent, Must Not Change, Settled Decisions** — nothing else, and
+[`code-review.md`](../engineering/code-review.md#the-review-oracle-the-pr-body)
+points the reviewer at those fields rather than the whole plan. An invariant
+that this rule keeps at full depth but leaves sitting in a *Data Model*,
+*Security* or *Runtime Behavior* section is therefore **not in the oracle at
+all**, and an implementation can violate it invisibly — the precise failure
+the oracle exists to prevent.
+
+So a plan owes one of two things for every load-bearing invariant: **state it
+in one of the four pasted sections**, or **paste it into the PR's oracle block
+explicitly alongside them**. *Must Not Change* is usually the natural home —
+an invariant worth protecting is, by definition, something that must not
+change. This was found by Codex reviewing this very rule, which is a fair
+demonstration of the rule's own point: no compiler or test could have caught a
+plan-review policy that quietly excluded half its own subject matter.
 
 **Say this in the review request.** A reviewer asked for "a lens not yet
 applied" will go find anything. Tell it plainly: *do not report what the
