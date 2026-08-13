@@ -14,15 +14,16 @@ interface AdSlotProps {
 }
 
 export function AdSlot({ slot, format = "auto", className = "" }: AdSlotProps) {
-  const { role, isLoading } = useAuth();
+  const { can, isLoading } = useAuth();
   const pushed = useRef(false);
 
   const pubId = import.meta.env.VITE_ADSENSE_PUBLISHER_ID as string | undefined;
-  const isLegendary = role === "legendary" || role === "admin";
+  // Told, not derived. The server owns whether this account sees ads.
+  const adsFree = can("ads_free");
 
   // Wait until auth has resolved before deciding to show ads.
   // While loading, render nothing to avoid flashing ads to premium users.
-  const shouldShow = !isLoading && Boolean(pubId) && !isLegendary;
+  const shouldShow = !isLoading && Boolean(pubId) && !adsFree;
 
   useEffect(() => {
     if (!shouldShow) return;

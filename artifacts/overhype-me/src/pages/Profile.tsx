@@ -93,7 +93,7 @@ function ProfilePhotoThumbnailPicker({
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading, login, logout, role, refreshUser } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, login, logout, role, can, refreshUser } = useAuth();
   const isRealAdmin = role === "admin";
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
@@ -376,11 +376,21 @@ export default function Profile() {
     return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
   }
 
-  // Computed locally from auth role; admins are treated as legendary for UI gates.
-  const isLegendary = role === "legendary" || role === "admin";
+  // Told, not derived. `isLegendary` used to collapse admin into legendary
+  // client-side — the roleToTier shape that let PR #402 happen.
+  const canCustomAvatar = can("custom_avatar");
+
+  // Deliberately still role-derived: the badge and the upsell button describe
+  // MEMBERSHIP STATUS ("are you a Legendary member?"), which is not a feature
+  // entitlement and does not belong in the grid. Only gates moved.
+  const isLegendaryMember = role === "legendary" || role === "admin";
 
   function getAvatarUrl() {
-    if (profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+    // Mirrors the server's effective-avatar projection exactly: selected AND
+    // stored AND entitled, else the generated icon. This surface honoured
+    // avatarSource but checked no entitlement, so a lapsed account kept showing
+    // its photo until the next write.
+    if (canCustomAvatar && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
       return profile.profileImageUrl;
     }
     return dicebearUrl(profile?.avatarStyle ?? "bottts", profile?.id ?? "default");
@@ -983,7 +993,7 @@ export default function Profile() {
           {/* Name + stats */}
           <div className="flex-1 pb-1">
             <div className="flex items-center gap-3 mb-1">
-              {isLegendary && (
+              {isLegendaryMember && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-[10px] font-bold tracking-[0.14em] uppercase text-primary font-display">
                   <Star className="w-3 h-3" /> Legendary
                 </span>
@@ -1015,7 +1025,7 @@ export default function Profile() {
                 <Pencil className="w-4 h-4" /> Edit Profile
               </Button>
             )}
-            {!isLegendary && (
+            {!isLegendaryMember && (
               <Button onClick={() => setLocation("/pricing")} className="gap-2">
                 <Crown className="w-4 h-4" /> Go Legendary
               </Button>

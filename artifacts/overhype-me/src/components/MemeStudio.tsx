@@ -29,7 +29,7 @@ import type { VideoTabProps } from "@/components/MemeStudioVideoTab";
 import type { BuilderResult } from "@/components/meme-builder/types";
 import {
   studioPathToMode,
-  roleToTier,
+  roleToIdentity,
   type StudioImagePath,
 } from "@/components/meme-builder/integration/studioAdapter";
 
@@ -644,11 +644,11 @@ function NewBuilderAdapter({
   rawFactText?: string;
   onClose: () => void;
 }) {
-  const { user, role, login } = useAuth();
+  const { user, role, login, entitlements } = useAuth();
   const [, setLocation] = useLocation();
 
   const mode = studioPathToMode(path);
-  const tier = roleToTier(role);
+  const tier = roleToIdentity(role);
 
   // The fact text the builder substitutes tokens against. Prefer the raw
   // template (with {NAME}/{SUBJ}/etc) over the rendered string when the
@@ -694,6 +694,7 @@ function NewBuilderAdapter({
         factText={templateText}
         viewerContext={{
           tier,
+          entitlements,
           userId: user?.id,
           name: user?.displayName ?? undefined,
           pronouns: user?.pronouns ?? undefined,

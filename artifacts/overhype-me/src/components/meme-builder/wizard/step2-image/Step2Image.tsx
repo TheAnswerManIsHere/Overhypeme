@@ -77,6 +77,8 @@ export function Step2Image({
 }: Props) {
   const [, navigate] = useLocation();
   const tier = viewerContext.tier;
+  // Told, not derived — the same answer createMemeRecord will apply.
+  const canSetPrivate = viewerContext.entitlements?.["meme_private_visibility"]?.allowed === true;
 
   const [tab, setTab] = useState<SourceTab>(() => {
     // For unregistered users, never inherit a cached AI or self-upload source
@@ -568,7 +570,7 @@ export function Step2Image({
               <VisibilityToggle
                 isPublic={isPublic}
                 onChange={setIsPublic}
-                tier={tier}
+                canSetPrivate={canSetPrivate}
                 onRequestUpgrade={() => {
                   setUpgradeContext("private-meme");
                   setUpgradeOpen(true);
