@@ -694,6 +694,13 @@
       "when": 1783100000000,
       "tag": "0098_fact_lifecycle_check_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1783200000000,
+      "tag": "0099_membership_sequence_repair",
+      "breakpoints": true
     }
   ]
 }

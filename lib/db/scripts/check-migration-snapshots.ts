@@ -349,6 +349,20 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // generate stays broken on the malformed 0063 snapshot.
   // Source of truth: lib/db/src/schema/moderation.ts.
   "0097_ncmec_submission",
+
+  // Forward-only repair of the two membership ordering/fencing sequences, which
+  // `push --force` removed from any database pushed more than once because they
+  // had no schema declaration (same failure shape as 0098, one object type
+  // over). Recreates them if absent and advances each past the maximum already
+  // stored in membership_entitlements.source_state_as_of /
+  // membership_leases.fence — a sequence restored at 1 makes both consumers'
+  // strictly-greater guards match zero rows, silently. No schema delta a
+  // snapshot could express: the sequences are declared in
+  // schema/membershipEntitlements.ts and the rest is setval, not DDL. Hand
+  // authored, since drizzle-kit generate stays broken on the malformed 0063
+  // snapshot.
+  // Source of truth: lib/db/src/schema/membershipEntitlements.ts.
+  "0099_membership_sequence_repair",
 ]);
 
 interface JournalEntry {
