@@ -6,6 +6,7 @@ import {
   foreignKey,
   index,
   integer,
+  pgSequence,
   pgTable,
   text,
   timestamp,
@@ -13,6 +14,42 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
+
+/**
+ * The two ordering/fencing sequences, declared here so `drizzle-kit push`
+ * knows they exist.
+ *
+ * They are CREATEd by raw migration SQL (0095), and that remains the
+ * authoritative path for real databases. But an object that exists ONLY in
+ * raw migration SQL is invisible to `push --force`, which reconciles a
+ * database against this schema and silently DROPS whatever it doesn't
+ * recognize — and the `migrate` that follows can't put it back, because the
+ * journal already records 0095 as applied.
+ *
+ * On a database created once and thrown away (GitHub CI's ephemeral Postgres)
+ * that never bites, because push and migrate each run exactly once against a
+ * pristine database. On a PERSISTENT test database that gets `pretest`'s
+ * push-force + migrate on every run — Replit's `heliumdb_test`, and any
+ * long-lived sandbox database — the second run drops both sequences and every
+ * membership-lease/grace-sweep test then fails on `nextval(...)`. Verified
+ * empirically: a second push-force removes both, exits 0, and logs nothing.
+ *
+ * Declaring them here makes push create-if-missing and leave-if-present
+ * instead. `bigint` is PostgreSQL's default sequence type, so this matches
+ * 0095's `AS bigint` exactly; drizzle-kit 0.45.2's PgSequenceOptions has no
+ * way to state it explicitly.
+ *
+ * See build.yml's "Prepare database" step for the same failure class, and
+ * `docs/ai-context/known-failure-patterns.md`.
+ */
+export const membershipSourceStateSeq = pgSequence("membership_source_state_seq", {
+  startWith: 1,
+  increment: 1,
+});
+export const membershipLeaseFenceSeq = pgSequence("membership_lease_fence_seq", {
+  startWith: 1,
+  increment: 1,
+});
 
 /**
  * The three source types a membership entitlement can come from.
