@@ -109,6 +109,28 @@ async function assertLockoutAllowed(targetId: string): Promise<void> {
   });
 }
 
+/**
+ * Admins reachable right now that this file did NOT create.
+ *
+ * Three tests below cannot be isolated with the rollback trick: two exercise
+ * `reserveAccountForDeletion`, which opens its own transaction, and one needs
+ * two genuinely concurrent committed transactions. All three assert a property
+ * that is only meaningful when the target really is the last reachable admin —
+ * and committing a deactivation of foreign admins to arrange that is what broke
+ * other suites the first time.
+ *
+ * So they state their precondition and skip when it does not hold, rather than
+ * failing for a reason unrelated to the guard. In a clean shard database (the
+ * canonical runner's normal case) and in isolation, it holds and they run.
+ */
+async function foreignReachableAdminCount(): Promise<number> {
+  const { rows } = await db.execute<{ n: string | number }>(sql`
+    SELECT count(*) AS n FROM ${usersTable}
+    WHERE ${and(isReachableAdminSql(), not(like(usersTable.id, `${PREFIX}%`)))}
+  `);
+  return Number(rows[0]!.n);
+}
+
 /** Reachable admins created by THIS file. */
 async function ourReachableAdminCount(): Promise<number> {
   const { rows } = await db.execute<{ n: string | number }>(sql`
@@ -241,7 +263,12 @@ describe("self-demotion", () => {
 // ── Concurrency ──────────────────────────────────────────────────────────────
 
 describe("concurrent removals of DIFFERENT admins cannot both succeed", () => {
-  it("serializes on the advisory lock rather than on the rows being written", async () => {
+  it("serializes on the advisory lock rather than on the rows being written", async (t) => {
+    if ((await foreignReachableAdminCount()) > 0) {
+      t.skip("needs an exclusive admin population; another suite has an active admin");
+      return;
+    }
+
     // This is the case a transaction alone does not cover. At READ COMMITTED
     // both transactions read a count of two, both conclude they are safe, and
     // both commit — the rows they write don't overlap, so nothing serializes
@@ -270,7 +297,12 @@ describe("concurrent removals of DIFFERENT admins cannot both succeed", () => {
 // ── Test 15 — reservation ordering and resumability ──────────────────────────
 
 describe("deletion reserves before any irreversible cleanup", () => {
-  it("refuses to reserve the last admin, leaving the row untouched", async () => {
+  it("refuses to reserve the last admin, leaving the row untouched", async (t) => {
+    if ((await foreignReachableAdminCount()) > 0) {
+      t.skip("needs an exclusive admin population; another suite has an active admin");
+      return;
+    }
+
     const id = await createUser({ isAdmin: true });
     await assert.rejects(() => reserveAccountForDeletion(id), AdminLockoutError);
 
@@ -282,7 +314,12 @@ describe("deletion reserves before any irreversible cleanup", () => {
     assert.equal(row!.isActive, true, "a rejected reservation must not deactivate anything");
   });
 
-  it("reserves by deactivating, so a concurrent request sees the reduced count", async () => {
+  it("reserves by deactivating, so a concurrent request sees the reduced count", async (t) => {
+    if ((await foreignReachableAdminCount()) > 0) {
+      t.skip("needs an exclusive admin population; another suite has an active admin");
+      return;
+    }
+
     const doomed = await createUser({ isAdmin: true });
     await createUser({ isAdmin: true });
 
@@ -309,7 +346,12 @@ describe("deletion reserves before any irreversible cleanup", () => {
     );
   });
 
-  it("a retry cannot double-decrement the admin population", async () => {
+  it("a retry cannot double-decrement the admin population", async (t) => {
+    if ((await foreignReachableAdminCount()) > 0) {
+      t.skip("needs an exclusive admin population; another suite has an active admin");
+      return;
+    }
+
     const doomed = await createUser({ isAdmin: true });
     await createUser({ isAdmin: true });
 
