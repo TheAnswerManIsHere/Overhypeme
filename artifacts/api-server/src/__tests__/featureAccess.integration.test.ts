@@ -427,39 +427,55 @@ describe("wire format", () => {
 // ── Test 20 — migration observability ────────────────────────────────────────
 
 describe("migration observability", () => {
-  it("the backfill logged all three counts, and a second invocation inserts nothing", async () => {
-    const { rows: firstRows } = await db.execute<{
-      inserted_count: number;
-      already_complete_count: number;
-      engine_experiments_skipped_count: number;
-    }>(sql`
-      SELECT inserted_count, already_complete_count, engine_experiments_skipped_count
-      FROM feature_permissions_migration_log
-      WHERE migration_name = '0099_admin_permissions_core'
-      ORDER BY id DESC LIMIT 1
-    `);
-    assert.equal(firstRows.length, 1, "the migration must have logged its counts");
+  it("the backfill is idempotent and honours the engine_experiments exception", async () => {
+    // Invokes the backfill DIRECTLY, twice — which the hash-tracking migration
+    // runner never does on a normal deploy, so idempotency is otherwise
+    // unproven. Deliberately does NOT assert on the migration's own log row:
+    // test worker databases are cloned structure-plus-reference-data, so run
+    // history from the source database is legitimately absent there, and
+    // asserting it would test the harness rather than the backfill.
+    const runBackfill = async (name: string) => {
+      const { rows } = await db.execute<{
+        inserted_count: number;
+        already_complete_count: number;
+        engine_experiments_skipped_count: number;
+      }>(sql`SELECT * FROM backfill_feature_permissions(${name})`);
+      return rows[0]!;
+    };
 
-    // Calling the backfill a SECOND time — which the hash-tracking runner never
-    // does on a normal deploy, so idempotency is otherwise unproven.
-    const { rows: secondRows } = await db.execute<{
-      inserted_count: number;
-      engine_experiments_skipped_count: number;
-    }>(sql`SELECT * FROM backfill_feature_permissions('test-idempotency')`);
+    try {
+      const first = await runBackfill("test-idempotency-1");
+      const second = await runBackfill("test-idempotency-2");
 
-    const second = secondRows[0]!;
-    assert.equal(Number(second.inserted_count), 0, "a second run must insert nothing");
-    assert.equal(
-      Number(second.engine_experiments_skipped_count),
-      Number(firstRows[0]!.engine_experiments_skipped_count),
-      "the deliberate exception must be honoured identically on a re-run",
-    );
+      assert.equal(
+        Number(second.inserted_count),
+        0,
+        "a second run must insert nothing — the first run closed every gap",
+      );
+      assert.equal(
+        Number(second.engine_experiments_skipped_count),
+        Number(first.engine_experiments_skipped_count),
+        "the deliberate exception must be honoured identically on a re-run",
+      );
+      assert.ok(
+        Number(second.already_complete_count) >= Number(first.already_complete_count),
+        "already_complete_count RISES on a re-run — the features the first run " +
+          "repaired are, by definition, complete on the second. Asserting it " +
+          "unchanged would be wrong.",
+      );
 
-    // `already_complete_count` deliberately NOT asserted unchanged: the features
-    // the first run repaired are, by definition, complete on the second.
-
-    await db.execute(sql`
-      DELETE FROM feature_permissions_migration_log WHERE migration_name = 'test-idempotency'
-    `);
+      // All three counts are recorded durably, because the migration runner
+      // discards statement result rows and skips by hash on a re-run.
+      const { rows: logged } = await db.execute<{ n: string | number }>(sql`
+        SELECT count(*) AS n FROM feature_permissions_migration_log
+        WHERE migration_name IN ('test-idempotency-1', 'test-idempotency-2')
+      `);
+      assert.equal(Number(logged[0]!.n), 2, "each invocation logs its own row");
+    } finally {
+      await db.execute(sql`
+        DELETE FROM feature_permissions_migration_log
+        WHERE migration_name IN ('test-idempotency-1', 'test-idempotency-2')
+      `);
+    }
   });
 });

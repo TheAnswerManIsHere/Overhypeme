@@ -19,10 +19,13 @@ import { randomUUID } from "node:crypto";
 
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
+import { and, eq, like, not, sql } from "drizzle-orm";
 
 import { BOOTSTRAP_ADMIN_EMAIL } from "../lib/auth.js";
 import { isReachableAdminSql } from "../lib/adminIdentity.js";
+import { db as _dbTypeAnchor } from "@workspace/db";
+type Tx = Parameters<Parameters<typeof _dbTypeAnchor.transaction>[0]>[0];
+
 import {
   AdminLockoutError,
   SelfDemotionError,
@@ -33,9 +36,6 @@ import {
 } from "../lib/adminLockoutGuard.js";
 
 const PREFIX = "tlockout-";
-
-/** Admins that exist outside this test file, parked for the duration. */
-let parkedAdminIds: string[] = [];
 
 async function createUser(opts: {
   isAdmin?: boolean;
@@ -56,41 +56,69 @@ async function cleanup(): Promise<void> {
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
 }
 
-/** How many accounts could actually reach the console right now. */
-async function reachableAdminCount(): Promise<number> {
+/**
+ * Runs `fn` in a transaction where every admin this file did NOT create is
+ * deactivated, then rolls the whole thing back.
+ *
+ * The guard counts the WHOLE users table by design — that is the invariant —
+ * so "the last admin" only means anything if no other file's admins are alive
+ * at that moment. An earlier attempt parked them with a plain UPDATE and
+ * restored in `after`; that broke OTHER suites, because test files in a shard
+ * are not as strictly ordered as it assumed and a foreign admin could be
+ * deactivated while its own suite was still using it.
+ *
+ * A transaction fixes both halves: the guard sees the population it needs
+ * (it takes the same `tx`), and nothing outside this file ever observes the
+ * deactivation, because the transaction always rolls back.
+ */
+class Rollback extends Error {}
+
+async function withOnlyOurAdmins(fn: (tx: Tx) => Promise<void>): Promise<void> {
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(usersTable)
+        .set({ isActive: false })
+        .where(and(isReachableAdminSql(), not(like(usersTable.id, `${PREFIX}%`))));
+      await fn(tx);
+      throw new Rollback();
+    });
+  } catch (err) {
+    if (!(err instanceof Rollback)) throw err;
+  }
+}
+
+/** Asserts `fn` rejects with AdminLockoutError, with foreign admins excluded. */
+async function assertLockoutRefused(targetId: string): Promise<void> {
+  let refused = false;
+  await withOnlyOurAdmins(async (tx) => {
+    try {
+      await assertAdminPopulationSurvives(tx, targetId);
+    } catch (err) {
+      if (err instanceof AdminLockoutError) { refused = true; return; }
+      throw err;
+    }
+  });
+  assert.ok(refused, "removing the last reachable admin must be refused");
+}
+
+/** Asserts the guard PASSES, with foreign admins excluded. */
+async function assertLockoutAllowed(targetId: string): Promise<void> {
+  await withOnlyOurAdmins(async (tx) => {
+    await assertAdminPopulationSurvives(tx, targetId);
+  });
+}
+
+/** Reachable admins created by THIS file. */
+async function ourReachableAdminCount(): Promise<number> {
   const { rows } = await db.execute<{ n: string | number }>(sql`
-    SELECT count(*) AS n FROM ${usersTable} WHERE ${isReachableAdminSql()}
+    SELECT count(*) AS n FROM ${usersTable}
+    WHERE ${and(isReachableAdminSql(), like(usersTable.id, `${PREFIX}%`))}
   `);
   return Number(rows[0]!.n);
 }
 
-before(async () => {
-  await cleanup();
-  // Park any admin the rest of the suite created, so "the last admin" in these
-  // tests really is the last one.
-  const existing = await db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(isReachableAdminSql());
-  parkedAdminIds = existing.map((r) => r.id);
-  if (parkedAdminIds.length > 0) {
-    await db
-      .update(usersTable)
-      .set({ isActive: false })
-      .where(inArray(usersTable.id, parkedAdminIds));
-  }
-});
-
-after(async () => {
-  await cleanup();
-  if (parkedAdminIds.length > 0) {
-    await db
-      .update(usersTable)
-      .set({ isActive: true })
-      .where(inArray(usersTable.id, parkedAdminIds));
-  }
-});
-
+before(cleanup);
 beforeEach(cleanup);
 
 // ── Who counts as an admin ───────────────────────────────────────────────────
@@ -98,7 +126,7 @@ beforeEach(cleanup);
 describe("the admin population is counted over all three grant mechanisms", () => {
   it("counts a stored-column admin", async () => {
     await createUser({ isAdmin: true });
-    assert.equal(await reachableAdminCount(), 1);
+    assert.equal(await ourReachableAdminCount(), 1);
   });
 
   it("counts an ADMIN_USER_IDS admin whose stored flag is false", async () => {
@@ -107,7 +135,7 @@ describe("the admin population is counted over all three grant mechanisms", () =
     process.env["ADMIN_USER_IDS"] = id;
     try {
       assert.equal(
-        await reachableAdminCount(),
+        await ourReachableAdminCount(),
         1,
         "an env-granted admin must be visible to the population count",
       );
@@ -120,7 +148,7 @@ describe("the admin population is counted over all three grant mechanisms", () =
   it("counts a bootstrap-email admin whose stored flag is false", async () => {
     await createUser({ isAdmin: false, email: BOOTSTRAP_ADMIN_EMAIL });
     assert.equal(
-      await reachableAdminCount(),
+      await ourReachableAdminCount(),
       1,
       "a bootstrap-email admin must be visible to the population count",
     );
@@ -128,7 +156,7 @@ describe("the admin population is counted over all three grant mechanisms", () =
 
   it("does NOT count an inactive admin — authMiddleware would not resolve them", async () => {
     await createUser({ isAdmin: true, isActive: false });
-    assert.equal(await reachableAdminCount(), 0);
+    assert.equal(await ourReachableAdminCount(), 0);
   });
 });
 
@@ -137,10 +165,7 @@ describe("the admin population is counted over all three grant mechanisms", () =
 describe("the last admin cannot be removed", () => {
   it("rejects removing the last stored-column admin", async () => {
     const id = await createUser({ isAdmin: true });
-    await assert.rejects(
-      () => db.transaction((tx) => assertAdminPopulationSurvives(tx, id)),
-      AdminLockoutError,
-    );
+    await assertLockoutRefused(id);
   });
 
   it("rejects removing an account that is an admin ONLY by ADMIN_USER_IDS", async () => {
@@ -148,10 +173,7 @@ describe("the last admin cannot be removed", () => {
     const previous = process.env["ADMIN_USER_IDS"];
     process.env["ADMIN_USER_IDS"] = id;
     try {
-      await assert.rejects(
-        () => db.transaction((tx) => assertAdminPopulationSurvives(tx, id)),
-        AdminLockoutError,
-      );
+      await assertLockoutRefused(id);
     } finally {
       if (previous === undefined) delete process.env["ADMIN_USER_IDS"];
       else process.env["ADMIN_USER_IDS"] = previous;
@@ -160,26 +182,19 @@ describe("the last admin cannot be removed", () => {
 
   it("rejects removing an account that is an admin ONLY by bootstrap email", async () => {
     const id = await createUser({ isAdmin: false, email: BOOTSTRAP_ADMIN_EMAIL });
-    await assert.rejects(
-      () => db.transaction((tx) => assertAdminPopulationSurvives(tx, id)),
-      AdminLockoutError,
-    );
+    await assertLockoutRefused(id);
   });
 
   it("allows removing one admin when another remains", async () => {
     const first = await createUser({ isAdmin: true });
     await createUser({ isAdmin: true });
-    await db.transaction((tx) => assertAdminPopulationSurvives(tx, first));
+    await assertLockoutAllowed(first);
   });
 
   it("does not count an inactive second admin as cover", async () => {
     const active = await createUser({ isAdmin: true });
     await createUser({ isAdmin: true, isActive: false });
-    await assert.rejects(
-      () => db.transaction((tx) => assertAdminPopulationSurvives(tx, active)),
-      AdminLockoutError,
-      "an admin who cannot log in is not a remaining admin",
-    );
+    await assertLockoutRefused(active);
   });
 });
 
@@ -245,7 +260,7 @@ describe("concurrent removals of DIFFERENT admins cannot both succeed", () => {
 
     assert.equal(fulfilled, 1, "exactly one of two concurrent removals may succeed");
     assert.equal(
-      await reachableAdminCount(),
+      await ourReachableAdminCount(),
       1,
       "the population must never reach zero, whatever the interleaving",
     );
@@ -271,11 +286,11 @@ describe("deletion reserves before any irreversible cleanup", () => {
     const doomed = await createUser({ isAdmin: true });
     await createUser({ isAdmin: true });
 
-    assert.equal(await reachableAdminCount(), 2);
+    assert.equal(await ourReachableAdminCount(), 2);
     const outcome = await reserveAccountForDeletion(doomed);
     assert.equal(outcome.status, "reserved");
     assert.equal(
-      await reachableAdminCount(),
+      await ourReachableAdminCount(),
       1,
       "the reservation must be visible to the same count the guard reads",
     );
@@ -299,10 +314,10 @@ describe("deletion reserves before any irreversible cleanup", () => {
     await createUser({ isAdmin: true });
 
     await reserveAccountForDeletion(doomed);
-    const afterFirst = await reachableAdminCount();
+    const afterFirst = await ourReachableAdminCount();
     await reserveAccountForDeletion(doomed);
     assert.equal(
-      await reachableAdminCount(),
+      await ourReachableAdminCount(),
       afterFirst,
       "re-running the guard on retry is safe: the target is already excluded",
     );
@@ -331,7 +346,7 @@ describe("the admin listing reflects the real population", () => {
       const rows = await db
         .select({ id: usersTable.id })
         .from(usersTable)
-        .where(and(isReachableAdminSql(), ne(usersTable.id, "")));
+        .where(and(isReachableAdminSql(), like(usersTable.id, `${PREFIX}%`)));
       const ids = rows.map((r) => r.id);
       assert.ok(ids.includes(stored));
       assert.ok(ids.includes(envOnly), "the listing must not undercount env-granted admins");
