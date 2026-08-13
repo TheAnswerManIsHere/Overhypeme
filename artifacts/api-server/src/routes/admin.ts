@@ -108,6 +108,7 @@ import {
   hashPromptText,
 } from "../lib/factEnrichmentConfig";
 import {
+  acquireAdminPopulationLock,
   assertAdminPopulationSurvives,
   assertNotSelfDemotion,
   crossesBootstrapBoundary,
@@ -313,43 +314,13 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   const demoting = updates.isAdmin === false;
   const deactivating = updates.isActive === false;
 
-  // A crossing alone isn't enough: if the target is ALSO a real admin via
-  // `is_admin` (or the env allowlist) before AND after this update, losing
-  // the bootstrap-email grant removes nothing — they're still reachable
-  // through the other mechanism. Round 2 of PR #425's review caught this:
-  // the boundary-crossing check alone would reject changing a genuinely
-  // multi-mechanism admin's email as `last_admin` even though nothing is
-  // actually being removed.
-  let emailCrossesBootstrap = false;
-  if (updates.email !== undefined) {
-    const [current] = await db
-      .select({ id: usersTable.id, email: usersTable.email, isAdmin: usersTable.isAdmin })
-      .from(usersTable)
-      .where(eq(usersTable.id, id))
-      .limit(1);
-    if (
-      current &&
-      crossesBootstrapBoundary(current.email, updates.email as string | null)
-    ) {
-      const nextIsAdmin =
-        updates.isAdmin !== undefined ? (updates.isAdmin as boolean) : current.isAdmin;
-      const wasAdmin = isRealAdminRow(current);
-      const willBeAdmin = isRealAdminRow({
-        id: current.id,
-        email: updates.email as string | null,
-        isAdmin: nextIsAdmin,
-      });
-      emailCrossesBootstrap = wasAdmin && !willBeAdmin;
-    }
-  }
-
-  const removesAdminAccess = demoting || deactivating || emailCrossesBootstrap;
-
-  if (removesAdminAccess) {
+  // Self-demotion doesn't need the population lock or a DB read — `demoting`
+  // comes straight from the request body, so it can't be stale.
+  if (demoting) {
     try {
       // An admin may not remove their own admin flag. Checked before the
       // population count, so the error names the real reason.
-      if (demoting) assertNotSelfDemotion(req.user?.id, id);
+      assertNotSelfDemotion(req.user?.id, id);
     } catch (err) {
       if (respondToGuardError(err, res)) return;
       throw err;
@@ -386,6 +357,44 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   let updated;
   try {
     [updated] = await db.transaction(async (tx) => {
+    // The lock FIRST — before reading anything the removal decision depends
+    // on. Round 4 of PR #425's review found the email-crossing check reading
+    // the target's email/isAdmin before this transaction even opened: a
+    // concurrent admin-mutating transaction could change that row between the
+    // read and the lock, so the DECISION of whether to guard at all could be
+    // made from data that was already stale by the time it was used — not
+    // just the count afterward, which the lock already protected.
+    await acquireAdminPopulationLock(tx);
+
+    // A crossing alone isn't enough: if the target is ALSO a real admin via
+    // `is_admin` (or the env allowlist) before AND after this update, losing
+    // the bootstrap-email grant removes nothing — they're still reachable
+    // through the other mechanism. Round 2 of PR #425's review caught this:
+    // the boundary-crossing check alone would reject changing a genuinely
+    // multi-mechanism admin's email as `last_admin` even though nothing is
+    // actually being removed.
+    let emailCrossesBootstrap = false;
+    if (updates.email !== undefined) {
+      const [current] = await tx
+        .select({ id: usersTable.id, email: usersTable.email, isAdmin: usersTable.isAdmin })
+        .from(usersTable)
+        .where(eq(usersTable.id, id))
+        .limit(1);
+      if (current && crossesBootstrapBoundary(current.email, updates.email as string | null)) {
+        const nextIsAdmin =
+          updates.isAdmin !== undefined ? (updates.isAdmin as boolean) : current.isAdmin;
+        const wasAdmin = isRealAdminRow(current);
+        const willBeAdmin = isRealAdminRow({
+          id: current.id,
+          email: updates.email as string | null,
+          isAdmin: nextIsAdmin,
+        });
+        emailCrossesBootstrap = wasAdmin && !willBeAdmin;
+      }
+    }
+
+    const removesAdminAccess = demoting || deactivating || emailCrossesBootstrap;
+
     // The lock, the count, and the write are ONE transaction. Splitting them
     // leaves the race the guard exists to close: at READ COMMITTED two
     // transactions removing DIFFERENT admin rows both read a count of two and

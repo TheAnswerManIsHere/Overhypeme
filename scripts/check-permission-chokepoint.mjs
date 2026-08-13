@@ -102,6 +102,15 @@ const GRID_TABLES = [
  * privilege rail, which is supposed to be a code-level role check and must
  * never move into the grid — that separation is what makes admin lockout
  * impossible by configuration.
+ *
+ * `[!=]==` matches both `===` and `!==` in one pattern — round 4 of PR #425's
+ * review found this guard still only matching `===`, three rounds after its
+ * frontend sibling (`check-permission-chokepoint-frontend.mjs`) was fixed for
+ * the identical gap in round 2: the per-line-allowlist rewrite in round 3
+ * ported the matching mechanics but not this pattern. Loose `==`/`!=` aren't
+ * matched: this repo's lint config forbids loose equality, so they can't
+ * occur, and `!(membershipTier === "legendary")` still contains a literal
+ * `===` substring the pattern already catches.
  */
 const INLINE_ROLE_GATES = [
   {
@@ -109,8 +118,8 @@ const INLINE_ROLE_GATES = [
     hint: "isAtLeastLegendary() as a product gate — use can(principal, '<feature_key>') instead",
   },
   {
-    pattern: /membershipTier\s*===\s*["']legendary["']/,
-    hint: "a raw membershipTier === 'legendary' comparison — use can(principal, '<feature_key>') instead",
+    pattern: /membershipTier\s*[!=]==\s*["']legendary["']/,
+    hint: "a raw membershipTier === / !== 'legendary' comparison — use can(principal, '<feature_key>') instead",
   },
   {
     pattern: /\brequireLegendary\b/,

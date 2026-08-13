@@ -73,6 +73,24 @@ export function crossesBootstrapBoundary(
 }
 
 /**
+ * Takes the transaction-scoped population lock. Re-entrant within one
+ * transaction, so a caller that reads target state under this lock and then
+ * calls `assertAdminPopulationSurvives` (which re-acquires it) pays no second
+ * wait.
+ *
+ * Exported so a caller that must DECIDE whether this update removes admin
+ * access — not just count survivors afterward — can take the lock BEFORE
+ * reading the target row. Round 4 of PR #425's review found a caller that read
+ * the target's email/isAdmin before opening its transaction at all: a
+ * concurrent admin-mutating transaction could change that row between the
+ * read and the lock, making the removal decision itself stale, independent of
+ * the count this module already protects.
+ */
+export async function acquireAdminPopulationLock(tx: Tx): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(${ADMIN_POPULATION_LOCK_KEY})`);
+}
+
+/**
  * Takes the population lock and counts the admins who would remain if the
  * target were removed. Throws when that count is zero.
  *
@@ -80,7 +98,7 @@ export function crossesBootstrapBoundary(
  * lock protects nothing.
  */
 export async function assertAdminPopulationSurvives(tx: Tx, targetUserId: string): Promise<void> {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(${ADMIN_POPULATION_LOCK_KEY})`);
+  await acquireAdminPopulationLock(tx);
 
   const { rows } = await tx.execute<{ remaining: string | number }>(sql`
     SELECT count(*) AS remaining FROM ${usersTable}
@@ -160,7 +178,7 @@ export async function reserveAccountForDeletion(targetUserId: string): Promise<R
     // `pg_advisory_xact_lock` is re-entrant within one transaction/session, so
     // `assertAdminPopulationSurvives`'s own acquire below is a no-op re-lock,
     // not a second wait.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(${ADMIN_POPULATION_LOCK_KEY})`);
+    await acquireAdminPopulationLock(tx);
 
     const [existing] = await tx
       .select({ id: usersTable.id, isActive: usersTable.isActive })
