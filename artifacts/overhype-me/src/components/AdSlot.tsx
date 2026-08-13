@@ -26,7 +26,16 @@ export function AdSlot({ slot, format = "auto", className = "" }: AdSlotProps) {
   const shouldShow = !isLoading && Boolean(pubId) && !adsFree;
 
   useEffect(() => {
-    if (!shouldShow) return;
+    if (!shouldShow) {
+      // Reset the marker rather than just returning. `ads_free` can move while
+      // the tab stays open — an operator toggling it off then back on for a
+      // tier is two grid writes, no reload required. Without this, `pushed`
+      // stays true from before the slot was hidden, the effect below never
+      // re-fires when `shouldShow` flips back to true, and the <ins> element
+      // is recreated but never pushed to AdSense — a permanently blank slot.
+      pushed.current = false;
+      return;
+    }
     if (pushed.current) return;
     pushed.current = true;
     try {

@@ -410,6 +410,21 @@ export default function Profile() {
     }
   }
 
+  /**
+   * The Photo button's click handler. Selecting "photo" is a standalone
+   * PATCH /users/me request, which the server now rejects with 403 for an
+   * unentitled account (`custom_avatar`) — `toggleAvatarSource` swallows that
+   * error silently, so without this the button did nothing visible on click.
+   * An unentitled tap goes to the upgrade path instead of attempting (and
+   * silently failing) the request; the button below is also visually locked
+   * so the state is discoverable before the tap, not just after.
+   */
+  function handlePhotoSelect() {
+    if ((profile?.avatarSource ?? "avatar") === "photo") return;
+    if (!canCustomAvatar) { setLocation("/pricing"); return; }
+    void toggleAvatarSource();
+  }
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
@@ -1129,15 +1144,19 @@ export default function Profile() {
                 </button>
                 <button
                   disabled={avatarSourceToggling}
-                  onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
+                  onClick={handlePhotoSelect}
                   className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
                     (profile.avatarSource ?? "avatar") === "photo"
                       ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
+                      : canCustomAvatar
+                        ? "text-muted-foreground hover:text-foreground"
+                        : "text-muted-foreground/50"
                   }`}
-                  title="Use custom photo"
+                  title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
                 >
-                  <Image className="w-3 h-3" /> Photo
+                  <Image className="w-3 h-3" /> Photo{!canCustomAvatar && (profile.avatarSource ?? "avatar") !== "photo" && (
+                    <Crown className="w-2.5 h-2.5 ml-0.5" />
+                  )}
                 </button>
               </div>
             )}
@@ -1331,12 +1350,15 @@ export default function Profile() {
                         <button
                           type="button"
                           disabled={avatarSourceToggling}
-                          onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
+                          onClick={handlePhotoSelect}
                           className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
                             (profile.avatarSource ?? "avatar") === "photo"
                               ? "bg-primary text-primary-foreground"
-                              : "text-muted-foreground hover:text-foreground"
+                              : canCustomAvatar
+                                ? "text-muted-foreground hover:text-foreground"
+                                : "text-muted-foreground/50"
                           }`}
+                          title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
                         >
                           <Image className="w-3 h-3" /> Photo
                         </button>

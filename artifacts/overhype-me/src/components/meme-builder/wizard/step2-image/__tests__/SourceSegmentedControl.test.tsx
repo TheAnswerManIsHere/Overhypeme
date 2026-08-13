@@ -13,7 +13,7 @@ function renderControl(
   render(
     <SourceSegmentedControl
       active="stock"
-      tier="registered"
+      canPulidStylize={false}
       onSelect={onSelect}
       onRequestUpgrade={onRequestUpgrade}
       {...overrides}
@@ -30,45 +30,57 @@ describe("SourceSegmentedControl", () => {
     expect(screen.getByTestId("source-tab-ai-you")).toBeTruthy();
   });
 
-  it("anonymous users can click Your photo tab — signup CTA is shown in the panel, not here", () => {
-    const { onSelect } = renderControl({ tier: "unregistered" });
+  it("Your photo tab is always clickable — self-upload's registration requirement is enforced one level up", () => {
+    const { onSelect } = renderControl({ canPulidStylize: false });
     fireEvent.click(screen.getByTestId("source-tab-self-upload"));
     expect(onSelect).toHaveBeenCalledWith("self-upload");
   });
 
-  it("free users see AI as locked → triggers upgrade", () => {
-    const { onRequestUpgrade, onSelect } = renderControl({ tier: "registered" });
+  // ── The general invariant: the lock follows the ENTITLEMENT, not a tier.
+  // This control used to gate on `tier === "legendary"` — the same PR #402
+  // shape everywhere else in this codebase. Proving "legendary sees it
+  // unlocked" is not enough; the invariant is that tier alone never decides
+  // this, in either direction.
+
+  it("without meme_pulid_stylize, AI is locked → triggers upgrade", () => {
+    const { onRequestUpgrade, onSelect } = renderControl({ canPulidStylize: false });
     fireEvent.click(screen.getByTestId("source-tab-ai-you"));
     expect(onRequestUpgrade).toHaveBeenCalledOnce();
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("legendary users see all three tabs unlocked", () => {
-    const { onSelect, onRequestUpgrade } = renderControl({
-      tier: "legendary",
-    });
+  it("with meme_pulid_stylize, AI is unlocked — regardless of which tier granted it", () => {
+    const { onSelect, onRequestUpgrade } = renderControl({ canPulidStylize: true });
     fireEvent.click(screen.getByTestId("source-tab-ai-you"));
     expect(onSelect).toHaveBeenCalledWith("ai-you");
     expect(onRequestUpgrade).not.toHaveBeenCalled();
   });
 
-  it("renders LEGEND badge on locked AI tab for non-legendary", () => {
-    renderControl({ tier: "registered" });
+  it("renders LEGEND badge on the AI tab exactly when the entitlement is absent", () => {
+    renderControl({ canPulidStylize: false });
     const ai = screen.getByTestId("source-tab-ai-you");
     expect(ai.textContent).toMatch(/LEGEND/);
   });
 
-  it("Your photo tab has no SIGN UP badge for anonymous — signup CTA lives in the panel", () => {
-    renderControl({ tier: "unregistered" });
+  it("no LEGEND badge once the entitlement is granted", () => {
+    renderControl({ canPulidStylize: true });
+    const ai = screen.getByTestId("source-tab-ai-you");
+    expect(ai.textContent).not.toMatch(/LEGEND/);
+  });
+
+  it("Your photo tab has no SIGN UP badge — signup CTA lives in the panel", () => {
+    renderControl();
     const photo = screen.getByTestId("source-tab-self-upload");
     expect(photo.textContent).not.toMatch(/SIGN UP/);
   });
 });
 
 describe("pickDefaultSourceTab", () => {
-  // Task #507 dropped the legacy `hasPrimary` axis — the profile photo is now
-  // just a tagged library entry, so the default tab is purely a function of
-  // tier. The previous two-axis matrix collapses to one.
+  // A UX default only (which tab to show first), not a gate — the control
+  // itself now enforces the real lock off the resolved entitlement, so
+  // defaulting to "ai-you" for a legendary tier that happens to have had
+  // the entitlement revoked just shows that tab in its locked state, same as
+  // landing on it any other way.
   const cases: [Parameters<typeof pickDefaultSourceTab>[0], ReturnType<typeof pickDefaultSourceTab>][] = [
     ["unregistered", "self-upload"],
     ["registered", "self-upload"],

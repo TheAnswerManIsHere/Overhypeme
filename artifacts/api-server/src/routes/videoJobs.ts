@@ -93,7 +93,12 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
   // previously layered a role-rank short-circuit in front of the grid lookup,
   // which is how one capability came to be gated by two different rules.
   const principal = principalFromRequest(req);
-  if (!(await can(principal, "video_generation"))) {
+  // Resolved ONCE. `startVideoJob` records this exact value in the job's
+  // permanent authorization_snapshot rather than re-resolving it — a second
+  // resolution could disagree if the grid was toggled in between, corrupting
+  // the record of what actually authorized the job.
+  const videoGenerationDecision = await can(principal, "video_generation");
+  if (!videoGenerationDecision) {
     res.status(403).json({
       error: "VIDEO_GENERATION_LOCKED",
       message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
@@ -130,6 +135,7 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
       aspectRatio: parsed.data.aspectRatio as AspectRatio,
       framingFocus: parsed.data.framingFocus ?? null,
       principal,
+      videoGenerationDecision,
       name: parsed.data.name ?? null,
       pronouns: parsed.data.pronouns ?? null,
       renderedFactText: parsed.data.renderedFactText ?? null,

@@ -17,7 +17,8 @@
     "check:ledger": "node scripts/check-loop-metrics.mjs",
     "check:manual-tuning": "node scripts/check-manual-tuning-language.mjs",
     "check:return-to-parity": "pnpm --filter @workspace/api-server exec tsx ../../scripts/check-return-to-parity.mjs",
-    "check:permissions": "node scripts/check-permission-chokepoint.mjs"
+    "check:permissions": "node scripts/check-permission-chokepoint.mjs",
+    "check:permissions:frontend": "node scripts/check-permission-chokepoint-frontend.mjs"
   },
   "private": true,
   "devDependencies": {

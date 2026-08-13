@@ -605,8 +605,12 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
 };
 
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen, initialPathMode }: MemeBuilderProps) {
-  const { isAuthenticated, login, role, user, refreshUser } = useAuth();
-  const isLegendary = role === "legendary" || role === "admin";
+  const { isAuthenticated, login, role, user, refreshUser, can } = useAuth();
+  // Told, not derived. This legacy builder predates the client contract; it
+  // is unrouted (reachable only from the dev-only MatrixHarness), but kept
+  // correct rather than left as a landmine with the pre-#425 shape in it.
+  const canAiBackground = can("meme_ai_background");
+  const canSetPrivate = can("meme_private_visibility");
   const isRegistered = isAuthenticated && role !== "unregistered";
   const isAdmin = role === "admin";
   const { pronouns } = usePersonName();
@@ -1295,7 +1299,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     }
     // Photo memes (upload + identity) are free for registered users; only AI
     // backgrounds remain Legendary-gated.
-    if (imageMode === "ai" && !isLegendary) {
+    if (imageMode === "ai" && !canAiBackground) {
       setErrorMsg("AI-generated backgrounds require a Legendary membership.");
       return;
     }
@@ -1535,7 +1539,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               <ModeTab
                 active={imageMode === "ai"}
                 onClick={() => handleSetImageMode("ai")}
-                badge={!isLegendary ? "LEGENDARY" : undefined}
+                badge={!canAiBackground ? "LEGENDARY" : undefined}
               >
                 AI Generated
               </ModeTab>
@@ -1693,7 +1697,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               initialImages={aiMemeImages ?? null}
               aiGender={aiGender}
               isGendered={factIsGendered}
-              isLegendary={isLegendary}
+              canGenerate={canAiBackground}
               isAdmin={isAdmin}
               onSelect={setAiSelectedInfo}
               showStylePicker
@@ -2114,7 +2118,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               ) : (
                 <div className="space-y-2">
                   {/* Visibility toggle (premium) */}
-                  {isLegendary && (
+                  {canSetPrivate && (
                     <div className="flex items-center gap-3 p-2 bg-secondary border border-border">
                       <button
                         type="button"

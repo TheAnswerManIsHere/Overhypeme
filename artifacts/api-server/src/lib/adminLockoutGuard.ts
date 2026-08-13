@@ -148,6 +148,20 @@ export type ReservationOutcome =
  */
 export async function reserveAccountForDeletion(targetUserId: string): Promise<ReservationOutcome> {
   return db.transaction(async (tx): Promise<ReservationOutcome> => {
+    // The lock FIRST, before reading `is_active` at all. Reading state before
+    // the lock is what let two concurrent requests against the SAME account
+    // both observe `isActive: true`, both conclude "not yet reserved", and
+    // both proceed — the second's conditional UPDATE then matched zero rows
+    // (the first had already flipped it), but nothing checked that, so it
+    // still reported "reserved" and its caller ran Stripe/storage/session
+    // cleanup a second time. Acquiring the lock first makes the second
+    // transaction BLOCK until the first commits, so its read is never stale.
+    //
+    // `pg_advisory_xact_lock` is re-entrant within one transaction/session, so
+    // `assertAdminPopulationSurvives`'s own acquire below is a no-op re-lock,
+    // not a second wait.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${ADMIN_POPULATION_LOCK_KEY})`);
+
     const [existing] = await tx
       .select({ id: usersTable.id, isActive: usersTable.isActive })
       .from(usersTable)
@@ -159,10 +173,16 @@ export async function reserveAccountForDeletion(targetUserId: string): Promise<R
 
     await assertAdminPopulationSurvives(tx, targetUserId);
 
-    await tx
+    // Defense in depth: the lock should make this impossible to miss, but the
+    // row count is ground truth. A rejected/no-op update reports "resuming"
+    // rather than falsely claiming to have just performed the reservation.
+    const updated = await tx
       .update(usersTable)
       .set({ isActive: false })
-      .where(and(eq(usersTable.id, targetUserId), eq(usersTable.isActive, true)));
+      .where(and(eq(usersTable.id, targetUserId), eq(usersTable.isActive, true)))
+      .returning({ id: usersTable.id });
+
+    if (updated.length === 0) return { status: "resuming" };
 
     return { status: "reserved" };
   });

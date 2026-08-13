@@ -82,7 +82,6 @@ import { computeVideoCost, resolveVideoDimensions } from "./costComputation";
 import { createMemeRecord, resolveMemeDecisions } from "./createMemeRecord";
 import {
   buildAuthorizationSnapshot,
-  can,
   decisionFromSnapshot,
   type AuthorizationSnapshot,
   type Principal,
@@ -203,6 +202,21 @@ export interface StartJobInput {
    * what used to happen inside `createMemeRecord` — cannot see it at all.
    */
   principal: Principal;
+  /**
+   * The caller's own `video_generation` decision, from the SAME `can()` call
+   * that gated the request. Required, not re-derived here.
+   *
+   * This function used to call `can(principal, "video_generation")` a second
+   * time internally, which opened a window: if the grid was toggled between
+   * the route's gate and this call — or if resolution itself failed the
+   * second time for any reason — the job would still start, but its permanent
+   * `authorization_snapshot` would record `false` for the very decision that
+   * admitted it, corrupting the record in exactly the case it exists to
+   * protect. The route's decision is definitionally what authorized this call
+   * (it 403s before ever reaching here), so that is the value that must be
+   * persisted — not a fresh, possibly-different answer to the same question.
+   */
+  videoGenerationDecision: boolean;
 }
 
 export class VideoJobError extends Error {
@@ -502,7 +516,7 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
   // are decided here, against the submitting request's principal, and travel
   // with the job from this point on.
   const authorizationSnapshot = buildAuthorizationSnapshot(input.principal, {
-    video_generation: await can(input.principal, "video_generation"),
+    video_generation: input.videoGenerationDecision,
     ...(await resolveMemeDecisions(input.principal)),
   });
 

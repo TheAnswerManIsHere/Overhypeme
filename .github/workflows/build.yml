@@ -239,6 +239,12 @@ jobs:
       - name: Permission chokepoint check
         run: pnpm run check:permissions
 
+      # The client half of the same invariant: a NEW tier/role comparison
+      # gating a product feature client-side is the PR #402 shape on the other
+      # side of the wire. See scripts/check-permission-chokepoint-frontend.mjs.
+      - name: Permission chokepoint check (frontend)
+        run: pnpm run check:permissions:frontend
+
       - name: Build app
         run: pnpm run build
         env:

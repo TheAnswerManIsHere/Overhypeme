@@ -393,15 +393,19 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  // authMiddleware populates req.user.realUserRole (DB truth, ignores the
-  // "view as user" toggle) and req.user.membershipTier on every authenticated
-  // request.  Use realUserRole as the gating signal — no direct reads of the
-  // isRealAdmin boolean for authorization decisions.
+  // `isAdmin` here gates admin-only PARAMETER OVERRIDES below (custom engine,
+  // duration, aspect ratio, resolution, mode) — operational/debug privilege,
+  // not a product entitlement, so it stays role-derived on purpose.
+  // `realUserRole` (DB truth, ignoring the "view as user" toggle) is
+  // deliberate: an admin previewing as a user should still be able to use
+  // these debug controls.
+  //
+  // The `userTier`-keyed feature-flag lookup that used to live here is gone —
+  // video_generation now resolves through `can(principal, ...)` below, the
+  // one place a tier is allowed to be consulted for this decision.
   let isAdmin = false;
-  let userTier: string = "unregistered";
   if (req.isAuthenticated()) {
     isAdmin = req.user.realUserRole === "admin";
-    userTier = req.user.membershipTier ?? "unregistered";
   }
 
   // Video generation requires authentication

@@ -158,10 +158,14 @@ function PathCard({
 // ─── Studio Hub entry ───────────────────────────────────────────────────────
 
 function StudioHub({
-  isLegendary,
+  canAiBackground,
+  canVideo,
   onPick,
 }: {
-  isLegendary: boolean;
+  /** Told, not derived — `can("meme_ai_background")`. */
+  canAiBackground: boolean;
+  /** Told, not derived — `can("video_generation")`. */
+  canVideo: boolean;
   onPick: (p: StudioPath) => void;
 }) {
   return (
@@ -185,9 +189,9 @@ function StudioHub({
           Image
         </p>
         <div className="grid gap-2">
-          {/* Default path order is photo-first for free users; the AI path is
-              re-ordered to the top further down for Legendary. */}
-          {!isLegendary && (
+          {/* Default path order is photo-first; the AI path is re-ordered to
+              the top further down once the account is entitled to it. */}
+          {!canAiBackground && (
             <PathCard
               icon={<UserIcon className="w-5 h-5" />}
               title="Photo Editor"
@@ -199,11 +203,11 @@ function StudioHub({
             icon={<Stars className="w-5 h-5" />}
             title="AI Gallery → Image"
             subtitle="Pick or generate an AI scene of you, then add text."
-            badge={!isLegendary ? "Legendary" : undefined}
-            locked={!isLegendary}
+            badge={!canAiBackground ? "Legendary" : undefined}
+            locked={!canAiBackground}
             onClick={() => onPick("ai-gallery")}
           />
-          {isLegendary && (
+          {canAiBackground && (
             <PathCard
               icon={<UserIcon className="w-5 h-5" />}
               title="Photo Editor"
@@ -236,16 +240,16 @@ function StudioHub({
             icon={<Wand2 className="w-5 h-5" />}
             title="Magic Video"
             subtitle="One tap. We pick the best AI scene of you and animate it."
-            badge={!isLegendary ? "Legendary" : "One tap"}
-            locked={!isLegendary}
+            badge={!canVideo ? "Legendary" : "One tap"}
+            locked={!canVideo}
             onClick={() => onPick("magic-video")}
           />
           <PathCard
             icon={<Video className="w-5 h-5" />}
             title="Manual Video"
             subtitle="Pick the source, the style, then generate. Full control."
-            badge={!isLegendary ? "Legendary" : undefined}
-            locked={!isLegendary}
+            badge={!canVideo ? "Legendary" : undefined}
+            locked={!canVideo}
             onClick={() => onPick("manual-video")}
           />
         </div>
@@ -407,8 +411,14 @@ export function MemeStudio({
   defaultPath,
   initialVideoImageDataUrl,
 }: MemeStudioProps) {
-  const { role, isAuthenticated } = useAuth();
-  const isLegendary = role === "legendary" || role === "admin";
+  const { can, isAuthenticated } = useAuth();
+  // Told, not derived. These used to be one `isLegendary` boolean covering
+  // both capabilities — which meant an operator granting `meme_ai_background`
+  // to a new tier from Admin → Features couldn't move this screen, and
+  // revoking `video_generation` from Legendary left the video cards unlocked
+  // here while the server started rejecting the requests they led to.
+  const canAiBackground = can("meme_ai_background");
+  const canVideo = can("video_generation");
 
   // Resolve the initial path. When an external opener supplies a pre-loaded
   // meme image for video, jump straight to manual-video so the existing
@@ -469,7 +479,8 @@ export function MemeStudio({
           <PathView
             path={path}
             isAuthenticated={isAuthenticated}
-            isLegendary={isLegendary}
+            canAiBackground={canAiBackground}
+            canVideo={canVideo}
             onPick={setPath}
             onClose={onClose}
             // pass-throughs
@@ -492,7 +503,8 @@ export function MemeStudio({
 interface PathViewProps {
   path: StudioPath;
   isAuthenticated: boolean;
-  isLegendary: boolean;
+  canAiBackground: boolean;
+  canVideo: boolean;
   onPick: (p: StudioPath) => void;
   onClose: () => void;
   factId: number;
@@ -507,7 +519,8 @@ interface PathViewProps {
 function PathView({
   path,
   isAuthenticated,
-  isLegendary,
+  canAiBackground,
+  canVideo,
   onPick,
   onClose,
   factId,
@@ -519,7 +532,7 @@ function PathView({
   videoTabBaseProps,
 }: PathViewProps) {
   if (path === "hub") {
-    return <StudioHub isLegendary={isLegendary} onPick={onPick} />;
+    return <StudioHub canAiBackground={canAiBackground} canVideo={canVideo} onPick={onPick} />;
   }
 
   // ── Image paths ──
@@ -542,7 +555,7 @@ function PathView({
         </div>
       );
     }
-    if (path === "ai-gallery" && !isLegendary) {
+    if (path === "ai-gallery" && !canAiBackground) {
       return (
         <div className="p-5 max-w-2xl mx-auto">
           <AccessGate
@@ -593,7 +606,7 @@ function PathView({
         </div>
       );
     }
-    if (!isLegendary) {
+    if (!canVideo) {
       return (
         <div className="p-5 max-w-2xl mx-auto">
           <AccessGate

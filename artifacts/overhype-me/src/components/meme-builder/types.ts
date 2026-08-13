@@ -135,7 +135,7 @@ export interface MemeBuilderProps {
 /* ─── Behavior cell ──────────────────────────────────────────────────────── */
 
 /**
- * Distilled output of `resolveBehavior(mode, tier, entryFlow)`.
+ * Distilled output of `resolveBehavior(mode, tier, entryFlow, entitlements)`.
  * Component branching reads from this object; nested conditionals on raw
  * (mode, tier, entryFlow) tuples are not allowed elsewhere.
  */

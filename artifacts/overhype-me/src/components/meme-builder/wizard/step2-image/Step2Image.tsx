@@ -79,6 +79,7 @@ export function Step2Image({
   const tier = viewerContext.tier;
   // Told, not derived — the same answer createMemeRecord will apply.
   const canSetPrivate = viewerContext.entitlements?.["meme_private_visibility"]?.allowed === true;
+  const canPulidStylize = viewerContext.entitlements?.["meme_pulid_stylize"]?.allowed === true;
 
   const [tab, setTab] = useState<SourceTab>(() => {
     // For unregistered users, never inherit a cached AI or self-upload source
@@ -488,7 +489,7 @@ export function Step2Image({
         >
           <SourceSegmentedControl
             active={tab}
-            tier={tier}
+            canPulidStylize={canPulidStylize}
             onSelect={handleSourceTab}
             onRequestUpgrade={() => {
               setUpgradeContext("ai-tab");
