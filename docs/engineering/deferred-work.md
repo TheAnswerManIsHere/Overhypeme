@@ -554,60 +554,90 @@ re-gather it when the work is scheduled.
     `check-permission-chokepoint.mjs` already uses — each entry names the
     object, the migration, and why it's permanently unshadowed.
 
-    An exhaustive terminal-state pass over the full migration history
-    (every `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE`, reduced by
-    every `DROP INDEX`/`DROP CONSTRAINT`/`DROP TABLE`, cross-checked
-    against every `index()`/`uniqueIndex()`/`check()`/`pgSequence()`/
-    `.references()` declaration in `lib/db/src/schema/*.ts` — done for
-    this entry, not just reasoned about) found **ten** objects with an
-    explicit, comment-documented reason they're permanently unshadowed —
-    the complete seed set, not the five or eight found in earlier rounds
-    of this same review:
-    - **Six partial indexes**, all exempt for the same reason (the pinned
-      `drizzle-kit`'s partial-index handling is brittle, per comments in
-      `facts.ts`/`imagePromptAttempts.ts`): `IDX_facts_eval_golden`
-      (`0081`), `IDX_ipa_eval_run_fact_created` and
-      `IDX_ipa_eval_fact_run_created` (`0081`), and `IDX_ipa_request_id`,
-      `IDX_ipa_render_job_id` (`0065`), and `IDX_ipa_review_only` (`0076`)
-      — all six documented together in `imagePromptAttempts.ts:130-135`'s
-      comment block, plus `facts.ts:159-160`'s.
-    - **Two sequences** (`0095`): `membership_source_state_seq`,
-      `membership_lease_fence_seq` — referenced in prose comments in
-      `membershipEntitlements.ts` but never declared as a `pgSequence`.
-    - **Two self-referential foreign keys** (`0048`): `uim_fact_id_fk`,
-      `uim_source_object_path_fk` on `upload_image_metadata` —
-      `memes.ts`'s (actually `uploadImageMetadataTable`'s) own trailing
-      comment records that Drizzle's TS-side self-FK helper is brittle and
-      isn't required for runtime queries, so both stay migration-only by
-      design.
+    A terminal-state pass over the full migration history (every
+    `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE` **and every inline
+    `CHECK`/`UNIQUE`/`REFERENCES` clause inside a `CREATE TABLE` or
+    `ADD COLUMN` — Postgres auto-names those, and Drizzle reconciles the
+    resulting objects exactly as it does explicitly-named ones, so an
+    extractor that only scans `ADD CONSTRAINT` statements misses them**,
+    reduced by every `DROP INDEX`/`DROP CONSTRAINT`/`DROP TABLE`,
+    cross-checked against every `index()`/`uniqueIndex()`/`check()`/
+    `pgSequence()`/`.references()` declaration in `lib/db/src/schema/*.ts`)
+    was run for this entry. **The guard's implementer re-derives this
+    inventory mechanically rather than trusting the enumeration below** —
+    this entry's own review found the list incomplete twice, which is the
+    strongest available evidence that a hand-maintained enumeration of it
+    rots; the durable content here is the *method* and the two-way split,
+    with the current results as the starting checklist.
 
-    **The same pass also found seven objects with no shadow and no
-    documented reason — real, live schema-shadow gaps today, not
-    allowlist candidates:** `memes_status_check`, `quarantined_memes_
-    source_check`, `ncmec_reports_match_source_check` (all three from
-    `0043`, superseded in intent by newer `content_origin`/`submission_
-    status` checks that *are* shadowed, but never themselves dropped or
-    renamed — still live, still enforced, still invisible to `push`),
-    `idx_memes_created_by_id_created_at` (`0051`), `facts_has_overrides_
-    idx` (`0071`), `affiliate_clicks_source_idx` (`0034`), and
-    `UQ_uim_user_is_profile` (`0055`). (`stripe_checkout_request_ledger_
-    request_key_unique` from `0045` looked like an eighth at first grep,
-    but `0045`'s own migration comment explains it renames a Postgres-
-    auto-named constraint to match Drizzle's exact `table_column_unique`
-    convention — `.unique()` on `memberships.ts`'s `requestKey` column
-    generates that identical name, so it *is* shadowed.) These seven are
-    real, reproducible exposure under the same mechanism as this note's
-    three confirmed incidents — not hypothetical — and they predate this
-    entry; fixing them (either declare the missing `check()`/`index()`
-    shadow, or add a reasoned comment same as the ten above) is separate
-    work from writing the guard, and has to land **before** the guard
-    can go green, or the guard's first Build run fails on seven
-    pre-existing objects it didn't cause. Whoever picks up the guard
-    should budget for that cleanup pass first, or explicitly allowlist
-    these seven too with "known gap, not yet fixed" as the stated reason
-    — either way, the guard's initial `ALLOWLIST` must account for all
-    seventeen objects (ten reasoned + seven gaps), not silently break on
-    the seven no one's looked at yet.
+    As of this writing the pass finds **seven** objects with an explicit,
+    comment-documented reason to stay permanently unshadowed — genuine
+    `ALLOWLIST` seeds:
+    - **Six partial indexes**, all exempt for the same reason (the pinned
+      `drizzle-kit`'s partial-index handling is brittle, per the comments
+      in `facts.ts:159-160` and `imagePromptAttempts.ts:130-135`):
+      `IDX_facts_eval_golden`, `IDX_ipa_eval_run_fact_created`,
+      `IDX_ipa_eval_fact_run_created` (`0081`), `IDX_ipa_request_id`,
+      `IDX_ipa_render_job_id` (`0065`), and `IDX_ipa_review_only`
+      (`0076`).
+    - **One genuinely self-referential foreign key** (`0048`):
+      `uim_source_object_path_fk` (`upload_image_metadata.source_object_
+      path` → its own `object_path`) — `uploadImageMetadataTable`'s
+      trailing comment records that Drizzle's TS-side self-FK helper is
+      brittle and isn't required for runtime queries.
+
+    **And twelve objects that are live schema-shadow gaps — real,
+    reproducible exposure under this note's confirmed mechanism, each
+    fixable with an ordinary declaration, so none belongs on a permanent
+    allowlist:**
+    - `membership_source_state_seq` and `membership_lease_fence_seq`
+      (`0095`) — **already demonstrated, not hypothetical**: the PR #293
+      incident this note records is precisely `push --force` dropping
+      these two sequences (19 test failures). The fix is a `pgSequence()`
+      declaration, which the Rule section below already prescribes;
+      `membershipEntitlements.ts`'s comments describe how runtime uses
+      them, not any reason a declaration can't exist.
+    - `uim_fact_id_fk` (`0048`) — an ordinary cross-table FK
+      (`upload_image_metadata.fact_id` → `facts.id`), expressible with
+      the same `.references(() => factsTable.id)` used throughout
+      `memes.ts`. The self-FK brittleness reason in the adjacent comment
+      covers `uim_source_object_path_fk` only; this one rode along.
+    - `memes_status_check`, `quarantined_memes_source_check`,
+      `ncmec_reports_match_source_check` (`0043`) — the only DB-level
+      validation for `memes.status`, `quarantined_memes.source`, and
+      `ncmec_reports.match_source` respectively. (Distinct columns and
+      vocabularies from `0097`'s newer `submission_status`/
+      `content_origin` checks, which are shadowed — these three are not
+      superseded by them.)
+    - `idx_memes_created_by_id_created_at` (`0051`),
+      `facts_has_overrides_idx` (`0071`) — both partial indexes, so a
+      cleanup pass may legitimately conclude they join the reasoned
+      brittle-partial-index exemptions above instead; that's a
+      case-by-case call for whoever fixes them, made with a comment
+      either way.
+    - `affiliate_clicks_source_idx` (`0034`), `UQ_uim_user_is_profile`
+      (`0055`, also partial — same call as above).
+    - The two **inline, auto-named CHECKs**: `share_intents.platform`
+      (`0052:22`) and `hero_examples.artifact_type` (`0054:16`) —
+      `shareIntents.ts`/`heroExamples.ts` mention them in comments but
+      declare no `check()` builder, so a push-built database silently
+      loses both vocabularies' enforcement.
+
+    (`stripe_checkout_request_ledger_request_key_unique` from `0045`
+    looks like a gap at first grep, but that migration renames a
+    Postgres-auto-named constraint to Drizzle's exact
+    `table_column_unique` convention — `.unique()` on `memberships.ts`'s
+    `requestKey` generates that identical name, so it *is* shadowed.)
+
+    The twelve gaps predate this entry; fixing them (declare the missing
+    shadow, or add a reasoned comment that promotes one to the allowlist)
+    is separate work from writing the guard, and has to land **before**
+    the guard can go green — or the implementer explicitly seeds them as
+    "known gap, not yet fixed" entries so the guard's first Build run
+    doesn't fail on objects it didn't cause. Either way the initial
+    `ALLOWLIST` accounts for every object the re-derived inventory
+    returns, split honestly between reasoned-permanent and
+    known-gap-pending.
 
     Wire the guard into `build.yml`'s `Build` job, where
     `validate-snapshots` and both `check-permission-chokepoint*.mjs`
