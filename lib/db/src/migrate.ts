@@ -252,6 +252,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
   const client = await pool.connect();
+  // Surface server-side NOTICEs. node-postgres drops them unless something
+  // listens, so a migration that reports what it did — a repair that has to
+  // state whether it changed anything, a backfill announcing its row counts —
+  // would otherwise run completely silently. Without this, the only output for
+  // both a real repair and a no-op is the generic "Applying <tag>" line, which
+  // is precisely the ambiguity a repair migration exists to remove.
+  client.on("notice", (msg) => {
+    if (msg?.message) console.log(`[migrate]   ${msg.message}`);
+  });
   try {
     const { applied, skipped, total } = await applyMigrations(client);
     console.log(

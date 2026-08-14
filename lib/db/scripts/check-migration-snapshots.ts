@@ -356,11 +356,17 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // over). Recreates them if absent and advances each past the maximum already
   // stored in membership_entitlements.source_state_as_of /
   // membership_leases.fence — a sequence restored at 1 makes both consumers'
-  // strictly-greater guards match zero rows, silently. No schema delta a
-  // snapshot could express: the sequences are declared in
-  // schema/membershipEntitlements.ts and the rest is setval, not DDL. Hand
-  // authored, since drizzle-kit generate stays broken on the malformed 0063
-  // snapshot.
+  // strictly-greater guards match zero rows, silently.
+  //
+  // The missing snapshot here is DEFERRED, not inexpressible — do not restate
+  // it as the latter. The two pgSequence declarations in
+  // schema/membershipEntitlements.ts are exactly a snapshot-visible delta, and
+  // this migration carries their CREATE SEQUENCE DDL besides. The exemption
+  // exists only because drizzle-kit generate stays broken on the malformed 0063
+  // snapshot. When that chain is repaired, this delta must be captured rather
+  // than treated as nothing to record — describing it as inexpressible would
+  // justify leaving the sequences out and let generation rediscover them as an
+  // unexplained change.
   // Source of truth: lib/db/src/schema/membershipEntitlements.ts.
   "0099_membership_sequence_repair",
 ]);

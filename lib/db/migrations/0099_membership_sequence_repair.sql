@@ -23,37 +23,85 @@
 -- matches ZERO rows until the sequence climbs back past them: no error, no log,
 -- the subscription refresh or refund simply does not happen and the caller is
 -- told `applied: false`. A missing sequence fails LOUDLY (nextval raises); a
--- reset one fails SILENTLY, which is strictly worse. So the sequences have to be
--- advanced past what is already persisted, not merely restored.
+-- reset one fails SILENTLY, which is strictly worse.
 --
--- Idempotent, and a no-op on a healthy database: each setval takes the GREATEST
--- of the stored maximum and the sequence's own current value, so it can only
--- ever raise a sequence — never lower one, never renumber an existing row, and
--- never touch table data. Safe to replay; nothing here is destructive, so no
--- rollback step is required.
+-- WHY THIS ONLY EVER WRITES A SEQUENCE THAT IS GENUINELY BEHIND
+-- ------------------------------------------------------------
+-- An earlier version of this migration ran an unconditional
+-- `setval(seq, GREATEST(max_stored, seq.last_value))`. That is unsafe against a
+-- live database, and the failure is the exact corruption this migration exists
+-- to prevent. Sequence reads and writes are not transactional and take no lock
+-- the application shares, so a concurrent `nextval()` can land between the
+-- `last_value` subquery and the `setval()`. The stale value then overwrites the
+-- concurrently advanced one and the next caller is handed a token that was
+-- already issued — duplicate tokens, and a fence that no longer separates a
+-- live holder from a revenant. Reproduced before rewriting: a sequence
+-- concurrently advanced 800 -> 850 was pushed back to 800, and the next
+-- allocation returned 801, which had already been handed out.
+--
+-- So each block below decides FIRST whether the sequence is actually behind
+-- what is already persisted, and writes ONLY then. On a healthy database —
+-- which includes production, where these sequences were never dropped, since
+-- `push --force` reaches only the test database via pretest's
+-- TEST_DATABASE_URL redirect — this migration performs no sequence write at
+-- all, so there is no read-then-write window to race. On a database that IS
+-- behind, every consumer's write is already silently matching zero rows, so
+-- advancing can only improve matters.
+--
+-- `highest_issued` accounts for is_called: a never-called sequence reports
+-- last_value = 1 while having issued nothing, so treating last_value as
+-- "already handed out" would skip a repair that is genuinely needed when the
+-- stored maximum is exactly 1.
+--
+-- Idempotent, non-destructive, and safe to replay: it can only ever raise a
+-- sequence, never lower one, never renumber a row, and never write table data.
+-- Each block reports what it did, so a repair and a no-op are distinguishable
+-- in the migration output rather than both appearing as a bare "Applying" line.
 CREATE SEQUENCE IF NOT EXISTS "membership_source_state_seq" AS bigint START WITH 1 INCREMENT BY 1;
 --> statement-breakpoint
 
 CREATE SEQUENCE IF NOT EXISTS "membership_lease_fence_seq" AS bigint START WITH 1 INCREMENT BY 1;
 --> statement-breakpoint
 
--- COALESCE(..., 0) covers an empty table; the sequence's own last_value keeps a
--- healthy database untouched. On a never-called sequence last_value is 1, so a
--- fresh install consumes token 1 here and starts allocating at 2 — harmless,
--- since these tokens carry no meaning beyond being unique and increasing.
-SELECT setval(
-  'membership_source_state_seq',
-  GREATEST(
-    (SELECT COALESCE(MAX("source_state_as_of"), 0) FROM "membership_entitlements"),
-    (SELECT last_value FROM "membership_source_state_seq")
-  )
-);
+DO $$
+DECLARE
+  target         bigint;
+  lv             bigint;
+  called         boolean;
+  highest_issued bigint;
+BEGIN
+  SELECT COALESCE(MAX("source_state_as_of"), 0) INTO target FROM "membership_entitlements";
+  SELECT last_value, is_called INTO lv, called FROM "membership_source_state_seq";
+  highest_issued := CASE WHEN called THEN lv ELSE lv - 1 END;
+
+  IF highest_issued < target THEN
+    PERFORM setval('membership_source_state_seq', target);
+    RAISE NOTICE '0099: membership_source_state_seq REPAIRED — highest issued was %, advanced to % (max membership_entitlements.source_state_as_of); next token %',
+      highest_issued, target, target + 1;
+  ELSE
+    RAISE NOTICE '0099: membership_source_state_seq OK — highest issued % >= max stored %; not written',
+      highest_issued, target;
+  END IF;
+END $$;
 --> statement-breakpoint
 
-SELECT setval(
-  'membership_lease_fence_seq',
-  GREATEST(
-    (SELECT COALESCE(MAX("fence"), 0) FROM "membership_leases"),
-    (SELECT last_value FROM "membership_lease_fence_seq")
-  )
-);
+DO $$
+DECLARE
+  target         bigint;
+  lv             bigint;
+  called         boolean;
+  highest_issued bigint;
+BEGIN
+  SELECT COALESCE(MAX("fence"), 0) INTO target FROM "membership_leases";
+  SELECT last_value, is_called INTO lv, called FROM "membership_lease_fence_seq";
+  highest_issued := CASE WHEN called THEN lv ELSE lv - 1 END;
+
+  IF highest_issued < target THEN
+    PERFORM setval('membership_lease_fence_seq', target);
+    RAISE NOTICE '0099: membership_lease_fence_seq REPAIRED — highest issued was %, advanced to % (max membership_leases.fence); next fence %',
+      highest_issued, target, target + 1;
+  ELSE
+    RAISE NOTICE '0099: membership_lease_fence_seq OK — highest issued % >= max stored %; not written',
+      highest_issued, target;
+  END IF;
+END $$;

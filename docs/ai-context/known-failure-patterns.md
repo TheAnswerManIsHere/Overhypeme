@@ -1271,8 +1271,8 @@ the specific fixes named below over re-deriving them.
   the original is a no-op the tracker will never perform. Corollary for
   verification: "the migration is recorded as applied" is not evidence the
   constraint exists — query `pg_constraint` directly.
-- **Recurred 2026-08-13 with SEQUENCES — the rule is every object type `push`
-  can't see, not just constraints.** `membership_source_state_seq` and
+- **Recurred 2026-08-13 with SEQUENCES — the rule covers every object type
+  `push` DOES reconcile, not just constraints.** `membership_source_state_seq` and
   `membership_lease_fence_seq` were created by 0095's raw SQL and never
   declared in `schema/membershipEntitlements.ts`, so `push --force` dropped
   both; 16 membership-lease/grace-sweep tests then failed on
