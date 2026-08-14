@@ -594,7 +594,7 @@ re-gather it when the work is scheduled.
       (`0095`) — **already demonstrated, not hypothetical**: the PR #293
       incident this note records is precisely `push --force` dropping
       these two sequences (19 test failures). The fix is a `pgSequence()`
-      declaration, which the Rule section below already prescribes;
+      declaration, which the memory note's own Rule section prescribes;
       `membershipEntitlements.ts`'s comments describe how runtime uses
       them, not any reason a declaration can't exist.
     - `uim_fact_id_fk` (`0048`) — an ordinary cross-table FK
