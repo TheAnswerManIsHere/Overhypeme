@@ -970,6 +970,47 @@ it lives here rather than in the shared docs.
   passively. Unlike `subscribe_pr_activity`, nothing arrives here on its
   own. When I say "checking" I mean I'm about to re-issue the call in this
   same turn — not that I'll find out later without prompting.
+- **`"updating"` is not `"busy"` — re-invoking on `"updating"` doesn't poll a
+  pending request, it queues a brand-new one (David, 2026-08-14, PR
+  #434/#438 close-out).** The busy-reply rule above is specifically about
+  `phase: "busy"` (dropped, re-ask). I generalized it to any
+  non-terminal-looking phase and re-called `update_app_using_prompt` six
+  times in a row on a single git-sync check, each with a "checking again"
+  prompt, every one returning only `{replId, turnId, replUrl,
+  phase: "updating"}` — no answer text, ever. David's screenshot of the
+  Repl's own chat pane showed what actually happened: each of my "checking
+  again" calls had opened its **own** full agent turn, and Replit had
+  already answered completely (SHA, branch, clean tree) within ~10 seconds
+  of nearly every one — I just never read it, because **this tool's return
+  value does not carry the answer text at all.** Its job, per its own
+  description, is "make this change, report a one-line status plus a URL
+  back to the user" — not "return me the text of what Replit said." There
+  is no `turnId`-keyed status-check call in this connector; re-invoking
+  with a new prompt is the *only* thing the tool lets me do, and it always
+  reads as a new request to Replit, not a poll.
+  - **The fix:** call `update_app_using_prompt` once, then check back with a
+    reasonable gap instead of firing immediately again — its return value
+    never carries the answer text mid-flight, so a rapid re-check just
+    finds it still `"updating"` regardless of whether Replit has actually
+    answered. **For a live-state fact that matters (a SHA, a clean-tree
+    check, a log line, a post-merge verification) — the exact class the
+    accuracy caveat below already bans `ask_question` from serving as
+    evidence for — don't route it to `ask_question` either**; its
+    synchronous-answer property makes it the right *shape* of tool for
+    retrieving text, not the right *evidence source* for a fact that needs
+    to be true. **Close-out verification stays mine to own and report, per
+    the close-out contract below — it does not default to asking David to
+    check for me.** If a spaced-out follow-up still doesn't surface the
+    answer, that is a real connector gap, not a routine dead end: say so
+    plainly as a blocker rather than quietly substituting "ask David to
+    look" as the standing workaround. Reserve `ask_question` for
+    explanatory, non-live-state triage ("why is this failing," "what does
+    this code do") where a wrong answer is merely unhelpful, not a false
+    verification.
+  - **Never fire near-identical re-checks in a loop.** Each one is a real,
+    separately-billed agent turn on Replit's side for zero information
+    gained on mine — the six calls in the PR #434/#438 close-out cost real
+    Replit-side work and never once told me what I was asking.
 - **`ask_question` is a diagnostics/triage channel, not verification
   evidence — and it answers from understanding, not execution.** I can use
   it mid-triage to inspect Repl-side state without a full TEST_RUN
