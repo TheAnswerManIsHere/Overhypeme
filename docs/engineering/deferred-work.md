@@ -506,7 +506,12 @@ re-gather it when the work is scheduled.
     **three** confirmed occurrences across three different PRs (#242, #293,
     #425), the last of which reproduced the drop directly (two `push-force`
     runs). `pnpm --filter @workspace/db run validate-snapshots` does not
-    catch either shape; migrations are snapshot-exempt by convention.
+    catch either shape — not because migrations are exempt (every
+    snapshotless journal entry needs its own named, reasoned exemption in
+    `check-migration-snapshots.ts`, and `0099_admin_permissions_core` has
+    one), but because the validator's comparison only covers tables,
+    columns, and enums; it has no logic for indexes, constraints, or
+    sequences at all.
   - **Why deferred now.** Same reasoning as the sibling entry below for
     dangling `docs/plans/*` citations — this repo's own rule is that a
     recurring failure pattern becomes a deterministic CI guard, not a
@@ -533,9 +538,10 @@ re-gather it when the work is scheduled.
     INDEX`/`DROP CONSTRAINT`/`DROP SEQUENCE` remove it before the check
     ever runs) — only an object that's still raw-SQL-created and never
     raw-SQL-dropped needs a `schema.ts` shadow. Wire into `build.yml`'s
-    `Test` job alongside the existing `@workspace/db` checks, the same
-    general shape as `check-permission-chokepoint.mjs`'s file-scan
-    approach but requiring cross-migration state, not a single-file scan.
+    `Build` job, where `validate-snapshots` and both
+    `check-permission-chokepoint*.mjs` guards already run — the same
+    general shape as the chokepoint guards' file-scan approach but
+    requiring cross-migration state, not a single-file scan.
   - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
     time this exact mistake recurs a fourth time.
 
