@@ -14,7 +14,7 @@
 import { db } from "@workspace/db";
 import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { getConfigStringWithSource, getConfigFloatWithSource } from "./adminConfig";
+import { getConfigStringWithSource } from "./adminConfig";
 import { logger } from "./logger";
 import { effectiveTierExpr } from "./membershipState";
 import { isRealAdminRow } from "./adminIdentity";
@@ -83,6 +83,30 @@ function getPeriodStart(budgetPeriod: string): Date {
 }
 
 /**
+ * Resolve a numeric budget limit via `getConfigStringWithSource`, throwing
+ * when the read itself failed rather than silently substituting the code
+ * default. Private to this module — not a new export, per the round-3
+ * finding that `getConfigFloatWithSource` was itself a Tier C new-abstraction
+ * trigger despite mirroring an existing pattern.
+ *
+ * A non-numeric stored value degrades to `defaultValue` exactly as
+ * `getConfigFloat` always has — that is a corrupted row, not a failed read,
+ * and preserving that existing behavior is deliberate, not an omission.
+ */
+async function resolveBudgetFloat(
+  key: string,
+  defaultValue: number,
+  userId: string,
+): Promise<number> {
+  const res = await getConfigStringWithSource(key, String(defaultValue));
+  if (res.source === "fallback_default") {
+    throw new Error(`admin_config read failed while resolving ${key} for user ${userId}`);
+  }
+  const parsed = parseFloat(res.value);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
  * Check whether a user has budget remaining for a proposed generation cost.
  *
  * Fails CLOSED: throws `BudgetGateError` if the check cannot complete.
@@ -127,19 +151,21 @@ export async function checkBudget(
     // limit must come from a real read or a real intentional default — never
     // silently from the emergency code default, which could be far more
     // permissive than what the operator actually configured (#409 round 1).
-    const [budgetPeriodRes, registeredLimitRes, legendaryLimitRes] = await Promise.all([
+    // `resolveBudgetFloat` reuses the existing `getConfigStringWithSource`
+    // rather than adding a float-typed sibling export — a new abstraction is
+    // a Tier C trigger regardless of how closely it mirrors an existing one
+    // (#409 round 3, the same class of finding as `gateGeneration`).
+    const [budgetPeriodRes, registeredLimit, legendaryLimit] = await Promise.all([
       getConfigStringWithSource("budget_period", "monthly"),
-      getConfigFloatWithSource("budget_limit_registered_usd", 0.50),
-      getConfigFloatWithSource("budget_limit_legendary_usd", 10.00),
+      resolveBudgetFloat("budget_limit_registered_usd", 0.50, userId),
+      resolveBudgetFloat("budget_limit_legendary_usd", 10.00, userId),
     ]);
-    for (const res of [budgetPeriodRes, registeredLimitRes, legendaryLimitRes]) {
-      if (res.source === "fallback_default") {
-        throw new Error(`admin_config read failed while resolving budget limits for user ${userId}`);
-      }
+    if (budgetPeriodRes.source === "fallback_default") {
+      throw new Error(`admin_config read failed while resolving budget_period for user ${userId}`);
     }
     const budgetPeriod = budgetPeriodRes.value;
-    const registeredLimitStr = registeredLimitRes.value;
-    const legendaryLimitStr = legendaryLimitRes.value;
+    const registeredLimitStr = registeredLimit;
+    const legendaryLimitStr = legendaryLimit;
 
     const globalLimit = tier === "legendary" ? legendaryLimitStr : registeredLimitStr;
     const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null

@@ -1307,6 +1307,16 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
   if (!gate.ok) return;
   const governanceStartedAt = Date.now();
   let governanceFailed = false;
+  // A budget-gate refusal (429/503, both below) is a pre-provider refusal —
+  // fal was never called. `completeGovernance`'s circuit breaker attributes
+  // any non-2xx response here to the fal provider, so without this flag three
+  // budget-gate refusals in a row (a database hiccup, not a fal outage) would
+  // open the circuit and reject unrelated users' real fal calls for 60s
+  // (#409 round 3). Scoped to the budget branches specifically — moderation/
+  // no-face/generic failures below DO originate from an actual fal call and
+  // are correctly attributed as-is; widening this further is a pre-existing,
+  // separate concern outside #409's scope.
+  let budgetGateRefusal = false;
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
@@ -1466,6 +1476,7 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
       });
     } catch (err) {
       if (err instanceof BudgetExceededError) {
+        budgetGateRefusal = true;
         res.status(429).json({
           error: "BUDGET_EXCEEDED",
           currentSpend: err.budgetStatus.currentSpend,
@@ -1475,6 +1486,7 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
         });
       } else if (err instanceof BudgetGateError) {
         // Retry-able: the gate could not answer, so this is not a 429 (#409).
+        budgetGateRefusal = true;
         res.status(503).json({ error: err.message });
       } else if (err instanceof ModerationRejectedError) {
         res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
@@ -1561,7 +1573,9 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
     completeGovernance(req, {
       provider: "fal",
       latencyMs: Date.now() - governanceStartedAt,
-      failed: governanceFailed || res.statusCode >= 400,
+      // Excludes a budget-gate refusal from the fal-provider failure count
+      // (#409 round 3) — see the flag's own comment above for why.
+      failed: !budgetGateRefusal && (governanceFailed || res.statusCode >= 400),
       actualCostUsd: !governanceFailed && res.statusCode < 400 ? estimatedCostUsd : 0,
       responseStatus: res.statusCode,
       idempotencyKey: gate.idempotencyKey,

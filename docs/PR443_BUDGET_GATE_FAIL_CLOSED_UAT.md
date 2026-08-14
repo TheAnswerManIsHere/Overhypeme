@@ -31,6 +31,12 @@ difference — which is most of what this UAT is checking.
   limit. **Note the starting values before you change them, and put them back
   when you're done** — these are the real limits.
 - The key involved is `budget_limit_legendary_usd`.
+- **For sections 2 and 3, generate using a reference photo, not the standard
+  no-reference "AI meme image" flow.** The standard flow doesn't go through
+  the budget gate at all — a separate, pre-existing gap this PR didn't touch
+  (found while building this UAT, tracked separately) — so it won't respond
+  to the tiny limit you set below, and section 1 already covers it for the
+  "nothing regressed" check.
 
 ## The main event
 
@@ -62,7 +68,7 @@ be worse than the bug being fixed.
 - As **admin**, go to **Admin → Config**. Note the current value of
   `budget_limit_legendary_usd`, then set it to something tiny — `0.01`.
 - In another browser/incognito, as your **Legendary** account, try to generate
-  an AI meme image.
+  an AI meme image **using a reference photo**.
   - ✅ You're refused, and the message is about **being over budget** — the
     usual out-of-budget wording, pointing you at upgrading.
   - ✅ It is *not* a "try again" message, and *not* a generic server error.
@@ -77,7 +83,7 @@ Admins bypass the spend ceiling deliberately. Worth one pass to confirm the fix
 didn't catch them in it.
 
 - With `budget_limit_legendary_usd` still set low (or set it low again), log
-  in as **admin** and generate an AI meme image.
+  in as **admin** and generate an AI meme image **using a reference photo**.
   - ✅ It generates. Admins are exempt from budget limits, and still are.
 - **Put the limit back** when you're done.
 
@@ -100,6 +106,12 @@ What *you're* checking in sections 1–3 is the part automated tests can't fully
 speak for: that the ordinary paid paths still behave normally for real users,
 and that the two different refusals say the right thing to the person reading
 them.
+
+**Also not in this UAT: the standard no-reference "AI meme image" path never
+had a budget gate to fail closed.** Found while writing this doc, not by this
+PR's original scope — it's a separate gap (a live, unlimited-spend path), not
+another instance of the fail-open bug this PR fixes, so fixing it belongs to
+its own issue rather than growing this one.
 
 ## If something fails
 
