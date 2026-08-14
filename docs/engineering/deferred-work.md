@@ -545,11 +545,27 @@ re-gather it when the work is scheduled.
     `DROP TABLE`/dropped-column removals before checking what's left, not
     just the object-specific DROP statements. Only an object that's still
     raw-SQL-created, on a table that still exists, and never explicitly or
-    implicitly dropped needs a `schema.ts` shadow. Wire into `build.yml`'s
+    implicitly dropped needs a `schema.ts` shadow. **Terminal-state
+    tracking alone still isn't enough**: three objects already exist on
+    `main` today, live and un-dropped, that are deliberately never
+    shadowed — `0081`'s three partial indexes (`IDX_facts_eval_golden`,
+    `IDX_ipa_eval_run_fact_created`, `IDX_ipa_eval_fact_run_created`;
+    `facts.ts`/`imagePromptAttempts.ts` each carry a comment explaining
+    that the pinned `drizzle-kit`'s partial-index handling is brittle) and
+    `0095`'s two sequences (`membership_source_state_seq`,
+    `membership_lease_fence_seq`; referenced in prose comments in
+    `membershipEntitlements.ts` but never declared as a `pgSequence`). A
+    guard with no way to exempt a known, reasoned case would fail Build
+    against the tree as it stands today, before it ever caught a new
+    drift. It needs its own named `ALLOWLIST`, the identical shape
+    `check-permission-chokepoint.mjs` already uses — each entry names the
+    object, the migration, and why it's permanently unshadowed — seeded
+    with these five before the guard ever goes live, not discovered by a
+    red Build run. Wire into `build.yml`'s
     `Build` job, where `validate-snapshots` and both
     `check-permission-chokepoint*.mjs` guards already run — the same
-    general shape as the chokepoint guards' file-scan approach but
-    requiring cross-migration state, not a single-file scan.
+    general shape as the chokepoint guards' file-scan-plus-allowlist
+    approach but requiring cross-migration state, not a single-file scan.
   - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
     time this exact mistake recurs a fourth time.
 
