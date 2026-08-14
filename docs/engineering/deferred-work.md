@@ -546,26 +546,74 @@ re-gather it when the work is scheduled.
     just the object-specific DROP statements. Only an object that's still
     raw-SQL-created, on a table that still exists, and never explicitly or
     implicitly dropped needs a `schema.ts` shadow. **Terminal-state
-    tracking alone still isn't enough**: three objects already exist on
+    tracking alone still isn't enough**: several objects already exist on
     `main` today, live and un-dropped, that are deliberately never
-    shadowed — `0081`'s three partial indexes (`IDX_facts_eval_golden`,
-    `IDX_ipa_eval_run_fact_created`, `IDX_ipa_eval_fact_run_created`;
-    `facts.ts`/`imagePromptAttempts.ts` each carry a comment explaining
-    that the pinned `drizzle-kit`'s partial-index handling is brittle) and
-    `0095`'s two sequences (`membership_source_state_seq`,
-    `membership_lease_fence_seq`; referenced in prose comments in
-    `membershipEntitlements.ts` but never declared as a `pgSequence`). A
-    guard with no way to exempt a known, reasoned case would fail Build
-    against the tree as it stands today, before it ever caught a new
-    drift. It needs its own named `ALLOWLIST`, the identical shape
+    shadowed. A guard with no way to exempt a known, reasoned case would
+    fail Build against the tree as it stands today, before it ever caught
+    a new drift. It needs its own named `ALLOWLIST`, the identical shape
     `check-permission-chokepoint.mjs` already uses — each entry names the
-    object, the migration, and why it's permanently unshadowed — seeded
-    with these five before the guard ever goes live, not discovered by a
-    red Build run. Wire into `build.yml`'s
-    `Build` job, where `validate-snapshots` and both
-    `check-permission-chokepoint*.mjs` guards already run — the same
-    general shape as the chokepoint guards' file-scan-plus-allowlist
-    approach but requiring cross-migration state, not a single-file scan.
+    object, the migration, and why it's permanently unshadowed.
+
+    An exhaustive terminal-state pass over the full migration history
+    (every `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE`, reduced by
+    every `DROP INDEX`/`DROP CONSTRAINT`/`DROP TABLE`, cross-checked
+    against every `index()`/`uniqueIndex()`/`check()`/`pgSequence()`/
+    `.references()` declaration in `lib/db/src/schema/*.ts` — done for
+    this entry, not just reasoned about) found **ten** objects with an
+    explicit, comment-documented reason they're permanently unshadowed —
+    the complete seed set, not the five or eight found in earlier rounds
+    of this same review:
+    - **Six partial indexes**, all exempt for the same reason (the pinned
+      `drizzle-kit`'s partial-index handling is brittle, per comments in
+      `facts.ts`/`imagePromptAttempts.ts`): `IDX_facts_eval_golden`
+      (`0081`), `IDX_ipa_eval_run_fact_created` and
+      `IDX_ipa_eval_fact_run_created` (`0081`), and `IDX_ipa_request_id`,
+      `IDX_ipa_render_job_id` (`0065`), and `IDX_ipa_review_only` (`0076`)
+      — all six documented together in `imagePromptAttempts.ts:130-135`'s
+      comment block, plus `facts.ts:159-160`'s.
+    - **Two sequences** (`0095`): `membership_source_state_seq`,
+      `membership_lease_fence_seq` — referenced in prose comments in
+      `membershipEntitlements.ts` but never declared as a `pgSequence`.
+    - **Two self-referential foreign keys** (`0048`): `uim_fact_id_fk`,
+      `uim_source_object_path_fk` on `upload_image_metadata` —
+      `memes.ts`'s (actually `uploadImageMetadataTable`'s) own trailing
+      comment records that Drizzle's TS-side self-FK helper is brittle and
+      isn't required for runtime queries, so both stay migration-only by
+      design.
+
+    **The same pass also found seven objects with no shadow and no
+    documented reason — real, live schema-shadow gaps today, not
+    allowlist candidates:** `memes_status_check`, `quarantined_memes_
+    source_check`, `ncmec_reports_match_source_check` (all three from
+    `0043`, superseded in intent by newer `content_origin`/`submission_
+    status` checks that *are* shadowed, but never themselves dropped or
+    renamed — still live, still enforced, still invisible to `push`),
+    `idx_memes_created_by_id_created_at` (`0051`), `facts_has_overrides_
+    idx` (`0071`), `affiliate_clicks_source_idx` (`0034`), and
+    `UQ_uim_user_is_profile` (`0055`). (`stripe_checkout_request_ledger_
+    request_key_unique` from `0045` looked like an eighth at first grep,
+    but `0045`'s own migration comment explains it renames a Postgres-
+    auto-named constraint to match Drizzle's exact `table_column_unique`
+    convention — `.unique()` on `memberships.ts`'s `requestKey` column
+    generates that identical name, so it *is* shadowed.) These seven are
+    real, reproducible exposure under the same mechanism as this note's
+    three confirmed incidents — not hypothetical — and they predate this
+    entry; fixing them (either declare the missing `check()`/`index()`
+    shadow, or add a reasoned comment same as the ten above) is separate
+    work from writing the guard, and has to land **before** the guard
+    can go green, or the guard's first Build run fails on seven
+    pre-existing objects it didn't cause. Whoever picks up the guard
+    should budget for that cleanup pass first, or explicitly allowlist
+    these seven too with "known gap, not yet fixed" as the stated reason
+    — either way, the guard's initial `ALLOWLIST` must account for all
+    seventeen objects (ten reasoned + seven gaps), not silently break on
+    the seven no one's looked at yet.
+
+    Wire the guard into `build.yml`'s `Build` job, where
+    `validate-snapshots` and both `check-permission-chokepoint*.mjs`
+    guards already run — the same general shape as the chokepoint guards'
+    file-scan-plus-allowlist approach but requiring cross-migration state,
+    not a single-file scan.
   - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
     time this exact mistake recurs a fourth time.
 
