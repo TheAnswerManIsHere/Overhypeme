@@ -33,10 +33,10 @@ section so the team can see at a glance whether anything's waiting.
 
 An admin can also switch into "view as user" mode to see the product the
 way an ordinary member does — the console stays reachable underneath, and
-a control on the account menu and the profile page (labeled Resume Admin
-while previewing) switches back. Access to the console itself never
-depends on this toggle either way: it's a preview of what a regular
-account sees, not a separate permission level.
+a control on the profile page (labeled Resume Admin while previewing)
+switches back. Access to the console itself never depends on this toggle
+either way: it's a preview of what a regular account sees, not a separate
+permission level.
 
 ### Reviewing content
 

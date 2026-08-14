@@ -32,8 +32,8 @@ Git's binary heuristic triggers on a NUL byte specifically, not on control
 characters in general, so this is not a reason to avoid real multi-line
 strings. If a file unexpectedly shows as binary in `git diff` or `grep`,
 check for embedded NUL bytes before assuming corruption:
-`python3 -c "print(open(path,'rb').read().count(b'\x00'))"` finds them
-directly; the fix is a plain text search-and-replace of the raw byte with
+`python3 -c "import sys; print(open(sys.argv[1],'rb').read().count(b'\x00'))" path/to/file.ts`
+finds them directly; the fix is a plain text search-and-replace of the raw byte with
 its escaped form, which produces byte-for-byte-different-but-semantically-
 identical output and needs no runtime behavior verification beyond a
 regression test confirming the delimited value still round-trips.

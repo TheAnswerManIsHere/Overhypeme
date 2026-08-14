@@ -26,9 +26,11 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 - **Plan 1a — one resolver, one client contract, no admin lockout** (PR #425,
   workstream #405, merged 2026-08-14, from the plan reviewed on PR #421).
-  Every product-feature permission check now resolves through one function
-  (`featureAccess.ts`'s `can(principal, key)`), reading the Feature
-  Permission Grid and nothing else — a CI guard
+  Nearly every product-feature permission check now resolves through one
+  function (`featureAccess.ts`'s `can(principal, key)`), reading the
+  Feature Permission Grid — one documented exception remains (an
+  admin-only engine catalogue filter), tracked to close in a later phase
+  — and a CI guard
   (`scripts/check-permission-chokepoint.mjs` + its frontend sibling) fails
   the build on the *habitual* forms of a new inline `tier`/`role`
   comparison outside it (a tripwire, not a proof against a deliberately
