@@ -970,6 +970,40 @@ it lives here rather than in the shared docs.
   passively. Unlike `subscribe_pr_activity`, nothing arrives here on its
   own. When I say "checking" I mean I'm about to re-issue the call in this
   same turn — not that I'll find out later without prompting.
+- **`"updating"` is not `"busy"` — re-invoking on `"updating"` doesn't poll a
+  pending request, it queues a brand-new one (David, 2026-08-14, PR
+  #434/#438 close-out).** The busy-reply rule above is specifically about
+  `phase: "busy"` (dropped, re-ask). I generalized it to any
+  non-terminal-looking phase and re-called `update_app_using_prompt` six
+  times in a row on a single git-sync check, each with a "checking again"
+  prompt, every one returning only `{replId, turnId, replUrl,
+  phase: "updating"}` — no answer text, ever. David's screenshot of the
+  Repl's own chat pane showed what actually happened: each of my "checking
+  again" calls had opened its **own** full agent turn, and Replit had
+  already answered completely (SHA, branch, clean tree) within ~10 seconds
+  of nearly every one — I just never read it, because **this tool's return
+  value does not carry the answer text at all.** Its job, per its own
+  description, is "make this change, report a one-line status plus a URL
+  back to the user" — not "return me the text of what Replit said." There
+  is no `turnId`-keyed status-check call in this connector; re-invoking
+  with a new prompt is the *only* thing the tool lets me do, and it always
+  reads as a new request to Replit, not a poll.
+  - **The fix:** call `update_app_using_prompt` once per actual request. If
+    what I need back is the *text* of an answer (a SHA, a log line, a yes/no
+    fact), that is not retrievable through this tool's return value —
+    that's not a patience problem, no amount of re-polling fixes it. Use
+    `ask_question` instead for anything where I genuinely need response
+    text (it's built as synchronous Q&A, and the "busy" rule still applies
+    there the normal way) — verify anything it claims about live state that
+    matters, per the accuracy caveat below. For a one-off human-checkable
+    fact like a post-merge git-sync (SHA + clean tree), the fastest
+    reliable path is often just asking David to glance at the Repl's Git
+    pane, which shows exactly this at a glance — cheaper for both of us
+    than a blind round-trip I can't read the result of.
+  - **Never fire near-identical re-checks in a loop.** Each one is a real,
+    separately-billed agent turn on Replit's side for zero information
+    gained on mine — the six calls in the PR #434/#438 close-out cost real
+    Replit-side work and never once told me what I was asking.
 - **`ask_question` is a diagnostics/triage channel, not verification
   evidence — and it answers from understanding, not execution.** I can use
   it mid-triage to inspect Repl-side state without a full TEST_RUN
