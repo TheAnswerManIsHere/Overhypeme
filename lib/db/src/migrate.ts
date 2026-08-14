@@ -133,11 +133,24 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
   };
   client.on("notice", onNotice);
 
-  console.log(`[migrate] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`);
-  await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
-  console.log("[migrate] Advisory lock acquired.");
-
+  // The lock acquisition is INSIDE the try, so the finally that detaches the
+  // listener runs even when acquiring fails. pg_advisory_lock blocks rather
+  // than throwing under normal contention, but a cancelled lock wait, a
+  // statement/lock timeout, or an admin cancel all reject while leaving the
+  // connection perfectly usable — and runMigrations() would then release that
+  // still-listening client back to the shared pool, where it would keep
+  // printing "[migrate]" lines for unrelated application queries.
+  //
+  // `lockAcquired` is what makes widening the try safe: the unlock below must
+  // not run when the lock was never taken, or a failed acquisition would be
+  // followed by an unlock that reports failure and misdescribes what happened.
+  let lockAcquired = false;
   try {
+    console.log(`[migrate] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`);
+    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    lockAcquired = true;
+    console.log("[migrate] Advisory lock acquired.");
+
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${trackingSchema}"`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS "${trackingSchema}".__drizzle_migrations (
@@ -254,13 +267,19 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
     // Always release the advisory lock, even if migration failed. Failing to
     // release would hold the lock until this connection is closed (it is a
     // session-level lock), which would block future migration runs on pooled
-    // connections.
-    try {
-      await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
-      console.log("[migrate] Advisory lock released.");
-    } catch (unlockErr) {
-      console.warn(`[migrate] Warning: failed to release advisory lock: ${unlockErr}`);
+    // connections. Guarded on lockAcquired: if acquisition itself threw, there
+    // is nothing to release and attempting it would only log a spurious
+    // failure over the real error.
+    if (lockAcquired) {
+      try {
+        await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
+        console.log("[migrate] Advisory lock released.");
+      } catch (unlockErr) {
+        console.warn(`[migrate] Warning: failed to release advisory lock: ${unlockErr}`);
+      }
     }
+    // Unconditional: the client is pooled and reused for ordinary application
+    // queries, so this must come off on every exit path, lock or no lock.
     client.off("notice", onNotice);
   }
 }
