@@ -955,21 +955,27 @@ This is my tool (like subagent dispatch above), not something Codex uses, so
 it lives here rather than in the shared docs.
 
 - **What it enables:** `list_apps` / `search_apps` / `resolve_app_by_name`
-  (read-only lookup of our Repls), `ask_question` (read-only natural-language
-  Q&A against a Repl's code or live behavior, answered by Replit Agent),
-  `update_app_using_prompt` (writes code directly into a Repl from a prose
-  prompt), `publish_app` / `get_publish_status` (deploys the Repl's current
-  workspace snapshot to production), and `create_app_from_prompt` (spins up
-  new Repls — not relevant to Overhype.me work).
-- **There is no push/notification channel — every call is a one-shot poll,
-  and a "busy" reply means the question was NOT queued.** Both `ask_question`
-  and `update_app_using_prompt` can return `phase: "busy"` while Replit
-  Agent is still working an earlier request; the tool's own response says
-  plainly that a busy reply is dropped, not remembered, so I have to
-  explicitly re-ask the same question again once it clears, not just wait
-  passively. Unlike `subscribe_pr_activity`, nothing arrives here on its
-  own. When I say "checking" I mean I'm about to re-issue the call in this
-  same turn — not that I'll find out later without prompting.
+  (read-only lookup of our Repls), **`ask_question` (the read channel —
+  natural-language Q&A against a Repl's code or live behavior, answered by
+  Replit Agent, and the *only* call that returns that answer to me)**,
+  **`update_app_using_prompt` (the write/act channel — applies a change or
+  runs an action in the Repl from a prose prompt, and returns only a status
+  acknowledgement, never the result)**, `publish_app` /
+  `get_publish_status` (deploys the Repl's current workspace snapshot to
+  production), and `create_app_from_prompt` (spins up new Repls — not
+  relevant to Overhype.me work).
+- **Nothing arrives on its own, and a `"busy"` reply means the request was
+  NOT queued.** Unlike `subscribe_pr_activity`, this connector never wakes
+  me — there is no push/notification channel. Both `ask_question` and
+  `update_app_using_prompt` can return `phase: "busy"` while Replit Agent
+  is still working an earlier request; the tool's own response says plainly
+  that a busy reply is dropped, not remembered, so I re-issue that request
+  once it clears rather than waiting passively. **`"busy"` is the only
+  phase that means "re-ask"** — see the `"updating"` rule directly below,
+  which is a different case entirely and cost me six wasted calls when I
+  conflated the two. And note this bullet describes *delivery*, not
+  *latency*: `ask_question` answers synchronously in its own return value,
+  so a read is one call, not a poll.
 - **`"updating"` is not `"busy"` — re-invoking on `"updating"` doesn't poll a
   pending request, it queues a brand-new one (David, 2026-08-14, PR
   #434/#438 close-out).** The busy-reply rule above is specifically about
@@ -988,56 +994,87 @@ it lives here rather than in the shared docs.
   is no `turnId`-keyed status-check call in this connector; re-invoking
   with a new prompt is the *only* thing the tool lets me do, and it always
   reads as a new request to Replit, not a poll.
-  - **The fix:** call `update_app_using_prompt` once, then check back with a
-    reasonable gap instead of firing immediately again — its return value
-    never carries the answer text mid-flight, so a rapid re-check just
-    finds it still `"updating"` regardless of whether Replit has actually
-    answered. **For a live-state fact that matters (a SHA, a clean-tree
-    check, a log line, a post-merge verification) — the exact class the
-    accuracy caveat below already bans `ask_question` from serving as
-    evidence for — don't route it to `ask_question` either**; its
-    synchronous-answer property makes it the right *shape* of tool for
-    retrieving text, not the right *evidence source* for a fact that needs
-    to be true. **Close-out verification stays mine to own and report, per
-    the close-out contract below — it does not default to asking David to
-    check for me.** If a spaced-out follow-up still doesn't surface the
-    answer, that is a real connector gap, not a routine dead end: say so
-    plainly as a blocker rather than quietly substituting "ask David to
-    look" as the standing workaround. Reserve `ask_question` for
-    explanatory, non-live-state triage ("why is this failing," "what does
-    this code do") where a wrong answer is merely unhelpful, not a false
-    verification.
+  - **The fix — `ask_question` is the read channel, and it works
+    (empirically verified 2026-08-14, after David pushed back a second
+    time).** The two tools have different **return shapes**, and that is
+    the entire answer:
+    - `update_app_using_prompt` → `{replId, turnId, replUrl,
+      phase: "updating"}`. Fire-and-forget. Carries no answer text at any
+      point, however long I wait. Right for **doing** something —
+      including triggering a sync.
+    - `ask_question` → `{replId, phase: "paused", response: "<the full
+      text>"}`. **Synchronous: the answer is in the same call's return
+      value.** Right for **reading** anything.
+
+    So a post-merge SHA + clean-tree check is one `ask_question` call and
+    the answer is there in seconds. **Close-out verification stays mine to
+    own and report** (per the close-out contract above) — I now have a
+    channel that actually delivers it, so "ask David to check the Git
+    pane" is not the fallback and never was the right shape of answer.
+  - **This *narrows* the accuracy caveat below; it does not contradict
+    it.** That caveat exists because `ask_question` once invented a
+    Git-pane "auto-sync toggle" in fluent detail — but that was a question
+    about **how a feature works**, which the agent answered from its own
+    understanding. Ask it instead to **run specific commands and report
+    their output**, and it does exactly that, echoing each command with
+    its raw result (`git rev-parse HEAD` → the SHA; `git status` → the
+    literal status text). That is executed evidence, not a summary, and
+    it's precisely what the close-out contract's SHA/clean-tree check
+    needs. **The line is the shape of the question, not the tool:** "run X
+    and show me the output" is evidence; "does feature Y exist / how does
+    Z work" is understanding, and still needs corroboration before I write
+    it down as fact.
   - **Never fire near-identical re-checks in a loop.** Each one is a real,
     separately-billed agent turn on Replit's side for zero information
     gained on mine — the six calls in the PR #434/#438 close-out cost real
-    Replit-side work and never once told me what I was asking.
-- **`ask_question` is a diagnostics/triage channel, not verification
-  evidence — and it answers from understanding, not execution.** I can use
-  it mid-triage to inspect Repl-side state without a full TEST_RUN
-  round-trip through David. But its answer is an AI agent's natural-language
-  summary, not deterministic command output — it never substitutes for the
-  TEST_RUN doc where the evidence itself is the point (a post-merge
-  live-environment check, a bugfix regression check). **Worse than
-  imprecise, it can be confidently wrong:** on 2026-08-11 it described an
-  opt-in "two-way auto-sync" Git-pane toggle that does not exist, in fluent
-  detail, and I wrote it into the docs before David caught it. So for any
-  question whose answer is a *fact about live state* — what commit is
-  checked out, is this env var set, what's in the log — prefer a scoped
-  execute-and-report through `update_app_using_prompt` (below), which
-  actually runs the command. `ask_question` is the lighter reach for
-  "explain how this works," not the more reliable one for "what is true
-  right now."
+    Replit-side work and never once told me what I was asking. If I catch
+    myself polling for text, I'm on the wrong tool: switch to
+    `ask_question` rather than waiting longer.
+- **`ask_question` is the connector's read channel — and how much I can
+  trust an answer depends on how I asked, not on the tool (corrected
+  2026-08-14; the original 2026-08-11 version of this bullet got the
+  routing backwards).** It's the only call that returns Replit's answer
+  text synchronously, so every read goes here.
+  - **Ask it to run named commands and report their output**, and it
+    executes them and echoes the raw result. That is deterministic
+    command output, quotable as evidence — good enough for a post-merge
+    SHA/clean-tree check, a log line, an env-var check.
+  - **Ask it how something works, or whether some feature exists**, and it
+    answers from its own understanding — and it can be **confidently
+    wrong**: on 2026-08-11 it described an opt-in "two-way auto-sync"
+    Git-pane toggle that does not exist, in fluent detail, and I wrote it
+    into the docs before David caught it. Corroborate before recording any
+    such answer as fact.
+  - It still doesn't replace a **TEST_RUN doc** where the point is that
+    *Replit* ran the checklist and reported back (a full regression pass,
+    a multi-step operational procedure) — that's a different artifact with
+    a different audience, not a weaker version of this call.
+  - **What it is NOT:** a reason to reach for `update_app_using_prompt`
+    to read something. The original version of this bullet told me to
+    prefer a "scoped execute-and-report through `update_app_using_prompt`"
+    for live-state facts — that advice is void: that tool never returns
+    the report (see the return-shape table above), which is exactly the
+    dead end it sent me into twice.
 - **`update_app_using_prompt` is governed by the *class of request*, not
   banned as a tool (David, 2026-08-11 — replacing the blanket ban I wrote
-  hours earlier).** It is the connector's **only** mutating channel:
-  every action in the Replit environment — git commands, log reads,
-  environment checks, file edits — goes through this one call. Banning the
-  tool bans the environment, which is the opposite of what it's for.
-  - **Allowed, and genuinely valuable — ops, diagnostics, debugging.** Ask
-    it to run git commands and report back, read server logs, check
-    environment/config state, or investigate why something is failing
-    live. This answers questions about the *running* system that no diff
-    can, and it's the reason to have the connector at all.
+  hours earlier).** It is the connector's **only** mutating channel: every
+  action that *changes* something in the Replit environment — triggering a
+  git sync, restarting a process, applying an operational change, editing
+  a file — goes through this one call. Banning the tool bans the
+  environment, which is the opposite of what it's for. **Reads are not in
+  this list** (corrected 2026-08-14): a log read, an environment check, a
+  SHA or `git status` check returns its answer only through
+  `ask_question` — routing a read here is the dead end described above.
+  The rule below governs *what may be changed*; it never governs what may
+  be looked at.
+  - **Allowed, and genuinely valuable — ops, diagnostics, debugging.**
+    Triggering a git sync, restarting something, applying an operational
+    change, investigating a live failure: this is what reaches the
+    *running* system in a way no diff can, and it's the reason to have the
+    connector at all. **But it acts; it does not answer** — the result of
+    anything it did comes back through `ask_question`, never through this
+    call's own return value (see the return-shape table above). A request
+    phrased "run X and report back" gets the run, never the report.
   - **Allowed with care — file edits in service of debugging, or the
     Repl's own internal configuration.** Not off-limits. If a debugging
     thread needs a file touched, or the Repl's own setup needs adjusting

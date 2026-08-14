@@ -104,10 +104,19 @@
 
 ### 2026-08-11 · The Replit connector's mutating tool is governed by request class, not banned outright
 - **Decision:** `update_app_using_prompt` (the Replit MCP connector's only
-  mutating channel — every action in the Repl, from a `git log` to a file
-  edit, goes through it) is allowed for ops/diagnostics/debugging and for
-  file edits in service of debugging or the Repl's own configuration; it is
-  never used to build product features. The dividing line is **whose work
+  mutating channel — every action that *changes* something in the Repl, from
+  triggering a git sync to a file edit, goes through it) is allowed for
+  ops/diagnostics/debugging and for file edits in service of debugging or
+  the Repl's own configuration; it is never used to build product features.
+  **Factual correction, 2026-08-14 — the decision is unchanged, but this
+  clause originally read "every action in the Repl, from a `git log` to a
+  file edit," which mis-stated the tool's mechanics.** A `git log` is a
+  *read*, and `update_app_using_prompt` never returns answer text — reads
+  go through `ask_question`, the connector's synchronous read channel. See
+  [`replit-environment.md`](./replit-environment.md#githubrepl-sync-and-publish-shared-fact-not-tool-specific)
+  and `CLAUDE.md`'s connector policy for the return-shape split and the
+  command-output-vs-understanding distinction that governs how far an
+  `ask_question` answer can be trusted. The dividing line is **whose work
   dodges review**, not whether a file changed on disk — Replit Agent's own
   direct pushes to `main` are a separate, already-sanctioned path because
   Replit brings its own judgment and live verification to that act.

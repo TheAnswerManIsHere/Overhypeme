@@ -242,17 +242,29 @@ Both halves are load-bearing, and neither is sufficient alone:
 Check only one and the other becomes the hole. Check the branch name alone
 and both are.
 
-*(Source and a live lesson in the caveat below: an initial `ask_question`
-pass against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
+*(Source, and a live lesson in how to ask: an initial `ask_question` pass
+against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
 auto-sync" toggle that does not actually exist — Replit Agent's own account
 of Replit's behavior was wrong. A follow-up diagnostic, explicitly
 instructed not to touch any code and to `git fetch`/inspect the Git pane,
 corrected it: no auto-sync toggle is visible, only explicit Pull/Push/Sync
 Changes controls, so manual sync is mandatory, not merely the safe default
-when auto-sync is off. This is exactly why `ask_question` output is
-diagnostics, not verification evidence — the first answer was fluent,
-specific, and false. Confirm against Replit's own product docs if this ever
-needs to be authoritative rather than a working assumption.)*
+when auto-sync is off.*
+
+***The two passes differ in the shape of the question, and that — not the
+tool — is what decides how far an answer can be trusted** (clarified
+2026-08-14). The failing pass asked how a feature works and got an answer
+composed from the agent's understanding: fluent, specific, and false. The
+correcting pass named the commands to run and asked for their output, and
+came back grounded in what actually executed. A `ask_question` answer that
+quotes the command it ran and that command's raw output (`git rev-parse
+HEAD` → the SHA, `git status` → the literal text) is deterministic
+evidence and can be recorded as fact; an answer describing how something
+behaves is a working assumption until corroborated — against Replit's own
+product docs, if it needs to be authoritative. This distinction is why
+`ask_question` is the connector's read channel for live state rather than
+something to route around: the mutating call
+(`update_app_using_prompt`) never returns answer text at all.)*
 
 ## Dev and production are two separate databases
 
