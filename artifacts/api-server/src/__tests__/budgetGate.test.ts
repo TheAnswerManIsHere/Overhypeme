@@ -22,10 +22,17 @@ import {
   usersTable,
   adminConfigTable,
   userGenerationCostsTable,
+  falPricingCacheTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 
-import { checkBudget, recordCost } from "../lib/budgetGate.js";
+import {
+  BudgetExceededError,
+  BudgetGateError,
+  checkBudget,
+  gateGeneration,
+  recordCost,
+} from "../lib/budgetGate.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
 
@@ -407,5 +414,184 @@ describe("recordCost", () => {
     const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, false);
     assert.equal(Math.round(status.currentSpend * 100) / 100, 0.45);
+  });
+});
+
+// ── #409: the gate fails CLOSED ───────────────────────────────────────────────
+//
+// `checkBudget` used to return `{ allowed: true, limit: Infinity }` from its
+// own catch, so any internal error lifted the spend ceiling entirely. These
+// tests pin the corrected behaviour AND the property that made the original
+// bug survivable by its own fix: every caller wrapped the pricing lookup and
+// the gate call in one `try`, so a newly-throwing `checkBudget` would have
+// been swallowed by the handler that already swallowed pricing failures.
+
+/** Endpoint id used by the gate tests; priced directly so no network is hit. */
+const GATE_TEST_ENDPOINT = "fal-ai/test/budgetGate-409";
+
+/** Seed a fresh price so `getCachedPrice` resolves from cache, never the API. */
+async function seedFreshPrice(): Promise<void> {
+  await db
+    .insert(falPricingCacheTable)
+    .values({
+      endpointId: GATE_TEST_ENDPOINT,
+      unitPrice: "0.010000",
+      unit: "image",
+      fetchedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: falPricingCacheTable.endpointId,
+      set: { unitPrice: "0.010000", unit: "image", fetchedAt: new Date() },
+    });
+}
+
+async function deleteSeededPrice(): Promise<void> {
+  await db
+    .delete(falPricingCacheTable)
+    .where(eq(falPricingCacheTable.endpointId, GATE_TEST_ENDPOINT));
+}
+
+/**
+ * Run `fn` while the spend-ledger table is renamed out from under the gate, so
+ * its ledger query raises a real "relation does not exist" error — the closest
+ * faithful stand-in for the transient database failure this bug is about.
+ *
+ * Safe under the sharded runner: each shard owns its own database and runs its
+ * files serially (`--test-concurrency=1 --test-isolation=none`), and the
+ * rename is always reversed in `finally`.
+ */
+async function withBrokenLedgerTable<T>(fn: () => Promise<T>): Promise<T> {
+  await db.execute(sql`ALTER TABLE user_generation_costs RENAME TO user_generation_costs_409tmp`);
+  try {
+    return await fn();
+  } finally {
+    await db.execute(sql`ALTER TABLE user_generation_costs_409tmp RENAME TO user_generation_costs`);
+  }
+}
+
+describe("checkBudget — fails closed on internal error (#409)", () => {
+  it("throws BudgetGateError instead of granting unlimited spend", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    await withBrokenLedgerTable(async () => {
+      await assert.rejects(
+        () => checkBudget(userId, 0.01),
+        (err: unknown) => {
+          assert.ok(
+            err instanceof BudgetGateError,
+            `expected BudgetGateError, got ${String(err)}`,
+          );
+          return true;
+        },
+      );
+    });
+  });
+
+  it("does not resolve to an allowed status when the lookup fails", async () => {
+    // The precise shape of the old bug: a resolved value whose `allowed` was
+    // true and whose `limit` was Infinity. Asserting on rejection alone would
+    // still pass if some future change reintroduced a permissive fallback, so
+    // this pins that no allowed status is produced at all.
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    await withBrokenLedgerTable(async () => {
+      const outcome = await checkBudget(userId, 0.01).then(
+        (status) => ({ resolved: true as const, status }),
+        () => ({ resolved: false as const }),
+      );
+      assert.equal(outcome.resolved, false, "checkBudget must not resolve when it cannot determine spend");
+    });
+  });
+});
+
+describe("gateGeneration — pricing and gate failures are different events (#409)", () => {
+  afterEach(async () => {
+    await deleteSeededPrice();
+  });
+
+  it("propagates a gate failure rather than swallowing it as a pricing miss", async () => {
+    // The regression that matters most: pricing SUCCEEDS here, so the only way
+    // to reach a null return is for the gate's error to be caught by the
+    // pricing handler — which is exactly the bug this fix removes.
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+    await seedFreshPrice();
+
+    await withBrokenLedgerTable(async () => {
+      await assert.rejects(
+        () =>
+          gateGeneration({
+            userId,
+            endpointId: GATE_TEST_ENDPOINT,
+            computeCostUsd: () => 0.01,
+            logPrefix: "[test]",
+          }),
+        (err: unknown) => {
+          assert.ok(
+            err instanceof BudgetGateError,
+            `expected BudgetGateError, got ${String(err)}`,
+          );
+          return true;
+        },
+      );
+    });
+  });
+
+  it("still fails open on a pricing miss, returning null without gating", async () => {
+    // The deliberate, pre-existing fail-open this fix leaves untouched: an
+    // unknown price skips the gate rather than denying. Pinned so the two
+    // failure modes can't silently collapse back into one.
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    const result = await gateGeneration({
+      userId,
+      endpointId: "fal-ai/test/budgetGate-409-unpriced",
+      computeCostUsd: () => 0.01,
+      logPrefix: "[test]",
+    });
+    assert.equal(result, null);
+  });
+
+  it("throws BudgetExceededError when the user is genuinely over budget", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+    await insertCost(userId, 0.49);
+    await seedFreshPrice();
+
+    await assert.rejects(
+      () =>
+        gateGeneration({
+          userId,
+          endpointId: GATE_TEST_ENDPOINT,
+          computeCostUsd: () => 0.10,
+          logPrefix: "[test]",
+        }),
+      (err: unknown) => {
+        assert.ok(
+          err instanceof BudgetExceededError,
+          `expected BudgetExceededError, got ${String(err)}`,
+        );
+        return true;
+      },
+    );
+  });
+
+  it("returns the resolved price and cost when the generation is allowed", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+    await seedFreshPrice();
+
+    const result = await gateGeneration({
+      userId,
+      endpointId: GATE_TEST_ENDPOINT,
+      computeCostUsd: (price) => price.unitPrice * 2,
+      logPrefix: "[test]",
+    });
+    assert.ok(result, "expected the gate to allow and return a price");
+    assert.equal(result.costUsd, 0.02);
+    assert.equal(result.price.unitPrice, 0.01);
   });
 });

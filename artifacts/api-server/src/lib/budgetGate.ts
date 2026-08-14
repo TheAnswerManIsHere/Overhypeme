@@ -2,14 +2,20 @@
  * Budget Gate
  *
  * Pre-generation budget check and post-generation cost ledger recording.
- * Never throws — the caller decides how to handle a denied request.
  * All limits come from the admin_config table, never from hardcoded values.
+ *
+ * `checkBudget` FAILS CLOSED: if the check itself cannot complete, it throws
+ * `BudgetGateError` rather than granting the generation. It previously
+ * returned `{ allowed: true, limit: Infinity }` on any internal error, which
+ * lifted the spend ceiling for the duration of a database hiccup and made it
+ * the only permission function in this codebase that failed open (#409).
  */
 
 import { db } from "@workspace/db";
 import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigString, getConfigFloat } from "./adminConfig";
+import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { logger } from "./logger";
 import { effectiveTierExpr } from "./membershipState";
 import { isRealAdminRow } from "./adminIdentity";
@@ -33,6 +39,26 @@ export class BudgetExceededError extends Error {
     this.name = "BudgetExceededError";
     this.budgetStatus = status;
     this.upgradePath = upgradePath;
+  }
+}
+
+/**
+ * Thrown when the budget check itself could not complete — a config read,
+ * tier lookup, or ledger sum failed.
+ *
+ * This is NOT "you are out of budget"; it means we could not determine
+ * whether you are. Callers must deny the generation and surface a retry-able
+ * error, and must never conflate it with `BudgetExceededError`, which is a
+ * definitive over-limit answer that should send the user to the upgrade path.
+ *
+ * The message is deliberately user-safe and carries no internals: it reaches
+ * end users verbatim through the async job paths, which surface `err.message`
+ * as the failure reason. The underlying error travels in `cause` for logs.
+ */
+export class BudgetGateError extends Error {
+  constructor(cause: unknown) {
+    super("Budget check unavailable. Please try again.", { cause });
+    this.name = "BudgetGateError";
   }
 }
 
@@ -60,9 +86,9 @@ function getPeriodStart(budgetPeriod: string): Date {
 /**
  * Check whether a user has budget remaining for a proposed generation cost.
  *
- * Returns a BudgetStatus object — never throws.
- * On any error, fails open (allowed: true) with a warning so a DB hiccup
- * doesn't block all generation.
+ * Fails CLOSED: throws `BudgetGateError` if the check cannot complete.
+ * Determining spend is a precondition for spending money, so a gate that
+ * cannot answer denies rather than grants.
  */
 export async function checkBudget(
   userId: string,
@@ -126,10 +152,67 @@ export async function checkBudget(
 
     return { allowed, currentSpend, limit, remainingBudget };
   } catch (err) {
-    logger.warn({ err }, "[budgetGate] checkBudget error — failing open");
-    // Fail open: don't block generation if the gate itself errors
-    return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
+    // Fail closed (#409). A gate that cannot determine spend must not grant it.
+    logger.error({ err, userId }, "[budgetGate] checkBudget failed — denying generation");
+    throw new BudgetGateError(err);
   }
+}
+
+export interface GateGenerationParams {
+  userId: string;
+  /** fal.ai endpoint / model id to price. */
+  endpointId: string;
+  /** Cost in USD of the proposed job, given the resolved price. */
+  computeCostUsd: (price: CachedPrice) => number;
+  /** Log prefix for the pricing-unavailable warning, e.g. `"[aiMemePipeline]"`. */
+  logPrefix: string;
+  /** Extra fields to attach to that warning. */
+  logContext?: Record<string, unknown>;
+}
+
+/**
+ * Price a proposed generation and run it past the budget gate.
+ *
+ * This exists to keep two different failure modes from sharing one `catch` —
+ * the shape that let #409 survive its own fix. Every caller used to wrap the
+ * pricing lookup *and* the gate call in a single `try` whose handler logged
+ * "budget gate skipped" and continued, so making `checkBudget` throw would
+ * have been swallowed by the very handler that already swallowed pricing
+ * failures, and generation would have proceeded uncapped exactly as before.
+ *
+ *   - **Pricing unavailable** → returns `null`; the caller proceeds unmetered.
+ *     This is a pre-existing fail-open, preserved deliberately and unchanged.
+ *     Whether an unknown price should still be allowed to spend is the same
+ *     fail-open question one level up, and is its own decision — not this
+ *     fix's to make.
+ *   - **Gate failure** → throws `BudgetGateError`. Never swallowed here.
+ *   - **Over budget** → throws `BudgetExceededError`.
+ *
+ * Returns the resolved price and cost so the caller can write the ledger row
+ * after a successful submission.
+ */
+export async function gateGeneration(
+  params: GateGenerationParams,
+): Promise<{ price: CachedPrice; costUsd: number } | null> {
+  let price: CachedPrice;
+  let costUsd: number;
+  try {
+    price = await getCachedPrice(params.endpointId);
+    costUsd = params.computeCostUsd(price);
+  } catch (err) {
+    logger.warn(
+      { err, ...params.logContext },
+      `${params.logPrefix} Budget gate skipped (pricing unavailable)`,
+    );
+    return null;
+  }
+
+  // Deliberately outside the catch above: a gate failure is not a pricing
+  // failure, and must not be swallowed by the pricing handler (#409).
+  const budget = await checkBudget(params.userId, costUsd);
+  if (!budget.allowed) throw new BudgetExceededError(budget);
+
+  return { price, costUsd };
 }
 
 /**

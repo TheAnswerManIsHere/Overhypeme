@@ -5,9 +5,14 @@ import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspa
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import { motionPresetsTable, lookStylesTable, enginesTable, type Engine } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
-import { getCachedPrice } from "../lib/falPricing.js";
+import { type CachedPrice } from "../lib/falPricing.js";
 import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
-import { checkBudget, recordCost } from "../lib/budgetGate.js";
+import {
+  BudgetExceededError,
+  BudgetGateError,
+  gateGeneration,
+  recordCost,
+} from "../lib/budgetGate.js";
 import { buildAuthorizationSnapshot, can, principalFromRequest } from "../lib/featureAccess.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { userCanReadObject, userOwnsAiReferenceImage } from "../lib/objectAccess.js";
@@ -643,36 +648,49 @@ router.post("/videos/generate", async (req, res) => {
     ? (req.user as { id?: string })?.id ?? null
     : null;
   let estimatedCostUsd = 0;
-  let cachedPriceForRecording: Awaited<ReturnType<typeof getCachedPrice>> | null = null;
+  let cachedPriceForRecording: CachedPrice | null = null;
 
   if (authenticatedUserId) {
     try {
-      const price = await getCachedPrice(endpointId);
-      cachedPriceForRecording = price;
-
-      const dims = resolveVideoDimensions(aspectRatio, resolution);
-      const DEFAULT_FPS = 24;
-      const { costUsd } = computeVideoCost(
-        { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
-        price,
-      );
-      estimatedCostUsd = costUsd;
-
-      const budget = await checkBudget(authenticatedUserId, costUsd);
-      if (!budget.allowed) {
-        await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id));
+      const gated = await gateGeneration({
+        userId: authenticatedUserId,
+        endpointId,
+        computeCostUsd: (price) => {
+          const dims = resolveVideoDimensions(aspectRatio, resolution);
+          const DEFAULT_FPS = 24;
+          return computeVideoCost(
+            { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
+            price,
+          ).costUsd;
+        },
+        logPrefix: "[videos/generate]",
+      });
+      // null ⇒ pricing unavailable; the gate was skipped and the job proceeds
+      // unmetered, exactly as before (#409 leaves that fail-open in place).
+      if (gated) {
+        cachedPriceForRecording = gated.price;
+        estimatedCostUsd = gated.costUsd;
+      }
+    } catch (err) {
+      await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id));
+      if (err instanceof BudgetExceededError) {
         res.status(429).json({
           error: "BUDGET_EXCEEDED",
-          currentSpend: budget.currentSpend,
-          limit: budget.limit,
-          remainingBudget: budget.remainingBudget,
-          upgradePath: "/upgrade",
+          currentSpend: err.budgetStatus.currentSpend,
+          limit: err.budgetStatus.limit,
+          remainingBudget: err.budgetStatus.remainingBudget,
+          upgradePath: err.upgradePath,
         });
         return;
       }
-    } catch (priceErr) {
-      // Price unavailable — fail open, log warning, continue without budget gate
-      logger.warn({ err: priceErr }, "[videos/generate] Budget gate skipped (pricing unavailable)");
+      if (err instanceof BudgetGateError) {
+        // The gate could not answer — deny, and say "retry", not "you are
+        // out of budget". Conflating the two would tell a user hitting a
+        // transient database error to go buy more credit.
+        res.status(503).json({ error: err.message });
+        return;
+      }
+      throw err;
     }
   }
 

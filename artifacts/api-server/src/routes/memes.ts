@@ -30,7 +30,7 @@ import { resolveStoredMemeCaption } from "../lib/memeComposite";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
 import { memeKey } from "../lib/storageKeys";
-import { BudgetExceededError } from "../lib/budgetGate";
+import { BudgetExceededError, BudgetGateError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
 import { quarantineImage } from "../lib/moderation/quarantine";
 import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
@@ -1473,6 +1473,9 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
           remainingBudget: err.budgetStatus.remainingBudget,
           upgradePath: err.upgradePath,
         });
+      } else if (err instanceof BudgetGateError) {
+        // Retry-able: the gate could not answer, so this is not a 429 (#409).
+        res.status(503).json({ error: err.message });
       } else if (err instanceof ModerationRejectedError) {
         res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
       } else if (isNoFaceError(err)) {

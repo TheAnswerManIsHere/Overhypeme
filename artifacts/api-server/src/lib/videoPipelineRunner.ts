@@ -76,7 +76,7 @@ import { generateAiMemeBackgroundFromReference, generateAiMemeBackgroundStandalo
 import { generateVideoDirection } from "./videoDirection";
 import { addCaptionsToVideo } from "./falAutoSubtitle";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
-import { checkBudget, recordCost } from "./budgetGate";
+import { BudgetGateError, checkBudget, recordCost } from "./budgetGate";
 import { getCachedPrice } from "./falPricing";
 import { computeVideoCost, resolveVideoDimensions } from "./costComputation";
 import { createMemeRecord, resolveMemeDecisions } from "./createMemeRecord";
@@ -501,7 +501,17 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
 
   // ── Pre-flight budget gate ───────────────────────────────────────
   const estimated = await estimateTotalCost(engine, input);
-  const budget = await checkBudget(input.userId, estimated);
+  let budget: Awaited<ReturnType<typeof checkBudget>>;
+  try {
+    budget = await checkBudget(input.userId, estimated);
+  } catch (err) {
+    if (err instanceof BudgetGateError) {
+      // Deny, but as a retry-able service error — not a 429, which would tell
+      // a user hitting a transient failure that they are out of budget (#409).
+      throw new VideoJobError(503, { error: "budget_check_unavailable", message: err.message });
+    }
+    throw err;
+  }
   if (!budget.allowed) {
     throw new VideoJobError(429, {
       error: "BUDGET_EXCEEDED",

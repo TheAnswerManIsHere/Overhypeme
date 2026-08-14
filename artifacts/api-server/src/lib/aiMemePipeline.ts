@@ -20,9 +20,9 @@ import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema"
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
 import { getScenePromptSystem } from "./scenePromptConfig";
-import { getCachedPrice, type CachedPrice } from "./falPricing";
+import { type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
-import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
+import { gateGeneration, recordCost } from "./budgetGate";
 import { logger } from "./logger";
 import { applyFalSafetyTolerance, assertNoFalNsfwConcepts, FalSafetyTriggeredError } from "./moderation/falSafety";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
@@ -221,18 +221,17 @@ async function generateAndStoreImage(
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedImgPrice: CachedPrice | null = null;
   if (userId) {
-    try {
-      const price = await getCachedPrice(model);
-      cachedImgPrice = price;
-      const { width, height } = resolveImageSizePx(imageSize);
-      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
-      const budget = await checkBudget(userId, costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
-    } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      // Pricing unavailable — fail open, log and continue
-      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped");
-    }
+    const gated = await gateGeneration({
+      userId,
+      endpointId: model,
+      computeCostUsd: (price) => {
+        const { width, height } = resolveImageSizePx(imageSize);
+        return computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      },
+      logPrefix: "[aiMemePipeline]",
+      logContext: { model },
+    });
+    cachedImgPrice = gated?.price ?? null;
   }
 
   const result = await fal.subscribe(model, {
@@ -460,17 +459,17 @@ async function generateAndStoreImageFromReference(
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedRefPrice: CachedPrice | null = null;
   if (userId) {
-    try {
-      const price = await getCachedPrice(model);
-      cachedRefPrice = price;
-      const { width, height } = resolveImageSizePx(imageSize);
-      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
-      const budget = await checkBudget(userId, costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
-    } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped for ref model");
-    }
+    const gated = await gateGeneration({
+      userId,
+      endpointId: model,
+      computeCostUsd: (price) => {
+        const { width, height } = resolveImageSizePx(imageSize);
+        return computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      },
+      logPrefix: "[aiMemePipeline]",
+      logContext: { model, path: "reference" },
+    });
+    cachedRefPrice = gated?.price ?? null;
   }
 
   const result = await fal.subscribe(model, {
