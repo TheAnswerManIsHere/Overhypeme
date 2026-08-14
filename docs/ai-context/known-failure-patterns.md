@@ -1327,13 +1327,26 @@ migrations `0028`/`0029` are unreachable by construction. Because most
 legendary gates in the codebase *are* role-based and work fine for admins, the
 one that isn't looks correct under exactly the account most likely to test it.
 
-**Avoid:** decide which vocabulary a gate speaks *before* writing it, and when
-admin should qualify, resolve from the role — `isAtLeastLegendary(role)`,
-optionally OR-ed with the feature lookup so a tier can still be granted the
-capability independently (`facts.ts`'s captcha bypass, and now
-`createMemeRecord`'s private-visibility gate). Sibling gates in the same
-function are the tell: `createMemeRecord` had `canPulid` on the role and
-`canPrivate` on the tier three lines apart.
+**Avoid — and this is now structural, not advisory.** The whole "decide which
+vocabulary a gate speaks" question is gone, because there is only one:
+`artifacts/api-server/src/lib/featureAccess.ts`. Route code asks
+`can(principal, key)`; the tier-keyed lookup is module-private and
+`scripts/check-permission-chokepoint.mjs` fails the build if anything outside
+that module references it, reads the grid tables, or adds a new inline role
+comparison in a product-feature path. Admin resolution is a union
+(`features(tier) ∪ features('admin')`), so the grid's Admin column is what
+grants admins a feature — not a hand-written exception beside the lookup.
+
+The old advice ("resolve from the role, optionally OR-ed with the feature
+lookup") is what produced the mess: it made the OR a *convention*, and twelve
+places ended up gating one capability by two different rules. `facts.ts`'s
+captcha bypass was the worked example of the good version and was still wrong —
+its comment claimed the direct check was authoritative and the table entry
+"secondary", which is two sources of truth stated as a feature.
+
+Sibling gates in the same function remain the tell that something has drifted
+back: `createMemeRecord` had `canPulid` on the role and `canPrivate` on the
+tier three lines apart.
 
 **And never coerce a denied *privacy* request into its permissive default.**
 The gate above was only half the defect. The other half was what it did on
@@ -1351,6 +1364,13 @@ found `registered`, and coerced the meme public. Both surfaces believed they
 were consistent with the other — `VisibilityToggle`'s own comment claimed the
 control "can never display a value the server would silently overwrite,"
 which was true for every tier except the one the author was testing on.
+
+*Closed structurally, not by fixing the two sites.* `roleToTier` is deleted and
+the client is told its entitlements by the server; `VisibilityToggle` takes the
+resolved `canSetPrivate` rather than a derived tier, so the control's lock and
+the server's gate are one expression evaluated once. A CI guard
+(`scripts/check-permission-chokepoint.mjs`) fails the build if the tier-keyed
+lookup becomes reachable from route code again.
 
 ## Permission-prompt fatigue defeats a "safe" default with no curated allow/deny list
 

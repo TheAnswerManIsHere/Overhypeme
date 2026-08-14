@@ -36,8 +36,7 @@ import { classifyAndDecide } from "./moderation/nsfwClassifier";
 import { quarantineImage } from "./moderation/quarantine";
 import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
 import { memeKey } from "./storageKeys";
-import { hasFeature } from "./tierFeatures";
-import { isAtLeastLegendary, deriveUserRole } from "./userRole";
+import { can, type Principal } from "./featureAccess";
 import { getUploadImageMetadata } from "./userImageUpload";
 import { logger } from "./logger";
 import { effectiveTierExpr } from "./membershipState";
@@ -100,12 +99,48 @@ export interface CreateMemeRecordInput {
    */
   previewImageBase64?: string;
   /**
-   * Optional override of the resolved role / membership tier. Used by the
-   * route handler so we don't re-derive what authMiddleware already computed.
-   * Pipeline callers can omit and the function reads the user row directly.
+   * The authorization decisions for the features this path gates, resolved by
+   * the CALLER at submission time.
+   *
+   * Required, not optional, and deliberately so: this function used to re-read
+   * the stored admin flag from the user row and resolve its own gates, which
+   * cannot see session-scoped "view as user" state. An admin previewing as a
+   * registered user would have bypassed every gate here through the background
+   * path. Making the field required puts the compiler in charge of enumerating
+   * the callers — there are only two, and both now resolve against a real
+   * principal.
    */
-  resolvedRole?: ReturnType<typeof deriveUserRole>;
-  resolvedTier?: string;
+  decisions: MemeAuthorizationDecisions;
+}
+
+/** The boolean features the meme-creation path gates. */
+export const MEME_GATED_FEATURES = [
+  "meme_private_visibility",
+  "meme_rate_limit_high",
+  "meme_pulid_stylize",
+] as const;
+
+export type MemeAuthorizationDecisions = {
+  [K in (typeof MEME_GATED_FEATURES)[number]]: boolean;
+};
+
+/**
+ * Resolves the meme path's decisions for a principal. Call this at SUBMISSION
+ * time; for queued work persist the result and hand it back rather than
+ * calling this again at execution time, which would resolve against whatever
+ * the grid says *then*.
+ */
+export async function resolveMemeDecisions(principal: Principal): Promise<MemeAuthorizationDecisions> {
+  const [privateVisibility, rateLimitHigh, pulid] = await Promise.all([
+    can(principal, "meme_private_visibility"),
+    can(principal, "meme_rate_limit_high"),
+    can(principal, "meme_pulid_stylize"),
+  ]);
+  return {
+    meme_private_visibility: privateVisibility,
+    meme_rate_limit_high: rateLimitHigh,
+    meme_pulid_stylize: pulid,
+  };
 }
 
 export interface CreateMemeRecordResult {
@@ -144,53 +179,26 @@ export async function createMemeRecord(
   const aspectRatio = input.aspectRatio ?? "landscape";
   const imageTransform = input.imageTransform;
 
-  // ── Resolve membership / role ───────────────────────────────────────
-  let tier = input.resolvedTier ?? "unregistered";
-  let role = input.resolvedRole ?? "unregistered";
-  if (!input.resolvedRole || !input.resolvedTier) {
-    const [u] = await db
-      .select({
-        id: usersTable.id,
-        // Effective tier: this reader makes AUTHORIZATION decisions (private
-        // visibility, the high rate limit, the PuLID gate) from its own select,
-        // so it bypasses the authMiddleware chokepoint entirely.
-        membershipTier: effectiveTierExpr(),
-        isAdmin: usersTable.isAdmin,
-        displayName: usersTable.displayName,
-        pronouns: usersTable.pronouns,
-        profileImageUrl: usersTable.profileImageUrl,
-        nsfwModeEnabled: usersTable.nsfwModeEnabled,
-      })
-      .from(usersTable)
-      .where(eq(usersTable.id, userId))
-      .limit(1);
-    if (!u) {
-      throw new CreateMemeError(401, { error: "Unauthorized" });
-    }
-    tier = u.membershipTier ?? "unregistered";
-    role = deriveUserRole(u.membershipTier, !!u.isAdmin);
-  }
+  // ── Authorization: decided by the caller, at submission time ────────
+  // This function no longer resolves its own gates. It used to read the user
+  // row and derive `tier`/`role` from the stored admin flag, which meant two
+  // different vocabularies answered the same question — the PR #402 shape —
+  // and meant the background path could not see "view as user" at all.
+  //
+  // The entitlement half of the union now lives in `featureAccess.ts`, and the
+  // decisions arrive already made. What survives here is only the *application*
+  // of those decisions.
+  const { decisions } = input;
+  const canPulid = decisions.meme_pulid_stylize;
+  const canPrivate = decisions.meme_private_visibility;
+  const highRateLimit = decisions.meme_rate_limit_high;
 
-  const [tierAllowsPrivate, highRateLimit] = await Promise.all([
-    hasFeature(tier, "meme_private_visibility"),
-    hasFeature(tier, "meme_rate_limit_high"),
-  ]);
-  const canPulid = isAtLeastLegendary(role);
-  // Privacy is a legendary-LEVEL entitlement, and "legendary level" means the
-  // resolved *role* everywhere else in this function (see `canPulid`) — admin
-  // included. `membershipTier` alone is not that: an admin's stored tier is
-  // `registered` unless they separately hold a paid entitlement, and the
-  // feature-flag table is keyed by tier, so a tier-only lookup denied privacy
-  // to every admin. The builder maps admin → legendary and therefore offered
-  // them a Private control the save path then quietly ignored.
-  const canPrivate = isAtLeastLegendary(role) || tierAllowsPrivate;
-
-  // ── Tier gate: PuLID-stylised memes are legendary-only ───────────────
+  // ── Gate: PuLID-stylised memes ───────────────────────────────────────
   if (imageTransform === "pulid" && !canPulid) {
     throw new CreateMemeError(403, { error: "tier_mismatch" });
   }
 
-  // ── Tier gate: private visibility requires the entitlement above ─────
+  // ── Gate: private visibility ─────────────────────────────────────────
   // Fail CLOSED on an explicit private request we cannot honour. Coercing it
   // to public instead is how an entitlement mismatch became a data exposure:
   // the caller asked for owner-only, got a 201, and the meme was world-

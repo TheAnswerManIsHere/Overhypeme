@@ -69,12 +69,13 @@ export function FactComments({
   onCommentError,
 }: Props) {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, role, user } = useAuth();
+  const { isAuthenticated, can, user } = useAuth();
   const { addComment } = useAppMutations();
   const { toast } = useToast();
 
-  const isLegendary = role === "legendary" || role === "admin";
-  const needsCaptcha = isAuthenticated && !isLegendary;
+  // The SAME entitlement the server gates on (facts.ts), so the control and
+  // the write can no longer disagree.
+  const needsCaptcha = isAuthenticated && !can("comment_captcha_bypass");
 
   const limit = variant === "feed" ? FEED_LIMIT : DETAIL_LIMIT;
   const [commentSort, setCommentSort] = useState<"top" | "new">("top");
@@ -365,7 +366,7 @@ export function FactComments({
           disabled={formState === "submitting"}
         />
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          {isLegendary ? (
+          {!needsCaptcha && isAuthenticated ? (
             <div className="flex items-center gap-2 text-yellow-500 text-sm font-display font-bold uppercase tracking-wider">
               <Crown className="w-4 h-4" /> Captcha skipped (Legendary)
             </div>

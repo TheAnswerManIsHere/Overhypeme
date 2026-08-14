@@ -144,7 +144,8 @@ export interface AiBgPickerProps {
   initialImages: AiMemeImages | null;
   aiGender: "male" | "female" | "neutral";
   isGendered: boolean;
-  isLegendary: boolean;
+  /** `can("meme_ai_background")` from the caller — told, not derived. */
+  canGenerate: boolean;
   isAdmin: boolean;
   onSelect: (selection: AiBgSelection | null) => void;
   /** Whether to show the style picker (AI generation style). Default: false */
@@ -175,7 +176,7 @@ export function AiBgPicker({
   initialImages,
   aiGender,
   isGendered,
-  isLegendary,
+  canGenerate,
   isAdmin,
   onSelect,
   showStylePicker = false,
@@ -261,7 +262,7 @@ export function AiBgPicker({
   }, [factId]);
 
   useEffect(() => {
-    if (!isLegendary || aiSubMode !== "reference") return;
+    if (!canGenerate || aiSubMode !== "reference") return;
     const controller = new AbortController();
     setIsLoadingRefGenImages(true);
     fetchRefGenImages(controller.signal)
@@ -269,7 +270,7 @@ export function AiBgPicker({
       .catch(() => {})
       .finally(() => setIsLoadingRefGenImages(false));
     return () => { controller.abort(); };
-  }, [isLegendary, aiSubMode, fetchRefGenImages]);
+  }, [canGenerate, aiSubMode, fetchRefGenImages]);
 
   // ── Reference photo uploads ─────────────────────────────────────────────────
   const [refUploads, setRefUploads] = useState<UploadEntry[]>([]);
@@ -279,7 +280,7 @@ export function AiBgPicker({
   const refFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!isLegendary || aiSubMode !== "reference") return;
+    if (!canGenerate || aiSubMode !== "reference") return;
     let cancelled = false;
     setIsLoadingRefUploads(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
@@ -290,7 +291,7 @@ export function AiBgPicker({
       .catch(() => {})
       .finally(() => { if (!cancelled) setIsLoadingRefUploads(false); });
     return () => { cancelled = true; };
-  }, [isLegendary, aiSubMode]);
+  }, [canGenerate, aiSubMode]);
 
   // ── Identity photo entry (Task #382) ────────────────────────────────────────
   // When the user has a first-party profile photo, surface it at the top of the
@@ -711,7 +712,7 @@ export function AiBgPicker({
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
-  if (!isLegendary) {
+  if (!canGenerate) {
     return <AccessGate reason="legendary" size="sm" description="AI-generated backgrounds require a Legendary membership." />;
   }
 

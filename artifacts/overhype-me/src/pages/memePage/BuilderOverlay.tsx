@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { useAuth } from "@workspace/replit-auth-web";
-import { roleToTier } from "@/components/meme-builder/integration/studioAdapter";
+import { roleToIdentity } from "@/components/meme-builder/integration/studioAdapter";
 import type {
   BuilderResult,
   EntryFlow,
@@ -40,8 +40,8 @@ export function BuilderOverlay({
   initialPronouns,
 }: BuilderOverlayProps) {
   const [, setLocation] = useLocation();
-  const { user, role } = useAuth();
-  const tier = roleToTier(role);
+  const { user, role, entitlements } = useAuth();
+  const tier = roleToIdentity(role);
   // Task #507: "has a profile photo" is now a simple presence check on
   // `users.profileImageUrl` — first-party uploads and external Clerk/OAuth
   // photo URLs both count, since the meme builder's library tab will only
@@ -114,6 +114,7 @@ export function BuilderOverlay({
               factText={factText}
               viewerContext={{
                 tier,
+                entitlements,
                 userId: user?.id,
                 name: user?.displayName ?? (tier === "unregistered" ? guestName : undefined),
                 pronouns: user?.pronouns ?? (tier === "unregistered" ? guestPronouns : undefined),

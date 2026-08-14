@@ -1,3 +1,4 @@
+import { can, principalFromRequest } from "./featureAccess";
 import { type Request, type Response, type NextFunction } from "express";
 import { rateLimit, ipKeyGenerator, type RateLimitRequestHandler, type Store } from "express-rate-limit";
 import { getSessionId } from "./auth";
@@ -181,8 +182,11 @@ export function createFactSubmitRateLimiter(
   windowMs = FACT_SUBMIT_WINDOW_MS,
 ) {
   return async function requireFactSubmitRateLimit(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const user = (req as Request & { user?: { isRealAdmin?: boolean; membershipTier?: string } }).user;
-    if (user?.isRealAdmin || user?.membershipTier === "legendary") {
+    // The bypass is a grid entitlement now, not a hardcoded role comparison, so
+    // an operator can extend or withdraw it without a deploy. It also honours
+    // "view as user": an admin previewing as a registered account gets the
+    // registered account's throttle, which is the point of the preview.
+    if (await can(principalFromRequest(req), "fact_submit_rate_limit_bypass")) {
       next();
       return;
     }

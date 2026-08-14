@@ -88,10 +88,10 @@ BEGIN
   after_val := COALESCE(pg_sequence_last_value('membership_source_state_seq'::regclass), 0);
 
   IF steps > 0 THEN
-    RAISE NOTICE '0099: membership_source_state_seq REPAIRED — was %, consumed % allocation(s) to reach % (max membership_entitlements.source_state_as_of = %); next token %',
+    RAISE NOTICE '0100: membership_source_state_seq REPAIRED — was %, consumed % allocation(s) to reach % (max membership_entitlements.source_state_as_of = %); next token %',
       before_val, steps, after_val, target, after_val + 1;
   ELSE
-    RAISE NOTICE '0099: membership_source_state_seq OK — highest issued % >= max stored %; not written',
+    RAISE NOTICE '0100: membership_source_state_seq OK — highest issued % >= max stored %; not written',
       before_val, target;
   END IF;
 END $$;
@@ -115,10 +115,10 @@ BEGIN
   after_val := COALESCE(pg_sequence_last_value('membership_lease_fence_seq'::regclass), 0);
 
   IF steps > 0 THEN
-    RAISE NOTICE '0099: membership_lease_fence_seq REPAIRED — was %, consumed % allocation(s) to reach % (max membership_leases.fence = %); next fence %',
+    RAISE NOTICE '0100: membership_lease_fence_seq REPAIRED — was %, consumed % allocation(s) to reach % (max membership_leases.fence = %); next fence %',
       before_val, steps, after_val, target, after_val + 1;
   ELSE
-    RAISE NOTICE '0099: membership_lease_fence_seq OK — highest issued % >= max stored %; not written',
+    RAISE NOTICE '0100: membership_lease_fence_seq OK — highest issued % >= max stored %; not written',
       before_val, target;
   END IF;
 END $$;

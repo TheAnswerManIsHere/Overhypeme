@@ -100,7 +100,16 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
             <Step1ArtifactType
               selected={state.artifactType}
               onSelect={handleSelectArtifactType}
-              tier={viewerContext.tier}
+              // `ANONYMOUS_PRINCIPAL` shares the `unregistered` grid tier with
+              // logged-out visitors, so a grant there resolves the same for
+              // both. `POST /memes/video-jobs` requires auth regardless, so
+              // without this the anonymous case is a tappable dead end —
+              // round 5 of PR #425's review. `userId` is the identity signal
+              // the grid deliberately doesn't carry.
+              canVideoGeneration={
+                !!viewerContext.userId &&
+                viewerContext.entitlements?.["video_generation"]?.allowed === true
+              }
             />
           ) : (
             <Step2BackgroundAndText

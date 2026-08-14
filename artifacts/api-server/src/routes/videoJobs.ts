@@ -25,7 +25,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { deriveUserRole, isAtLeastLegendary } from "../lib/userRole";
-import { hasFeature } from "../lib/tierFeatures";
+import { can, principalFromRequest } from "../lib/featureAccess";
 import {
   startVideoJob,
   getVideoJob,
@@ -88,19 +88,38 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
   const role = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
   const isAdmin = role === "admin";
 
-  if (!isAdmin) {
-    // Legendary users are always allowed; below that we additionally check
-    // the `video_generation` feature flag in case it's enabled for a lower
-    // tier via admin override.
-    if (!isAtLeastLegendary(role)) {
-      const allowed = await hasFeature(dbTier, "video_generation");
-      if (!allowed) {
-        res.status(403).json({
-          error: "VIDEO_GENERATION_LOCKED",
-          message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
-        });
-        return;
-      }
+  // The SAME resolver call `POST /videos/generate` makes, so turning
+  // `video_generation` off in the grid turns it off on both routes. This site
+  // previously layered a role-rank short-circuit in front of the grid lookup,
+  // which is how one capability came to be gated by two different rules.
+  const principal = principalFromRequest(req);
+  // Resolved ONCE. `startVideoJob` records this exact value in the job's
+  // permanent authorization_snapshot rather than re-resolving it — a second
+  // resolution could disagree if the grid was toggled in between, corrupting
+  // the record of what actually authorized the job.
+  const videoGenerationDecision = await can(principal, "video_generation");
+  if (!videoGenerationDecision) {
+    res.status(403).json({
+      error: "VIDEO_GENERATION_LOCKED",
+      message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
+  }
+
+  // `video_generation` and `meme_pulid_stylize` are two independent grid
+  // rows — a tier (or an admin previewing as user) can have one without the
+  // other. The "stylize-then-video" mode runs the PuLID stage before video
+  // generation, so it needs its own check here rather than inheriting the
+  // video gate above. Round 2 of PR #425's review found this path ran PuLID
+  // regardless of the recorded decision.
+  if (parsed.data.sourceMode === "stylize-then-video") {
+    const canPulidStylize = await can(principal, "meme_pulid_stylize");
+    if (!canPulidStylize) {
+      res.status(403).json({
+        error: "PULID_STYLIZE_LOCKED",
+        message: "AI face styling is a Legendary feature. Upgrade your membership to unlock it.",
+      });
+      return;
     }
   }
 
@@ -132,6 +151,8 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
       resolution: parsed.data.resolution,
       aspectRatio: parsed.data.aspectRatio as AspectRatio,
       framingFocus: parsed.data.framingFocus ?? null,
+      principal,
+      videoGenerationDecision,
       name: parsed.data.name ?? null,
       pronouns: parsed.data.pronouns ?? null,
       renderedFactText: parsed.data.renderedFactText ?? null,

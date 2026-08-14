@@ -527,22 +527,18 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     // ── Feature flags ──────────────────────────────────────────────────────
-    {
-      label: "feature_flags seed: video_generation",
-      ddl: `INSERT INTO feature_flags (key, display_name, description)
-            VALUES ('video_generation', 'Video Generation', 'Ability to generate AI-powered videos from meme images')
-            ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "tier_feature_permissions seed: video_generation",
-      ddl: `INSERT INTO tier_feature_permissions (tier, feature_key, enabled)
-            VALUES
-              ('unregistered', 'video_generation', false),
-              ('registered',   'video_generation', false),
-              ('legendary',    'video_generation', true),
-              ('admin',        'video_generation', true)
-            ON CONFLICT (tier, feature_key) DO UPDATE SET enabled = EXCLUDED.enabled`,
-    },
+    // The `video_generation` seed steps that used to live here are GONE, and
+    // deliberately not replaced with a gentler version. Migration
+    // 0099_admin_permissions_core guarantees the feature row and its four tier
+    // rows, so these were redundant — and the second of them carried
+    // `DO UPDATE SET enabled = EXCLUDED.enabled`, which re-asserted the seeded
+    // values on every boot. That is why `video_generation` could not be
+    // switched off from the admin grid: an operator's toggle survived only
+    // until the next restart.
+    //
+    // Softening it to DO NOTHING was the tempting fix and is the wrong one: it
+    // would leave a second write path into tables this architecture is giving
+    // exactly one. The grid has a single writer now — `featureAccess.ts`.
     // ── Stripe hardening migrations ───────────────────────────────────────────
     {
       label: "users.monthly_generation_limit_override_usd",

@@ -56,6 +56,42 @@ export const GetCurrentAuthUserResponse = zod.object({
     }),
     zod.null(),
   ]),
+  entitlements: zod.record(
+    zod.string(),
+    zod.object({
+      allowed: zod.boolean(),
+      limit: zod.number().nullable(),
+    }),
+  ),
+  entitlementVersion: zod.object({
+    gridRevision: zod.number(),
+    principalFingerprint: zod.string(),
+  }),
+});
+
+/**
+ * Returns the pair the client polls to decide whether to re-fetch its
+entitlements. "Cheap" means a small response and no grid query beyond
+the already-loaded revision — NOT proxy-cacheable.
+
+This response is per-principal and must never be shared-cached. It
+varies by tier, admin grant, and session-scoped view-as-user state, so a
+proxy caching it by URL could serve one principal's fingerprint to
+another — and the second client, seeing a fingerprint it does not
+recognise as its own change, may never converge.
+
+ * @summary Cheap revalidation probe for the client's entitlement snapshot
+ */
+export const GetEntitlementVersionHeader = zod.object({
+  Authorization: zod
+    .string()
+    .optional()
+    .describe("Bearer session token (used by mobile clients)."),
+});
+
+export const GetEntitlementVersionResponse = zod.object({
+  gridRevision: zod.number(),
+  principalFingerprint: zod.string(),
 });
 
 /**

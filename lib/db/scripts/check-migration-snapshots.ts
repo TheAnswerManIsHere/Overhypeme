@@ -350,13 +350,23 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Source of truth: lib/db/src/schema/moderation.ts.
   "0097_ncmec_submission",
 
+  // Plan 1a — one resolver, one client contract, no admin lockout (PR #425,
+  // workstream #405): the tier_feature_permission_audit table + its
+  // created_at index, and the entitlement_grid_revision singleton. Hand-
+  // authored idempotent DDL, following 0094-0097's shape — drizzle-kit
+  // generate stays broken on the malformed 0063 snapshot. Round 4 of PR
+  // #425's review caught this migration missing from the exempt list, which
+  // failed check-snapshots outright rather than merely under-covering drift.
+  // Source of truth: lib/db/src/schema/featureFlags.ts.
+  "0099_admin_permissions_core",
+
   // Forward-only repair of the two membership ordering/fencing sequences, which
   // `push --force` removed from any database pushed more than once because they
   // had no schema declaration (same failure shape as 0098, one object type
-  // over). Recreates them if absent and advances each past the maximum already
-  // stored in membership_entitlements.source_state_as_of /
-  // membership_leases.fence — a sequence restored at 1 makes both consumers'
-  // strictly-greater guards match zero rows, silently.
+  // over). Advances each via nextval() past the maximum already stored in
+  // membership_entitlements.source_state_as_of / membership_leases.fence — a
+  // sequence restored at 1 makes both consumers' strictly-greater guards match
+  // zero rows, silently.
   //
   // The missing snapshot here is DEFERRED, not inexpressible — do not restate
   // it as the latter. The two pgSequence declarations in
@@ -368,7 +378,7 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // justify leaving the sequences out and let generation rediscover them as an
   // unexplained change.
   // Source of truth: lib/db/src/schema/membershipEntitlements.ts.
-  "0099_membership_sequence_repair",
+  "0100_membership_sequence_repair",
 ]);
 
 interface JournalEntry {

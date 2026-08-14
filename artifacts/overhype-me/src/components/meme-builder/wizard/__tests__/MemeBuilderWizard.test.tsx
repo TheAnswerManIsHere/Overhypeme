@@ -69,9 +69,15 @@ describe("MemeBuilderWizard", () => {
   });
 
   it("back arrow returns to Step 1 from Step 2 with state preserved", async () => {
-    // Legendary viewer so the video card is tappable (free/anon would open
-    // the upgrade modal instead of advancing).
-    renderWizard({ viewerContext: { ...VIEWER, tier: "legendary" } });
+    // Entitled viewer so the video card is tappable (an unentitled viewer
+    // would open the upgrade modal instead of advancing).
+    renderWizard({
+      viewerContext: {
+        ...VIEWER,
+        tier: "legendary",
+        entitlements: { video_generation: { allowed: true, limit: null } },
+      },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^video$/i }));
     expect(await screen.findByRole("heading", { name: /pick a photo, choose your options/i }, S2)).toBeTruthy();
 
@@ -124,8 +130,17 @@ describe("MemeBuilderWizard", () => {
   // built here saved public no matter what the creator wanted — and there is
   // no way to change a meme's visibility after the fact.
   describe("visibility control on Step 2", () => {
-    async function openImageStep(tier: ViewerContext["tier"]) {
-      renderWizard({ viewerContext: { ...VIEWER, tier } });
+    // The privacy lock is now the SERVER's resolved entitlement, not a tier the
+    // client derived — that derivation is what PR #402 broke. So the fixture
+    // supplies the entitlement the way the real payload does.
+    async function openImageStep(tier: ViewerContext["tier"], canSetPrivate = tier === "legendary") {
+      renderWizard({
+        viewerContext: {
+          ...VIEWER,
+          tier,
+          entitlements: { meme_private_visibility: { allowed: canSetPrivate, limit: null } },
+        },
+      });
       fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
       await screen.findByRole("heading", { name: /build your meme/i }, S2);
     }

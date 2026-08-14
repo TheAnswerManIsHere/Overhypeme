@@ -1,3 +1,11 @@
+import { isRealAdminRequest } from "../lib/adminIdentity";
+import {
+  getGridRevision,
+  principalFingerprint,
+  principalFromRequest,
+  resolveEntitlements,
+  toWireEntitlements,
+} from "../lib/featureAccess";
 import * as oidc from "openid-client";
 import * as Sentry from "@sentry/node";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -398,14 +406,67 @@ async function handleOAuthCallback(
 
 router.get("/auth/user", async (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-store");
+
+  // Entitlements ship as a SIBLING of user, populated for authenticated and
+  // anonymous callers alike. Nested inside the (nullable) user object they
+  // would be unreachable when logged out, which is exactly when the client
+  // would otherwise fall back to hardcoding.
+  //
+  // The payload and its version come from ONE resolution, so the two can never
+  // describe different instants.
+  const principal = principalFromRequest(req);
+  const { entitlements, gridRevision } = await resolveEntitlements(principal);
+  const entitlementVersion = {
+    gridRevision,
+    principalFingerprint: principalFingerprint(
+      principal,
+      req.isAuthenticated() ? req.user.id : null,
+    ),
+  };
+
   if (!req.isAuthenticated()) {
-    res.json(GetCurrentAuthUserResponse.parse({ user: null }));
+    res.json(GetCurrentAuthUserResponse.parse({
+      user: null,
+      entitlements: toWireEntitlements(entitlements),
+      entitlementVersion,
+    }));
     return;
   }
   // `req.user` is rebuilt from the database on every authenticated request by
   // authMiddleware, so it is the authoritative source of profile state. No
   // additional DB roundtrip needed here.
-  res.json(GetCurrentAuthUserResponse.parse({ user: req.user }));
+  res.json(GetCurrentAuthUserResponse.parse({
+    user: req.user,
+    entitlements: toWireEntitlements(entitlements),
+    entitlementVersion,
+  }));
+});
+
+/**
+ * The revalidation probe. The server resolver's cache has a TTL and the client
+ * payload is a snapshot taken at mount, so without this an open tab could hold
+ * a stale lock indefinitely.
+ *
+ * Never shared-cached: the response varies by tier, admin grant, and
+ * session-scoped view-as-user state, so a proxy caching it by URL could serve
+ * one principal's fingerprint to another — and that second client, seeing a
+ * fingerprint it doesn't recognise as its own change, may never converge.
+ *
+ * The fingerprint is derived from the same `req.user` this handler already has
+ * rebuilt from the database, so there is no extra query.
+ */
+router.get("/entitlements/version", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("Vary", "Cookie, Authorization");
+
+  const principal = principalFromRequest(req);
+  res.json({
+    gridRevision: await getGridRevision(),
+    principalFingerprint: principalFingerprint(
+      principal,
+      req.isAuthenticated() ? req.user.id : null,
+    ),
+  });
 });
 
 router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
@@ -424,14 +485,16 @@ router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
     return;
   }
 
-  const [dbUser] = await db
-    .select({ isAdmin: usersTable.isAdmin })
-    .from(usersTable)
-    .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
-    .limit(1);
-
-  const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
-  if (!isRealAdmin) {
+  // The canonical resolution, over all three grant mechanisms — the same one
+  // authMiddleware already computed for this request.
+  //
+  // This site used to run its own query and check `isAdmin || isAdminById(...)`,
+  // omitting the `isAdminByEmail(...)` clause. A bootstrap-email-only admin
+  // therefore passed every other gate in the system and then got a 403 from the
+  // one route that lets them LEAVE preview mode — defeating the no-lockout
+  // guarantee for exactly the account the bootstrap carve-out exists to
+  // protect, since no UI anywhere can turn the toggle back off once it is on.
+  if (!isRealAdminRequest(req)) {
     res.status(403).json({ error: "Not an admin" });
     return;
   }

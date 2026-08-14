@@ -1,3 +1,4 @@
+import { requireFeature } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { createHash } from "crypto";
@@ -34,8 +35,8 @@ import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
 import { quarantineImage } from "../lib/moderation/quarantine";
 import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
-import { requireLegendary } from "../middlewares/tierMiddleware";
-import { hasFeature } from "../lib/tierFeatures";
+import { principalFromRequest } from "../lib/featureAccess";
+import { resolveMemeDecisions } from "../lib/createMemeRecord";
 import { isAtLeastLegendary, deriveUserRole } from "../lib/userRole";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
@@ -299,8 +300,10 @@ router.post("/memes", async (req: Request, res: Response) => {
     }
   }
 
-  const dbTier = req.user.membershipTier ?? "unregistered";
-  const userRoleForPulid = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
+  // Resolved here, at submission time, from the request's principal — which is
+  // the only place "view as user" is visible. `createMemeRecord` applies these
+  // rather than re-deriving them.
+  const decisions = await resolveMemeDecisions(principalFromRequest(req));
 
   try {
     const result = await createMemeRecord({
@@ -315,8 +318,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       name: parsed.data.name,
       pronouns: parsed.data.pronouns,
       previewImageBase64: parsed.data.previewImageBase64,
-      resolvedRole: userRoleForPulid,
-      resolvedTier: dbTier,
+      decisions,
     });
 
     if (result.idempotent) {
@@ -1290,7 +1292,10 @@ router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (r
 });
 
 // POST /memes/ai/:factId/generate — legendary user triggers AI image generation for a fact
-router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request, res: Response) => {
+router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: Request, res: Response) => {
   const estimatedCostUsd = 0.04;
   const gate = enforceGovernance(req, res, {
     path: "meme",
@@ -1587,7 +1592,10 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
 
 // DELETE /memes/ai/:factId/image — hard-delete an AI background image slot (owner only)
 // Query params: gender (male|female|neutral), imageIndex (0-based)
-router.delete("/memes/ai/:factId/image", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/memes/ai/:factId/image", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: AuthenticatedRequest, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
@@ -1699,7 +1707,10 @@ function resolvePublicUrlForUpload_v2(uploadedObjectPath: string): string {
   return uploadedObjectPath;
 }
 
-router.post("/memes/ai/:factId/analyze-source", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/memes/ai/:factId/analyze-source", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
     if (isNaN(factId)) {
@@ -1743,7 +1754,10 @@ router.post("/memes/ai/:factId/analyze-source", requireLegendary, async (req: Au
   }
 });
 
-router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/memes/ai/:factId/generate-v2", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
     if (isNaN(factId)) {

@@ -1,3 +1,4 @@
+import { can, principalFromRequest } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, commentsTable, pendingReviewsTable } from "@workspace/db/schema";
@@ -333,11 +334,13 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   // completed onboarding (captchaVerified in session or persisted on user row).
   // Membership/admin/captcha state on `req.user` is always fresh from the
   // database (rebuilt by authMiddleware on every authenticated request).
-  const isAdmin = req.isAuthenticated() && !!req.user.isRealAdmin;
-  const isLegendary = req.isAuthenticated() && req.user.membershipTier === "legendary";
+  // The entitlement half is one resolver call; the onboarding half is an
+  // identity prerequisite and stays where it is. Splitting them this way is
+  // what lets an operator grant the bypass to another tier from the grid.
+  const hasBypassEntitlement = await can(principalFromRequest(req), "fact_submit_captcha_bypass");
   const isCaptchaVerified = req.isAuthenticated() && !!req.user.captchaVerified;
 
-  const captchaRequired = !isAdmin && !isLegendary && !isCaptchaVerified;
+  const captchaRequired = !hasBypassEntitlement && !isCaptchaVerified;
 
   if (captchaRequired) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {

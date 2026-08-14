@@ -493,9 +493,14 @@ loaded:
 - **The loop has a stopping rule, not just a convergence target (David,
   2026-08-05).** I track the finding count per round and **state the trend in
   every re-review request**. If a round returns **more** findings than the one
-  before it, I stop and reassess with David before starting another round — a
-  rising count means the artifact or the ceremony is wrong, not that I should
-  try harder. **I track the plan file's line count the same way and state it in
+  before it, I pause before any further round — **but the count is a tripwire
+  that forces classification, never a verdict on its own (David,
+  2026-08-13).** What the classification is, how findings bucket, and what
+  each bucket decides live in
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s stopping-rule
+  section — the shared contract, not restated here. My enactment: I run that
+  bucket sort at the pause, lead the check-in with the bucket mix, and David
+  decides from it. **I track the plan file's line count the same way and state it in
   the same breath (David, 2026-08-11)** — the growth tripwire in
   [`working-modes.md`](docs/ai-context/working-modes.md) fires at roughly +50%
   from round 1, and it is the tripwire a *falling* finding count hides. **When

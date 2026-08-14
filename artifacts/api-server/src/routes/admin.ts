@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -107,7 +107,22 @@ import {
   resolveFactEnrichmentSystemPrompt,
   hashPromptText,
 } from "../lib/factEnrichmentConfig";
-import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
+import {
+  acquireAdminPopulationLock,
+  assertAdminPopulationSurvives,
+  assertNotSelfDemotion,
+  crossesBootstrapBoundary,
+  reserveAccountForDeletion,
+  respondToGuardError,
+  type ReservationOutcome,
+} from "../lib/adminLockoutGuard";
+import { isReachableAdminSql, isRealAdminRow, isRealAdminSql } from "../lib/adminIdentity";
+import {
+  getAllTierFeatureMatrix,
+  setTierFeature,
+  UnknownFeatureError,
+  UnknownTierError,
+} from "../lib/featureAccess";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -290,6 +305,28 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     }
   }
 
+  // ── Lockout guards ──────────────────────────────────────────────────────
+  // Four mutation kinds can remove an admin's console access. Three are
+  // obvious; the fourth is an email change, because authMiddleware derives
+  // real-admin status partly FROM the email — so changing the last
+  // bootstrap-email-only admin's address removes their access without touching
+  // isAdmin or isActive, invisible to a guard scoped to the other three.
+  const demoting = updates.isAdmin === false;
+  const deactivating = updates.isActive === false;
+
+  // Self-demotion doesn't need the population lock or a DB read — `demoting`
+  // comes straight from the request body, so it can't be stale.
+  if (demoting) {
+    try {
+      // An admin may not remove their own admin flag. Checked before the
+      // population count, so the error names the real reason.
+      assertNotSelfDemotion(req.user?.id, id);
+    } catch (err) {
+      if (respondToGuardError(err, res)) return;
+      throw err;
+    }
+  }
+
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "No valid fields to update" });
     return;
@@ -317,7 +354,55 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     ? await refreshSourcesForReinstatement(id)
     : { complete: true, verifiedSourceIds: new Set<number>() };
 
-  const [updated] = await db.transaction(async (tx) => {
+  let updated;
+  try {
+    [updated] = await db.transaction(async (tx) => {
+    // The lock FIRST — before reading anything the removal decision depends
+    // on. Round 4 of PR #425's review found the email-crossing check reading
+    // the target's email/isAdmin before this transaction even opened: a
+    // concurrent admin-mutating transaction could change that row between the
+    // read and the lock, so the DECISION of whether to guard at all could be
+    // made from data that was already stale by the time it was used — not
+    // just the count afterward, which the lock already protected.
+    await acquireAdminPopulationLock(tx);
+
+    // A crossing alone isn't enough: if the target is ALSO a real admin via
+    // `is_admin` (or the env allowlist) before AND after this update, losing
+    // the bootstrap-email grant removes nothing — they're still reachable
+    // through the other mechanism. Round 2 of PR #425's review caught this:
+    // the boundary-crossing check alone would reject changing a genuinely
+    // multi-mechanism admin's email as `last_admin` even though nothing is
+    // actually being removed.
+    let emailCrossesBootstrap = false;
+    if (updates.email !== undefined) {
+      const [current] = await tx
+        .select({ id: usersTable.id, email: usersTable.email, isAdmin: usersTable.isAdmin })
+        .from(usersTable)
+        .where(eq(usersTable.id, id))
+        .limit(1);
+      if (current && crossesBootstrapBoundary(current.email, updates.email as string | null)) {
+        const nextIsAdmin =
+          updates.isAdmin !== undefined ? (updates.isAdmin as boolean) : current.isAdmin;
+        const wasAdmin = isRealAdminRow(current);
+        const willBeAdmin = isRealAdminRow({
+          id: current.id,
+          email: updates.email as string | null,
+          isAdmin: nextIsAdmin,
+        });
+        emailCrossesBootstrap = wasAdmin && !willBeAdmin;
+      }
+    }
+
+    const removesAdminAccess = demoting || deactivating || emailCrossesBootstrap;
+
+    // The lock, the count, and the write are ONE transaction. Splitting them
+    // leaves the race the guard exists to close: at READ COMMITTED two
+    // transactions removing DIFFERENT admin rows both read a count of two and
+    // both commit, because the rows they write don't overlap.
+    if (removesAdminAccess) {
+      await assertAdminPopulationSurvives(tx, id);
+    }
+
     const [row] = await tx
       .update(usersTable)
       .set(updates)
@@ -433,7 +518,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
 
     const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     return [fresh];
-  });
+    });
+  } catch (err) {
+    if (respondToGuardError(err, res)) return;
+    throw err;
+  }
 
   if (!updated) {
     res.status(404).json({ error: "User not found" });
@@ -454,7 +543,11 @@ router.get("/admin/administrators", requireAdmin, async (_req: Request, res: Res
       isActive: usersTable.isActive,
     })
     .from(usersTable)
-    .where(eq(usersTable.isAdmin, true))
+    // All three grant mechanisms, not the stored column alone. This listing is
+    // what an operator looks at to answer "how many admins do we have?" before
+    // demoting someone, so showing them a subset of the real population is
+    // exactly the wrong place to be approximate.
+    .where(isRealAdminSql())
     .orderBy(usersTable.displayName);
   res.json({ administrators: admins });
 });
@@ -465,13 +558,30 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
   const hard = req.query["hard"] === "true";
 
-  if (hard) {
-    // Verify the user exists before doing any cleanup work
-    const [userToDelete] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
-    if (!userToDelete) { res.status(404).json({ error: "User not found" }); return; }
+  // ── Reserve BEFORE any irreversible work ────────────────────────────────
+  // Both delete paths run object-storage deletion, Stripe cancellation, and
+  // session revocation before the DB mutation that removes admin access. A
+  // guard on the final write would reject the last-admin case correctly but
+  // only after the damage it exists to prevent — so the reservation
+  // (is_active = false, under the population lock) runs first, and an
+  // already-reserved target resumes rather than 404ing.
+  let reservation: ReservationOutcome;
+  try {
+    assertNotSelfDemotion(req.user?.id, id);
+    reservation = await reserveAccountForDeletion(id);
+  } catch (err) {
+    if (respondToGuardError(err, res)) return;
+    throw err;
+  }
+  if (reservation.status === "not_found") {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  const resuming = reservation.status === "resuming";
 
+  if (hard) {
     // stage tracks which logical phase is running so the UI can show accurate progress on error
-    type HardDeleteStage = "collect" | "membership" | "nullify" | "delete";
+    type HardDeleteStage = "reserve" | "collect" | "membership" | "nullify" | "delete";
     let currentStage: HardDeleteStage = "collect";
 
     try {
@@ -636,15 +746,22 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
       const sessionsRevoked = deletedSessions.length;
 
-      // Step 3: Mark user inactive
+      // Step 3: Confirm the deactivation the reservation already performed.
+      //
+      // The reservation above IS this write — it was moved ahead of the Stripe
+      // and session stages so the last-admin case is rejected before any
+      // irreversible work. What remains here is reading back the row, which
+      // deliberately no longer filters on `isActive = true`: that filter is
+      // what turned a resumed half-done deletion into a bogus 404.
       currentStage = "deactivate";
-      const [updated] = await db.update(usersTable)
-        .set({ isActive: false })
-        .where(and(eq(usersTable.id, id), eq(usersTable.isActive, true)))
-        .returning();
-      if (!updated) { res.status(404).json({ error: "User not found or already inactive", stage: currentStage }); return; }
+      const [updated] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, id))
+        .limit(1);
+      if (!updated) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
 
-      res.json({ success: true, deleted: false, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
+      res.json({ success: true, deleted: false, resumed: resuming, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
     } catch (e) {
       logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
       res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
@@ -2395,10 +2512,13 @@ router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Reque
 });
 
 router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+  // The canonical reachable-admin predicate, not the raw is_admin column —
+  // an env- or bootstrap-only admin was silently skipped by this bulk
+  // opt-in. Round 2 of PR #425's review caught this.
   const updated = await db
     .update(usersTable)
     .set({ adminNotifications: true })
-    .where(and(eq(usersTable.isAdmin, true), eq(usersTable.isActive, true)))
+    .where(isReachableAdminSql())
     .returning({ id: usersTable.id, email: usersTable.email, adminNotifications: usersTable.adminNotifications });
   res.json({ success: true, updated });
 });
@@ -3476,21 +3596,24 @@ router.patch("/admin/feature-flags", requireAdmin, async (req: Request, res: Res
     return;
   }
 
-  const [flag] = await db
-    .select({ key: featureFlagsTable.key })
-    .from(featureFlagsTable)
-    .where(eq(featureFlagsTable.key, featureKey))
-    .limit(1);
-
-  if (!flag) {
-    res.status(404).json({ error: "Feature flag not found" });
-    return;
+  // Validation lives in setTierFeature, server-side: the API is reachable
+  // directly, so a client-side constraint is not a control. The tier is checked
+  // against the real column set — it previously accepted any string, silently
+  // writing rows no resolver would ever read.
+  try {
+    const { gridRevision } = await setTierFeature(tier, featureKey, enabled, req.user?.id ?? null);
+    res.json({ tier, featureKey, enabled, gridRevision });
+  } catch (err) {
+    if (err instanceof UnknownFeatureError) {
+      res.status(404).json({ error: "Feature flag not found" });
+      return;
+    }
+    if (err instanceof UnknownTierError) {
+      res.status(400).json({ error: "Unknown tier", tier });
+      return;
+    }
+    throw err;
   }
-
-  await setTierFeature(tier, featureKey, enabled);
-  bustTierFeaturesCache();
-
-  res.json({ tier, featureKey, enabled });
 });
 
 router.post("/admin/_debug/sentry", requireAdmin, (req: Request, res: Response) => {
