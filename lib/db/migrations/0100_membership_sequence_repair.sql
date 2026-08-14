@@ -60,6 +60,25 @@
 -- production, where these sequences were never dropped (push --force reaches
 -- only the test database via pretest's TEST_DATABASE_URL redirect).
 --
+-- KNOWN, ACCEPTED GAP — membership_lease_fence_seq's repair specifically
+-- ---------------------------------------------------------------------
+-- The fence repair reconstructs "the highest fence ever issued" from
+-- MAX(fence) over CURRENTLY-PRESENT membership_leases rows. That table is not
+-- a history: releaseLease() deletes a scope's row outright on release, so a
+-- fence issued to a lease that was later released is invisible to this query.
+-- If the sequence is dropped and this repair only advances it to the visible
+-- max, it can eventually reissue that invisible fence to a new acquisition.
+-- acquireLease's default holder is one value per PROCESS (not per
+-- acquisition), so a stale, still-running process reacquiring the same scope
+-- could — by coincidence — receive its own old (holder, fence) pair again,
+-- and assertFenceHeld would accept it as live.
+--
+-- Accepted rather than fixed here: this only matters on an already-damaged
+-- TEST database (production is unaffected — see above), and requires a
+-- specific coincidence, not a trivial trigger. A durable high-water-mark
+-- record would close it exactly but is new schema, not a fix to this
+-- migration's logic — tracked as issue #436 rather than expanded here.
+--
 -- Idempotent, non-destructive, safe to replay, and it never renumbers a row or
 -- writes table data. Each block reports whether it repaired or left the sequence
 -- alone, so the two outcomes are distinguishable in the migration output rather

@@ -99,6 +99,7 @@ declare -a CREATED_DBS=()       # worker databases (per-DB mode)
 declare -a CREATED_SCHEMAS=()   # worker schemas (schema mode)
 declare -A FAILED_OBJ=()        # name -> 1 for objects whose worker failed
 declare -a WORKER_PIDS=()       # live worker node PIDs (for signal cleanup)
+declare -a PREFIX_PIDS=()       # live shard-prefixer (sed) PIDs (for signal cleanup)
 FIFO_DIR=""                     # holds the per-shard log-prefixing FIFOs
 cleanup_dropped=0
 cleanup_retained=0
@@ -112,6 +113,15 @@ do_cleanup() {
   # otherwise reconnect to their database and block the DROP below.
   local p
   for p in "${WORKER_PIDS[@]:-}"; do
+    [ -n "$p" ] && kill -KILL "$p" 2>/dev/null || true
+  done
+  # Also kill any live prefixer (sed). Killing a worker whose write end is open
+  # sends its reader EOF, so this is normally a no-op — but a prefixer whose
+  # reader is still blocked in open(), waiting for a writer that was signalled
+  # away before it ever started (or never even spawned, mid-loop), would
+  # otherwise hang forever: removing the FIFO_DIR below only unlinks the
+  # directory entry, it does not wake a process blocked opening it.
+  for p in "${PREFIX_PIDS[@]:-}"; do
     [ -n "$p" ] && kill -KILL "$p" 2>/dev/null || true
   done
   local keep="${KEEP_TEST_DBS:-}"
@@ -181,7 +191,7 @@ declare -a WORKER_OBJS=()
 # A FIFO gives both PIDs separately: node's for the exit status and the signal
 # kill, the prefixer's to wait on for a complete drain.
 launch_and_wait() {
-  local pids=() prefix_pids=() k url fifo; local -A pid_obj=()
+  local pids=() k url fifo; local -A pid_obj=()
   FIFO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shard_prefix_XXXXXX")"
   for (( k=1; k<=shards; k++ )); do
     url="${WORKER_URLS[$k]}"
@@ -190,18 +200,25 @@ launch_and_wait() {
     # Start the reader first: opening a FIFO for reading blocks until a writer
     # appears, so this parks harmlessly until run_files opens the write end.
     sed -u "s|^|[shard ${k}/${shards}] |" < "$fifo" &
-    prefix_pids+=("$!")
+    # Published to the GLOBAL array immediately, not batched after the loop: a
+    # signal arriving mid-loop (after this shard's reader/writer spawn but
+    # before the last shard's) must still find every already-spawned PID in
+    # do_cleanup's kill list. Batching via a local array and assigning it to
+    # WORKER_PIDS only once the whole loop finished left exactly that window
+    # uncovered — do_cleanup would kill nothing from a signal caught mid-loop,
+    # and could rm -rf FIFO_DIR out from under a still-blocked-open reader.
+    PREFIX_PIDS+=("$!")
     run_files "$url" "$iso" -- --test-shard="${k}/${shards}" "$GLOB" > "$fifo" 2>&1 &
     pids+=("$!"); pid_obj[$!]="${WORKER_OBJS[$k]}"
+    WORKER_PIDS+=("$!")
   done
-  WORKER_PIDS=("${pids[@]}")
   local overall=0 pid
   for pid in "${pids[@]}"; do
     if ! wait "$pid"; then overall=1; FAILED_OBJ["${pid_obj[$pid]}"]=1; fi
   done
   # Every writer has exited, so each prefixer now sees EOF. Waiting here means
   # all shard output has been flushed before the caller logs the run result.
-  for pid in "${prefix_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+  for pid in "${PREFIX_PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
   return "$overall"
 }
 

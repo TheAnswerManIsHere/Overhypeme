@@ -53,9 +53,14 @@ INSERT INTO entitlement_grid_revision (id, revision) VALUES (1, 0)
 --> statement-breakpoint
 
 -- ── 3. The backfill's observable outcome ────────────────────────────────────
--- The canonical runner ignores statement result rows, installs no notice
--- handler, and skips an already-applied migration by hash — so an in-migration
--- SELECT or RAISE NOTICE is invisible on a normal run.
+-- The canonical runner (lib/db/src/migrate.ts) ignores statement result rows,
+-- and skips an already-applied migration by hash, so an in-migration SELECT is
+-- always invisible on a normal run. As of migration 0100 the runner DOES
+-- install a NOTICE listener for the duration of each migrate() call, so a
+-- RAISE NOTICE now reaches the console log — but that is a transient, run-time
+-- log line, not a durable record: nothing persists it, nothing can query it
+-- after the fact, and it exists only in whatever process happened to run the
+-- migration. This table is what makes the outcome durable and queryable.
 CREATE TABLE IF NOT EXISTS feature_permissions_migration_log (
   id serial PRIMARY KEY,
   migration_name varchar(200) NOT NULL,
