@@ -23,9 +23,14 @@ import {
   adminConfigTable,
   userGenerationCostsTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 
-import { checkBudget, recordCost } from "../lib/budgetGate.js";
+import {
+  BudgetExceededError,
+  BudgetGateError,
+  checkBudget,
+  recordCost,
+} from "../lib/budgetGate.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
 
@@ -407,5 +412,144 @@ describe("recordCost", () => {
     const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, false);
     assert.equal(Math.round(status.currentSpend * 100) / 100, 0.45);
+  });
+});
+
+// ── #409: the gate fails CLOSED ───────────────────────────────────────────────
+//
+// `checkBudget` used to return `{ allowed: true, limit: Infinity }` from its
+// own catch, so any internal error lifted the spend ceiling entirely. These
+// tests pin the corrected behaviour under two independent failure injections
+// — the spend-ledger read (below) and the admin_config read (further down,
+// which round 1 of this PR's own review found was a second, narrower path to
+// the same fail-open shape).
+//
+// The three callers (`aiMemePipeline.ts` x2, `routes/videos.ts`) each keep
+// their pricing lookup and their `checkBudget` call in separate `catch`
+// scopes, inline — round 1 also found that a *shared* helper for this was
+// itself a new-abstraction Tier C trigger, so the separation is enforced by
+// code shape at each call site rather than by one function this file can
+// unit-test directly.
+
+/**
+ * Run `fn` while the spend-ledger table is renamed out from under the gate, so
+ * its ledger query raises a real "relation does not exist" error — the closest
+ * faithful stand-in for the transient database failure this bug is about.
+ *
+ * Safe under the sharded runner: each shard owns its own database and runs its
+ * files serially (`--test-concurrency=1 --test-isolation=none`), and the
+ * rename is always reversed in `finally`.
+ */
+async function withBrokenLedgerTable<T>(fn: () => Promise<T>): Promise<T> {
+  await db.execute(sql`ALTER TABLE user_generation_costs RENAME TO user_generation_costs_409tmp`);
+  try {
+    return await fn();
+  } finally {
+    await db.execute(sql`ALTER TABLE user_generation_costs_409tmp RENAME TO user_generation_costs`);
+  }
+}
+
+describe("checkBudget — fails closed on internal error (#409)", () => {
+  it("throws BudgetGateError instead of granting unlimited spend", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    await withBrokenLedgerTable(async () => {
+      await assert.rejects(
+        () => checkBudget(userId, 0.01),
+        (err: unknown) => {
+          assert.ok(
+            err instanceof BudgetGateError,
+            `expected BudgetGateError, got ${String(err)}`,
+          );
+          return true;
+        },
+      );
+    });
+  });
+
+  it("does not resolve to an allowed status when the lookup fails", async () => {
+    // The precise shape of the old bug: a resolved value whose `allowed` was
+    // true and whose `limit` was Infinity. Asserting on rejection alone would
+    // still pass if some future change reintroduced a permissive fallback, so
+    // this pins that no allowed status is produced at all.
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    await withBrokenLedgerTable(async () => {
+      const outcome = await checkBudget(userId, 0.01).then(
+        (status) => ({ resolved: true as const, status }),
+        () => ({ resolved: false as const }),
+      );
+      assert.equal(outcome.resolved, false, "checkBudget must not resolve when it cannot determine spend");
+    });
+  });
+});
+
+// Round 1 of #409's own review found a second fail-open path: `checkBudget`'s
+// outer catch only fires for errors that escape its try block, but
+// `getConfigString`/`getConfigFloat` swallow their own read failures and
+// return the code default instead of throwing — so a transient failure while
+// reading the operator's configured limits never reached the new catch at
+// all, and checkBudget would silently price the request against the $0.50/
+// $10 code defaults instead of genuinely refusing. Fixed by reading the
+// three budget configs via their `WithSource` variants and treating a
+// `fallback_default` source (read failed) as a gate failure.
+describe("checkBudget — a config-READ failure also fails closed (#409 round 1)", () => {
+  it("throws BudgetGateError when admin_config itself is unreadable, not just the ledger", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    try {
+      await assert.rejects(
+        () => checkBudget(userId, 0.01),
+        (err: unknown) => {
+          assert.ok(
+            err instanceof BudgetGateError,
+            `expected BudgetGateError, got ${String(err)}`,
+          );
+          return true;
+        },
+      );
+    } finally {
+      await db.execute(sql`ALTER TABLE admin_config_409tmp RENAME TO admin_config`);
+      bustConfigCache();
+    }
+  });
+
+  it("does not silently substitute the code defaults for the operator's real limit", async () => {
+    // Same failure, asserted the other way: no allowed/denied answer at all
+    // should come out of a config-read failure, computed against the wrong
+    // limit or otherwise. A resolved status here — of either polarity —
+    // means the failure was silently absorbed rather than denied.
+    await setStandardLimits({ registeredUsd: 0.50 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    try {
+      const outcome = await checkBudget(userId, 0.01).then(
+        (status) => ({ resolved: true as const, status }),
+        () => ({ resolved: false as const }),
+      );
+      assert.equal(outcome.resolved, false, "checkBudget must not resolve when its config read fails");
+    } finally {
+      await db.execute(sql`ALTER TABLE admin_config_409tmp RENAME TO admin_config`);
+      bustConfigCache();
+    }
+  });
+
+  it("admins stay exempt even when the config read fails — they never need the limit", async () => {
+    const userId = await createTestUser({ isAdmin: true });
+
+    await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    try {
+      const status = await checkBudget(userId, 99999);
+      assert.equal(status.allowed, true);
+      assert.equal(status.limit, Infinity);
+    } finally {
+      await db.execute(sql`ALTER TABLE admin_config_409tmp RENAME TO admin_config`);
+      bustConfigCache();
+    }
   });
 });

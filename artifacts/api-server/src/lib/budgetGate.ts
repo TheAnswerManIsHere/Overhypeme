@@ -2,14 +2,19 @@
  * Budget Gate
  *
  * Pre-generation budget check and post-generation cost ledger recording.
- * Never throws — the caller decides how to handle a denied request.
  * All limits come from the admin_config table, never from hardcoded values.
+ *
+ * `checkBudget` FAILS CLOSED: if the check itself cannot complete, it throws
+ * `BudgetGateError` rather than granting the generation. It previously
+ * returned `{ allowed: true, limit: Infinity }` on any internal error, which
+ * lifted the spend ceiling for the duration of a database hiccup and made it
+ * the only permission function in this codebase that failed open (#409).
  */
 
 import { db } from "@workspace/db";
 import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { getConfigString, getConfigFloat } from "./adminConfig";
+import { getConfigStringWithSource } from "./adminConfig";
 import { logger } from "./logger";
 import { effectiveTierExpr } from "./membershipState";
 import { isRealAdminRow } from "./adminIdentity";
@@ -36,6 +41,26 @@ export class BudgetExceededError extends Error {
   }
 }
 
+/**
+ * Thrown when the budget check itself could not complete — a config read,
+ * tier lookup, or ledger sum failed.
+ *
+ * This is NOT "you are out of budget"; it means we could not determine
+ * whether you are. Callers must deny the generation and surface a retry-able
+ * error, and must never conflate it with `BudgetExceededError`, which is a
+ * definitive over-limit answer that should send the user to the upgrade path.
+ *
+ * The message is deliberately user-safe and carries no internals: it reaches
+ * end users verbatim through the async job paths, which surface `err.message`
+ * as the failure reason. The underlying error travels in `cause` for logs.
+ */
+export class BudgetGateError extends Error {
+  constructor(cause: unknown) {
+    super("Budget check unavailable. Please try again.", { cause });
+    this.name = "BudgetGateError";
+  }
+}
+
 export interface RecordCostParams {
   userId: string;
   jobType: "image" | "video";
@@ -58,24 +83,41 @@ function getPeriodStart(budgetPeriod: string): Date {
 }
 
 /**
+ * Resolve a numeric budget limit via `getConfigStringWithSource`, throwing
+ * when the read itself failed rather than silently substituting the code
+ * default. Private to this module — not a new export, per the round-3
+ * finding that `getConfigFloatWithSource` was itself a Tier C new-abstraction
+ * trigger despite mirroring an existing pattern.
+ *
+ * A non-numeric stored value degrades to `defaultValue` exactly as
+ * `getConfigFloat` always has — that is a corrupted row, not a failed read,
+ * and preserving that existing behavior is deliberate, not an omission.
+ */
+async function resolveBudgetFloat(
+  key: string,
+  defaultValue: number,
+  userId: string,
+): Promise<number> {
+  const res = await getConfigStringWithSource(key, String(defaultValue));
+  if (res.source === "fallback_default") {
+    throw new Error(`admin_config read failed while resolving ${key} for user ${userId}`);
+  }
+  const parsed = parseFloat(res.value);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
  * Check whether a user has budget remaining for a proposed generation cost.
  *
- * Returns a BudgetStatus object — never throws.
- * On any error, fails open (allowed: true) with a warning so a DB hiccup
- * doesn't block all generation.
+ * Fails CLOSED: throws `BudgetGateError` if the check cannot complete.
+ * Determining spend is a precondition for spending money, so a gate that
+ * cannot answer denies rather than grants.
  */
 export async function checkBudget(
   userId: string,
   proposedCostUsd: number,
 ): Promise<BudgetStatus> {
   try {
-    // Fetch config values
-    const [budgetPeriod, registeredLimitStr, legendaryLimitStr] = await Promise.all([
-      getConfigString("budget_period", "monthly"),
-      getConfigFloat("budget_limit_registered_usd", 0.50),
-      getConfigFloat("budget_limit_legendary_usd", 10.00),
-    ]);
-
     // Look up user tier and per-user override
     const [user] = await db
       // Effective tier: this decides which SPENDING limit applies, from its
@@ -97,10 +139,33 @@ export async function checkBudget(
     // regular user. Round 2 of PR #425's review caught this.
     const isAdmin = !!user && isRealAdminRow(user);
 
-    // Admins are exempt from budget limits
+    // Admins are exempt from budget limits — resolved before any config read,
+    // so a transient config-read failure never denies an admin who doesn't
+    // need the limit at all.
     if (isAdmin) {
       return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
     }
+
+    // Fetch config values WITH provenance: `fallback_default` means the read
+    // itself failed, not that the key is legitimately unset. A non-admin's
+    // limit must come from a real read or a real intentional default — never
+    // silently from the emergency code default, which could be far more
+    // permissive than what the operator actually configured (#409 round 1).
+    // `resolveBudgetFloat` reuses the existing `getConfigStringWithSource`
+    // rather than adding a float-typed sibling export — a new abstraction is
+    // a Tier C trigger regardless of how closely it mirrors an existing one
+    // (#409 round 3, the same class of finding as `gateGeneration`).
+    const [budgetPeriodRes, registeredLimit, legendaryLimit] = await Promise.all([
+      getConfigStringWithSource("budget_period", "monthly"),
+      resolveBudgetFloat("budget_limit_registered_usd", 0.50, userId),
+      resolveBudgetFloat("budget_limit_legendary_usd", 10.00, userId),
+    ]);
+    if (budgetPeriodRes.source === "fallback_default") {
+      throw new Error(`admin_config read failed while resolving budget_period for user ${userId}`);
+    }
+    const budgetPeriod = budgetPeriodRes.value;
+    const registeredLimitStr = registeredLimit;
+    const legendaryLimitStr = legendaryLimit;
 
     const globalLimit = tier === "legendary" ? legendaryLimitStr : registeredLimitStr;
     const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null
@@ -109,7 +174,7 @@ export async function checkBudget(
     const limit = (perUserOverride !== null && !isNaN(perUserOverride))
       ? perUserOverride
       : globalLimit;
-    const periodStart = getPeriodStart(budgetPeriod as string);
+    const periodStart = getPeriodStart(budgetPeriod);
 
     // Sum spend for this user in the current period
     const [{ total }] = await db
@@ -126,9 +191,9 @@ export async function checkBudget(
 
     return { allowed, currentSpend, limit, remainingBudget };
   } catch (err) {
-    logger.warn({ err }, "[budgetGate] checkBudget error — failing open");
-    // Fail open: don't block generation if the gate itself errors
-    return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
+    // Fail closed (#409). A gate that cannot determine spend must not grant it.
+    logger.error({ err, userId }, "[budgetGate] checkBudget failed — denying generation");
+    throw new BudgetGateError(err);
   }
 }
 

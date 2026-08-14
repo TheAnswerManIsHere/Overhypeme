@@ -22,7 +22,7 @@ import { getConfigInt, getConfigString } from "./adminConfig";
 import { getScenePromptSystem } from "./scenePromptConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
-import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
+import { BudgetExceededError, checkBudget, recordCost } from "./budgetGate";
 import { logger } from "./logger";
 import { applyFalSafetyTolerance, assertNoFalNsfwConcepts, FalSafetyTriggeredError } from "./moderation/falSafety";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
@@ -221,17 +221,24 @@ async function generateAndStoreImage(
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedImgPrice: CachedPrice | null = null;
   if (userId) {
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
     try {
       const price = await getCachedPrice(model);
-      cachedImgPrice = price;
       const { width, height } = resolveImageSizePx(imageSize);
-      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
-      const budget = await checkBudget(userId, costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
+      const costUsd = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      priced = { price, costUsd };
     } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      // Pricing unavailable — fail open, log and continue
-      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped");
+      // Pricing unavailable — fail open, log and continue. Deliberately its
+      // own catch, separate from the gate call below: a gate failure must
+      // never be swallowed here as if it were a pricing miss (#409).
+      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped (pricing unavailable)");
+    }
+    if (priced) {
+      // Deliberately outside the catch above (#409): a gate failure is not a
+      // pricing failure, and must propagate rather than be swallowed.
+      const budget = await checkBudget(userId, priced.costUsd);
+      if (!budget.allowed) throw new BudgetExceededError(budget);
+      cachedImgPrice = priced.price;
     }
   }
 
@@ -460,16 +467,24 @@ async function generateAndStoreImageFromReference(
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedRefPrice: CachedPrice | null = null;
   if (userId) {
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
     try {
       const price = await getCachedPrice(model);
-      cachedRefPrice = price;
       const { width, height } = resolveImageSizePx(imageSize);
-      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
-      const budget = await checkBudget(userId, costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
+      const costUsd = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      priced = { price, costUsd };
     } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped for ref model");
+      // Pricing unavailable — fail open, log and continue. Deliberately its
+      // own catch, separate from the gate call below: a gate failure must
+      // never be swallowed here as if it were a pricing miss (#409).
+      logger.warn({ err, model, path: "reference" }, "[aiMemePipeline] Budget gate skipped (pricing unavailable)");
+    }
+    if (priced) {
+      // Deliberately outside the catch above (#409): a gate failure is not a
+      // pricing failure, and must propagate rather than be swallowed.
+      const budget = await checkBudget(userId, priced.costUsd);
+      if (!budget.allowed) throw new BudgetExceededError(budget);
+      cachedRefPrice = priced.price;
     }
   }
 

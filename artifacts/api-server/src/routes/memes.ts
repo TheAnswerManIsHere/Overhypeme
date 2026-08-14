@@ -30,7 +30,7 @@ import { resolveStoredMemeCaption } from "../lib/memeComposite";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
 import { memeKey } from "../lib/storageKeys";
-import { BudgetExceededError } from "../lib/budgetGate";
+import { BudgetExceededError, BudgetGateError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
 import { quarantineImage } from "../lib/moderation/quarantine";
 import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
@@ -1307,6 +1307,16 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
   if (!gate.ok) return;
   const governanceStartedAt = Date.now();
   let governanceFailed = false;
+  // A budget-gate refusal (429/503, both below) is a pre-provider refusal —
+  // fal was never called. `completeGovernance`'s circuit breaker attributes
+  // any non-2xx response here to the fal provider, so without this flag three
+  // budget-gate refusals in a row (a database hiccup, not a fal outage) would
+  // open the circuit and reject unrelated users' real fal calls for 60s
+  // (#409 round 3). Scoped to the budget branches specifically — moderation/
+  // no-face/generic failures below DO originate from an actual fal call and
+  // are correctly attributed as-is; widening this further is a pre-existing,
+  // separate concern outside #409's scope.
+  let budgetGateRefusal = false;
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
@@ -1466,6 +1476,7 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
       });
     } catch (err) {
       if (err instanceof BudgetExceededError) {
+        budgetGateRefusal = true;
         res.status(429).json({
           error: "BUDGET_EXCEEDED",
           currentSpend: err.budgetStatus.currentSpend,
@@ -1473,6 +1484,10 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
           remainingBudget: err.budgetStatus.remainingBudget,
           upgradePath: err.upgradePath,
         });
+      } else if (err instanceof BudgetGateError) {
+        // Retry-able: the gate could not answer, so this is not a 429 (#409).
+        budgetGateRefusal = true;
+        res.status(503).json({ error: err.message });
       } else if (err instanceof ModerationRejectedError) {
         res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
       } else if (isNoFaceError(err)) {
@@ -1558,7 +1573,13 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
     completeGovernance(req, {
       provider: "fal",
       latencyMs: Date.now() - governanceStartedAt,
-      failed: governanceFailed || res.statusCode >= 400,
+      failed: !budgetGateRefusal && (governanceFailed || res.statusCode >= 400),
+      // A budget-gate refusal never reached fal at all — `failed: false`
+      // alone would still report it as a successful provider completion,
+      // resetting the fail streak and polluting the latency average with the
+      // DB check's timing. skipProviderHealth omits it from fal's health
+      // tracking entirely (#409 round 4) — see the flag's own comment above.
+      skipProviderHealth: budgetGateRefusal,
       actualCostUsd: !governanceFailed && res.statusCode < 400 ? estimatedCostUsd : 0,
       responseStatus: res.statusCode,
       idempotencyKey: gate.idempotencyKey,
