@@ -988,21 +988,25 @@ it lives here rather than in the shared docs.
   is no `turnId`-keyed status-check call in this connector; re-invoking
   with a new prompt is the *only* thing the tool lets me do, and it always
   reads as a new request to Replit, not a poll.
-  - **The fix:** call `update_app_using_prompt` once per actual request —
-    its return value never carries the answer text, so no amount of
-    re-polling fixes that. **For a live-state fact that matters (a SHA, a
-    clean-tree check, a log line, a post-merge verification) — the exact
-    class the accuracy caveat below already bans `ask_question` from
-    serving as evidence for — don't route it to `ask_question` either.**
-    The reliable path is a human-visible executed result: ask David to
-    glance at the Repl's own Git/console pane (what actually resolved the
-    PR #434/#438 close-out), or fold the check into a TEST_RUN doc where
-    Replit runs and reports it. `ask_question`'s synchronous-answer
-    property only makes it the *right shape* of tool for this — it's still
-    the *wrong evidence source* for it, same as before. Reserve
-    `ask_question` for explanatory, non-live-state triage ("why is this
-    failing," "what does this code do") where a wrong answer is merely
-    unhelpful, not a false verification.
+  - **The fix:** call `update_app_using_prompt` once, then check back with a
+    reasonable gap instead of firing immediately again — its return value
+    never carries the answer text mid-flight, so a rapid re-check just
+    finds it still `"updating"` regardless of whether Replit has actually
+    answered. **For a live-state fact that matters (a SHA, a clean-tree
+    check, a log line, a post-merge verification) — the exact class the
+    accuracy caveat below already bans `ask_question` from serving as
+    evidence for — don't route it to `ask_question` either**; its
+    synchronous-answer property makes it the right *shape* of tool for
+    retrieving text, not the right *evidence source* for a fact that needs
+    to be true. **Close-out verification stays mine to own and report, per
+    the close-out contract below — it does not default to asking David to
+    check for me.** If a spaced-out follow-up still doesn't surface the
+    answer, that is a real connector gap, not a routine dead end: say so
+    plainly as a blocker rather than quietly substituting "ask David to
+    look" as the standing workaround. Reserve `ask_question` for
+    explanatory, non-live-state triage ("why is this failing," "what does
+    this code do") where a wrong answer is merely unhelpful, not a false
+    verification.
   - **Never fire near-identical re-checks in a loop.** Each one is a real,
     separately-billed agent turn on Replit's side for zero information
     gained on mine — the six calls in the PR #434/#438 close-out cost real
