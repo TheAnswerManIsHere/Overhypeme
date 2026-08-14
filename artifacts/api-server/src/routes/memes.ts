@@ -1573,9 +1573,13 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
     completeGovernance(req, {
       provider: "fal",
       latencyMs: Date.now() - governanceStartedAt,
-      // Excludes a budget-gate refusal from the fal-provider failure count
-      // (#409 round 3) — see the flag's own comment above for why.
       failed: !budgetGateRefusal && (governanceFailed || res.statusCode >= 400),
+      // A budget-gate refusal never reached fal at all — `failed: false`
+      // alone would still report it as a successful provider completion,
+      // resetting the fail streak and polluting the latency average with the
+      // DB check's timing. skipProviderHealth omits it from fal's health
+      // tracking entirely (#409 round 4) — see the flag's own comment above.
+      skipProviderHealth: budgetGateRefusal,
       actualCostUsd: !governanceFailed && res.statusCode < 400 ? estimatedCostUsd : 0,
       responseStatus: res.statusCode,
       idempotencyKey: gate.idempotencyKey,
