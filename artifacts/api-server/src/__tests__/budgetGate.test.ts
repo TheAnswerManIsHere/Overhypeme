@@ -22,7 +22,6 @@ import {
   usersTable,
   adminConfigTable,
   userGenerationCostsTable,
-  falPricingCacheTable,
 } from "@workspace/db/schema";
 import { eq, like, sql } from "drizzle-orm";
 
@@ -30,7 +29,6 @@ import {
   BudgetExceededError,
   BudgetGateError,
   checkBudget,
-  gateGeneration,
   recordCost,
 } from "../lib/budgetGate.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
@@ -421,35 +419,17 @@ describe("recordCost", () => {
 //
 // `checkBudget` used to return `{ allowed: true, limit: Infinity }` from its
 // own catch, so any internal error lifted the spend ceiling entirely. These
-// tests pin the corrected behaviour AND the property that made the original
-// bug survivable by its own fix: every caller wrapped the pricing lookup and
-// the gate call in one `try`, so a newly-throwing `checkBudget` would have
-// been swallowed by the handler that already swallowed pricing failures.
-
-/** Endpoint id used by the gate tests; priced directly so no network is hit. */
-const GATE_TEST_ENDPOINT = "fal-ai/test/budgetGate-409";
-
-/** Seed a fresh price so `getCachedPrice` resolves from cache, never the API. */
-async function seedFreshPrice(): Promise<void> {
-  await db
-    .insert(falPricingCacheTable)
-    .values({
-      endpointId: GATE_TEST_ENDPOINT,
-      unitPrice: "0.010000",
-      unit: "image",
-      fetchedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: falPricingCacheTable.endpointId,
-      set: { unitPrice: "0.010000", unit: "image", fetchedAt: new Date() },
-    });
-}
-
-async function deleteSeededPrice(): Promise<void> {
-  await db
-    .delete(falPricingCacheTable)
-    .where(eq(falPricingCacheTable.endpointId, GATE_TEST_ENDPOINT));
-}
+// tests pin the corrected behaviour under two independent failure injections
+// — the spend-ledger read (below) and the admin_config read (further down,
+// which round 1 of this PR's own review found was a second, narrower path to
+// the same fail-open shape).
+//
+// The three callers (`aiMemePipeline.ts` x2, `routes/videos.ts`) each keep
+// their pricing lookup and their `checkBudget` call in separate `catch`
+// scopes, inline — round 1 also found that a *shared* helper for this was
+// itself a new-abstraction Tier C trigger, so the separation is enforced by
+// code shape at each call site rather than by one function this file can
+// unit-test directly.
 
 /**
  * Run `fn` while the spend-ledger table is renamed out from under the gate, so
@@ -506,28 +486,24 @@ describe("checkBudget — fails closed on internal error (#409)", () => {
   });
 });
 
-describe("gateGeneration — pricing and gate failures are different events (#409)", () => {
-  afterEach(async () => {
-    await deleteSeededPrice();
-  });
-
-  it("propagates a gate failure rather than swallowing it as a pricing miss", async () => {
-    // The regression that matters most: pricing SUCCEEDS here, so the only way
-    // to reach a null return is for the gate's error to be caught by the
-    // pricing handler — which is exactly the bug this fix removes.
+// Round 1 of #409's own review found a second fail-open path: `checkBudget`'s
+// outer catch only fires for errors that escape its try block, but
+// `getConfigString`/`getConfigFloat` swallow their own read failures and
+// return the code default instead of throwing — so a transient failure while
+// reading the operator's configured limits never reached the new catch at
+// all, and checkBudget would silently price the request against the $0.50/
+// $10 code defaults instead of genuinely refusing. Fixed by reading the
+// three budget configs via their `WithSource` variants and treating a
+// `fallback_default` source (read failed) as a gate failure.
+describe("checkBudget — a config-READ failure also fails closed (#409 round 1)", () => {
+  it("throws BudgetGateError when admin_config itself is unreadable, not just the ledger", async () => {
     await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
-    await seedFreshPrice();
 
-    await withBrokenLedgerTable(async () => {
+    await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    try {
       await assert.rejects(
-        () =>
-          gateGeneration({
-            userId,
-            endpointId: GATE_TEST_ENDPOINT,
-            computeCostUsd: () => 0.01,
-            logPrefix: "[test]",
-          }),
+        () => checkBudget(userId, 0.01),
         (err: unknown) => {
           assert.ok(
             err instanceof BudgetGateError,
@@ -536,62 +512,44 @@ describe("gateGeneration — pricing and gate failures are different events (#40
           return true;
         },
       );
-    });
+    } finally {
+      await db.execute(sql`ALTER TABLE admin_config_409tmp RENAME TO admin_config`);
+      bustConfigCache();
+    }
   });
 
-  it("still fails open on a pricing miss, returning null without gating", async () => {
-    // The deliberate, pre-existing fail-open this fix leaves untouched: an
-    // unknown price skips the gate rather than denying. Pinned so the two
-    // failure modes can't silently collapse back into one.
+  it("does not silently substitute the code defaults for the operator's real limit", async () => {
+    // Same failure, asserted the other way: no allowed/denied answer at all
+    // should come out of a config-read failure, computed against the wrong
+    // limit or otherwise. A resolved status here — of either polarity —
+    // means the failure was silently absorbed rather than denied.
     await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
 
-    const result = await gateGeneration({
-      userId,
-      endpointId: "fal-ai/test/budgetGate-409-unpriced",
-      computeCostUsd: () => 0.01,
-      logPrefix: "[test]",
-    });
-    assert.equal(result, null);
+    await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    try {
+      const outcome = await checkBudget(userId, 0.01).then(
+        (status) => ({ resolved: true as const, status }),
+        () => ({ resolved: false as const }),
+      );
+      assert.equal(outcome.resolved, false, "checkBudget must not resolve when its config read fails");
+    } finally {
+      await db.execute(sql`ALTER TABLE admin_config_409tmp RENAME TO admin_config`);
+      bustConfigCache();
+    }
   });
 
-  it("throws BudgetExceededError when the user is genuinely over budget", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
-    await insertCost(userId, 0.49);
-    await seedFreshPrice();
+  it("admins stay exempt even when the config read fails — they never need the limit", async () => {
+    const userId = await createTestUser({ isAdmin: true });
 
-    await assert.rejects(
-      () =>
-        gateGeneration({
-          userId,
-          endpointId: GATE_TEST_ENDPOINT,
-          computeCostUsd: () => 0.10,
-          logPrefix: "[test]",
-        }),
-      (err: unknown) => {
-        assert.ok(
-          err instanceof BudgetExceededError,
-          `expected BudgetExceededError, got ${String(err)}`,
-        );
-        return true;
-      },
-    );
-  });
-
-  it("returns the resolved price and cost when the generation is allowed", async () => {
-    await setStandardLimits({ registeredUsd: 0.50 });
-    const userId = await createTestUser({ tier: "registered" });
-    await seedFreshPrice();
-
-    const result = await gateGeneration({
-      userId,
-      endpointId: GATE_TEST_ENDPOINT,
-      computeCostUsd: (price) => price.unitPrice * 2,
-      logPrefix: "[test]",
-    });
-    assert.ok(result, "expected the gate to allow and return a price");
-    assert.equal(result.costUsd, 0.02);
-    assert.equal(result.price.unitPrice, 0.01);
+    await db.execute(sql`ALTER TABLE admin_config RENAME TO admin_config_409tmp`);
+    try {
+      const status = await checkBudget(userId, 99999);
+      assert.equal(status.allowed, true);
+      assert.equal(status.limit, Infinity);
+    } finally {
+      await db.execute(sql`ALTER TABLE admin_config_409tmp RENAME TO admin_config`);
+      bustConfigCache();
+    }
   });
 });

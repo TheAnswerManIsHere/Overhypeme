@@ -168,6 +168,40 @@ export async function getConfigFloat(key: string, defaultValue: number): Promise
   }
 }
 
+export interface ConfigFloatResolution {
+  value: number;
+  source: ConfigStringSource;
+}
+
+/**
+ * Like `getConfigFloat`, but also reports WHICH source produced the value —
+ * the float counterpart of `getConfigStringWithSource`, same precedent, same
+ * reason: a provenance-sensitive caller needs to tell "the DB read failed" apart
+ * from "no row exists, this default is intentional." Used by `checkBudget` for
+ * exactly that (#409 round 1) — a config-read failure must deny the spend gate,
+ * not silently price it against the emergency code default.
+ */
+export async function getConfigFloatWithSource(
+  key: string,
+  defaultValue: number,
+): Promise<ConfigFloatResolution> {
+  try {
+    const { byKey } = await loadAll();
+    const row = byKey.get(key);
+    if (!row) return { value: defaultValue, source: "code_default" };
+    const debugActive = byKey.get("debug_mode_active")?.value === "true";
+    const parsed = parseFloat(resolveValue(row, debugActive));
+    if (isNaN(parsed)) return { value: defaultValue, source: "code_default" };
+    const source: ConfigStringSource =
+      row.key !== "debug_mode_active" && debugActive && row.debugValue != null && row.debugValue !== ""
+        ? "admin_config_debug_value"
+        : "admin_config_value";
+    return { value: parsed, source };
+  } catch {
+    return { value: defaultValue, source: "fallback_default" };
+  }
+}
+
 /**
  * Get a config string value reading the `value` column directly, bypassing
  * debug-mode resolution. Use this for infrastructure settings (like stripe_live_mode)

@@ -22,12 +22,15 @@ difference — which is most of what this UAT is checking.
 ## Before you start
 
 - No feature flag. It's live everywhere once merged and synced.
-- You'll want a **plain registered** account, and your **admin** account.
+- You'll want a **Legendary** account and your **admin** account. **Not a plain
+  registered account** — image and video generation are both switched off for
+  `registered` in the current permission grid, entirely unrelated to this PR.
+  A registered account would get blocked before ever reaching the code below,
+  and you'd wrongly read that as a regression.
 - A couple of checks use **Admin → Config** to set a deliberately tiny budget
   limit. **Note the starting values before you change them, and put them back
   when you're done** — these are the real limits.
-- The keys involved are `budget_limit_registered_usd` and
-  `budget_limit_legendary_usd`.
+- The key involved is `budget_limit_legendary_usd`.
 
 ## The main event
 
@@ -37,7 +40,7 @@ This is the most important section, and the most boring. The fix touches the
 code path in front of *every* paid generation, so the first thing to establish
 is that the ordinary path still works.
 
-- Log in as a **registered** account with budget remaining.
+- Log in as your **Legendary** account with budget remaining.
 - Generate an **AI meme image** (the standard path).
   - ✅ It generates exactly as before. No new error, no new delay.
 - Generate one using a **reference photo** (the PuLID / face path).
@@ -57,15 +60,15 @@ other — telling someone to go buy more credit when the database hiccuped would
 be worse than the bug being fixed.
 
 - As **admin**, go to **Admin → Config**. Note the current value of
-  `budget_limit_registered_usd`, then set it to something tiny — `0.01`.
-- In another browser/incognito, as your **registered** account, try to generate
+  `budget_limit_legendary_usd`, then set it to something tiny — `0.01`.
+- In another browser/incognito, as your **Legendary** account, try to generate
   an AI meme image.
   - ✅ You're refused, and the message is about **being over budget** — the
     usual out-of-budget wording, pointing you at upgrading.
   - ✅ It is *not* a "try again" message, and *not* a generic server error.
 - Try a **video** generation too.
   - ✅ Same: refused as over budget, with the upgrade path.
-- **Put `budget_limit_registered_usd` back to its original value.**
+- **Put `budget_limit_legendary_usd` back to its original value.**
   - ✅ Generation works again.
 
 ### 3. Admins are still exempt
@@ -73,7 +76,7 @@ be worse than the bug being fixed.
 Admins bypass the spend ceiling deliberately. Worth one pass to confirm the fix
 didn't catch them in it.
 
-- With `budget_limit_registered_usd` still set low (or set it low again), log
+- With `budget_limit_legendary_usd` still set low (or set it low again), log
   in as **admin** and generate an AI meme image.
   - ✅ It generates. Admins are exempt from budget limits, and still are.
 - **Put the limit back** when you're done.

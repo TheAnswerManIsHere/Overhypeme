@@ -20,9 +20,9 @@ import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema"
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
 import { getScenePromptSystem } from "./scenePromptConfig";
-import { type CachedPrice } from "./falPricing";
+import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
-import { gateGeneration, recordCost } from "./budgetGate";
+import { BudgetExceededError, checkBudget, recordCost } from "./budgetGate";
 import { logger } from "./logger";
 import { applyFalSafetyTolerance, assertNoFalNsfwConcepts, FalSafetyTriggeredError } from "./moderation/falSafety";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
@@ -221,17 +221,25 @@ async function generateAndStoreImage(
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedImgPrice: CachedPrice | null = null;
   if (userId) {
-    const gated = await gateGeneration({
-      userId,
-      endpointId: model,
-      computeCostUsd: (price) => {
-        const { width, height } = resolveImageSizePx(imageSize);
-        return computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
-      },
-      logPrefix: "[aiMemePipeline]",
-      logContext: { model },
-    });
-    cachedImgPrice = gated?.price ?? null;
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
+    try {
+      const price = await getCachedPrice(model);
+      const { width, height } = resolveImageSizePx(imageSize);
+      const costUsd = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      priced = { price, costUsd };
+    } catch (err) {
+      // Pricing unavailable — fail open, log and continue. Deliberately its
+      // own catch, separate from the gate call below: a gate failure must
+      // never be swallowed here as if it were a pricing miss (#409).
+      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped (pricing unavailable)");
+    }
+    if (priced) {
+      // Deliberately outside the catch above (#409): a gate failure is not a
+      // pricing failure, and must propagate rather than be swallowed.
+      const budget = await checkBudget(userId, priced.costUsd);
+      if (!budget.allowed) throw new BudgetExceededError(budget);
+      cachedImgPrice = priced.price;
+    }
   }
 
   const result = await fal.subscribe(model, {
@@ -459,17 +467,25 @@ async function generateAndStoreImageFromReference(
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedRefPrice: CachedPrice | null = null;
   if (userId) {
-    const gated = await gateGeneration({
-      userId,
-      endpointId: model,
-      computeCostUsd: (price) => {
-        const { width, height } = resolveImageSizePx(imageSize);
-        return computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
-      },
-      logPrefix: "[aiMemePipeline]",
-      logContext: { model, path: "reference" },
-    });
-    cachedRefPrice = gated?.price ?? null;
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
+    try {
+      const price = await getCachedPrice(model);
+      const { width, height } = resolveImageSizePx(imageSize);
+      const costUsd = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      priced = { price, costUsd };
+    } catch (err) {
+      // Pricing unavailable — fail open, log and continue. Deliberately its
+      // own catch, separate from the gate call below: a gate failure must
+      // never be swallowed here as if it were a pricing miss (#409).
+      logger.warn({ err, model, path: "reference" }, "[aiMemePipeline] Budget gate skipped (pricing unavailable)");
+    }
+    if (priced) {
+      // Deliberately outside the catch above (#409): a gate failure is not a
+      // pricing failure, and must propagate rather than be swallowed.
+      const budget = await checkBudget(userId, priced.costUsd);
+      if (!budget.allowed) throw new BudgetExceededError(budget);
+      cachedRefPrice = priced.price;
+    }
   }
 
   const result = await fal.subscribe(model, {

@@ -507,8 +507,12 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
   } catch (err) {
     if (err instanceof BudgetGateError) {
       // Deny, but as a retry-able service error — not a 429, which would tell
-      // a user hitting a transient failure that they are out of budget (#409).
-      throw new VideoJobError(503, { error: "budget_check_unavailable", message: err.message });
+      // a user hitting a transient failure that they are out of budget. The
+      // friendly text goes in `error` — every consumer of VideoJobError's
+      // body (routes/videoJobs.ts's handler, the wizard client) reads that
+      // field verbatim; a separate `message` field was silently discarded
+      // and users saw the raw code instead (#409 round 1).
+      throw new VideoJobError(503, { error: err.message, code: "budget_check_unavailable" });
     }
     throw err;
   }

@@ -5,12 +5,12 @@ import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspa
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import { motionPresetsTable, lookStylesTable, enginesTable, type Engine } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
-import { type CachedPrice } from "../lib/falPricing.js";
+import { getCachedPrice, type CachedPrice } from "../lib/falPricing.js";
 import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
 import {
   BudgetExceededError,
   BudgetGateError,
-  gateGeneration,
+  checkBudget,
   recordCost,
 } from "../lib/budgetGate.js";
 import { buildAuthorizationSnapshot, can, principalFromRequest } from "../lib/featureAccess.js";
@@ -651,46 +651,67 @@ router.post("/videos/generate", async (req, res) => {
   let cachedPriceForRecording: CachedPrice | null = null;
 
   if (authenticatedUserId) {
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
     try {
-      const gated = await gateGeneration({
-        userId: authenticatedUserId,
-        endpointId,
-        computeCostUsd: (price) => {
-          const dims = resolveVideoDimensions(aspectRatio, resolution);
-          const DEFAULT_FPS = 24;
-          return computeVideoCost(
-            { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
-            price,
-          ).costUsd;
-        },
-        logPrefix: "[videos/generate]",
-      });
-      // null ⇒ pricing unavailable; the gate was skipped and the job proceeds
-      // unmetered, exactly as before (#409 leaves that fail-open in place).
-      if (gated) {
-        cachedPriceForRecording = gated.price;
-        estimatedCostUsd = gated.costUsd;
-      }
+      const price = await getCachedPrice(endpointId);
+      const dims = resolveVideoDimensions(aspectRatio, resolution);
+      const DEFAULT_FPS = 24;
+      const costUsd = computeVideoCost(
+        { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
+        price,
+      ).costUsd;
+      priced = { price, costUsd };
     } catch (err) {
-      await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id));
-      if (err instanceof BudgetExceededError) {
-        res.status(429).json({
-          error: "BUDGET_EXCEEDED",
-          currentSpend: err.budgetStatus.currentSpend,
-          limit: err.budgetStatus.limit,
-          remainingBudget: err.budgetStatus.remainingBudget,
-          upgradePath: err.upgradePath,
-        });
-        return;
+      // Pricing unavailable — fail open, log and continue. Deliberately its
+      // own catch, separate from the gate call below: a gate failure must
+      // never be swallowed here as if it were a pricing miss (#409).
+      logger.warn({ err, endpointId }, "[videos/generate] Budget gate skipped (pricing unavailable)");
+    }
+
+    if (priced) {
+      try {
+        // Deliberately outside the catch above (#409): a gate failure is not
+        // a pricing failure, and must propagate rather than be swallowed.
+        const budget = await checkBudget(authenticatedUserId, priced.costUsd);
+        if (!budget.allowed) throw new BudgetExceededError(budget);
+        cachedPriceForRecording = priced.price;
+        estimatedCostUsd = priced.costUsd;
+      } catch (err) {
+        if (err instanceof BudgetExceededError) {
+          // Best-effort: the job genuinely attempted and was denied, so it
+          // stays in the rate-limit count like any other failed attempt. If
+          // this write itself fails, don't let that mask the 429 below (#409
+          // round 1) — log and still answer with the real denial.
+          await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id))
+            .catch((updateErr) => logger.warn({ err: updateErr, jobId: job.id }, "[videos/generate] Failed to mark job failed after budget denial"));
+          res.status(429).json({
+            error: "BUDGET_EXCEEDED",
+            currentSpend: err.budgetStatus.currentSpend,
+            limit: err.budgetStatus.limit,
+            remainingBudget: err.budgetStatus.remainingBudget,
+            upgradePath: err.upgradePath,
+          });
+          return;
+        }
+        if (err instanceof BudgetGateError) {
+          // The gate could not answer — this is the server's fault, not the
+          // user's. Deny with a retry-able 503, not the 429 above: conflating
+          // the two would tell someone hitting a transient database error to
+          // go buy more credit. The job is DELETED rather than marked failed:
+          // the rate-limit check below counts every row in the window
+          // regardless of status, and a retryable gate failure must not
+          // consume one of the user's 3 daily attempts (#409 round 1).
+          // Best-effort for the same reason as above — never let this write
+          // mask the 503.
+          await db.delete(videoJobsTable).where(eq(videoJobsTable.id, job.id))
+            .catch((deleteErr) => logger.warn({ err: deleteErr, jobId: job.id }, "[videos/generate] Failed to remove job after gate failure"));
+          res.status(503).json({ error: err.message });
+          return;
+        }
+        await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id))
+          .catch((updateErr) => logger.warn({ err: updateErr, jobId: job.id }, "[videos/generate] Failed to mark job failed"));
+        throw err;
       }
-      if (err instanceof BudgetGateError) {
-        // The gate could not answer — deny, and say "retry", not "you are
-        // out of budget". Conflating the two would tell a user hitting a
-        // transient database error to go buy more credit.
-        res.status(503).json({ error: err.message });
-        return;
-      }
-      throw err;
     }
   }
 

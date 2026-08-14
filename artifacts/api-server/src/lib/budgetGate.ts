@@ -14,8 +14,7 @@
 import { db } from "@workspace/db";
 import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { getConfigString, getConfigFloat } from "./adminConfig";
-import { getCachedPrice, type CachedPrice } from "./falPricing";
+import { getConfigStringWithSource, getConfigFloatWithSource } from "./adminConfig";
 import { logger } from "./logger";
 import { effectiveTierExpr } from "./membershipState";
 import { isRealAdminRow } from "./adminIdentity";
@@ -95,13 +94,6 @@ export async function checkBudget(
   proposedCostUsd: number,
 ): Promise<BudgetStatus> {
   try {
-    // Fetch config values
-    const [budgetPeriod, registeredLimitStr, legendaryLimitStr] = await Promise.all([
-      getConfigString("budget_period", "monthly"),
-      getConfigFloat("budget_limit_registered_usd", 0.50),
-      getConfigFloat("budget_limit_legendary_usd", 10.00),
-    ]);
-
     // Look up user tier and per-user override
     const [user] = await db
       // Effective tier: this decides which SPENDING limit applies, from its
@@ -123,10 +115,31 @@ export async function checkBudget(
     // regular user. Round 2 of PR #425's review caught this.
     const isAdmin = !!user && isRealAdminRow(user);
 
-    // Admins are exempt from budget limits
+    // Admins are exempt from budget limits — resolved before any config read,
+    // so a transient config-read failure never denies an admin who doesn't
+    // need the limit at all.
     if (isAdmin) {
       return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
     }
+
+    // Fetch config values WITH provenance: `fallback_default` means the read
+    // itself failed, not that the key is legitimately unset. A non-admin's
+    // limit must come from a real read or a real intentional default — never
+    // silently from the emergency code default, which could be far more
+    // permissive than what the operator actually configured (#409 round 1).
+    const [budgetPeriodRes, registeredLimitRes, legendaryLimitRes] = await Promise.all([
+      getConfigStringWithSource("budget_period", "monthly"),
+      getConfigFloatWithSource("budget_limit_registered_usd", 0.50),
+      getConfigFloatWithSource("budget_limit_legendary_usd", 10.00),
+    ]);
+    for (const res of [budgetPeriodRes, registeredLimitRes, legendaryLimitRes]) {
+      if (res.source === "fallback_default") {
+        throw new Error(`admin_config read failed while resolving budget limits for user ${userId}`);
+      }
+    }
+    const budgetPeriod = budgetPeriodRes.value;
+    const registeredLimitStr = registeredLimitRes.value;
+    const legendaryLimitStr = legendaryLimitRes.value;
 
     const globalLimit = tier === "legendary" ? legendaryLimitStr : registeredLimitStr;
     const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null
@@ -135,7 +148,7 @@ export async function checkBudget(
     const limit = (perUserOverride !== null && !isNaN(perUserOverride))
       ? perUserOverride
       : globalLimit;
-    const periodStart = getPeriodStart(budgetPeriod as string);
+    const periodStart = getPeriodStart(budgetPeriod);
 
     // Sum spend for this user in the current period
     const [{ total }] = await db
@@ -156,63 +169,6 @@ export async function checkBudget(
     logger.error({ err, userId }, "[budgetGate] checkBudget failed — denying generation");
     throw new BudgetGateError(err);
   }
-}
-
-export interface GateGenerationParams {
-  userId: string;
-  /** fal.ai endpoint / model id to price. */
-  endpointId: string;
-  /** Cost in USD of the proposed job, given the resolved price. */
-  computeCostUsd: (price: CachedPrice) => number;
-  /** Log prefix for the pricing-unavailable warning, e.g. `"[aiMemePipeline]"`. */
-  logPrefix: string;
-  /** Extra fields to attach to that warning. */
-  logContext?: Record<string, unknown>;
-}
-
-/**
- * Price a proposed generation and run it past the budget gate.
- *
- * This exists to keep two different failure modes from sharing one `catch` —
- * the shape that let #409 survive its own fix. Every caller used to wrap the
- * pricing lookup *and* the gate call in a single `try` whose handler logged
- * "budget gate skipped" and continued, so making `checkBudget` throw would
- * have been swallowed by the very handler that already swallowed pricing
- * failures, and generation would have proceeded uncapped exactly as before.
- *
- *   - **Pricing unavailable** → returns `null`; the caller proceeds unmetered.
- *     This is a pre-existing fail-open, preserved deliberately and unchanged.
- *     Whether an unknown price should still be allowed to spend is the same
- *     fail-open question one level up, and is its own decision — not this
- *     fix's to make.
- *   - **Gate failure** → throws `BudgetGateError`. Never swallowed here.
- *   - **Over budget** → throws `BudgetExceededError`.
- *
- * Returns the resolved price and cost so the caller can write the ledger row
- * after a successful submission.
- */
-export async function gateGeneration(
-  params: GateGenerationParams,
-): Promise<{ price: CachedPrice; costUsd: number } | null> {
-  let price: CachedPrice;
-  let costUsd: number;
-  try {
-    price = await getCachedPrice(params.endpointId);
-    costUsd = params.computeCostUsd(price);
-  } catch (err) {
-    logger.warn(
-      { err, ...params.logContext },
-      `${params.logPrefix} Budget gate skipped (pricing unavailable)`,
-    );
-    return null;
-  }
-
-  // Deliberately outside the catch above: a gate failure is not a pricing
-  // failure, and must not be swallowed by the pricing handler (#409).
-  const budget = await checkBudget(params.userId, costUsd);
-  if (!budget.allowed) throw new BudgetExceededError(budget);
-
-  return { price, costUsd };
 }
 
 /**
