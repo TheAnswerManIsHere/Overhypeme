@@ -1342,6 +1342,99 @@ the specific fixes named below over re-deriving them.
   the original is a no-op the tracker will never perform. Corollary for
   verification: "the migration is recorded as applied" is not evidence the
   constraint exists — query `pg_constraint` directly.
+- **Recurred 2026-08-13 with SEQUENCES — the rule covers every object type
+  `push` DOES reconcile, not just constraints.** `membership_source_state_seq` and
+  `membership_lease_fence_seq` were created by 0095's raw SQL and never
+  declared in `schema/membershipEntitlements.ts`, so `push --force` dropped
+  both; 16 membership-lease/grace-sweep tests then failed on
+  `nextval(...)`. The entry above already stated the general rule, but its
+  parenthetical enumerated only `check()`/index/FK — and a sequence isn't any
+  of those, which is exactly how a documented pattern recurred in a new
+  shape. **Read that list as illustrative rather than exhaustive — but the
+  rule is bounded by what `push` actually reconciles**, which is the object
+  types drizzle-kit introspects: tables, columns, constraints, indexes, enums,
+  and sequences (the last via `pgSequence`). It does **not** extend to
+  functions and triggers — drizzle-kit does not model those at all, so `push`
+  leaves them untouched and there is no declaration to add. Verified rather
+  than assumed: 0095's own `membership_entitlements_guard_immutable` function
+  and its trigger are undeclared and have survived many pushes intact, in the
+  same migration whose sequences did not. Stating the rule as "anything in raw
+  SQL needs a declaration" would send the next author hunting for a
+  declaration that cannot exist.
+  **What hid it for so long is worth more than the fix:** the drop needs
+  *two* pushes to be observable — the first creates from a pristine database,
+  the second reconciles against a schema that never mentioned the object.
+  GitHub CI builds an ephemeral Postgres and runs push+migrate exactly **once**
+  per database, so it never reaches the state that exposes the drop and stays
+  green; only a PERSISTENT database (Replit's `heliumdb_test`, a long-lived
+  sandbox) gets a second push. **A green CI is therefore not evidence the
+  schema is push-safe** — but note that this is a property of how the workflow
+  is currently shaped, *not* an inherent limit: pushing a second time within
+  one job and asserting the objects survive would reproduce the whole
+  transition in CI. That guard is deliberately deferred to its own change
+  rather than bundled here (David, 2026-08-13); until it lands, this class is
+  caught by nothing but the rule above. Verified empirically before fixing: second push-force
+  dropped both sequences, exited 0, and logged nothing. Verification
+  corollary matching the one above — query `pg_class WHERE relkind='S'`, and
+  when a persistent test database starts failing where CI passes, suspect this
+  before suspecting the tests.
+
+## Editing an already-merged migration file — even a comment — makes the hash-tracked runner replay it
+
+**Symptom would have been:** a database that already ran migration N silently
+runs it again on the next deploy, re-executing every statement in the file —
+including a real `DELETE`, a data overwrite, and a duplicate audit-log
+`INSERT` — with no error and no obvious trigger.
+
+**Why it happens:** `lib/db/src/migrate.ts`'s `applyMigrations()` decides
+whether a migration is "already applied" by SHA-256 of the migration file's
+**entire content** (`crypto.createHash("sha256").update(sql)`, `sql =
+fs.readFileSync(path, "utf8")`), not by its tag, filename, or journal index.
+Editing *any* byte — including a comment — changes that hash. A database that
+already recorded the old hash as applied then sees the new hash as an
+unrecognized, pending migration on its next `migrate()` call and runs the
+whole file from scratch, `BEGIN…COMMIT` and all.
+
+**Caught during PR #427's review (round 9), not by any automated check.**
+Round 8 made a documentation-only fix inside `0099_admin_permissions_core.sql`
+— a migration from a *different*, already-merged PR (#425) — to correct a
+comment that had become stale. The file happened to be sitting in the diff
+because a doc fix elsewhere referenced it; nothing about editing it felt
+different from editing any other file. Codex's round-9 review named the exact
+mechanism and the exact consequence (the file's own `INSERT INTO
+feature_permissions_migration_log` and its conditional `DELETE` are not
+idempotent-safe to run twice with intent — a second run inserts a duplicate
+audit row and can delete a row a later admin action had deliberately
+restored). **Verified, not just restored on the finding's say-so:** the
+edited file's SHA-256 matched zero rows in a real database's
+`drizzle.__drizzle_migrations` table; the restored, byte-identical file's hash
+matched a row already there. Fixed by `git checkout origin/main -- <file>`
+(byte-for-byte, diffed empty) and moving the same doc correction into the
+adjacent `schema/*.ts` file instead — plain TypeScript, never hash-tracked,
+safe to edit freely.
+
+**The rule: a migration file that has already merged into `main` is
+byte-for-byte immutable, full stop — not "immutable except for comments" or
+"immutable except for whitespace."** There is no safe partial edit, because
+the hash function has no concept of "cosmetic." If a migration's comment is
+wrong, wrong, or its behavior needs to change, the fix is always a **new**
+forward-only migration (or, for pure documentation, editing prose in a
+non-migrations file that references it) — never touching the original file's
+bytes. This applies regardless of *why* the file is in your diff: it doesn't
+matter whether you authored it, whether it's part of the same PR, or whether
+the edit is "just a comment" — the moment a migration has a real chance of
+having already been applied somewhere (which for anything on `main` is not a
+theoretical concern), touching it is a mistake with no small-blast-radius
+version.
+
+**A file living in `lib/db/migrations/` is not "docs I can touch" the moment
+it sits in your diff.** Before editing anything under that directory, ask
+whether it's the migration *this* change is introducing (safe — nothing has
+run it yet) or someone else's, already-merged one (never safe). See
+[`migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)
+for the working rule and
+[`.agents/memory/migration-file-immutable-once-merged.md`](../../.agents/memory/migration-file-immutable-once-merged.md)
+for the quick-reference version.
 
 ## An entitlement gate that reads the tier column when the rule is role-based
 

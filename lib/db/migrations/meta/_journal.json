@@ -701,6 +701,13 @@
       "when": 1783200000000,
       "tag": "0099_admin_permissions_core",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1783300000000,
+      "tag": "0100_membership_sequence_repair",
+      "breakpoints": true
     }
   ]
 }

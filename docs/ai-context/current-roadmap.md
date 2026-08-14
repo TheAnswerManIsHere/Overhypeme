@@ -24,6 +24,17 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Sharded api-server test runner kept, diagnostics hardened (PR #427,
+  2026-08-14).** Evaluated whether the runner's complexity was still
+  justified now that the fast-inner-loop use case it was built for no longer
+  applies — kept it (the DB-isolation and parallelism wins are real on their
+  own), fixed the actual pain instead: per-shard log attribution and a
+  signal-safe critical-section fix so a `SIGINT`/`SIGTERM` mid-run always
+  cleans up every worker. The investigation also surfaced and fixed a
+  previously-undiscovered `drizzle-kit push --force` bug silently dropping
+  two undeclared Postgres sequences, which had been misattributed as test
+  flakiness. See the
+  [2026-08-14 decisions.md entry](./decisions.md#2026-08-14--keep-the-sharded-api-server-test-runner-fix-its-diagnostics-instead-of-removing-it).
 - **Plan 1a — one resolver, one client contract, no admin lockout** (PR #425,
   workstream #405, merged 2026-08-14, from the plan reviewed on PR #421).
   Nearly every product-feature permission check now resolves through one
