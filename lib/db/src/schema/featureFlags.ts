@@ -82,9 +82,12 @@ export type EntitlementGridRevision = typeof entitlementGridRevisionTable.$infer
  * The grid backfill's observable outcome.
  *
  * The canonical migration runner (`lib/db/src/migrate.ts`) ignores statement
- * result rows, installs no notice handler, and skips an already-applied
- * migration by hash rather than re-executing it — so an in-migration SELECT or
- * RAISE NOTICE is invisible on a normal run. The counts go somewhere durable
+ * result rows and skips an already-applied migration by hash rather than
+ * re-executing it, so an in-migration SELECT is always invisible on a normal
+ * run. As of migration 0100 the runner DOES install a NOTICE listener for the
+ * duration of each migrate() call, so a RAISE NOTICE now reaches the console
+ * log too — but that is transient, run-time output: nothing persists it and
+ * nothing can query it after the fact. The counts go somewhere durable
  * instead.
  *
  * Three separate counts, because the three outcomes answer different questions

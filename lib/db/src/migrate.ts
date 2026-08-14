@@ -112,11 +112,45 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
   // dev and test migration state never collide in the same table.
   const trackingSchema = process.env.DRIZZLE_MIGRATIONS_SCHEMA ?? "drizzle";
 
-  console.log(`[migrate] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`);
-  await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
-  console.log("[migrate] Advisory lock acquired.");
+  // Surface server-side NOTICEs for the duration of the migration run.
+  // node-postgres discards them unless something listens, so a migration that
+  // reports what it did — a repair stating whether it changed anything, a
+  // backfill announcing row counts — would otherwise run completely silently,
+  // leaving a real repair and a no-op indistinguishable in the output.
+  //
+  // This lives HERE, in the shared entry point, not in the CLI block: the API
+  // server applies pending migrations at startup through runMigrations() in
+  // index.ts, which reaches this function without going near the CLI wrapper.
+  // Attaching it there only would have made observability depend on which
+  // entry point happened to run — and the deployment path is the one that
+  // matters most.
+  //
+  // Removed in the finally: this is a POOLED client that gets released and
+  // reused for ordinary application queries, so a listener left attached would
+  // keep printing "[migrate]" lines for unrelated work on that connection.
+  const onNotice = (msg: { message?: string }) => {
+    if (msg?.message) console.log(`[migrate]   ${msg.message}`);
+  };
+  client.on("notice", onNotice);
 
+  // The lock acquisition is INSIDE the try, so the finally that detaches the
+  // listener runs even when acquiring fails. pg_advisory_lock blocks rather
+  // than throwing under normal contention, but a cancelled lock wait, a
+  // statement/lock timeout, or an admin cancel all reject while leaving the
+  // connection perfectly usable — and runMigrations() would then release that
+  // still-listening client back to the shared pool, where it would keep
+  // printing "[migrate]" lines for unrelated application queries.
+  //
+  // `lockAcquired` is what makes widening the try safe: the unlock below must
+  // not run when the lock was never taken, or a failed acquisition would be
+  // followed by an unlock that reports failure and misdescribes what happened.
+  let lockAcquired = false;
   try {
+    console.log(`[migrate] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`);
+    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    lockAcquired = true;
+    console.log("[migrate] Advisory lock acquired.");
+
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${trackingSchema}"`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS "${trackingSchema}".__drizzle_migrations (
@@ -233,13 +267,20 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
     // Always release the advisory lock, even if migration failed. Failing to
     // release would hold the lock until this connection is closed (it is a
     // session-level lock), which would block future migration runs on pooled
-    // connections.
-    try {
-      await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
-      console.log("[migrate] Advisory lock released.");
-    } catch (unlockErr) {
-      console.warn(`[migrate] Warning: failed to release advisory lock: ${unlockErr}`);
+    // connections. Guarded on lockAcquired: if acquisition itself threw, there
+    // is nothing to release and attempting it would only log a spurious
+    // failure over the real error.
+    if (lockAcquired) {
+      try {
+        await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
+        console.log("[migrate] Advisory lock released.");
+      } catch (unlockErr) {
+        console.warn(`[migrate] Warning: failed to release advisory lock: ${unlockErr}`);
+      }
     }
+    // Unconditional: the client is pooled and reused for ordinary application
+    // queries, so this must come off on every exit path, lock or no lock.
+    client.off("notice", onNotice);
   }
 }
 
@@ -252,6 +293,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
   const client = await pool.connect();
+  // NOTE: the notice listener lives in applyMigrations(), not here — see the
+  // comment there. Registering it in this block too would double-print every
+  // notice for CLI runs and leave the deployment path uncovered.
   try {
     const { applied, skipped, total } = await applyMigrations(client);
     console.log(

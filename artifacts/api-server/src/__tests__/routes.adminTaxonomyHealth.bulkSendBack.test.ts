@@ -24,7 +24,7 @@ import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schem
 import { eq, inArray, like } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment, CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
 
-import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
+import adminTaxonomyHealthRouter, { pickSendBackTargets } from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const USER_PREFIX = "ttha-bsb-";
@@ -167,13 +167,19 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
       .values({ text: TEXT("variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
       .returning({ id: factsTable.id });
     factIds.push(variant!.id);
-    const res = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
-    assert.equal(res.status, 200);
-    const jobFactIds = (res.body.jobs as Array<{ jobId: number; factId: number }>).map((j) => {
-      jobIds.push(j.jobId);
-      return j.factId;
-    });
-    assert.ok(jobFactIds.includes(rootId), "a root with an active variant must be enqueued like any other stale fact");
+    // Calls the picker directly with a batchLimit far past the real corpus
+    // size, rather than going through the HTTP endpoint's hardcoded 50-item
+    // cap. all_stale sorts the WHOLE corpus ascending by id and takes the
+    // first `batchLimit` eligible ones (see pickSendBackTargets' doc
+    // comment); the shared per-worker test database accumulates well over 50
+    // unrelated stale facts from other test files over a full suite run, so
+    // rootId (a freshly-inserted, high id) can legitimately fall outside the
+    // real 50-item cap even when correctly classified as eligible. Going
+    // through the endpoint made this assertion a coin flip on ambient corpus
+    // size, not on the thing it's meant to verify — whether a root with an
+    // active variant is correctly classified as eligible at all.
+    const pick = await pickSendBackTargets("all_stale", undefined, Number.MAX_SAFE_INTEGER);
+    assert.ok(pick.toEnqueue.includes(rootId), "a root with an active variant must be enqueued like any other stale fact");
   });
 
   // ─── selected scope classification ─────────────────────────────────────

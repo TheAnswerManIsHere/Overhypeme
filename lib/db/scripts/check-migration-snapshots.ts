@@ -359,6 +359,26 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // failed check-snapshots outright rather than merely under-covering drift.
   // Source of truth: lib/db/src/schema/featureFlags.ts.
   "0099_admin_permissions_core",
+
+  // Forward-only repair of the two membership ordering/fencing sequences, which
+  // `push --force` removed from any database pushed more than once because they
+  // had no schema declaration (same failure shape as 0098, one object type
+  // over). Advances each via nextval() past the maximum already stored in
+  // membership_entitlements.source_state_as_of / membership_leases.fence — a
+  // sequence restored at 1 makes both consumers' strictly-greater guards match
+  // zero rows, silently.
+  //
+  // The missing snapshot here is DEFERRED, not inexpressible — do not restate
+  // it as the latter. The two pgSequence declarations in
+  // schema/membershipEntitlements.ts are exactly a snapshot-visible delta, and
+  // this migration carries their CREATE SEQUENCE DDL besides. The exemption
+  // exists only because drizzle-kit generate stays broken on the malformed 0063
+  // snapshot. When that chain is repaired, this delta must be captured rather
+  // than treated as nothing to record — describing it as inexpressible would
+  // justify leaving the sequences out and let generation rediscover them as an
+  // unexplained change.
+  // Source of truth: lib/db/src/schema/membershipEntitlements.ts.
+  "0100_membership_sequence_repair",
 ]);
 
 interface JournalEntry {

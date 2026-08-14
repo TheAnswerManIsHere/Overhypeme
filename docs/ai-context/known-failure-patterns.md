@@ -1271,6 +1271,42 @@ the specific fixes named below over re-deriving them.
   the original is a no-op the tracker will never perform. Corollary for
   verification: "the migration is recorded as applied" is not evidence the
   constraint exists — query `pg_constraint` directly.
+- **Recurred 2026-08-13 with SEQUENCES — the rule covers every object type
+  `push` DOES reconcile, not just constraints.** `membership_source_state_seq` and
+  `membership_lease_fence_seq` were created by 0095's raw SQL and never
+  declared in `schema/membershipEntitlements.ts`, so `push --force` dropped
+  both; 16 membership-lease/grace-sweep tests then failed on
+  `nextval(...)`. The entry above already stated the general rule, but its
+  parenthetical enumerated only `check()`/index/FK — and a sequence isn't any
+  of those, which is exactly how a documented pattern recurred in a new
+  shape. **Read that list as illustrative rather than exhaustive — but the
+  rule is bounded by what `push` actually reconciles**, which is the object
+  types drizzle-kit introspects: tables, columns, constraints, indexes, enums,
+  and sequences (the last via `pgSequence`). It does **not** extend to
+  functions and triggers — drizzle-kit does not model those at all, so `push`
+  leaves them untouched and there is no declaration to add. Verified rather
+  than assumed: 0095's own `membership_entitlements_guard_immutable` function
+  and its trigger are undeclared and have survived many pushes intact, in the
+  same migration whose sequences did not. Stating the rule as "anything in raw
+  SQL needs a declaration" would send the next author hunting for a
+  declaration that cannot exist.
+  **What hid it for so long is worth more than the fix:** the drop needs
+  *two* pushes to be observable — the first creates from a pristine database,
+  the second reconciles against a schema that never mentioned the object.
+  GitHub CI builds an ephemeral Postgres and runs push+migrate exactly **once**
+  per database, so it never reaches the state that exposes the drop and stays
+  green; only a PERSISTENT database (Replit's `heliumdb_test`, a long-lived
+  sandbox) gets a second push. **A green CI is therefore not evidence the
+  schema is push-safe** — but note that this is a property of how the workflow
+  is currently shaped, *not* an inherent limit: pushing a second time within
+  one job and asserting the objects survive would reproduce the whole
+  transition in CI. That guard is deliberately deferred to its own change
+  rather than bundled here (David, 2026-08-13); until it lands, this class is
+  caught by nothing but the rule above. Verified empirically before fixing: second push-force
+  dropped both sequences, exited 0, and logged nothing. Verification
+  corollary matching the one above — query `pg_class WHERE relkind='S'`, and
+  when a persistent test database starts failing where CI passes, suspect this
+  before suspecting the tests.
 
 ## An entitlement gate that reads the tier column when the rule is role-based
 
