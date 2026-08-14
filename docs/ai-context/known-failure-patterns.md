@@ -1308,6 +1308,63 @@ the specific fixes named below over re-deriving them.
   when a persistent test database starts failing where CI passes, suspect this
   before suspecting the tests.
 
+## Editing an already-merged migration file — even a comment — makes the hash-tracked runner replay it
+
+**Symptom would have been:** a database that already ran migration N silently
+runs it again on the next deploy, re-executing every statement in the file —
+including a real `DELETE`, a data overwrite, and a duplicate audit-log
+`INSERT` — with no error and no obvious trigger.
+
+**Why it happens:** `lib/db/src/migrate.ts`'s `applyMigrations()` decides
+whether a migration is "already applied" by SHA-256 of the migration file's
+**entire content** (`crypto.createHash("sha256").update(sql)`, `sql =
+fs.readFileSync(path, "utf8")`), not by its tag, filename, or journal index.
+Editing *any* byte — including a comment — changes that hash. A database that
+already recorded the old hash as applied then sees the new hash as an
+unrecognized, pending migration on its next `migrate()` call and runs the
+whole file from scratch, `BEGIN…COMMIT` and all.
+
+**Caught during PR #427's review (round 9), not by any automated check.**
+Round 8 made a documentation-only fix inside `0099_admin_permissions_core.sql`
+— a migration from a *different*, already-merged PR (#425) — to correct a
+comment that had become stale. The file happened to be sitting in the diff
+because a doc fix elsewhere referenced it; nothing about editing it felt
+different from editing any other file. Codex's round-9 review named the exact
+mechanism and the exact consequence (the file's own `INSERT INTO
+feature_permissions_migration_log` and its conditional `DELETE` are not
+idempotent-safe to run twice with intent — a second run inserts a duplicate
+audit row and can delete a row a later admin action had deliberately
+restored). **Verified, not just restored on the finding's say-so:** the
+edited file's SHA-256 matched zero rows in a real database's
+`drizzle.__drizzle_migrations` table; the restored, byte-identical file's hash
+matched a row already there. Fixed by `git checkout origin/main -- <file>`
+(byte-for-byte, diffed empty) and moving the same doc correction into the
+adjacent `schema/*.ts` file instead — plain TypeScript, never hash-tracked,
+safe to edit freely.
+
+**The rule: a migration file that has already merged into `main` is
+byte-for-byte immutable, full stop — not "immutable except for comments" or
+"immutable except for whitespace."** There is no safe partial edit, because
+the hash function has no concept of "cosmetic." If a migration's comment is
+wrong, wrong, or its behavior needs to change, the fix is always a **new**
+forward-only migration (or, for pure documentation, editing prose in a
+non-migrations file that references it) — never touching the original file's
+bytes. This applies regardless of *why* the file is in your diff: it doesn't
+matter whether you authored it, whether it's part of the same PR, or whether
+the edit is "just a comment" — the moment a migration has a real chance of
+having already been applied somewhere (which for anything on `main` is not a
+theoretical concern), touching it is a mistake with no small-blast-radius
+version.
+
+**A file living in `lib/db/migrations/` is not "docs I can touch" the moment
+it sits in your diff.** Before editing anything under that directory, ask
+whether it's the migration *this* change is introducing (safe — nothing has
+run it yet) or someone else's, already-merged one (never safe). See
+[`migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)
+for the working rule and
+[`.agents/memory/migration-file-immutable-once-merged.md`](../../.agents/memory/migration-file-immutable-once-merged.md)
+for the quick-reference version.
+
 ## An entitlement gate that reads the tier column when the rule is role-based
 
 **Symptom:** a capability works for everyone it should — except admins, who

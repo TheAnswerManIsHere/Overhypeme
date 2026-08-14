@@ -55,8 +55,8 @@ counterpart, and `push --force` never touches them. In this incident, the
 dropped objects were `facts_active_requires_concept`
 and migration `0095`'s two standalone sequences, `membership_source_state_seq`
 and `membership_lease_fence_seq` — runtime code calls `nextval()` on both, but
-`membershipEntitlements.ts` declares neither as a `pgSequence`, so `push` has
-never known either one is supposed to exist) — and the `migrate` that followed could not repair it, because
+`membershipEntitlements.ts` declared neither as a `pgSequence`, so `push` had
+never known either one was supposed to exist) — and the `migrate` that followed could not repair it, because
 its hash-based tracking already recorded those migrations as applied. 19
 unrelated test failures across four suites resulted, with no schema-shadow
 gap of this PR's own to blame. Fixed by giving `@workspace/db`'s own suite a
@@ -92,3 +92,18 @@ indexes, a `check()` builder for constraints (or a documented note if Drizzle's
 object that isn't scoped to a table. `pnpm --filter @workspace/db run validate-snapshots`
 does NOT catch either shape (migrations are snapshot-exempt by convention) —
 this is a manual discipline, not something CI currently guards.
+
+**Update (PR #427, 2026-08-14) — the two named sequences above are now
+shadowed.** `membership_source_state_seq` and `membership_lease_fence_seq`
+finally got their `pgSequence` declarations in `membershipEntitlements.ts`,
+closing this specific exposure. But notice the gap: **this note named both
+sequences, by name, as exposed — and the exposure sat there anyway until it
+broke 16 tests.** A correctly-written rule in a memory file doesn't enforce
+itself; nothing re-checks it on every future migration, so a documented gap
+is only as good as someone remembering to close it before the next `push`
+finds it first. That's the case for the CI guard tracked in
+[`known-failure-patterns.md`](../../docs/ai-context/known-failure-patterns.md)'s
+adjacent sequence entry — a check that runs `push` twice and asserts the
+shadowed objects survive would have caught this class the moment it was
+introduced, not months of push-force cycles later. Documentation is where a
+rule like this *starts*; it isn't where the enforcement should end up living.
