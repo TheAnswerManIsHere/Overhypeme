@@ -30,7 +30,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   (`featureAccess.ts`'s `can(principal, key)`), reading the Feature
   Permission Grid and nothing else — a CI guard
   (`scripts/check-permission-chokepoint.mjs` + its frontend sibling) fails
-  the build on a new inline `tier`/`role` comparison outside it. The grid's
+  the build on the *habitual* forms of a new inline `tier`/`role`
+  comparison outside it (a tripwire, not a proof against a deliberately
+  obscure one — see the guard-scoping decision below). The grid's
   Admin column is live (a union with the account's own tier, never an
   override); the client is told its resolved entitlements instead of
   deriving them from `role`; and an admin cannot be locked out by any

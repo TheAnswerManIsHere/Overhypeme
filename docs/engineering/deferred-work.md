@@ -520,15 +520,22 @@ re-gather it when the work is scheduled.
     CI — each prior occurrence was caught by a human/Codex reviewer noticing
     a specific missing declaration, not by anything mechanical, so the next
     one is exactly as likely to slip through as the first three did.
-  - **Shape of the fix, not yet built.** A script that parses each
-    migration file's raw `CREATE INDEX`/`ALTER TABLE ... ADD CONSTRAINT`
-    statements (skipping `IF NOT EXISTS`-guarded idempotent re-runs of
-    something schema.ts already declares) and standalone `CREATE SEQUENCE`
-    statements, then checks each one has a matching `index()`/`check()`
-    entry on the owning `pgTable` (or a `pgSequence()` declaration) in
-    `lib/db/src/schema/*.ts` — failing the build on any gap, the same shape
-    as `check-permission-chokepoint.mjs`'s file-scan approach. Wire into
-    `build.yml`'s `Test` job alongside the existing `@workspace/db` checks.
+  - **Shape of the fix, not yet built.** A naive version — flag every
+    historical `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE` with no
+    matching `schema.ts` declaration — breaks on real history: migration
+    `0022` creates `email_outbox_pending_idx`, migrations `0037`/`0038`
+    create `email_outbox_status_created_idx`, and `0063` deliberately
+    `DROP`s both when generalizing the async-jobs table — neither should
+    have a current shadow, and a guard comparing raw per-migration CREATEs
+    against schema.ts would reject that legitimate retirement on day one.
+    The guard has to walk the full migration sequence and compute each raw
+    object's **terminal** state (does a later migration's `DROP
+    INDEX`/`DROP CONSTRAINT`/`DROP SEQUENCE` remove it before the check
+    ever runs) — only an object that's still raw-SQL-created and never
+    raw-SQL-dropped needs a `schema.ts` shadow. Wire into `build.yml`'s
+    `Test` job alongside the existing `@workspace/db` checks, the same
+    general shape as `check-permission-chokepoint.mjs`'s file-scan
+    approach but requiring cross-migration state, not a single-file scan.
   - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
     time this exact mistake recurs a fourth time.
 

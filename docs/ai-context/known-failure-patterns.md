@@ -1125,13 +1125,15 @@ and keep going on the smaller half). See
 The permission-chokepoint CI guards
 (`scripts/check-permission-chokepoint.mjs` and its frontend sibling) exist to
 catch a hand-written `tier === "legendary"`-shaped comparison outside the
-resolver. Across the implementation review loop they were hardened four
-times against a genuinely new gap each round: round 3 (file-level allowlist
-scope), round 4 (`!==`), round 6 (a formatter-wrapped multi-line
-comparison), round 7 (a reversed operand, `"legendary" === tier`). Each fix
-was correct and each round's probe was real — this is the identical
-finding-never-falls shape as the other five instances. **What's different
-here is where the loop stopped.** Rounds 4 and 6 closed gaps in the space of
+resolver. Across the implementation review loop, four consecutive rounds
+found a genuinely new gap: round 3 (file-level allowlist scope, fixed),
+round 4 (`!==`, fixed), round 6 (a formatter-wrapped multi-line comparison,
+fixed), round 7 (a reversed operand, `"legendary" === tier` — confirmed
+real, and **declined**, not fixed). Every probe was real and every
+finding accurate — this is the identical finding-never-falls shape as the
+other five instances, three hardenings deep before the fourth probe is
+what finally got a different response. **What's different here is where
+the loop stopped.** Rounds 4 and 6 closed gaps in the space of
 forms a developer or an agent would actually write by habit — those were
 worth fixing. Round 7's reversed operand is a Yoda condition nobody on this
 team or Codex writes in this codebase, and the space of

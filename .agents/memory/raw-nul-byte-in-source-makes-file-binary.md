@@ -24,11 +24,14 @@ exactly the file that most needs it, and the defect can sit unnoticed for a
 long time because nothing about the *runtime behavior* is wrong — only
 tooling that inspects the file as text is affected.
 
-**Avoid:** never embed a literal control character in source as a delimiter,
-separator, or sentinel — always use its escape sequence (`\0`, `\n` written
-as the two-character escape rather than an actual embedded newline meant to
-be one byte, etc.). If a file unexpectedly shows as binary in `git diff` or
-`grep`, check for embedded control bytes before assuming corruption:
+**Avoid:** never embed a literal NUL byte in source as a delimiter,
+separator, or sentinel — always use its escape sequence, `\0`. This is
+specifically about NUL: an ordinary embedded newline in a multi-line
+template literal is completely normal, intentional, and line-diffable —
+Git's binary heuristic triggers on a NUL byte specifically, not on control
+characters in general, so this is not a reason to avoid real multi-line
+strings. If a file unexpectedly shows as binary in `git diff` or `grep`,
+check for embedded NUL bytes before assuming corruption:
 `python3 -c "print(open(path,'rb').read().count(b'\x00'))"` finds them
 directly; the fix is a plain text search-and-replace of the raw byte with
 its escaped form, which produces byte-for-byte-different-but-semantically-
