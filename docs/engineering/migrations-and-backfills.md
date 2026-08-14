@@ -27,6 +27,18 @@
   [`docs/engineering/ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md)
   for a worked example and the
   [2026-08-07 `decisions.md` entry](../ai-context/decisions.md#2026-08-07--a-migration-cannot-manufacture-a-privilege-boundary-above-itself--ncmec-audit-ledger-hardening-moved-to-a-superuser-runbook).
+- **A migration file already merged into `main` is byte-for-byte immutable.**
+  The hash-tracked runner (`lib/db/src/migrate.ts`) decides "already applied"
+  by SHA-256 of the whole file, not tag/filename/journal index — editing even
+  a comment in an already-merged migration makes any database that already
+  ran it replay the whole file on its next `migrate()` call, which is not
+  safe by default (a replayed `INSERT` duplicates a row, a replayed
+  conditional `DELETE` can remove something a later action restored). Wrong
+  comment, wrong behavior, whatever the reason: fix it with a **new**
+  forward-only migration, or by editing a different file that talks *about*
+  the migration instead of the migration itself. Full incident and the
+  hashing mechanism:
+  [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#editing-an-already-merged-migration-file--even-a-comment--makes-the-hash-tracked-runner-replay-it).
 - **Don't verify a CHECK constraint's meaning by pattern-matching
   `pg_get_constraintdef()`'s rendered text** — it isn't a fixed point (see
   [`known-failure-patterns.md`'s "PostgreSQL role/constraint verification
@@ -80,7 +92,14 @@ around it but conflicts exactly on the journal's tail entry. **Resolution: the
 PR that merges first keeps its number; the other PR renumbers to the next free
 index** (rename the `.sql` file, fix its journal entry, and grep the PR's own
 docs for the old number — a TEST_RUN/UAT doc or an inline comment can cite it).
-Never renumber an already-merged migration.
+**Also grep the migration file's own SQL for the old number** — a literal
+inside a `RAISE NOTICE`/comment string is easy to miss since it isn't the
+filename or the journal entry, but it's still a rename site (PR #427 renamed
+`0099_membership_sequence_repair.sql` to `0100_...` after colliding with
+another PR's `0099`, and the repair migration's own `RAISE NOTICE` text still
+needed the update). Never renumber an already-merged migration — per the
+immutability rule above, once a migration's PR has merged, its number is
+permanent alongside everything else in the file.
 
 ## Idempotency
 

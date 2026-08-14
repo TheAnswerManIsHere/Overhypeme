@@ -13,6 +13,37 @@
 
 ---
 
+### 2026-08-14 · Keep the sharded api-server test runner; fix its diagnostics instead of removing it
+- **Decision:** `artifacts/api-server/scripts/run-tests-sharded.sh` (parallel
+  `node --test --test-shard` workers, each against its own cloned Postgres
+  database) stays. David asked whether it was still worth its complexity now
+  that Replit Agent's fast-inner-loop feedback need — the reason it was
+  originally built — no longer describes how the repo is worked. The answer
+  was no on the premise, yes on the tool: the per-worker DB isolation and
+  wall-clock parallelism are real, independent of which agent originally
+  motivated them, and CI still pays for every second of serial test time on
+  every PR. What was actually costing time wasn't the sharding architecture —
+  it was thin diagnostics (a crash or a signal mid-run gave no attribution to
+  which shard/worker, and cleanup could leave orphans) making failures hard
+  to read.
+- **Why:** removing sharding would trade a real, ongoing parallelism win for
+  removing a diagnostics problem that was fixable on its own. PR #427 fixed
+  it directly — FIFO-based per-shard log prefixing, and a signal-safe
+  critical-section pattern around each worker spawn so `SIGINT`/`SIGTERM`
+  during a run reliably cleans up every worker and prefixer, however far the
+  loop got (see
+  [`bash-signal-safe-spawn-critical-section.md`](../../.agents/memory/bash-signal-safe-spawn-critical-section.md)).
+  That same investigation also surfaced and fixed a genuine, previously
+  undiscovered production bug: `drizzle-kit push --force` silently dropping
+  two undeclared Postgres sequences on repeat pushes, which had been quietly
+  causing 16-19 unrelated test failures attributed to flakiness rather than a
+  schema gap (see the known-failure-patterns.md sequence-drop entry).
+- **Reference:** PR #427.
+- **Revisit if:** the working pattern changes again such that per-PR CI time
+  stops being a real cost (e.g. CI moves off a model where wall-clock matters),
+  or a simpler runner emerges that gets the same DB isolation without the
+  signal-handling surface area sharding currently requires.
+
 ### 2026-08-11 · Claude drives PR close-out (merge + Repl sync); David's UAT gates nothing pre-merge
 - **Decision:** Once a PR is CI-green, Codex-converged, and every review
   thread is resolved, Claude asks David for an explicit go, then owns the
