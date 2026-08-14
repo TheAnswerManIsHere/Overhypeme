@@ -1051,10 +1051,16 @@ it lives here rather than in the shared docs.
     dead end it sent me into twice.
 - **`update_app_using_prompt` is governed by the *class of request*, not
   banned as a tool (David, 2026-08-11 — replacing the blanket ban I wrote
-  hours earlier).** It is the connector's **only** mutating channel:
-  every action in the Replit environment — git commands, log reads,
-  environment checks, file edits — goes through this one call. Banning the
-  tool bans the environment, which is the opposite of what it's for.
+  hours earlier).** It is the connector's **only** mutating channel: every
+  action that *changes* something in the Replit environment — triggering a
+  git sync, restarting a process, applying an operational change, editing
+  a file — goes through this one call. Banning the tool bans the
+  environment, which is the opposite of what it's for. **Reads are not in
+  this list** (corrected 2026-08-14): a log read, an environment check, a
+  SHA or `git status` check returns its answer only through
+  `ask_question` — routing a read here is the dead end described above.
+  The rule below governs *what may be changed*; it never governs what may
+  be looked at.
   - **Allowed, and genuinely valuable — ops, diagnostics, debugging.**
     Triggering a git sync, restarting something, applying an operational
     change, investigating a live failure: this is what reaches the
