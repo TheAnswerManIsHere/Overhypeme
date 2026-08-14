@@ -857,6 +857,46 @@ smaller than the list beside it. Both were plain `db.transaction(...)` blocks
 before the fix — the first was corrected to `repeatable read`, the second to
 `count(*) OVER ()` in one statement.
 
+## A guard's population-safety lock protects the count, but not the decision to check it at all
+
+**Looks like:** a mutation reads the target row's current state to DECIDE
+whether a lockout/safety guard needs to run at all — then, only if that
+decision says yes, opens a transaction, takes the advisory lock, and asks
+the guard to count survivors. **Dangerous:** the guard's lock and count are
+airtight once invoked, but the READ that decides whether to invoke it at all
+happens before the lock exists, so a concurrent mutation can change the
+target's state in the window between that read and the eventual write — the
+DECISION goes stale even though the COUNT never would have. This is easy to
+miss precisely because the guard itself looks correct in isolation (its own
+tests pass, its lock/count logic is sound); the bug is entirely in what
+happens *before* the guarded transaction, not inside it. **Avoid:** acquire
+the same lock the guard uses FIRST, before reading anything the "does this
+even need guarding" decision depends on — then make that decision from a
+read taken under the lock, inside the same transaction, immediately before
+the guard's own count. A helper that only exposes "acquire the lock" (not
+just "acquire the lock and count") lets a caller that needs to decide-then-
+guard do both under one lock without duplicating the count logic.
+**Overhype:** PR #425's admin-lockout guard (`assertAdminPopulationSurvives`,
+under `pg_advisory_xact_lock(ADMIN_POPULATION_LOCK_KEY)`) recurred in this
+exact shape **twice in the same PR**: round 4 found `PATCH
+/admin/users/:id`'s email-change handler reading the target's
+email/`isAdmin` via a plain `db.select(...)` before opening any transaction,
+so `removesAdminAccess` — whether to call the guard at all — could be
+computed from data a concurrent admin-removal was about to invalidate; round
+5 found the identical shape in the separate `GET /auth/verify-email`
+pending-email-promotion path, which had gotten the crossing-boundary CHECK
+right in an earlier round but not the lock-ordering. Both fixed by exporting
+`acquireAdminPopulationLock(tx)` (factored out of the guard's own
+lock+count) and moving each handler's read + decision inside the
+transaction, after acquiring it, before the guard's count. The second
+recurrence — same root cause, sibling code path, found one round later — is
+also a worked example of *class recurrence* under this repo's own
+review-loop bucket rubric
+([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)):
+porting a fix to one of several similarly-shaped call sites and missing a
+sibling is common enough to specifically check for once a first instance of
+a shape like this is found, not just fixed in place.
+
 ## A broad error-class match convicts more than the one case it was written for
 
 **Looks like:** catching an error and testing a general property of it — an
@@ -1080,6 +1120,37 @@ by definition. Diagnosing it as this pattern would prescribe the wrong fix
 (cut the subject / stop the loop) instead of the right one (split the artifact
 and keep going on the smaller half). See
 [*A plan that grew during its own review*](#a-plan-that-grew-during-its-own-review).
+
+**A sixth instance, caught earlier than the others (PR #425, 2026-08-13/14).**
+The permission-chokepoint CI guards
+(`scripts/check-permission-chokepoint.mjs` and its frontend sibling) exist to
+catch a hand-written `tier === "legendary"`-shaped comparison outside the
+resolver. Across the implementation review loop, four rounds — spread over
+a five-round span, round 5 was an unrelated finding — found a genuinely new
+gap: round 3 (file-level allowlist scope, fixed),
+round 4 (`!==`, fixed), round 6 (a formatter-wrapped multi-line comparison,
+fixed), round 7 (a reversed operand, `"legendary" === tier` — confirmed
+real, and **declined**, not fixed). Every probe was real and every
+finding accurate — this is the identical finding-never-falls shape as the
+other five instances, three hardenings deep before the fourth probe is
+what finally got a different response. **What's different here is where
+the loop stopped.** Rounds 4 and 6 closed gaps in the space of
+forms a developer or an agent would actually write by habit — those were
+worth fixing. Round 7's reversed operand is a Yoda condition nobody on this
+team or Codex writes in this codebase, and the space of
+syntactically-valid-but-never-written forms a regex (or even a full AST
+parser — it would still miss a new helper function or an `.includes()`
+check) could be asked to cover next is unbounded regardless, so "catch
+every form" was never a reachable goal for a guard scoped to catch mistakes,
+not adversarial evasion. Declined on the merits at round 7, four rounds in —
+not round 17 or 20 — because the question this whole entry teaches ("does
+this round's fix target the original design or the shape of the previous
+round's fix?") was asked directly at the point the answer changed from yes
+to no, instead of waiting for a rising-count or growing-artifact tell to
+force it. The decision, and the guard's now-explicit tripwire-vs-proof scope
+contract written into both scripts' headers so a future round doesn't have
+to rediscover the same boundary, is in
+[`decisions.md`](./decisions.md#2026-08-14--the-permission-chokepoint-guards-are-scoped-as-a-tripwire-against-habitual-mistakes-not-a-proof-against-adversarial-evasion).
 
 ### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 

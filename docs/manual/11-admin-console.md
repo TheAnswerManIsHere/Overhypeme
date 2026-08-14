@@ -31,6 +31,13 @@ checks that [role](../ai-context/glossary.md#role) and turns visitors away other
 every admin surface together, with a live counter on the [moderation](../ai-context/glossary.md#moderation)
 section so the team can see at a glance whether anything's waiting.
 
+An admin can also switch into "view as user" mode to see the product the
+way an ordinary member does — the console stays reachable underneath, and
+a control on the profile page and inside the console itself (labeled
+Resume Admin while previewing) switches back. Access to the console
+itself never depends on this toggle either way: it's a preview of what a
+regular account sees, not a separate permission level.
+
 ### Reviewing content
 
 New facts and comments both go through a review step before they're
@@ -60,12 +67,19 @@ they happen.
 
 Two different screens exist for two different questions. One is a
 general settings editor for the product's overall configuration. The
-other is specifically about what each membership tier is allowed to do
-— a grid of features against tiers, so "can a free user do X" is one
-clear answer in one place for the features actually wired to read it.
-Not every tier gate is: some are hard-coded straight into route
-middleware instead, so editing the grid doesn't change what those
-specific routes enforce.
+other is specifically about what each membership tier — including the
+Admin column — is allowed to do: a grid of features against tiers, so
+"can a free user do X" is one clear answer in one place, and a toggle
+takes effect with no deploy (see the deep spec for the per-process
+window before every server picks it up). Nearly every product feature
+gate reads this grid rather than picking a tier or role apart on its
+own; one documented exception remains (an admin-only engine catalogue
+filter), tracked to close in a later phase. A separate, smaller set of
+console-access and moderation privileges (who can reach this console at
+all, who can act on other people's content) is deliberately **not** on
+this grid — keeping those two kinds of permission apart is what makes it
+impossible to configure your way into locking every admin out of the
+console.
 
 ### Watching the machinery
 
@@ -129,4 +143,6 @@ pages are actually getting traffic.
 **Next:** chapter 12 — [`12-background-work.md`](./12-background-work.md),
 async jobs, the scheduling lanes, and how status is surfaced.
 
-*Verified against `4fd4c66` (2026-08-09) · claim inventory in PR #379.*
+*Verified against `4fd4c66` (2026-08-09) · claim inventory in PR #379. The
+view-as-user/Resume-Admin control and the permission-grid coverage claims
+re-verified against `91fa048` (2026-08-14, PR #425).*

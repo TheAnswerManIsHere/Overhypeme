@@ -54,9 +54,11 @@ functions or triggers, since it has no schema builder for either — PR
 counterpart, and `push --force` never touches them. In this incident, the
 dropped objects were `facts_active_requires_concept`
 and migration `0095`'s two standalone sequences, `membership_source_state_seq`
-and `membership_lease_fence_seq` — runtime code calls `nextval()` on both, but
-`membershipEntitlements.ts` declared neither as a `pgSequence`, so `push` had
-never known either one was supposed to exist) — and the `migrate` that followed could not repair it, because
+and `membership_lease_fence_seq` — runtime code calls `nextval()` on both, and
+at the time `membershipEntitlements.ts` declared neither as a `pgSequence`, so
+`push` had never known either one was supposed to exist; PR #427's migration
+`0100_membership_sequence_repair` plus matching `pgSequence()` declarations
+closed exactly that gap) — and the `migrate` that followed could not repair it, because
 its hash-based tracking already recorded those migrations as applied. 19
 unrelated test failures across four suites resulted, with no schema-shadow
 gap of this PR's own to blame. Fixed by giving `@workspace/db`'s own suite a
@@ -83,6 +85,28 @@ in this repo's specific CI shape.
    review, not by any automated check. A `push`-built DB (any environment, not
    just the sandbox) would silently never get this index.
 
+**A third instance, same session as the CI-scoping discovery above (PR
+#425).** Migration `0099`'s `tier_feature_permission_audit_created_at_idx`
+(a `CREATE INDEX` on the new audit table) had no matching `index(...)` in
+`featureFlags.ts`'s `pgTable` declaration — caught by Codex review, not by
+an automated check, same as instance 2. Reproduced directly this time
+rather than just reasoned about: running `pnpm push-force` twice against a
+freshly-migrated DB dropped the index on the second run, confirming the
+exact failure mode this note already described. **This is the third
+confirmed instance of the identical root cause across three different PRs
+(#242, #293, #425)** — at three strikes, a manual per-migration discipline
+that keeps getting missed is a candidate for a real CI guard, not just
+another repetition of "remember to add the shadow." **Not a naive
+per-migration diff** — a guard comparing each migration's raw CREATEs
+directly against `schema.ts` rejects intentionally retired objects (an
+index dropped by a later migration, a constraint that disappears because
+its whole table gets dropped); the guard has to compute each object's
+*terminal* state across the full migration sequence first. Full design —
+and the two real cases that ruled out the naive version — is tracked in
+[`deferred-work.md`](../../docs/engineering/deferred-work.md#code-level-tech-debt)
+rather than duplicated here. Not built yet — filed there as the trigger
+for that decision, not a guard that exists.
+
 **Rule:** whenever a migration adds a raw-SQL `CREATE INDEX` or
 `ALTER TABLE ADD CONSTRAINT`, add the equivalent declaration to the table's
 `pgTable(...)` definition in the same commit — `index("name").on(table.col)` for
@@ -90,8 +114,11 @@ indexes, a `check()` builder for constraints (or a documented note if Drizzle's
 `check()` can't express it). A standalone `CREATE SEQUENCE` needs its own
 `pgSequence(...)` declaration instead — no `pgTable` option can shadow an
 object that isn't scoped to a table. `pnpm --filter @workspace/db run validate-snapshots`
-does NOT catch either shape (migrations are snapshot-exempt by convention) —
-this is a manual discipline, not something CI currently guards.
+does NOT catch either shape — not because migrations are snapshot-exempt (every
+snapshotless entry needs its own named exemption), but because that
+validator's comparison only covers tables, columns, and enums, with no
+logic for indexes, constraints, or sequences — this is a manual discipline,
+not something CI currently guards.
 
 **Update (PR #427, 2026-08-14) — the two named sequences above are now
 shadowed.** `membership_source_state_seq` and `membership_lease_fence_seq`

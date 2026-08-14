@@ -48,6 +48,39 @@
   or a simpler runner emerges that gets the same DB isolation without the
   signal-handling surface area sharding currently requires.
 
+### 2026-08-14 · The permission-chokepoint guards are scoped as a tripwire against habitual mistakes, not a proof against adversarial evasion
+- **Decision:** `scripts/check-permission-chokepoint.mjs` and its frontend
+  sibling catch the inline tier/role comparisons a developer or agent would
+  actually write by habit (`===`, `!==`, a formatter-wrapped multi-line
+  comparison) — not every syntactically possible way to write one. A
+  round-7 finding on PR #425 that a reversed operand (`"legendary" ===
+  membershipTier`) still passes was confirmed accurate and declined rather
+  than fixed. Both guards' headers now state this scope explicitly.
+- **Why:** this was the fourth round to find a new gap in the same two
+  guards, across a five-round span (round 3: file-vs-line allowlist scope;
+  round 4: `!==`; round 5 was unrelated, a different admin-lockout finding;
+  round 6: multiline; round 7: reversed operand) — the same shape as every other
+  instance of "chasing completeness against an adversarial reviewer past
+  the artifact's real risk" (see
+  [`known-failure-patterns.md`](./known-failure-patterns.md#chasing-completeness-against-an-adversarial-reviewer-past-the-artifacts-real-risk)).
+  Rounds 4 and 6 were real, worth fixing: those are forms an author reaches
+  for without thinking. A reversed Yoda condition is not — nobody on this
+  team or Codex writes one in this codebase — and the space of
+  syntactically-valid-but-never-written forms is unbounded regardless: even
+  a full AST parser would still miss a new helper function or an
+  `.includes()` check, so "catch every form" was never a reachable goal.
+  The actual defense is architectural, not lexical: `can(principal,
+  '<feature_key>')` / `useAuth().can('<feature_key>')` is the obvious,
+  documented, already-modeled-everywhere path, so the guard's real job is
+  catching an accidental reach for a raw tier comparison, not defeating a
+  reviewer deliberately trying to write an undetectable one.
+- **Reference:** PR #425 round 7 (declined finding + guard header update,
+  commit `99bf7bc`).
+- **Revisit if:** a real (not adversarially-constructed) inline tier/role
+  gate is later found in one of these two guards' habitual-form blind spots
+  — that would mean the "what a developer/agent would actually write"
+  scoping judgment was wrong, not just incomplete.
+
 ### 2026-08-11 · Claude drives PR close-out (merge + Repl sync); David's UAT gates nothing pre-merge
 - **Decision:** Once a PR is CI-green, Codex-converged, and every review
   thread is resolved, Claude asks David for an explicit go, then owns the

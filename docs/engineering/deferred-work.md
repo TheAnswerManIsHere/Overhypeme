@@ -496,6 +496,156 @@ re-gather it when the work is scheduled.
     (`MEMORY.md:23`) repeats the same bare `docs/plans/PLAN_*.md` teaching
     text, a third file the guard would need to know about before it can ship.
 
+- **No CI guard against a migration's raw-SQL DDL missing its `schema.ts`
+  shadow (found on PR #425's `/document` harvest review).**
+  - **What.** [`raw-sql-migration-needs-schema-shadow.md`](../../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
+    documents the pattern — a migration's hand-written `CREATE INDEX`,
+    `ADD CONSTRAINT`, or `CREATE SEQUENCE` with no matching `schema.ts`
+    declaration is invisible to `drizzle-kit push`, which silently drops it
+    on any push against an already-migrated database — and now records
+    **three** confirmed occurrences across three different PRs (#242, #293,
+    #425), the last of which reproduced the drop directly (two `push-force`
+    runs). `pnpm --filter @workspace/db run validate-snapshots` does not
+    catch either shape — not because migrations are exempt (every
+    snapshotless journal entry needs its own named, reasoned exemption in
+    `check-migration-snapshots.ts`, and `0099_admin_permissions_core` has
+    one), but because the validator's comparison only covers tables,
+    columns, and enums; it has no logic for indexes, constraints, or
+    sequences at all.
+  - **Why deferred now.** Same reasoning as the sibling entry below for
+    dangling `docs/plans/*` citations — this repo's own rule is that a
+    recurring failure pattern becomes a deterministic CI guard, not a
+    reviewer-memory ask, and three strikes across three separate PRs is
+    well past the point a fresh agent should be expected to catch this by
+    reading the memory doc each time. Not implemented in the PR that raised
+    it a third time (#425's `/document` harvest) because that pass is
+    docs-only; writing and wiring a new guard script is a code change
+    outside that ceremony's boundary.
+  - **Cost of waiting.** A fourth instance stays possible and undetected by
+    CI — each prior occurrence was caught by a human/Codex reviewer noticing
+    a specific missing declaration, not by anything mechanical, so the next
+    one is exactly as likely to slip through as the first three did.
+  - **Shape of the fix, not yet built.** A naive version — flag every
+    historical `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE` with no
+    matching `schema.ts` declaration — breaks on real history: migration
+    `0022` creates `email_outbox_pending_idx`, migrations `0037`/`0038`
+    create `email_outbox_status_created_idx`, and `0063` deliberately
+    `DROP`s both when generalizing the async-jobs table — neither should
+    have a current shadow, and a guard comparing raw per-migration CREATEs
+    against schema.ts would reject that legitimate retirement on day one.
+    The guard has to walk the full migration sequence and compute each raw
+    object's **terminal** state (does a later migration's `DROP
+    INDEX`/`DROP CONSTRAINT`/`DROP SEQUENCE` remove it before the check
+    ever runs) — and that removal isn't always an explicit DROP naming the
+    object itself: `0023` adds a foreign-key constraint on
+    `lifetime_entitlements`, and `0096` drops the whole
+    `lifetime_entitlements` table with no separate `DROP CONSTRAINT` —
+    every constraint and index scoped to a dropped table goes with it
+    implicitly, so the terminal-state pass needs to fold in
+    `DROP TABLE`/dropped-column removals before checking what's left, not
+    just the object-specific DROP statements. Only an object that's still
+    raw-SQL-created, on a table that still exists, and never explicitly or
+    implicitly dropped needs a `schema.ts` shadow. **Terminal-state
+    tracking alone still isn't enough**: several objects already exist on
+    `main` today, live and un-dropped, that are deliberately never
+    shadowed. A guard with no way to exempt a known, reasoned case would
+    fail Build against the tree as it stands today, before it ever caught
+    a new drift. It needs its own named `ALLOWLIST`, the identical shape
+    `check-permission-chokepoint.mjs` already uses — each entry names the
+    object, the migration, and why it's permanently unshadowed.
+
+    A terminal-state pass over the full migration history (every
+    `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE` **and every inline
+    `CHECK`/`UNIQUE`/`REFERENCES` clause inside a `CREATE TABLE` or
+    `ADD COLUMN` — Postgres auto-names those, and Drizzle reconciles the
+    resulting objects exactly as it does explicitly-named ones, so an
+    extractor that only scans `ADD CONSTRAINT` statements misses them**,
+    reduced by every `DROP INDEX`/`DROP CONSTRAINT`/`DROP TABLE`,
+    cross-checked against every `index()`/`uniqueIndex()`/`check()`/
+    `pgSequence()`/`.references()` declaration in `lib/db/src/schema/*.ts`)
+    was run for this entry. **The guard's implementer re-derives this
+    inventory mechanically rather than trusting the enumeration below** —
+    this entry's own review found the list incomplete twice, which is the
+    strongest available evidence that a hand-maintained enumeration of it
+    rots; the durable content here is the *method* and the two-way split,
+    with the current results as the starting checklist.
+
+    As of this writing the pass finds **seven** objects with an explicit,
+    comment-documented reason to stay permanently unshadowed — genuine
+    `ALLOWLIST` seeds:
+    - **Six partial indexes**, all exempt for the same reason (the pinned
+      `drizzle-kit`'s partial-index handling is brittle, per the comments
+      in `facts.ts:159-160` and `imagePromptAttempts.ts:130-135`):
+      `IDX_facts_eval_golden`, `IDX_ipa_eval_run_fact_created`,
+      `IDX_ipa_eval_fact_run_created` (`0081`), `IDX_ipa_request_id`,
+      `IDX_ipa_render_job_id` (`0065`), and `IDX_ipa_review_only`
+      (`0076`).
+    - **One genuinely self-referential foreign key** (`0048`):
+      `uim_source_object_path_fk` (`upload_image_metadata.source_object_
+      path` → its own `object_path`) — `uploadImageMetadataTable`'s
+      trailing comment records that Drizzle's TS-side self-FK helper is
+      brittle and isn't required for runtime queries.
+
+    **And ten objects that are live schema-shadow gaps — real,
+    reproducible exposure under this note's confirmed mechanism, each
+    fixable with an ordinary declaration, so none belongs on a permanent
+    allowlist.** (The two `0095` sequences, `membership_source_state_seq`
+    and `membership_lease_fence_seq`, were the eleventh and twelfth — the
+    PR #293 incident is precisely `push --force` dropping them — but PR
+    #427 closed exactly that gap while this list was being reviewed:
+    migration `0100_membership_sequence_repair` recreates them and
+    `membershipEntitlements.ts` now carries matching `pgSequence()`
+    declarations, which is the model fix for everything below.)
+    - `uim_fact_id_fk` (`0048`) — an ordinary cross-table FK
+      (`upload_image_metadata.fact_id` → `facts.id`), expressible with
+      the same `.references(() => factsTable.id)` used throughout
+      `memes.ts`. The self-FK brittleness reason in the adjacent comment
+      covers `uim_source_object_path_fk` only; this one rode along.
+    - `memes_status_check`, `quarantined_memes_source_check`,
+      `ncmec_reports_match_source_check` (`0043`) — the only DB-level
+      validation for `memes.status`, `quarantined_memes.source`, and
+      `ncmec_reports.match_source` respectively. (Distinct columns and
+      vocabularies from `0097`'s newer `submission_status`/
+      `content_origin` checks, which are shadowed — these three are not
+      superseded by them.)
+    - `idx_memes_created_by_id_created_at` (`0051`),
+      `facts_has_overrides_idx` (`0071`) — both partial indexes, so a
+      cleanup pass may legitimately conclude they join the reasoned
+      brittle-partial-index exemptions above instead; that's a
+      case-by-case call for whoever fixes them, made with a comment
+      either way.
+    - `affiliate_clicks_source_idx` (`0034`), `UQ_uim_user_is_profile`
+      (`0055`, also partial — same call as above).
+    - The two **inline, auto-named CHECKs**: `share_intents.platform`
+      (`0052:22`) and `hero_examples.artifact_type` (`0054:16`) —
+      `shareIntents.ts`/`heroExamples.ts` mention them in comments but
+      declare no `check()` builder, so a push-built database silently
+      loses both vocabularies' enforcement.
+
+    (`stripe_checkout_request_ledger_request_key_unique` from `0045`
+    looks like a gap at first grep, but that migration renames a
+    Postgres-auto-named constraint to Drizzle's exact
+    `table_column_unique` convention — `.unique()` on `memberships.ts`'s
+    `requestKey` generates that identical name, so it *is* shadowed.)
+
+    The ten gaps predate this entry; fixing them (declare the missing
+    shadow, or add a reasoned comment that promotes one to the allowlist)
+    is separate work from writing the guard, and has to land **before**
+    the guard can go green — or the implementer explicitly seeds them as
+    "known gap, not yet fixed" entries so the guard's first Build run
+    doesn't fail on objects it didn't cause. Either way the initial
+    `ALLOWLIST` accounts for every object the re-derived inventory
+    returns, split honestly between reasoned-permanent and
+    known-gap-pending.
+
+    Wire the guard into `build.yml`'s `Build` job, where
+    `validate-snapshots` and both `check-permission-chokepoint*.mjs`
+    guards already run — the same general shape as the chokepoint guards'
+    file-scan-plus-allowlist approach but requiring cross-migration state,
+    not a single-file scan.
+  - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
+    time this exact mistake recurs a fourth time.
+
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
     conditionally gaining `/api/auth/dev-admin-login` only inside an
