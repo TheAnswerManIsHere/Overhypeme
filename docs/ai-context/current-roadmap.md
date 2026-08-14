@@ -38,10 +38,14 @@ priorities (moderation speed, render/enrichment quality, video). See
   Admin column is live (a union with the account's own tier, never an
   override); the client is told its resolved entitlements instead of
   deriving them from `role`; and an admin cannot be locked out by any
-  sequence of demotion, deletion, deactivation, an email change, or the
-  "view as user" toggle, including concurrent ones — enforced by an
-  advisory-lock population guard
-  (`adminLockoutGuard.ts`). See
+  sequence of demotion, deletion, deactivation, or an email change,
+  including concurrent ones — enforced by an advisory-lock population
+  guard (`adminLockoutGuard.ts`). The "view as user" toggle is a separate,
+  simpler case: it writes only session state, never touches the database,
+  and `requireRole` checks the toggle-independent `realUserRole`, so
+  console access is never actually at risk — a recovery control (in
+  `AdminLayout` and on the profile page) is what closes the loop back to
+  admin mode, not the population guard. See
   [`membership-entitlements.md`](./membership-entitlements.md) for the
   model. **8 review rounds**, the last four post-merge-readiness findings
   concentrated in pre-existing code the reviewer widened into rather than

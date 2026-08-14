@@ -93,12 +93,17 @@ freshly-migrated DB dropped the index on the second run, confirming the
 exact failure mode this note already described. **This is the third
 confirmed instance of the identical root cause across three different PRs
 (#242, #293, #425)** — at three strikes, a manual per-migration discipline
-that keeps getting missed is a candidate for the CI guard `deferred-work.md`
-should track (a script that diffs each migration's raw `CREATE INDEX`/`ADD
-CONSTRAINT`/`CREATE SEQUENCE` statements against `schema.ts`'s declared
-set), not just another repetition of "remember to add the shadow." Not
-built yet — filed here as the trigger for that decision, not a guard
-that exists.
+that keeps getting missed is a candidate for a real CI guard, not just
+another repetition of "remember to add the shadow." **Not a naive
+per-migration diff** — a guard comparing each migration's raw CREATEs
+directly against `schema.ts` rejects intentionally retired objects (an
+index dropped by a later migration, a constraint that disappears because
+its whole table gets dropped); the guard has to compute each object's
+*terminal* state across the full migration sequence first. Full design —
+and the two real cases that ruled out the naive version — is tracked in
+[`deferred-work.md`](../../docs/engineering/deferred-work.md#code-level-tech-debt)
+rather than duplicated here. Not built yet — filed there as the trigger
+for that decision, not a guard that exists.
 
 **Rule:** whenever a migration adds a raw-SQL `CREATE INDEX` or
 `ALTER TABLE ADD CONSTRAINT`, add the equivalent declaration to the table's
@@ -107,5 +112,8 @@ indexes, a `check()` builder for constraints (or a documented note if Drizzle's
 `check()` can't express it). A standalone `CREATE SEQUENCE` needs its own
 `pgSequence(...)` declaration instead — no `pgTable` option can shadow an
 object that isn't scoped to a table. `pnpm --filter @workspace/db run validate-snapshots`
-does NOT catch either shape (migrations are snapshot-exempt by convention) —
-this is a manual discipline, not something CI currently guards.
+does NOT catch either shape — not because migrations are snapshot-exempt (every
+snapshotless entry needs its own named exemption), but because that
+validator's comparison only covers tables, columns, and enums, with no
+logic for indexes, constraints, or sequences — this is a manual discipline,
+not something CI currently guards.

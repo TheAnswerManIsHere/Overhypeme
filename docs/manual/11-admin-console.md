@@ -70,7 +70,7 @@ general settings editor for the product's overall configuration. The
 other is specifically about what each membership tier — including the
 Admin column — is allowed to do: a grid of features against tiers, so
 "can a free user do X" is one clear answer in one place, and a toggle
-takes effect with no deploy (see the deep spec for the short per-process
+takes effect with no deploy (see the deep spec for the per-process
 window before every server picks it up). Nearly every product feature
 gate reads this grid rather than picking a tier or role apart on its
 own; one documented exception remains (an admin-only engine catalogue
