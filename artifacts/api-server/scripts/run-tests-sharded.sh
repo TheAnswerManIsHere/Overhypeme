@@ -159,6 +159,31 @@ do_cleanup() {
 # cleanup a second time (do_cleanup is also idempotent as a backstop).
 on_exit() { local rc=$?; do_cleanup; exit "$rc"; }
 on_signal() { trap - EXIT INT TERM; do_cleanup; exit "$1"; }
+
+# `_in_critical`/`_deferred_sig`: a caught signal between spawning a child and
+# recording its PID would otherwise see an empty WORKER_PIDS/PREFIX_PIDS and
+# leak that child — narrower than the whole-loop version of this bug (fixed
+# earlier by moving the append next to the spawn), but a real bash safe-point
+# gap between two simple commands, reproduced directly: self-delivering TERM
+# between a `&` and the following array append lands in the trap with the
+# array still empty. Bash only checks for a pending trapped signal at command
+# boundaries — never mid-instruction — so setting a flag with one simple
+# command is itself atomic with respect to signal delivery: a signal arriving
+# while `_in_critical=1` is being set cannot land "in between" that assignment
+# and the next command seeing the flag as 1. `on_signal` checks the flag and,
+# if set, defers rather than cleaning up immediately — signals are recorded,
+# never dropped, so a real Ctrl-C during a critical section still fires
+# cleanup, just at the end of that section instead of losing the child.
+_in_critical=0
+_deferred_sig=""
+on_signal() {
+  if [ "$_in_critical" = "1" ]; then _deferred_sig="$1"; return; fi
+  trap - EXIT INT TERM
+  do_cleanup
+  exit "$1"
+}
+# check_deferred_signal — call immediately after each critical section ends.
+check_deferred_signal() { [ -n "$_deferred_sig" ] && on_signal "$_deferred_sig"; return 0; }
 trap on_exit EXIT
 trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
@@ -199,18 +224,23 @@ launch_and_wait() {
     mkfifo "$fifo"
     # Start the reader first: opening a FIFO for reading blocks until a writer
     # appears, so this parks harmlessly until run_files opens the write end.
+    #
+    # Each spawn+publish pair is a critical section (see _in_critical above):
+    # published to the GLOBAL array immediately, not batched after the loop,
+    # AND signal-deferred across the two commands themselves — a signal
+    # arriving between `&` and the following array append is a real bash
+    # safe-point gap, not just a whole-loop-iteration one.
+    _in_critical=1
     sed -u "s|^|[shard ${k}/${shards}] |" < "$fifo" &
-    # Published to the GLOBAL array immediately, not batched after the loop: a
-    # signal arriving mid-loop (after this shard's reader/writer spawn but
-    # before the last shard's) must still find every already-spawned PID in
-    # do_cleanup's kill list. Batching via a local array and assigning it to
-    # WORKER_PIDS only once the whole loop finished left exactly that window
-    # uncovered — do_cleanup would kill nothing from a signal caught mid-loop,
-    # and could rm -rf FIFO_DIR out from under a still-blocked-open reader.
     PREFIX_PIDS+=("$!")
+    _in_critical=0
+    check_deferred_signal
+    _in_critical=1
     run_files "$url" "$iso" -- --test-shard="${k}/${shards}" "$GLOB" > "$fifo" 2>&1 &
     pids+=("$!"); pid_obj[$!]="${WORKER_OBJS[$k]}"
     WORKER_PIDS+=("$!")
+    _in_critical=0
+    check_deferred_signal
   done
   local overall=0 pid
   for pid in "${pids[@]}"; do
