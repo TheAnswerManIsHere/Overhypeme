@@ -28,6 +28,20 @@
  * allowlist entry on the SAME LINE fails the build — matching is line-level,
  * not file-level, so an allowlisted file isn't blanket-immune: a second,
  * unrelated violation added anywhere else in that file still fails.
+ *
+ * THIS IS A TRIPWIRE FOR THE FORMS A DEVELOPER OR AGENT WOULD WRITE BY HABIT —
+ * NOT A PROOF THAT NO INLINE COMPARISON CAN EXIST. Rounds 4 and 6 of PR #425's
+ * review closed real gaps in that habitual space: `!==` and a
+ * formatter-wrapped multi-line comparison are both things a normal author
+ * reaches for without thinking. Round 7 found the pattern also misses a
+ * REVERSED operand (`"legendary" === tier`) and declined to chase it: nobody
+ * on this team or Codex writes Yoda conditions in this codebase, and the
+ * space of syntactically-valid-but-never-actually-written forms is unbounded
+ * regardless — a real parser would still miss a new helper function or an
+ * array `.includes()` check. The actual defense is architectural: the correct
+ * call (`useAuth().can('<feature_key>')`) is the obvious, documented,
+ * already-modeled-everywhere thing to reach for, so the accidental habitual
+ * regression is what this guard exists to catch, not adversarial evasion.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";

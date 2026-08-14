@@ -24,6 +24,20 @@
  * one grandfathered exception explicitly so the exception cannot spread
  * silently.
  *
+ * THIS IS A TRIPWIRE FOR THE FORMS A DEVELOPER OR AGENT WOULD WRITE BY HABIT —
+ * NOT A PROOF THAT NO INLINE COMPARISON CAN EXIST. Rounds 4 and 6 of PR #425's
+ * review closed real gaps in that habitual space: `!==` and a
+ * formatter-wrapped multi-line comparison are both things a normal author
+ * reaches for without thinking. Round 7 found the pattern also misses a
+ * REVERSED operand (`"legendary" === membershipTier`) and declined to chase
+ * it: nobody on this team or Codex writes Yoda conditions in this codebase,
+ * and the space of syntactically-valid-but-never-actually-written forms is
+ * unbounded regardless — a real parser would still miss a new helper function
+ * or an array `.includes()` check. The actual defense is architectural: the
+ * correct call (`can(principal, '<feature_key>')`) is the obvious, documented,
+ * already-modeled-everywhere thing to reach for, so the accidental habitual
+ * regression is what this guard exists to catch, not adversarial evasion.
+ *
  * ALLOWLIST matching is per-LINE, not per-file: an entry only suppresses the
  * violation on the exact line whose text it matches, not the rest of its
  * file — round 3 of PR #425's review found this guard sharing the identical
