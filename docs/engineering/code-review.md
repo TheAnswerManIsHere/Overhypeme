@@ -173,12 +173,14 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
 cost more than the defects they describe. This is the *depth* rule; the
-*round-count* rule for the same artifacts (light docs never loop — see the
-criticality gate) lives in
-[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
-The author's review request on a docs-only PR states this bar explicitly
-("docs-only — light review per code-review.md"), so the reviewer calibrates
-from the request itself, not just from this file.
+*round-count* rule for the same artifacts is now a hard cap — the automatic
+first pass plus **at most one re-request**, with out-of-diff findings
+routed to follow-up issues by default — defined in
+[`working-modes.md`](../ai-context/working-modes.md#docs-only-prs-cap-at-one-re-request--review-of-prose-is-structurally-unbounded-david-2026-08-14)
+(David, 2026-08-14, after PR #434 ran eight rounds on a `/document`
+harvest). The author's review request on a docs-only PR states this bar
+explicitly ("docs-only — light review per code-review.md"), so the
+reviewer calibrates from the request itself, not just from this file.
 
 **Loop-ledger records get the same light bar, split by which half of the
 record a finding touches (David, 2026-08-11).** A `.agents/metrics/loops/
