@@ -417,9 +417,12 @@ will keep finding things, and each fix adds surface for the next round.
   'DELETE')` raises, and `pg_has_role` raises on a role that does not exist
   yet. Read what a finding *does*, never what it is labelled.
 - **Cap by artifact class.** Transient single-use docs: **the automatic first
-  pass only — never a re-request** (see the ceremony table above). Agent-facing
-  markdown: **1–2 rounds.** Product code: the existing soft cap, and the
-  ~20-round figure is a backstop, not a budget.
+  pass only — never a re-request** (see the ceremony table above). Docs-only
+  PRs of any kind: **the first pass plus at most one re-request** — see
+  *Docs-only PRs cap at one re-request* below, which supersedes the earlier
+  "agent-facing markdown: 1–2 rounds" phrasing of this line. Product code:
+  the existing soft cap, and the ~20-round figure is a backstop, not a
+  budget.
 - **The historical record reads cleanly under the bucket rubric — the
   diagnosis, never the number, was the decision every time.** PR #329's guard
   (9, 11, 12, 19 — 2026-08-05) was new-ground-in-diff against an unbounded
@@ -433,6 +436,58 @@ will keep finding things, and each fix adds surface for the next round.
   pair of half-applied fixes: a scope decision wearing a divergence costume.
   Four rising or high counts, four different correct responses — which is
   the whole case for classifying before deciding.
+
+### Docs-only PRs cap at one re-request — review of prose is structurally unbounded (David, 2026-08-14)
+
+A code-review loop converges because the diff bounds it: the reviewer runs
+out of changed lines. A documentation diff has no such bound — every claim
+in a doc is checkable against the entire repo, so an adversarial reviewer
+never runs out of true findings; each corrected claim exposes its
+neighbors, and the loop's own fix commits hand the next round fresh prose
+to audit. A convergence target ("review until clean") is therefore the
+wrong exit condition for docs **even when every finding is correct** — and
+in the loop that taught this rule they all were: PR #434 (the `/document`
+harvest of PR #425) ran **eight rounds**, every finding genuinely factual.
+Rounds 1–5 fixed real errors in durable docs — worth one round's ceremony.
+Rounds 6–8 polished the allowlist of a proposed CI guard that does not
+exist yet and audited pre-existing docs outside the diff. The cut line was
+visible at round 5 and nothing mechanical forced anyone to look at it.
+
+So a **docs-only PR** — any PR whose entire diff is documentation:
+agent-facing markdown, `/document` harvests, manual chapters — gets a hard
+cap, not a convergence target:
+
+1. **The automatic first pass** (Codex reviews every non-draft PR on
+   open), then one fix-and-triage commit.
+2. **At most one `@codex review` re-request**, to verify those fixes.
+3. **Whatever that verification round returns gets triage only** —
+   fix-if-trivial in the merge-ready commit, file a follow-up issue, or
+   decline — and the loop is over. No third request regardless of what the
+   findings are: under an unbounded surface, "the findings are real" is
+   not evidence the loop should continue — it is the permanent condition
+   of reviewing prose, so it cannot be the continue signal.
+4. **Out-of-diff findings route to follow-up issues by default, at any
+   round.** A docs reviewer wandering into pre-existing docs is the
+   convergence signal (the diff stopped yielding), never grounds for
+   another round — the same *new ground, pre-existing* bucket the stopping
+   rule already routes to a scope decision, hardened here into the
+   default.
+
+The floor tiers stay stricter: TEST_RUN checklists and loop-ledger records
+keep their zero-re-request rule from the ceremony table. And the
+criticality gate above becomes **mechanical** at the same time: any
+re-request, on any PR of any kind, states the artifact's 1–100 criticality
+number in the request text itself. A request the author cannot put a
+number in does not get posted — the missing number is exactly how PR #434
+sailed past the pre-existing "agent-facing markdown: 1–2 rounds" cap
+without anyone being forced to notice which class the artifact was in.
+
+What the cap does **not** change: factual wrongness in durable docs is
+still the one thing worth fixing there, so verified-real findings from any
+round still get fixed (in the capped commit or via a filed issue) — the
+cap ends *rounds*, never fixes. And a docs PR whose findings reveal a
+real product defect (not a doc defect) leaves docs ceremony entirely:
+route it to `/bugfix` or a feature workstream, where code rules apply.
 
 ### Findings are triaged against the artifact's real risk
 
