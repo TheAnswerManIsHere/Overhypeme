@@ -112,6 +112,27 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
   // dev and test migration state never collide in the same table.
   const trackingSchema = process.env.DRIZZLE_MIGRATIONS_SCHEMA ?? "drizzle";
 
+  // Surface server-side NOTICEs for the duration of the migration run.
+  // node-postgres discards them unless something listens, so a migration that
+  // reports what it did — a repair stating whether it changed anything, a
+  // backfill announcing row counts — would otherwise run completely silently,
+  // leaving a real repair and a no-op indistinguishable in the output.
+  //
+  // This lives HERE, in the shared entry point, not in the CLI block: the API
+  // server applies pending migrations at startup through runMigrations() in
+  // index.ts, which reaches this function without going near the CLI wrapper.
+  // Attaching it there only would have made observability depend on which
+  // entry point happened to run — and the deployment path is the one that
+  // matters most.
+  //
+  // Removed in the finally: this is a POOLED client that gets released and
+  // reused for ordinary application queries, so a listener left attached would
+  // keep printing "[migrate]" lines for unrelated work on that connection.
+  const onNotice = (msg: { message?: string }) => {
+    if (msg?.message) console.log(`[migrate]   ${msg.message}`);
+  };
+  client.on("notice", onNotice);
+
   console.log(`[migrate] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`);
   await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
   console.log("[migrate] Advisory lock acquired.");
@@ -240,6 +261,7 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
     } catch (unlockErr) {
       console.warn(`[migrate] Warning: failed to release advisory lock: ${unlockErr}`);
     }
+    client.off("notice", onNotice);
   }
 }
 
@@ -252,15 +274,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
   const client = await pool.connect();
-  // Surface server-side NOTICEs. node-postgres drops them unless something
-  // listens, so a migration that reports what it did — a repair that has to
-  // state whether it changed anything, a backfill announcing its row counts —
-  // would otherwise run completely silently. Without this, the only output for
-  // both a real repair and a no-op is the generic "Applying <tag>" line, which
-  // is precisely the ambiguity a repair migration exists to remove.
-  client.on("notice", (msg) => {
-    if (msg?.message) console.log(`[migrate]   ${msg.message}`);
-  });
+  // NOTE: the notice listener lives in applyMigrations(), not here — see the
+  // comment there. Registering it in this block too would double-print every
+  // notice for CLI runs and leave the deployment path uncovered.
   try {
     const { applied, skipped, total } = await applyMigrations(client);
     console.log(

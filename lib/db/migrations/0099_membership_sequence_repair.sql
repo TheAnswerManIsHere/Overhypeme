@@ -25,38 +25,45 @@
 -- told `applied: false`. A missing sequence fails LOUDLY (nextval raises); a
 -- reset one fails SILENTLY, which is strictly worse.
 --
--- WHY THIS ONLY EVER WRITES A SEQUENCE THAT IS GENUINELY BEHIND
--- ------------------------------------------------------------
--- An earlier version of this migration ran an unconditional
--- `setval(seq, GREATEST(max_stored, seq.last_value))`. That is unsafe against a
--- live database, and the failure is the exact corruption this migration exists
--- to prevent. Sequence reads and writes are not transactional and take no lock
--- the application shares, so a concurrent `nextval()` can land between the
--- `last_value` subquery and the `setval()`. The stale value then overwrites the
--- concurrently advanced one and the next caller is handed a token that was
--- already issued — duplicate tokens, and a fence that no longer separates a
--- live holder from a revenant. Reproduced before rewriting: a sequence
+-- WHY THIS ADVANCES THROUGH nextval() AND NEVER setval()
+-- -----------------------------------------------------
+-- Two earlier versions of this migration used setval(), and both were unsafe
+-- against a live database in the same way: sequence reads and writes are not
+-- transactional and take no lock the application shares, so a concurrent
+-- nextval() can land between reading the current value and writing the new one.
+-- The stale value then overwrites the concurrently advanced one and the next
+-- caller is handed a token that was already issued — duplicate tokens, and a
+-- fence that no longer separates a live holder from a revenant. Exactly the
+-- corruption this migration exists to prevent. Reproduced: a sequence
 -- concurrently advanced 800 -> 850 was pushed back to 800, and the next
--- allocation returned 801, which had already been handed out.
+-- allocation returned 801, already handed out.
 --
--- So each block below decides FIRST whether the sequence is actually behind
--- what is already persisted, and writes ONLY then. On a healthy database —
--- which includes production, where these sequences were never dropped, since
--- `push --force` reaches only the test database via pretest's
--- TEST_DATABASE_URL redirect — this migration performs no sequence write at
--- all, so there is no read-then-write window to race. On a database that IS
--- behind, every consumer's write is already silently matching zero rows, so
--- advancing can only improve matters.
+-- Gating the setval on "only if behind" narrowed that window but did not close
+-- it: on a DAMAGED database still serving traffic, concurrent allocators can
+-- cross `target` between the read and the write, and tokens above `target`
+-- succeed against the guards — so those writes are real, and re-issuing their
+-- tokens is real corruption.
 --
--- `highest_issued` accounts for is_called: a never-called sequence reports
--- last_value = 1 while having issued nothing, so treating last_value as
--- "already handed out" would skip a repair that is genuinely needed when the
--- stored maximum is exactly 1.
+-- nextval() has no such window. It only ever advances, atomically, so this loop
+-- cannot lower a sequence no matter how it interleaves; concurrent allocation
+-- simply reaches the target sooner and shortens the loop. The cost objection to
+-- looping turned out to be unfounded — 100,000 iterations measured at 0.22s, and
+-- the gap is bounded by the number of membership writes ever made.
 --
--- Idempotent, non-destructive, and safe to replay: it can only ever raise a
--- sequence, never lower one, never renumber a row, and never write table data.
--- Each block reports what it did, so a repair and a no-op are distinguishable
--- in the migration output rather than both appearing as a bare "Applying" line.
+-- pg_sequence_last_value() returns NULL for a never-called sequence, which is
+-- precisely "nothing issued yet". Reading last_value directly would report 1 in
+-- that state and skip a repair that is genuinely needed when the stored maximum
+-- is exactly 1.
+--
+-- On a HEALTHY database the loop condition is false immediately, so no sequence
+-- is written at all — this migration is a pure no-op there, which includes
+-- production, where these sequences were never dropped (push --force reaches
+-- only the test database via pretest's TEST_DATABASE_URL redirect).
+--
+-- Idempotent, non-destructive, safe to replay, and it never renumbers a row or
+-- writes table data. Each block reports whether it repaired or left the sequence
+-- alone, so the two outcomes are distinguishable in the migration output rather
+-- than both appearing as a bare "Applying" line.
 CREATE SEQUENCE IF NOT EXISTS "membership_source_state_seq" AS bigint START WITH 1 INCREMENT BY 1;
 --> statement-breakpoint
 
@@ -65,43 +72,53 @@ CREATE SEQUENCE IF NOT EXISTS "membership_lease_fence_seq" AS bigint START WITH 
 
 DO $$
 DECLARE
-  target         bigint;
-  lv             bigint;
-  called         boolean;
-  highest_issued bigint;
+  target     bigint;
+  before_val bigint;
+  after_val  bigint;
+  steps      bigint := 0;
 BEGIN
   SELECT COALESCE(MAX("source_state_as_of"), 0) INTO target FROM "membership_entitlements";
-  SELECT last_value, is_called INTO lv, called FROM "membership_source_state_seq";
-  highest_issued := CASE WHEN called THEN lv ELSE lv - 1 END;
+  before_val := COALESCE(pg_sequence_last_value('membership_source_state_seq'::regclass), 0);
 
-  IF highest_issued < target THEN
-    PERFORM setval('membership_source_state_seq', target);
-    RAISE NOTICE '0099: membership_source_state_seq REPAIRED — highest issued was %, advanced to % (max membership_entitlements.source_state_as_of); next token %',
-      highest_issued, target, target + 1;
+  WHILE COALESCE(pg_sequence_last_value('membership_source_state_seq'::regclass), 0) < target LOOP
+    PERFORM nextval('membership_source_state_seq');
+    steps := steps + 1;
+  END LOOP;
+
+  after_val := COALESCE(pg_sequence_last_value('membership_source_state_seq'::regclass), 0);
+
+  IF steps > 0 THEN
+    RAISE NOTICE '0099: membership_source_state_seq REPAIRED — was %, consumed % allocation(s) to reach % (max membership_entitlements.source_state_as_of = %); next token %',
+      before_val, steps, after_val, target, after_val + 1;
   ELSE
     RAISE NOTICE '0099: membership_source_state_seq OK — highest issued % >= max stored %; not written',
-      highest_issued, target;
+      before_val, target;
   END IF;
 END $$;
 --> statement-breakpoint
 
 DO $$
 DECLARE
-  target         bigint;
-  lv             bigint;
-  called         boolean;
-  highest_issued bigint;
+  target     bigint;
+  before_val bigint;
+  after_val  bigint;
+  steps      bigint := 0;
 BEGIN
   SELECT COALESCE(MAX("fence"), 0) INTO target FROM "membership_leases";
-  SELECT last_value, is_called INTO lv, called FROM "membership_lease_fence_seq";
-  highest_issued := CASE WHEN called THEN lv ELSE lv - 1 END;
+  before_val := COALESCE(pg_sequence_last_value('membership_lease_fence_seq'::regclass), 0);
 
-  IF highest_issued < target THEN
-    PERFORM setval('membership_lease_fence_seq', target);
-    RAISE NOTICE '0099: membership_lease_fence_seq REPAIRED — highest issued was %, advanced to % (max membership_leases.fence); next fence %',
-      highest_issued, target, target + 1;
+  WHILE COALESCE(pg_sequence_last_value('membership_lease_fence_seq'::regclass), 0) < target LOOP
+    PERFORM nextval('membership_lease_fence_seq');
+    steps := steps + 1;
+  END LOOP;
+
+  after_val := COALESCE(pg_sequence_last_value('membership_lease_fence_seq'::regclass), 0);
+
+  IF steps > 0 THEN
+    RAISE NOTICE '0099: membership_lease_fence_seq REPAIRED — was %, consumed % allocation(s) to reach % (max membership_leases.fence = %); next fence %',
+      before_val, steps, after_val, target, after_val + 1;
   ELSE
     RAISE NOTICE '0099: membership_lease_fence_seq OK — highest issued % >= max stored %; not written',
-      highest_issued, target;
+      before_val, target;
   END IF;
 END $$;
