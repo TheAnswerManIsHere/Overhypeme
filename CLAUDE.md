@@ -955,21 +955,27 @@ This is my tool (like subagent dispatch above), not something Codex uses, so
 it lives here rather than in the shared docs.
 
 - **What it enables:** `list_apps` / `search_apps` / `resolve_app_by_name`
-  (read-only lookup of our Repls), `ask_question` (read-only natural-language
-  Q&A against a Repl's code or live behavior, answered by Replit Agent),
-  `update_app_using_prompt` (writes code directly into a Repl from a prose
-  prompt), `publish_app` / `get_publish_status` (deploys the Repl's current
-  workspace snapshot to production), and `create_app_from_prompt` (spins up
-  new Repls — not relevant to Overhype.me work).
-- **There is no push/notification channel — every call is a one-shot poll,
-  and a "busy" reply means the question was NOT queued.** Both `ask_question`
-  and `update_app_using_prompt` can return `phase: "busy"` while Replit
-  Agent is still working an earlier request; the tool's own response says
-  plainly that a busy reply is dropped, not remembered, so I have to
-  explicitly re-ask the same question again once it clears, not just wait
-  passively. Unlike `subscribe_pr_activity`, nothing arrives here on its
-  own. When I say "checking" I mean I'm about to re-issue the call in this
-  same turn — not that I'll find out later without prompting.
+  (read-only lookup of our Repls), **`ask_question` (the read channel —
+  natural-language Q&A against a Repl's code or live behavior, answered by
+  Replit Agent, and the *only* call that returns that answer to me)**,
+  **`update_app_using_prompt` (the write/act channel — applies a change or
+  runs an action in the Repl from a prose prompt, and returns only a status
+  acknowledgement, never the result)**, `publish_app` /
+  `get_publish_status` (deploys the Repl's current workspace snapshot to
+  production), and `create_app_from_prompt` (spins up new Repls — not
+  relevant to Overhype.me work).
+- **Nothing arrives on its own, and a `"busy"` reply means the request was
+  NOT queued.** Unlike `subscribe_pr_activity`, this connector never wakes
+  me — there is no push/notification channel. Both `ask_question` and
+  `update_app_using_prompt` can return `phase: "busy"` while Replit Agent
+  is still working an earlier request; the tool's own response says plainly
+  that a busy reply is dropped, not remembered, so I re-issue that request
+  once it clears rather than waiting passively. **`"busy"` is the only
+  phase that means "re-ask"** — see the `"updating"` rule directly below,
+  which is a different case entirely and cost me six wasted calls when I
+  conflated the two. And note this bullet describes *delivery*, not
+  *latency*: `ask_question` answers synchronously in its own return value,
+  so a read is one call, not a poll.
 - **`"updating"` is not `"busy"` — re-invoking on `"updating"` doesn't poll a
   pending request, it queues a brand-new one (David, 2026-08-14, PR
   #434/#438 close-out).** The busy-reply rule above is specifically about
