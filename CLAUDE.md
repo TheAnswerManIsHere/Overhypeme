@@ -988,18 +988,21 @@ it lives here rather than in the shared docs.
   is no `turnId`-keyed status-check call in this connector; re-invoking
   with a new prompt is the *only* thing the tool lets me do, and it always
   reads as a new request to Replit, not a poll.
-  - **The fix:** call `update_app_using_prompt` once per actual request. If
-    what I need back is the *text* of an answer (a SHA, a log line, a yes/no
-    fact), that is not retrievable through this tool's return value —
-    that's not a patience problem, no amount of re-polling fixes it. Use
-    `ask_question` instead for anything where I genuinely need response
-    text (it's built as synchronous Q&A, and the "busy" rule still applies
-    there the normal way) — verify anything it claims about live state that
-    matters, per the accuracy caveat below. For a one-off human-checkable
-    fact like a post-merge git-sync (SHA + clean tree), the fastest
-    reliable path is often just asking David to glance at the Repl's Git
-    pane, which shows exactly this at a glance — cheaper for both of us
-    than a blind round-trip I can't read the result of.
+  - **The fix:** call `update_app_using_prompt` once per actual request —
+    its return value never carries the answer text, so no amount of
+    re-polling fixes that. **For a live-state fact that matters (a SHA, a
+    clean-tree check, a log line, a post-merge verification) — the exact
+    class the accuracy caveat below already bans `ask_question` from
+    serving as evidence for — don't route it to `ask_question` either.**
+    The reliable path is a human-visible executed result: ask David to
+    glance at the Repl's own Git/console pane (what actually resolved the
+    PR #434/#438 close-out), or fold the check into a TEST_RUN doc where
+    Replit runs and reports it. `ask_question`'s synchronous-answer
+    property only makes it the *right shape* of tool for this — it's still
+    the *wrong evidence source* for it, same as before. Reserve
+    `ask_question` for explanatory, non-live-state triage ("why is this
+    failing," "what does this code do") where a wrong answer is merely
+    unhelpful, not a false verification.
   - **Never fire near-identical re-checks in a loop.** Each one is a real,
     separately-billed agent turn on Replit's side for zero information
     gained on mine — the six calls in the PR #434/#438 close-out cost real
