@@ -1,10 +1,10 @@
 -- Plan 1a — One resolver, one client contract, no admin lockout (PR #421, workstream #405).
 --
--- Forward-only and idempotent. ONE destructive step: retiring the two dead
--- feature rows (`meme_upload_photo`, `meme_ai_background`), which captures the
--- removed rows into `feature_permissions_migration_log.deleted_rows` BEFORE
--- deleting them so recovery is answerable from the database rather than from a
--- document.
+-- Forward-only and idempotent. ONE destructive step: retiring the dead
+-- `meme_upload_photo` feature row, which captures the removed row into
+-- `feature_permissions_migration_log.deleted_rows` BEFORE deleting it so
+-- recovery is answerable from the database rather than from a document.
+-- `meme_ai_background` is NOT retired here — see the note below.
 --
 -- Recovery, post-Plan-1b: `create_feature_flag` then `set_tier_feature` per
 -- tier, passing the captured values — which additionally makes the restoration
@@ -211,14 +211,11 @@ BEGIN
   -- from the database. Only populated on the run that actually deletes
   -- something.
   --
-  -- Two rows retire here, for the same reason: no code read them and no user
-  -- action corresponded to them.
-  --   • meme_upload_photo  — encoded only the registered-vs-unregistered
-  --                          distinction authentication already enforces.
-  --   • meme_ai_background — its only reader was the unreachable render.ts
-  --                          gate; AI backgrounds are system-generated per
-  --                          fact and served to everyone, so there was no
-  --                          user-facing capability for a dial to govern.
+  -- Only `meme_upload_photo` retires here — it encoded only the
+  -- registered-vs-unregistered distinction authentication already enforces.
+  -- `meme_ai_background` looked like the same shape (its only reader was the
+  -- unreachable render.ts gate) but is deliberately KEPT, not retired: see
+  -- the note above `v_retired_keys`.
   SELECT jsonb_build_object(
            'feature_flags', (
              SELECT coalesce(jsonb_agg(to_jsonb(f)), '[]'::jsonb)
