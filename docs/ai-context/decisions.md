@@ -34,10 +34,14 @@
   loop got (see
   [`bash-signal-safe-spawn-critical-section.md`](../../.agents/memory/bash-signal-safe-spawn-critical-section.md)).
   That same investigation also surfaced and fixed a genuine, previously
-  undiscovered production bug: `drizzle-kit push --force` silently dropping
-  two undeclared Postgres sequences on repeat pushes, which had been quietly
-  causing 16-19 unrelated test failures attributed to flakiness rather than a
-  schema gap (see the known-failure-patterns.md sequence-drop entry).
+  undiscovered persistent-test-database bug: `drizzle-kit push --force`
+  silently dropping two undeclared Postgres sequences on repeat pushes
+  against a long-lived database (Replit's `heliumdb_test`, a persistent
+  sandbox) — GitHub CI's ephemeral, single-push-per-database shape never
+  reaches the second push that exposes it. Production was unaffected; this
+  command never reaches Neon production. The gap had been quietly causing
+  16-19 unrelated test failures attributed to flakiness rather than a schema
+  gap (see the known-failure-patterns.md sequence-drop entry).
 - **Reference:** PR #427.
 - **Revisit if:** the working pattern changes again such that per-PR CI time
   stops being a real cost (e.g. CI moves off a model where wall-clock matters),
