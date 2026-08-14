@@ -368,6 +368,14 @@ router.post("/videos/generate", async (req, res) => {
   const governanceStartedAt = Date.now();
   let governanceActualCostUsd = 0;
   let governanceFailed = false;
+  // A budget-gate refusal (429/503, both below) is a pre-provider refusal —
+  // fal was never called. Both returns sit inside THIS try, so they reach
+  // the finally below; without this flag, completeGovernance would count
+  // them as fal-provider outcomes (#409 rounds 3-4 fixed this exact issue
+  // in routes/memes.ts — round 5 found this route has the identical shape,
+  // contrary to what round 3/4 claimed here after mistracing which try the
+  // finally below actually pairs with).
+  let budgetGateRefusal = false;
   try {
   if (!getFalApiKey()) {
     res
@@ -605,6 +613,7 @@ router.post("/videos/generate", async (req, res) => {
         // a pricing failure, and must propagate rather than be swallowed.
         const budget = await checkBudget(authenticatedUserId, priced.costUsd);
         if (!budget.allowed) {
+          budgetGateRefusal = true;
           res.status(429).json({
             error: "BUDGET_EXCEEDED",
             currentSpend: budget.currentSpend,
@@ -622,6 +631,7 @@ router.post("/videos/generate", async (req, res) => {
           // user's. Deny with a retry-able 503, not the 429 above: conflating
           // the two would tell someone hitting a transient database error to
           // go buy more credit.
+          budgetGateRefusal = true;
           res.status(503).json({ error: err.message });
           return;
         }
@@ -847,7 +857,11 @@ router.post("/videos/generate", async (req, res) => {
     completeGovernance(req, {
       provider: "fal",
       latencyMs: Date.now() - governanceStartedAt,
-      failed: governanceFailed || res.statusCode >= 400,
+      failed: !budgetGateRefusal && (governanceFailed || res.statusCode >= 400),
+      // A budget-gate refusal never reached fal — see the flag's own comment
+      // above. Same fix as routes/memes.ts (#409 rounds 3-4), applied here
+      // in round 5 after round 3/4 incorrectly concluded it didn't apply.
+      skipProviderHealth: budgetGateRefusal,
       actualCostUsd: !governanceFailed && res.statusCode < 400 ? governanceActualCostUsd : 0,
       responseStatus: res.statusCode,
       idempotencyKey: governanceGate.idempotencyKey,
