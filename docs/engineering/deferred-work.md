@@ -586,17 +586,16 @@ re-gather it when the work is scheduled.
       trailing comment records that Drizzle's TS-side self-FK helper is
       brittle and isn't required for runtime queries.
 
-    **And twelve objects that are live schema-shadow gaps — real,
+    **And ten objects that are live schema-shadow gaps — real,
     reproducible exposure under this note's confirmed mechanism, each
     fixable with an ordinary declaration, so none belongs on a permanent
-    allowlist:**
-    - `membership_source_state_seq` and `membership_lease_fence_seq`
-      (`0095`) — **already demonstrated, not hypothetical**: the PR #293
-      incident this note records is precisely `push --force` dropping
-      these two sequences (19 test failures). The fix is a `pgSequence()`
-      declaration, which the memory note's own Rule section prescribes;
-      `membershipEntitlements.ts`'s comments describe how runtime uses
-      them, not any reason a declaration can't exist.
+    allowlist.** (The two `0095` sequences, `membership_source_state_seq`
+    and `membership_lease_fence_seq`, were the eleventh and twelfth — the
+    PR #293 incident is precisely `push --force` dropping them — but PR
+    #427 closed exactly that gap while this list was being reviewed:
+    migration `0100_membership_sequence_repair` recreates them and
+    `membershipEntitlements.ts` now carries matching `pgSequence()`
+    declarations, which is the model fix for everything below.)
     - `uim_fact_id_fk` (`0048`) — an ordinary cross-table FK
       (`upload_image_metadata.fact_id` → `facts.id`), expressible with
       the same `.references(() => factsTable.id)` used throughout
@@ -629,7 +628,7 @@ re-gather it when the work is scheduled.
     `table_column_unique` convention — `.unique()` on `memberships.ts`'s
     `requestKey` generates that identical name, so it *is* shadowed.)
 
-    The twelve gaps predate this entry; fixing them (declare the missing
+    The ten gaps predate this entry; fixing them (declare the missing
     shadow, or add a reasoned comment that promotes one to the allowlist)
     is separate work from writing the guard, and has to land **before**
     the guard can go green — or the implementer explicitly seeds them as

@@ -54,9 +54,11 @@ functions or triggers, since it has no schema builder for either — PR
 counterpart, and `push --force` never touches them. In this incident, the
 dropped objects were `facts_active_requires_concept`
 and migration `0095`'s two standalone sequences, `membership_source_state_seq`
-and `membership_lease_fence_seq` — runtime code calls `nextval()` on both, but
-`membershipEntitlements.ts` declares neither as a `pgSequence`, so `push` has
-never known either one is supposed to exist) — and the `migrate` that followed could not repair it, because
+and `membership_lease_fence_seq` — runtime code calls `nextval()` on both, and
+at the time `membershipEntitlements.ts` declared neither as a `pgSequence`, so
+`push` had never known either one was supposed to exist; PR #427's migration
+`0100_membership_sequence_repair` plus matching `pgSequence()` declarations
+closed exactly that gap) — and the `migrate` that followed could not repair it, because
 its hash-based tracking already recorded those migrations as applied. 19
 unrelated test failures across four suites resulted, with no schema-shadow
 gap of this PR's own to blame. Fixed by giving `@workspace/db`'s own suite a
