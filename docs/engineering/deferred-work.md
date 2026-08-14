@@ -496,6 +496,42 @@ re-gather it when the work is scheduled.
     (`MEMORY.md:23`) repeats the same bare `docs/plans/PLAN_*.md` teaching
     text, a third file the guard would need to know about before it can ship.
 
+- **No CI guard against a migration's raw-SQL DDL missing its `schema.ts`
+  shadow (found on PR #425's `/document` harvest review).**
+  - **What.** [`raw-sql-migration-needs-schema-shadow.md`](../../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
+    documents the pattern — a migration's hand-written `CREATE INDEX`,
+    `ADD CONSTRAINT`, or `CREATE SEQUENCE` with no matching `schema.ts`
+    declaration is invisible to `drizzle-kit push`, which silently drops it
+    on any push against an already-migrated database — and now records
+    **three** confirmed occurrences across three different PRs (#242, #293,
+    #425), the last of which reproduced the drop directly (two `push-force`
+    runs). `pnpm --filter @workspace/db run validate-snapshots` does not
+    catch either shape; migrations are snapshot-exempt by convention.
+  - **Why deferred now.** Same reasoning as the sibling entry below for
+    dangling `docs/plans/*` citations — this repo's own rule is that a
+    recurring failure pattern becomes a deterministic CI guard, not a
+    reviewer-memory ask, and three strikes across three separate PRs is
+    well past the point a fresh agent should be expected to catch this by
+    reading the memory doc each time. Not implemented in the PR that raised
+    it a third time (#425's `/document` harvest) because that pass is
+    docs-only; writing and wiring a new guard script is a code change
+    outside that ceremony's boundary.
+  - **Cost of waiting.** A fourth instance stays possible and undetected by
+    CI — each prior occurrence was caught by a human/Codex reviewer noticing
+    a specific missing declaration, not by anything mechanical, so the next
+    one is exactly as likely to slip through as the first three did.
+  - **Shape of the fix, not yet built.** A script that parses each
+    migration file's raw `CREATE INDEX`/`ALTER TABLE ... ADD CONSTRAINT`
+    statements (skipping `IF NOT EXISTS`-guarded idempotent re-runs of
+    something schema.ts already declares) and standalone `CREATE SEQUENCE`
+    statements, then checks each one has a matching `index()`/`check()`
+    entry on the owning `pgTable` (or a `pgSequence()` declaration) in
+    `lib/db/src/schema/*.ts` — failing the build on any gap, the same shape
+    as `check-permission-chokepoint.mjs`'s file-scan approach. Wire into
+    `build.yml`'s `Test` job alongside the existing `@workspace/db` checks.
+  - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
+    time this exact mistake recurs a fourth time.
+
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
     conditionally gaining `/api/auth/dev-admin-login` only inside an

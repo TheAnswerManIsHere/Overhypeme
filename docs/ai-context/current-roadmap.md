@@ -24,6 +24,30 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Plan 1a — one resolver, one client contract, no admin lockout** (PR #425,
+  workstream #405, merged 2026-08-14, from the plan reviewed on PR #421).
+  Every product-feature permission check now resolves through one function
+  (`featureAccess.ts`'s `can(principal, key)`), reading the Feature
+  Permission Grid and nothing else — a CI guard
+  (`scripts/check-permission-chokepoint.mjs` + its frontend sibling) fails
+  the build on a new inline `tier`/`role` comparison outside it. The grid's
+  Admin column is live (a union with the account's own tier, never an
+  override); the client is told its resolved entitlements instead of
+  deriving them from `role`; and an admin cannot be locked out by any
+  sequence of demotion, deletion, deactivation, an email change, or the
+  "view as user" toggle, including concurrent ones — enforced by an
+  advisory-lock population guard
+  (`adminLockoutGuard.ts`). See
+  [`membership-entitlements.md`](./membership-entitlements.md) for the
+  model. **8 review rounds**, the last four post-merge-readiness findings
+  concentrated in pre-existing code the reviewer widened into rather than
+  the diff itself — see the
+  [2026-08-14 `decisions.md` entry](./decisions.md#2026-08-14--the-permission-chokepoint-guards-are-scoped-as-a-tripwire-against-habitual-mistakes-not-a-proof-against-adversarial-evasion)
+  for the guard-scoping call that closed the loop, and
+  [`known-failure-patterns.md`](./known-failure-patterns.md#a-guards-population-safety-lock-protects-the-count-but-not-the-decision-to-check-it-at-all)
+  for the admin-lockout TOCTOU shape that recurred twice within the PR.
+  **Plan 1b (write-side enforcement of the grid, #422) is next** — this
+  plan's migration must run before it, and did.
 - **Overhype.me Manual — one-time chapter backfill, closed out 2026-08-09.**
   David approved the plan 2026-07-30; the pass brought the manual from 3
   written chapters (moderation, taxonomy/enrichment, background work) to the

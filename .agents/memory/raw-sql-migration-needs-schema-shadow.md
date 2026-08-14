@@ -83,6 +83,23 @@ in this repo's specific CI shape.
    review, not by any automated check. A `push`-built DB (any environment, not
    just the sandbox) would silently never get this index.
 
+**A third instance, same session as the CI-scoping discovery above (PR
+#425).** Migration `0099`'s `tier_feature_permission_audit_created_at_idx`
+(a `CREATE INDEX` on the new audit table) had no matching `index(...)` in
+`featureFlags.ts`'s `pgTable` declaration — caught by Codex review, not by
+an automated check, same as instance 2. Reproduced directly this time
+rather than just reasoned about: running `pnpm push-force` twice against a
+freshly-migrated DB dropped the index on the second run, confirming the
+exact failure mode this note already described. **This is the third
+confirmed instance of the identical root cause across three different PRs
+(#242, #293, #425)** — at three strikes, a manual per-migration discipline
+that keeps getting missed is a candidate for the CI guard `deferred-work.md`
+should track (a script that diffs each migration's raw `CREATE INDEX`/`ADD
+CONSTRAINT`/`CREATE SEQUENCE` statements against `schema.ts`'s declared
+set), not just another repetition of "remember to add the shadow." Not
+built yet — filed here as the trigger for that decision, not a guard
+that exists.
+
 **Rule:** whenever a migration adds a raw-SQL `CREATE INDEX` or
 `ALTER TABLE ADD CONSTRAINT`, add the equivalent declaration to the table's
 `pgTable(...)` definition in the same commit — `index("name").on(table.col)` for
