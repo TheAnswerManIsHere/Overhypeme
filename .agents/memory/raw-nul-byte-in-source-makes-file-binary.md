@@ -8,21 +8,26 @@ description: Why using a literal `\x00` character as a string delimiter in sourc
 A template literal like `` `${a}\0${b}` `` written with an *actual* NUL byte
 character embedded in the source (as opposed to the two-character escape
 sequence `\0`) is valid, working JavaScript — `\0` and a literal NUL byte
-produce the identical runtime string. But Git's binary-file heuristic looks
-for a NUL byte anywhere in the file's raw bytes, and a text editor or an
-agent's file-read tool can insert one this way without anyone noticing,
-because the *rendered* string in most viewers looks like a space or is
-otherwise invisible.
+produce the identical runtime string. But Git's binary-file heuristic
+scans (empirically confirmed against this repo's Git 2.43.0) only the
+**first ~8,000 bytes** of a file, and treats it as binary if a NUL byte
+appears anywhere in that window — a text editor or an agent's file-read
+tool can insert one this way without anyone noticing, because the
+*rendered* string in most viewers looks like a space or is otherwise
+invisible. A NUL past that window doesn't trip Git's own heuristic, though
+other tools that scan further (or the whole file) still might — treat the
+window as "Git specifically," not a hard ceiling on the danger.
 
-**Dangerous:** once a source file contains a real NUL byte, `git diff`
-reports `Binary files a/... and b/... differ` instead of a line-level diff —
-so every future PR touching that file gets reviewed blind, and `grep`/`rg`
-report "binary file matches" instead of showing the matching line. For a
-security-sensitive file (a permission resolver, an auth module), this is
-worse than an ordinary hygiene nit: it defeats line-level code review on
-exactly the file that most needs it, and the defect can sit unnoticed for a
-long time because nothing about the *runtime behavior* is wrong — only
-tooling that inspects the file as text is affected.
+**Dangerous:** once a source file contains a real NUL byte within that
+scan window, `git diff` reports `Binary files a/... and b/... differ`
+instead of a line-level diff — so every future PR touching that file gets
+reviewed blind, and `grep`/`rg` report "binary file matches" instead of
+showing the matching line. For a security-sensitive file (a permission
+resolver, an auth module), this is worse than an ordinary hygiene nit: it
+defeats line-level code review on exactly the file that most needs it, and
+the defect can sit unnoticed for a long time because nothing about the
+*runtime behavior* is wrong — only tooling that inspects the file as text
+is affected.
 
 **Avoid:** never embed a literal NUL byte in source as a delimiter,
 separator, or sentinel — always use its escape sequence, `\0`. This is

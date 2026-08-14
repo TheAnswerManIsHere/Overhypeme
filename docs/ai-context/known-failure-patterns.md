@@ -1125,8 +1125,9 @@ and keep going on the smaller half). See
 The permission-chokepoint CI guards
 (`scripts/check-permission-chokepoint.mjs` and its frontend sibling) exist to
 catch a hand-written `tier === "legendary"`-shaped comparison outside the
-resolver. Across the implementation review loop, four consecutive rounds
-found a genuinely new gap: round 3 (file-level allowlist scope, fixed),
+resolver. Across the implementation review loop, four rounds — spread over
+a five-round span, round 5 was an unrelated finding — found a genuinely new
+gap: round 3 (file-level allowlist scope, fixed),
 round 4 (`!==`, fixed), round 6 (a formatter-wrapped multi-line comparison,
 fixed), round 7 (a reversed operand, `"legendary" === tier` — confirmed
 real, and **declined**, not fixed). Every probe was real and every

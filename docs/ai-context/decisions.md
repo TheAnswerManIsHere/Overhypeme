@@ -21,9 +21,10 @@
   round-7 finding on PR #425 that a reversed operand (`"legendary" ===
   membershipTier`) still passes was confirmed accurate and declined rather
   than fixed. Both guards' headers now state this scope explicitly.
-- **Why:** this was the fourth round in a row finding a new gap in the same
-  two guards (round 3: file-vs-line allowlist scope; round 4: `!==`; round
-  6: multiline; round 7: reversed operand) — the same shape as every other
+- **Why:** this was the fourth round to find a new gap in the same two
+  guards, across a five-round span (round 3: file-vs-line allowlist scope;
+  round 4: `!==`; round 5 was unrelated, a different admin-lockout finding;
+  round 6: multiline; round 7: reversed operand) — the same shape as every other
   instance of "chasing completeness against an adversarial reviewer past
   the artifact's real risk" (see
   [`known-failure-patterns.md`](./known-failure-patterns.md#chasing-completeness-against-an-adversarial-reviewer-past-the-artifacts-real-risk)).

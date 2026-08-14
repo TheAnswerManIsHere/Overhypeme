@@ -536,8 +536,16 @@ re-gather it when the work is scheduled.
     The guard has to walk the full migration sequence and compute each raw
     object's **terminal** state (does a later migration's `DROP
     INDEX`/`DROP CONSTRAINT`/`DROP SEQUENCE` remove it before the check
-    ever runs) — only an object that's still raw-SQL-created and never
-    raw-SQL-dropped needs a `schema.ts` shadow. Wire into `build.yml`'s
+    ever runs) — and that removal isn't always an explicit DROP naming the
+    object itself: `0023` adds a foreign-key constraint on
+    `lifetime_entitlements`, and `0096` drops the whole
+    `lifetime_entitlements` table with no separate `DROP CONSTRAINT` —
+    every constraint and index scoped to a dropped table goes with it
+    implicitly, so the terminal-state pass needs to fold in
+    `DROP TABLE`/dropped-column removals before checking what's left, not
+    just the object-specific DROP statements. Only an object that's still
+    raw-SQL-created, on a table that still exists, and never explicitly or
+    implicitly dropped needs a `schema.ts` shadow. Wire into `build.yml`'s
     `Build` job, where `validate-snapshots` and both
     `check-permission-chokepoint*.mjs` guards already run — the same
     general shape as the chokepoint guards' file-scan approach but
