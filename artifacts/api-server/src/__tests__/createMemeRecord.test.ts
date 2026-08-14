@@ -18,7 +18,7 @@ import {
 import { eq, like, inArray } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
-import { createMemeRecord } from "../lib/createMemeRecord.js";
+import { createMemeRecord, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
 
 const USER_PREFIX = "t-cmr-";
 
@@ -71,6 +71,18 @@ async function cleanup(): Promise<void> {
 before(cleanup);
 after(cleanup);
 
+/**
+ * These tests exercise persistence, not authorization: the gates now live in
+ * `featureAccess.ts` and are resolved by the CALLER. Passing an explicit,
+ * fully-permissive decision set keeps that separation visible — a test that
+ * silently inherited a resolver answer would be testing two things at once.
+ */
+const ALLOW_ALL: MemeAuthorizationDecisions = {
+  meme_private_visibility: true,
+  meme_rate_limit_high: true,
+  meme_pulid_stylize: true,
+};
+
 describe("createMemeRecord — image variant", () => {
   it("persists a stock-photo meme with the expected shape", async () => {
     const userId = await createTestUser();
@@ -84,6 +96,7 @@ describe("createMemeRecord — image variant", () => {
         photoUrl: "https://example.com/x.jpg",
       },
       aspectRatio: "landscape",
+      decisions: ALLOW_ALL,
     });
     assert.ok(result.memeId > 0);
     assert.equal(typeof result.permalinkSlug, "string");
@@ -112,6 +125,7 @@ describe("createMemeRecord — image variant", () => {
         pexelsPhotoId: 67890,
       },
       aspectRatio: "square" as const,
+      decisions: ALLOW_ALL,
     };
     const first = await createMemeRecord(input);
     const second = await createMemeRecord(input);
@@ -139,6 +153,7 @@ describe("createMemeRecord — video variant", () => {
         motionPresetId: "subtle-push",
       },
       aspectRatio: "portrait",
+      decisions: ALLOW_ALL,
     });
     assert.ok(result.memeId > 0);
 

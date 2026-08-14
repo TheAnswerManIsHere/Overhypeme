@@ -25,7 +25,7 @@ describe("Step1ArtifactType", () => {
 
   it("renders the 'What kind of meme?' headline and both cards", () => {
     render(
-      <Step1ArtifactType selected={null} onSelect={() => {}} tier="legendary" />,
+      <Step1ArtifactType selected={null} onSelect={() => {}} canVideoGeneration={true} />,
     );
     expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
     expect(screen.getByTestId("step1-image-card")).toBeTruthy();
@@ -33,14 +33,13 @@ describe("Step1ArtifactType", () => {
   });
 
   it("the crown and video-card chrome render in every state", () => {
-    const tiers: Array<"unregistered" | "registered" | "legendary"> = [
-      "unregistered",
-      "registered",
-      "legendary",
-    ];
-    for (const tier of tiers) {
+    for (const canVideoGeneration of [false, true]) {
       const { unmount } = render(
-        <Step1ArtifactType selected={null} onSelect={() => {}} tier={tier} />,
+        <Step1ArtifactType
+          selected={null}
+          onSelect={() => {}}
+          canVideoGeneration={canVideoGeneration}
+        />,
       );
       expect(screen.getByTestId("video-card-crown")).toBeTruthy();
       unmount();
@@ -48,39 +47,26 @@ describe("Step1ArtifactType", () => {
   });
 
   describe("image card", () => {
-    it("is tappable for unregistered users", () => {
+    it("is tappable when not entitled to video", () => {
       const onSelect = vi.fn();
       render(
         <Step1ArtifactType
           selected={null}
           onSelect={onSelect}
-          tier="unregistered"
+          canVideoGeneration={false}
         />,
       );
       fireEvent.click(screen.getByTestId("step1-image-card"));
       expect(onSelect).toHaveBeenCalledWith("image");
     });
 
-    it("is tappable for registered users", () => {
+    it("is tappable when entitled to video", () => {
       const onSelect = vi.fn();
       render(
         <Step1ArtifactType
           selected={null}
           onSelect={onSelect}
-          tier="registered"
-        />,
-      );
-      fireEvent.click(screen.getByTestId("step1-image-card"));
-      expect(onSelect).toHaveBeenCalledWith("image");
-    });
-
-    it("is tappable for legendary users", () => {
-      const onSelect = vi.fn();
-      render(
-        <Step1ArtifactType
-          selected={null}
-          onSelect={onSelect}
-          tier="legendary"
+          canVideoGeneration={true}
         />,
       );
       fireEvent.click(screen.getByTestId("step1-image-card"));
@@ -88,13 +74,13 @@ describe("Step1ArtifactType", () => {
     });
   });
 
-  describe("video card — unregistered", () => {
+  describe("video card — not entitled", () => {
     it("renders the locked overlay and 'Go Legendary to unlock'", () => {
       render(
         <Step1ArtifactType
           selected={null}
           onSelect={() => {}}
-          tier="unregistered"
+          canVideoGeneration={false}
         />,
       );
       expect(screen.getByTestId("card-locked-overlay")).toBeTruthy();
@@ -107,7 +93,7 @@ describe("Step1ArtifactType", () => {
         <Step1ArtifactType
           selected={null}
           onSelect={onSelect}
-          tier="unregistered"
+          canVideoGeneration={false}
         />,
       );
       fireEvent.click(screen.getByTestId("step1-video-card"));
@@ -116,40 +102,13 @@ describe("Step1ArtifactType", () => {
     });
   });
 
-  describe("video card — registered (free)", () => {
-    it("renders the locked overlay", () => {
-      render(
-        <Step1ArtifactType
-          selected={null}
-          onSelect={() => {}}
-          tier="registered"
-        />,
-      );
-      expect(screen.getByTestId("card-locked-overlay")).toBeTruthy();
-    });
-
-    it("clicking opens the upgrade modal", () => {
-      const onSelect = vi.fn();
-      render(
-        <Step1ArtifactType
-          selected={null}
-          onSelect={onSelect}
-          tier="registered"
-        />,
-      );
-      fireEvent.click(screen.getByTestId("step1-video-card"));
-      expect(onSelect).not.toHaveBeenCalled();
-      expect(screen.getByTestId("unified-upgrade-modal")).toBeTruthy();
-    });
-  });
-
-  describe("video card — legendary", () => {
+  describe("video card — entitled", () => {
     it("is tappable and does NOT render the locked overlay", () => {
       render(
         <Step1ArtifactType
           selected={null}
           onSelect={() => {}}
-          tier="legendary"
+          canVideoGeneration={true}
         />,
       );
       expect(screen.queryByTestId("card-locked-overlay")).toBeNull();
@@ -162,11 +121,43 @@ describe("Step1ArtifactType", () => {
         <Step1ArtifactType
           selected={null}
           onSelect={onSelect}
-          tier="legendary"
+          canVideoGeneration={true}
         />,
       );
       fireEvent.click(screen.getByTestId("step1-video-card"));
       expect(onSelect).toHaveBeenCalledWith("video");
+    });
+  });
+
+  // ── The general invariant: this card follows the ENTITLEMENT, not tier.
+  // It used to be `tier !== "legendary"` — the same PR #402 shape.
+  describe("entitlement invariant", () => {
+    it("granted to a non-legendary tier via the grid → tappable, no upgrade modal", () => {
+      const onSelect = vi.fn();
+      render(
+        <Step1ArtifactType
+          selected={null}
+          onSelect={onSelect}
+          canVideoGeneration={true}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("step1-video-card"));
+      expect(onSelect).toHaveBeenCalledWith("video");
+      expect(screen.queryByTestId("unified-upgrade-modal")).toBeNull();
+    });
+
+    it("revoked from legendary via the grid → locked, opens upgrade modal", () => {
+      const onSelect = vi.fn();
+      render(
+        <Step1ArtifactType
+          selected={null}
+          onSelect={onSelect}
+          canVideoGeneration={false}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("step1-video-card"));
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(screen.getByTestId("unified-upgrade-modal")).toBeTruthy();
     });
   });
 
@@ -176,7 +167,7 @@ describe("Step1ArtifactType", () => {
         <Step1ArtifactType
           selected={null}
           onSelect={() => {}}
-          tier="legendary"
+          canVideoGeneration={true}
         />,
       );
       // Placeholders for both image and video are present (the cards render

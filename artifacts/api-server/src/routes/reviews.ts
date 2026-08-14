@@ -1,3 +1,4 @@
+import { can, principalFromRequest } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { z } from "zod";
@@ -133,11 +134,12 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
   // Admin and legendary members may skip captcha/onboarding; all others must have completed onboarding.
   // Membership/admin/captcha state on `req.user` is rebuilt fresh from the DB
   // on every authenticated request by authMiddleware.
-  const isAdmin = !!req.user.isRealAdmin;
-  const isLegendary = req.user.membershipTier === "legendary";
+  // Mirrors the tokenize-fact gate in ai.ts: the entitlement half resolves
+  // through the grid, the onboarding half stays an identity prerequisite.
+  const hasBypassEntitlement = await can(principalFromRequest(req), "fact_submit_captcha_bypass");
   const isCaptchaVerified = !!req.user.captchaVerified;
 
-  if (!isAdmin && !isLegendary && !isCaptchaVerified) {
+  if (!hasBypassEntitlement && !isCaptchaVerified) {
     res.status(403).json({
       error: "You must complete onboarding before submitting facts.",
       code: "ONBOARDING_REQUIRED",

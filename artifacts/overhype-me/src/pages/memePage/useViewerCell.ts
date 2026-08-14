@@ -35,6 +35,17 @@ export interface ResolveViewerCellInput {
     imageTransform: string | null | undefined;
   };
   justCreated: boolean;
+  /**
+   * `can("meme_pulid_stylize")` from the caller — told, not derived. Decides
+   * the OWN-meme branch: whether "Turn this up to 11" opens the real PuLID
+   * flow (legendary-own-stock/-pulid) or an inert upsell (registered-own).
+   * This used to be `role === "legendary" || role === "admin"` — the same
+   * PR #402 shape, and the reason a grid grant/revocation wouldn't move this
+   * button. The "other" branches below stay role-derived: they only decide
+   * whether a marketing upsell card is shown on someone ELSE's meme, not any
+   * actual capability, so there's no PR #402-shaped risk in leaving them be.
+   */
+  canPulidStylize: boolean;
 }
 
 function isLegendaryRole(role: Role): boolean {
@@ -46,7 +57,7 @@ function isAnonRole(role: Role): boolean {
 }
 
 export function resolveViewerCell(input: ResolveViewerCellInput): ViewerCell {
-  const { role, userId, meme, justCreated } = input;
+  const { role, userId, meme, justCreated, canPulidStylize } = input;
   const isOwn = !!userId && !!meme.createdById && userId === meme.createdById;
 
   if (isAnonRole(role)) {
@@ -57,15 +68,14 @@ export function resolveViewerCell(input: ResolveViewerCellInput): ViewerCell {
     return "anon-other";
   }
 
-  if (isLegendaryRole(role)) {
-    if (isOwn) {
+  if (isOwn) {
+    if (canPulidStylize) {
       return meme.imageTransform === "pulid"
         ? "legendary-own-pulid"
         : "legendary-own-stock";
     }
-    return "legendary-other";
+    return "registered-own";
   }
 
-  // role === "registered"
-  return isOwn ? "registered-own" : "registered-other";
+  return isLegendaryRole(role) ? "legendary-other" : "registered-other";
 }

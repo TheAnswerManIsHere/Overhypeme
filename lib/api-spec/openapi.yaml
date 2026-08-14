@@ -63,6 +63,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthUserEnvelope'
 
+  /entitlements/version:
+    get:
+      tags: [Auth]
+      operationId: getEntitlementVersion
+      summary: Cheap revalidation probe for the client's entitlement snapshot
+      description: |
+        Returns the pair the client polls to decide whether to re-fetch its
+        entitlements. "Cheap" means a small response and no grid query beyond
+        the already-loaded revision — NOT proxy-cacheable.
+
+        This response is per-principal and must never be shared-cached. It
+        varies by tier, admin grant, and session-scoped view-as-user state, so a
+        proxy caching it by URL could serve one principal's fingerprint to
+        another — and the second client, seeing a fingerprint it does not
+        recognise as its own change, may never converge.
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: The current grid revision and the caller's principal fingerprint.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: 'private, no-store'
+            Vary:
+              schema:
+                type: string
+                example: 'Cookie, Authorization'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementVersion'
+
   /login:
     get:
       tags: [Auth]
@@ -1130,14 +1165,67 @@ components:
           description: When true, NSFW-classified uploads are accepted and tagged on the resulting asset.
           nullable: true
 
+    Entitlement:
+      type: object
+      required: [allowed, limit]
+      properties:
+        allowed:
+          type: boolean
+        limit:
+          # Always null in Plan 1a — every feature is boolean. Typed from the
+          # start because a boolean feature is the degenerate case of a metered
+          # one, so Plan 2 extends a working shape rather than migrating one,
+          # with no client-side breaking change when metered rows arrive.
+          type: integer
+          nullable: true
+
+    EntitlementVersion:
+      type: object
+      required: [gridRevision, principalFingerprint]
+      properties:
+        gridRevision:
+          # Advances on every grid cell write, in the same transaction. Plain
+          # `integer` (no int64 format): the DB column is bigint, but
+          # featureAccess.ts already coerces it with Number(...) before it
+          # ever reaches JSON, and the React client / runtime Zod validator /
+          # use-auth.ts all treat it as a number — int64 made orval emit
+          # `bigint` in the generated api-zod contract alone, a type no
+          # consumer or the real payload could produce. Round 3 of PR #425's
+          # review caught this.
+          type: integer
+        principalFingerprint:
+          # Moves when the PRINCIPAL changes though the grid does not — a
+          # lapsing entitlement, an admin grant/revoke, a view-as-user toggle.
+          # A grid-only revision can never tell an open client its own tier
+          # changed.
+          type: string
+
     AuthUserEnvelope:
       type: object
-      required: [user]
+      required: [user, entitlements, entitlementVersion]
       properties:
         user:
           oneOf:
             - $ref: '#/components/schemas/AuthUser'
             - type: 'null'
+        entitlements:
+          # A SIBLING of user, not nested inside it. /auth/user returns
+          # {user: null} when logged out, so entitlements hanging off AuthUser
+          # would leave every anonymous surface deriving or hardcoding, and any
+          # future `unregistered` grant would be unreachable.
+          #
+          # A typed map rather than a bare string[]: an array can only say
+          # "allowed" and cannot express Plan 2's limit.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Entitlement'
+        entitlementVersion:
+          # Carries BOTH halves, read from the same resolution as the payload.
+          # Stamping with gridRevision alone leaves a real race: if the
+          # principal changes A → B during the fetch and back to A before the
+          # next poll, the pair looks unchanged and the client keeps
+          # entitlements computed for the transient principal indefinitely.
+          $ref: '#/components/schemas/EntitlementVersion'
 
     DuplicateConflict:
       type: object

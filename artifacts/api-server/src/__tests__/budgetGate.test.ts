@@ -196,6 +196,25 @@ describe("checkBudget — admin", () => {
     assert.equal(status.limit, Infinity);
     assert.equal(status.remainingBudget, Infinity);
   });
+
+  // Round 2 of PR #425's review: this used to check the raw `is_admin`
+  // column alone, so an admin granted only via the ADMIN_USER_IDS env
+  // allowlist (no stored flag) was silently billed like a regular user.
+  it("an env-allowlisted admin (no stored is_admin flag) is exempt too", async () => {
+    await setStandardLimits({ registeredUsd: 0.5 });
+    const userId = await createTestUser({ isAdmin: false, tier: "registered" });
+    const prevAdminUserIds = process.env["ADMIN_USER_IDS"];
+    process.env["ADMIN_USER_IDS"] = userId;
+    try {
+      const status = await checkBudget(userId, 99999);
+      assert.equal(status.allowed, true);
+      assert.equal(status.limit, Infinity);
+      assert.equal(status.remainingBudget, Infinity);
+    } finally {
+      if (prevAdminUserIds === undefined) delete process.env["ADMIN_USER_IDS"];
+      else process.env["ADMIN_USER_IDS"] = prevAdminUserIds;
+    }
+  });
 });
 
 describe("checkBudget — registered tier", () => {

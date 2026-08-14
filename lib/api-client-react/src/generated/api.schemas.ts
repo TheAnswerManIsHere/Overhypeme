@@ -59,8 +59,22 @@ export interface AuthUser {
   nsfwModeEnabled?: boolean | null;
 }
 
+export interface Entitlement {
+  allowed: boolean;
+  limit: number | null;
+}
+
+export interface EntitlementVersion {
+  gridRevision: number;
+  principalFingerprint: string;
+}
+
+export type AuthUserEnvelopeEntitlements = { [key: string]: Entitlement };
+
 export interface AuthUserEnvelope {
   user: AuthUser | null;
+  entitlements: AuthUserEnvelopeEntitlements;
+  entitlementVersion: EntitlementVersion;
 }
 
 export interface DuplicateConflict {

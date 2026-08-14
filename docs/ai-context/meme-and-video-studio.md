@@ -178,9 +178,10 @@ tokenize-fact, admin enrichment tokenization), not a meme-creation surface.
 ### A. Legacy synchronous single-shot: `POST /videos/generate`
 
 `routes/videos.ts:354-796`. Used by the legacy `MemeStudioVideoTab.tsx`
-(both Magic and Manual paths). Gated by `hasFeature(tier,
-"video_generation")` unless admin (403 `VIDEO_GENERATION_LOCKED`,
-`videos.ts:407-423`), IP-rate-limited. Calls `fal.subscribe()` and
+(both Magic and Manual paths). Gated by one
+`can(principal, "video_generation")` call — no separate admin short-circuit;
+the admin overlay is unioned in by the resolver (403
+`VIDEO_GENERATION_LOCKED`), IP-rate-limited. Calls `fal.subscribe()` and
 **blocks the HTTP request until the video finishes** — writes a
 `video_jobs` row `pending` → `completed`/`failed` within one request
 (`videos.ts:532-694`). **The frontend "progress bar" here is a fabricated
@@ -244,11 +245,13 @@ polling.
 ignores the admin "view as user" toggle. `requireLegendary` is a shim for
 `requireRole("legendary")` (`tierMiddleware.ts:64`).
 
-**Gated to Legendary (or admin):** all AI image generation (`generate`,
-`generate-v2`, `analyze-source`, image delete); all AI video (both
-systems, via `hasFeature`/`isAtLeastLegendary`); PuLID-stylized photo
-memes (`imageTransform: "pulid"` → 403 `tier_mismatch` if not qualified,
-`createMemeRecord.ts:188-191`); private meme visibility (Legendary-level by
+**Gated to Legendary (or admin):** every one of these now resolves through
+`featureAccess.ts` rather than a role comparison, so the grid is the place to
+change them. All AI image generation (`generate`, `generate-v2`,
+`analyze-source`, image delete → `meme_ai_background`); all AI video (both
+systems → `video_generation`); PuLID-stylized photo
+memes (`meme_pulid_stylize`; `imageTransform: "pulid"` → 403 `tier_mismatch`
+if not qualified); private meme visibility (Legendary-level by
 default, or any tier an operator has separately granted the
 `meme_private_visibility` feature flag via Admin → Features — a caller with
 neither who explicitly requests `isPublic: false` gets a 403, not a silent

@@ -5,11 +5,12 @@
  * premium upsell surface — crown badge + gold-orange gradient ring stay at
  * full strength in every state.
  *
- * Click behavior by tier (resolved in `useVideoCardState`):
- *   - any tier, image card        → onSelect("image")
- *   - unregistered / registered   → opens UnifiedUpgradeModal(video-card)
- *   - legendary, tappable          → onSelect("video")
- *   - legendary, budget-reached    → no-op (CardBudgetReached overlay)
+ * Click behavior (resolved in `useVideoCardState`, off the resolved
+ * video_generation entitlement — not tier):
+ *   - any viewer, image card       → onSelect("image")
+ *   - not entitled                 → opens UnifiedUpgradeModal(video-card)
+ *   - entitled, tappable           → onSelect("video")
+ *   - entitled, budget-reached     → no-op (CardBudgetReached overlay)
  *
  * Hero example assets are fetched from /api/hero-examples and a single one
  * per type is picked at random per mount. The set is empty at MBFO-2 launch;
@@ -18,7 +19,6 @@
 
 import { useState } from "react";
 import type { ArtifactType } from "../state/wizardStorage";
-import type { Tier } from "../../types";
 import { useVideoCardState } from "../state/useVideoCardState";
 import { useHeroExamples } from "../data/useHeroExamples";
 import { HeroExampleImage } from "../parts/HeroExampleImage";
@@ -31,12 +31,12 @@ import { UnifiedUpgradeModal } from "../../../upgrade/UnifiedUpgradeModal";
 interface Props {
   selected: ArtifactType | null;
   onSelect: (type: ArtifactType) => void;
-  tier: Tier;
+  canVideoGeneration: boolean;
 }
 
-export function Step1ArtifactType({ selected, onSelect, tier }: Props) {
+export function Step1ArtifactType({ selected, onSelect, canVideoGeneration }: Props) {
   const hero = useHeroExamples();
-  const videoState = useVideoCardState({ tier });
+  const videoState = useVideoCardState({ canVideoGeneration });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   const handleVideoClick = () => {

@@ -8,7 +8,7 @@ import { eq, and, gte, desc, or, asc } from "drizzle-orm";
 import { getCachedPrice } from "../lib/falPricing.js";
 import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
 import { checkBudget, recordCost } from "../lib/budgetGate.js";
-import { hasFeature } from "../lib/tierFeatures.js";
+import { buildAuthorizationSnapshot, can, principalFromRequest } from "../lib/featureAccess.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { userCanReadObject, userOwnsAiReferenceImage } from "../lib/objectAccess.js";
 import type { File } from "@google-cloud/storage";
@@ -393,15 +393,19 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  // authMiddleware populates req.user.realUserRole (DB truth, ignores the
-  // "view as user" toggle) and req.user.membershipTier on every authenticated
-  // request.  Use realUserRole as the gating signal — no direct reads of the
-  // isRealAdmin boolean for authorization decisions.
+  // `isAdmin` here gates admin-only PARAMETER OVERRIDES below (custom engine,
+  // duration, aspect ratio, resolution, mode) — operational/debug privilege,
+  // not a product entitlement, so it stays role-derived on purpose.
+  // `realUserRole` (DB truth, ignoring the "view as user" toggle) is
+  // deliberate: an admin previewing as a user should still be able to use
+  // these debug controls.
+  //
+  // The `userTier`-keyed feature-flag lookup that used to live here is gone —
+  // video_generation now resolves through `can(principal, ...)` below, the
+  // one place a tier is allowed to be consulted for this decision.
   let isAdmin = false;
-  let userTier: string = "unregistered";
   if (req.isAuthenticated()) {
     isAdmin = req.user.realUserRole === "admin";
-    userTier = req.user.membershipTier ?? "unregistered";
   }
 
   // Video generation requires authentication
@@ -410,16 +414,34 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  // Video generation is a Legendary-tier feature; admins are always exempt
-  if (!isAdmin) {
-    const allowed = await hasFeature(userTier, "video_generation");
-    if (!allowed) {
-      res.status(403).json({
-        error: "VIDEO_GENERATION_LOCKED",
-        message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
-      });
-      return;
-    }
+  // One resolver call decides this, for everyone. The admin exemption is not a
+  // short-circuit in front of the grid any more — it is the admin row of the
+  // grid, unioned in by the resolver — so turning `video_generation` off in the
+  // Admin column now actually turns it off for admins, and an admin previewing
+  // as a user is treated as one.
+  const principal = principalFromRequest(req);
+  const videoGenerationAllowed = await can(principal, "video_generation");
+  if (!videoGenerationAllowed) {
+    res.status(403).json({
+      error: "VIDEO_GENERATION_LOCKED",
+      message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
+  }
+
+  // meme_private_visibility is a separate, independently configurable grid
+  // cell — `video_generation` alone does not imply it. Round 5 of PR #425's
+  // review found this route persisting `isPrivate: true` unchecked, so a
+  // caller with only the generation entitlement got the private-visibility
+  // perk for free; `createMemeRecord.ts` fails closed on the same
+  // combination and this route now matches that shape.
+  const privateVisibilityAllowed = await can(principal, "meme_private_visibility");
+  if (parsed.data.isPrivate && !privateVisibilityAllowed) {
+    res.status(403).json({
+      error: "PRIVATE_VISIBILITY_LOCKED",
+      message: "Private videos are a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
   }
 
   const clientIp = getClientIp(req);
@@ -541,6 +563,14 @@ router.post("/videos/generate", async (req, res) => {
       ipAddress: clientIp,
       userId: req.isAuthenticated() ? req.user.id : null,
       isPrivate: parsed.data.isPrivate ?? false,
+      // This route is the SECOND writer of `video_jobs`, and it records its own
+      // request's decision rather than deferring to the pipeline's. A
+      // placeholder here would be a live writer claiming not to know what
+      // authorized the job it is creating.
+      authorizationSnapshot: buildAuthorizationSnapshot(principal, {
+        video_generation: videoGenerationAllowed,
+        meme_private_visibility: privateVisibilityAllowed,
+      }),
     })
     .returning();
 

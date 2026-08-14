@@ -93,8 +93,17 @@ function ProfilePhotoThumbnailPicker({
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading, login, logout, role, refreshUser } = useAuth();
-  const isRealAdmin = role === "admin";
+  const { isAuthenticated, isLoading: authLoading, login, logout, role, realRole, can, refreshUser } = useAuth();
+  // `realRole` is the toggle-INDEPENDENT admin status; `role` is the
+  // preview-aware effective one. Round 6 of PR #425's review found this page
+  // aliasing `isRealAdmin` to `role === "admin"`, which meant every admin
+  // control here — including the only way to leave view-as-user mode — vanished
+  // the moment an admin turned preview on, since AccountMenu.tsx (this page's
+  // own dropdown trigger) never actually mounts its "Resume Admin" item
+  // anywhere reachable. Matches AccountMenu.tsx's `isRealAdmin`/`isAdminModeOn`
+  // split.
+  const isRealAdmin = realRole === "admin";
+  const isAdminModeOn = role === "admin";
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false }
@@ -376,11 +385,21 @@ export default function Profile() {
     return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
   }
 
-  // Computed locally from auth role; admins are treated as legendary for UI gates.
-  const isLegendary = role === "legendary" || role === "admin";
+  // Told, not derived. `isLegendary` used to collapse admin into legendary
+  // client-side — the roleToTier shape that let PR #402 happen.
+  const canCustomAvatar = can("custom_avatar");
+
+  // Deliberately still role-derived: the badge and the upsell button describe
+  // MEMBERSHIP STATUS ("are you a Legendary member?"), which is not a feature
+  // entitlement and does not belong in the grid. Only gates moved.
+  const isLegendaryMember = role === "legendary" || role === "admin";
 
   function getAvatarUrl() {
-    if (profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+    // Mirrors the server's effective-avatar projection exactly: selected AND
+    // stored AND entitled, else the generated icon. This surface honoured
+    // avatarSource but checked no entitlement, so a lapsed account kept showing
+    // its photo until the next write.
+    if (canCustomAvatar && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
       return profile.profileImageUrl;
     }
     return dicebearUrl(profile?.avatarStyle ?? "bottts", profile?.id ?? "default");
@@ -398,6 +417,31 @@ export default function Profile() {
     } finally {
       setAvatarSourceToggling(false);
     }
+  }
+
+  // The EFFECTIVE selection, not the raw stored value. `avatarSource` can be
+  // "photo" for an account whose `custom_avatar` entitlement has since
+  // lapsed (the documented no-backfill case — see getAvatarUrl() above,
+  // which already falls back to the generated avatar for exactly this
+  // account). Before this, the pills read the raw stored value directly, so
+  // a revoked account saw Photo highlighted with no Crown and a tap that did
+  // nothing — describing a selection the server had already stopped
+  // honouring. Round 3 of PR #425's review caught this.
+  const photoSelected = canCustomAvatar && (profile?.avatarSource ?? "avatar") === "photo";
+
+  /**
+   * The Photo button's click handler. Selecting "photo" is a standalone
+   * PATCH /users/me request, which the server now rejects with 403 for an
+   * unentitled account (`custom_avatar`) — `toggleAvatarSource` swallows that
+   * error silently, so without this the button did nothing visible on click.
+   * An unentitled tap goes to the upgrade path instead of attempting (and
+   * silently failing) the request; the button below is also visually locked
+   * so the state is discoverable before the tap, not just after.
+   */
+  function handlePhotoSelect() {
+    if (photoSelected) return;
+    if (!canCustomAvatar) { setLocation("/pricing"); return; }
+    void toggleAvatarSource();
   }
 
   useEffect(() => {
@@ -983,7 +1027,7 @@ export default function Profile() {
           {/* Name + stats */}
           <div className="flex-1 pb-1">
             <div className="flex items-center gap-3 mb-1">
-              {isLegendary && (
+              {isLegendaryMember && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-[10px] font-bold tracking-[0.14em] uppercase text-primary font-display">
                   <Star className="w-3 h-3" /> Legendary
                 </span>
@@ -1015,12 +1059,12 @@ export default function Profile() {
                 <Pencil className="w-4 h-4" /> Edit Profile
               </Button>
             )}
-            {!isLegendary && (
+            {!isLegendaryMember && (
               <Button onClick={() => setLocation("/pricing")} className="gap-2">
                 <Crown className="w-4 h-4" /> Go Legendary
               </Button>
             )}
-            {isRealAdmin && (
+            {isRealAdmin && isAdminModeOn && (
               <Button variant="outline" onClick={() => setLocation("/admin")} className="gap-2 border-primary/40 text-primary hover:text-primary hover:border-primary">
                 <ShieldCheck className="w-4 h-4" /> Admin Panel
               </Button>
@@ -1035,7 +1079,11 @@ export default function Profile() {
                 }}
                 className="gap-2 text-muted-foreground hover:text-foreground"
               >
-                <ShieldOff className="w-4 h-4" /> Exit Admin
+                {isAdminModeOn ? (
+                  <><ShieldOff className="w-4 h-4" /> Exit Admin</>
+                ) : (
+                  <><ShieldCheck className="w-4 h-4 text-primary" /> Resume Admin</>
+                )}
               </Button>
             )}
             {isRealAdmin && (!forgetMeConfirm ? (
@@ -1107,9 +1155,9 @@ export default function Profile() {
               <div className="mt-2 flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
                 <button
                   disabled={avatarSourceToggling}
-                  onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
+                  onClick={() => photoSelected && toggleAvatarSource()}
                   className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    (profile.avatarSource ?? "avatar") === "avatar"
+                    !photoSelected
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
@@ -1119,20 +1167,24 @@ export default function Profile() {
                 </button>
                 <button
                   disabled={avatarSourceToggling}
-                  onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
+                  onClick={handlePhotoSelect}
                   className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                    (profile.avatarSource ?? "avatar") === "photo"
+                    photoSelected
                       ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
+                      : canCustomAvatar
+                        ? "text-muted-foreground hover:text-foreground"
+                        : "text-muted-foreground/50"
                   }`}
-                  title="Use custom photo"
+                  title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
                 >
-                  <Image className="w-3 h-3" /> Photo
+                  <Image className="w-3 h-3" /> Photo{!canCustomAvatar && !photoSelected && (
+                    <Crown className="w-2.5 h-2.5 ml-0.5" />
+                  )}
                 </button>
               </div>
             )}
           </div>
-          
+
           <div className="flex-1 text-center md:text-left z-10">
             <h1 className="text-3xl md:text-4xl font-display uppercase tracking-wide text-foreground mb-2">
               {profile.displayName ?? profile.email}
@@ -1146,7 +1198,7 @@ export default function Profile() {
                 <Pencil className="w-4 h-4" /> Edit Profile
               </Button>
             )}
-            {isRealAdmin && (
+            {isRealAdmin && isAdminModeOn && (
               <Button variant="outline" onClick={() => setLocation("/admin")} className="gap-2 border-primary/40 text-primary hover:text-primary hover:border-primary">
                 <ShieldCheck className="w-4 h-4" /> Admin Panel
               </Button>
@@ -1161,7 +1213,11 @@ export default function Profile() {
                 }}
                 className="gap-2 text-muted-foreground hover:text-foreground"
               >
-                <ShieldOff className="w-4 h-4" /> Exit Admin
+                {isAdminModeOn ? (
+                  <><ShieldOff className="w-4 h-4" /> Exit Admin</>
+                ) : (
+                  <><ShieldCheck className="w-4 h-4 text-primary" /> Resume Admin</>
+                )}
               </Button>
             )}
             {isRealAdmin && (!forgetMeConfirm ? (
@@ -1309,9 +1365,9 @@ export default function Profile() {
                         <button
                           type="button"
                           disabled={avatarSourceToggling}
-                          onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
+                          onClick={() => photoSelected && toggleAvatarSource()}
                           className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                            (profile.avatarSource ?? "avatar") === "avatar"
+                            !photoSelected
                               ? "bg-primary text-primary-foreground"
                               : "text-muted-foreground hover:text-foreground"
                           }`}
@@ -1321,14 +1377,19 @@ export default function Profile() {
                         <button
                           type="button"
                           disabled={avatarSourceToggling}
-                          onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
+                          onClick={handlePhotoSelect}
                           className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                            (profile.avatarSource ?? "avatar") === "photo"
+                            photoSelected
                               ? "bg-primary text-primary-foreground"
-                              : "text-muted-foreground hover:text-foreground"
+                              : canCustomAvatar
+                                ? "text-muted-foreground hover:text-foreground"
+                                : "text-muted-foreground/50"
                           }`}
+                          title={canCustomAvatar ? "Use custom photo" : "Custom photo avatars are a Legendary feature"}
                         >
-                          <Image className="w-3 h-3" /> Photo
+                          <Image className="w-3 h-3" /> Photo{!canCustomAvatar && !photoSelected && (
+                            <Crown className="w-2.5 h-2.5 ml-0.5" />
+                          )}
                         </button>
                       </div>
                     </div>

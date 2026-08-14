@@ -61,7 +61,17 @@ export interface MemeTextOptions {
 }
 
 export interface ViewerContext {
+  /**
+   * Identity-prerequisite questions only ("is this viewer signed in at all?").
+   * NOT a permission: entitlements are resolved by the server and arrive as
+   * `entitlements` below, so no surface re-derives them from this.
+   */
   tier: Tier;
+  /**
+   * The server's resolved entitlements for this viewer, passed through
+   * verbatim. Read gate and write gate are one expression evaluated once.
+   */
+  entitlements?: Readonly<Record<string, { allowed: boolean; limit: number | null }>>;
   userId?: string;
   name?: string;
   pronouns?: string;
@@ -125,7 +135,7 @@ export interface MemeBuilderProps {
 /* ─── Behavior cell ──────────────────────────────────────────────────────── */
 
 /**
- * Distilled output of `resolveBehavior(mode, tier, entryFlow)`.
+ * Distilled output of `resolveBehavior(mode, tier, entryFlow, entitlements)`.
  * Component branching reads from this object; nested conditionals on raw
  * (mode, tier, entryFlow) tuples are not allowed elsewhere.
  */

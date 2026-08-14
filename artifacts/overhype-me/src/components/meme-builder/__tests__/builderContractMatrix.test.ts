@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ALL_ENTRY_FLOWS,
   ALL_TIERS,
+  demoEntitlementsForTier,
   resolveBehavior,
 } from "../behaviorMatrix";
 import {
@@ -78,7 +79,7 @@ function expandMatrix(): MatrixRow[] {
   for (const mode of MODES) {
     for (const tier of ALL_TIERS) {
       for (const entryFlow of ALL_ENTRY_FLOWS) {
-        const cell = resolveBehavior(mode, tier, entryFlow);
+        const cell = resolveBehavior(mode, tier, entryFlow, demoEntitlementsForTier(tier));
         if (cell.invalid) continue; // tier-locked panels never render a picker
         for (const source of SOURCE_CASES) {
           if (source.sourceArea !== cell.sourceArea) continue;

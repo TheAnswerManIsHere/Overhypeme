@@ -77,6 +77,9 @@ export function Step2Image({
 }: Props) {
   const [, navigate] = useLocation();
   const tier = viewerContext.tier;
+  // Told, not derived — the same answer createMemeRecord will apply.
+  const canSetPrivate = viewerContext.entitlements?.["meme_private_visibility"]?.allowed === true;
+  const canPulidStylize = viewerContext.entitlements?.["meme_pulid_stylize"]?.allowed === true;
 
   const [tab, setTab] = useState<SourceTab>(() => {
     // For unregistered users, never inherit a cached AI or self-upload source
@@ -228,6 +231,21 @@ export function Step2Image({
   const handleSourceTab = (next: SourceTab) => {
     setTab(next);
   };
+
+  // `canPulidStylize` only reached the segmented control's chrome
+  // (SourceSegmentedControl locks the tab), not `tab` state itself — so an
+  // account that lands on "ai-you" without clicking there (the tier-based
+  // pickDefaultSourceTab() default above, or a restored draft with
+  // stylizeWithAi cached from before a revocation) kept the live AiSourcePanel
+  // mounted with a locked chrome around it, whose Create/save actions reach
+  // endpoints that now 403. Round 3 of PR #425's review caught this; the
+  // panel render below is also gated directly as defense in depth.
+  useEffect(() => {
+    if (tab === "ai-you" && !canPulidStylize) {
+      setTab("self-upload");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPulidStylize]);
 
   const handleStockSelect = (image: StockImage) => {
     setStockSelectedId(image.id);
@@ -486,7 +504,7 @@ export function Step2Image({
         >
           <SourceSegmentedControl
             active={tab}
-            tier={tier}
+            canPulidStylize={canPulidStylize}
             onSelect={handleSourceTab}
             onRequestUpgrade={() => {
               setUpgradeContext("ai-tab");
@@ -519,7 +537,7 @@ export function Step2Image({
             />
           )}
 
-          {tab === "ai-you" && (
+          {tab === "ai-you" && canPulidStylize && (
             <AiSourcePanel
               factId={factId}
               selected={aiStylingImage}
@@ -568,7 +586,7 @@ export function Step2Image({
               <VisibilityToggle
                 isPublic={isPublic}
                 onChange={setIsPublic}
-                tier={tier}
+                canSetPrivate={canSetPrivate}
                 onRequestUpgrade={() => {
                   setUpgradeContext("private-meme");
                   setUpgradeOpen(true);

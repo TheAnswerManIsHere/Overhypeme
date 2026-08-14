@@ -1,12 +1,15 @@
 import { Globe, Lock } from "lucide-react";
-import type { Tier } from "../types";
 import { VISIBILITY_COPY } from "../copy";
 
 interface Props {
   /** Current choice. `true` = public (the server-side default). */
   isPublic: boolean;
   onChange: (next: boolean) => void;
-  tier: Tier;
+  /**
+   * The SERVER's answer for `meme_private_visibility`, passed straight
+   * through. Never a tier the client derived.
+   */
+  canSetPrivate: boolean;
   /** Called instead of `onChange` when a non-Legendary viewer taps "Private". */
   onRequestUpgrade: () => void;
   className?: string;
@@ -16,18 +19,17 @@ interface Props {
  * Public / Private choice for a meme, shown next to the save action in both
  * builder surfaces (the MBFO wizard's Step 2 and the single-screen builder).
  *
- * Privacy is Legendary-level by default: `createMemeRecord` rejects an
- * explicit `isPublic: false` with a 403 unless the caller is legendary/admin
- * *or* an operator has separately granted their tier the
- * `meme_private_visibility` feature flag (Admin → Features). This component
- * does not consult that flag — the lock below is tier-only
- * (`tier !== "legendary"`) — so for a non-Legendary viewer the "Private" pill
- * is **locked, never selectable through this UI**, even on a tier the flag
- * has been granted to: tapping it opens the upgrade modal and
- * `onChange(false)` is unreachable. That keeps the control from ever
- * offering a choice this UI's own gate doesn't recognize as entitled.
- * `tier` here already collapses admin into `legendary` (`roleToTier`), which
- * matches the server's role-based half of the gate.
+ * This is the control PR #402 broke. The builder derived a tier client-side
+ * (`roleToTier`, which collapsed admin into legendary) and offered the Private
+ * pill; `createMemeRecord` resolved `meme_private_visibility` from the tier
+ * column, found `registered`, and coerced the meme public. A privacy choice was
+ * silently discarded and the meme was world-readable at its permalink.
+ *
+ * The fix is that the lock and the server's gate are now the SAME expression,
+ * evaluated once: `canSetPrivate` is the resolved entitlement, handed down from
+ * the server. Granting `meme_private_visibility` to another tier from
+ * Admin → Features now genuinely unlocks this pill, which the old tier-only
+ * lock could never do.
  * Locked affordances follow
  * the wizard's established language (dimmed pill + typeset LEGEND badge, no
  * emoji) rather than being hidden, so the entitlement is discoverable.
@@ -39,11 +41,11 @@ interface Props {
 export function VisibilityToggle({
   isPublic,
   onChange,
-  tier,
+  canSetPrivate,
   onRequestUpgrade,
   className,
 }: Props) {
-  const privateLocked = tier !== "legendary";
+  const privateLocked = !canSetPrivate;
   const privateSelected = !isPublic && !privateLocked;
 
   const pill = (selected: boolean) =>

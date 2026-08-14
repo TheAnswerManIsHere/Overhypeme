@@ -1,3 +1,4 @@
+import { requireFeature } from "../lib/featureAccess";
 /**
  * PuLID async job endpoints.
  *
@@ -19,7 +20,6 @@ import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
 import { factsTable, usersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { requireLegendary } from "../middlewares/tierMiddleware";
 import {
   generateAiMemeBackgroundFromReference,
   generateAiMemeBackgroundStandalone,
@@ -169,7 +169,14 @@ async function pronounsToGender(userId: string): Promise<"male" | "female" | "ne
 }
 
 // ─── POST /memes/pulid-jobs ───────────────────────────────────────────────────
-router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Response) => {
+// PuLID's real, reachable gate. `requireLegendary` was a role-rank comparison
+// that the grid could not express: an admin's stored tier is `registered`, so
+// the capability lived in code rather than on the one screen that is supposed
+// to answer who may do what.
+router.post("/memes/pulid-jobs", requireFeature("meme_pulid_stylize", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: Request, res: Response) => {
   gc();
   if (!req.user) {
     res.status(401).json({ error: "auth_required" });

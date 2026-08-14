@@ -31,6 +31,7 @@ import type {
   Comment,
   CommentListResponse,
   CreateMemeRequest,
+  EntitlementVersion,
   ErrorEnvelope,
   FactDetail,
   FactListResponse,
@@ -218,6 +219,91 @@ export function useGetCurrentAuthUser<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetCurrentAuthUserQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the pair the client polls to decide whether to re-fetch its
+entitlements. "Cheap" means a small response and no grid query beyond
+the already-loaded revision — NOT proxy-cacheable.
+
+This response is per-principal and must never be shared-cached. It
+varies by tier, admin grant, and session-scoped view-as-user state, so a
+proxy caching it by URL could serve one principal's fingerprint to
+another — and the second client, seeing a fingerprint it does not
+recognise as its own change, may never converge.
+
+ * @summary Cheap revalidation probe for the client's entitlement snapshot
+ */
+export const getGetEntitlementVersionUrl = () => {
+  return `/api/entitlements/version`;
+};
+
+export const getEntitlementVersion = async (
+  options?: RequestInit,
+): Promise<EntitlementVersion> => {
+  return customFetch<EntitlementVersion>(getGetEntitlementVersionUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEntitlementVersionQueryKey = () => {
+  return [`/api/entitlements/version`] as const;
+};
+
+export const getGetEntitlementVersionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEntitlementVersion>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getEntitlementVersion>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEntitlementVersionQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getEntitlementVersion>>
+  > = ({ signal }) => getEntitlementVersion({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEntitlementVersion>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEntitlementVersionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEntitlementVersion>>
+>;
+export type GetEntitlementVersionQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Cheap revalidation probe for the client's entitlement snapshot
+ */
+
+export function useGetEntitlementVersion<
+  TData = Awaited<ReturnType<typeof getEntitlementVersion>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getEntitlementVersion>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEntitlementVersionQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
