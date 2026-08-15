@@ -464,6 +464,11 @@ already at `stage:planning`:
   don't wait for step 3's first review trigger to touch `waiting` for the
   first time; the loop is blocked on David from the SOW banner onward, not
   from the first `@codex review`.
+- **The moment David explicitly agrees the SOW** → `waiting:claude` while I
+  persist the agreement into the PR template and open the review channel —
+  otherwise the issue stays mis-labeled `waiting:david` through step 1's
+  work, which is exactly the gap the SOW-gate entry above was meant to
+  close, just on the other side of the same transition.
 - The moment I post a round's `@codex review` trigger (step 3, and each
   round of step 4) → `waiting:codex`.
 - The moment Codex's findings land and I start working the reply →
