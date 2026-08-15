@@ -281,8 +281,11 @@ What is *bugfix-specific* about the loop:
   that it's a fix.** A fix to product code passes the gate normally; a real
   product fix is essentially never single-digit. But routed entry means a bug
   can be *in the docs*: when the whole diff is agent-facing markdown or a
-  transient checklist, that artifact's cap governs (1–2 rounds, and the
-  automatic first pass with no re-request, respectively) and the review
+  transient checklist, that artifact's rule governs — no round cap but
+  continuation gated on behavior-changing findings for markdown, and the
+  automatic first pass with no re-request for a transient checklist — per
+  `working-modes.md`'s *Docs-only loops continue on consequence, not
+  count* and the ceremony table, and the review
   request states the docs-only light bar — exactly as if the same change had
   arrived through feature mode. Entering through this mode never raises an
   artifact's ceremony, and never lowers product code's.

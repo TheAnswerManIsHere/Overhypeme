@@ -567,8 +567,13 @@ loaded:
   since prose cannot be executed and only implementation converges that.
   Both live in
   [`working-modes.md`](docs/ai-context/working-modes.md)'s stopping-rule
-  section. Agent-facing markdown caps at **1–2 rounds** (and normally has
-  no loop at all — see the ceremony-tiering rule above). **I also triage:
+  section. Agent-facing markdown (docs-only PRs) has **no round cap** —
+  rounds continue only on behavior-changing findings, per
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s *Docs-only
+  loops continue on consequence, not count* (David, 2026-08-15,
+  superseding the brief 2026-08-14 hard cap and the earlier "1–2 rounds"
+  figure this line stated) — and normally has no loop at all, see the
+  ceremony-tiering rule above. **I also triage:
   every finding gets fix / accept-and-document / escalate, stated explicitly.**
   Codex marks everything "Required Revision" because that is its job;
   treating that as automatically meaning *fix* is how PR #333 ended up

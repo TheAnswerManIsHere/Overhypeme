@@ -79,6 +79,7 @@ fix didn't close. The settled pattern, in order of what actually broke:
    won't happen twice. Don't assume a lost body edit here self-corrects;
    it needs a human to notice and fix it manually.
 
-See `docs/ai-context/workstream-tracking.md` for what this Action owns; see
-the script's own comments for the current, load-bearing implementation of
-each point above.
+`docs/ai-context/workstream-tracking.md` records what this now-retired
+Action used to own. The script itself is deleted (per the header above) —
+there is no live implementation to consult; the points above are the
+complete, standalone record of the pattern.

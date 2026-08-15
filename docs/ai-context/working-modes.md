@@ -1257,7 +1257,9 @@ still in flight. If a late review arrives after a record exists, re-derive
 and edit the record; that is an ordinary commit, not a special case to
 detect automatically.
 
-**Commit the record on any open PR except the one being measured.** Adding a
+**Commit the record on any open, mergeable PR except the one being
+measured** — never a `[PLAN REVIEW]` PR, which closes without merging, so
+a record riding it never reaches `main` at all. Adding a
 metrics file to the PR it describes changes that PR's diff, which can trigger
 a further reviewer pass *after* the rounds and interval were derived — the
 record would then omit the round its own addition caused.
@@ -1516,9 +1518,10 @@ detail:
 
 What remains:
 
-- **Commit the record on any open PR of yours, except the PR being
-  measured** (adding it there would change the diff it describes and can
-  trigger another reviewer pass after the numbers were derived). The
+- **Commit the record on any open, *mergeable* PR of yours, except the PR
+  being measured** (adding it there would change the diff it describes and
+  can trigger another reviewer pass after the numbers were derived) —
+  **never a `[PLAN REVIEW]` PR**, whose commits never reach `main`. The
   default delivery vehicle is the weekly `/maintenance` flush (above);
   riding an unrelated open carrier PR early is fine, a standalone
   ledger-only PR is not.

@@ -108,9 +108,14 @@ one with no record yet: run `node scripts/loop-metrics.mjs --pr <n> --write`
 fill the judgment, run the blind adjudication where sampled, and commit the
 records together as part of this pass. **Also sweep the *previous* window's
 records for staleness**: a loop recorded at the last flush whose PR shows
-review activity newer than that record's derivation (a late-landing pass —
+review/comment activity newer than the record's own captured
+`mechanical.reviewInterval.last_review_at` (a late-landing pass —
 the frozen ledger's rows #323/#324 are the observed shape) gets re-derived
-and edited this pass, per the shared contract's late-review rule. Without
+and edited this pass, per the shared contract's late-review rule. Compare
+against what the record actually captured, not an inferred commit or
+derivation time — a review landing after the PR snapshot was fetched but
+before the record was committed can predate that inferred time and evade
+the sweep even though the record never captured it. Without
 this sweep the correction path is a promise nothing triggers — the
 new-records selection skips loops that already have a record, and the
 completeness check sees the stale file as present. **There is no settling-window
@@ -133,10 +138,11 @@ record riding it would never reach `main` at all). **If none are
 open**, this pass opens one small `docs(maintenance): weekly digest` PR
 carrying the flush commit plus this week's `deferred-work.md` updates (the
 other docs-only exception in Boundaries below) — reviewed by Codex like any
-docs-only PR (first pass + at most one re-request, per the ceremony table),
-then self-merged under the general close-out rule once ready. Never skip
-straight to a direct push: that bypasses the Codex pass the ledger contract
-still requires.
+docs-only PR, continuing on consequence rather than a round cap (per
+`working-modes.md`'s *Docs-only loops continue on consequence, not
+count*), then self-merged under the general close-out rule once ready.
+Never skip straight to a direct push: that bypasses the Codex pass the
+ledger contract still requires.
 
 **Step 6b — the digest.** **Build the closed-PR inventory and pass it — this step is required, not
 optional.** Since this PR retired CI's coverage gate, the digest's
