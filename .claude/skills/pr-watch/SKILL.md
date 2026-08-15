@@ -318,9 +318,25 @@ cycle of every phase — so **each time this section moves the phase issue's
 `waiting:`** (round-by-round toggling, escalation, merge), mirror the same
 value onto the parent, in the same edit, State of Play included.
 
-**Close-out is the moment the parent's Phases checklist itself moves** —
-nothing else advances it, so skipping this leaves the parent permanently
-claiming work is outstanding that already shipped:
+**The parent's Phases checklist moves when the phase issue itself reaches
+`stage:close-out` — never at merge.** This is the same distinction the
+general flow above already makes for an ordinary workstream (merge is not
+verified work; David's UAT is) — a phase is no different. A product-visible
+phase merges into `stage:test-run`/`stage:uat` like any workstream and sits
+there through David's UAT before reaching `stage:close-out`; a phase with
+no UAT reaches `stage:close-out` sooner, immediately after its verification
+checks, but through the same transition, not a merge-time shortcut. Ticking
+the checklist at merge instead would let `/next` treat a phase as done —
+and surface the next phase, or close the parent — while its own UAT is
+still outstanding.
+
+**Keep mirroring the parent's `waiting:` through this entire span**, per
+the toggle rule above — that already covers the phase's `stage:uat`/
+`waiting:david` transition, so the parent correctly shows "waiting on
+David's UAT" for exactly as long as that's true.
+
+**When the phase issue reaches `stage:close-out`, move the parent's
+checklist**, in the same edit as the phase's own transition:
 
 - **Tick this phase's checkbox** in the parent's checklist, replacing
   `(active)` with the merged PR number.
@@ -334,19 +350,30 @@ claiming work is outstanding that already shipped:
   would be a gate with nothing left to run against it.
 - **If a phase's own UAT surfaced a bug**, that's the UAT-descent case —
   see `workstream-tracking.md`'s *When UAT finds a bug* section for the
-  `Blocked by:` marker that records the way back up.
+  `Blocked by:` marker that records the way back up. The phase stays open
+  (not `stage:close-out`) until that descent resolves, so the checklist
+  correctly doesn't tick early.
 
 **At the close-out of any workstream, check whether it was the target of a
 `Blocked by:` marker** — one `search_issues` call, `"Blocked by: #<this
 issue>" in:body`, trusted-issue filtered the same way every other marker
-lookup here is. If a match comes back (the closed issue was a UAT-descent
-bug, or any other blocker), that match is a parent this closure just
-unblocked: **restore its `waiting:` to the value stashed in its State of
-Play** (`bugfix` records the prior value at intake, normally `david`), and
-remove the now-stale `Blocked by:` line. Skipping this leaves the unblocked
-parent sitting at `waiting:claude` indefinitely — mechanically releasable
-per `workstream-tracking.md`'s `Blocked by:` contract, but with no
-open question left for anyone to notice needs restoring.
+lookup here is. If a match comes back, that match is a parent this closure
+just unblocked — but what to do about its `waiting:` depends on whether
+this is the UAT-descent shape:
+
+- **If the matched issue's State of Play records a stashed prior
+  `waiting:` value** (only `bugfix`'s UAT-descent intake writes one, per
+  `workstream-tracking.md`'s *When UAT finds a bug*) — **restore it**
+  (normally back to `david`) and remove the now-stale `Blocked by:` line.
+  Skipping this leaves the unblocked parent sitting at `waiting:claude`
+  indefinitely — mechanically releasable per the `Blocked by:` contract,
+  but with no open question left for anyone to notice needs restoring.
+- **Otherwise** — an ordinary workstream-to-workstream dependency, or a
+  blocked backlog item — **only remove the stale `Blocked by:` line.**
+  Nothing stashed a prior value for these, so guessing a `waiting:` (or
+  adding one to a `queue:`-only item that shouldn't carry the label at
+  all) would fabricate state instead of restoring it. Their own next
+  `waiting:`-touching moment sets the right value normally.
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,

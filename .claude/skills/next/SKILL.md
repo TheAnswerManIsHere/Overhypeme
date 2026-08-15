@@ -93,7 +93,7 @@ Every candidate lands in exactly one bucket:
 | Bucket | Rule |
 | --- | --- |
 | **Blocked** | Has an open `Blocked by:` target. Not recommendable — but its rank propagates down to its blocker (step 3). |
-| **In flight** | `waiting:codex`/`waiting:ci`/`waiting:claude`/`waiting:replit` with real activity inside 48h. A machine — or another Claude session — is actively working it; recommending it again risks two sessions colliding on the same workstream, which defeats the parallel-safety goal this skill exists to serve. Listed, never recommended. |
+| **In flight** | `waiting:codex`/`waiting:ci`/`waiting:claude`/`waiting:replit` with real activity inside 48h. A machine — or another Claude session — is actively working it; recommending it again risks two sessions colliding on the same workstream, which defeats the parallel-safety goal this skill exists to serve. Listed, never recommended. **Exception: an unopened phase is never In flight**, regardless of the parent's `waiting:` or how recent its activity is — a checklist line with no issue and no PR can't literally have anyone working on it. A parent ticking to `waiting:claude` at a sibling phase's close-out shouldn't hide the next phase for 48h; it's Blocked or Actionable like any other candidate. |
 | **Actionable** | Everything else, including `waiting:david` items — David is the one asking, so "the next thing is yours" is a legitimate and common answer. |
 | **Stalled** | `waiting:` a non-David actor with **no** attributable activity for >48h (this is what separates it from In flight — recent activity keeps it there instead). **Actionable**, and usually near the top: something needs unsticking. |
 
