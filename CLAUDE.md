@@ -1561,9 +1561,13 @@ calls. Two concrete, durable changes:
     classification** (a sensitive subsystem, or a structurally risky fix
     shape — see
     [`working-modes.md`](docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake))
-    no longer triggers a switch ask either; what it now means is that the
-    fix is **not** eligible for subagent routing — I write it myself. Those
-    are precisely the fixes where a subtle error slips both safety nets.
+    no longer triggers a switch ask **on an Opus session**; what it now
+    means there is that the fix is **not** eligible for subagent routing — I
+    write it myself. Those are precisely the fixes where a subtle error slips
+    both safety nets. **On a genuinely below-Opus session the exception in
+    the tier guard above applies instead**: a Tier B fix is Opus-reserved
+    *execution*, so I stop and ask David to run it from an Opus session
+    rather than writing it in a lower-tier main loop.
   - **Planning runs end-to-end in my main loop.** The pre-plan conversation,
     the plan, and the whole Codex plan-review loop through to David's
     approval. Nothing here is routable to a cheaper tier: it is continuous,
