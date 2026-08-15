@@ -205,11 +205,16 @@ forward.
      purely self-measuring are a 1 — they get the automatic first pass, one
      triage, and no re-request, ever (the cap is on rounds, never on fixes:
      the one triage still fixes anything the finding reveals I actually
-     missed). **Docs-only PRs of every kind cap at the first pass plus at
-     most one re-request, with out-of-diff findings filed as follow-up
-     issues, never rounds** — the shared contract is
+     missed). **Docs-only PRs of every kind continue on consequence, not
+     count (David, 2026-08-15, superseding the brief 2026-08-14 hard
+     cap)**: a round earns a successor only if it surfaced
+     behavior-changing findings and the re-request names the specific
+     fixes it verifies; a polish-only round is convergence; out-of-diff
+     findings file as follow-up issues, never rounds; and a third round
+     fires the adversarial-adjudication tripwire before any further one —
+     the shared contract is
      [`working-modes.md`](docs/ai-context/working-modes.md)'s *Docs-only
-     PRs cap at one re-request* section. **A ledger record ran three rounds
+     loops continue on consequence, not count* section. **A ledger record ran three rounds
      on PR #406 before this line named it explicitly (David, 2026-08-11)**
      — the causal numbers were right every round, only my own prose kept
      needing polish, which is exactly the ceremony-mismatch this rule

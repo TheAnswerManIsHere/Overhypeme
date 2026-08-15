@@ -173,7 +173,13 @@ the diff *is* the plan. While watching an implementation PR:
   this artifact (`working-modes.md`'s 2026-08-15 rule), and out-of-scope or
   pedantic findings that arrive anyway are declined against those stated
   rules in one pass — convergence-by-decline is convergence for this class,
-  and same-day self-merge after it is the expected outcome.
+  and same-day self-merge after it is the expected outcome. **Docs-loop
+  continuation is consequence-based, not capped (David, 2026-08-15)**: a
+  further round needs behavior-changing findings and a re-request naming
+  the specific fixes it verifies (a polish-only round is convergence), and
+  a third round fires the adversarial-adjudication tripwire — per
+  `working-modes.md`'s *Docs-only loops continue on consequence, not
+  count*.
 - **A Codex "usage limits for security reviews" bounce is not a real
   finding-in-waiting — don't block on it (David, 2026-08-08).** The
   connector's bounce comment ("You have reached your Codex usage limits

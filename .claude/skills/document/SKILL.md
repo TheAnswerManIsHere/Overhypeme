@@ -60,8 +60,9 @@ Decide by what "this" refers to (contract's trigger table):
   the merged diffs, contradiction or duplication with existing docs; out of
   scope — prose style, structure preferences, completeness beyond the
   session's actual learnings.* Out-of-scope findings are declined against
-  the stated oracle in one triage pass; the docs-only cap (first pass + at
-  most one re-request) governs rounds, and once the ready bar is met I
+  the stated oracle in one triage pass; rounds continue only on
+  behavior-changing findings per `working-modes.md`'s consequence rule
+  (a polish-only round is convergence), and once the ready bar is met I
   self-merge per CLAUDE.md's close-out contract — same-day
   convergence-by-decline is the expected outcome, not a shortcut. I only
   commit to the feature's own branch instead when I have clear **session

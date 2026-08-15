@@ -14,7 +14,7 @@
 ---
 
 ### 2026-08-15 · SDLC autonomy: the SOW gate + in-loop adjudication replace per-round check-ins; Claude self-merges; the ledger flushes weekly
-- **Decision:** Five related changes, agreed in one conversation, that move
+- **Decision:** Six related changes, agreed in one conversation, that move
   David's control points to the bookends of each loop instead of inside it:
   1. **The scope-of-work gate.** Before a plan-review loop opens, David
      explicitly agrees to the scope of work (direction, intent,
@@ -65,6 +65,21 @@
      file itself was a relic of the pre-connector, David-as-courier era.)
      UAT docs are deliberately untouched: they are David's personal done
      list, file-based on purpose, and only he deletes them.
+  6. **Docs-only loops continue on consequence, not count.** The
+     2026-08-14 hard cap (first pass + one re-request) lasted a day:
+     David flagged it as count-thinking in a contract that had just
+     replaced counts with judgment everywhere else, and its
+     counter-example arrived on this very PR — a second pass of eight
+     behavior-changing contract defects whose fixes the cap shipped
+     unverified. The rule now: a docs round earns a successor only if it
+     surfaced behavior-changing defects and the re-request names the
+     specific fixes it verifies; a polish-only round is convergence
+     regardless of finding validity; out-of-diff findings still file as
+     issues; a third round fires the adversarial-adjudication tripwire;
+     the criticality-1 floor tier keeps zero re-requests (a criticality
+     judgment, not a count). Flip condition recorded in the contract: if
+     the ledger shows docs loops running long on "behavior-changing"
+     findings that turn out to be polish, the hard cap returns narrowly.
 - **Why:** the per-round check-ins were scaffolding that forced the judgment
   rubric to be applied while it was still being built; a year of David's
   corrections is now encoded in the rubric itself (the bucket sort, the
