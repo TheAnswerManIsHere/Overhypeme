@@ -1048,7 +1048,28 @@ it lives here rather than in the shared docs.
   - It still doesn't replace a **TEST_RUN doc** where the point is that
     *Replit* ran the checklist and reported back (a full regression pass,
     a multi-step operational procedure) — that's a different artifact with
-    a different audience, not a weaker version of this call.
+    a different audience, not a weaker version of this call. **Running one
+    is a two-call sequence, not a single `ask_question` (David, 2026-08-14,
+    PR #405/#443 close-out)** — my first attempt pasted the whole checklist
+    into one `ask_question` call, which is wrong on two counts: it's a
+    multi-step operational procedure (an `update_app_using_prompt` job, per
+    the class-of-request rule below), and pasting the content defeats the
+    point of the doc already being a file Replit can read itself.
+    1. **Kick it off with `update_app_using_prompt`**, pointing at the
+       doc's **path**, not its contents, and — per the scoping rule just
+       above — explicitly telling it not to write or edit anything:
+       *"Please run all tests in `docs/PR<N>_..._TEST_RUN.md`. Read-only:
+       execute the checklist and report results; do not write or edit any
+       code or files, even if a step fails."* Replit Agent reads the file
+       and works the checklist itself.
+    2. **Wait a few minutes** — a real TEST_RUN is repo-health commands
+       plus a dozen-plus SQL/HTTP checks, genuinely slow, not a quick
+       read. `ask_question` calls fired immediately or in tight
+       succession just return `"busy"` (real work in progress, not
+       stuck) — that's expected here, not a sign to switch tack.
+    3. **Then `ask_question` for the results**: *"How did the TEST_RUN
+       checklist in `docs/PR<N>_..._TEST_RUN.md` go? Report pass/fail
+       with the raw output for each item."*
   - **What it is NOT:** a reason to reach for `update_app_using_prompt`
     to read something. The original version of this bullet told me to
     prefer a "scoped execute-and-report through `update_app_using_prompt`"
