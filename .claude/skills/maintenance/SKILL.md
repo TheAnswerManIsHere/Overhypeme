@@ -303,9 +303,56 @@ it doesn't cover: **closed-but-unmerged** PR branches, and branches with
 4. If nothing's found beyond `main`, exempt branches, and active work, one
    line: "branch hygiene: clean, N branches total, all active or exempt."
 
+## 9. Backlog and dependency hygiene
+
+This is the half that makes `/next` trustworthy. `/next` computes its
+recommendation from backlog issues, `queue:` priorities, `Blocked by:`
+markers, and Phases checklists (see
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)) —
+all of which decay silently. Nothing else re-checks them, and a stale queue
+produces a confidently wrong recommendation, which is worse than no
+recommendation. David's standing instruction is that he can react well but
+can't track state, so this step brings him a **concrete proposed diff** to
+approve or amend, never an open-ended "is the backlog still right?"
+
+1. **List backlog issues** — open issues carrying a `queue:` label
+   (`mcp__github__list_issues`, paginated). For each, check the cheap
+   staleness signals: has it been superseded by something merged since it
+   was filed? Has its rationale been overtaken? Is it a duplicate of
+   another backlog item?
+2. **Re-check `queue:` priorities against the roadmap.** Anything labeled
+   `queue:now` that hasn't been started in weeks is either mislabeled or
+   genuinely blocked — say which. Anything in
+   [`current-roadmap.md`](../../../docs/ai-context/current-roadmap.md)'s
+   near-term slices with no backlog issue is a **gap**: propose opening
+   one, since an item only in prose is invisible to `/next`.
+3. **Sweep `Blocked by:` markers** — for each, is the named blocker still
+   open? A marker pointing at a closed issue is stale and should be
+   removed. Flag two shapes specifically, because both are the
+   UAT-descent stack going wrong rather than working:
+   - **A chain deeper than 2**, or **any blocker open longer than two
+     weeks** — surface it with the park-or-continue question. Pre-launch
+     the default is continue, but the call should be *prompted*, not
+     silently defaulted (`workstream-tracking.md`'s escape hatch).
+   - **A cycle** (A blocked by B, B transitively blocked by A) — a real
+     data error that would make every item in it permanently
+     non-actionable. Report it; don't guess which edge to cut.
+4. **Sweep Phases checklists** — for each parent issue carrying one, does
+   it match reality? A phase whose PR merged but whose checkbox is
+   unticked makes `/next` recommend work that's already done.
+5. **Deliver as a numbered proposed diff**, e.g. "close #431 (superseded by
+   #440); drop #418 `queue:now` → `queue:later`; open a backlog issue for
+   *Record the Stripe mode on every entitlement source*; remove the stale
+   `Blocked by: #405` from #422." David approves, amends, or declines each
+   line — **then I apply the approved ones in that same session.** Same
+   posture as `/status`: proposed, confirmed, then written, never
+   unattended.
+6. If nothing's drifted, one line: "backlog hygiene: N queued items, M
+   blocked, no drift."
+
 ## Report delivery
 
-Single message, eight short sections, worst news first. When something needs
+Single message, nine short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page — the chat
@@ -331,7 +378,11 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   self-catching" rationale. Neither is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
   (dependency or Action) still only ever becomes a reported decision item,
-  never a direct action, per step 4 above.
+  never a direct action, per step 4 above. **Step 9's backlog hygiene is
+  not a third exception** — it writes only issue labels, bodies, and
+  closures, never code, and only the specific lines David approved from
+  its numbered diff. An unapproved line is not applied, and "I was already
+  in there" is not approval.
 - **No scheduled self-wakeups.** David invokes this manually (standing
   no-background-check-ins rule). If he later opts into a scheduled weekly
   routine, that decision changes this section — not before.

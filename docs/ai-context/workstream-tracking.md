@@ -111,6 +111,115 @@ every issue returned by `get_sub_issues` from its top-level set and
 renders it nested under its parent; phase sub-issues inherit that
 handling unchanged, and `/next` applies the same dedup.
 
+## The backlog: work that's queued but hasn't started
+
+A workstream issue tracks work that is *underway*. Work we've decided to do
+but haven't started needs somewhere durable too — otherwise it lives in
+roadmap prose, which drifts, and in David's memory, which he has explicitly
+said not to rely on. So:
+
+**A backlog item is an issue carrying `queue:` and `mode:` labels and no
+`stage:` label.** The two prefixes are mutually exclusive and that's the
+whole state machine:
+
+- **`queue:`, no `stage:`** — decided, not started. Invisible to
+  `/status-all` by construction (its Step 1 filters to issues carrying a
+  `stage:` label), which is correct: the fleet view is about active work,
+  and padding it with the backlog would bury the things that actually need
+  someone. Don't "fix" that filter.
+- **The moment work starts** — the item gains `stage:`/`waiting:` and
+  **drops its `queue:` label**. It is now an ordinary workstream issue and
+  every existing rule applies unchanged.
+
+Priorities are three labels, deliberately not named P1/P2 (that collides
+with Codex's severity badges):
+
+| Label | Means |
+| --- | --- |
+| `queue:now` | Next up. Would start today if a session were free. |
+| `queue:next` | Committed, not immediate. The normal state for approved-but-unstarted work. |
+| `queue:later` | Real, wanted, no urgency. Revisit rather than schedule. |
+
+**The issue body is where nuance lives** — why we want it, what we already
+decided, what we explicitly ruled out. That's the half a roadmap bullet
+loses, and the half that makes an item resumable cold months later.
+
+**This does not replace the two prose backlogs.**
+[`current-roadmap.md`](./current-roadmap.md) stays the product narrative and
+[`deferred-work.md`](../engineering/deferred-work.md) stays the engineering
+one. A backlog issue is what gets created when something in either becomes
+a *specific, actionable unit of work* — not a mirror of every line in them.
+`/maintenance`'s backlog-hygiene step is what keeps the three from drifting.
+
+## `Blocked by: #N` — dependencies are mechanical, not remembered
+
+Any workstream or backlog issue may carry one or more lines in its body:
+
+```
+Blocked by: #422
+Blocked by: #405
+```
+
+Read with the anchored regex `^Blocked by:[ \t]*#(\d+)` (multiline,
+start-of-line), exactly like the `Workstream: #N` marker and for the same
+reason: an unanchored `\s*` can cross a newline and grab an unrelated `#N`
+from prose several lines later, or match an example inside a quoted plan.
+
+- **An open blocker makes an item non-actionable.** Nothing recommends it,
+  nothing starts it.
+- **Closing the blocker releases it mechanically** — no cleanup edit
+  required for the release itself, because the marker points at an issue
+  whose state is the truth. (Removing the stale line is still good hygiene;
+  `/maintenance` sweeps for them.)
+- **There is no inverse `Blocks:` marker.** It's derivable, and a
+  bidirectional convention is one that can disagree with itself.
+- **Only trust markers on issues carrying our own labels.** This repo is
+  public and anyone can open an issue, but outside accounts cannot apply
+  labels — so an issue with no `stage:` and no `queue:` label is not part
+  of this system and its markers are ignored. Same trust posture
+  `/status-all` applies to PR bodies.
+
+## When UAT finds a bug: the descent stack
+
+This is the shape David hits most often, and the one this whole system
+exists to survive: he starts UAT on a merged feature, hits an error, and
+the error turns out to be a real bug — sometimes a small one, sometimes an
+entire subsystem rebuild. (PR #213's private-meme UAT is the worked
+example: it surfaced what became the whole admin-permission rebuild, #405
+and #422.) Pre-launch, chasing those is deliberate — we're moving from
+prototype to production-ready — so the risk isn't chasing them, it's
+**losing the way back to the interrupted UAT**.
+
+The `Blocked by:` chain *is* the record of the way back — a call stack made
+of issue links, which survives any session ending:
+
+1. **On discovery**, whoever intakes the bug (bugfix mode, or feature mode
+   when the rabbit hole turns out to be a rebuild) opens the new issue
+   **and** adds `Blocked by: #new` to the interrupted workstream, plus one
+   line in its State of Play recording **which UAT step failed**. That last
+   detail is what makes resumption "resume at step 4" instead of "run the
+   whole thing again."
+2. **Depth is unbounded.** If the descent hits its own blocker, the chain
+   nests. Nothing needs to know how deep it is.
+3. **Priority propagates down the chain: an item inherits the highest rank
+   of anything transitively blocked on it.** An interrupted UAT sits near
+   the end of the lifecycle, so it ranks high — and that rank flows down to
+   whatever is at the bottom of its chain. This is why a three-levels-deep
+   permission rebuild correctly outranks starting any fresh feature:
+   finishing it is what unwinds the stack back to an almost-done UAT.
+4. **The stack pops mechanically.** When a blocker closes, its parent
+   becomes actionable again and surfaces immediately as the top
+   recommendation — "resume UAT on #213 at step 4."
+
+**The escape hatch, because a deep stack can pin the queue for weeks.**
+That's correct behavior pre-launch, but not unconditionally: if a descent
+outgrows what the interrupted UAT is worth, David can park it. The marker
+becomes `Parked, was blocking: #213` — which reads as prose, not as the
+anchored `Blocked by:` marker, so it stops gating automatically — and the
+interrupted workstream records its UAT as accepted-incomplete.
+`/maintenance` flags any chain deeper than 2, or any blocker older than two
+weeks, so that call gets *prompted* rather than remembered.
+
 ## The State of Play block
 
 Labels are machine-readable state; the **State of Play block** is the

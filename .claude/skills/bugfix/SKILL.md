@@ -104,6 +104,28 @@ Play block (per `workstream-tracking.md`) at the same time, not just
 labels. From PR open onward, `pr-watch` owns the label transitions and the
 block's upkeep.
 
+**If this bug was found during UAT, record the way back up — in the same
+edit, not later.** This is the single most common way a bug arrives here,
+and the descent is what makes it dangerous: chasing it is usually right
+pre-launch, but the interrupted UAT is what gets lost. Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*When UAT finds a bug*:
+
+- Add `Blocked by: #<this bug>` to the **interrupted** workstream's issue
+  body, and one line in its State of Play naming **which UAT step failed**
+  — that's what turns resumption into "resume at step 4" rather than a full
+  re-run.
+- Do it at intake, while the context is in front of me. A session that ends
+  before this is written loses the link entirely; nothing reconstructs it.
+- The chain nests if the fix hits its own blocker, and it pops on its own:
+  closing this issue makes the interrupted UAT actionable again, and
+  `/next` surfaces it as the top recommendation.
+- **If diagnosis reveals this isn't a bug fix at all** but a real
+  behavior change or a subsystem rebuild (the PR #213 → admin-permission
+  shape), that's Tier C — leave bugfix mode per the classification rule.
+  The `Blocked by:` link stays exactly as written; it doesn't care which
+  mode the work ends up in.
+
 ## 2. Diagnose, classify, then fix
 
 Follow the loop in
