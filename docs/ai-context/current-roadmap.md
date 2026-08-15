@@ -577,10 +577,11 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
-- **Phase-tracking for multi-PR features** — parent issue carries the plan,
-  each phase is a sub-issue with its own PR. Design settled 2026-08-05, not
-  yet built; #310 and #293 are named retrofit candidates. See the
-  [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--multi-pr-features-get-parent-issue-plus-phase-sub-issue-tracking-and-i-ask-before-declaring-a-split).
+- **Retrofit the named phase-tracking candidates** — phase-tracking itself
+  shipped 2026-08-15 (below), but #310/#293 (NCMEC phases 4–8) and the
+  async-queue Phases 2–4 still need their parent Phases checklists and
+  phase sub-issues created, so `/next` can see them. Mechanical, no design
+  work left.
 - **Moderation-speed / reviewer-toil reductions** — ergonomics of the review +
   visual-review flow. **Needs David confirmation** on specifics.
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render

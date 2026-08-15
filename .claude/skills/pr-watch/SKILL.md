@@ -308,6 +308,26 @@ silently leaving the workstream unlabeled):
   merge — that's David's to set once he's actually verified it, the same
   reason the Project's built-in `PR merged → Done` workflow is off.
 
+**If this PR is one phase of a phased feature, close-out also updates the
+parent.** Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*Phased features* section, a phase sub-issue's close-out is the moment the
+parent's Phases checklist moves — nothing else advances it, so skipping this
+leaves the parent permanently claiming work is outstanding that already
+shipped:
+
+- **Tick this phase's checkbox** in the parent's checklist, replacing
+  `(active)` with the merged PR number.
+- **Re-point the parent's `waiting:`** at whoever holds the next phase — or
+  `waiting:claude` when the next phase hasn't been opened yet, since an
+  unstarted next phase is work owed, not a resting state.
+- **If this was the last phase**, move the parent out of `stage:coding` into
+  its whole-feature UAT (`stage:uat`, `waiting:david`) if the parent plan
+  has one, or `stage:close-out` if every phase already ran its own UAT.
+- **If a phase's own UAT surfaced a bug**, that's the UAT-descent case —
+  see `workstream-tracking.md`'s *When UAT finds a bug* section for the
+  `Blocked by:` marker that records the way back up.
+
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
 and `Where it actually stands`/`What's blocking` whenever there's real

@@ -46,6 +46,71 @@ through `stage:merge` briefly display the stop glyph on the board without
 meaning "needs David." The label semantics in this doc are the truth;
 `waiting:david` is what actually marks the carve-out case.
 
+## Phased features: a parent issue, one sub-issue per phase
+
+Some features are too large for one PR — PR #293 discovered this mid-flight
+and self-documented as "phase 1 of 8," with no structural place to record
+what the other seven were. The design settled 2026-08-05 and is built as of
+2026-08-15:
+
+- **The parent issue carries the plan** and the checkpoints that only make
+  sense once for the whole feature: 🛑 Plan approval, the whole-feature UAT
+  if there is one, and close-out. It holds `mode:feature` and a **Phases
+  checklist** (below).
+- **Each phase is a GitHub sub-issue** of that parent (the native sub-issue
+  relationship, the same one `/document` harvests use), with its own
+  `stage:`/`waiting:`/`mode:` labels, its own PR carrying
+  `Workstream: #<phase-issue>`, and its own merge.
+- **Phases merge sequentially, never stacked.** No phase PR bases on
+  another still-open phase PR. Phases don't need stacked-branch mechanics
+  if they land one at a time, and this repo's force-push posture is a
+  reason not to reach for them.
+- **UAT is per-phase**, wherever a phase is itself product-visible — not
+  one UAT deferred to the final phase, which would leave David unable to
+  verify anything for weeks.
+- **A phase PR's oracle section carries a scope line** naming which of the
+  parent plan's sections that phase delivers and which it defers, so a
+  reviewer is never left guessing whether a missing piece is
+  out-of-scope-for-this-phase or silently dropped.
+- **Splitting a feature into phases is proposed to David, never declared
+  silently mid-build.** (His stated revisit condition: if the asking step
+  becomes friction in practice.)
+
+### The Phases checklist
+
+The parent issue's body carries this block, immediately after its State of
+Play. It is the durable record of what the whole feature owes — the thing
+that lived only in PR titles and chat memory before:
+
+```
+## Phases
+- [x] Phase 1 — schema + migration → #451 (merged, PR #293)
+- [x] Phase 2 — ISPWS client + XML builders → #452 (merged, PR #349)
+- [ ] Phase 4 — provenance capture in quarantine.ts → #455 (active)
+- [ ] Phase 5 — submission worker + reconciler → not yet opened
+```
+
+Each line is one phase: a checkbox, `Phase N`, a short description, and
+either its sub-issue number or the literal `not yet opened`. A phase with
+no issue yet is **normal and expected** — issues are opened as phases
+start, not all upfront, so the checklist is the only place a
+not-yet-started phase exists at all. `/next` reads exactly this to answer
+"what's the next phase of something we already started," so a phase
+missing from the checklist is a phase the system will forget.
+
+**Parent labels while phases run.** The parent sits at `stage:coding`
+from the first phase opening until the last phase closes, and its
+`waiting:` mirrors whoever holds the **active** phase. When no phase is
+active but phases remain, the parent is `waiting:claude` — that's an
+unstarted next phase, which is work, not a resting state. Once every
+phase is checked off, the parent moves through its own whole-feature UAT
+(if any) and close-out like any other workstream.
+
+**Sub-issues are never double-counted.** `/status-all` already removes
+every issue returned by `get_sub_issues` from its top-level set and
+renders it nested under its parent; phase sub-issues inherit that
+handling unchanged, and `/next` applies the same dedup.
+
 ## The State of Play block
 
 Labels are machine-readable state; the **State of Play block** is the
@@ -129,6 +194,19 @@ work it's already doing — not as a separate reminder to go check the board:
 | `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
+
+**Phase ownership rides the same trigger points**, with no new maintainer:
+
+| Moment | Who | What happens |
+| --- | --- | --- |
+| David approves a phased plan | `plan-review-loop` | Writes the **Phases checklist** into the parent issue, every phase listed, all `not yet opened` |
+| A phase starts | `plan-review-loop` (or `bugfix`, for a phased fix) | Opens that phase's sub-issue with its own full label set, links it under the parent, updates the checklist line from `not yet opened` to the issue number |
+| A phase's PR closes out | `pr-watch` | Ticks that phase's checkbox in the parent, and re-points the parent's `waiting:` at the next phase (`waiting:claude` if the next phase hasn't opened) |
+| The last phase closes out | `pr-watch` | Moves the **parent** out of `stage:coding` into its whole-feature UAT or close-out |
+
+A phase sub-issue is a workstream issue like any other — it carries the
+same three label prefixes and its own State of Play block, because a phase
+is exactly the unit someone resumes cold.
 
 Each skill's own file carries the concrete instruction at its trigger
 point; this doc is the shared vocabulary they point back to, not a

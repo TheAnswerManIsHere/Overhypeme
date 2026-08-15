@@ -482,6 +482,30 @@ already at `stage:planning`:
 - At close-out (step 11) → `stage:plan-approval`, `waiting:david` — the
   loop's actual handoff, since only David approves.
 
+**If the plan ships in phases, David's approval is also when the Phases
+checklist gets written.** Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*Phased features* section, a multi-PR feature tracks as a parent issue plus
+one sub-issue per phase. Two obligations land on this loop:
+
+- **At approval of a phased plan** → write the **Phases checklist** into the
+  parent workstream issue's body, with *every* phase listed and each one
+  marked `not yet opened`. Writing only the phases that start immediately
+  defeats the point: the checklist is the sole durable record of what the
+  feature still owes, and a phase absent from it is a phase `/next` cannot
+  see and nobody will remember.
+- **When a phase actually starts** → open that phase's sub-issue with its
+  own full label set (`stage:coding`, the right `waiting:`, `mode:feature`),
+  link it under the parent, and update its checklist line from
+  `not yet opened` to the new issue number. The parent goes to
+  `stage:coding` at the first phase and stays there until the last one
+  closes.
+
+**A split is proposed to David, never declared silently** — that rule is
+this loop's own (step 4's stopping-rule menu already escalates a split),
+and it governs phasing identically. The checklist is written *after* he
+approves the phased shape, not as a way of announcing one.
+
 If the workstream issue doesn't exist yet when the review PR opens (a
 Discovery conversation that went straight to a plan without ever getting
 its own issue), open it now rather than leaving this loop untracked —

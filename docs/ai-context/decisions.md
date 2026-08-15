@@ -690,8 +690,16 @@
   when a plan looks too big," revisitable if it becomes cumbersome in
   practice.
 - **Reference:** Design settled in conversation 2026-08-05, alongside the
-  `/status` redesign below. **Not yet built** — see
-  [`current-roadmap.md`](./current-roadmap.md).
+  `/status` redesign below. **Built 2026-08-15** as the prerequisite slice
+  for the `/next` skill, which needs a machine-readable answer to "what's
+  the next phase of something we already started" — the contract is
+  [`workstream-tracking.md`](./workstream-tracking.md)'s *Phased features*
+  section (the parent's **Phases checklist** is the durable record of what a
+  feature still owes), with the trigger points wired into
+  `plan-review-loop` (writes the checklist at approval, opens each phase
+  sub-issue as it starts), `pr-watch` (ticks a phase at close-out, advances
+  the parent), and `pr-docs` (per-phase UAT, plus the scope line on a phase
+  PR's oracle).
 - **Revisit if:** the ask-before-splitting step becomes friction in practice
   (David's own stated condition for revisiting).
 
