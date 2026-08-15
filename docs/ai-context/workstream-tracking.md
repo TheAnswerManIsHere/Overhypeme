@@ -54,9 +54,9 @@ what the other seven were. The design settled 2026-08-05 and is built as of
 2026-08-15:
 
 - **The parent issue carries the plan** and the checkpoints that only make
-  sense once for the whole feature: 🛑 Plan approval, the whole-feature UAT
-  if there is one, and close-out. It holds `mode:feature` and a **Phases
-  checklist** (below).
+  sense once for the whole feature: 🛑 Plan approval and close-out. It
+  holds `mode:feature` and a **Phases checklist** (below). There is no
+  separate whole-feature UAT gate — the next bullet is why.
 - **Each phase is a GitHub sub-issue** of that parent (the native sub-issue
   relationship, the same one `/document` harvests use), with its own
   `stage:`/`waiting:`/`mode:` labels, its own PR carrying
@@ -65,9 +65,13 @@ what the other seven were. The design settled 2026-08-05 and is built as of
   another still-open phase PR. Phases don't need stacked-branch mechanics
   if they land one at a time, and this repo's force-push posture is a
   reason not to reach for them.
-- **UAT is per-phase**, wherever a phase is itself product-visible — not
-  one UAT deferred to the final phase, which would leave David unable to
-  verify anything for weeks.
+- **UAT is per-phase, and that's the only UAT there is.** Wherever a phase
+  is itself product-visible it ships its own UAT doc — never one deferred
+  to the final phase, which would leave David unable to verify anything for
+  weeks. There is no separate whole-feature UAT step layered on top: no PR
+  belongs to the parent for such a doc to be named after, and per-phase
+  verification already covers the feature by the time the last phase
+  closes.
 - **A phase PR's oracle section carries a scope line** naming which of the
   parent plan's sections that phase delivers and which it defers, so a
   reviewer is never left guessing whether a missing piece is
@@ -100,11 +104,14 @@ missing from the checklist is a phase the system will forget.
 
 **Parent labels while phases run.** The parent sits at `stage:coding`
 from the first phase opening until the last phase closes, and its
-`waiting:` mirrors whoever holds the **active** phase. When no phase is
-active but phases remain, the parent is `waiting:claude` — that's an
-unstarted next phase, which is work, not a resting state. Once every
-phase is checked off, the parent moves through its own whole-feature UAT
-(if any) and close-out like any other workstream.
+`waiting:` mirrors whoever holds the **active** phase — at every `waiting:`
+toggle on the active phase's PR, not just at that phase's close-out, so the
+parent never displays a stale holder mid-review. When no phase is active
+but phases remain, the parent is `waiting:claude` — that's an unstarted
+next phase, which is work, not a resting state. Once every phase is
+checked off, the parent moves straight to `stage:close-out` — there is no
+separate whole-feature UAT stage to pass through first, since per-phase UAT
+already verified the feature as it shipped.
 
 **Sub-issues are never double-counted.** `/status-all` already removes
 every issue returned by `get_sub_issues` from its top-level set and
@@ -308,10 +315,11 @@ work it's already doing — not as a separate reminder to go check the board:
 
 | Moment | Who | What happens |
 | --- | --- | --- |
-| David approves a phased plan | `plan-review-loop` | Writes the **Phases checklist** into the parent issue, every phase listed, all `not yet opened` |
-| A phase starts | `plan-review-loop` (or `bugfix`, for a phased fix) | Opens that phase's sub-issue with its own full label set, links it under the parent, updates the checklist line from `not yet opened` to the issue number |
+| David approves a phased plan | `plan-review-loop` | Writes the **Phases checklist** into the parent issue, every phase listed, all `not yet opened`. Never opens a phase itself — its lifecycle ends at this approval handoff and doesn't run again for phase 2 onward. |
+| A phase starts (every phase, including the first) | `overhype-implementation` | Opens that phase's sub-issue with its own full label set, links it under the parent, updates the checklist line from `not yet opened` to the issue number — this is the one place phase-opening lives, so phase 1 and phase 8 work the same way |
+| A phase's PR is under active review (each `waiting:` toggle) | `pr-watch` | Mirrors the same toggle onto the **parent's** `waiting:`, in the same edit — a phased parent's `waiting:` tracks whoever holds the *active* phase at every step, not just at close-out |
 | A phase's PR closes out | `pr-watch` | Ticks that phase's checkbox in the parent, and re-points the parent's `waiting:` at the next phase (`waiting:claude` if the next phase hasn't opened) |
-| The last phase closes out | `pr-watch` | Moves the **parent** out of `stage:coding` into its whole-feature UAT or close-out |
+| The last phase closes out | `pr-watch` | Moves the **parent** straight to `stage:close-out` — per-phase UAT already covered verification, so there is no separate whole-feature UAT gate to enter |
 
 A phase sub-issue is a workstream issue like any other — it carries the
 same three label prefixes and its own State of Play block, because a phase

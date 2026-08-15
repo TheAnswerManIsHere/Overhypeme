@@ -57,10 +57,22 @@ them — including its trust rules, which exist because this repo is public:
   `/status-all`'s dedup: a nested issue is never also a top-level row.
 - **Phases checklists** from any parent issue that has one (see
   [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)).
-  Parse each line into: phase number, description, and either its
-  sub-issue number or `not yet opened`. **An unopened phase is a real
-  candidate with no issue behind it** — it exists only here, and missing it
-  is exactly the failure this skill was built to prevent.
+  Parse each line's checkbox state, phase number, description, and either
+  its sub-issue number or `not yet opened`. **Discard checked (`[x]`)
+  phases before candidate construction** — they're merged, not work, and
+  keeping them would let a shipped phase get ranked and recommended again.
+  **An unopened phase is a real candidate with no issue behind it** — it
+  exists only here, and missing it is exactly the failure this skill was
+  built to prevent.
+- **A phased parent with any active or unopened phase remaining is never
+  itself a candidate.** There is no parent-level work while its checklist
+  still has open items — the work is the phase. Leaving the parent in the
+  candidate pool lets it win a tiebreak or surface as a parallel-safe
+  option even though nothing can actually start at the parent. The
+  candidate is always the phase (open PR, or the unopened-phase line) —
+  the parent only reappears once its checklist is fully checked and it
+  moves to `stage:close-out` (phased parents have no separate UAT stage —
+  per-phase UAT already covers it).
 - **Linked PRs and their live state**, one batched `pull_request_read` per
   workstream that has one, `author_association: OWNER` filtered.
 - **`Blocked by:` markers**, anchored `^Blocked by:[ \t]*#(\d+)`
@@ -73,9 +85,9 @@ Every candidate lands in exactly one bucket:
 | Bucket | Rule |
 | --- | --- |
 | **Blocked** | Has an open `Blocked by:` target. Not recommendable — but its rank propagates down to its blocker (step 3). |
-| **In flight** | `waiting:codex`/`waiting:ci` with real activity inside 48h. A machine is working; starting it again would collide. Listed, never recommended. |
+| **In flight** | `waiting:codex`/`waiting:ci`/`waiting:claude`/`waiting:replit` with real activity inside 48h. A machine — or another Claude session — is actively working it; recommending it again risks two sessions colliding on the same workstream, which defeats the parallel-safety goal this skill exists to serve. Listed, never recommended. |
 | **Actionable** | Everything else, including `waiting:david` items — David is the one asking, so "the next thing is yours" is a legitimate and common answer. |
-| **Stalled** | `waiting:` a non-David actor with no attributable activity for >48h. **Actionable**, and usually near the top: something needs unsticking. |
+| **Stalled** | `waiting:` a non-David actor with **no** attributable activity for >48h (this is what separates it from In flight — recent activity keeps it there instead). **Actionable**, and usually near the top: something needs unsticking. |
 
 Use `/status-all`'s attribution discipline for the activity timestamp —
 the login-vs-signature rule especially. Claude posts under David's GitHub
@@ -167,9 +179,17 @@ the encouraging one.
 
 ## Step 5 — When the queue is empty
 
-Nothing in flight, no phases left, no backlog. Then the question becomes
-**what should we build next**, and this is a real recommendation, not a
-menu:
+**"Empty" means zero Actionable candidates, full stop** — not just "no
+in-flight work, no open phases, no backlog." An ordinary `waiting:david`
+UAT, a stalled workstream, or any other actionable candidate from step 2
+still outranks starting something new, because step 3's ranking rule
+already puts it there. Recommending a new feature while real actionable
+work sits unranked is the exact failure this gate exists to prevent — check
+the full actionable set from step 2, not a subset of the buckets that feed
+it, before concluding the queue is empty.
+
+Once it genuinely is empty, the question becomes **what should we build
+next**, and this is a real recommendation, not a menu:
 
 1. Read [`product-direction.md`](../../../docs/ai-context/product-direction.md)
    and [`current-roadmap.md`](../../../docs/ai-context/current-roadmap.md) —
@@ -211,9 +231,20 @@ IN FLIGHT (no action)
   #431 — CI running, 20m.
 ```
 
-Never silently drop a candidate to keep it short. If something doesn't fit
-a bucket, say so — a short report that hides a real item is the one failure
-mode that makes the whole thing untrustworthy.
+**Render at most 3 items in NEXT/THEN** — that cap is the point; a full
+listing recreates the dashboard `/next` exists to replace. When more than
+3 actionable candidates exist, name the count of the rest in one line
+("+4 more actionable, ranked below these — ask to see the full list") —
+summarized, never silently absent, and never expanded past 3 by default.
+The "never drop a candidate" discipline below governs **buckets**
+(nothing anywhere goes unclassified or unmentioned), not the length of the
+ranked list within a bucket.
+
+Never silently drop a **bucket or a candidate's existence** to keep it
+short — every candidate is at least counted somewhere, even when it isn't
+individually listed. If something doesn't fit a bucket, say so — a short
+report that hides a real item is the one failure mode that makes the whole
+thing untrustworthy.
 
 ## What this cannot see
 

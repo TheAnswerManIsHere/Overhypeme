@@ -308,25 +308,45 @@ silently leaving the workstream unlabeled):
   merge — that's David's to set once he's actually verified it, the same
   reason the Project's built-in `PR merged → Done` workflow is off.
 
-**If this PR is one phase of a phased feature, close-out also updates the
-parent.** Per
+**If this PR is one phase of a phased feature, every `waiting:` toggle
+updates the parent too — not just close-out.** Per
 [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
-*Phased features* section, a phase sub-issue's close-out is the moment the
-parent's Phases checklist moves — nothing else advances it, so skipping this
-leaves the parent permanently claiming work is outstanding that already
-shipped:
+*Phased features* section, the parent's `waiting:` is supposed to mirror
+whoever holds the active phase at all times. Touching it only at close-out
+leaves the parent showing a stale holder for the entire review-and-merge
+cycle of every phase — so **each time this section moves the phase issue's
+`waiting:`** (round-by-round toggling, escalation, merge), mirror the same
+value onto the parent, in the same edit, State of Play included.
+
+**Close-out is the moment the parent's Phases checklist itself moves** —
+nothing else advances it, so skipping this leaves the parent permanently
+claiming work is outstanding that already shipped:
 
 - **Tick this phase's checkbox** in the parent's checklist, replacing
   `(active)` with the merged PR number.
 - **Re-point the parent's `waiting:`** at whoever holds the next phase — or
   `waiting:claude` when the next phase hasn't been opened yet, since an
   unstarted next phase is work owed, not a resting state.
-- **If this was the last phase**, move the parent out of `stage:coding` into
-  its whole-feature UAT (`stage:uat`, `waiting:david`) if the parent plan
-  has one, or `stage:close-out` if every phase already ran its own UAT.
+- **If this was the last phase**, move the parent straight to
+  `stage:close-out`. There is no separate whole-feature UAT gate — every
+  phase already ran its own UAT wherever it was product-visible, per
+  `workstream-tracking.md`'s *Phased features* section, so a UAT stage here
+  would be a gate with nothing left to run against it.
 - **If a phase's own UAT surfaced a bug**, that's the UAT-descent case —
   see `workstream-tracking.md`'s *When UAT finds a bug* section for the
   `Blocked by:` marker that records the way back up.
+
+**At the close-out of any workstream, check whether it was the target of a
+`Blocked by:` marker** — one `search_issues` call, `"Blocked by: #<this
+issue>" in:body`, trusted-issue filtered the same way every other marker
+lookup here is. If a match comes back (the closed issue was a UAT-descent
+bug, or any other blocker), that match is a parent this closure just
+unblocked: **restore its `waiting:` to the value stashed in its State of
+Play** (`bugfix` records the prior value at intake, normally `david`), and
+remove the now-stale `Blocked by:` line. Skipping this leaves the unblocked
+parent sitting at `waiting:claude` indefinitely — mechanically releasable
+per `workstream-tracking.md`'s `Blocked by:` contract, but with no
+open question left for anyone to notice needs restoring.
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,

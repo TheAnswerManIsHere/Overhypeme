@@ -16,6 +16,18 @@ Turn an **approved** plan into a safe, in-scope change.
 
 ## Do
 
+0. **If this plan ships in phases and the phase you're starting has no
+   sub-issue yet** — its Phases checklist line still reads `not yet
+   opened` — open it now, before touching code. Per
+   [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+   *Phased features* section: full label set (`stage:coding`, `waiting:`
+   set to whoever's about to hold it, `mode:feature`), linked under the
+   parent as a native sub-issue, `Workstream: #<phase-issue>` on the
+   eventual PR. Update the checklist line from `not yet opened` to the new
+   issue number in the same edit. This applies identically to phase 1 and
+   phase 8 — `plan-review-loop` only ever writes the checklist at
+   approval, never opens a phase itself, so this is the one place every
+   phase actually starts.
 1. **Confirm the affected files** by inspecting them before editing.
 2. **Make the smallest coherent change** that satisfies the plan. No scope creep,
    no speculative abstraction, no new external vendor.

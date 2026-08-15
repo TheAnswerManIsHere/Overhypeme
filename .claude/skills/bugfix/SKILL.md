@@ -115,6 +115,14 @@ pre-launch, but the interrupted UAT is what gets lost. Per
   body, and one line in its State of Play naming **which UAT step failed**
   — that's what turns resumption into "resume at step 4" rather than a full
   re-run.
+- **Also flip the interrupted issue's `waiting:` label to `claude`**,
+  recording its prior value (normally `david`, mid-UAT) in the same State
+  of Play line. Left at `waiting:david`, `/status-all` — which doesn't
+  parse `Blocked by:` and was deliberately left unchanged — keeps showing
+  a mechanically non-actionable UAT under NEEDS YOU while the actual ask
+  is the new bug, which is agent-held work. `waiting:claude` is accurate:
+  a session needs to close this bug before David has anything to look at
+  again.
 - Do it at intake, while the context is in front of me. A session that ends
   before this is written loses the link entirely; nothing reconstructs it.
 - The chain nests if the fix hits its own blocker, and it pops on its own:

@@ -315,11 +315,15 @@ recommendation. David's standing instruction is that he can react well but
 can't track state, so this step brings him a **concrete proposed diff** to
 approve or amend, never an open-ended "is the backlog still right?"
 
-1. **List backlog issues** — open issues carrying a `queue:` label
-   (`mcp__github__list_issues`, paginated). For each, check the cheap
-   staleness signals: has it been superseded by something merged since it
-   was filed? Has its rationale been overtaken? Is it a duplicate of
-   another backlog item?
+1. **List both label families** — open issues carrying a `queue:` label,
+   and open issues carrying a `stage:` label (`mcp__github__list_issues`,
+   paginated, both label sets). Steps 3–4 below sweep `Blocked by:` chains
+   and Phases checklists, and both live on `stage:` workstream issues, not
+   `queue:` backlog ones — fetching only the backlog set leaves this pass
+   unable to see the data it's meant to validate. For the backlog set,
+   check the cheap staleness signals: has it been superseded by something
+   merged since it was filed? Has its rationale been overtaken? Is it a
+   duplicate of another backlog item?
 2. **Re-check `queue:` priorities against the roadmap.** Anything labeled
    `queue:now` that hasn't been started in weeks is either mislabeled or
    genuinely blocked — say which. Anything in
