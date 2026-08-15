@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "pr": 446,
+  "closedAt": "2026-08-15T00:17:55Z",
+  "mechanical": {
+    "title": "docs(CLAUDE): running a TEST_RUN checklist is a two-call sequence",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 1,
+      "added": 22,
+      "removed": 1
+    },
+    "rounds": 2,
+    "findings": 1,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-15T00:14:37Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-15T00:17:19Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-15T00:11:30Z",
+      "last_review_at": "2026-08-15T00:17:19.000Z",
+      "hours": 0.1
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": {
+      "new": 1,
+      "prop": 0,
+      "wrong": 0,
+      "reRaised": 0,
+      "invalid": 0
+    },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
+    "breakersFired": "None. Two rounds, 1 finding then a clean pass \u2014 no tripwire condition existed to fire. Criticality ~15 (a CLAUDE.md wording correction about which connector call returns text); the single round-2 pass was Codex's own clean confirmation, not a re-request.",
+    "newGroundTerritory": {
+      "inDiff": 1,
+      "preExisting": 0
+    }
+  },
+  "adjudication": {
+    "status": "never-run"
+  },
+  "notes": "Re-derived at the 2026-08-15 /maintenance ledger flush (Claude Code, Opus), NOT narrated in-session at loop close. Cause classification is reconstructed from the PR's own review threads rather than from the build session's memory of them, which is a materially weaker source than PR #443's record had; per the ledger's ambiguous-goes-to-self-inflicted rule, every finding whose cause was not unambiguously new ground was classified as propagation. The one finding (round 1: the canonical Replit kickoff prompt omitted an explicit 'read-only, do not edit files' constraint) is new_ground \u2014 round 1 reviews the original submission, so nothing in this loop could have caused it. Territory inDiff: the missing constraint is a defect in prompt text this diff itself wrote, not in an untouched file."
+}

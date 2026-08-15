@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "pr": 447,
+  "closedAt": "2026-08-15T01:12:36Z",
+  "mechanical": {
+    "title": "Reorganize TEST_RUN/UAT docs into docs/tests/Replit/ and docs/tests/UAT/",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 52,
+      "added": 266,
+      "removed": 423
+    },
+    "rounds": 3,
+    "findings": 0,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-15T00:48:43Z",
+        "source": "review",
+        "findings": 0
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-15T00:57:10Z",
+        "source": "comment",
+        "findings": 0
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-15T00:59:05Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-15T00:45:14Z",
+      "last_review_at": "2026-08-15T00:59:05.000Z",
+      "hours": 0.2
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": {
+      "new": 0,
+      "prop": 0,
+      "wrong": 0,
+      "reRaised": 0,
+      "invalid": 0
+    },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
+    "breakersFired": "None fired, but this loop is the clearest ceremony mismatch in the flush window: a pure file-move PR (52 files, docs only, criticality ~5) took THREE reviewer passes. Under working-modes.md's docs-only rule a polish-only round is convergence and earns no successor, so rounds 2 and 3 should not have happened."
+  },
+  "adjudication": {
+    "status": "n/a"
+  },
+  "notes": "Re-derived at the 2026-08-15 /maintenance ledger flush (Claude Code, Opus), NOT narrated in-session at loop close. Cause classification is reconstructed from the PR's own review threads rather than from the build session's memory of them, which is a materially weaker source than PR #443's record had; per the ledger's ambiguous-goes-to-self-inflicted rule, every finding whose cause was not unambiguously new ground was classified as propagation. Mechanical findings is 0 and is recorded as measured, but that number is an undercount of the loop's real content: round 1 raised one genuine finding (PR308/PR425 TEST_RUN-to-UAT sibling links broken by the split into Replit/ and UAT/ directories), and it was delivered in the review BODY rather than as an inline review thread. loop-metrics.mjs counts findings from review threads only, so a body-delivered finding is invisible to it. Recorded as derived rather than hand-corrected, per the never-type-mechanical-values rule; the measurement gap is reported to David in this pass's digest instead. causes therefore sum to the derived 0, and adjudication is n/a (no valid findings in the measured population)."
+}

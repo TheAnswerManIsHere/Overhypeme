@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "pr": 458,
+  "closedAt": "2026-08-15T22:58:31Z",
+  "mechanical": {
+    "title": "Session model is a constant (Opus); tier changes route to subagents; /document runs autonomously",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 9,
+      "added": 475,
+      "removed": 201
+    },
+    "rounds": 2,
+    "findings": 15,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-15T22:48:17Z",
+        "source": "review",
+        "findings": 8
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-15T22:59:19Z",
+        "source": "review",
+        "findings": 7
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-15T22:41:53Z",
+      "last_review_at": "2026-08-15T22:59:19.000Z",
+      "hours": 0.3
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": {
+      "new": 9,
+      "prop": 6,
+      "wrong": 0,
+      "reRaised": 0,
+      "invalid": 0
+    },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
+    "breakersFired": "The count tripwire came within one finding of firing \u2014 8 then 7 is nearly flat, not convergence \u2014 and the loop ended anyway, because the PR was MERGED roughly 48 seconds before round 2's 7 findings landed. That is the finding this record most needs to carry: the loop did not converge, it was outrun. Round 2's findings were never triaged, never fixed, and are live on main as of this flush. Recorded here rather than silently, and surfaced to David in the same pass's report.",
+    "newGroundTerritory": {
+      "inDiff": 7,
+      "preExisting": 2
+    }
+  },
+  "adjudication": {
+    "status": "never-run"
+  },
+  "notes": "Re-derived at the 2026-08-15 /maintenance ledger flush (Claude Code, Opus), NOT narrated in-session at loop close. Cause classification is reconstructed from the PR's own review threads rather than from the build session's memory of them, which is a materially weaker source than PR #443's record had; per the ledger's ambiguous-goes-to-self-inflicted rule, every finding whose cause was not unambiguously new ground was classified as propagation. 15 findings over 2 rounds. Round 1's 8 are new_ground by construction and were fixed. Round 2's 7 split 6 propagation / 1 new: the unscoped constant-session claim in decisions.md and model-routing, the tier guard routing only the judgement rather than Opus-reserved execution, model-routing still listing the /document harvest as routable, the resident summary still denying a persistable effortLevel, the /document verdict ordered after the merge report it must appear in, and the harvest-subscription exception missing from the resident PR-open rule are each locations round 1's fixes were applied in CLAUDE.md and not swept to their siblings; AGENTS.md's root trigger never firing the autonomous /document judgement is new ground in a file the diff never opened. Territory splits the 9 new_ground 7 inDiff / 2 preExisting \u2014 the Repl's settings.local.json Sonnet override and AGENTS.md are both untouched surfaces that falsified claims the diff made elsewhere."
+}
