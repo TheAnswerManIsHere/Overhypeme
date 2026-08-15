@@ -24,6 +24,26 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **`/next` — the "what should we work on now" skill, plus the two
+  tracking primitives it needed** (2026-08-15). Three coupled pieces:
+  **phase-tracking** for multi-PR features (the parent-issue + phase
+  sub-issue design settled 2026-08-05 and finally built — a parent's
+  **Phases checklist** is now the durable record of what a feature still
+  owes); **the backlog** (`queue:now`/`next`/`later` issues carrying no
+  `stage:` label, so they stay out of `/status-all`'s active-work view)
+  together with the mechanical **`Blocked by: #N`** marker; and **`/next`**
+  itself, which ranks everything by *closest to done wins* with priority
+  inheriting down each blocked chain. That inheritance rule is what makes
+  the **UAT-descent stack** work: when UAT surfaces a bug that turns into a
+  whole rebuild (PR #213 → the #405/#422 admin-permission arc is the worked
+  example), the chain records the way back to the interrupted UAT step, and
+  the deep rebuild correctly outranks starting anything new because
+  finishing it is what unwinds the stack. `/maintenance` gains a
+  backlog-hygiene pass — stale priorities, dangling markers, chains deeper
+  than 2, cycles, unticked phase checkboxes — delivered as a numbered diff
+  David approves. See
+  [`workstream-tracking.md`](./workstream-tracking.md).
+
 - **Sharded api-server test runner kept, diagnostics hardened (PR #427,
   2026-08-14).** Evaluated whether the runner's complexity was still
   justified now that the fast-inner-loop use case it was built for no longer

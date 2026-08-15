@@ -353,9 +353,10 @@ restatement.
   Match by normalized name, not exact string, for anything a human typed
   into a GitHub UI.
 
-## `/status` and `/status-all`
+## `/status`, `/status-all`, and `/next`
 
-Two skills, two questions (split 2026-08-05):
+Three skills, three questions (`/status` split from `/status-all`
+2026-08-05; `/next` added 2026-08-15):
 
 - **`/status-all`** (`.claude/skills/status-all/SKILL.md`) — the **fleet**
   view, and the original skill unchanged: every open workstream, grouped
@@ -368,6 +369,13 @@ Two skills, two questions (split 2026-08-05):
   workstream: what it's working on, which of five states it's in
   (`WORKING` / `WAITING ON YOU` / `WATCHING` / `STALLED` / `DONE`), what's
   next, and how it fits the roadmap.
+- **`/next`** (`.claude/skills/next/SKILL.md`) — **what should we pick up
+  now**, ranked. The only one of the three that takes a position rather
+  than reporting state. It reads everything above plus the backlog,
+  `Blocked by:` chains, and Phases checklists, ranks by **closest to done
+  wins** with rank inheriting down each blocked chain, and names which
+  candidates are safe to run in parallel sessions. **Read-only**, like
+  `/status-all` — it recommends, it never starts work or fixes tracking.
 
 **The five states are a derived presentation vocabulary — never stored.**
 They are computed from the `stage:`/`waiting:` labels plus live GitHub state.
