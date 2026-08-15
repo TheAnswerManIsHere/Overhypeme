@@ -17,10 +17,18 @@
     "warnings": []
   },
   "judgment": {
-    "causes": { "new": 0, "prop": 0, "wrong": 0, "reRaised": 0, "invalid": 0 },
+    "causes": {
+      "new": 0,
+      "prop": 0,
+      "wrong": 0,
+      "reRaised": 0,
+      "invalid": 0
+    },
     "preOpenPreflightMin": 0,
     "breakersFired": "none"
   },
-  "adjudication": { "status": "n/a" },
-  "notes": "No review posted; zero findings across zero rounds, so adjudication is n/a (zero valid-finding denominator). (The PR body's own flagged open question — whether .replit's [env] PATH actually propagates — was resolved empirically post-merge, not through review; unrelated to this loop's findings count.)"
+  "adjudication": {
+    "status": "n/a"
+  },
+  "notes": "No review posted; zero findings across zero rounds, so adjudication is n/a (zero valid-finding denominator). (The PR body's own flagged open question \u2014 whether .replit's [env] PATH actually propagates \u2014 was resolved empirically post-merge, not through review; unrelated to this loop's findings count.) **2026-08-15 /maintenance staleness sweep.** This record's null `reviewInterval` was re-checked and is retained, but the reason was nearly recorded wrong. The sweep first read \"no Codex comment\" as \"never reviewed\"; the PR in fact carries exactly one \ud83d\udc4d reaction and nothing else, which is the connector's own documented clean-pass signal (\"If Codex has suggestions, it will comment; otherwise it will react with \ud83d\udc4d\"). Reaction authorship is not exposed by the GitHub access available here, so this is strong evidence rather than proof \u2014 but the timing agrees (see below), and this record's original note already read it as a silent clean pass, which was correct. **The measurement consequence is real either way:** `loop-metrics.mjs` counts `**Reviewed commit:**` markers, and a \ud83d\udc4d-only pass emits none, so a clean review is indistinguishable from no review in the mechanical half. That is a second blind spot alongside the review-body findings gap recorded on #447. Numbers left as derived rather than hand-corrected, per the never-type-mechanical-values rule. Open 199 minutes, ample time for a pass (PR #443 fit six rounds into 162)."
 }
