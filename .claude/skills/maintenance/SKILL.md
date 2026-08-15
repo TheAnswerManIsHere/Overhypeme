@@ -115,7 +115,13 @@ and edited this pass, per the shared contract's late-review rule. Compare
 against what the record actually captured, not an inferred commit or
 derivation time — a review landing after the PR snapshot was fetched but
 before the record was committed can predate that inferred time and evade
-the sweep even though the record never captured it. Without
+the sweep even though the record never captured it. **A `null`
+`reviewInterval` (the field `loop-metrics.mjs`'s `reviewInterval()`
+returns when the record was written with zero reviewer stamps) is always
+stale if the live PR shows any reviewer activity at all** — there is no
+watermark to compare against, so the absence of a timestamp is not
+evidence of nothing new; treat it the same as any live activity newer
+than a real timestamp would be. Without
 this sweep the correction path is a promise nothing triggers — the
 new-records selection skips loops that already have a record, and the
 completeness check sees the stale file as present. **There is no settling-window

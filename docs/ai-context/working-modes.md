@@ -1210,7 +1210,8 @@ thread that escalated into a reviewed change.
 > [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md) is
 > **frozen** at rows 1–46 and is never appended to again — it is the archive
 > of what those loops showed, pinned by a `sha256` baseline. The `[LEDGER]`
-> PR type is retired: a record rides any PR except the one it measures. Blind
+> PR type is retired: a record rides any *mergeable* PR except the one it
+> measures — never a `[PLAN REVIEW]` PR, which closes without merging. Blind
 > adjudication now runs on a **sample of loops** (each still adjudicated over
 > its full finding population). And the answers now reach David through a
 > digest rather than sitting in a file. Rationale — including why sampling
@@ -1494,8 +1495,10 @@ it (see the ledger's row-provenance notes) — if that pass surfaces a rubric
 gap, fix the rubric here rather than making a one-off judgment call on #268
 alone.*
 
-**A record rides any PR except the one it measures (David, 2026-08-07 —
-retiring the `[LEDGER]` PR type).** Two rules preceded this one, and the
+**A record rides any *mergeable* PR except the one it measures (David,
+2026-08-07 — retiring the `[LEDGER]` PR type; the mergeable qualifier
+added 2026-08-15 — never a `[PLAN REVIEW]` PR, which closes without
+merging, so a record riding one would never reach `main`).** Two rules preceded this one, and the
 history explains why the third is different in kind rather than just in
 detail:
 
