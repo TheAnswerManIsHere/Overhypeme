@@ -13,7 +13,7 @@
 > 403 refusal probe, whose *rejection* is the thing being tested — a refused
 > request writes nothing.
 >
-> **UAT sibling:** [`PR425_ADMIN_PERMISSIONS_CORE_UAT.md`](./PR425_ADMIN_PERMISSIONS_CORE_UAT.md)
+> **UAT sibling:** [`PR425_ADMIN_PERMISSIONS_CORE_UAT.md`](../UAT/PR425_ADMIN_PERMISSIONS_CORE_UAT.md)
 > — David's in-app click-through. Run this checklist first.
 
 Pre-merge gates (install, typecheck, codegen drift, permission chokepoint,
