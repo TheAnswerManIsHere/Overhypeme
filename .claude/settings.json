@@ -1,5 +1,5 @@
 {
-  "model": "opusplan",
+  "model": "opus",
   "env": {
     "DATABASE_URL": "postgres://overhype:overhype@localhost:5432/overhype_test"
   },

@@ -13,6 +13,66 @@
 
 ---
 
+### 2026-08-15 · The session model is a constant (Opus); tier changes route to subagents instead of asking David to switch
+- **Decision:** Three changes, superseding the model-switching half of the
+  2026-07-24 entry below:
+  1. **`.claude/settings.json` default model → `opus`** (was `opusplan`).
+     Every session — pre-plan conversation, planning, the plan-review loop,
+     building, PR-watching, ops — starts and stays on Opus.
+  2. **The Sonnet gate on PR-watching is retired.** Claude subscribes to a PR
+     it opens immediately, on whatever tier the session is on, for
+     implementation and `[PLAN REVIEW]` PRs alike. Claude no longer asks for a
+     model switch **in any direction**.
+  3. **Cheaper and stronger tiers are reached by subagent routing only.**
+     Sonnet downward for stateless, bounded work (documentation passes,
+     codebase Q&A, mechanical multi-file edits from an approved plan, bounded
+     research sweeps); Fable and Opus upward as already practised. Every
+     dispatch is announced, in both directions.
+- **Why:** David reported the switch-ask was "a real blocker," and it was
+  structural rather than occasional: the contract carried asks pointing *both*
+  ways — up to Opus for planning (because `opusplan` only covers plan-mode
+  turns, missing the pre-plan conversation and the whole plan-review loop) and
+  down to Sonnet before watching a PR. Each landed exactly where work should
+  have flowed. The downward one directly contradicted the same-day SOW-gate
+  decision above: David's scope approval is what authorizes an autonomous run,
+  and the first thing that run did was stop and block on a model switch. The
+  gate also only ever protected **cost, never safety** — and the safety
+  argument now runs the other way, since the post-round adjudication moved the
+  loop's real judgment (continue/stop, declines, tripwires) onto Claude.
+- **Considered and rejected — delegating PR-watching to a Sonnet subagent.**
+  This was David's own proposed mechanism and it looks ideal (high-volume,
+  mostly mechanical), but a review loop is long-running and *stateful*: round
+  number, the cumulative-diff rule, declines and their reasoning, resolved
+  threads, finding-count and plan-growth tripwires. A subagent starts cold and
+  would re-establish all of it per webhook event, while the main loop stays
+  engaged anyway because the adjudication is Claude's. Plausibly *more*
+  expensive than simply watching on Opus. Recorded so it isn't re-proposed as
+  an obvious optimization.
+- **Considered, initially rejected on a factual error, now available —
+  dialing effort instead of tiers.** The first version of this entry said
+  Claude Code has **no persistable effort setting**, and called that
+  "checked rather than assumed." It was wrong: the check read the settings
+  **docs page** (which omits the key) rather than the settings **JSON
+  schema** (which carries `effortLevel`: `low` | `medium` | `high` |
+  `xhigh`, *"Persisted effort level for supported models"*). Corrected the
+  same day, before merge. So `model: opus` + `effortLevel` **is** a real
+  session-wide cost dial requiring no ask from David — it does not reverse
+  this decision (the tier gate was a *blocking-ask* problem, not a cost
+  problem), but it is the first lever to reach for if Opus-everywhere gets
+  expensive, ahead of reinstating any switch-ask. **Durable lesson: for
+  settings questions the schema is the source of truth; a docs-page absence
+  is not evidence of non-existence.** Per-subagent `effort` was always
+  available and is unaffected.
+- **Reference:** `CLAUDE.md` → *Token / cost discipline* and *Watching the PRs
+  I open*; the `model-routing` and `pr-watch` skills. Note the `model` key is
+  read once at session start, so the change lands on the *next* session.
+- **Revisit if:** cumulative quota usage becomes a real constraint again (the
+  honest cost of this decision is that ops-shaped turns now run at Opus
+  rates). The first response then is **`effortLevel`**, not a switch-ask —
+  see the corrected bullet above.
+
+---
+
 ### 2026-08-15 · `/next` ranks by closest-to-done, with priority inheriting down `Blocked by:` chains — built on two new coupled primitives
 - **Decision:** A new `/next` skill answers "given where we are, what should
   we work on now?" — the third tracking skill, and the only one that ranks
@@ -73,6 +133,8 @@
   rather than reconstructed here from prose. Also revisit if the
   UAT-descent park escape hatch (for a rabbit hole that outgrows the UAT it
   interrupted) turns out to need real-world tuning once it's actually used.
+
+---
 
 ### 2026-08-15 · SDLC autonomy: the SOW gate + in-loop adjudication replace per-round check-ins; Claude self-merges; the ledger flushes weekly
 - **Decision:** Six related changes, agreed in one conversation, that move

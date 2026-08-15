@@ -12,16 +12,29 @@ threads — stay resident in `CLAUDE.md`.
 
 ### Subscribe rules (resident in CLAUDE.md — pointer, not a second copy)
 
-The subscribe/tier gate lives in `CLAUDE.md`'s *Watching the PRs I open*
-stub, which fires at PR-open time before this skill is ever invoked:
-implementation PRs are watched on **Sonnet** (already there → subscribe
-immediately; on Opus → ask for the switch first), a `[PLAN REVIEW]` draft PR
-is planning and gets subscribed immediately on **Opus** with no switch ask,
-and background self-check-ins (`send_later`) are never armed — David
-(2026-07-07) checks PR status manually and pings me. One detail that lives
-only here: if a session gets switched to Sonnet later and there's an open,
-unwatched PR I created earlier, that's the moment to subscribe — I don't
-need David to re-ask.
+The subscribe rule lives in `CLAUDE.md`'s *Watching the PRs I open* stub,
+which fires at PR-open time before this skill is ever invoked: **I subscribe
+immediately, on whatever tier the session is on — there is no model gate**
+(David, 2026-08-15, retiring the Sonnet gate), for implementation and
+`[PLAN REVIEW]` PRs alike; and background self-check-ins (`send_later`) are
+never armed — David (2026-07-07) checks PR status manually and pings me.
+
+The old gate's companion rule — *"if the session gets switched to Sonnet
+later, that's the moment to subscribe any open unwatched PR"* — is retired
+with it: there is no tier moment to wait for any more. What survives is the
+substance underneath: **an open PR I created and am not yet watching gets
+subscribed the moment I notice it, without David re-asking.**
+
+**One explicit exception, and it is not optional (Codex, PR #458 round 1):
+a `/document` harvest PR is subscribed only at step 5 of
+[`documentation-workflow.md`](../../../docs/ai-context/documentation-workflow.md)** —
+after the workstream issue exists and the PR body's `Workstream:` line points
+at it. Subscribing performs label writes, so subscribing early labels an
+untracked draft against a missing or wrong issue; that doc says in as many
+words that deferring the *subscribe* is what defers labeling, since draft
+status alone does not. The old tier gate happened to enforce this ordering as
+a side effect of making me wait — with the gate gone, the ordering has to be
+stated outright or it silently breaks.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event or David re-engages me — I just never schedule my own wake-up
@@ -91,10 +104,16 @@ the diff *is* the plan. While watching an implementation PR:
   mechanics stay in the PR thread. **Skip-on-clean:** a round with zero
   findings or only the unambiguous mechanical nits below needs no
   adjudication — fix silently, one status line. **Model mechanics:** the
-  adjudication is run on the session's current tier (usually Sonnet);
-  subagent escalation is **structural, not self-assessed** — the three
-  Opus triggers in the sweep-protocol bullet below (any decline, any
-  unmechanizable finding, any recurrence of a swept class), plus the
+  adjudication runs in my main loop, which is **Opus** (David, 2026-08-15 —
+  the session tier is now a constant, so this no longer reads "usually
+  Sonnet"). That moots the two Opus triggers below as *escalations* — they
+  are already at that tier — but **not as procedure**: a decline still gets
+  argued against before it posts, and an unmechanizable finding still gets
+  the adversarial second pass, because their value is the independent
+  challenge, not the tier. Subagent dispatch stays **structural, not
+  self-assessed** — the three triggers in the sweep-protocol bullet below
+  (any decline, any unmechanizable finding, any recurrence of a swept
+  class), plus the
   adversarial Fable subagent on the judgment moments, which now carries
   the decision weight the retired check-in used to (see the
   `model-routing` skill).
@@ -122,12 +141,20 @@ the diff *is* the plan. While watching an implementation PR:
   3. **Any recurrence of a swept class** (the shared protocol's process
      failure): the class re-naming goes to the Opus subagent, and the
      recurrence is called out in that round's record.
-  Sensitive-path PRs (the tier table's Opus-always rows) run the whole loop
-  on Opus, so triggers 1–2's Opus-subagent dispatch is redundant there — the
-  main loop already is Opus. **The sweep itself (name the class, write the
-  oracle, sweep to zero) and the recurrence round-record flag still apply on
-  Opus loops** — a swept class recurring is a process signal David needs to
-  see regardless of which tier caught it.
+  **All three triggers stay live on an Opus main loop — corrected
+  2026-08-15 (Codex, PR #458 round 1).** These lines used to call triggers
+  1–2's dispatch "redundant" on an Opus loop, which was harmless when Opus
+  loops were the exception and is dangerous now that *every* loop is Opus:
+  read literally it retires trigger 1 entirely, and trigger 1 protects the
+  one verdict nothing downstream catches (a wrong decline resolves the
+  thread and no one sees it again). **The trigger was never about reaching a
+  stronger tier — it is about an independent challenge from a context that
+  did not produce the conclusion**, which a same-tier subagent supplies just
+  as well. Only the framing changes: on an Opus loop the dispatch is a
+  second opinion, not an escalation, so it needs no "spending above the
+  session's rate" announcement. The sweep itself (name the class, write the
+  oracle, sweep to zero) and the recurrence round-record flag apply
+  throughout.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class
