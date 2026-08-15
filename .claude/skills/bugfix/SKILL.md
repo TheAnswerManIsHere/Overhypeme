@@ -211,15 +211,16 @@ the PR back only delays the review that catches things.
    file-naming reasons):** open the PR **as a draft** (the number now
    exists, and a draft doesn't trigger the Codex connector — the same
    property the plan-review loop relies on), commit
-   `docs/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then **mark
-   the PR ready for review** — round 1 fires once, on the complete diff,
-   UAT included. **The connector documents this trigger itself:** its review
-   boilerplate lists exactly three — "Open a pull request for review",
-   **"Mark a draft as ready"**, and commenting `@codex review` (observed on
-   PR #391, 2026-08-09). Still glance that round 1 actually lands on the
-   first draft-first fix; if it somehow doesn't, post one explicit
-   `@codex review` naming the full diff and correct this line. Match the most recent surviving
-   `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
+   `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then
+   **mark the PR ready for review** — round 1 fires once, on the complete
+   diff, UAT included. **The connector documents this trigger itself:** its
+   review boilerplate lists exactly three — "Open a pull request for
+   review", **"Mark a draft as ready"**, and commenting `@codex review`
+   (observed on PR #391, 2026-08-09). Still glance that round 1 actually
+   lands on the first draft-first fix; if it somehow doesn't, post one
+   explicit `@codex review` naming the full diff and correct this line.
+   Match the most recent surviving `docs/tests/UAT/PR<N>_*_UAT.md`. Publish
+   it as an Artifact page too (per
    CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
    which owns that rule). A `TEST_RUN` doc only if something genuinely
    needs Replit's environment — per

@@ -1185,7 +1185,7 @@
 ---
 
 ### 2026-07-26 · TEST_RUN checklists are scoped to what only Replit's live environment can verify
-- **Decision:** A `docs/PR<N>_*_TEST_RUN.md` checklist runs, always: live-DB
+- **Decision:** A `docs/tests/Replit/PR<N>_*_TEST_RUN.md` checklist runs, always: live-DB
   migration state, post-merge repo-health gates (**both**
   `pnpm --filter @workspace/db validate-snapshots` — matches CI's
   `build.yml` — **and** `check-snapshots` — catches a migration that shipped
@@ -1504,8 +1504,9 @@
   and `fact_ai_meme_backfill` lanes) and a bounded repeated-failure circuit
   breaker added to bulk-send-back so a persistently-failing fact can't create
   an unbounded number of retry cycles nor be silently declared "migration
-  complete" while still excluded. See `docs/tests/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
-  and `docs/tests/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
+  complete" while still excluded. See
+  `docs/tests/Replit/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
+  and `docs/tests/UAT/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
   This entry was a forward-looking "sites to fix" list at decision time — it
   now describes fixed behavior, not a plan.
 

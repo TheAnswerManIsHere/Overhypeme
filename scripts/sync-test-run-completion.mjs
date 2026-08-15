@@ -3,15 +3,16 @@
  * Detect a deleted TEST_RUN doc on a push to main and transition that PR's
  * workstream issue past `stage:test-run`.
  *
- * Per the `pr-docs` contract, `docs/PR<N>_<FEATURE>_TEST_RUN.md` is transient:
- * David deletes it once Replit has actually run the checklist, and that
- * deletion is the ONLY completion signal that exists — there is no other
- * event to hook. Before this script, nothing with write access was guaranteed
- * to ever notice a deletion and move the label, so a workstream could sit at
- * `stage:test-run`/`waiting:replit` indefinitely even after Replit finished
- * (Codex flagged this twice, as a P1, reviewing PR #334). This closes that
- * gap the same way `sync-project-fields.mjs` closes the labels-to-board gap:
- * a small, focused Action that reacts to the one event that matters.
+ * Per the `pr-docs` contract, `docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md`
+ * is transient: David deletes it once Replit has actually run the checklist,
+ * and that deletion is the ONLY completion signal that exists — there is no
+ * other event to hook. Before this script, nothing with write access was
+ * guaranteed to ever notice a deletion and move the label, so a workstream
+ * could sit at `stage:test-run`/`waiting:replit` indefinitely even after
+ * Replit finished (Codex flagged this twice, as a P1, reviewing PR #334).
+ * This closes that gap the same way `sync-project-fields.mjs` closes the
+ * labels-to-board gap: a small, focused Action that reacts to the one event
+ * that matters.
  *
  * Scope, deliberately narrow: this only handles the `stage:test-run` ->
  * `stage:uat`/`stage:close-out` transition. It never touches any other
@@ -24,7 +25,7 @@ import { fetchProject, syncIssue } from "./sync-project-fields.mjs";
 
 /** Extract the PR number from a deleted TEST_RUN doc's path, or null. */
 export function extractPrNumberFromTestRunPath(path) {
-  const m = /^docs\/PR(\d+)_.+_TEST_RUN\.md$/.exec(path);
+  const m = /^docs\/tests\/Replit\/PR(\d+)_.+_TEST_RUN\.md$/.exec(path);
   return m ? Number(m[1]) : null;
 }
 
@@ -49,30 +50,30 @@ export function extractWorkstreamIssueNumber(prBody) {
   return m ? Number(m[1]) : null;
 }
 
-/** The UAT doc's filename for `prNumber` among `docs/`'s listing, or null if none exists. */
-export function findUatDocFilename(docsFilenames, prNumber) {
+/** The UAT doc's filename for `prNumber` among `docs/tests/UAT/`'s listing, or null if none exists. */
+export function findUatDocFilename(uatFilenames, prNumber) {
   const re = new RegExp(`^PR${prNumber}_.+_UAT\\.md$`);
-  return docsFilenames.find((name) => re.test(name)) ?? null;
+  return uatFilenames.find((name) => re.test(name)) ?? null;
 }
 
-/** True if `docs/` (as returned by the Contents API) has a UAT doc for `prNumber`. */
-export function hasUatDoc(docsFilenames, prNumber) {
-  return findUatDocFilename(docsFilenames, prNumber) !== null;
+/** True if `docs/tests/UAT/` (as returned by the Contents API) has a UAT doc for `prNumber`. */
+export function hasUatDoc(uatFilenames, prNumber) {
+  return findUatDocFilename(uatFilenames, prNumber) !== null;
 }
 
 /**
- * True if `docs/` still has a TEST_RUN doc for `prNumber` at the triggering
- * commit. `--no-renames` stops a genuine deletion from being hidden as a
- * rename, but the inverse still needs catching: David correcting a TEST_RUN
- * doc's filename (a typo in the slug, say) without actually running the
- * checklist is *also* a delete-then-add under `--no-renames`, and would
- * otherwise be read as "Replit finished" purely because the old path
+ * True if `docs/tests/Replit/` still has a TEST_RUN doc for `prNumber` at the
+ * triggering commit. `--no-renames` stops a genuine deletion from being
+ * hidden as a rename, but the inverse still needs catching: David correcting
+ * a TEST_RUN doc's filename (a typo in the slug, say) without actually
+ * running the checklist is *also* a delete-then-add under `--no-renames`, and
+ * would otherwise be read as "Replit finished" purely because the old path
  * disappeared — even though a same-numbered TEST_RUN doc still exists right
  * next to it.
  */
-export function stillHasTestRunDoc(docsFilenames, prNumber) {
+export function stillHasTestRunDoc(testRunFilenames, prNumber) {
   const re = new RegExp(`^PR${prNumber}_.+_TEST_RUN\\.md$`);
-  return docsFilenames.some((name) => re.test(name));
+  return testRunFilenames.some((name) => re.test(name));
 }
 
 /**
@@ -196,7 +197,7 @@ export function handoffText(targetStage, uatFilename) {
   if (targetStage === "uat") {
     return {
       blockingText: "Nothing structural — the TEST_RUN passed and this is ready for your UAT click-through.",
-      todoText: `Run through \`docs/${uatFilename}\` and confirm the behavior.`,
+      todoText: `Run through \`docs/tests/UAT/${uatFilename}\` and confirm the behavior.`,
     };
   }
   return {
@@ -239,6 +240,29 @@ async function rest(method, path, token, body) {
     throw new Error(`REST ${method} ${path} -> HTTP ${res.status}: ${await res.text()}`);
   }
   return res.status === 204 ? null : res.json();
+}
+
+/**
+ * List filenames in a `docs/tests/…` subdirectory at `ref`, treating a 404 as
+ * empty rather than throwing. `docs/` itself could never 404 (it always has
+ * other content), but `docs/tests/Replit/` can: TEST_RUN docs are transient,
+ * so the moment the last one is deleted — which is exactly the event this
+ * whole script reacts to — Git stops tracking the directory and the Contents
+ * API 404s on it at that same commit. `docs/tests/UAT/` is durable in
+ * practice (nothing deletes UAT docs) but is fetched the same way for
+ * consistency and to survive a hypothetically empty history.
+ */
+async function listDocsSubdir(repository, subdir, ref, token) {
+  const res = await fetch(
+    `https://api.github.com/repos/${repository}/contents/docs/tests/${subdir}?ref=${encodeURIComponent(ref)}`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" } },
+  );
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    throw new Error(`REST GET contents/docs/tests/${subdir} -> HTTP ${res.status}: ${await res.text()}`);
+  }
+  const listing = await res.json();
+  return listing.map((f) => f.name);
 }
 
 /**
@@ -379,13 +403,11 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
   // own `queue: max` concurrency setting allows runs to queue up), and an
   // unqualified Contents API request would then read that later tree
   // instead of the one this specific TEST_RUN deletion actually belongs to.
-  const docsListing = await rest(
-    "GET",
-    `/repos/${repository}/contents/docs?ref=${encodeURIComponent(commitRef)}`,
-    token,
-  );
-  const docsFilenames = docsListing.map((f) => f.name);
-  const uatFilename = findUatDocFilename(docsFilenames, prNumber);
+  // TEST_RUN and UAT docs live in separate directories now, so this is two
+  // listings, not one — `stillHasTestRunDoc`'s check below only ever needs
+  // the TEST_RUN one, fetched lazily there rather than here.
+  const uatFilenames = await listDocsSubdir(repository, "UAT", commitRef, token);
+  const uatFilename = findUatDocFilename(uatFilenames, prNumber);
 
   let targetStage;
   let finalLabels = labels;
@@ -396,7 +418,8 @@ async function processDeletedTestRunDoc(path, { repository, token, project, proj
     // typo fixed, say), not Replit actually finishing — `--no-renames`
     // reports that as a plain delete of the old path, same as a real
     // completion, so this is the only way to tell the two apart.
-    if (stillHasTestRunDoc(docsFilenames, prNumber)) {
+    const testRunFilenames = await listDocsSubdir(repository, "Replit", commitRef, token);
+    if (stillHasTestRunDoc(testRunFilenames, prNumber)) {
       console.log(
         `  ~ issue #${issueNumber} (PR #${prNumber}): a TEST_RUN doc for this PR still exists at ` +
           `${commitRef} — this was a rename, not completion; skipping`,

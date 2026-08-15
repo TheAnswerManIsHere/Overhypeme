@@ -5,6 +5,10 @@ import { isInertPath, needsHeavyJobs } from "../classify-ci-paths.mjs";
 test("docs, .agents, .claude, and top-level prose are inert", () => {
   assert.equal(isInertPath("docs/ai-context/decisions.md"), true);
   assert.equal(isInertPath("docs/PR334_fixes_UAT.md"), true);
+  // #446-era reorg (docs/tests/Replit/, docs/tests/UAT/) — still inert, since
+  // the match is a broad docs/ prefix, not anchored to the old root location.
+  assert.equal(isInertPath("docs/tests/UAT/PR425_admin_permissions_core_UAT.md"), true);
+  assert.equal(isInertPath("docs/tests/Replit/PR425_admin_permissions_core_TEST_RUN.md"), true);
   assert.equal(isInertPath(".agents/metrics/loop-ledger.md"), true);
   assert.equal(isInertPath(".claude/skills/status-all/SKILL.md"), true);
   assert.equal(isInertPath(".claude/guard.sh"), true); // exercised by Build, not the heavy jobs

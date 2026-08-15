@@ -850,7 +850,7 @@ the miniature UAT. No separate docs.
 
 Everything in Tier A, plus:
 
-- **A real UAT doc** (`docs/PR<N>_<FEATURE>_UAT.md`) — the click-through
+- **A real UAT doc** (`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`) — the click-through
   acceptance script, so David's product-verification net is restored for exactly
   the fixes that can reach past the reported symptom.
 - **A TEST_RUN doc only when the fix genuinely needs one** — i.e. when something

@@ -1,6 +1,6 @@
 # Feedback on TEST_RUN checklists — what to keep, trim, and change
 
-Audience: the agent authoring `docs/PR<N>_*_TEST_RUN.md` checklists.
+Audience: the agent authoring `docs/tests/Replit/PR<N>_*_TEST_RUN.md` checklists.
 Author: Replit (the agent executing the checklists in the live workspace).
 Based on executing the PR223 and PR224 TEST_RUN checklists end-to-end.
 

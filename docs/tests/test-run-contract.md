@@ -1,6 +1,6 @@
 # TEST_RUN authoring contract (what Replit executes)
 
-> **Audience:** whoever authors a `docs/PR<N>_<FEATURE>_TEST_RUN.md` (in
+> **Audience:** whoever authors a `docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` (in
 > practice, Claude Code — see [`CLAUDE.md`](../../CLAUDE.md) for the PR-first
 > naming/delivery ceremony). This file owns the doc's **content and shape**;
 > `CLAUDE.md` owns *when* it ships and *what it's called*.
@@ -183,7 +183,7 @@ stopped on David's stop-on-error instruction, but the checklist itself
 mischaracterized a value migration 0097 deliberately treats as a
 `RAISE WARNING` (`dangling`) as equivalent to the one value that's an actual
 invariant break (`linkable_but_unlinked`) — see the corrected
-`docs/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md` for the fix. Getting the
+`docs/tests/Replit/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md` for the fix. Getting the
 must-flag/may-ignore line right in the doc is what keeps a correctly-obeyed
 stop instruction from firing on a false alarm.
 

@@ -17,7 +17,7 @@ it does not belong here once it is.
    issue in it.** Deleting is not losing the findings — it's the forcing
    function that makes you route each one to where it actually belongs:
    - A wrong or stale instruction in a checklist → fix the checklist
-     itself (e.g. a `docs/PR<N>_..._TEST_RUN.md`).
+     itself (e.g. a `docs/tests/Replit/PR<N>_..._TEST_RUN.md`).
    - A durable, generalizing lesson → the relevant `docs/ai-context/` file
      (a gotcha that will recur belongs in
      [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)).
@@ -30,7 +30,7 @@ it does not belong here once it is.
    nothing.
 
 This is the same rule the `TEST_RUN` checklist sibling docs follow (see
-[`test-run-contract.md`](../engineering/test-run-contract.md)) — it just
+[`test-run-contract.md`](../tests/test-run-contract.md)) — it just
 used to live only in that file, under a Replit-specific heading, before this
 folder existed to make the ephemerality the default rather than something
 you had to already know to look for.
@@ -74,7 +74,8 @@ can't go through the public channel.
 ## What this folder is not
 
 Not a place for durable docs (those go in `docs/ai-context/` or
-`docs/engineering/`), not a second `docs/PR<N>_*_TEST_RUN.md`/`_UAT.md` pair
+`docs/engineering/`), not a second `docs/tests/Replit/PR<N>_*_TEST_RUN.md`/
+`docs/tests/UAT/PR<N>_*_UAT.md` pair
 (those have their own contract), and not a queue — a handoff with no
 current reader is a stalled handoff, which `/maintenance` flags (see its
 Replit-commit-review section) rather than something anyone should poll for.
