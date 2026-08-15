@@ -106,22 +106,26 @@ one with no record yet: run `node scripts/loop-metrics.mjs --pr <n> --write`
 (or `--mcp-snapshot`, per the shared contract's mechanics in
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-loop-ledger)),
 fill the judgment, run the blind adjudication where sampled, and commit the
-records together as part of this pass. **Also sweep the *previous* window's
-records for staleness**: a loop recorded at the last flush whose PR shows
+records together as part of this pass. **Also sweep for staleness across
+two sets, not just the previous window**: (a) every record from the
+*previous* window's flush, and (b) **every existing record with a `null`
+`mechanical.reviewInterval`, regardless of which window it was created
+in** — a null interval (the field `loop-metrics.mjs`'s `reviewInterval()`
+returns when the record was written with zero reviewer stamps) means the
+loop had no review yet as of its last derivation, and stays exactly
+`null` until something re-derives it; scoping the null-check to only "the
+previous window" would let a record whose first review lands two or more
+flushes later evade the sweep permanently, since it's no longer in that
+narrower set on any later pass. For either set: a record whose PR shows
 review/comment activity newer than the record's own captured
-`mechanical.reviewInterval.last_review_at` (a late-landing pass —
-the frozen ledger's rows #323/#324 are the observed shape) gets re-derived
-and edited this pass, per the shared contract's late-review rule. Compare
-against what the record actually captured, not an inferred commit or
-derivation time — a review landing after the PR snapshot was fetched but
-before the record was committed can predate that inferred time and evade
-the sweep even though the record never captured it. **A `null`
-`reviewInterval` (the field `loop-metrics.mjs`'s `reviewInterval()`
-returns when the record was written with zero reviewer stamps) is always
-stale if the live PR shows any reviewer activity at all** — there is no
-watermark to compare against, so the absence of a timestamp is not
-evidence of nothing new; treat it the same as any live activity newer
-than a real timestamp would be. Without
+`last_review_at` (a late-landing pass — the frozen ledger's rows #323/#324
+are the observed shape), **or whose `reviewInterval` is `null` while the
+live PR shows any reviewer activity at all**, gets re-derived and edited
+this pass, per the shared contract's late-review rule. Compare against
+what the record actually captured, not an inferred commit or derivation
+time — a review landing after the PR snapshot was fetched but before the
+record was committed can predate that inferred time and evade the sweep
+even though the record never captured it. Without
 this sweep the correction path is a promise nothing triggers — the
 new-records selection skips loops that already have a record, and the
 completeness check sees the stale file as present. **There is no settling-window

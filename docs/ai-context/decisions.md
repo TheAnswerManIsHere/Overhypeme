@@ -415,7 +415,9 @@
      finding population.**
   3. **Delivery.** `scripts/loop-report.mjs` renders a digest that
      `/maintenance` narrates to David in plain language. The `[LEDGER]` PR
-     type is retired; a record rides any PR except the one it measures.
+     type is retired; a record rides any PR except the one it measures
+     (narrowed 2026-08-15 to *mergeable* PRs only, never a `[PLAN REVIEW]`
+     PR — see that date's SDLC-autonomy entry above).
 - **Why:** Three failures, all observed. **(a)** The single-table design
   forced concurrent sessions to collide: PRs #327 and #335 both claimed rows
   24–26 with different contents and each made the other un-mergeable, because

@@ -205,7 +205,8 @@ concrete cost this carve-out exists to stop paying twice.
 **This bar, and the one-pass cap in `working-modes.md`'s ceremony table,
 apply only to findings on the ledger JSON file itself.** A ledger record
 routinely rides a carrier PR alongside unrelated product-code changes (it
-"rides any PR of mine except the one it measures" — see `working-modes.md`'s
+"rides any *mergeable* PR of mine except the one it measures — never a
+`[PLAN REVIEW]` PR" — see `working-modes.md`'s
 *The loop ledger*); those changes are reviewed to convergence as normal
 product code, exactly as if the ledger file weren't in the diff. The
 author's review request on a loop-ledger PR states this bar explicitly, and
