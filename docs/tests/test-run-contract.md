@@ -165,7 +165,13 @@ guard), but they run in CI, not here.
   database lives elsewhere and anything written here would be wrong there.
   Describe *what* should happen against the DB and let Replit connect.
 - **Keep the "Delete me" footer.** The transient TEST_RUN + durable UAT sibling
-  split is deliberate and works.
+  split is deliberate and works. Who deletes (David, 2026-08-15): the
+  **agent driving the run** deletes the doc once every item passes — a
+  small deletion PR, self-merged; the deletion push is the completion
+  signal the `test-run-completion.yml` Action watches. Full pass only: any
+  failed or ambiguous item keeps the doc in place while the failure routes
+  through the normal channel. UAT docs are the opposite — David deletes
+  those himself as his own done list, never the agent.
 - **Keep "what's deliberately NOT shipped" to terse bullets.** It exists so
   Replit does not diagnose a deliberate absence as a defect — not as a design
   essay. Anything longer belongs in the plan or in
@@ -240,8 +246,9 @@ Proof tests guarding this PR's budgets (run in CI, listed for awareness):
 - <terse bullets>
 
 ## Delete me
-Transient — delete once the checklist has been run. The `_UAT.md` sibling is
-the durable half.
+Transient — the driving agent deletes this file once every item above
+passes (full pass only; a failure keeps it here). The `_UAT.md` sibling is
+the durable half, deleted by David when he completes it.
 ```
 
 ## Related

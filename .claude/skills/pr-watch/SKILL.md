@@ -250,8 +250,10 @@ silently leaving the workstream unlabeled):
 - **The PR merges with a TEST_RUN doc** (`docs/tests/Replit/PR<N>_..._TEST_RUN.md`) →
   `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
   between Merge and UAT, not a step to skip past. Per the `pr-docs`
-  contract, the TEST_RUN doc is transient: David deletes it once Replit has
-  actually run it, so its **absence on `main`** is the completion signal.
+  contract, the TEST_RUN doc is transient: **I** delete it once its
+  checklist fully passes (David, 2026-08-15 — via a tiny deletion PR,
+  self-merged; full pass only, a failed item keeps the doc in place), so
+  its **absence on `main`** is the completion signal.
   **The `test-run-completion.yml` Action owns what happens next** —
   triggered on the push that deletes the doc, it applies the same
   UAT-vs-close-out check as the next bullet and moves the label itself

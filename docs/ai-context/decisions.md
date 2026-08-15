@@ -14,7 +14,7 @@
 ---
 
 ### 2026-08-15 · SDLC autonomy: the SOW gate + in-loop adjudication replace per-round check-ins; Claude self-merges; the ledger flushes weekly
-- **Decision:** Four related changes, agreed in one conversation, that move
+- **Decision:** Five related changes, agreed in one conversation, that move
   David's control points to the bookends of each loop instead of inside it:
   1. **The scope-of-work gate.** Before a plan-review loop opens, David
      explicitly agrees to the scope of work (direction, intent,
@@ -44,6 +44,14 @@
      loop's close. Standalone ledger-only PRs are retired; meta-artifact PRs
      carry a stated review-scope oracle and convergence-by-decline in one
      pass is convergence for that class.
+  5. **The agent deletes a passed TEST_RUN doc.** Once a TEST_RUN
+     checklist fully passes, the driving agent deletes the doc (a small
+     deletion PR, self-merged) — deletion was already the completion
+     signal the `test-run-completion.yml` Action watches, and git history
+     retains the file, so a passed checklist on `main` is pure noise. Full
+     pass only: a failed item keeps the doc in place. UAT docs stay
+     David-deleted — they are his personal done list, and their presence
+     is what tells him what still needs his testing.
 - **Why:** the per-round check-ins were scaffolding that forced the judgment
   rubric to be applied while it was still being built; a year of David's
   corrections is now encoded in the rubric itself (the bucket sort, the

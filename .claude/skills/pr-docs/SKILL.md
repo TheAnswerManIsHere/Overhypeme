@@ -69,13 +69,24 @@ The two docs:
    "confirm the new columns exist on `upload_image_metadata`") and let
    Replit handle the connection itself.
 
-   **The TEST_RUN doc is transient — David deletes it once Replit has run
-   it.** It only needs to exist long enough for Replit to execute the checklist
-   and confirm it passes; after that David removes it. So a `*_TEST_RUN.md`
+   **The TEST_RUN doc is transient — I delete it once its checklist fully
+   passes (David, 2026-08-15; formerly David's click).** It only needs to
+   exist long enough for Replit to execute the checklist and confirm it
+   passes. When I've driven the run (the connector's two-call sequence) and
+   read a clean pass back through `ask_question`, I delete the doc via a
+   tiny docs-only deletion PR, self-merged under the close-out rule — the
+   squash produces the deletion push that `test-run-completion.yml` watches,
+   so the workstream label moves automatically. **Full pass only**: any
+   failed or ambiguous item keeps the doc on `main` (its presence means
+   not-run or not-clean) while the failure routes through the normal
+   channel (a `/bugfix`, or a report to David). Nothing is lost by the
+   deletion — git history and the PR that added the doc retain it forever.
+   So a `*_TEST_RUN.md`
    that is missing from `docs/tests/Replit/` on `main` (even one whose UAT
    sibling is still present in `docs/tests/UAT/`) is **expected, not a bug** —
    I do NOT flag its absence, try to "restore" it, or re-add it. The UAT doc
-   is the durable half of the pair.
+   is the durable half of the pair, and its deletion stays **David's** —
+   passed UAT files are his own done list to clear; I never delete one.
 2. **`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`** — the in-app, click-through
    acceptance test for David. Written for the end user: where to click, what
    to expect vs. not expect, regression smoke table, a bug-report template,
