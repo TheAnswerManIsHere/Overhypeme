@@ -20,15 +20,17 @@ product-visible behavior, and a TEST_RUN only if something genuinely needs
 Replit's live environment). What follows describes the feature-mode default.
 
 For **every** feature-mode PR that has product-visible or testable behavior, I
-ship two docs in `docs/` named after the PR's number. Because the GitHub PR
-number doesn't exist until the PR is opened, the flow is **PR-first**:
+ship two docs, each named after the PR's number and each in its own
+directory (David, 2026-08-14 — `docs/tests/Replit/` and `docs/tests/UAT/`,
+not the old shared `docs/` root). Because the GitHub PR number doesn't exist
+until the PR is opened, the flow is **PR-first**:
 
 1. Open the PR with the code (per CLAUDE.md's squash-merge workflow), giving
    the body a temporary placeholder note:
    > **Docs pending:** PR number acquired. I will add
-   > `docs/PR<N>_<FEATURE>_TEST_RUN.md` and `docs/PR<N>_<FEATURE>_UAT.md` as
-   > a follow-up commit to this same PR before merge, then replace this note
-   > with links to both docs.
+   > `docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` and
+   > `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` as a follow-up commit to this
+   > same PR before merge, then replace this note with links to both docs.
 2. Read the assigned PR number, write both docs, and commit them to the
    **same PR** before merge.
 3. Replace the "Docs pending" note in the PR body with links to both docs.
@@ -41,8 +43,8 @@ before merge**; they are **never** a separate later PR.
 
 The two docs:
 
-1. **`docs/PR<N>_<FEATURE>_TEST_RUN.md`** — the engineering/automated checklist
-   for Replit (the technical safety net).
+1. **`docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md`** — the
+   engineering/automated checklist for Replit (the technical safety net).
 
    **Its content and shape are governed by
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md)** — the
@@ -70,16 +72,18 @@ The two docs:
    **The TEST_RUN doc is transient — David deletes it once Replit has run
    it.** It only needs to exist long enough for Replit to execute the checklist
    and confirm it passes; after that David removes it. So a `*_TEST_RUN.md`
-   that is missing from `main` (even one whose UAT sibling is still present) is
-   **expected, not a bug** — I do NOT flag its absence, try to "restore" it, or
-   re-add it. The UAT doc is the durable half of the pair.
-2. **`docs/PR<N>_<FEATURE>_UAT.md`** — the in-app, click-through acceptance test
-   for David. Written for the end user: where to click, what to expect vs.
-   not expect, regression smoke table, a bug-report template, and known
-   non-bug limitations.
+   that is missing from `docs/tests/Replit/` on `main` (even one whose UAT
+   sibling is still present in `docs/tests/UAT/`) is **expected, not a bug** —
+   I do NOT flag its absence, try to "restore" it, or re-add it. The UAT doc
+   is the durable half of the pair.
+2. **`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`** — the in-app, click-through
+   acceptance test for David. Written for the end user: where to click, what
+   to expect vs. not expect, regression smoke table, a bug-report template,
+   and known non-bug limitations.
 
    **A UAT gets an Artifact page (David, 2026-07-22).** When I deliver a
-   `docs/PR<N>_*_UAT.md`, I also publish it as a private **Artifact web page** —
+   `docs/tests/UAT/PR<N>_*_UAT.md`, I also publish it as a private
+   **Artifact web page** —
    David works through it on an iPad while clicking around the app, and a typeset
    page beats a raw `.md` for that. The committed markdown stays the canonical,
    durable copy; the Artifact is a reading surface, not a source of truth. This
@@ -90,7 +94,7 @@ The two docs:
 **Structure, depth, and tone:** the TEST_RUN follows
 [`test-run-contract.md`](../../../docs/tests/test-run-contract.md) (which carries
 the template verbatim); for the UAT, match the most recent surviving
-`docs/PR<N>_…_UAT.md` — the UAT half is durable, so there is always a live
+`docs/tests/UAT/PR<N>_…_UAT.md` — the UAT half is durable, so there is always a live
 example to match, whereas TEST_RUN examples get deleted (which is why the
 contract, not an example file, is the reference). Both docs cross-link each
 other. (Pure infra/refactor with zero observable behavior can use a single

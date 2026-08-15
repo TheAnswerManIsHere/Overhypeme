@@ -98,7 +98,7 @@ For **billing, Stripe webhooks, or membership** work specifically, also read:
   grace episodes, the known reconciliation gap
 
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
-[testing-guide](docs/tests/testing-guide.md),
+[testing](docs/tests/TESTING.md),
 [migrations-and-backfills](docs/engineering/migrations-and-backfills.md)
 (and its worked example,
 [ncmec-audit-ledger-hardening](docs/engineering/ncmec-audit-ledger-hardening.md),
@@ -222,9 +222,8 @@ paragraph is a summary, not the authority.
 
 ## Setup, verification, and the CI gate
 
-Full commands, DB isolation, and the production guard are in
-[`docs/tests/testing-guide.md`](docs/tests/testing-guide.md) and the
-canonical [`docs/tests/TESTING.md`](docs/tests/TESTING.md). The essentials:
+Full commands, DB isolation, and the production guard are in the canonical
+[`docs/tests/TESTING.md`](docs/tests/TESTING.md). The essentials:
 
 - Build generated artifacts + libs before package checks:
   `pnpm --filter @workspace/api-spec run codegen` → `pnpm run typecheck:libs` →

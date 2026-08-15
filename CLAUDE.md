@@ -68,8 +68,9 @@ forward.
   `pnpm worker:deploy` and gave him a verification `curl` command, when both
   needed to go through Replit instead. Whenever a bugfix or feature needs a
   command run — read-only verification **or** a real operational/deploy
-  action — it goes in a `docs/PR<N>_<FEATURE>_TEST_RUN.md` doc per *Every PR
-  ships with a Replit test plan + a UAT* below, never a chat instruction to
+  action — it goes in a `docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` doc
+  per *Every PR ships with a Replit test plan + a UAT* below, never a chat
+  instruction to
   David. The `pr-docs` skill and
   [`test-run-contract.md`](docs/tests/test-run-contract.md) own the doc's
   shape; a genuine one-time deploy step (needing a credential David doesn't
@@ -722,12 +723,13 @@ for what the reviewer does with it.
 ### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
 
 For **every** feature-mode PR with product-visible or testable behavior, I ship
-two docs in `docs/`, named after the PR's number:
-`docs/PR<N>_<FEATURE>_TEST_RUN.md` (the Replit engineering checklist) and
-`docs/PR<N>_<FEATURE>_UAT.md` (David's in-app click-through). Because the PR
-number doesn't exist until the PR is opened, the flow is **PR-first**: open the
-PR with a "Docs pending" note, then add both docs to the **same PR before
-merge** and replace the note with links.
+two docs, named after the PR's number, each in its own directory (David,
+2026-08-14):
+`docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` (the Replit engineering
+checklist) and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` (David's in-app
+click-through). Because the PR number doesn't exist until the PR is opened,
+the flow is **PR-first**: open the PR with a "Docs pending" note, then add
+both docs to the **same PR before merge** and replace the note with links.
 
 **A product-visible feature PR is not complete — and I don't present it to
 David as done — until both docs exist and the PR body links them**, unless the
@@ -1058,18 +1060,18 @@ it lives here rather than in the shared docs.
     1. **Kick it off with `update_app_using_prompt`**, pointing at the
        doc's **path**, not its contents, and — per the scoping rule just
        above — explicitly telling it not to write or edit anything:
-       *"Please run all tests in `docs/PR<N>_..._TEST_RUN.md`. Read-only:
-       execute the checklist and report results; do not write or edit any
-       code or files, even if a step fails."* Replit Agent reads the file
-       and works the checklist itself.
+       *"Please run all tests in `docs/tests/Replit/PR<N>_..._TEST_RUN.md`.
+       Read-only: execute the checklist and report results; do not write or
+       edit any code or files, even if a step fails."* Replit Agent reads
+       the file and works the checklist itself.
     2. **Wait a few minutes** — a real TEST_RUN is repo-health commands
        plus a dozen-plus SQL/HTTP checks, genuinely slow, not a quick
        read. `ask_question` calls fired immediately or in tight
        succession just return `"busy"` (real work in progress, not
        stuck) — that's expected here, not a sign to switch tack.
     3. **Then `ask_question` for the results**: *"How did the TEST_RUN
-       checklist in `docs/PR<N>_..._TEST_RUN.md` go? Report pass/fail
-       with the raw output for each item."*
+       checklist in `docs/tests/Replit/PR<N>_..._TEST_RUN.md` go? Report
+       pass/fail with the raw output for each item."*
   - **What it is NOT:** a reason to reach for `update_app_using_prompt`
     to read something. The original version of this bullet told me to
     prefer a "scoped execute-and-report through `update_app_using_prompt`"

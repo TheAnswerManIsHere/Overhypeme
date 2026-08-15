@@ -12,14 +12,21 @@ import {
 } from "../sync-test-run-completion.mjs";
 
 test("extractPrNumberFromTestRunPath matches the documented naming convention", () => {
-  assert.equal(extractPrNumberFromTestRunPath("docs/PR308_codeql-rate-limiter_TEST_RUN.md"), 308);
-  assert.equal(extractPrNumberFromTestRunPath("docs/PR12_feature_TEST_RUN.md"), 12);
+  assert.equal(extractPrNumberFromTestRunPath("docs/tests/Replit/PR308_codeql-rate-limiter_TEST_RUN.md"), 308);
+  assert.equal(extractPrNumberFromTestRunPath("docs/tests/Replit/PR12_feature_TEST_RUN.md"), 12);
 });
 
 test("extractPrNumberFromTestRunPath rejects non-TEST_RUN docs", () => {
-  assert.equal(extractPrNumberFromTestRunPath("docs/PR308_codeql-rate-limiter_UAT.md"), null);
+  assert.equal(extractPrNumberFromTestRunPath("docs/tests/Replit/PR308_codeql-rate-limiter_UAT.md"), null);
   assert.equal(extractPrNumberFromTestRunPath("docs/ai-context/decisions.md"), null);
-  assert.equal(extractPrNumberFromTestRunPath("docs/PR_TEST_RUN.md"), null);
+  assert.equal(extractPrNumberFromTestRunPath("docs/tests/Replit/PR_TEST_RUN.md"), null);
+});
+
+test("extractPrNumberFromTestRunPath rejects the old pre-reorg docs/ root path", () => {
+  // #446-era reorg (docs/tests/Replit/, docs/tests/UAT/) — a doc that never
+  // moved must not still match, or a deletion at the old path would silently
+  // keep transitioning workstreams from a location nothing writes to anymore.
+  assert.equal(extractPrNumberFromTestRunPath("docs/PR308_codeql-rate-limiter_TEST_RUN.md"), null);
 });
 
 test("extractWorkstreamIssueNumber reads the plain-text marker at the start of a line", () => {
@@ -119,11 +126,11 @@ test("updateStateOfPlayBody also rewrites What's blocking / What you need to do 
     stageDisplay: "🛑 UAT",
     lastMovementLine: "2026-08-05 — cleared",
     blockingText: "Nothing structural — ready for your UAT click-through.",
-    todoText: "Run through `docs/PR308_feature_UAT.md`.",
+    todoText: "Run through `docs/tests/UAT/PR308_feature_UAT.md`.",
   });
 
   assert.match(updated, /### What's blocking\n\nNothing structural — ready for your UAT click-through\.\n\n### What you need to do/);
-  assert.match(updated, /### What you need to do\n\nRun through `docs\/PR308_feature_UAT\.md`\.\n\n### Artifacts/);
+  assert.match(updated, /### What you need to do\n\nRun through `docs\/tests\/UAT\/PR308_feature_UAT\.md`\.\n\n### Artifacts/);
   assert.doesNotMatch(updated, /Waiting on Replit/);
   assert.match(updated, /PR #308/); // untouched trailing section survives
 });
@@ -153,7 +160,7 @@ test("updateStateOfPlayBody still succeeds without blocking/todo text when it is
 test("handoffText gives UAT-routing text referencing the exact filename for uat", () => {
   const { blockingText, todoText } = handoffText("uat", "PR308_feature_UAT.md");
   assert.match(blockingText, /ready for your UAT click-through/);
-  assert.match(todoText, /docs\/PR308_feature_UAT\.md/);
+  assert.match(todoText, /docs\/tests\/UAT\/PR308_feature_UAT\.md/);
 });
 
 test("handoffText gives close-out text with no UAT reference for close-out", () => {

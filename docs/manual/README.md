@@ -238,7 +238,7 @@ named here so their absence reads as a decision rather than a gap:
 - **Edge and CDN behavior** — [`cloudflare-rate-limits.md`](../cloudflare-rate-limits.md)
   and [`cloudflare-gaesa-og-fix.md`](../cloudflare-gaesa-og-fix.md).
 - **Local dev tooling** — `scripts/dev-supervisor.sh` and the
-  [testing guide](../tests/testing-guide.md).
+  [testing guide](../tests/TESTING.md).
 - **The agent-facing spec layer** — [`docs/ai-context/`](../ai-context/), which
   these chapters link into rather than restate.
 - **Field-level admin truth** — the generated

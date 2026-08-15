@@ -373,10 +373,12 @@ David-gate values (`waiting:david` and `waiting:replit`):
   it and restate the actual question in plain language.
 - If the gate is structural (🛑 Plan approval, 🛑 Merge, 🛑 UAT) with no
   open question — say so plainly ("ready to merge, CI green, Codex
-  converged" / "merged — UAT doc at `docs/PR<N>_..._UAT.md`, not yet run").
-  Search for the UAT doc filename before claiming one doesn't exist.
+  converged" / "merged — UAT doc at `docs/tests/UAT/PR<N>_..._UAT.md`, not
+  yet run"). Search for the UAT doc filename before claiming one doesn't
+  exist.
 - If `waiting:replit`, say what's ready for him to run — e.g. "merged,
-  ready for the TEST_RUN checklist at `docs/PR<N>_..._TEST_RUN.md`."
+  ready for the TEST_RUN checklist at
+  `docs/tests/Replit/PR<N>_..._TEST_RUN.md`."
 - Accuracy over cheapness here: a wrong restatement makes the whole report
   untrustworthy, which defeats the purpose. Read the actual comment/thread
   rather than inferring from labels alone.
@@ -389,9 +391,9 @@ found; don't pad empty sections):
 
 ```
 🛑 NEEDS YOU (n)
-#311 — CodeQL rate-limiter: merged, UAT doc ready at docs/PR308_..._UAT.md, not yet run
+#311 — CodeQL rate-limiter: merged, UAT doc ready at docs/tests/UAT/PR308_..._UAT.md, not yet run
 #281 — Evidence retention plan: [specific restated question from the thread]
-#320 — Rate-limiter tuning: merged, ready for the TEST_RUN checklist at docs/PR320_..._TEST_RUN.md
+#320 — Rate-limiter tuning: merged, ready for the TEST_RUN checklist at docs/tests/Replit/PR320_..._TEST_RUN.md
 
 ⚠️ STALLED (n) — no activity >48h, nobody currently blocked on David
 #309 — Evidence retention: Codex posted round 2 findings 6d ago, unanswered

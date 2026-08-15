@@ -226,7 +226,7 @@ silently leaving the workstream unlabeled):
   the issue at `stage:code-review` here is exactly the kind of ready-to-go
   workstream `/status-all` exists to surface, so don't let it sit
   unlabeled just because nothing forced a transition.
-- **The PR merges with a TEST_RUN doc** (`docs/PR<N>_..._TEST_RUN.md`) →
+- **The PR merges with a TEST_RUN doc** (`docs/tests/Replit/PR<N>_..._TEST_RUN.md`) →
   `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
   between Merge and UAT, not a step to skip past. Per the `pr-docs`
   contract, the TEST_RUN doc is transient: David deletes it once Replit has

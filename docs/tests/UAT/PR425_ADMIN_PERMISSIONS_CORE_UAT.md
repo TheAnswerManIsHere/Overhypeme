@@ -223,5 +223,5 @@ core didn't land: **step 1 unchecking the Admin cell changing nothing**, and
 ---
 
 **Engineering checklist sibling:**
-[`PR425_ADMIN_PERMISSIONS_CORE_TEST_RUN.md`](./PR425_ADMIN_PERMISSIONS_CORE_TEST_RUN.md)
+[`PR425_ADMIN_PERMISSIONS_CORE_TEST_RUN.md`](../Replit/PR425_ADMIN_PERMISSIONS_CORE_TEST_RUN.md)
 — Replit runs that first, against the live database, before you start here.
