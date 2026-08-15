@@ -84,6 +84,25 @@ durable, so there is always a live example. (Pure infra/refactor with zero
 observable behavior can use a single short verification note in the PR body
 instead, per the ship-the-UI-surface exception.)
 
+**A phase PR gets its own UAT, and an added scope line.** When this PR is
+one phase of a phased feature (see
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*Phased features*), two things change:
+
+- **UAT is per-phase, not deferred to the last phase.** If *this phase* is
+  product-visible, it ships its own `docs/tests/UAT/PR<N>_…_UAT.md` — the
+  same rule as any other PR. Deferring every phase's UAT to the end would
+  leave David with nothing to verify for weeks and would pile the whole
+  feature's risk into one session. A phase with no product-visible surface
+  of its own ships a verification note instead, same exception as always.
+- **The oracle section gets a scope line** naming which of the parent
+  plan's sections this phase *delivers* and which it *defers* to a later
+  phase. Without it a reviewer can't tell an out-of-scope-for-this-phase
+  gap from a silently dropped requirement — and the whole point of the
+  oracle is catching a PR that quietly narrowed the approved scope. Cite
+  the parent issue for the plan itself, alongside the usual
+  approved-plan-source line.
+
 **Workstream label.** Per
 [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
 this skill owns no `stage:`/`waiting:` transition of its own — `pr-watch`

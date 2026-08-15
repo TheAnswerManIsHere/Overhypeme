@@ -308,6 +308,78 @@ silently leaving the workstream unlabeled):
   merge — that's David's to set once he's actually verified it, the same
   reason the Project's built-in `PR merged → Done` workflow is off.
 
+**If this PR is one phase of a phased feature, every `waiting:` toggle
+updates the parent too — not just close-out.** Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*Phased features* section, the parent's `waiting:` is supposed to mirror
+whoever holds the active phase at all times. Touching it only at close-out
+leaves the parent showing a stale holder for the entire review-and-merge
+cycle of every phase — so **each time this section moves the phase issue's
+`waiting:`** (round-by-round toggling, escalation, merge), mirror the same
+value onto the parent, in the same edit, State of Play included.
+
+**The parent's Phases checklist moves when the phase issue itself reaches
+`stage:close-out` — never at merge.** This is the same distinction the
+general flow above already makes for an ordinary workstream (merge is not
+verified work; David's UAT is) — a phase is no different. A product-visible
+phase merges into `stage:test-run`/`stage:uat` like any workstream and sits
+there through David's UAT before reaching `stage:close-out`; a phase with
+no UAT reaches `stage:close-out` sooner, immediately after its verification
+checks, but through the same transition, not a merge-time shortcut. Ticking
+the checklist at merge instead would let `/next` treat a phase as done —
+and surface the next phase, or close the parent — while its own UAT is
+still outstanding.
+
+**Keep mirroring the parent's `waiting:` through this entire span**, per
+the toggle rule above — that already covers the phase's `stage:uat`/
+`waiting:david` transition, so the parent correctly shows "waiting on
+David's UAT" for exactly as long as that's true.
+
+**When the phase issue reaches `stage:close-out`, move the parent's
+checklist**, in the same edit as the phase's own transition:
+
+- **Tick this phase's checkbox** in the parent's checklist, replacing
+  `(active)` with the merged PR number.
+- **Re-point the parent's `waiting:`** at whoever holds the next phase — or
+  `waiting:claude` when the next phase hasn't been opened yet, since an
+  unstarted next phase is work owed, not a resting state.
+- **If this was the last phase**, move the parent straight to
+  `stage:close-out`. There is no separate whole-feature UAT gate — every
+  phase already ran its own UAT wherever it was product-visible, per
+  `workstream-tracking.md`'s *Phased features* section, so a UAT stage here
+  would be a gate with nothing left to run against it.
+- **If a phase's own UAT surfaced a bug**, that's the UAT-descent case —
+  see `workstream-tracking.md`'s *When UAT finds a bug* section for the
+  `Blocked by:` marker that records the way back up. The phase stays open
+  (not `stage:close-out`) until that descent resolves, so the checklist
+  correctly doesn't tick early.
+
+**At the close-out of any workstream, check whether it was the target of a
+`Blocked by:` marker** — one `search_issues` call, `"Blocked by: #<this
+issue>" in:body`, trusted-issue filtered the same way every other marker
+lookup here is. If a match comes back, that match is a parent this closure
+just unblocked — but what to do about its `waiting:` depends on whether
+this is the UAT-descent shape:
+
+- **If the matched issue's State of Play records a stashed prior
+  `waiting:` value** (only `bugfix`'s UAT-descent intake writes one, per
+  `workstream-tracking.md`'s *When UAT finds a bug*) — **restore it**
+  (normally back to `david`) and remove the now-stale `Blocked by:` line.
+  Skipping this leaves the unblocked parent sitting at `waiting:claude`
+  indefinitely — mechanically releasable per the `Blocked by:` contract,
+  but with no open question left for anyone to notice needs restoring.
+  **If that matched issue is itself a phase sub-issue, restore its
+  parent's `waiting:` the same way, in the same edit** — `bugfix` mirrors
+  the descent flip onto the parent at intake, so the restore has to mirror
+  back the same way, or the parent is left stuck at `waiting:claude` after
+  the phase itself has already recovered.
+- **Otherwise** — an ordinary workstream-to-workstream dependency, or a
+  blocked backlog item — **only remove the stale `Blocked by:` line.**
+  Nothing stashed a prior value for these, so guessing a `waiting:` (or
+  adding one to a `queue:`-only item that shouldn't carry the label at
+  all) would fabricate state instead of restoring it. Their own next
+  `waiting:`-touching moment sets the right value normally.
+
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
 and `Where it actually stands`/`What's blocking` whenever there's real

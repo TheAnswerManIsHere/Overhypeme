@@ -93,8 +93,13 @@ shared-contract requirement now
 
 For everything else: per `workstream-tracking.md`, bugfix mode branches
 straight from Discovery to Coding, skipping Planning and Plan approval. If
-David's bug report doesn't already have a workstream issue, open one now —
-**but only if the disclosure check above passed.** If it didn't, this is
+David's bug report doesn't already have a workstream issue, **check for a
+backlog issue first** — a known, already-queued bug (`queue:` label) is
+exactly this situation, David just decided to fix it now. Per
+`workstream-tracking.md`'s *The backlog* section, promote a matching
+backlog issue (drop `queue:`, add the labels below) rather than opening a
+duplicate. Only when no backlog match exists does a genuinely new issue
+open — **but only if the disclosure check above passed.** If it didn't, this is
 where that matters mechanically, not just as a stated rule: open a private
 draft Project item instead of a public issue, and say so plainly rather
 than silently taking the fast path. When the check passed, open the public
@@ -103,6 +108,42 @@ matching the one-bug-per-branch-per-PR rule above — and give it a State of
 Play block (per `workstream-tracking.md`) at the same time, not just
 labels. From PR open onward, `pr-watch` owns the label transitions and the
 block's upkeep.
+
+**If this bug was found during UAT, record the way back up — in the same
+edit, not later.** This is the single most common way a bug arrives here,
+and the descent is what makes it dangerous: chasing it is usually right
+pre-launch, but the interrupted UAT is what gets lost. Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*When UAT finds a bug*:
+
+- Add `Blocked by: #<this bug>` to the **interrupted** workstream's issue
+  body, and one line in its State of Play naming **which UAT step failed**
+  — that's what turns resumption into "resume at step 4" rather than a full
+  re-run.
+- **Also flip the interrupted issue's `waiting:` label to `claude`**,
+  recording its prior value (normally `david`, mid-UAT) in the same State
+  of Play line. Left at `waiting:david`, `/status-all` — which doesn't
+  parse `Blocked by:` and was deliberately left unchanged — keeps showing
+  a mechanically non-actionable UAT under NEEDS YOU while the actual ask
+  is the new bug, which is agent-held work. `waiting:claude` is accurate:
+  a session needs to close this bug before David has anything to look at
+  again.
+- **If the interrupted workstream is a phase sub-issue, mirror the same
+  flip onto its parent, in the same edit.** The parent's `waiting:`
+  mirroring obligation (`pr-watch`, per `workstream-tracking.md`'s *Phased
+  features*) only covers PR-driven toggles — this is an issue edit, not a
+  PR one, so without this the parent sits at `waiting:david` for the whole
+  descent while the phase correctly shows `waiting:claude`.
+- Do it at intake, while the context is in front of me. A session that ends
+  before this is written loses the link entirely; nothing reconstructs it.
+- The chain nests if the fix hits its own blocker, and it pops on its own:
+  closing this issue makes the interrupted UAT actionable again, and
+  `/next` surfaces it as the top recommendation.
+- **If diagnosis reveals this isn't a bug fix at all** but a real
+  behavior change or a subsystem rebuild (the PR #213 → admin-permission
+  shape), that's Tier C — leave bugfix mode per the classification rule.
+  The `Blocked by:` link stays exactly as written; it doesn't care which
+  mode the work ends up in.
 
 ## 2. Diagnose, classify, then fix
 

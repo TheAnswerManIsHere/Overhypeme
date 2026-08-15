@@ -482,16 +482,51 @@ already at `stage:planning`:
 - At close-out (step 11) → `stage:plan-approval`, `waiting:david` — the
   loop's actual handoff, since only David approves.
 
-If the workstream issue doesn't exist yet when the review PR opens (a
-Discovery conversation that went straight to a plan without ever getting
-its own issue), open it now rather than leaving this loop untracked —
-with the full initial label set (`stage:planning`, `waiting:codex` if the
-first `@codex review` trigger is about to post or `waiting:claude` if not
-yet, `mode:feature`) and a State of Play block, not just the issue itself.
-An issue opened without these three labels is invisible to
-`/status-all` (it filters to issues carrying a `stage:` label) and
-to the board's sync Action, so skipping them isn't a smaller version of
-tracking this workstream — it's not tracking it at all.
+**If the plan ships in phases, David's approval is also when the Phases
+checklist gets written.** Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*Phased features* section, a multi-PR feature tracks as a parent issue plus
+one sub-issue per phase. This loop's one obligation:
+
+- **At approval of a phased plan** → write the **Phases checklist** into the
+  parent workstream issue's body, with *every* phase listed and each one
+  marked `not yet opened`. Writing only the phases that start immediately
+  defeats the point: the checklist is the sole durable record of what the
+  feature still owes, and a phase absent from it is a phase `/next` cannot
+  see and nobody will remember.
+
+**This loop never opens a phase sub-issue itself, for any phase, including
+the first.** Its lifecycle ends at this step-11 handoff — approval — and
+doesn't run again for phase 2 onward, so putting phase-opening here would
+work by accident for phase 1 and silently fail for every phase after it.
+Opening a phase's sub-issue happens uniformly at the moment that phase's
+implementation actually starts, which is `overhype-implementation`'s job
+(see that skill) — the same skill for phase 1 as for phase 8.
+
+**A split is proposed to David, never declared silently** — that rule is
+this loop's own (step 4's stopping-rule menu already escalates a split),
+and it governs phasing identically. The checklist is written *after* he
+approves the phased shape, not as a way of announcing one.
+
+If the workstream issue doesn't exist yet when the review PR opens, **check
+for a backlog issue first** — per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*The backlog* section: this plan may be exactly a `queue:`-labeled item
+David is now starting, not a brand-new workstream. If a matching backlog
+issue exists, **promote it** (drop `queue:`, add the full label set below)
+rather than opening a second issue for the same work — skipping this search
+duplicates the issue and orphans the backlog one open forever.
+
+Only when no backlog match exists (a Discovery conversation that went
+straight to a plan without ever getting its own issue, backlog or
+otherwise) does this loop open a genuinely new issue — with the full
+initial label set (`stage:planning`, `waiting:codex` if the first `@codex
+review` trigger is about to post or `waiting:claude` if not yet,
+`mode:feature`) and a State of Play block, not just the issue itself. An
+issue opened (or promoted) without these three labels is invisible to
+`/status-all` (it filters to issues carrying a `stage:` label) and to the
+board's sync Action, so skipping them isn't a smaller version of tracking
+this workstream — it's not tracking it at all.
 
 **Immediately after, edit the already-open PR body to add `Workstream: #N`
 with the issue's real number.** The PR opened before the issue existed, so
