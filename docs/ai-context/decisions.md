@@ -64,6 +64,69 @@
 
 ---
 
+### 2026-08-15 · `/next` ranks by closest-to-done, with priority inheriting down `Blocked by:` chains — built on two new coupled primitives
+- **Decision:** A new `/next` skill answers "given where we are, what should
+  we work on now?" — the third tracking skill, and the only one that ranks
+  rather than reports. It needed two conventions that didn't exist yet,
+  built first as prerequisites:
+  1. **Phase-tracking for multi-PR features**, finally implementing the
+     design settled 2026-08-05: a parent issue carries a **Phases
+     checklist**; each phase is a sub-issue with its own labels, PR, and
+     merge, opened uniformly by `overhype-implementation` (not
+     `plan-review-loop`, whose lifecycle ends at plan approval and never
+     runs again for phase 2 onward — a review-round finding, not something
+     designed in upfront). **Supersedes the 2026-08-05 entry's parent-level
+     UAT checkpoint**: per-phase UAT is the only UAT, and the parent moves
+     straight from its last phase's close-out to its own close-out — no
+     separate parent-level UAT gate exists (see the note added to that
+     entry, above).
+  2. **The backlog + the `Blocked by: #N` marker.** Queued-but-unstarted
+     work is a `queue:now`/`next`/`later`-labeled issue with no `stage:`
+     label — curated, not computed from roadmap prose, so the nuance in an
+     issue body isn't lost. `Blocked by:` is mechanical, read with the same
+     anchored-marker convention as `Workstream: #N`.
+  3. **Ranking is one rule: closest to done wins**, pulling from the right
+     of the lifecycle board. **Priority inherits down every `Blocked by:`
+     chain** — an item's effective rank is the highest rank of anything
+     transitively blocked on it. This is what makes bugs need no rank of
+     their own (they inherit whatever they block), and what makes a deep
+     rabbit hole correctly outrank fresh work.
+  4. **The UAT-descent stack.** When David's UAT surfaces a bug that turns
+     into real work (the PR #213 → admin-permission-rebuild shape), the
+     `Blocked by:` chain **plus a State-of-Play note on the interrupted
+     issue** is the call stack recording the way back — the chain is the
+     link, the note is what records *which UAT step failed* (the chain
+     itself carries only issue numbers). `bugfix` flips the interrupted
+     issue's `waiting:` to `claude` (stashing the prior value) so
+     `/status-all`, which doesn't parse `Blocked by:`, stops showing a
+     blocked UAT under NEEDS YOU; `pr-watch` restores it on the blocker's
+     close-out, mirroring the flip onto a phased parent too if the
+     interrupted workstream is itself a phase.
+  5. On **zero Actionable candidates** — not merely an empty backlog, since
+     a `waiting:david` UAT, a stalled workstream, or any other actionable
+     item still wins first — `/next` makes an **argued feature
+     recommendation**, always on **Fable** tier, rather than a menu:
+     escalate-don't-absorb for the one step here that's genuinely a
+     product-priority call.
+- **Why:** David's standing constraint is that he answers specific
+  questions well but can't track state across ~10 concurrent sessions —
+  `/status`/`/status-all` report state, but nothing previously took a
+  position on what to do next, or reliably remembered a rabbit hole's way
+  back to an interrupted UAT.
+- **Reference:** PR #453 (three review rounds, 10→4→3 findings, all fixed;
+  a mandated adversarial adjudication at round 3 verdicted STOP/converge and
+  surfaced one more small gap, folded in directly), workstream #452. See
+  [`workstream-tracking.md`](./workstream-tracking.md) for the full
+  mechanics.
+- **Revisit if:** the async-queue hardening work (PR #288, predates
+  workstream tracking entirely) still has no tracked parent issue — its
+  Phases-checklist retrofit was deliberately deferred to `/maintenance`
+  rather than reconstructed here from prose. Also revisit if the
+  UAT-descent park escape hatch (for a rabbit hole that outgrows the UAT it
+  interrupted) turns out to need real-world tuning once it's actually used.
+
+---
+
 ### 2026-08-15 · SDLC autonomy: the SOW gate + in-loop adjudication replace per-round check-ins; Claude self-merges; the ledger flushes weekly
 - **Decision:** Six related changes, agreed in one conversation, that move
   David's control points to the bookends of each loop instead of inside it:
@@ -717,6 +780,12 @@
   backstop and the cost/benefit of closing the remaining gaps changes.
 
 ### 2026-08-05 · Multi-PR features get parent-issue-plus-phase-sub-issue tracking, and I ask before declaring a split
+> **Superseded in part 2026-08-15** (see that entry, below): as built, there
+> is no separate parent-level UAT checkpoint — per-phase UAT (already named
+> here) is the *only* UAT, and the parent goes straight from its last
+> phase's close-out to its own close-out. The "🛑 Plan approval, 🛑 UAT,
+> close-out" list two lines down should be read as "🛑 Plan approval,
+> close-out" for the parent.
 - **Decision:** When a feature is too large for one PR (the pattern PR #293
   hit, self-documented mid-flight as "phase 1 of 8"), the **parent issue**
   carries the plan and the checkpoints that only make sense once — 🛑 Plan

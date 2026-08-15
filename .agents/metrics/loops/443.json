@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "pr": 443,
+  "closedAt": "2026-08-14T23:55:48Z",
+  "mechanical": {
+    "title": "Fail closed when the generation spend gate itself errors",
+    "cohort": "feature/code",
+    "size": {
+      "files": 9,
+      "added": 566,
+      "removed": 96
+    },
+    "rounds": 6,
+    "findings": 12,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-14T21:21:26Z",
+        "source": "review",
+        "findings": 6
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-14T21:46:51Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-14T22:08:30Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-08-14T22:22:15Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-08-14T22:30:32Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 6,
+        "submitted_at": "2026-08-14T22:37:35Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-14T21:13:18Z",
+      "last_review_at": "2026-08-14T22:37:35.000Z",
+      "hours": 1.4
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": { "new": 8, "prop": 3, "wrong": 1, "reRaised": 0, "invalid": 0 },
+    "newGroundTerritory": { "inDiff": 7, "preExisting": 1 },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "Bugfix mode has no planning/preflight ceremony, and #409 already stated the reported symptom precisely enough that diagnosis and the fix ran together in the same stretch of session as opening the PR — no clean timestamp separates a distinct preflight phase from the rest of the work, so recorded as unknown rather than estimated.",
+    "breakersFired": "Round 3's rising-finding-count stopping rule (working-modes.md's review-loop stopping rule — findings went 6/1/3, the round-3 rise from round 2's 1). Per the tripwire-forces-classification rule (not a verdict on its own), all 3 round-3 findings were triaged inline before requesting round 4: 2 confirmed-and-fixed (a second new-abstraction Tier C violation on getConfigFloatWithSource, mirroring round 1's gateGeneration finding; a fal-circuit-breaker contamination risk in routes/memes.ts), 1 pushed back on with a code trace (the same circuit-breaker finding did not apply to routes/videos.ts as structured at the time) rather than applied as an unneeded change. None were scope accretion or an oscillation signal — all were real, mechanically verifiable correctness findings in a criticality ~75/100 spend-enforcement fix — so continuing to round 4 was correct and no escalation to David was warranted. The pushback on the videos.ts half of round 3's circuit-breaker finding later turned out to be its own mistake: round 5 found the trace was wrong (matched the wrong try/finally pair), which is why round 5 is recorded as wrong_fix rather than propagation."
+  },
+  "adjudication": { "status": "never-run" },
+  "notes": "Self-authored at loop close, 2026-08-15 (Claude Code, Sonnet), from the PR's own round-by-round narration rather than re-deriving after the fact. Cause classification for all 12 findings: R1's 6 findings (gateGeneration Tier C violation, discarded retry message in the video wizard, wrong-tier UAT account, config-read failures still fail-open, a status-write masking the intended 503, gate failures consuming the daily rate-limit quota) are all new_ground — round 1 reviews the original submission, so nothing had an earlier round-of-this-loop fix to be caused by. R2's 1 finding (best-effort delete of the job row can itself fail during a sustained outage) is propagation — it exists only because round 1's fix (insert-then-cleanup-on-denial) took that shape; a gate-before-insert design would never have had a row to clean up. R3's 3 findings: getConfigFloatWithSource's new-abstraction violation is propagation (round 1's own fix introduced it, repeating the gateGeneration mistake one review earlier had already corrected); the memes.ts circuit-breaker contamination and the UAT doc's wrong generation-path pointer are both new_ground — pre-existing gaps in the original design and the original UAT doc respectively, surfaced by closer scrutiny rather than caused by round 1 or 2's specific fixes. R4's 1 finding (skipProviderHealth needed to omit budget refusals from provider-health tracking entirely, not just report them as failed:false) is propagation — round 3's own fix for the memes.ts finding was the direct, sole cause of the residual gap R4 found in it. R5's 1 finding (routes/videos.ts needed the identical skipProviderHealth fix) is wrong_fix, not propagation, because rounds 3 and 4 didn't merely leave a gap — they affirmatively claimed (twice) that this route's gate never reaches completeGovernance at all, based on a visual scan that matched the wrong try/finally pair; round 5 proved that claim itself wrong, verified this time with an actual brace-counting script rather than a third visual read. 0 invalid, 0 reRaised: every finding across all 5 rounds was confirmed real and produced either a fix or (round 3's videos.ts pushback) a traced, code-cited reason it didn't apply where claimed — nothing was refuted, nothing repeated an earlier round's finding with no new information. R6 was Codex's clean pass (0 findings) confirming convergence. newGroundTerritory splits the 8 new_ground findings 7 inDiff / 1 preExisting: 7 were about code (or docs) this loop's own diff wrote — the gateGeneration/UAT-account/status-write/rate-limit findings in R1 sit in files my diff touched, and both R3 new-ground findings (memes.ts circuit-breaker contamination, the UAT doc's wrong generation-path pointer) are about how my own new BudgetGateError branches and my own new UAT doc behave. The 1 preExisting is R1's config-read-failure finding: its mechanism lives entirely in adminConfig.ts's getConfigString/getConfigFloat, a file my diff never touched at any round — Codex had to widen into that untouched file to find the pre-existing silent-swallow behavior my fix failed to account for, matching the PR #425 pattern this field exists to distinguish from a genuinely defective diff."
+}

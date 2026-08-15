@@ -597,11 +597,17 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
-- **Retrofit the named phase-tracking candidates** — phase-tracking itself
-  shipped 2026-08-15 (below), but #310/#293 (NCMEC phases 4–8) and the
-  async-queue Phases 2–4 still need their parent Phases checklists and
-  phase sub-issues created, so `/next` can see them. Mechanical, no design
-  work left.
+- **Retrofit the async-queue parent for phase-tracking.** NCMEC's parent
+  (#310) got its Phases checklist 2026-08-15, as part of PR #453's
+  post-merge retrofit — done, not a remaining item. The async-queue
+  hardening work (PR #288) still has no tracked parent issue at all — it
+  predates workstream tracking entirely — so this is a bigger unit of work
+  than "add a checklist": open a fresh workstream issue and backfill its
+  history. Deliberately deferred to `/maintenance` rather than done inline.
+  Per the phase-tracking contract, a phase's own sub-issue is opened only
+  when that phase actually starts — an unopened phase's checklist line
+  reading `not yet opened` is the intended steady state, not a gap to fill
+  upfront.
 - **Moderation-speed / reviewer-toil reductions** — ergonomics of the review +
   visual-review flow. **Needs David confirmation** on specifics.
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render
