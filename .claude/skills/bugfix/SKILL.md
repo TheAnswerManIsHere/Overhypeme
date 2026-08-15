@@ -165,9 +165,18 @@ the PR. Tier A is the exception, by design.
   the diagnosis itself is not, because it is stateful.
 - **The moment I classify a fix as Tier B** — I say so, and what it now means
   is that the fix is **not eligible for subagent routing**: I write it myself,
-  in my main loop. (This used to be an ask for a switch up to Opus; the session
-  is already there.) That is the whole point of the tier: these are the fixes
+  in my main loop. That is the whole point of the tier: these are the fixes
   where a subtle error slips both nets.
+  - **This assumes the main loop is Opus — verify, don't assume (Codex,
+    round 3).** A Tier B fix is Opus-reserved *execution*, and the contract
+    requires me to write it myself, so it is not routable by construction.
+    If the session is genuinely below Opus — an in-Repl session pinned to
+    `sonnet`, or one still on `opusplan` until restart — **I stop and ask
+    David to run this fix from an Opus session.** That is the one surviving
+    switch ask, and it survives because the *work* is reserved, not because
+    it's convenient. Executing a Tier B fix on Sonnet because "the contract
+    says the session is Opus" is exactly the silent failure the tier guard
+    exists to prevent.
 - **Tier C** — stop and escalate to David; it isn't a bug fix, so this mode
   doesn't pick its model tier. Where it goes next does: non-trivial or
   behavior-changing Tier C work **restarts in feature mode**, which picks the

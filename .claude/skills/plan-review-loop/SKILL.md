@@ -572,7 +572,8 @@ Hard boundaries:
   *Scheduled self-check-ins* (David, 2026-08-15, replacing the blanket ban).
   Codex's webhook events and David's pings remain the normal wake-ups; a
   scheduled one is for a named external state that won't produce either — a
-  review request that produced **no review and no bounce**. **A
+  review request that produced **no code review** — judged on that alone, so
+  an unrelated security bounce can't mask a real outage. **A
   security-review usage-limit bounce is NOT that case**: it says nothing
   about code-review availability, so the response is to request the code
   review immediately, never to schedule a wake for a reset (see

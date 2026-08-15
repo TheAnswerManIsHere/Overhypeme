@@ -354,7 +354,10 @@ same picture: that quota is the code-review pool, which stayed full while the
 *security* limit bounced.
 
 **A genuine code-review outage is a different animal** — a request that yields
-no review *and* no bounce. That case still exists, and the retry limit and
+**no code review**. Judge that on the absence of the code review alone: the
+two limits are independent, so a security bounce can fire *during* a real
+code-review outage, and testing for "no review **and** no bounce" would let
+that unrelated comment mask the outage indefinitely. That case still exists, and the retry limit and
 stakes-split in the implementing agent's ceremony (for Claude Code,
 `.claude/skills/pr-watch/SKILL.md`) govern it. A security-limit bounce does
 not qualify as one, and must not be reported as one.

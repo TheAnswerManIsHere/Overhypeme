@@ -1010,7 +1010,9 @@ verification — is post-merge for the same structural reason.
    canonical fact and evidence are in
    [`code-review.md`](docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage),
    not restated here. The genuine-outage exception below survives only for a request
-   that yields no review *and* no bounce: for a docs-only or
+   that yields **no code review** — judged only on whether the code review
+   arrived, since a security bounce is independent noise that could
+   otherwise mask a real outage indefinitely: for a docs-only or
    low-criticality artifact, "Codex converged" is then satisfied by
    *ran-to-completion-or-confirmed-unavailable*, said plainly in the merge
    report. For anything higher-stakes I wait rather than self-merge.
@@ -1176,7 +1178,8 @@ and never to re-check something a webhook reliably delivers.
 cases** — it is scoped to security reviews and says nothing about code-review
 availability, so the response is to ask for the code review, not to schedule
 a wake for a reset (see `pr-watch`). A genuine code-review outage — a request
-yielding no review *and* no bounce — is a legitimate case, and there the
+yielding **no code review** (a security bounce is irrelevant to that
+judgement, and must not be allowed to mask an outage) — is a legitimate case, and there the
 `pr-watch` retry limit governs how many times I re-ask; a scheduled wake does
 not license an unbounded retry cycle that rule already terminates.
 

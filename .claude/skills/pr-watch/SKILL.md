@@ -44,7 +44,8 @@ I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event arrives or David re-engages me. I may additionally schedule a
 wake-up **when a specific external state won't reliably deliver one** — a CI
 run that may never report success, a PR gone quiet before merge, a review
-request that produced no review *and* no bounce — under the bounded contract
+request that produced no code review (a security bounce is irrelevant to that
+judgement) — under the bounded contract
 in `CLAUDE.md`. **A security-review usage-limit bounce is not one of these:**
 request the code review instead. Whenever a watched PR merges or closes, I unsubscribe and
 disarm any check-in still pending on it.
@@ -236,8 +237,14 @@ the diff *is* the plan. While watching an implementation PR:
     unrelated noise. A security-limit bounce never satisfies "converged,"
     never justifies skipping or deferring a round, and never licenses a
     merge.
-  - **A genuine code-review outage** — a request producing no review *and*
-    no bounce — is a real, separate case, and the stakes split from the
+  - **A genuine code-review outage** — a request producing **no code
+    review**, judged *only* on whether the code review arrived. **A security
+    bounce is irrelevant noise and must not enter this test** (Codex, round
+    3): the two limits are independent, so a bounce can fire alongside a real
+    code-review outage, and an "and no bounce" conjunction would let that
+    unrelated comment mask the outage permanently — the one-retry
+    termination would never fire and a high-stakes PR would wait forever.
+    This is a real, separate case, and the stakes split from the
     2026-08-15 ready bar governs it: docs-only/low-criticality may proceed
     noting the skip; anything higher-stakes waits or escalates. One retry,
     then stop re-asking. **A security-limit bounce does not qualify.**
