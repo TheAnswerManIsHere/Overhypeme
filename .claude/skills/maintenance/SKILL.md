@@ -106,12 +106,28 @@ one with no record yet: run `node scripts/loop-metrics.mjs --pr <n> --write`
 (or `--mcp-snapshot`, per the shared contract's mechanics in
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-loop-ledger)),
 fill the judgment, run the blind adjudication where sampled, and commit the
-records together as part of this pass — a docs-only commit, no dedicated
-ledger PR (that PR type stays retired). Skip a loop that is still inside
-its no-reviewer-pass settling window; it flushes next week. The flush runs
+records together as part of this pass. **There is no settling-window
+skip** — `working-modes.md`'s standing rule is that terminal point (closed
+or merged) is eligibility, full stop; a loop whose review lands late gets
+its record re-derived and edited at a future flush, not held back from
+this one. The flush runs
 **before** the digest so the completeness check below runs against flushed
 state — a gap it still names afterward is a real miss to fix in this same
 pass, not a report line.
+
+**Delivery route (David, 2026-08-15).** The records need an ordinary
+reviewed PR to reach `main` — this repo requires a PR before merging, and
+the ledger contract bans a standalone ledger-only PR the same way it
+always has. Two cases: **if any of my own PRs are open**, the flush commit
+rides one of them as a normal additional commit (any PR except the one a
+given record measures, per the loop-ledger's own rule). **If none are
+open**, this pass opens one small `docs(maintenance): weekly digest` PR
+carrying the flush commit plus this week's `deferred-work.md` updates (the
+other docs-only exception in Boundaries below) — reviewed by Codex like any
+docs-only PR (first pass + at most one re-request, per the ceremony table),
+then self-merged under the general close-out rule once ready. Never skip
+straight to a direct push: that bypasses the Codex pass the ledger contract
+still requires.
 
 **Step 6b — the digest.** **Build the closed-PR inventory and pass it — this step is required, not
 optional.** Since this PR retired CI's coverage gate, the digest's

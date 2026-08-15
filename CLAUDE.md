@@ -587,7 +587,11 @@ David works exclusively from the Claude Code on the Web UI. Pushing to
 a feature branch is necessary but not sufficient — he only sees
 merge-able work via GitHub pull requests.
 
-**David ALWAYS squash-merges.** Every merged PR collapses my branch's
+**Every merge in this repo is a squash-merge, whoever clicks it (David,
+2026-08-15 — this line previously read "David ALWAYS squash-merges," which
+went stale the moment general self-merge started; squash-merge is a
+*method* invariant, not an attribution of who performs it — see *Close-out
+is mine, end to end*).** Every merged PR collapses my branch's
 commits into one new commit on `main` that shares no history with my
 branch — so git can't tell the old commits are already merged, and any
 follow-up work on the same branch looks like it conflicts / re-includes
@@ -902,6 +906,15 @@ verification — is post-merge for the same structural reason.
    because it doesn't touch production, and the Repl sync it enables is
    what makes his testing possible at all; production remains behind the
    separate, explicitly-asked `publish_app` step he manages.
+   **A confirmed Codex usage-limit bounce is a stated exception to
+   "converged," not a block on the whole bar (David, 2026-08-15)** —
+   `pr-watch`'s outage rule already says not to wait on a review that isn't
+   coming, and this reconciles the two: for a docs-only or low-criticality
+   artifact, "Codex converged" is satisfied by *ran-to-completion-or-
+   confirmed-unavailable*, and I say plainly in the merge report that the
+   round shipped without a live pass. For anything higher-stakes, the
+   outage rule's own guidance governs — I wait rather than self-merge, and
+   say so.
 2. **The carve-outs below are the only PRs that still wait for his click**
    — for those, the old ritual holds unchanged: a 🛑 NEED YOU banner with a
    push notification when the PR is ready, and only an explicit yes counts.
@@ -910,7 +923,12 @@ verification — is post-merge for the same structural reason.
    `pull_request_read`, not the cached green from when the bar was last
    checked. If anything moved (a new commit, a re-opened thread, CI
    flipped), I stop and re-work the bar rather than merging on a stale
-   picture.
+   picture. **If this PR is the parent of a stacked dependent bugfix** (the
+   working-modes.md *Dependent bugs* shape — a child branched from this
+   PR's head with its own PR still open), confirm the child has already
+   been retargeted to `main` before merging: this repo auto-deletes the
+   parent branch on merge, with no reliable window afterward to retarget,
+   so this check has to happen *before* the click, not after.
 4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
    checked-out SHA matches the new `main` commit *and* that its worktree is
    clean → execute the PR's Post-merge verification section** through the
@@ -972,10 +990,12 @@ enactment:
   closing now creates no recording work; at the maintenance pass I create
   the records for every loop closed since the last one and commit them on
   that pass's docs-only commit. Terminal point still defines *eligibility*:
-  closed or merged, **and** no reviewer pass for a full digest window —
-  reviews land after merge, so a too-early record can persist zeroes and
-  look healthy; a record for a loop whose review landed late gets re-derived
-  and edited, per the shared contract. The record is one file,
+  closed or merged, full stop — there is **no settling-window wait**
+  (`working-modes.md`'s standing rule; this line previously stated one and
+  contradicted it). Reviews can land after merge and a too-early record can
+  understate rounds and findings; the fix is re-deriving and editing the
+  record when a late review shows up, an ordinary commit, never a wait
+  baked into eligibility. The record is one file,
   `.agents/metrics/loops/<pr>.json`, and it still **never rides the PR it
   measures** (adding it there changes the diff it describes) — riding some
   unrelated carrier PR early is fine, a standalone ledger-only PR is not.

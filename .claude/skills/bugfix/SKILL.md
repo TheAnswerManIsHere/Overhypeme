@@ -255,8 +255,10 @@ before every re-request, the fix / accept-and-document / escalate / decline
 triage (a decline posts only after surviving the Opus-subagent challenge),
 resolving each thread myself right after addressing it, per-round
 `@codex review` re-requests naming what the round closes, the
-cumulative-diff rule after 2+ fix rounds, breaking non-converging loops
-(~2 rounds), and unsubscribing at merge/close. **Pointer, not a copy** —
+cumulative-diff rule after 2+ fix rounds, breaking non-converging loops by
+diagnosis — oscillation or a genuinely contested fix, not a round count
+(David, 2026-08-15, superseding the earlier ~2-round figure) — and
+unsubscribing at merge/close. **Pointer, not a copy** —
 restating those mechanics here is how this section went stale once already
 (it carried a "never resolve threads" rule for two months after David
 reversed it, 2026-08-06).

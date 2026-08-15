@@ -103,15 +103,24 @@ loop (David, 2026-08-15).** Once intent has settled and before the plan's
 first push, I bring David the scope of work as a 🛑 NEED YOU banner (with
 its push notification): the direction served, this increment's product
 intent, must-not-change, settled decisions, the now/next/never boundaries
-already decided, the ceremony tier, and the 1–100 criticality. This is the
-same material the PR-body template below carries — agreed *before* the loop
-runs instead of discovered during it. **Only his explicit agreement starts
-the loop**, and that agreement is what authorizes the loop to run
-autonomously to convergence under
+already decided, the ceremony tier, and the 1–100 criticality. **Only his
+explicit agreement starts the loop**, and that agreement is what authorizes
+the loop to run autonomously to convergence under
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in)'s
 post-round adjudication: anything that would change the agreed SOW — a
 scope addition, a split, a product fork — comes back to him; everything
 else is the loop's to decide.
+
+**The agreed SOW is persisted, not left in chat.** The banner's content
+becomes the PR-body template's fields below — including *Ceremony tier* and
+*Criticality*, which the template did not previously carry as named fields
+— when the review PR opens, so the findings ledger and any later close-out
+audit can establish exactly what cadence and scope David authorized without
+the original conversation still being in context. If the workstream issue
+already exists at the SOW-gate moment, set `waiting:david` on it right then
+(don't wait for the review-trigger step below to touch `waiting` for the
+first time) — otherwise `/status-all` can keep reporting me as the holder
+while the loop is actually blocked on his SOW agreement.
 
 In feature-building mode, once the SOW is agreed, I have a draft plan, and
 the disclosure check passes:
@@ -131,6 +140,13 @@ the disclosure check passes:
    ## Public-disclosure check
    Passed. This plan contains no unpatched vulnerability details, secrets,
    private customer information, fraud-enabling details, or embargoed material.
+
+   ## Scope of work (agreed with David at the SOW gate)
+   **Ceremony tier:** <per the ceremony table — product code / migrations
+   & sensitive subsystems / etc.>
+   **Criticality:** <1–100, per the stopping-rule's criticality gate>
+   **Scope boundaries:** <now/next/never calls already made, so a mid-loop
+   discovery is checked against a decision instead of argued fresh>
 
    ## Direction
    <Which direction this plan serves, linked, and the one sentence naming what
@@ -394,7 +410,23 @@ the disclosure check passes:
     only available response to a mid-flight discovery was to absorb it. The
     *now vs. next* question for each forked-out piece goes to David per
     `CLAUDE.md`.
-11. **Close out.** When converged: close the draft PR **without merging**
+11. **Close out — the two ways a loop ends, not just convergence.** Step 7's
+    convergence criteria are one route to close-out; the adjudicated stop
+    from the post-round adjudication (oscillation, or a stop/cap call
+    surviving the adversarial subagent) is the other, and both close the
+    PR the same way below — a stop is not stuck between "not converged
+    enough to close" and "not clean enough to request another round." On
+    an adjudicated stop: don't request a further round (more prose rounds
+    don't fix oscillation), and route what comes next by what actually
+    stopped it — an oscillating mechanism goes to implementation (draft
+    the fix, since only running code verifies it, then resume review on
+    the revised plan if the fix is substantial enough to need one); a
+    cap-and-implement call goes straight to execution once David approves
+    per the normal path below. Either way, the close-out comment states
+    which of the two routes ended the loop and why, so the findings ledger
+    reads as a real disposition, not an unexplained stop mid-round.
+
+    **When converged** (or adjudicated-stopped, per above): close the draft PR **without merging**
     (`update_pull_request`, state `closed`) with a closing comment recording the
     final review status, unsubscribe, then ask David for approval — linking the
     final plan file on the branch, since that PR page is now the plan's delivery
@@ -427,6 +459,11 @@ Per [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
 this loop is `plan-review-loop`'s slice of label ownership for a workstream
 already at `stage:planning`:
 
+- **The SOW gate itself, if the workstream issue already exists** →
+  `waiting:david` (stage stays `planning`) the moment the banner posts —
+  don't wait for step 3's first review trigger to touch `waiting` for the
+  first time; the loop is blocked on David from the SOW banner onward, not
+  from the first `@codex review`.
 - The moment I post a round's `@codex review` trigger (step 3, and each
   round of step 4) → `waiting:codex`.
 - The moment Codex's findings land and I start working the reply →

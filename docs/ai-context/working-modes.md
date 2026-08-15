@@ -425,9 +425,11 @@ will keep finding things, and each fix adds surface for the next round.
   pass only — never a re-request** (see the ceremony table above). Docs-only
   PRs of any kind: **the first pass plus at most one re-request** — see
   *Docs-only PRs cap at one re-request* below, which supersedes the earlier
-  "agent-facing markdown: 1–2 rounds" phrasing of this line. Product code:
-  the existing soft cap, and the ~20-round figure is a backstop, not a
-  budget.
+  "agent-facing markdown: 1–2 rounds" phrasing of this line. Product code
+  and plan-review loops: **no round-count cap** (David, 2026-08-15,
+  retiring the prior ~20-round soft-cap/check-in figure) — the bucket mix,
+  the tripwires, and the criticality gate are the whole stopping rule; see
+  *The post-round adjudication* and the `plan-review-loop` skill's step 9.
 - **The historical record reads cleanly under the bucket rubric — the
   diagnosis, never the number, was the decision every time.** PR #329's guard
   (9, 11, 12, 19 — 2026-08-05) was new-ground-in-diff against an unbounded
@@ -1224,7 +1226,8 @@ metrics file to the PR it describes changes that PR's diff, which can trigger
 a further reviewer pass *after* the rounds and interval were derived — the
 record would then omit the round its own addition caused.
 
-**At loop close:**
+**At the `/maintenance` flush, per loop closed since the last pass**
+(not at the individual loop's close — see above):
 
 1. Run `node scripts/loop-metrics.mjs --pr <number> --write`, which lands a
    record with a `judgment: null` scaffold. **Do not type the mechanical

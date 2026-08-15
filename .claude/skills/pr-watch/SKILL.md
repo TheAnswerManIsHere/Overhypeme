@@ -71,10 +71,19 @@ the diff *is* the plan. While watching an implementation PR:
   affected area / verdict (fix, accept-and-document, escalate, decline) with
   whether it's critical to the delivery, the causal flag (new ground vs.
   repairing an earlier round's fix vs. impossible-as-specified), and the
-  continue/stop decision with its flip condition — kept in the loop's own
-  trail, **decided by me**, with the judgment moments gated by the
-  adversarial subagent and noteworthy adjudications surfaced as 👀 FYIs.
-  What still stops for a 🛑: a genuine design/architecture/product decision
+  continue/stop decision with its flip condition — **decided by me**, with
+  the judgment moments gated by the adversarial subagent and noteworthy
+  adjudications surfaced as 👀 FYIs. **The durable trail is a maintained PR
+  body section (David, 2026-08-15)** — unlike a plan-review PR, an
+  implementation PR has no findings-ledger section to hold this, and
+  per-comment thread replies can't carry an aggregate record, so I keep a
+  `## Review round ledger` section in the PR body (append-and-edit, same
+  pattern as `plan-review-loop`'s Findings ledger), updated in the same
+  push as each round's fix commits — never a standalone summary *comment*
+  (that rule is unchanged; this is the PR body, not a comment). If the loop
+  stops without a further re-request, this section is still what the
+  close-out report and any later audit read from — session context alone
+  isn't durable. What still stops for a 🛑: a genuine design/architecture/product decision
   (the escalate rule below), a scope addition, a split. David gets the
   whole decision trail in the merge report at close. **Anything that
   reaches him is written in product English** per the contract's 2026-08-08

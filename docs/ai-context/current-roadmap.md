@@ -325,10 +325,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   markdown file to `prose/contract` by bare presence — it now weighs
   changed-line counts, so a code-majority mixed PR lands in `feature/code`
   (see `cohortWeights` in `scripts/loop-metrics.mjs`); presence alone only
-  decides when one side is entirely absent. **Still open, for David to
-  decide:** #279 ran 32 rounds, about 12 past the ~20-round soft cap meant
-  to trigger a check-in, with no record of whether one happened (see the
-  frozen ledger's row 6).
+  decides when one side is entirely absent. **Resolved 2026-08-15, not by
+  deciding this specific case but by retiring the cap it questioned:**
+  #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
+  trigger a check-in, with no record of whether one happened (see the
+  frozen ledger's row 6) — the open question was whether the cap needed a
+  firmer trigger. It doesn't, because the cap itself is gone:
+  `working-modes.md`'s stopping rule replaced round-count caps with the
+  bucket-mix/tripwire/criticality rubric, so there is no threshold left to
+  miss triggering.
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). **Superseded 2026-08-07** (see the bullet above): loops no
   longer append to this table, and adjudication no longer covers every
