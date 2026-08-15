@@ -678,6 +678,28 @@ re-gather it when the work is scheduled.
     documenting the asymmetry as an intentional exception if there's a reason
     the exemption specifically must stay import-time-frozen.
 
+- **The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`).**
+  - **What.** `Build` run 31911725205 on commit `7e37cc8` (PR #451's squash —
+    a metrics-record-only change touching `.agents/metrics/loops/443.json`)
+    failed at the `Run api-server test suite` step. The two commits that
+    followed it on `main` (`fac70e3`, `d8b7573`) ran the same job green with
+    no fix in between, and a docs-only diff cannot break that suite, so the
+    failure was not caused by the commit under test.
+  - **Why deferred now.** One observation is not a pattern. The `/maintenance`
+    contract's rule is that a flake **seen twice across maintenance passes**
+    graduates to a fix task; chasing a single non-reproducing failure is the
+    kind of speculative work the blast-radius rule exists to prevent. This
+    entry exists so the second observation is *detectable* — without it, the
+    next pass has nothing to compare against and the rule can never fire.
+  - **Cost of waiting.** A red `main` that is not a real regression costs a
+    diagnosis each time it happens and erodes the signal value of CI. Bounded
+    while it stays a single occurrence; grows if it recurs, because a suite
+    that fails randomly stops being evidence of anything.
+  - **Revisit trigger.** The **next `/maintenance` pass**: if the api-server
+    suite has failed on `main` again since 2026-08-15, this graduates to a
+    `/bugfix` task and this entry closes. If the window is clean, note it and
+    keep this parked one more cycle.
+
 ---
 
 ## Product deferrals live elsewhere
