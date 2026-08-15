@@ -568,7 +568,10 @@ Hard boundaries:
   (the plan lives only on the never-merged review branch otherwise).
 - Security-sensitive/confidential plans never enter this public channel (the
   disclosure check above).
-- No `send_later` self-check-ins for this loop either — the standing
-  no-background-check-ins rule applies. Codex's webhook events and David's pings
-  are the only wake-ups.
+- Self-check-ins on this loop follow the bounded contract in `CLAUDE.md`'s
+  *Scheduled self-check-ins* (David, 2026-08-15, replacing the blanket ban).
+  Codex's webhook events and David's pings remain the normal wake-ups; a
+  scheduled one is for a named external state that won't produce either — a
+  review request that bounced on usage limits being the case this loop
+  actually hits.
 

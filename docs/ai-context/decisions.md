@@ -13,6 +13,60 @@
 
 ---
 
+### 2026-08-15 · Scheduled self-check-ins return under a bounded contract, scoped to the behavior rather than a tool name
+- **Decision:** The 2026-07-07 blanket ban on background self-check-ins is
+  replaced by a bounded contract. Scheduling is allowed **only** against a
+  named external state that won't reliably wake the agent (CI that may never
+  report success, a Codex usage-limit reset, a PR gone quiet before merge, a
+  long Replit operation), and every scheduled check-in carries four things:
+  a named condition, a cadence matched to that condition, an exit condition,
+  and a **cap of 3 consecutive no-op wakes** after which it disarms and
+  reports. A no-change wake is silent. Self-wakes are counted in the loop
+  ledger so cost stays visible. A recurring "poll for work" heartbeat remains
+  forbidden.
+- **Why now:** David's diagnosis on revisiting the ban — that the original
+  token burn was poor loop tracking and scoping rather than check-ins as
+  such — holds up against the record. The canonical burn case (PR #333: six
+  rounds and a 660-line plan for two markdown files) had nothing to do with
+  check-ins, and the loop ledger, stopping rules, criticality gate and
+  ceremony tiering that now catch that class all postdate the ban. **What
+  made it newly necessary rather than merely affordable** is the same-day
+  close-out change: with the merge click no longer David's, he is no longer
+  looking at PRs as a matter of course, so a PR that goes quiet has nobody
+  watching it. The live example arrived during the change itself — Codex
+  bounced on usage limits on PR #458 with nothing scheduled to notice the
+  reset.
+- **Why the rule is keyed to behavior, not to a tool:** David reported the
+  agent applying the ban inconsistently — binding in some contexts, ignored
+  in others. The cause was structural, not judgment: the old rule named
+  `send_later` and the PR-watching context, while the capability exists
+  behind at least four doors (`send_later`, `create_trigger`,
+  `ScheduleWakeup`, `/loop`). A rule keyed to one tool name is silently
+  inapplicable whenever a different door is used. The replacement governs
+  *any mechanism that starts a future turn without David typing anything*.
+- **What the ban was actually protecting, and what replaces it:** the wake →
+  find nothing → re-arm → repeat loop, where each wake pays a full context
+  read. The ledger doesn't measure that, so the 3-no-op cap is the specific
+  substitute — the part to keep even if the rest is later loosened.
+- **Also fixed:** `.claude/settings.json`'s allowlist carried only
+  `delete_trigger`, so scheduling would have prompted David even once
+  permitted. All five trigger tools are now allowlisted. **Known fragility:**
+  those entries are keyed to an MCP server prefix containing a volatile
+  per-environment UUID — proven volatile in the authoring session, where the
+  Replit server's prefix changed mid-conversation. A returning permission
+  prompt means a changed UUID, and the fix is re-pointing the entries.
+- **Explicitly NOT authorized by this:** scheduling `/maintenance`. A weekly
+  ritual is a heartbeat, not a wait on external state. Automating it stays a
+  separate decision, which David's one-shot ~4-week reminder (around
+  2026-08-19) exists to revisit.
+- **Reference:** `CLAUDE.md` → *Scheduled self-check-ins*; the `pr-watch` and
+  `plan-review-loop` skills.
+- **Revisit if:** self-wake counts in the ledger show the cap being hit
+  routinely (the condition being waited on is the wrong one), or if
+  check-ins reappear as a measurable share of token spend.
+
+---
+
 ### 2026-08-15 · The session model is a constant (Opus); tier changes route to subagents instead of asking David to switch
 - **Decision:** Three changes, superseding the model-switching half of the
   2026-07-24 entry below:

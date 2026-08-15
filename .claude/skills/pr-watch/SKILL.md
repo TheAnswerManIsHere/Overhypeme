@@ -7,8 +7,8 @@ description: Use after opening or being re-engaged on any PR (implementation or 
 
 Migrated out of `CLAUDE.md` so it loads when a PR is actually being watched.
 The three standing rules that must fire without this skill loaded — always
-subscribe (tier gate), never arm background check-ins, never resolve review
-threads — stay resident in `CLAUDE.md`.
+subscribe (no tier gate), the bounded self-check-in contract, and resolve
+review threads once addressed — stay resident in `CLAUDE.md`.
 
 ### Subscribe rules (resident in CLAUDE.md — pointer, not a second copy)
 
@@ -16,8 +16,11 @@ The subscribe rule lives in `CLAUDE.md`'s *Watching the PRs I open* stub,
 which fires at PR-open time before this skill is ever invoked: **I subscribe
 immediately, on whatever tier the session is on — there is no model gate**
 (David, 2026-08-15, retiring the Sonnet gate), for implementation and
-`[PLAN REVIEW]` PRs alike; and background self-check-ins (`send_later`) are
-never armed — David (2026-07-07) checks PR status manually and pings me.
+`[PLAN REVIEW]` PRs alike. **Self-check-ins follow the bounded contract in
+`CLAUDE.md`'s *Scheduled self-check-ins*** (David, 2026-08-15, replacing the
+2026-07-07 blanket ban): allowed against a named external state that won't
+reliably wake me, capped at 3 consecutive no-op wakes, silent when nothing
+changed — never a routine heartbeat.
 
 The old gate's companion rule — *"if the session gets switched to Sonnet
 later, that's the moment to subscribe any open unwatched PR"* — is retired
@@ -37,8 +40,12 @@ a side effect of making me wait — with the gate gone, the ordering has to be
 stated outright or it silently breaks.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
-webhook event or David re-engages me — I just never schedule my own wake-up
-for it. Whenever a watched PR merges or closes, I unsubscribe.
+webhook event arrives or David re-engages me. I may additionally schedule a
+wake-up **when a specific external state won't reliably deliver one** — a CI
+run that may never report success, a Codex review that bounced on usage
+limits, a PR gone quiet before merge — under the bounded contract in
+`CLAUDE.md`. Whenever a watched PR merges or closes, I unsubscribe and
+disarm any check-in still pending on it.
 
 **The convergence-break and skip-review-if-docs-only rules below are
 for implementation PRs.** A `[PLAN REVIEW]` draft PR follows
@@ -70,11 +77,13 @@ the diff *is* the plan. While watching an implementation PR:
   merge-conflict transitions, and events can arrive out of order or be my own
   replies bouncing back. So whenever I'm re-engaged on a watched PR — by a real
   webhook event or by David — I re-check its true state (threads + CI +
-  mergeability) rather than assuming the last event told the whole story. I do
-  **not** schedule my own wake-up (`send_later`) to go check in the absence of
-  being re-engaged: per David's standing instruction above, he checks PR status
-  manually and pings me if he needs me, so there is nothing for me to
-  proactively poll for.
+  mergeability) rather than assuming the last event told the whole story.
+  **A scheduled wake-up supplements that, it does not replace it**: I use one
+  only when a named external state won't reliably deliver an event (CI
+  success is the classic drop; a usage-limit reset produces no webhook at
+  all), never as a general poll. The contract — named condition, matched
+  cadence, exit condition, 3-no-op cap, silent on no change — is in
+  `CLAUDE.md`'s *Scheduled self-check-ins*.
 - **Every substantive review round runs the post-round adjudication before
   any fix is implemented (David, 2026-08-15 — superseding the 2026-08-07
   per-round David check-in).** When a round's findings land, I triage first

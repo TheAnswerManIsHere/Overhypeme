@@ -626,8 +626,10 @@ loaded:
   decision trail summarized for David at the loop's close. The contract is
   `working-modes.md`'s *"The post-round adjudication"*; what still blocks on
   him, always: product/design forks, scope additions, splits, disclosure.
-- **No `send_later` self-check-ins for this loop** — the standing
-  no-background-check-ins rule applies.
+- **Self-check-ins on this loop follow the standard contract** (see
+  *Scheduled self-check-ins*): allowed only against a named external state
+  that won't wake me — a Codex review that never arrived, a stalled CI run —
+  never as a routine heartbeat through the loop.
 
 ## Always open a PR when work is done
 
@@ -886,9 +888,20 @@ gets invoked at all, and one because it changes when David hears from me:
   so silence is never "all clear". Echoes of my own replies get the silent
   live-state check and **zero output — neither chat narration nor a GitHub
   reply** (see the echo rule above).
-- **I never arm background self-check-in loops** (`send_later`), don't offer
-  to, and don't ask — David checks PR status manually and pings me. Standing,
-  across all PRs, independent of model tier.
+- **I may schedule bounded self-check-ins, under the contract in *Scheduled
+  self-check-ins* below (David, 2026-08-15, replacing the 2026-07-07 blanket
+  ban).** The ban was written when token burn was alarming; David's own
+  diagnosis on revisiting it — that the burn was poor loop tracking and
+  scoping rather than check-ins as such — holds up against the record: the
+  canonical case (PR #333, six rounds and a 660-line plan for two markdown
+  files) had nothing to do with check-ins, and the loop ledger, stopping
+  rules, criticality gate and ceremony tiering that now catch that class all
+  postdate the ban. **What makes this newly necessary rather than merely
+  affordable:** close-out is mine end to end now, so a PR that goes quiet has
+  nobody watching it — David's manual pings used to be a natural sync point
+  because he was clicking merge anyway. The live example is in this very PR's
+  history: Codex bounced on usage limits with nothing scheduled to notice the
+  reset.
 - **Every substantive review round pauses for the post-round adjudication
   before any fix is implemented (David, 2026-08-15 — superseding the
   2026-08-07 per-round David check-in).** When a round's findings land, I
@@ -1096,6 +1109,59 @@ enactment:
   preflight would be: its value is the *absence* of my context, which my main
   loop cannot reproduce at any size.
 
+## Scheduled self-check-ins (David, 2026-08-15 — replacing the blanket ban)
+
+**The rule is scoped to the behavior, not to a tool name — that is the whole
+point of rewriting it.** The old rule named `send_later` and one context
+(PR-watching), while the capability exists behind at least four doors:
+`send_later`, `create_trigger`, `ScheduleWakeup`, and `/loop`. So it read as
+binding when the door was PR-watching and silently inapplicable when it
+wasn't — which is exactly the inconsistency David reported ("in some contexts
+you seem to be able to do it, in others you say per the rules I can't"). **A
+rule keyed to a tool name will always do that.** What follows governs *any
+mechanism that causes a future turn to start without David typing anything*.
+
+**Allowed only when I am waiting on a specific external state that will not
+reliably wake me.** Named cases: CI that may never report success, a Codex
+usage-limit reset, a PR gone quiet before merge, a long-running Replit
+operation. **Never** a general "poll for work" heartbeat, never a substitute
+for finishing something now, and never to re-check something a webhook
+reliably delivers.
+
+Every scheduled check-in carries all four of these, or it doesn't get
+scheduled:
+
+1. **A named condition I am waiting on** — writable in one sentence. If I
+   can't name it, that's the signal there's nothing to wait for.
+2. **A cadence matched to that condition**, not a fixed heartbeat. A usage
+   limit that resets on the order of hours gets hours; a CI run that takes
+   eight minutes gets one check at roughly eight minutes, not eight checks a
+   minute apart.
+3. **An exit condition**, so it terminates on its own rather than by my
+   noticing.
+4. **A cap of 3 consecutive no-op wakes**, after which I stop, disarm, and
+   tell David what I was waiting for and that it never arrived. The failure
+   the old ban really protected against was wake → find nothing → re-arm →
+   repeat, each wake paying a full context read; the cap is what makes that
+   bounded instead of open-ended, and it's the part to keep even if the rest
+   is later loosened.
+
+**A no-change wake is silent** — no chat line, no notification, no GitHub
+comment. It re-arms or it stops. Announcing "nothing changed" would recreate
+the noise the sparse-chat rule exists to remove.
+
+**Cost stays visible.** Because the ledger exists now, self-wakes get counted
+in the loop record, so a future "is this worth it" conversation runs on data
+rather than on how it felt.
+
+**Permissions.** Scheduling and cancelling both need the MCP trigger tools
+allowlisted in `.claude/settings.json`. Those entries are keyed to an MCP
+server prefix containing a **volatile per-environment UUID** — proven volatile
+in this session, where the Replit server's prefix changed mid-conversation —
+so if David is ever prompted to approve a trigger call again, a changed UUID
+is the first thing to check, and the fix is re-pointing the allowlist entries
+at the current prefix.
+
 ## Standing devops rituals (David, 2026-07-22)
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
@@ -1105,9 +1171,16 @@ enactment:
   section; Dependabot majors still never auto-merge.) The pass now also
   hosts the **loop-ledger flush and the weekly "how are we doing, what can
   we improve" conversation** — see the loop-ledger section above. David
-  invokes it roughly weekly; I never schedule it (no-background-check-ins
-  stands). David asked for a one-shot ~4-week reminder (around 2026-08-19)
-  to revisit automating it.
+  invokes it roughly weekly; **I still don't schedule it, but the reason has
+  changed (2026-08-15).** It used to be barred by the blanket
+  no-background-check-ins rule; that rule is gone, and the bounded contract
+  that replaced it doesn't authorize this either — a weekly ritual is a
+  recurring heartbeat, not a wait on a named external state, and heartbeats
+  are the one thing that contract still rules out. **Turning `/maintenance`
+  into a real scheduled routine is a separate decision**, which is precisely
+  what David's one-shot ~4-week reminder (around 2026-08-19) exists to
+  revisit. That reminder is now schedulable and is the natural first use of
+  the new capability.
 - **Quarterly security review.** Roughly every quarter — or after any
   payment-path / auth-touching feature merges, whichever comes first — David
   asks for a `/security-review` pass. Opus always (per the tier table: a missed
