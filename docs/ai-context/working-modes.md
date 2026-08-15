@@ -870,7 +870,7 @@ product-visible, ship a written verification note in the PR body instead of
 a click-through UAT doc, regardless of how many or which triggers fired —
 the same ship-the-UI-surface exception feature mode already grants pure
 infra/refactor changes (see
-[`../tests/testing-guide.md`](../tests/testing-guide.md) and
+[`../tests/TESTING.md`](../tests/TESTING.md) and
 CLAUDE.md). A click-through script for a fix with no in-app surface to click
 through is manufactured ceremony, not verification. The moment the fix also
 touches anything product-visible — even indirectly, e.g. a codegen change
@@ -936,7 +936,7 @@ oracle and the Tier A/B bugfix oracle below.
    small-looking fix does its damage.
 6. **Verify — scoped by step 5, not by the diff (David, 2026-08-09).** The
    touched tests + typecheck (see
-   [`../tests/testing-guide.md`](../tests/testing-guide.md)), **plus the
+   [`../tests/TESTING.md`](../tests/TESTING.md)), **plus the
    test suites of the neighbors the blast radius named** — the callers and
    shared-path dependents step 5 identified. A fix that breaks a neighbor
    is the exact failure the bugfix oracle warns about, and step 5's output

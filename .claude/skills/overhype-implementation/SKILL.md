@@ -26,7 +26,7 @@ Turn an **approved** plan into a safe, in-scope change.
 4. **Update docs** in the same change if product/architecture truth shifts
    (`docs/ai-context/*`), so the next agent isn't working from stale context.
 5. **Run relevant tests** via the repo runners (see
-   [`docs/tests/testing-guide.md`](../../../docs/tests/testing-guide.md)) —
+   [`docs/tests/TESTING.md`](../../../docs/tests/TESTING.md)) —
    never raw `node --test`. Add regression tests that prove the general invariant.
 
 ## Stop-and-report

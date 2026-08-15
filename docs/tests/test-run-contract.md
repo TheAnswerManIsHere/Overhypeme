@@ -246,7 +246,7 @@ the durable half.
 
 ## Related
 
-- [`testing-guide.md`](testing-guide.md) — how tests are actually run in this
+- [`TESTING.md`](TESTING.md) — how tests are actually run in this
   repo, and what to report after running them.
 - [`migrations-and-backfills.md`](migrations-and-backfills.md) — the
   idempotency and row-state expectations a migration check should assert.

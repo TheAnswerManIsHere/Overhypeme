@@ -3,7 +3,7 @@
 > Safe schema and data-change practices. Schema lives in `lib/db/src/schema/*.ts`
 > (Drizzle). Apply locally with `pnpm --filter @workspace/db push-force` then
 > `pnpm --filter @workspace/db run migrate`. Verify with the test runners in
-> [`testing-guide.md`](../tests/testing-guide.md).
+> [`TESTING.md`](../tests/TESTING.md).
 
 ## Migration principles
 
