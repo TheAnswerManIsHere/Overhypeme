@@ -22,8 +22,19 @@ never armed — David (2026-07-07) checks PR status manually and pings me.
 The old gate's companion rule — *"if the session gets switched to Sonnet
 later, that's the moment to subscribe any open unwatched PR"* — is retired
 with it: there is no tier moment to wait for any more. What survives is the
-substance underneath, now unconditional: **an open PR I created and am not
-yet watching gets subscribed the moment I notice it, without David re-asking.**
+substance underneath: **an open PR I created and am not yet watching gets
+subscribed the moment I notice it, without David re-asking.**
+
+**One explicit exception, and it is not optional (Codex, PR #458 round 1):
+a `/document` harvest PR is subscribed only at step 5 of
+[`documentation-workflow.md`](../../../docs/ai-context/documentation-workflow.md)** —
+after the workstream issue exists and the PR body's `Workstream:` line points
+at it. Subscribing performs label writes, so subscribing early labels an
+untracked draft against a missing or wrong issue; that doc says in as many
+words that deferring the *subscribe* is what defers labeling, since draft
+status alone does not. The old tier gate happened to enforce this ordering as
+a side effect of making me wait — with the gate gone, the ordering has to be
+stated outright or it silently breaks.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event or David re-engages me — I just never schedule my own wake-up
@@ -130,12 +141,20 @@ the diff *is* the plan. While watching an implementation PR:
   3. **Any recurrence of a swept class** (the shared protocol's process
      failure): the class re-naming goes to the Opus subagent, and the
      recurrence is called out in that round's record.
-  Sensitive-path PRs (the tier table's Opus-always rows) run the whole loop
-  on Opus, so triggers 1–2's Opus-subagent dispatch is redundant there — the
-  main loop already is Opus. **The sweep itself (name the class, write the
-  oracle, sweep to zero) and the recurrence round-record flag still apply on
-  Opus loops** — a swept class recurring is a process signal David needs to
-  see regardless of which tier caught it.
+  **All three triggers stay live on an Opus main loop — corrected
+  2026-08-15 (Codex, PR #458 round 1).** These lines used to call triggers
+  1–2's dispatch "redundant" on an Opus loop, which was harmless when Opus
+  loops were the exception and is dangerous now that *every* loop is Opus:
+  read literally it retires trigger 1 entirely, and trigger 1 protects the
+  one verdict nothing downstream catches (a wrong decline resolves the
+  thread and no one sees it again). **The trigger was never about reaching a
+  stronger tier — it is about an independent challenge from a context that
+  did not produce the conclusion**, which a same-tier subagent supplies just
+  as well. Only the framing changes: on an Opus loop the dispatch is a
+  second opinion, not an escalation, so it needs no "spending above the
+  session's rate" announcement. The sweep itself (name the class, write the
+  oracle, sweep to zero) and the recurrence round-record flag apply
+  throughout.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class

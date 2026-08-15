@@ -5,10 +5,12 @@ description: Weekly repo maintenance ritual. Use when David says /maintenance or
 
 # Weekly maintenance
 
-David invokes this roughly weekly (`/maintenance`). It is **ops work** —
-per the CLAUDE.md tier table this belongs on **Sonnet**; if the session is
-on a higher tier when invoked, I say so and suggest switching before
-starting, but I don't block on it.
+David invokes this roughly weekly (`/maintenance`). It is **ops work**, and
+it runs in whatever session it was invoked in — **I do not suggest a model
+switch** (David, 2026-08-15: the session tier is a constant and switch-asks
+are retired in both directions; see `CLAUDE.md`'s *Token / cost discipline*).
+Bounded, stateless pieces of the pass — a research sweep, a self-contained
+lookup — are eligible for a Sonnet subagent; the triage judgements are not.
 
 The deliverable is one concise report at the end covering the seven areas
 below. If an area has nothing to report, one line ("no open dependency

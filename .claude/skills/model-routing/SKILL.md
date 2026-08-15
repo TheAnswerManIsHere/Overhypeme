@@ -127,10 +127,15 @@ deliberate escalation.
   rate without David touching anything, I say when I'm dispatching one and why,
   in the same breath as dispatching it. Silent escalation is the failure mode to
   avoid here.
-- **Don't make Fable the session default.** The `best` alias resolves to Fable
-  wherever it's available, which would put *every* ops-shaped turn on the most
-  expensive model. `/model fable` for a deliberate Fable session is fine; `best`
-  as a persisted default is not.
+- **Don't make Fable the session default, and don't propose a Fable session
+  at all (updated 2026-08-15).** The `best` alias resolves to Fable wherever
+  it's available, which would put *every* ops-shaped turn on the most
+  expensive model, so it is not a valid persisted default. This bullet used
+  to add that "`/model fable` for a deliberate Fable session is fine" — that
+  is **superseded**: the session model is a constant and I no longer propose
+  moving it in any direction. Fable is reached by subagent, full stop. (David
+  can of course still switch his own session whenever he wants; what changed
+  is that I don't ask him to.)
 - **Fable falls back on its own when flagged.** Its safety classifiers are
   tuned for cyber/bio content and occasionally trip on benign security work; a
   flagged request automatically falls back to Opus rather than hard-failing.
@@ -154,15 +159,17 @@ Two facts that decide how we use it today:
   Sonnet or Opus main with a Fable advisor — **cannot be configured yet.** This
   is worth re-checking periodically; it is the single change that would most
   automate our escalation policy.
-- **What works now is `Sonnet main + Opus advisor`**, which automates the
-  *Debugging new features* row of CLAUDE.md's tier table: Sonnet handles routine work
-  and escalates the hard moments without a model switch. It costs
-  advisor-model tokens on top of the main model, and it is experimental.
-  **David approved trialing it for review loops on 2026-08-07; that trial is
-  superseded by the structural triggers below as of 2026-08-08 — do not
-  suggest `/advisor opus` for a review loop.** The advisor stays live for
-  the *Debugging new features* row above, which this supersession doesn't
-  touch.
+- **`Sonnet main + Opus advisor` is retired — the configuration no longer
+  exists (2026-08-15).** It used to be the live automation for the tier
+  table's *Debugging new features* row: Sonnet handling routine work and
+  escalating hard moments without a switch. That row now keeps diagnosis in
+  the Opus main loop, and the session is never on Sonnet in the first
+  place, so recommending `/advisor opus` would be both redundant (Opus
+  advising Opus) and a user-operated configuration ask of exactly the kind
+  this change removed. **Do not suggest it** — for review loops (already
+  superseded 2026-08-08 by the structural triggers below) or for debugging.
+  The advisor as a *mechanism* stays interesting if Fable ever becomes
+  available as one; see the bullet above.
 
 ### Review-loop triage: the structural Opus subagent triggers (David, 2026-08-08, superseding the 2026-08-07 discretionary trigger)
 
@@ -192,16 +199,20 @@ Unchanged from 2026-08-07: one-shot, no session switch, no action from
 David, and the announce-don't-sneak rule — a subagent spending above the
 session's rate gets said out loud in the same breath as dispatching it.
 This is a sanctioned judgment escalation, not a verify-my-own-work
-subagent (which stays barred by CLAUDE.md's delegation caps). On loops
-already running at Opus (sensitive-path PRs, all plan reviews), triggers
-1–2 are moot; trigger 3's round-record flag still applies.
+subagent (which stays barred by CLAUDE.md's delegation caps).
 
-**The `/advisor opus` review-loop trial is deprioritized by the same
-change (2026-08-08):** the structural triggers cover its review-loop use
-case with tighter scoping and zero cost on routine rounds, where the
-advisor charges Opus tokens across the whole session. The advisor remains
-the sanctioned automation for the tier table's *Debugging new features*
-thrash-escalation row; it just isn't the review-loop mechanism anymore.
+**All three triggers stay live on an Opus main loop — corrected 2026-08-15
+(Codex, PR #458 round 1).** This paragraph used to say triggers 1–2 were
+"moot" on loops already running at Opus. Under the old contract that was a
+harmless shorthand, because Opus loops were the exception; now that *every*
+loop is Opus it would silently retire the two triggers entirely — including
+trigger 1, which protects the one verdict nothing downstream catches. **The
+triggers were never about reaching a stronger tier; they are about an
+independent challenge from a context that did not produce the conclusion.**
+A same-tier subagent still supplies that, and a decline still gets argued
+against before it posts. What genuinely changes on an Opus loop is only the
+*framing* — a dispatch is a second opinion, not an escalation, so it carries
+no "spending above the session's rate" announcement.
 
 ### Stopping-rule decisions: the adversarial Fable subagent (David, 2026-08-13)
 

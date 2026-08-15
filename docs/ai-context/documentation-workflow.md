@@ -5,13 +5,23 @@
 > enacts it with Claude tooling; Codex reads this doc directly. Same
 > relationship as [`working-modes.md`](./working-modes.md) ↔ the `bugfix` skill.
 
-When David judges a feature done, the durable learnings from building it —
-decisions and their *why*, gotchas, the new shape of a subsystem — should be
-locked into the repo's versioned docs before the chat that holds them
-evaporates. This is that ceremony. It turns the standing "memory lives in
-files" habit into an explicit, David-triggered fold-in pass, and it is how the
-human-facing [Overhype.me Manual](../manual/README.md) gets written,
-incrementally, one area at a time.
+When a feature is done, the durable learnings from building it — decisions
+and their *why*, gotchas, the new shape of a subsystem — should be locked
+into the repo's versioned docs before the chat that holds them evaporates.
+This is that ceremony. It turns the standing "memory lives in files" habit
+into an explicit fold-in pass, and it is how the human-facing
+[Overhype.me Manual](../manual/README.md) gets written, incrementally, one
+area at a time.
+
+**Who triggers it (David, 2026-08-15 — this used to read "David-triggered"):**
+either David, by asking, **or the agent itself**, by judging at close-out
+that a merged task cleared the harvest bar below. David explicitly retired
+the ask for Claude Code; the agent now decides and starts the pass on its
+own. What did *not* change: the bar, the sources, the routing rules, and the
+fact that the pass's output still goes to David as a report and a PR.
+Enactment detail — including the tier guard on the judgement and the rule
+that the *harvest* never runs in a subagent — is each agent's own (Claude
+Code's is in `CLAUDE.md`).
 
 ## Relationship to the other two memory mechanisms
 
@@ -27,9 +37,10 @@ separate is the whole point — don't collapse them:
    proactively keeps a running working-notes doc for the area, capturing
    decisions and subsystem shape *as work progresses*. This ceremony **relies
    on** those notes as a harvest source but does not replace them.
-3. **The `/document` ceremony (this doc).** At a feature's *end*, David
-   triggers a harvest across the agent-facing docs and — when warranted — the
-   human manual. This is the heavyweight, whole-feature pass.
+3. **The `/document` ceremony (this doc).** At a feature's *end*, a harvest
+   runs across the agent-facing docs and — when warranted — the human
+   manual, triggered either by David or by the agent's own close-out
+   judgement (see above). This is the heavyweight, whole-feature pass.
 
 ### Trigger semantics — decide by what "this" refers to
 

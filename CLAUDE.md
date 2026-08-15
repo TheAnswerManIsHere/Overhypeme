@@ -427,16 +427,52 @@ is genuinely unclear.
 
 ### I proactively remind David to run `/document`
 
-David asked (2026-07-23) that I not rely on him remembering this ceremony.
-When a moment has produced durable learnings worth harvesting — per the
-shared contract's bar (a settled decision + rationale, a subsystem shape
-change, a generalizing gotcha that cost real time, a new term of art, a
-retired mistake, roadmap movement) — I suggest running `/document` rather
-than waiting to be asked; most often right after a product-visible PR merges
-with non-trivial decisions behind it, or a long area session wraps having
-surfaced real subsystem truth. The reminder is a one-line nudge at a natural
-stopping point, not a gate — David decides what the moment warrants, and the
-trigger stays his: I never run `/document` unprompted.
+David asked (2026-07-23) that I not rely on him remembering this ceremony,
+and (2026-08-15) **retired the "trigger stays his" rule entirely: I now judge
+whether a merged task warrants a `/document` pass and kick it off myself,
+without asking.** The judgement is made against the shared contract's bar —
+a settled decision + rationale, a subsystem shape change, a generalizing
+gotcha that cost real time, a new term of art, a retired mistake, roadmap
+movement. Nothing clearing that bar means no pass; I don't run one to be
+seen running one.
+
+**When the judgement happens:** at close-out, after the merge and Repl sync
+(see *Close-out is mine, end to end*), which is the moment the task's
+learnings are complete and freshest. A long area session that wraps without
+a merge is the other natural trigger.
+
+**The tier guard, and why it is load-bearing rather than ceremony (David,
+2026-08-15).** David's instruction was explicit: make this judgement on
+**Opus**, and if the session is on a lower tier, dispatch a subagent to make
+it instead. That is not belt-and-braces — two documented environments can
+put a session below Opus despite `settings.json` (an in-Repl session's
+`settings.local.json` override, and any session still running under the old
+`opusplan` value, since `model` is read once at session start; both are
+detailed under *Token / cost discipline*). So, mechanically:
+
+1. **Check the tier actually in play** before judging — never assume it from
+   the settings file.
+2. **On Opus:** make the judgement in my main loop.
+3. **Not on Opus:** dispatch a **one-shot Opus subagent** whose only job is
+   the judgement — hand it the merged diff, the decisions taken, and the bar
+   above; it returns run/don't-run plus what it judged harvestable. I
+   announce the dispatch and act on its verdict.
+
+**The harvest itself always runs in the context-bearing main loop, never in
+a subagent** — including when a subagent made the judgement.
+[`documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+makes the *build session's* decisions and rejected alternatives the harvest's
+first source, and a subagent inherits none of that. Judging is a bounded
+question with a clean handoff; harvesting is not. (See the routing list under
+*Token / cost discipline* — this is the same boundary, and Codex flagged the
+first draft of that list for getting it wrong.)
+
+**What still reaches David:** the pass's report, and its PR, exactly as
+before. Autonomy here is about the *trigger*, not the output — he still sees
+everything the harvest produces, and a `/document` PR follows the normal
+review-and-merge path (including the deferred-subscription ordering in the
+`pr-watch` skill). He can also still invoke `/document` himself whenever he
+wants; that path is unchanged.
 
 ---
 
@@ -976,7 +1012,15 @@ verification — is post-merge for the same structural reason.
    the sync fails or the checks don't match, I say so plainly and stop — no
    blind retries, never papering over a partial sync, and I don't invite him
    to test something that isn't actually there.
-6. **A failed UAT is a follow-up PR, not a crisis.** The merge already
+6. **Then I judge whether the task warrants a `/document` pass, and start
+   one if it does — no ask (David, 2026-08-15).** This is the moment the
+   task's learnings are complete and freshest. The bar, the Opus tier guard
+   (check the active tier; route the *judgement* to an Opus subagent if the
+   session is below it), and the rule that the *harvest* always stays in my
+   main loop are all in *I proactively remind David to run `/document`*
+   above. A "no pass needed" verdict is a one-line note in the merge report,
+   not silence — David should be able to see the judgement was made.
+7. **A failed UAT is a follow-up PR, not a crisis.** The merge already
    happened; that's the design, not a mistake to undo. I fix forward on a
    fresh branch through the normal pipeline. A revert is only for a `main`
    that's actually broken (the Repl won't run, something's badly wrong), not
@@ -1293,17 +1337,39 @@ window) and flagged that routine ops work — checking PR comments, watching
 CI, mechanical fixes — was running at premium-model cost with redundant tool
 calls. Two concrete, durable changes:
 
-- **The session is always Opus, and I never ask David to switch it (David,
-  2026-08-15 — replacing the prompt-for-switches rule this bullet used to
-  open with).** `.claude/settings.json` pins **`opus`**, so every session —
-  pre-plan conversation, planning, the plan-review loop, building, watching
-  PRs, ops — starts and stays there. **A model switch is no longer a thing I
-  ask for in any direction.** David's report that made this change: the
-  switch-ask was "a real blocker," and it was — the contract had asks
-  pointing *both* ways (up to Opus for planning, down to Sonnet for
+- **The web/builder session is always Opus, and I never ask David to switch
+  it (David, 2026-08-15 — replacing the prompt-for-switches rule this bullet
+  used to open with).** `.claude/settings.json` pins **`opus`**, so every
+  session I work in — pre-plan conversation, planning, the plan-review loop,
+  building, watching PRs, ops — starts and stays there. **A model switch is
+  no longer a thing I ask for in any direction.** David's report that made
+  this change: the switch-ask was "a real blocker," and it was — the contract
+  had asks pointing *both* ways (up to Opus for planning, down to Sonnet for
   watching), each landing at exactly the moment work should have flowed.
   Where a cheaper or stronger tier genuinely fits, **I route the work to a
-  subagent** and the session never moves. Two consequences:
+  subagent** and the session never moves.
+  - **Two documented environments are NOT covered by that pin, so I verify
+    the active tier rather than assuming it (Codex, PR #458 round 1).**
+    1. **In-Repl Claude Code sessions run Sonnet, deliberately.** The Repl
+       carries a gitignored
+       `/home/runner/workspace/.claude/settings.local.json` with
+       `"model": "sonnet"`, and **local settings take precedence over this
+       project file** — see
+       [`replit-environment.md`](docs/ai-context/replit-environment.md).
+       That override is correct and stays; it matches the ops tier that
+       session works at. The claim above is scoped to the web/builder
+       session, not to every process that loads this repo.
+    2. **A session that started under the old `opusplan` setting stays on
+       `opusplan` until it restarts**, because `model` is read once at
+       session start. Such a session drops back to Sonnet on leaving plan
+       mode — while loading a contract that has removed every tier check.
+    **So: before any work this contract reserves to Opus** — a migration, a
+    Tier B fix, a security review, the `/document` harvest judgement — **I
+    check the tier actually in play and, if it is not Opus, route that
+    judgement to an Opus subagent rather than proceeding on the assumption.**
+    This is a real guard, not ceremony: it is what makes the two cases above
+    safe instead of silently wrong.
+  - Two consequences of the pin itself:
   - **The old "will Codex or David's testing catch this?" test no longer
     picks the *session* tier** — the session is Opus regardless, which is
     the safe side of that question by construction. The test still governs
@@ -1331,15 +1397,26 @@ calls. Two concrete, durable changes:
     plan mode is no longer what puts the session on Opus.)
   - **What I route to a Sonnet subagent — stateless and bounded only.** The
     test is whether the work has a clean handoff and no running state: a
-    documentation drafting or `/document` harvest pass, a codebase
-    "how does X work" investigation, a mechanical multi-file edit from an
-    already-approved plan, a self-contained research sweep. **What I never
-    route:** a review loop or any other long-running stateful loop (see the
-    rejected-substitute note under *Watching the PRs I open*), anything
-    where the judgment is mine to make, and verification of my own work
-    (barred by the delegation caps below). I announce a dispatch and why, in
-    the same breath — the announce-don't-sneak rule applies in both
-    directions, not just for the expensive tiers.
+    codebase "how does X work" investigation, a mechanical multi-file edit
+    from an already-approved plan, a self-contained research sweep, or
+    drafting prose from a handoff that is **already complete**. **What I
+    never route:** a review loop or any other long-running stateful loop
+    (see the rejected-substitute note under *Watching the PRs I open*),
+    anything where the judgment is mine to make, and verification of my own
+    work (barred by the delegation caps below).
+    - **A `/document` harvest is NOT routable, despite looking like the
+      ideal candidate (Codex, PR #458 round 1).** My first draft of this
+      list named it explicitly, which was wrong:
+      [`documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+      makes *the build session's* decisions and rejected alternatives the
+      harvest's **first source**, and a subagent inherits none of that
+      session history — so a cold worker would silently omit precisely the
+      learnings the ceremony exists to preserve. The **harvest** stays in
+      the context-bearing main loop; only **drafting from an already-complete
+      handoff** is safely delegable.
+    - I announce a dispatch and why, in the same breath — the
+      announce-don't-sneak rule applies in both directions, not just for
+      the expensive tiers.
   - **Effort IS a persistable second lever — `effortLevel` in
     `.claude/settings.json` (corrected 2026-08-15, same day).** My first
     version of this bullet said no such setting existed. That was wrong, and
@@ -1372,7 +1449,7 @@ calls. Two concrete, durable changes:
     | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
     | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
     | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
-    | Triaging Codex review comments | **Sonnet**, with structural Opus-subagent triggers | Most comments are mechanical fixes, and the class-and-sweep protocol (`working-modes.md`) makes thoroughness mechanical rather than tier-dependent. The Opus subagent fires on structure, never self-assessed ambiguity: any decline, any finding with no mechanical oracle, any recurrence of a swept class (see `model-routing`). |
+    | Triaging Codex review comments | **My main loop — explicitly NOT routable**, with structural adversarial-subagent triggers | A review loop is stateful and its adjudication is mine (see *Watching the PRs I open*), so this row is a named exception to the "a Sonnet row is subagent-routable" reading above — routing it would send stateful adjudication to a cold worker. The class-and-sweep protocol (`working-modes.md`) makes thoroughness mechanical. The independent-challenge subagent still fires on structure, never self-assessed ambiguity: any decline, any finding with no mechanical oracle, any recurrence of a swept class (see `model-routing`). |
 
   - **I stay vocal about *routing*, not about the session tier — David
     expects to forget this, not track it.** The session tier is now a
