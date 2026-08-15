@@ -137,10 +137,20 @@ working-modes.md.) Read
 [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md) for the full
 contract of each and how to switch between them.
 
-**End-of-feature documentation.** When David invokes `/document` or asks to lock
-in a finished feature's learnings, follow
+**End-of-feature documentation.** Follow
 [`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
-(distinct from a one-off "remember this," which is immediate targeted persistence).
+on **either** trigger (distinct from a one-off "remember this," which is
+immediate targeted persistence):
+
+- **David invokes `/document`** or asks to lock in a finished feature's learnings.
+- **The agent's own close-out judgement (David, 2026-08-15).** After merging a
+  task, judge whether it cleared that document's harvest bar and, if so, start
+  the pass **without asking**. This trigger has to be named here because this
+  file is the always-loaded entrypoint: a grant that exists only in the
+  workflow doc never fires, since nothing routes an agent there absent a
+  request. Enactment detail — the tier guard on the judgement, and the rule
+  that the harvest itself never runs in a subagent — is each agent's own
+  (Claude Code's is in `CLAUDE.md`).
 
 **Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
 has a GitHub issue as its spine, tracked on a private Project board and kept

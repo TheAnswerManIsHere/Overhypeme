@@ -71,8 +71,16 @@
 - **Decision:** Three changes, superseding the model-switching half of the
   2026-07-24 entry below:
   1. **`.claude/settings.json` default model → `opus`** (was `opusplan`).
-     Every session — pre-plan conversation, planning, the plan-review loop,
-     building, PR-watching, ops — starts and stays on Opus.
+     The **web/builder** session — pre-plan conversation, planning, the
+     plan-review loop, building, PR-watching, ops — starts and stays on
+     Opus. **Scoped deliberately:** an in-Repl session is pinned to
+     `sonnet` by a gitignored `settings.local.json` that outranks the
+     project file (see
+     [`replit-environment.md`](./replit-environment.md)), and a session
+     still running under the old `opusplan` value keeps it until restart.
+     Both stay as they are; the contract's response is to verify the tier
+     actually in play before Opus-reserved work rather than inferring it
+     from the settings file.
   2. **The Sonnet gate on PR-watching is retired.** Claude subscribes to a PR
      it opens immediately, on whatever tier the session is on, for
      implementation and `[PLAN REVIEW]` PRs alike. Claude no longer asks for a

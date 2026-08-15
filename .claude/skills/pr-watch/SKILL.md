@@ -216,28 +216,38 @@ the diff *is* the plan. While watching an implementation PR:
   a third round fires the adversarial-adjudication tripwire — per
   `working-modes.md`'s *Docs-only loops continue on consequence, not
   count*.
-- **A Codex "usage limits for security reviews" bounce is not a real
-  finding-in-waiting — don't block on it (David, 2026-08-08).** The
-  connector's bounce comment ("You have reached your Codex usage limits
-  for security reviews. Please try again later.") does not correspond to
-  David's *visible weekly quota* — his own Codex analytics showed ~98% of
-  it remaining while the connector kept bouncing every `@codex review`
-  request on PR #371 with this exact message. That doesn't rule out some
-  other, undocumented limit specific to this feature; there's no
-  documentation either way, and no predictable time it clears. One retry
-  is fine, but past that: **don't keep retrying, don't treat the silence
-  as "no findings," and don't hold the *work* waiting on a review that
-  isn't coming** — proceed as if that round's review is unavailable.
-  **What "proceed" means now splits by stakes, matching CLAUDE.md's
-  self-merge ready bar (2026-08-15):** for docs-only/low-criticality
-  artifacts, confirmed-unavailable satisfies the bar's "converged"
-  condition — self-merge, saying plainly in the merge report that the
-  round shipped without a live pass. For anything higher-stakes, keep
-  working everything except the merge (CI, threads, other rounds), but
-  the PR does **not** self-merge on an outage — it waits for the review
-  to come back or escalates to David with the state, per the ready-bar
-  exception in CLAUDE.md's close-out contract. Note the skip in the
-  workstream/PR status rather than pretending a review happened.
+- **A "usage limits for security reviews" bounce means EXACTLY what it
+  says — security reviews. It is NOT a code-review outage (David,
+  2026-08-15, correcting the 2026-08-08 rule that used to live here).**
+  Codex has **two distinct limits**: security reviews (limited, and what
+  that comment is about) and **general code reviews, where our capacity is
+  effectively unlimited.** The bounce comment names its own scope; the
+  2026-08-08 version of this rule quoted that exact wording and still
+  concluded "proceed as if that round's review is unavailable," which is
+  the wrong conclusion and caused a real miss.
+  - **What to do: ignore it and ask for the code review.** Post
+    `@codex review` as normal. A security-limit bounce is never a reason
+    to skip, defer, or self-merge past a code review.
+  - **Today's direct evidence (PR #458):** the security bounce landed at
+    22:42, a **full code review with 8 findings arrived at 22:48**, and a
+    second round with 7 more at 22:59. Code review was working the entire
+    time the bounce was on screen. On PR #459 the same bounce led to no
+    review at all — not because Codex was unavailable, but because the
+    misreading meant **nobody asked**.
+  - **The failure mode to watch for is mine, not the connector's:** this
+    rule already existed and already quoted the "for security reviews"
+    wording, and I still read a scoped message as a blanket outage. When a
+    tool reports a limit, **read which limit** before concluding anything
+    is unavailable.
+  - The old rule's PR #371 observation (bounces while David's visible
+    weekly quota showed ~98% remaining) is consistent with this: that quota
+    is the code-review pool, which is why it stayed full while the
+    *security* limit bounced.
+  - **A genuine code-review outage** — a request that produces no review
+    and no bounce — still exists as a case, and the stakes split from the
+    2026-08-15 ready bar still governs it: docs-only/low-criticality may
+    proceed noting the skip; anything higher-stakes waits or escalates.
+    **A security-limit bounce does not qualify as one.**
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or

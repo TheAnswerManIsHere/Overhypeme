@@ -20,8 +20,15 @@ was "a real blocker." Both answers come from the same verified facts:
   output, skill field, or setting that writes it**, and there is no
   `$CLAUDE_MODEL` variable.
 - **So we stopped depending on him moving it.** `.claude/settings.json` pins
-  **`opus`**, and the session stays there for everything: pre-plan
-  conversation, planning, the plan-review loop, building, PR-watching, ops.
+  **`opus`**, and the **web/builder** session stays there for everything:
+  pre-plan conversation, planning, the plan-review loop, building,
+  PR-watching, ops. **Two environments are NOT covered and must be checked,
+  never assumed:** an in-Repl session, which a gitignored
+  `settings.local.json` pins to `sonnet` and which outranks the project file
+  (see [`replit-environment.md`](../../../docs/ai-context/replit-environment.md)),
+  and any session still running under the old `opusplan` value until it
+  restarts. Before work this contract reserves to Opus, verify the tier
+  actually in play — the rule and its consequences are in `CLAUDE.md`.
   **I no longer ask for a switch in any direction.** The `opusplan` default is
   retired along with its "mind the gap" caveat — that gap existed because plan
   mode was what put the session on Opus, and now nothing needs to.
@@ -38,10 +45,19 @@ The 2026-08-15 change removed the downshift ask; it did **not** remove the
 cost concern behind it. The replacement is subagent routing, and the boundary
 is **state**, not difficulty:
 
-- **Routable**: a documentation drafting or `/document` harvest pass, a
+- **Routable**: documentation **drafting from an already-complete handoff**, a
   codebase "how does X work" investigation, a mechanical multi-file edit from
   an already-approved plan, a bounded research sweep or reproduction. Each has
   a clean handoff and a self-contained report.
+- **NOT routable — a `/document` harvest.** An earlier version of this line
+  said "a documentation drafting or `/document` harvest pass," which was
+  wrong and is the entry an agent would actually reach for when making this
+  exact decision. The harvest's first source is the *build session's* own
+  decisions and rejected alternatives, which a subagent does not inherit, so
+  a cold worker drops precisely what the ceremony exists to capture. Only the
+  **judgement** of whether to run a pass is bounded enough to route (and only
+  when the session is below Opus). See `CLAUDE.md`'s
+  *I proactively remind David to run `/document`*.
 - **Not routable**: a review loop or any long-running stateful loop; anything
   whose judgment is mine under the 2026-08-15 adjudication rules; verification
   of my own work (barred by `CLAUDE.md`'s delegation caps).
