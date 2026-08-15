@@ -679,6 +679,16 @@ What that means in practice:
 - **An implicit refspec (`git push --force-with-lease` with no target) →
   BLOCKED.** The guard cannot see my upstream, so naming the branch is the
   price of forcing.
+- **An otherwise-permitted force push with `2>&1` appended → BLOCKED. Known,
+  accepted, NOT to be fixed (David, 2026-08-15).** The guard counts `2>&1`
+  as a second branch name and denies. Verified precisely: `| tail -3` and
+  `>/dev/null` are both fine, a genuine second refspec is still correctly
+  blocked, and only the `2>&1` form trips it. **The workaround is to drop
+  the suffix** — that's the whole fix, and the reason not to touch the guard
+  is that this bug fails in the *safe* direction (it wrongly blocks, never
+  wrongly allows), so "fixing" it means making a guardrail that protects
+  against me more permissive to save a keystroke. David chose to leave it.
+  Recorded here so a future session doesn't spend the diagnosis time again.
 - **`git reset --hard` → WORKS.** It cannot reach the remote; blocking it
   protected `main` from nothing.
 - **`git push origin --delete <branch>` → still does NOT work** (the proxy
