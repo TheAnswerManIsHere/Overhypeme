@@ -29,7 +29,11 @@ was "a real blocker." Both answers come from the same verified facts:
   and any session still running under the old `opusplan` value until it
   restarts. Before work this contract reserves to Opus, verify the tier
   actually in play — the rule and its consequences are in `CLAUDE.md`.
-  **I no longer ask for a switch in any direction.** The `opusplan` default is
+  **I no longer ask for a switch in any direction** — save one narrow
+  exception: a session genuinely below Opus that reaches Opus-reserved
+  *execution* (migration, Tier B fix, security review, dev-infra), where
+  routing a judgement doesn't satisfy the reservation and I ask David to run
+  it from an Opus session (see `CLAUDE.md`'s tier guard). The `opusplan` default is
   retired along with its "mind the gap" caveat — that gap existed because plan
   mode was what put the session on Opus, and now nothing needs to.
 - **The `model` key is read once at session start.** A change to it lands on

@@ -15,15 +15,26 @@
 
 ### 2026-08-15 · Scheduled self-check-ins return under a bounded contract, scoped to the behavior rather than a tool name
 - **Decision:** The 2026-07-07 blanket ban on background self-check-ins is
-  replaced by a bounded contract. Scheduling is allowed **only** against a
-  named external state that won't reliably wake the agent (CI that may never
-  report success, a Codex usage-limit reset, a PR gone quiet before merge, a
-  long Replit operation), and every scheduled check-in carries four things:
+  replaced by a bounded contract. **Scope: a timer or trigger the agent
+  arms** — externally delivered events (GitHub webhooks, task notifications)
+  are explicitly excluded, since they carry none of these requirements and
+  the standing PR-watch workflow requires processing them. Scheduling is
+  allowed **only** against a named external state that won't reliably wake
+  the agent (CI that may never report success, a PR gone quiet before merge,
+  a long Replit operation), and every scheduled check-in carries four things:
   a named condition, a cadence matched to that condition, an exit condition,
-  and a **cap of 3 consecutive no-op wakes** after which it disarms and
-  reports. A no-change wake is silent. Self-wakes are counted in the loop
-  ledger so cost stays visible. A recurring "poll for work" heartbeat remains
-  forbidden.
+  and **two caps — 3 consecutive no-op wakes, and 6 wakes or 24 hours in
+  total.** The second exists because the first doesn't bound a *churn* loop:
+  when the watched state keeps changing without becoming terminal, no wake is
+  a no-op and the consecutive counter never trips. Hitting either cap means
+  disarm and report. A no-change wake is silent, **except a terminal one** —
+  when a wake both changes nothing and trips a cap, the report wins over the
+  silence rule. **Self-wake cost is currently unmeasured** (see the honest-gap
+  note below). A recurring "poll for work" heartbeat remains forbidden, and a
+  **Codex security-review bounce is not a qualifying case** — it says nothing
+  about code-review availability, so the response is to request the code
+  review, per
+  [`code-review.md`](../engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage).
 - **Why now:** David's diagnosis on revisiting the ban — that the original
   token burn was poor loop tracking and scoping rather than check-ins as
   such — holds up against the record. The canonical burn case (PR #333: six
@@ -33,9 +44,12 @@
   made it newly necessary rather than merely affordable** is the same-day
   close-out change: with the merge click no longer David's, he is no longer
   looking at PRs as a matter of course, so a PR that goes quiet has nobody
-  watching it. The live example arrived during the change itself — Codex
-  bounced on usage limits on PR #458 with nothing scheduled to notice the
-  reset.
+  watching it. The live example arrived during the change itself — PR #458
+  was merged with a review round outstanding and 7 findings landed 47 seconds
+  later, with nothing watching for them. (An earlier draft cited a Codex
+  usage-limit bounce as the example; that is void — a security-review bounce
+  says nothing about code-review availability and calls for a request, not a
+  scheduled wake.)
 - **Why the rule is keyed to behavior, not to a tool:** David reported the
   agent applying the ban inconsistently — binding in some contexts, ignored
   in others. The cause was structural, not judgment: the old rule named
@@ -43,11 +57,21 @@
   behind at least four doors (`send_later`, `create_trigger`,
   `ScheduleWakeup`, `/loop`). A rule keyed to one tool name is silently
   inapplicable whenever a different door is used. The replacement governs
-  *any mechanism that starts a future turn without David typing anything*.
+  **any timer or trigger the agent arms**, across all four doors — but *not*
+  externally delivered events, which an over-broad first draft ("any
+  mechanism that starts a future turn without David typing") wrongly swept in.
 - **What the ban was actually protecting, and what replaces it:** the wake →
   find nothing → re-arm → repeat loop, where each wake pays a full context
-  read. The ledger doesn't measure that, so the 3-no-op cap is the specific
+  read. The ledger doesn't measure that, so the caps are the specific
   substitute — the part to keep even if the rest is later loosened.
+- **Honest gap: self-wake cost is not measured.** An earlier draft of this
+  entry claimed self-wakes are counted in the loop ledger. They are not:
+  `loop-metrics.mjs` persists eight GitHub-derived mechanical fields with no
+  wake count, and `loop-report.mjs` derives cost from review interval and
+  preflight time only. Closing the gap needs a new persisted field plus a
+  reporting path. Until then "is this worth it" is a judgement on
+  recollection, and this decision should not be revisited on the strength of
+  counts that don't exist.
 - **Also fixed:** `.claude/settings.json`'s allowlist carried only
   `delete_trigger`, so scheduling would have prompted David even once
   permitted. All five trigger tools are now allowlisted. **Known fragility:**
@@ -61,8 +85,9 @@
   2026-08-19) exists to revisit.
 - **Reference:** `CLAUDE.md` → *Scheduled self-check-ins*; the `pr-watch` and
   `plan-review-loop` skills.
-- **Revisit if:** self-wake counts in the ledger show the cap being hit
-  routinely (the condition being waited on is the wrong one), or if
+- **Revisit if:** caps are observed being hit routinely (the condition being
+  waited on is the wrong one) — observed, not counted, per the honest gap
+  above — or if
   check-ins reappear as a measurable share of token spend.
 
 ---
@@ -84,12 +109,24 @@
   2. **The Sonnet gate on PR-watching is retired.** Claude subscribes to a PR
      it opens immediately, on whatever tier the session is on, for
      implementation and `[PLAN REVIEW]` PRs alike. Claude no longer asks for a
-     model switch **in any direction**.
+     model switch **in any direction — with one narrow exception**: when a
+     session is genuinely below Opus (an in-Repl session, or one still on
+     `opusplan` until restart) and the work itself is Opus-reserved
+     (migration, Tier B fix, security review, dev-infra), routing a
+     *judgement* to a subagent does not satisfy the reservation, so Claude
+     says so and asks David to run that work from an Opus session. The
+     retired asks were about Claude's convenience; this one is about work the
+     contract reserves, which is why it survives.
   3. **Cheaper and stronger tiers are reached by subagent routing only.**
-     Sonnet downward for stateless, bounded work (documentation passes,
-     codebase Q&A, mechanical multi-file edits from an approved plan, bounded
-     research sweeps); Fable and Opus upward as already practised. Every
-     dispatch is announced, in both directions.
+     Sonnet downward for stateless, bounded work (documentation **drafting
+     from an already-complete handoff**, codebase Q&A, mechanical multi-file
+     edits from an approved plan, bounded research sweeps); Fable and Opus
+     upward as already practised. Every dispatch is announced, in both
+     directions. **A `/document` harvest is explicitly NOT routable** — its
+     first source is the build session's own decisions, which a subagent does
+     not inherit; only the judgement of whether to run one is bounded enough
+     to route. An earlier draft of this line said "documentation passes",
+     which would have sent the harvest to a cold worker.
 - **Why:** David reported the switch-ask was "a real blocker," and it was
   structural rather than occasional: the contract carried asks pointing *both*
   ways — up to Opus for planning (because `opusplan` only covers plan-mode

@@ -19,8 +19,9 @@ immediately, on whatever tier the session is on — there is no model gate**
 `[PLAN REVIEW]` PRs alike. **Self-check-ins follow the bounded contract in
 `CLAUDE.md`'s *Scheduled self-check-ins*** (David, 2026-08-15, replacing the
 2026-07-07 blanket ban): allowed against a named external state that won't
-reliably wake me, capped at 3 consecutive no-op wakes, silent when nothing
-changed — never a routine heartbeat.
+reliably wake me, bounded by **both** caps (3 consecutive no-op wakes, and 6
+wakes or 24 hours total), silent when nothing changed **except a terminal
+wake** — never a routine heartbeat.
 
 The old gate's companion rule — *"if the session gets switched to Sonnet
 later, that's the moment to subscribe any open unwatched PR"* — is retired
@@ -42,9 +43,10 @@ stated outright or it silently breaks.
 I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event arrives or David re-engages me. I may additionally schedule a
 wake-up **when a specific external state won't reliably deliver one** — a CI
-run that may never report success, a Codex review that bounced on usage
-limits, a PR gone quiet before merge — under the bounded contract in
-`CLAUDE.md`. Whenever a watched PR merges or closes, I unsubscribe and
+run that may never report success, a PR gone quiet before merge, a review
+request that produced no review *and* no bounce — under the bounded contract
+in `CLAUDE.md`. **A security-review usage-limit bounce is not one of these:**
+request the code review instead. Whenever a watched PR merges or closes, I unsubscribe and
 disarm any check-in still pending on it.
 
 **The convergence-break and skip-review-if-docs-only rules below are
@@ -80,10 +82,11 @@ the diff *is* the plan. While watching an implementation PR:
   mergeability) rather than assuming the last event told the whole story.
   **A scheduled wake-up supplements that, it does not replace it**: I use one
   only when a named external state won't reliably deliver an event (CI
-  success is the classic drop; a usage-limit reset produces no webhook at
-  all), never as a general poll. The contract — named condition, matched
-  cadence, exit condition, 3-no-op cap, silent on no change — is in
-  `CLAUDE.md`'s *Scheduled self-check-ins*.
+  success is the classic drop), never as a general poll and never for a
+  security-review bounce. The contract — named condition, matched cadence,
+  exit condition, **both caps** (3 consecutive no-ops; 6 wakes or 24 hours
+  total), silent on no change **except a terminal wake** — is in `CLAUDE.md`'s
+  *Scheduled self-check-ins*.
 - **Every substantive review round runs the post-round adjudication before
   any fix is implemented (David, 2026-08-15 — superseding the 2026-08-07
   per-round David check-in).** When a round's findings land, I triage first

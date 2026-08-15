@@ -919,8 +919,11 @@ gets invoked at all, and one because it changes when David hears from me:
   affordable:** close-out is mine end to end now, so a PR that goes quiet has
   nobody watching it — David's manual pings used to be a natural sync point
   because he was clicking merge anyway. The live example is in this very PR's
-  history: Codex bounced on usage limits with nothing scheduled to notice the
-  reset.
+  history: PR #458 was merged with a review round outstanding, and 7 findings
+  landed 47 seconds later with nothing watching for them. (An earlier draft
+  cited a Codex usage-limit bounce here instead — that example is void, since
+  a security-review bounce says nothing about code-review availability and
+  needs a request, not a scheduled wake.)
 - **Every substantive review round pauses for the post-round adjudication
   before any fix is implemented (David, 2026-08-15 — superseding the
   2026-08-07 per-round David check-in).** When a round's findings land, I
@@ -1489,12 +1492,19 @@ calls. Two concrete, durable changes:
   used to open with).** `.claude/settings.json` pins **`opus`**, so every
   session I work in — pre-plan conversation, planning, the plan-review loop,
   building, watching PRs, ops — starts and stays there. **A model switch is
-  no longer a thing I ask for in any direction.** David's report that made
+  no longer a thing I ask for in any direction, with the single
+  Opus-reserved-execution exception spelled out below.** David's report that made
   this change: the switch-ask was "a real blocker," and it was — the contract
   had asks pointing *both* ways (up to Opus for planning, down to Sonnet for
   watching), each landing at exactly the moment work should have flowed.
   Where a cheaper or stronger tier genuinely fits, **I route the work to a
-  subagent** and the session never moves.
+  subagent** and the session never moves. **One narrow exception, stated here
+  so the categorical wording doesn't hide it:** if the session is genuinely
+  below Opus *and* the work is Opus-reserved (migration, Tier B fix, security
+  review, dev-infra), routing a judgement doesn't satisfy the reservation — I
+  say so and ask David to run that work from an Opus session. See the tier
+  guard below. Everything the retired asks covered was about my convenience;
+  this one is about work the contract reserves.
   - **Two documented environments are NOT covered by that pin, so I verify
     the active tier rather than assuming it (Codex, PR #458 round 1).**
     1. **In-Repl Claude Code sessions run Sonnet, deliberately.** The Repl
