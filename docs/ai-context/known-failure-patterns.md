@@ -921,6 +921,67 @@ acking an event whose purchase was never granted (PR #287, review round 9).
 Fixed by matching `err.constraint === "stripe_processed_events_pkey"`
 specifically.
 
+## Reading a scoped limit message as a blanket outage
+
+**Symptom:** a tool reports that *one specific capability* is unavailable, and
+you conclude the whole tool is down. Work that depended on the still-working
+capability silently stops happening — and because you concluded it was
+unavailable, you never retry, so nothing surfaces the mistake. The gap looks
+like an outage rather than an unasked question.
+
+**Why it happens:** the qualifier is the least load-bearing-looking part of the
+sentence. "You have reached your usage limits **for security reviews**" reads
+at a glance as "you have reached your usage limits," because the actionable
+part (a limit was hit) lands first and the scope arrives as trailing detail.
+The failure is reinforced by *consistency*: the message keeps appearing, which
+feels like confirmation, when it is only the same scoped condition recurring.
+
+**The nastiest version — and the one that actually happened — is when a written
+rule already quotes the qualifier and still draws the unscoped conclusion.**
+`pr-watch`'s pre-2026-08-15 rule reproduced the "for security reviews" wording
+verbatim and concluded "proceed as if that round's review is unavailable."
+Having the evidence in the document did not prevent the error, because the
+rule's *conclusion* was what got applied, not its quoted evidence. A wrong
+conclusion sitting next to correct evidence is more durable than a plain
+mistake: it looks sourced.
+
+**Avoid:** when a tool reports a limit, refusal, or failure, **read which
+thing it names** before concluding anything is unavailable — the scope is part
+of the message, not colour. Then check the cheap disconfirming evidence: did
+the supposedly-unavailable capability produce output anyway, before or after?
+On PR #458 a full code review landed six minutes after the "outage," which
+would have refuted the reading immediately had anyone looked. And when writing
+a rule from an observed failure, make the rule's conclusion quote the same
+scope its evidence does.
+
+**Overhype:** the canonical fact and the standing rule live in
+[`code-review.md`](../engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage).
+Cost: PR #459 sat unreviewed until David corrected the reading, and the
+resulting "Codex is unavailable" framing fed into asking him to merge PR #458
+while a requested round was still outstanding — 7 findings then landed 47
+seconds post-merge, as defects on `main`.
+
+### Sub-pattern: a confident claim about tooling that the tooling doesn't support
+
+The same session produced three of these, which is why it is recorded as a
+pattern rather than an anecdote:
+
+| Claim asserted | Reality | How it would have been caught |
+|---|---|---|
+| No persistable effort setting exists | `effortLevel` is in the settings **schema**; only the docs *page* omits it | Read the schema, not the prose docs |
+| The Codex bounce means no review is coming | It means no *security* review | Read the qualifier; check whether a review arrived anyway |
+| Self-wakes get counted in the loop ledger | `MECHANICAL_KEYS` has eight GitHub-derived fields and no wake count | `grep` the field list before claiming it |
+
+**The common shape:** each was a claim about what a *tool* can do, asserted
+from recollection or from a plausible-but-incomplete source, and each was
+cheap to verify — one file read would have settled it. Two of the three were
+caught by review rather than by the author.
+
+**Avoid:** before writing down what a tool does or doesn't support, open the
+thing that defines it — the schema, the field list, the message text. Treat a
+docs page's *silence* as no evidence at all: a curated page will omit a key
+but will never invent one, so absence there is not absence.
+
 ## Fixing the flagged site and leaving its siblings
 
 **Symptom:** a reviewer names one place a fact is wrong or duplicated. You fix

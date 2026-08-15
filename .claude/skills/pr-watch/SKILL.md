@@ -7,8 +7,8 @@ description: Use after opening or being re-engaged on any PR (implementation or 
 
 Migrated out of `CLAUDE.md` so it loads when a PR is actually being watched.
 The three standing rules that must fire without this skill loaded — always
-subscribe (tier gate), never arm background check-ins, never resolve review
-threads — stay resident in `CLAUDE.md`.
+subscribe (no tier gate), the bounded self-check-in contract, and resolve
+review threads once addressed — stay resident in `CLAUDE.md`.
 
 ### Subscribe rules (resident in CLAUDE.md — pointer, not a second copy)
 
@@ -16,8 +16,12 @@ The subscribe rule lives in `CLAUDE.md`'s *Watching the PRs I open* stub,
 which fires at PR-open time before this skill is ever invoked: **I subscribe
 immediately, on whatever tier the session is on — there is no model gate**
 (David, 2026-08-15, retiring the Sonnet gate), for implementation and
-`[PLAN REVIEW]` PRs alike; and background self-check-ins (`send_later`) are
-never armed — David (2026-07-07) checks PR status manually and pings me.
+`[PLAN REVIEW]` PRs alike. **Self-check-ins follow the bounded contract in
+`CLAUDE.md`'s *Scheduled self-check-ins*** (David, 2026-08-15, replacing the
+2026-07-07 blanket ban): allowed against a named external state that won't
+reliably wake me, bounded by **both** caps (3 consecutive no-op wakes, and 6
+wakes or 24 hours total), silent when nothing changed **except a terminal
+wake** — never a routine heartbeat.
 
 The old gate's companion rule — *"if the session gets switched to Sonnet
 later, that's the moment to subscribe any open unwatched PR"* — is retired
@@ -37,8 +41,14 @@ a side effect of making me wait — with the gate gone, the ordering has to be
 stated outright or it silently breaks.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
-webhook event or David re-engages me — I just never schedule my own wake-up
-for it. Whenever a watched PR merges or closes, I unsubscribe.
+webhook event arrives or David re-engages me. I may additionally schedule a
+wake-up **when a specific external state won't reliably deliver one** — a CI
+run that may never report success, a PR gone quiet before merge, a review
+request that produced no code review (a security bounce is irrelevant to that
+judgement) — under the bounded contract
+in `CLAUDE.md`. **A security-review usage-limit bounce is not one of these:**
+request the code review instead. Whenever a watched PR merges or closes, I unsubscribe and
+disarm any check-in still pending on it.
 
 **The convergence-break and skip-review-if-docs-only rules below are
 for implementation PRs.** A `[PLAN REVIEW]` draft PR follows
@@ -70,11 +80,14 @@ the diff *is* the plan. While watching an implementation PR:
   merge-conflict transitions, and events can arrive out of order or be my own
   replies bouncing back. So whenever I'm re-engaged on a watched PR — by a real
   webhook event or by David — I re-check its true state (threads + CI +
-  mergeability) rather than assuming the last event told the whole story. I do
-  **not** schedule my own wake-up (`send_later`) to go check in the absence of
-  being re-engaged: per David's standing instruction above, he checks PR status
-  manually and pings me if he needs me, so there is nothing for me to
-  proactively poll for.
+  mergeability) rather than assuming the last event told the whole story.
+  **A scheduled wake-up supplements that, it does not replace it**: I use one
+  only when a named external state won't reliably deliver an event (CI
+  success is the classic drop), never as a general poll and never for a
+  security-review bounce. The contract — named condition, matched cadence,
+  exit condition, **both caps** (3 consecutive no-ops; 6 wakes or 24 hours
+  total), silent on no change **except a terminal wake** — is in `CLAUDE.md`'s
+  *Scheduled self-check-ins*.
 - **Every substantive review round runs the post-round adjudication before
   any fix is implemented (David, 2026-08-15 — superseding the 2026-08-07
   per-round David check-in).** When a round's findings land, I triage first
@@ -207,28 +220,34 @@ the diff *is* the plan. While watching an implementation PR:
   a third round fires the adversarial-adjudication tripwire — per
   `working-modes.md`'s *Docs-only loops continue on consequence, not
   count*.
-- **A Codex "usage limits for security reviews" bounce is not a real
-  finding-in-waiting — don't block on it (David, 2026-08-08).** The
-  connector's bounce comment ("You have reached your Codex usage limits
-  for security reviews. Please try again later.") does not correspond to
-  David's *visible weekly quota* — his own Codex analytics showed ~98% of
-  it remaining while the connector kept bouncing every `@codex review`
-  request on PR #371 with this exact message. That doesn't rule out some
-  other, undocumented limit specific to this feature; there's no
-  documentation either way, and no predictable time it clears. One retry
-  is fine, but past that: **don't keep retrying, don't treat the silence
-  as "no findings," and don't hold the *work* waiting on a review that
-  isn't coming** — proceed as if that round's review is unavailable.
-  **What "proceed" means now splits by stakes, matching CLAUDE.md's
-  self-merge ready bar (2026-08-15):** for docs-only/low-criticality
-  artifacts, confirmed-unavailable satisfies the bar's "converged"
-  condition — self-merge, saying plainly in the merge report that the
-  round shipped without a live pass. For anything higher-stakes, keep
-  working everything except the merge (CI, threads, other rounds), but
-  the PR does **not** self-merge on an outage — it waits for the review
-  to come back or escalates to David with the state, per the ready-bar
-  exception in CLAUDE.md's close-out contract. Note the skip in the
-  workstream/PR status rather than pretending a review happened.
+- **A "usage limits for security reviews" bounce is NOT a code-review
+  outage — ignore it and request the code review (David, 2026-08-15,
+  correcting the 2026-08-08 rule that used to live here).** Codex meters
+  security reviews and general code reviews separately, and our code-review
+  capacity is effectively unlimited. **The canonical fact, the evidence, and
+  the standing rule live in
+  [`code-review.md`](../../../docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage)**
+  — it binds every agent watching a PR, so it is not restated here. The
+  failure mode is in
+  [`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)'s
+  *Reading a scoped limit message as a blanket outage*; note that the rule
+  this replaced quoted the "for security reviews" wording and still drew the
+  unscoped conclusion, so having the evidence nearby is not protection.
+  - **My enactment:** post `@codex review` as normal and treat the bounce as
+    unrelated noise. A security-limit bounce never satisfies "converged,"
+    never justifies skipping or deferring a round, and never licenses a
+    merge.
+  - **A genuine code-review outage** — a request producing **no code
+    review**, judged *only* on whether the code review arrived. **A security
+    bounce is irrelevant noise and must not enter this test** (Codex, round
+    3): the two limits are independent, so a bounce can fire alongside a real
+    code-review outage, and an "and no bounce" conjunction would let that
+    unrelated comment mask the outage permanently — the one-retry
+    termination would never fire and a high-stakes PR would wait forever.
+    This is a real, separate case, and the stakes split from the
+    2026-08-15 ready bar governs it: docs-only/low-criticality may proceed
+    noting the skip; anything higher-stakes waits or escalates. One retry,
+    then stop re-asking. **A security-limit bounce does not qualify.**
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or

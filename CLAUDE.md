@@ -626,8 +626,10 @@ loaded:
   decision trail summarized for David at the loop's close. The contract is
   `working-modes.md`'s *"The post-round adjudication"*; what still blocks on
   him, always: product/design forks, scope additions, splits, disclosure.
-- **No `send_later` self-check-ins for this loop** — the standing
-  no-background-check-ins rule applies.
+- **Self-check-ins on this loop follow the standard contract** (see
+  *Scheduled self-check-ins*): allowed only against a named external state
+  that won't wake me — a Codex review that never arrived, a stalled CI run —
+  never as a routine heartbeat through the loop.
 
 ## Always open a PR when work is done
 
@@ -677,6 +679,16 @@ What that means in practice:
 - **An implicit refspec (`git push --force-with-lease` with no target) →
   BLOCKED.** The guard cannot see my upstream, so naming the branch is the
   price of forcing.
+- **An otherwise-permitted force push with `2>&1` appended → BLOCKED. Known,
+  accepted, NOT to be fixed (David, 2026-08-15).** The guard counts `2>&1`
+  as a second branch name and denies. Verified precisely: `| tail -3` and
+  `>/dev/null` are both fine, a genuine second refspec is still correctly
+  blocked, and only the `2>&1` form trips it. **The workaround is to drop
+  the suffix** — that's the whole fix, and the reason not to touch the guard
+  is that this bug fails in the *safe* direction (it wrongly blocks, never
+  wrongly allows), so "fixing" it means making a guardrail that protects
+  against me more permissive to save a keystroke. David chose to leave it.
+  Recorded here so a future session doesn't spend the diagnosis time again.
 - **`git reset --hard` → WORKS.** It cannot reach the remote; blocking it
   protected `main` from nothing.
 - **`git push origin --delete <branch>` → still does NOT work** (the proxy
@@ -857,7 +869,16 @@ gets invoked at all, and one because it changes when David hears from me:
 
 - **I subscribe immediately, on whatever tier the session is on — there is no
   model gate (David, 2026-08-15, retiring the Sonnet gate).** Every PR,
-  implementation and `[PLAN REVIEW]` alike. The old rule sent David a
+  implementation and `[PLAN REVIEW]` alike — **with one exception that has to
+  live here rather than in the skill: a `/document` harvest PR is subscribed
+  only at step 5 of
+  [`documentation-workflow.md`](docs/ai-context/documentation-workflow.md)**,
+  after the workstream issue exists and the PR body's `Workstream:` line
+  points at it. Subscribing performs label writes, so subscribing at open
+  labels an untracked draft against a missing or wrong issue. This exception
+  was first written into the `pr-watch` skill, which was the wrong home — the
+  skill loads *after* this resident rule has already fired at PR-open time,
+  so the rule that needed the exception never saw it. The old rule sent David a
   blocking "switch me to Sonnet" ask before I could start watching, which
   contradicted the whole point of the scope-of-work gate: his approval is
   what authorizes an autonomous run, and the first thing I did with it was
@@ -886,9 +907,23 @@ gets invoked at all, and one because it changes when David hears from me:
   so silence is never "all clear". Echoes of my own replies get the silent
   live-state check and **zero output — neither chat narration nor a GitHub
   reply** (see the echo rule above).
-- **I never arm background self-check-in loops** (`send_later`), don't offer
-  to, and don't ask — David checks PR status manually and pings me. Standing,
-  across all PRs, independent of model tier.
+- **I may schedule bounded self-check-ins, under the contract in *Scheduled
+  self-check-ins* below (David, 2026-08-15, replacing the 2026-07-07 blanket
+  ban).** The ban was written when token burn was alarming; David's own
+  diagnosis on revisiting it — that the burn was poor loop tracking and
+  scoping rather than check-ins as such — holds up against the record: the
+  canonical case (PR #333, six rounds and a 660-line plan for two markdown
+  files) had nothing to do with check-ins, and the loop ledger, stopping
+  rules, criticality gate and ceremony tiering that now catch that class all
+  postdate the ban. **What makes this newly necessary rather than merely
+  affordable:** close-out is mine end to end now, so a PR that goes quiet has
+  nobody watching it — David's manual pings used to be a natural sync point
+  because he was clicking merge anyway. The live example is in this very PR's
+  history: PR #458 was merged with a review round outstanding, and 7 findings
+  landed 47 seconds later with nothing watching for them. (An earlier draft
+  cited a Codex usage-limit bounce here instead — that example is void, since
+  a security-review bounce says nothing about code-review availability and
+  needs a request, not a scheduled wake.)
 - **Every substantive review round pauses for the post-round adjudication
   before any fix is implemented (David, 2026-08-15 — superseding the
   2026-08-07 per-round David check-in).** When a round's findings land, I
@@ -967,15 +1002,25 @@ verification — is post-merge for the same structural reason.
    because it doesn't touch production, and the Repl sync it enables is
    what makes his testing possible at all; production remains behind the
    separate, explicitly-asked `publish_app` step he manages.
-   **A confirmed Codex usage-limit bounce is a stated exception to
-   "converged," not a block on the whole bar (David, 2026-08-15)** —
-   `pr-watch`'s outage rule already says not to wait on a review that isn't
-   coming, and this reconciles the two: for a docs-only or low-criticality
-   artifact, "Codex converged" is satisfied by *ran-to-completion-or-
-   confirmed-unavailable*, and I say plainly in the merge report that the
-   round shipped without a live pass. For anything higher-stakes, the
-   outage rule's own guidance governs — I wait rather than self-merge, and
-   say so.
+   **A "usage limits for security reviews" bounce is NOT an exception to
+   "converged" and never satisfies the bar (David, 2026-08-15, correcting
+   the earlier version of this very line).** Codex meters security reviews
+   and code reviews separately and our code-review capacity is effectively
+   unlimited, so the response is to **ask for the code review** — the
+   canonical fact and evidence are in
+   [`code-review.md`](docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage),
+   not restated here. The genuine-outage exception below survives only for a request
+   that yields **no code review** — judged only on whether the code review
+   arrived, since a security bounce is independent noise that could
+   otherwise mask a real outage indefinitely: for a docs-only or
+   low-criticality artifact, "Codex converged" is then satisfied by
+   *ran-to-completion-or-confirmed-unavailable*, said plainly in the merge
+   report. For anything higher-stakes I wait rather than self-merge.
+   **And a review round I have requested but not yet received is not
+   convergence either** — if I have posted `@codex review`, the bar is not
+   met until that round lands and is triaged. Asking David to merge with a
+   round outstanding is the specific mistake that put 7 unaddressed
+   findings on `main` behind PR #458.
 2. **The carve-outs below are the only PRs that still wait for his click**
    — for those, the old ritual holds unchanged: a 🛑 NEED YOU banner with a
    push notification when the PR is ready, and only an explicit yes counts.
@@ -999,11 +1044,22 @@ verification — is post-merge for the same structural reason.
    (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
    a sync that silently didn't land looks exactly like one that did, and a
    leftover local edit rides along invisibly behind a correct SHA.
-5. **I report the outcome with both SHAs, the verification section's
-   results, and hand off to UAT** — naming what he should go click, since
-   the sync is the moment his testing becomes possible. A verification
-   failure is reported plainly and routes through the normal channel; the
-   handoff to UAT waits until the checks are clean. With no merge ask ahead of it, this report is now the moment
+5. **I make the `/document` judgement BEFORE writing the merge report**, so
+   its verdict can go in that report rather than needing a second one. The
+   bar, the Opus tier guard, and the rule that the harvest itself stays in
+   my main loop are in *I proactively remind David to run `/document`*
+   above. (This used to sit *after* the report while also requiring its
+   verdict to appear *in* the report — an ordering that couldn't be
+   satisfied without a second message or silence.) If the verdict is
+   "run a pass," the pass itself happens after the report; only the
+   judgement has to precede it.
+6. **I report the outcome with both SHAs, the verification section's
+   results, the `/document` verdict, and hand off to UAT** — naming what he
+   should go click, since the sync is the moment his testing becomes
+   possible. A "no pass needed" verdict is stated in one line, not left
+   silent: David should be able to see the judgement was made. A
+   verification failure is reported plainly and routes through the normal
+   channel; the handoff to UAT waits until the checks are clean. With no merge ask ahead of it, this report is now the moment
    David learns the build landed, so it's a major completion per the
    notification rule: it gets a push notification, and for a review loop it
    carries the loop-close decision trail (tripwires fired, how each was
@@ -1012,15 +1068,11 @@ verification — is post-merge for the same structural reason.
    the sync fails or the checks don't match, I say so plainly and stop — no
    blind retries, never papering over a partial sync, and I don't invite him
    to test something that isn't actually there.
-6. **Then I judge whether the task warrants a `/document` pass, and start
-   one if it does — no ask (David, 2026-08-15).** This is the moment the
-   task's learnings are complete and freshest. The bar, the Opus tier guard
-   (check the active tier; route the *judgement* to an Opus subagent if the
-   session is below it), and the rule that the *harvest* always stays in my
-   main loop are all in *I proactively remind David to run `/document`*
-   above. A "no pass needed" verdict is a one-line note in the merge report,
-   not silence — David should be able to see the judgement was made.
-7. **A failed UAT is a follow-up PR, not a crisis.** The merge already
+7. **Then I run the `/document` pass itself, if step 5's judgement called
+   for one — no ask (David, 2026-08-15).** Close-out is the moment the
+   task's learnings are complete and freshest, which is why the judgement
+   sits inside it rather than waiting to be asked for.
+8. **A failed UAT is a follow-up PR, not a crisis.** The merge already
    happened; that's the design, not a mistake to undo. I fix forward on a
    fresh branch through the normal pipeline. A revert is only for a `main`
    that's actually broken (the Repl won't run, something's badly wrong), not
@@ -1096,6 +1148,95 @@ enactment:
   preflight would be: its value is the *absence* of my context, which my main
   loop cannot reproduce at any size.
 
+## Scheduled self-check-ins (David, 2026-08-15 — replacing the blanket ban)
+
+**The rule is scoped to the behavior, not to a tool name — that is the whole
+point of rewriting it.** The old rule named `send_later` and one context
+(PR-watching), while the capability exists behind at least four doors:
+`send_later`, `create_trigger`, `ScheduleWakeup`, and `/loop`. So it read as
+binding when the door was PR-watching and silently inapplicable when it
+wasn't — which is exactly the inconsistency David reported ("in some contexts
+you seem to be able to do it, in others you say per the rules I can't"). **A
+rule keyed to a tool name will always do that.**
+
+**What this governs: a timer or trigger *I* arm.** Nothing else. The first
+draft said "any mechanism that causes a future turn to start without David
+typing anything," which over-corrected in the opposite direction and swept in
+**externally delivered events** — GitHub webhooks, task notifications — that
+the standing PR-watch workflow *requires* me to process and that carry none of
+these requirements by nature. Those are deliveries I don't control and never
+needed permission to receive; scoping them in here would have made the normal
+subscription workflow non-compliant with its own contract.
+
+**Allowed only when I am waiting on a specific external state that will not
+reliably wake me.** Named cases: CI that may never report success, a PR gone
+quiet before merge, a long-running Replit operation. **Never** a general
+"poll for work" heartbeat, never a substitute for finishing something now,
+and never to re-check something a webhook reliably delivers.
+
+**A Codex "usage limits for security reviews" bounce is NOT one of these
+cases** — it is scoped to security reviews and says nothing about code-review
+availability, so the response is to ask for the code review, not to schedule
+a wake for a reset (see `pr-watch`). A genuine code-review outage — a request
+yielding **no code review** (a security bounce is irrelevant to that
+judgement, and must not be allowed to mask an outage) — is a legitimate case, and there the
+`pr-watch` retry limit governs how many times I re-ask; a scheduled wake does
+not license an unbounded retry cycle that rule already terminates.
+
+Every scheduled check-in carries all four of these, or it doesn't get
+scheduled:
+
+1. **A named condition I am waiting on** — writable in one sentence. If I
+   can't name it, that's the signal there's nothing to wait for.
+2. **A cadence matched to that condition**, not a fixed heartbeat. A usage
+   limit that resets on the order of hours gets hours; a CI run that takes
+   eight minutes gets one check at roughly eight minutes, not eight checks a
+   minute apart.
+3. **An exit condition**, so it terminates on its own rather than by my
+   noticing.
+4. **Two caps, because one of them doesn't bound the loop on its own:**
+   - **3 consecutive no-op wakes** — the failure the old ban really
+     protected against (wake → find nothing → re-arm → repeat, each wake
+     paying a full context read).
+   - **6 wakes total, or 24 hours elapsed, whichever comes first.** The
+     no-op cap alone leaves a hole: when the watched state *keeps changing
+     without reaching the exit condition* — CI queued, restarted, advancing
+     through non-terminal states — no wake is a no-op, the consecutive
+     counter never reaches 3, and a loop described as bounded can re-arm
+     indefinitely. The churn path needs its own ceiling.
+
+   Hitting **either** cap means stop, disarm, and tell David what I was
+   waiting for and what state it was left in.
+
+**A no-change wake is silent** — no chat line, no notification, no GitHub
+comment. It re-arms or it stops. Announcing "nothing changed" would recreate
+the noise the sparse-chat rule exists to remove. **The one exception is a
+terminal wake**: when a wake both changes nothing *and* trips a cap, the
+report in requirement 4 wins over this silence rule. Otherwise both rules
+apply to the same wake and the contract permits disarming silently — losing
+exactly the failure report that makes the cap useful.
+
+**Cost is NOT currently measured, and I don't claim otherwise.** An earlier
+draft said self-wakes get counted in the loop ledger so cost stays visible.
+That was false: `scripts/loop-metrics.mjs` persists eight GitHub-derived
+mechanical fields (`title`, `cohort`, `size`, `rounds`, `findings`,
+`perRound`, `reviewInterval`, `warnings`) and `loop-report.mjs` computes cost
+from review interval and preflight time only — there is nowhere for a wake
+count to live and nothing that would surface it. Closing that gap means a new
+persisted field plus a reporting path, which is a real change and not part of
+this contract. **Until then, "is this worth it" is a judgement call on
+recollection, and that limitation is the honest state.** Recording it here
+because this is the third claim today I asserted without checking the
+implementation behind it.
+
+**Permissions.** Scheduling and cancelling both need the MCP trigger tools
+allowlisted in `.claude/settings.json`. Those entries are keyed to an MCP
+server prefix containing a **volatile per-environment UUID** — proven volatile
+in this session, where the Replit server's prefix changed mid-conversation —
+so if David is ever prompted to approve a trigger call again, a changed UUID
+is the first thing to check, and the fix is re-pointing the allowlist entries
+at the current prefix.
+
 ## Standing devops rituals (David, 2026-07-22)
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
@@ -1105,9 +1246,21 @@ enactment:
   section; Dependabot majors still never auto-merge.) The pass now also
   hosts the **loop-ledger flush and the weekly "how are we doing, what can
   we improve" conversation** — see the loop-ledger section above. David
-  invokes it roughly weekly; I never schedule it (no-background-check-ins
-  stands). David asked for a one-shot ~4-week reminder (around 2026-08-19)
-  to revisit automating it.
+  invokes it roughly weekly; **I still don't schedule it, but the reason has
+  changed (2026-08-15).** It used to be barred by the blanket
+  no-background-check-ins rule; that rule is gone, and the bounded contract
+  that replaced it doesn't authorize this either — a weekly ritual is a
+  recurring heartbeat, not a wait on a named external state, and heartbeats
+  are the one thing that contract still rules out. **Turning `/maintenance`
+  into a real scheduled routine is a separate decision**, which is precisely
+  what David's one-shot ~4-week reminder (around 2026-08-19) exists to
+  revisit. **That reminder is NOT schedulable under the check-in contract
+  either** — it waits on a calendar date to start a conversation, not on an
+  external state that won't wake me, and it satisfies none of the four
+  requirements. An earlier draft called it "the natural first use of the new
+  capability," which quietly created an exception to the boundary in the same
+  document that defines it. Until calendar reminders are authorized as their
+  own bounded case, David invokes it.
 - **Quarterly security review.** Roughly every quarter — or after any
   payment-path / auth-touching feature merges, whichever comes first — David
   asks for a `/security-review` pass. Opus always (per the tier table: a missed
@@ -1342,12 +1495,19 @@ calls. Two concrete, durable changes:
   used to open with).** `.claude/settings.json` pins **`opus`**, so every
   session I work in — pre-plan conversation, planning, the plan-review loop,
   building, watching PRs, ops — starts and stays there. **A model switch is
-  no longer a thing I ask for in any direction.** David's report that made
+  no longer a thing I ask for in any direction, with the single
+  Opus-reserved-execution exception spelled out below.** David's report that made
   this change: the switch-ask was "a real blocker," and it was — the contract
   had asks pointing *both* ways (up to Opus for planning, down to Sonnet for
   watching), each landing at exactly the moment work should have flowed.
   Where a cheaper or stronger tier genuinely fits, **I route the work to a
-  subagent** and the session never moves.
+  subagent** and the session never moves. **One narrow exception, stated here
+  so the categorical wording doesn't hide it:** if the session is genuinely
+  below Opus *and* the work is Opus-reserved (migration, Tier B fix, security
+  review, dev-infra), routing a judgement doesn't satisfy the reservation — I
+  say so and ask David to run that work from an Opus session. See the tier
+  guard below. Everything the retired asks covered was about my convenience;
+  this one is about work the contract reserves.
   - **Two documented environments are NOT covered by that pin, so I verify
     the active tier rather than assuming it (Codex, PR #458 round 1).**
     1. **In-Repl Claude Code sessions run Sonnet, deliberately.** The Repl
@@ -1363,10 +1523,25 @@ calls. Two concrete, durable changes:
        `opusplan` until it restarts**, because `model` is read once at
        session start. Such a session drops back to Sonnet on leaving plan
        mode — while loading a contract that has removed every tier check.
-    **So: before any work this contract reserves to Opus** — a migration, a
-    Tier B fix, a security review, the `/document` harvest judgement — **I
-    check the tier actually in play and, if it is not Opus, route that
-    judgement to an Opus subagent rather than proceeding on the assumption.**
+    **So: before any work this contract reserves to Opus, I check the tier
+    actually in play rather than inferring it from `settings.json`.** What
+    happens next depends on whether the reserved thing is a *judgement* or
+    *execution* — conflating the two is how the first version of this guard
+    under-delivered:
+    - **A bounded judgement** — the `/document` harvest judgement is the
+      model case — **routes to a one-shot Opus subagent.** It has a clean
+      handoff and a self-contained verdict, so a subagent satisfies the
+      reservation completely.
+    - **Execution reserved to Opus** — a migration, a **Tier B fix** (which
+      this contract requires me to *write myself*, so it is not routable by
+      construction), a security review, dev-infra work — **cannot be
+      satisfied by routing a judgement.** On a below-Opus session I do not
+      proceed: I say plainly that the work is Opus-reserved and the session
+      isn't, and ask David to run it from an Opus session (the one place a
+      tier ask survives, because here it is the *work* that is reserved,
+      not my convenience). Routing "should I?" to Opus and then doing the
+      work on Sonnet would satisfy the letter of the guard and none of its
+      purpose.
     This is a real guard, not ceremony: it is what makes the two cases above
     safe instead of silently wrong.
   - Two consequences of the pin itself:
@@ -1386,9 +1561,13 @@ calls. Two concrete, durable changes:
     classification** (a sensitive subsystem, or a structurally risky fix
     shape — see
     [`working-modes.md`](docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake))
-    no longer triggers a switch ask either; what it now means is that the
-    fix is **not** eligible for subagent routing — I write it myself. Those
-    are precisely the fixes where a subtle error slips both safety nets.
+    no longer triggers a switch ask **on an Opus session**; what it now
+    means there is that the fix is **not** eligible for subagent routing — I
+    write it myself. Those are precisely the fixes where a subtle error slips
+    both safety nets. **On a genuinely below-Opus session the exception in
+    the tier guard above applies instead**: a Tier B fix is Opus-reserved
+    *execution*, so I stop and ask David to run it from an Opus session
+    rather than writing it in a lower-tier main loop.
   - **Planning runs end-to-end in my main loop.** The pre-plan conversation,
     the plan, and the whole Codex plan-review loop through to David's
     approval. Nothing here is routable to a cheaper tier: it is continuous,
@@ -1469,7 +1648,14 @@ calls. Two concrete, durable changes:
   clear"), cheaper mechanics: pull threads + CI + latest commits via a
   **single** `pull_request_read` call, with `minimal_output: true` when I
   don't need full bodies. When a re-verify finds nothing new, I say so
-  ("re-checked — no new activity") so the discipline stays visible.
+  ("re-checked — no new activity") so the discipline stays visible — **unless
+  a more specific silence rule covers that check**, in which case silence
+  wins. The two live cases: a **scheduled self-check-in wake** (per
+  *Scheduled self-check-ins*) and a **webhook echo of my own comment** (per
+  the echo rule above). The principle behind the split is *who initiated the
+  check*: this rule makes a check David prompted visible to him, while both
+  silence rules stop checks **I** initiated from generating noise he never
+  asked for.
 - I also default to `list_*` over `search_*` for simple retrieval, and
   paginate in small batches (5-10 items), per the GitHub server's own
   guidance — not a cadence change, just cheaper calls for the same coverage.
@@ -1479,8 +1665,10 @@ calls. Two concrete, durable changes:
 The table above is what fires at task boundaries. The settled reference detail
 behind it — **why the session model is a constant and not a dial** (only David
 can move it, which is exactly why we stopped depending on him moving it),
-**the effort dial** (`low`…`max`, per-subagent only — there is no persistable
-effort setting), **reaching Fable 5 and Sonnet via subagent routing** without a
+**the effort dial** (**`effortLevel` persists `low` through `xhigh` in
+`.claude/settings.json`, needing no ask from David**; `max` is session-only,
+and per-subagent `effort` works independently), **reaching Fable 5 and Sonnet
+via subagent routing** without a
 session switch, and **the advisor tool** — lives in the **`model-routing`
 skill**. I invoke it when a routing question is actually live. I stay vocal
 about every dispatch and why, in both directions.

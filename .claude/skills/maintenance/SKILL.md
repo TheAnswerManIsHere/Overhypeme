@@ -389,6 +389,11 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   closures, never code, and only the specific lines David approved from
   its numbered diff. An unapproved line is not applied, and "I was already
   in there" is not approval.
-- **No scheduled self-wakeups.** David invokes this manually (standing
-  no-background-check-ins rule). If he later opts into a scheduled weekly
+- **No scheduled self-wakeups — same conclusion, different reason as of
+  2026-08-15.** This used to rest on the blanket no-background-check-ins
+  rule. That rule is gone, replaced by the bounded contract in `CLAUDE.md`'s
+  *Scheduled self-check-ins* — and that contract doesn't authorize this
+  either: a weekly ritual is a recurring heartbeat, not a wait on a named
+  external state, and heartbeats are the one thing it still rules out. So
+  David still invokes this manually. If he later opts into a scheduled weekly
   routine, that decision changes this section — not before.
