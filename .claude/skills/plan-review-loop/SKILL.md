@@ -98,8 +98,23 @@ I checked — the sources and their versions — in the plan itself. Codex's con
 then just confirms that record exists; it never substitutes model memory for
 current docs.
 
-In feature-building mode, once the pre-plan conversation has settled intent, I
-have a draft plan, and the disclosure check passes:
+**The scope-of-work gate comes between the pre-plan conversation and the
+loop (David, 2026-08-15).** Once intent has settled and before the plan's
+first push, I bring David the scope of work as a 🛑 NEED YOU banner (with
+its push notification): the direction served, this increment's product
+intent, must-not-change, settled decisions, the now/next/never boundaries
+already decided, the ceremony tier, and the 1–100 criticality. This is the
+same material the PR-body template below carries — agreed *before* the loop
+runs instead of discovered during it. **Only his explicit agreement starts
+the loop**, and that agreement is what authorizes the loop to run
+autonomously to convergence under
+[`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in)'s
+post-round adjudication: anything that would change the agreed SOW — a
+scope addition, a split, a product fork — comes back to him; everything
+else is the loop's to decide.
+
+In feature-building mode, once the SOW is agreed, I have a draft plan, and
+the disclosure check passes:
 
 1. **Open the review channel.** Commit the plan markdown (with the
    external-verification record folded in) as `docs/plans/PLAN_<SLUG>.md` on a
@@ -176,31 +191,37 @@ have a draft plan, and the disclosure check passes:
 4. **Each round:** when Codex reviews, I fetch live PR state first (never act on
    the webhook text alone), confirm which revision it reviewed (compare against
    the current head), weigh every comment on plan *substance* — **and then, on
-   a substantive round, pause for the post-round check-in before revising
-   anything (David, 2026-08-07)**: the report defined in
-   [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-check-in-david-2026-08-07)
-   (count + trend, per-finding nature / affected area / verdict, the causal
-   flag — new ground vs. repairing an earlier round's revision vs.
-   impossible-as-specified — and a continue/stop recommendation), delivered as
-   a 🛑 NEED YOU banner, waiting for David's go — with every finding written
-   in **product English** per that contract's 2026-08-08 addition (David's
-   four-question template; outcomes, never mechanics).
-   **The check-in carries the plan's line count next to the finding count
+   a substantive round, run the post-round adjudication before revising
+   anything (David, 2026-08-15, superseding the 2026-08-07 per-round David
+   check-in)**: the round record defined in
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in)
+   (count + trend + bucket mix, per-finding nature / affected area / verdict,
+   the causal flag — new ground vs. repairing an earlier round's revision vs.
+   impossible-as-specified — the continue/stop decision with its flip
+   condition), kept in the findings ledger, with the judgment moments gated
+   by the adversarial subagent (`model-routing`'s structural triggers) and
+   noteworthy adjudications surfaced as 👀 FYIs. **The decision is mine;
+   what still goes to David mid-loop, as a 🛑, is only what the SOW gate
+   reserved**: a product/design fork, a scope addition, a split.
+   **The round record carries the plan's line count next to the finding count
    (David, 2026-08-11)** — "round 3: 21 findings, 24 → 14 → 21; plan 1,370
    lines, +56% from round 1" — because the growth tripwire is the one a
    falling finding count conceals, and an unstated number is one I can talk
-   myself past. If growth has passed roughly +50%, the recommendation I bring
-   is **stop and split**, not another round: per step 10's amendment,
+   myself past. If growth has passed roughly +50% and the adjudicated kind
+   of growth is scope accretion, the conclusion is **stop and split — which
+   escalates to David**, not another round: per step 10's amendment,
    everything added since round 1 is a split candidate regardless of review
    status once the tripwire has fired, and each addition goes to David as a
    **now / next / never** question per `CLAUDE.md`, defaulting to *next*.
    The same framing applies to any single finding whose fix would introduce a
    **new mechanism** — a table, a role, a config domain, an endpoint — whether
    or not the tripwire has fired: the fix does not go in silently just because
-   a reviewer's finding motivated it. Skip-on-clean applies: a
-   clean or trivial-nits-only round doesn't pause — under the minimum-3-rounds
-   rule in step 7 it proceeds straight to the next lens with a one-line
-   status. After the go (or on a clean round), I revise the plan
+   a reviewer's finding motivated it. Depth-growth (the same coupled
+   mechanism getting more precise) resolves to cap-and-implement or continue,
+   which are my calls. Skip-on-clean applies: a
+   clean or trivial-nits-only round needs no adjudication — under the
+   minimum-3-rounds rule in step 7 it proceeds straight to the next lens
+   with a one-line status. After the adjudication (or on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
    and request the next round with a fresh explicit `@codex review` comment.
    **Revisions are class-level, per
@@ -303,19 +324,22 @@ have a draft plan, and the disclosure check passes:
 8. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.
-9. **Soft cap at ~20 rounds — check in, don't silently stop or silently keep
-   going (David, 2026-07-25).**
+9. **No round-count cap — the judgment rubric is the whole stopping rule
+   (David, 2026-08-15, superseding the ~20-round check-in of 2026-07-25).**
    Genuinely substantive, narrowing findings can legitimately run past a
-   handful of rounds (PR #252 stayed productive past round 23), so I
-   don't treat "many rounds" alone as a signal to stop. At ~20 rounds
-   (or sooner if the SAME category of finding keeps resurfacing without
-   narrowing, or Codex and I flatly disagree on a point of substance), I
-   pause and bring David the state via the NEED YOU banner — status, what's
-   still open, my recommendation — rather than deciding unilaterally either
-   way. If he says keep going, I do, without re-asking at the next
-   milestone unless the shape of the problem changes. (With the per-round
-   check-in in step 4, David already sees every substantive round; this cap
-   is the backstop for a loop he has told to keep running.)
+   handful of rounds (PR #252 stayed productive past round 23), and a
+   round count was never the decision variable — the bucket mix, the
+   tripwires, and the criticality gate are. What replaces the old cap is
+   not "run forever": every round's adjudication already asks whether the
+   loop should continue, and two situations force the full adversarial
+   adjudication regardless of trend — the SAME category of finding
+   resurfacing without narrowing (oscillation or a failed sweep), and a
+   flat substantive disagreement between Codex and me (a decline that
+   doesn't survive, or a finding neither fixable nor refutable, escalates —
+   that was always David's). A long loop that keeps yielding new ground is
+   the loop working; a short loop that is mostly self-repair stops. Round
+   counts still get recorded and reported in the loop-close trail, so David
+   can see the cost even though it no longer drives the decision.
 10. **Split foreseeably multi-subsystem plans into parallel review PRs
     up front, not retroactively (David, 2026-07-25).** If I can tell before
     opening the review PR that a plan spans genuinely independent
@@ -376,6 +400,11 @@ have a draft plan, and the disclosure check passes:
     final plan file on the branch, since that PR page is now the plan's delivery
     surface and stays readable after closing (I do not hand over a markdown file
     or an Artifact; see *The plan-review PR is the plan's delivery surface*).
+    **The approval ask carries the loop-close decision trail (David,
+    2026-08-15)** — rounds run, finding trend, every tripwire that fired and
+    how it was adjudicated, declines and their subagent survivals, in
+    product English — since this is now the first moment David re-enters a
+    loop that ran without him; the trail is what he audits before approving.
     **Codex convergence is NOT plan approval** — *Plan approval is explicit only*
     still governs; only David approves.
 

@@ -20,8 +20,8 @@ David-gate is actually asking).
 
 ## The lifecycle
 
-Discovery → Planning → 🛑 Plan approval → Coding → Code review → 🛑 Merge →
-Test run → 🛑 UAT → Close-out → Done
+Discovery → 🛑 Scope of work → Planning → 🛑 Plan approval → Coding →
+Code review → Merge → Test run → 🛑 UAT → Close-out → Done
 
 Bug-fixing mode (`/bugfix`) branches straight from Discovery to Coding,
 skipping Planning and Plan approval — it still lands in Code review, Merge,
@@ -29,7 +29,14 @@ Test run, and UAT like everything else.
 
 🛑 marks a **David-gate** — a stage only he can move past. It's the same
 glyph used for the mid-task interruption banner in chat, deliberately: one
-symbol means "David," everywhere, not only in conversation.
+symbol means "David," everywhere, not only in conversation. **Merge stopped
+being a David-gate on 2026-08-15** (the agent driving the PR merges it once
+CI is green, the reviewer has converged, and every thread is resolved — see
+CLAUDE.md's close-out contract), and the **scope-of-work gate** was added
+the same day at the front of Planning (see
+[`working-modes.md`](./working-modes.md#the-scope-of-work-gate-david-2026-08-15)).
+The one exception that still holds Merge as a David-gate: a PR that widens
+the agent's own guardrails or authority, which stays David-merge-only.
 
 ## The State of Play block
 

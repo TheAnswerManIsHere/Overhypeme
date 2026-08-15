@@ -13,6 +13,57 @@
 
 ---
 
+### 2026-08-15 · SDLC autonomy: the SOW gate + in-loop adjudication replace per-round check-ins; Claude self-merges; the ledger flushes weekly
+- **Decision:** Four related changes, agreed in one conversation, that move
+  David's control points to the bookends of each loop instead of inside it:
+  1. **The scope-of-work gate.** Before a plan-review loop opens, David
+     explicitly agrees to the scope of work (direction, intent,
+     must-not-change, settled decisions, now/next/never boundaries, ceremony
+     tier, criticality). That agreement authorizes the loop to run to
+     convergence without per-round check-ins.
+  2. **The post-round adjudication.** The 2026-08-07 per-round David
+     check-in is retired for plan and code loops alike. Every substantive
+     round still triages before fixing and produces the full round record,
+     but the continue/stop decision is made in-loop — gated by the
+     adversarial-subagent pass at every judgment moment — with noteworthy
+     adjudications surfacing as non-blocking FYIs and the whole decision
+     trail summarized at the loop's close. Still blocking, always: product/
+     design forks, mid-loop scope additions, splits (they change the agreed
+     SOW), and disclosure questions. Loop-count-based pauses are gone; the
+     judgment rubric (bucket sort, tripwires, criticality gate, oscillation)
+     is the whole decision rule.
+  3. **General self-merge.** Claude merges any of its own PRs that meet the
+     ready bar (CI green, Codex converged, threads resolved) and runs the
+     full close-out (merge → Repl sync → SHA + clean-worktree verification →
+     evidenced report). Carve-outs that stay David-merge-only: anything that
+     widens Claude's guardrails or authority, `[PLAN REVIEW]` PRs (never
+     merged), and publishing (separate act, unchanged).
+  4. **The ledger flushes at `/maintenance`.** Loop records are written and
+     delivered at the weekly maintenance pass — where David actually
+     consumes them, in the "how are we doing" conversation — not at each
+     loop's close. Standalone ledger-only PRs are retired; meta-artifact PRs
+     carry a stated review-scope oracle and convergence-by-decline in one
+     pass is convergence for that class.
+- **Why:** the per-round check-ins were scaffolding that forced the judgment
+  rubric to be applied while it was still being built; a year of David's
+  corrections is now encoded in the rubric itself (the bucket sort, the
+  tripwires, the flip-condition rules, the adversarial subagent — the
+  mechanism that caught both wrong recommendations is preserved, its
+  audience moved). The merge click and the per-close ledger ceremony were
+  pure time cost with no judgment attached: merging is what makes work
+  testable, not shipping (production sits behind the separate publish step
+  David manages), and ledger data was only ever read weekly. Blast-radius
+  principle applied to the process itself.
+- **Reference:** [`working-modes.md`](./working-modes.md)'s *scope-of-work
+  gate*, *post-round adjudication*, stopping-rule and loop-ledger sections;
+  [`CLAUDE.md`](../../CLAUDE.md)'s *Close-out is mine, end to end*; the
+  `plan-review-loop`, `pr-watch`, `maintenance`, and `model-routing` skills.
+- **Revisit if:** an autonomous loop ships a miss that the retired
+  check-ins would have caught — the agreed response is reinstating the
+  narrowest rule that would have caught it, not wholesale reversion — or
+  David finds the bookend reports (SOW gate, loop-close trail, merge
+  report) insufficient to audit what the loops decided in his absence.
+
 ### 2026-08-14 · Keep the sharded api-server test runner; fix its diagnostics instead of removing it
 - **Decision:** `artifacts/api-server/scripts/run-tests-sharded.sh` (parallel
   `node --test --test-shard` workers, each against its own cloned Postgres
@@ -96,8 +147,9 @@
   build in front of him. A failed UAT afterward is a normal fix-forward PR,
   not a crisis — the merge already happened, and production is untouched
   either way because publishing stays a separate, explicitly-asked step.
-- **Reference:** [`CLAUDE.md`](../../CLAUDE.md)'s *Close-out is mine; the go
-  is David's* section.
+- **Reference:** [`CLAUDE.md`](../../CLAUDE.md)'s close-out section (then
+  titled *Close-out is mine; the go is David's* — renamed *Close-out is
+  mine, end to end* when the 2026-08-15 entry above retired the go).
 - **Revisit if:** the Repl ever stops being the thing David actually tests
   against (e.g. a staging environment is introduced), which would change
   what "makes the work testable" means.

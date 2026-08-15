@@ -243,8 +243,9 @@ The review-loop contract is shared and enacted elsewhere — **the mechanics
 live in the `pr-watch` skill** (which loads for any watched PR, bugfix or
 feature) **and in
 [`working-modes.md`](../../../docs/ai-context/working-modes.md)**: the
-post-round check-in before any fixes are implemented (count + trend, product
-English, causal flags, continue/stop recommendation — skip-on-clean), the
+post-round adjudication before any fixes are implemented (count + trend,
+causal flags, the continue/stop decision made in-loop via the adversarial
+subagent, product English on anything that reaches David — skip-on-clean), the
 class-sweep protocol (name the class, cite the mechanical oracle, sweep to
 zero, re-run prior rounds' oracles before every push), the criticality gate
 before every re-request, the fix / accept-and-document / escalate / decline
