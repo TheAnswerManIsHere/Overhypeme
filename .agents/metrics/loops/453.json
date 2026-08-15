@@ -42,21 +42,21 @@
   "judgment": {
     "causes": {
       "new": 12,
-      "prop": 5,
-      "wrong": 0,
+      "prop": 1,
+      "wrong": 4,
       "reRaised": 0,
       "invalid": 0
     },
     "preOpenPreflightMin": null,
     "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
-    "breakersFired": "None fired. Findings fell 10/4/3 and no round was propagation-dominated (3/4 then 2/3, both mixed with genuinely new ground), so neither the rising-count tripwire nor the oscillation signal applied. Criticality ~35: /next is agent-facing tooling whose failure mode is a confidently wrong recommendation rather than a product or data defect.",
+    "breakersFired": "None fired. Findings fell 10/4/3 and no round was self-inflicted-dominated (3/4 then 2/3, both mixed with genuinely new ground), so neither the rising-count tripwire nor the oscillation signal applied. Criticality ~35: /next is agent-facing tooling whose failure mode is a confidently wrong recommendation rather than a product or data defect.",
     "newGroundTerritory": {
-      "inDiff": 10,
-      "preExisting": 2
+      "inDiff": 11,
+      "preExisting": 1
     }
   },
   "adjudication": {
     "status": "never-run"
   },
-  "notes": "Re-derived at the 2026-08-15 /maintenance ledger flush (Claude Code, Opus), NOT narrated in-session at loop close. Cause classification is reconstructed from the PR's own review threads rather than from the build session's memory of them, which is a materially weaker source than PR #443's record had; per the ledger's ambiguous-goes-to-self-inflicted rule, every finding whose cause was not unambiguously new ground was classified as propagation. 17 findings over 3 rounds. Round 1's 10 are new_ground by construction. Round 2 splits 3 propagation / 1 new: the stage:coding transition, the decisions.md phase-opener reference and the sequential-phase restriction are each residuals of round 1's phase-routing fixes, while backlog promotion was a gap round 1 never touched. Round 3 splits 2 propagation / 1 new: the 48h in-flight misclassification and the over-broad waiting: restoration are residuals of round 2's own fixes, while ticking a phase's checkbox at merge rather than after its UAT is a semantics gap neither earlier round created. Territory splits the 12 new_ground 10 inDiff / 2 preExisting \u2014 the /status-all needs-you bucket and /maintenance's workstream fetch are pre-existing skills this diff reached into rather than authored."
+  "notes": "17 findings over 3 rounds. Round 1's 10 are new_ground by construction. Round 2 splits 3 self-inflicted / 1 new (backlog promotion, a gap round 1 never touched); round 3 splits 2 self-inflicted / 1 new (ticking a phase's checkbox at merge rather than after its UAT, a semantics gap neither earlier round created). Of the 5 self-inflicted, 4 are wrong-fix \u2014 the stage:coding transition, the decisions.md phase-opener reference, the sequential-phase restriction and the over-applied waiting: restoration are each an earlier fix in this loop that did not land where it claimed \u2014 and 1 is propagation: round 3's 48-hour in-flight window is a NEW defect that round 2's fix shape introduced, not the same defect recurring. Territory: 11 inDiff, 1 preExisting. The /maintenance workstream-fetch finding is inDiff \u2014 commit acaa8ac changed `.claude/skills/maintenance/SKILL.md` directly \u2014 leaving only the /status-all needs-you bucket as genuinely outside the diff (`.claude/skills/status-all/SKILL.md` is absent from that commit).\n\nCORRECTED at PR #461 round 1 (Codex, 7 findings, all confirmed against the source and applied; the class sweep they triggered found an eighth instance in #449's territory split that the review did not flag)."
 }

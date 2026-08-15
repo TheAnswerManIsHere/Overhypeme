@@ -56,21 +56,21 @@
   "judgment": {
     "causes": {
       "new": 14,
-      "prop": 14,
-      "wrong": 0,
+      "prop": 2,
+      "wrong": 12,
       "reRaised": 0,
       "invalid": 0
     },
     "preOpenPreflightMin": null,
     "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
-    "breakersFired": "The rising-count tripwire never fired \u2014 findings fell monotonically (11/8/5/2/2). The OSCILLATION signal did, and was not acted on: rounds 3, 4 and 5 were 100% propagation (5/5, 2/2, 2/2), each one repairing an incomplete sweep left by the round before it, chasing the same two rules (the ledger carrier restriction and the stale-record sweep) through successive locations. working-modes.md names a round dominated by failures of the previous round's fixes as its own stopping condition precisely because prose cannot be executed; three consecutive such rounds is the pattern that rule exists to catch.",
+    "breakersFired": "The rising-count tripwire never fired \u2014 findings fell monotonically (11/8/5/2/2). The OSCILLATION signal did, and was not acted on: rounds 3, 4 and 5 were entirely self-inflicted (5/5, 2/2, 2/2), each repairing an incomplete sweep left by the round before it, chasing the same two rules \u2014 the ledger carrier restriction and the stale-record sweep \u2014 through successive locations. working-modes.md names a round dominated by failures of the previous round's fixes as its own stopping condition precisely because prose cannot be executed; three consecutive such rounds is the pattern that rule exists to catch.",
     "newGroundTerritory": {
-      "inDiff": 12,
-      "preExisting": 2
+      "inDiff": 14,
+      "preExisting": 0
     }
   },
   "adjudication": {
     "status": "never-run"
   },
-  "notes": "Re-derived at the 2026-08-15 /maintenance ledger flush (Claude Code, Opus), NOT narrated in-session at loop close. Cause classification is reconstructed from the PR's own review threads rather than from the build session's memory of them, which is a materially weaker source than PR #443's record had; per the ledger's ambiguous-goes-to-self-inflicted rule, every finding whose cause was not unambiguously new ground was classified as propagation. 28 findings over 5 rounds. Round 1's 11 are all new_ground by construction. Round 2 splits 5 propagation / 3 new: the outage-handling, adjudicated-stop, ledger-carrier and late-review findings are each residuals of the specific shape round 1's fixes took, while the waiting:replit blocker-bucket rendering, the roadmap's stale deleted-Action entry, and the stage:uat-before-sync gap were untouched ground. Rounds 3, 4 and 5 are entirely propagation (9 findings): every one is a location the previous round's fix failed to reach, not a new defect. Territory splits the 14 new_ground 12 inDiff / 2 preExisting \u2014 the roadmap's deleted-Action entry and the waiting:replit bucket live in surfaces this diff never edited."
+  "notes": "28 findings over 5 rounds. Round 1's 11 are all new_ground by construction. Round 2 splits 3 new_ground (the waiting:replit blocker-bucket rendering, the roadmap's stale deleted-Action entry, the stage:uat-before-sync gap) against 5 self-inflicted. Rounds 3, 4 and 5 are 9 further self-inflicted findings: every one is a location a previous round's fix failed to reach. Of the 14 self-inflicted, 12 are WRONG-FIX and 2 are propagation. The split follows working-modes.md's definitions literally: wrong-fix is an earlier fix in this loop that did not resolve what it claimed (the symptom persists or the fix is incomplete), and the sweep protocol explicitly classifies a sibling instance of a class an earlier round claimed to sweep as wrong-fix for the ledger's causal accounting. Only two findings are genuine propagation \u2014 a NEW defect the fix's own shape introduced rather than the same one recurring: round 2's adjudicated-stop wording newly authorizing prototyping before approval, and round 2's delivery-route wording newly admitting non-mergeable plan PRs as ledger carriers. Territory: all 14 new_ground are inDiff. Both findings this record originally called pre-existing are in files the diff DID touch \u2014 `docs/ai-context/current-roadmap.md` and `.claude/skills/status-all/SKILL.md` are both in commit 19ad5b8 \u2014 and the rubric splits on whether the loop's diff touched the surface, not on whether the loop authored the file.\n\nCORRECTED at PR #461 round 1 (Codex, 7 findings, all confirmed against the source and applied; the class sweep they triggered found an eighth instance in #449's territory split that the review did not flag). Codex flagged the wrong-fix/propagation error on this record; the territory error here was found by sweeping the class it raised on #453 and #456 across every record in the flush."
 }

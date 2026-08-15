@@ -42,8 +42,8 @@
   "judgment": {
     "causes": {
       "new": 6,
-      "prop": 2,
-      "wrong": 0,
+      "prop": 1,
+      "wrong": 1,
       "reRaised": 0,
       "invalid": 0
     },
@@ -51,12 +51,12 @@
     "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
     "breakersFired": "None. Findings fell 6/2/0 with a clean pass closing it. Criticality ~10 (a /document harvest \u2014 docs-only, no behavior). Round 2 was substantive rather than polish-only, so it earned its successor under working-modes.md's docs-only consequence rule; round 3's clean pass then converged it.",
     "newGroundTerritory": {
-      "inDiff": 4,
-      "preExisting": 2
+      "inDiff": 6,
+      "preExisting": 0
     }
   },
   "adjudication": {
     "status": "never-run"
   },
-  "notes": "Re-derived at the 2026-08-15 /maintenance ledger flush (Claude Code, Opus), NOT narrated in-session at loop close. Cause classification is reconstructed from the PR's own review threads rather than from the build session's memory of them, which is a materially weaker source than PR #443's record had; per the ledger's ambiguous-goes-to-self-inflicted rule, every finding whose cause was not unambiguously new ground was classified as propagation. 8 findings over 3 rounds. Round 1's 6 are new_ground by construction. Round 2's 2 are both propagation: the SOW gate being described as a board Status option that does not exist, and the glossary still attributing the failed-UAT step to the Blocked-by chain, are each locations round 1's own fixes were applied in one place and not swept to. Territory splits the 6 new_ground 4 inDiff / 2 preExisting \u2014 the roadmap's stale NCMEC-retrofit entry and the glossary's one-glyph claim about the board's interim state both live in surfaces this harvest did not author."
+  "notes": "8 findings over 3 rounds. Round 1's 6 are new_ground by construction. Round 2's 2 split 1 wrong-fix and 1 propagation: the glossary still attributing the failed-UAT step to the Blocked-by chain is a sibling instance of a class round 1 claimed to sweep, which the sweep protocol classifies as wrong-fix; describing the SOW gate as a board Status option that does not exist is a NEW defect round 1's own fix wording introduced, which is propagation. Territory: all 6 new_ground are inDiff. Both findings this record originally called pre-existing sit in files commit fac70e3 changed directly \u2014 `docs/ai-context/current-roadmap.md` and `docs/ai-context/glossary.md` \u2014 and the rubric splits on whether the diff touched the surface, not on whether this loop first authored it.\n\nCORRECTED at PR #461 round 1 (Codex, 7 findings, all confirmed against the source and applied; the class sweep they triggered found an eighth instance in #449's territory split that the review did not flag)."
 }
