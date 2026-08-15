@@ -1056,9 +1056,12 @@ it lives here rather than in the shared docs.
     the class-of-request rule below), and pasting the content defeats the
     point of the doc already being a file Replit can read itself.
     1. **Kick it off with `update_app_using_prompt`**, pointing at the
-       doc's **path**, not its contents:
-       *"Please run all tests in `docs/PR<N>_..._TEST_RUN.md`."* Replit
-       Agent reads the file and works the checklist itself.
+       doc's **path**, not its contents, and — per the scoping rule just
+       above — explicitly telling it not to write or edit anything:
+       *"Please run all tests in `docs/PR<N>_..._TEST_RUN.md`. Read-only:
+       execute the checklist and report results; do not write or edit any
+       code or files, even if a step fails."* Replit Agent reads the file
+       and works the checklist itself.
     2. **Wait a few minutes** — a real TEST_RUN is repo-health commands
        plus a dozen-plus SQL/HTTP checks, genuinely slow, not a quick
        read. `ask_question` calls fired immediately or in tight
