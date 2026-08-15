@@ -115,25 +115,48 @@ forward.
      picking it. Enough for an informed decision at a glance; no more. Save the
      deep evidence/verification for the Codex threads and the plan, not this
      banner.
-  3. **Fire a push notification at those moments** (the `PushNotification`
-     tool) so David gets pulled back to the app. **Every 🛑 NEED YOU banner
-     gets a notification — no exceptions, no judgment call (David,
-     2026-08-11).** The banner and the notification are one action, not two:
-     if I am writing the banner, I am firing the notification in the same
-     turn. This is stricter than the old "when I'm blocked" phrasing, which
-     left me room to skip one for a question that felt small — and I did,
-     on the engine-bands confirmation in the permissions plan, which is
-     exactly the miss David is correcting. **The consequence of missing one
-     is that the work silently stalls:** he does not see chat unless he
-     opens the app, and a banner he never learns about is a blocked session
-     nobody knows is blocked. When I catch myself thinking "this question is
-     minor enough to skip the notification," the answer is that it was
-     apparently major enough to stop and ask, so it gets one.
+  3. **A push notification fires on the blocked STATE, not on the banner
+     (David, 2026-08-15 — the third tightening of this rule, and the one
+     that removes the last judgment gap).** The 2026-08-11 version tied
+     the notification to writing a 🛑 banner — which still missed every
+     ask that didn't take banner form: a numbered-question list, an
+     `AskUserQuestion`, a model-switch request, a standing ask restated at
+     the end of a later turn. David's report: he was getting notifications
+     "only occasionally" and had to keep coming back to watch the session.
+     So the trigger is now mechanical and format-independent — **the
+     last thing I do before ending ANY turn is ask: does this turn end
+     with something I need from David that is holding work up?** A
+     question awaiting his answer, a decision, an approval, a model
+     switch, a carve-out merge — any of it. **If yes, `PushNotification`
+     fires in that same turn. No exceptions, no size threshold, no "he
+     probably saw it."** Three consequences spelled out so they can't be
+     reasoned around:
+     - **Every ask-shaped output notifies**: 🛑 banners (unchanged),
+       `AskUserQuestion` calls, numbered-question lists, and any plain
+       ask embedded in a closing paragraph.
+     - **A still-unanswered ask re-fires.** If a turn ends still blocked
+       on something I already asked — because David replied about
+       something else, or came back for a different thread — the
+       notification fires again. An unanswered notification is
+       indistinguishable from one that never reached him, and re-firing
+       is what makes a forgotten ask impossible to lose.
+     - **"He's clearly active right now" is not a reason to skip.** The
+       `PushNotification` tool suppresses itself when David is actively
+       present, so always-fire costs nothing when he's watching and is
+       exactly what's needed when he's not. The dedupe lives in the tool,
+       never in my judgment — a "not sent (redundant)" result is the
+       system working, not evidence I should have skipped the call.
      **Also** fire at **major completions** that hand the turn back to him
-     (plan converged & ready for approval, PR green/ready, build done). Not
-     for routine progress — there, still bias to *fewer*. The "bias to fewer"
-     guidance governs the discretionary completions only; it has never
-     governed 🛑, and now explicitly does not.
+     (plan converged & ready for approval, PR ready, build done, the
+     close-out merge report). Not for routine progress — there, still bias
+     to *fewer*. The "bias to fewer" guidance governs the discretionary
+     progress notifications only; it has never governed blocking asks, and
+     under this version it cannot: blocking asks are not a judgment call.
+     **If a miss happens again under this rule, the next step is a
+     deterministic Stop-hook nag** per the standing
+     recurring-failure-patterns rule — a contract line I've now had to
+     tighten three times is exactly the "broken twice" case that
+     graduates to a guard.
 - **A second, non-blocking "FYI" marker for autonomy-era judgment calls
   (David, 2026-08-06).** Now that I resolve review threads myself once
   addressed (see the pr-watch discipline below) instead of leaving every one
