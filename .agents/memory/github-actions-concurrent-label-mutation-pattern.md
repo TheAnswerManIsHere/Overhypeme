@@ -1,6 +1,16 @@
 ## Writing a GitHub Action that mutates issue labels concurrently with agents/humans
 
-`scripts/sync-test-run-completion.mjs` (PR #334) writes `stage:`/`waiting:`
+> **The worked example is retired; the pattern is not.**
+> `scripts/sync-test-run-completion.mjs` (PR #334), which this note was
+> extracted from, was deleted 2026-08-15 along with the
+> `test-run-completion.yml` Action and the TEST_RUN file pattern it served
+> (see `decisions.md`, 2026-08-15) — do not go looking for the script or
+> schedule verification of it. This note survives as design history: the
+> settled shape for **any future** Action that mutates labels concurrently
+> with agents/humans, bought with ~12 review rounds that should not be
+> re-paid.
+
+The original context: the script wrote `stage:`/`waiting:`
 labels on a workstream issue that Claude, Codex, and David can all also be
 touching at any moment. Getting this safe took ~12 review rounds of
 increasingly subtle bugs, each one a real concurrency window the previous

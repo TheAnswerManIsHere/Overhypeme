@@ -184,13 +184,18 @@ the diff *is* the plan. While watching an implementation PR:
   other, undocumented limit specific to this feature; there's no
   documentation either way, and no predictable time it clears. One retry
   is fine, but past that: **don't keep retrying, don't treat the silence
-  as "no findings," and don't hold the PR waiting on a review that isn't
-  coming** — proceed as if that round's review is unavailable and move the
-  PR forward (merge-ready for docs-only/low-criticality artifacts; for
-  anything higher-stakes, say plainly that the round shipped without a
-  live Codex pass rather than silently treating it as clean). Note the
-  skip in the workstream/PR status rather than pretending a review
-  happened.
+  as "no findings," and don't hold the *work* waiting on a review that
+  isn't coming** — proceed as if that round's review is unavailable.
+  **What "proceed" means now splits by stakes, matching CLAUDE.md's
+  self-merge ready bar (2026-08-15):** for docs-only/low-criticality
+  artifacts, confirmed-unavailable satisfies the bar's "converged"
+  condition — self-merge, saying plainly in the merge report that the
+  round shipped without a live pass. For anything higher-stakes, keep
+  working everything except the merge (CI, threads, other rounds), but
+  the PR does **not** self-merge on an outage — it waits for the review
+  to come back or escalates to David with the state, per the ready-bar
+  exception in CLAUDE.md's close-out contract. Note the skip in the
+  workstream/PR status rather than pretending a review happened.
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or
@@ -273,8 +278,14 @@ silently leaving the workstream unlabeled):
   this same flow, plus deleting the doc on a full pass — a tiny deletion
   PR, self-merged; the label move is likewise mine, since the Action is
   gone.)
-- **The PR merges with "none needed" verification** → `stage:uat` **only if a UAT doc
-  exists or is actually due** — pure-docs/pure-devops PRs never have one,
+- **The PR merges with "none needed" verification** → `stage:uat` **only
+  after the close-out sync checks pass, and only if a UAT doc
+  exists or is actually due**. The transition moment is the verified Repl
+  sync (matching SHA + clean worktree, per CLAUDE.md's close-out
+  sequence), not the merge click — a failed sync would otherwise put a
+  David-held UAT gate on the board for a build he can't actually reach;
+  until the checks pass the workstream stays agent-held in close-out.
+  On the UAT-doc test: pure-docs/pure-devops PRs never have one,
   and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
   internal (per `working-modes.md`'s Tier B exception): all three go
   straight to `stage:close-out` instead, since holding them at `uat` would

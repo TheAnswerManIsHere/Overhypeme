@@ -417,14 +417,20 @@ the disclosure check passes:
     PR the same way below — a stop is not stuck between "not converged
     enough to close" and "not clean enough to request another round." On
     an adjudicated stop: don't request a further round (more prose rounds
-    don't fix oscillation), and route what comes next by what actually
-    stopped it — an oscillating mechanism goes to implementation (draft
-    the fix, since only running code verifies it, then resume review on
-    the revised plan if the fix is substantial enough to need one); a
-    cap-and-implement call goes straight to execution once David approves
-    per the normal path below. Either way, the close-out comment states
-    which of the two routes ended the loop and why, so the findings ledger
-    reads as a real disposition, not an unexplained stop mid-round.
+    don't fix oscillation) — **and no implementation starts either; the
+    stop routes to David's approval like every other loop exit.** The
+    approval ask states what stopped the loop and what I recommend comes
+    next: for an oscillating mechanism, that only running code can verify
+    it — so the plan goes to him as-is with the oscillation named, and any
+    prototype or implementation happens only after his explicit approval
+    (of the plan, or of a named experiment), never as a side effect of the
+    stop. *Plan approval is explicit only* is untouched by autonomy: the
+    SOW gate authorized the loop to *review* without check-ins, not to
+    build. A cap-and-implement call is the same — "implement" begins at
+    his approval, per the normal path below. Either way, the close-out
+    comment states which of the two routes ended the loop and why, so the
+    findings ledger reads as a real disposition, not an unexplained stop
+    mid-round.
 
     **When converged** (or adjudicated-stopped, per above): close the draft PR **without merging**
     (`update_pull_request`, state `closed`) with a closing comment recording the

@@ -106,7 +106,14 @@ one with no record yet: run `node scripts/loop-metrics.mjs --pr <n> --write`
 (or `--mcp-snapshot`, per the shared contract's mechanics in
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-loop-ledger)),
 fill the judgment, run the blind adjudication where sampled, and commit the
-records together as part of this pass. **There is no settling-window
+records together as part of this pass. **Also sweep the *previous* window's
+records for staleness**: a loop recorded at the last flush whose PR shows
+review activity newer than that record's derivation (a late-landing pass —
+the frozen ledger's rows #323/#324 are the observed shape) gets re-derived
+and edited this pass, per the shared contract's late-review rule. Without
+this sweep the correction path is a promise nothing triggers — the
+new-records selection skips loops that already have a record, and the
+completeness check sees the stale file as present. **There is no settling-window
 skip** — `working-modes.md`'s standing rule is that terminal point (closed
 or merged) is eligibility, full stop; a loop whose review lands late gets
 its record re-derived and edited at a future flush, not held back from
@@ -118,9 +125,11 @@ pass, not a report line.
 **Delivery route (David, 2026-08-15).** The records need an ordinary
 reviewed PR to reach `main` — this repo requires a PR before merging, and
 the ledger contract bans a standalone ledger-only PR the same way it
-always has. Two cases: **if any of my own PRs are open**, the flush commit
-rides one of them as a normal additional commit (any PR except the one a
-given record measures, per the loop-ledger's own rule). **If none are
+always has. Two cases: **if any of my own *mergeable* PRs are open**, the
+flush commit rides one of them as a normal additional commit (any PR
+except the one a given record measures, per the loop-ledger's own rule —
+and **never a `[PLAN REVIEW]` PR**, which is closed without merging, so a
+record riding it would never reach `main` at all). **If none are
 open**, this pass opens one small `docs(maintenance): weekly digest` PR
 carrying the flush commit plus this week's `deferred-work.md` updates (the
 other docs-only exception in Boundaries below) — reviewed by Codex like any

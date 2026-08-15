@@ -369,23 +369,27 @@ honor it.
 ### Plain-language blockers for anything on a David-gate
 
 Don't just say "needs you" — say **what**, restated in one sentence from
-the actual source, not guessed from the stage name alone. Applies to both
-David-gate values (`waiting:david` and `waiting:replit`):
+the actual source, not guessed from the stage name alone. Applies to the
+David-gate value (`waiting:david` — since 2026-08-15 the only one; see the
+David-gate definition above):
 
 - If there's an open, unresolved review thread addressed to David → read
   it and restate the actual question in plain language.
-- If the gate is structural (🛑 Plan approval, 🛑 Merge, 🛑 UAT) with no
+- If the gate is structural (🛑 Scope of work, 🛑 Plan approval, 🛑 UAT, or
+  a carve-out Merge) with no
   open question — say so plainly ("ready to merge, CI green, Codex
   converged" / "merged — UAT doc at `docs/tests/UAT/PR<N>_..._UAT.md`, not
   yet run"). Search for the UAT doc filename before claiming one doesn't
   exist.
-- If `waiting:replit`, that's agent-held close-out work (see the
-  David-gate definition above) — say what's pending and where, e.g.
-  "merged, post-merge verification checks from PR #<N>'s body not yet
-  driven through the connector — a session needs to finish close-out."
 - Accuracy over cheapness here: a wrong restatement makes the whole report
   untrustworthy, which defeats the purpose. Read the actual comment/thread
   rather than inferring from labels alone.
+
+`waiting:replit` is **not** in this section's scope — it's agent-held
+close-out work and renders in the stalled/in-progress buckets, never under
+🛑 NEEDS YOU. When reporting one, say what's pending and where, e.g.
+"merged, post-merge verification checks from PR #<N>'s body not yet driven
+through the connector — a session needs to finish close-out."
 
 ## Step 5 — Render the report
 
