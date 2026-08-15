@@ -28,6 +28,16 @@ Turn an **approved** plan into a safe, in-scope change.
    phase 8 — `plan-review-loop` only ever writes the checklist at
    approval, never opens a phase itself, so this is the one place every
    phase actually starts.
+   **In the same edit, also move the parent** to `stage:coding` with
+   `waiting:` mirroring whoever now holds the phase, and update its State
+   of Play. This matters most at phase 1: `plan-review-loop`'s handoff
+   leaves the parent at `stage:plan-approval`/`waiting:david`, and nothing
+   else transitions it out of that — without this step the parent sits
+   labeled "awaiting approval" for the entire build, `/status-all` reports
+   a stale gate, and `pr-watch`'s later toggles only ever touch `waiting:`,
+   never repairing a wrong `stage:`. For phase 2 onward this is a no-op
+   (`pr-watch` already holds the parent at `stage:coding`), so it's safe
+   to apply unconditionally rather than special-casing phase 1.
 1. **Confirm the affected files** by inspecting them before editing.
 2. **Make the smallest coherent change** that satisfies the plan. No scope creep,
    no speculative abstraction, no new external vendor.

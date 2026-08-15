@@ -138,6 +138,29 @@ whole state machine:
   **drops its `queue:` label**. It is now an ordinary workstream issue and
   every existing rule applies unchanged.
 
+**Promotion is a real operation, not an implicit side effect of "work
+starts."** Whichever skill is the one that first opens or reuses a
+workstream issue for a given piece of work — `plan-review-loop` for a
+phased or unphased feature plan, `bugfix` for a fix — owns performing it,
+and does so **before** creating a fresh issue:
+
+1. **Search first**: does an open issue already carry `queue:` and
+   describe this work (`search_issues`, title/body match, or David names
+   it directly — e.g. "let's build the thing we queued")? If yes, that
+   issue **is** the workstream issue — reuse it, don't open a second one.
+2. **Promote it**: remove the `queue:` label, add the full `stage:`/
+   `waiting:` set for wherever this skill is entering the lifecycle
+   (`stage:planning` for a feature plan, `stage:coding` for a bugfix), and
+   write the State of Play block fresh (the backlog body's nuance carries
+   forward as narrative, not as a field to preserve verbatim).
+3. **Only if no matching backlog issue exists** does the normal fresh-issue
+   path apply.
+
+Skipping the search silently duplicates the issue instead — a new
+workstream issue opens for work the backlog already tracked, the old
+`queue:` issue is orphaned open forever, and `/next` can end up presenting
+both as if they were independent.
+
 Priorities are three labels, deliberately not named P1/P2 (that collides
 with Codex's severity badges):
 

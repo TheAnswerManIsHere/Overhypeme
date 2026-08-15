@@ -61,9 +61,17 @@ them — including its trust rules, which exist because this repo is public:
   its sub-issue number or `not yet opened`. **Discard checked (`[x]`)
   phases before candidate construction** — they're merged, not work, and
   keeping them would let a shipped phase get ranked and recommended again.
-  **An unopened phase is a real candidate with no issue behind it** — it
-  exists only here, and missing it is exactly the failure this skill was
-  built to prevent.
+  **Exactly one unchecked phase per parent is ever a candidate: the active
+  one (has an issue) if there is one, otherwise the single earliest
+  unchecked line.** Phases merge strictly sequentially
+  (`workstream-tracking.md`'s *Phased features*), so a later unopened phase
+  cannot start before its predecessor closes — constructing a candidate for
+  every remaining line would let phase 5 tie or outrank the actually-active
+  phase 4 and get recommended out of order. **An unopened next phase is a
+  real candidate with no issue behind it** — it exists only in the
+  checklist, and missing it is exactly the failure this skill was built to
+  prevent; every phase *after* it is not a candidate at all, only visible
+  as "queued behind phase N" if mentioned.
 - **A phased parent with any active or unopened phase remaining is never
   itself a candidate.** There is no parent-level work while its checklist
   still has open items — the work is the phase. Leaving the parent in the

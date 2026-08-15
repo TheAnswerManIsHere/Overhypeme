@@ -696,10 +696,12 @@
   [`workstream-tracking.md`](./workstream-tracking.md)'s *Phased features*
   section (the parent's **Phases checklist** is the durable record of what a
   feature still owes), with the trigger points wired into
-  `plan-review-loop` (writes the checklist at approval, opens each phase
-  sub-issue as it starts), `pr-watch` (ticks a phase at close-out, advances
-  the parent), and `pr-docs` (per-phase UAT, plus the scope line on a phase
-  PR's oracle).
+  `plan-review-loop` (writes the checklist at approval, and never opens a
+  phase itself — its lifecycle ends at that handoff), `overhype-implementation`
+  (opens each phase sub-issue uniformly as it starts, including the first),
+  `pr-watch` (mirrors the parent's `waiting:` at every toggle on the active
+  phase, ticks a phase at close-out, advances the parent), and `pr-docs`
+  (per-phase UAT, plus the scope line on a phase PR's oracle).
 - **Revisit if:** the ask-before-splitting step becomes friction in practice
   (David's own stated condition for revisiting).
 

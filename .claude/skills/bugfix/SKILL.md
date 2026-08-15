@@ -93,8 +93,13 @@ shared-contract requirement now
 
 For everything else: per `workstream-tracking.md`, bugfix mode branches
 straight from Discovery to Coding, skipping Planning and Plan approval. If
-David's bug report doesn't already have a workstream issue, open one now —
-**but only if the disclosure check above passed.** If it didn't, this is
+David's bug report doesn't already have a workstream issue, **check for a
+backlog issue first** — a known, already-queued bug (`queue:` label) is
+exactly this situation, David just decided to fix it now. Per
+`workstream-tracking.md`'s *The backlog* section, promote a matching
+backlog issue (drop `queue:`, add the labels below) rather than opening a
+duplicate. Only when no backlog match exists does a genuinely new issue
+open — **but only if the disclosure check above passed.** If it didn't, this is
 where that matters mechanically, not just as a stated rule: open a private
 draft Project item instead of a public issue, and say so plainly rather
 than silently taking the fast path. When the check passed, open the public
