@@ -323,6 +323,48 @@ thread, and the git mechanics around all of it are the implementing agent's
 ceremony — for Claude Code, `CLAUDE.md`'s *Watching the PRs I open*. This
 section defines only the reviewer's substantive standard.
 
+## Codex has two usage limits — a security-review bounce is NOT a code-review outage
+
+**The fact (David, 2026-08-15), canonical here because it binds every agent
+watching a PR, not just the one that hit it:**
+
+The Codex connector meters **two independent things**:
+
+| Limit | Capacity | What bouncing it means |
+|---|---|---|
+| **Security reviews** | Limited, and the one that actually bounces | Only that security reviews are unavailable |
+| **General code reviews** | Effectively unlimited for this repo | — |
+
+The connector's comment names its own scope:
+
+> You have reached your Codex usage limits **for security reviews**. Please try again later.
+
+**So the rule is: ignore that comment and request the code review.** Post
+`@codex review` as normal. A security-limit bounce is never a reason to skip a
+code review, defer one, treat a round as converged, or merge past it.
+
+**Evidence, because this was previously written up from a bad inference.** On
+PR #458 the security bounce landed at 22:42 and a **full code review with 8
+findings arrived at 22:48**, with a second round of 7 at 22:59 — code review
+was working the entire time the bounce was on screen. On PR #459 the identical
+bounce produced no review at all, not because Codex was unavailable but
+because the misreading meant nobody asked. The earlier PR #371 observation
+(bounces while David's visible weekly quota showed ~98% remaining) fits the
+same picture: that quota is the code-review pool, which stayed full while the
+*security* limit bounced.
+
+**A genuine code-review outage is a different animal** — a request that yields
+no review *and* no bounce. That case still exists, and the retry limit and
+stakes-split in the implementing agent's ceremony (for Claude Code,
+`.claude/skills/pr-watch/SKILL.md`) govern it. A security-limit bounce does
+not qualify as one, and must not be reported as one.
+
+**The failure mode this exists to prevent is a reading error, not a tooling
+gap** — the prior rule quoted the "for security reviews" wording verbatim and
+still concluded the review was unavailable. See
+[`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)'s
+*Reading a scoped limit message as a blanket outage*.
+
 ## Review output format
 
 **Two delivery surfaces exist; they don't support the same shape** — same split

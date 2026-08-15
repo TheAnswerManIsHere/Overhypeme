@@ -991,12 +991,12 @@ verification — is post-merge for the same structural reason.
    separate, explicitly-asked `publish_app` step he manages.
    **A "usage limits for security reviews" bounce is NOT an exception to
    "converged" and never satisfies the bar (David, 2026-08-15, correcting
-   the earlier version of this very line).** Codex has two distinct
-   limits, and that comment names the *security-review* one; our
-   **code-review** capacity is effectively unlimited. So the response is
-   to **ask for the code review**, never to treat the bounce as
-   convergence — see `pr-watch`'s rule for the evidence and the failure
-   mode. The genuine-outage exception below survives only for a request
+   the earlier version of this very line).** Codex meters security reviews
+   and code reviews separately and our code-review capacity is effectively
+   unlimited, so the response is to **ask for the code review** — the
+   canonical fact and evidence are in
+   [`code-review.md`](docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage),
+   not restated here. The genuine-outage exception below survives only for a request
    that yields no review *and* no bounce: for a docs-only or
    low-criticality artifact, "Codex converged" is then satisfied by
    *ran-to-completion-or-confirmed-unavailable*, said plainly in the merge
