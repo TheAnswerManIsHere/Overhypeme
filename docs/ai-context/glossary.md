@@ -1279,9 +1279,14 @@ session**.
 A lifecycle stage only David can move past, marked 🛑 in both the board's
 Status options and the chat interruption banner: the **scope-of-work gate**
 (before Planning), **Plan approval**, and **UAT**. One glyph means "David"
-everywhere. Merge stopped being a gate 2026-08-15 — the driving agent
-self-merges once the ready bar is met — except a PR that widens the agent's
-own guardrails or authority, which stays David-merge-only.
+everywhere — except the board's own Status option is still verbatim named
+`🛑 Merge` (a known interim mismatch pending an option rename), so an
+ordinary self-merged workstream can briefly *display* that glyph at
+`stage:merge` without actually needing David; the label semantics here are
+the truth, not the board's stale option name. Merge itself stopped being a
+gate 2026-08-15 — the driving agent self-merges once the ready bar is met —
+except a PR that widens the agent's own guardrails or authority, which
+stays David-merge-only.
 → [workstream-tracking](./workstream-tracking.md)
 
 ### UAT-descent stack

@@ -24,7 +24,11 @@
      merge, opened uniformly by `overhype-implementation` (not
      `plan-review-loop`, whose lifecycle ends at plan approval and never
      runs again for phase 2 onward — a review-round finding, not something
-     designed in upfront).
+     designed in upfront). **Supersedes the 2026-08-05 entry's parent-level
+     UAT checkpoint**: per-phase UAT is the only UAT, and the parent moves
+     straight from its last phase's close-out to its own close-out — no
+     separate parent-level UAT gate exists (see the note added to that
+     entry, above).
   2. **The backlog + the `Blocked by: #N` marker.** Queued-but-unstarted
      work is a `queue:now`/`next`/`later`-labeled issue with no `stage:`
      label — curated, not computed from roadmap prose, so the nuance in an
@@ -38,16 +42,21 @@
      rabbit hole correctly outrank fresh work.
   4. **The UAT-descent stack.** When David's UAT surfaces a bug that turns
      into real work (the PR #213 → admin-permission-rebuild shape), the
-     `Blocked by:` chain *is* the call stack recording the way back —
-     including which UAT step failed. `bugfix` flips the interrupted
+     `Blocked by:` chain **plus a State-of-Play note on the interrupted
+     issue** is the call stack recording the way back — the chain is the
+     link, the note is what records *which UAT step failed* (the chain
+     itself carries only issue numbers). `bugfix` flips the interrupted
      issue's `waiting:` to `claude` (stashing the prior value) so
      `/status-all`, which doesn't parse `Blocked by:`, stops showing a
      blocked UAT under NEEDS YOU; `pr-watch` restores it on the blocker's
      close-out, mirroring the flip onto a phased parent too if the
      interrupted workstream is itself a phase.
-  5. On an empty queue, `/next` makes an **argued feature recommendation**,
-     always on **Fable** tier, rather than a menu — escalate-don't-absorb
-     for the one step here that's genuinely a product-priority call.
+  5. On **zero Actionable candidates** — not merely an empty backlog, since
+     a `waiting:david` UAT, a stalled workstream, or any other actionable
+     item still wins first — `/next` makes an **argued feature
+     recommendation**, always on **Fable** tier, rather than a menu:
+     escalate-don't-absorb for the one step here that's genuinely a
+     product-priority call.
 - **Why:** David's standing constraint is that he answers specific
   questions well but can't track state across ~10 concurrent sessions —
   `/status`/`/status-all` report state, but nothing previously took a
@@ -718,6 +727,12 @@
   backstop and the cost/benefit of closing the remaining gaps changes.
 
 ### 2026-08-05 · Multi-PR features get parent-issue-plus-phase-sub-issue tracking, and I ask before declaring a split
+> **Superseded in part 2026-08-15** (see that entry, below): as built, there
+> is no separate parent-level UAT checkpoint — per-phase UAT (already named
+> here) is the *only* UAT, and the parent goes straight from its last
+> phase's close-out to its own close-out. The "🛑 Plan approval, 🛑 UAT,
+> close-out" list two lines down should be read as "🛑 Plan approval,
+> close-out" for the parent.
 - **Decision:** When a feature is too large for one PR (the pattern PR #293
   hit, self-documented mid-flight as "phase 1 of 8"), the **parent issue**
   carries the plan and the checkpoints that only make sense once — 🛑 Plan
