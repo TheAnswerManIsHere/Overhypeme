@@ -1277,6 +1277,23 @@ session**.
 ### David-gate
 
 A lifecycle stage only David can move past, marked 🛑 in both the board's
-Status options and the chat interruption banner: Plan approval, Merge, and UAT.
-One glyph means "David" everywhere.
+Status options and the chat interruption banner: the **scope-of-work gate**
+(before Planning), **Plan approval**, and **UAT**. One glyph means "David"
+everywhere. Merge stopped being a gate 2026-08-15 — the driving agent
+self-merges once the ready bar is met — except a PR that widens the agent's
+own guardrails or authority, which stays David-merge-only.
 → [workstream-tracking](./workstream-tracking.md)
+
+### UAT-descent stack
+
+What happens when David's UAT surfaces a bug that turns into real work of
+its own (the PR #213 → admin-permission-rebuild shape) — pre-launch, chasing
+it is usually right, but the interrupted UAT can't be allowed to get lost.
+The `Blocked by: #N` chain from the interrupted workstream to the new
+work **is** the call stack: it nests to any depth, records which UAT step
+failed, and pops on its own when a blocker closes — surfacing the
+interrupted UAT as the top recommendation again. Priority **inherits down
+the chain**, which is what makes a deep rebuild correctly outrank starting
+anything new. Has a park escape hatch for a descent that outgrows the UAT
+it interrupted.
+→ [workstream-tracking](./workstream-tracking.md#when-uat-finds-a-bug-the-descent-stack)

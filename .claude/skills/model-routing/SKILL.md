@@ -195,3 +195,14 @@ caps, and for the same reason: its value is a perspective my main loop
 provably cannot produce, which two reversals in one session establish rather
 than assume.
 
+**Dispatch it before pushing the round's fixes, not after (David,
+2026-08-15, PR #453).** The round-3 tripwire fires once that round's
+findings are triaged and fixed — dispatch the adjudicator on that fixed-but-
+uncommitted state, before the commit and push. Doing it after the round's
+commit is already live and reviewed means any gap the adjudicator finds
+costs a whole extra commit and CI round-trip; doing it before means a found
+gap folds into the same commit the round's fixes are already in. On PR #453
+this cost one avoidable CI cycle — the adjudicator ran after round 3 had
+already been pushed and reviewed, found one small real gap, and the fix
+landed as a fourth commit instead of inside the third.
+
