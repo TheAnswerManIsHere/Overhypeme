@@ -195,3 +195,17 @@ caps, and for the same reason: its value is a perspective my main loop
 provably cannot produce, which two reversals in one session establish rather
 than assume.
 
+**Dispatch it after triage but before implementing any fix, and in every
+case before pushing (David, 2026-08-15, PR #453) — never after the round's
+fixes are already committed and reviewed.** This is the ordering
+`working-modes.md`'s post-round adjudication and `plan-review-loop` already
+require, for the reason the ordering exists: a stop or cap verdict is
+supposed to prevent unnecessary fix work, which a "fix first, adjudicate
+after" sequence defeats before the adjudicator ever runs. Adjudicating
+after the round is already pushed and reviewed compounds the same mistake
+in the other direction: any gap the adjudicator finds then costs a whole
+extra commit and CI round-trip, instead of folding into the round's own
+commit. On PR #453 this cost one avoidable CI cycle — the adjudicator ran after round 3 had
+already been pushed and reviewed, found one small real gap, and the fix
+landed as a fourth commit instead of inside the third.
+
