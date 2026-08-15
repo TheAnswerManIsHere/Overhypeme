@@ -58,7 +58,7 @@ is **state**, not difficulty:
   Sonnet dispatch, because "which tier did that work actually run on" is
   something David can't see and shouldn't have to ask.
 
-### Effort is the second dial — but it cannot be persisted (verified 2026-08-15)
+### Effort is the second dial, and it CAN be persisted (corrected 2026-08-15)
 
 The tier table in `CLAUDE.md` is entirely about *which model*. `effort` is a separate
 control for *how hard it thinks*, and it applies on Opus 5, Sonnet 5, and Fable
@@ -66,15 +66,35 @@ control for *how hard it thinks*, and it applies on Opus 5, Sonnet 5, and Fable
 sets it with `/effort`; I can set it per-subagent via `effort` frontmatter, and
 subagents otherwise inherit the session level.
 
-**It is not a substitute for the retired tier gate, and this was checked rather
-than assumed.** When the 2026-08-15 change was proposed, dialing effort down on
-Opus looked like a cleaner cost lever than routing to Sonnet — same model, same
-context, no state loss. Claude Code's settings reference says otherwise:
-**there is no persistable `effort` / `reasoningEffort` key.** The nearest thing,
-`alwaysThinkingEnabled`, is a boolean for *whether* extended thinking runs, not
-a level. So a session-wide effort choice would still require David to type
-`/effort` — swapping one blocking ask for another. Per-subagent effort remains
-genuinely useful and stays in play.
+**It IS a viable session-wide cost lever, and the story of getting this wrong
+is worth keeping.** When the 2026-08-15 tier change was proposed, dialing
+effort down on Opus looked like a cleaner lever than routing to Sonnet — same
+model, same context, no state loss. I checked, concluded **no persistable
+effort setting existed**, and wrote that into `CLAUDE.md`, `decisions.md` and
+PR #458 as verified fact. It was wrong: I read the **settings docs page**,
+which omits the key, and treated its silence as absence.
+
+The **settings JSON schema** carries it:
+
+```json
+"effortLevel": { "enum": ["low", "medium", "high", "xhigh"] }
+```
+
+— *"Persisted effort level for supported models."*
+
+Two durable lessons:
+
+1. **For any settings question, read the schema, not the docs page.** The docs
+   page is a curated subset and can omit keys entirely. A docs-page absence is
+   not evidence of non-existence; a schema absence is much closer to it. The
+   failure mode is specifically one-directional — the docs page will never
+   invent a key, but it will silently hide one, which is exactly what makes
+   "I checked and it doesn't exist" the dangerous conclusion to draw from it.
+2. **`model: opus` + `effortLevel` is a real, ask-free cost dial.** It needs no
+   `/effort` typing from David and no model switch, which makes it the *first*
+   thing to reach for when Opus-everywhere gets expensive — ahead of
+   re-litigating the tier gate. `max` is session-only (absent from the enum);
+   per-subagent `effort` is unaffected and stays in play.
 
 This matters for quota because **Opus 5 at `low`/`medium` is unusually strong** —
 Anthropic's own guidance is to start at `xhigh` for coding/agentic work and then

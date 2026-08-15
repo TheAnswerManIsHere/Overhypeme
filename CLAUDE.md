@@ -1340,13 +1340,20 @@ calls. Two concrete, durable changes:
     (barred by the delegation caps below). I announce a dispatch and why, in
     the same breath — the announce-don't-sneak rule applies in both
     directions, not just for the expensive tiers.
-  - **Effort is NOT a second lever for this, and that is now verified
-    (2026-08-15).** I proposed dialing effort instead of tiers; checking
-    Claude Code's settings reference before writing it down, **there is no
-    persistable effort setting** — `alwaysThinkingEnabled` is a boolean for
-    whether extended thinking is on, not a level. Effort is set by David
-    typing `/effort`, so leaning on it would just have swapped one blocking
-    ask for another. Per-subagent `effort` still works and stays available.
+  - **Effort IS a persistable second lever — `effortLevel` in
+    `.claude/settings.json` (corrected 2026-08-15, same day).** My first
+    version of this bullet said no such setting existed. That was wrong, and
+    the way it was wrong is the lesson: I checked the **docs page**, which
+    omits the key, and wrote "verified" on the strength of it. The
+    **settings JSON schema** carries `effortLevel` (`low` | `medium` |
+    `high` | `xhigh`, "Persisted effort level for supported models") — so
+    for any settings question, **the schema is the source of truth and the
+    docs page is not**, because the docs page can be silently incomplete in
+    exactly the direction that makes me declare something impossible.
+    Practical consequence: a session-wide effort choice needs **no** ask
+    from David, so `model: opus` + `effortLevel` is a real cost dial that
+    costs no ceremony. `max` is session-only (not in the enum) and
+    per-subagent `effort` still works.
   - **By task type** (the reference table, since the two boundaries above
     don't cover everything I do):
 

@@ -48,19 +48,28 @@
   engaged anyway because the adjudication is Claude's. Plausibly *more*
   expensive than simply watching on Opus. Recorded so it isn't re-proposed as
   an obvious optimization.
-- **Also rejected — dialing effort instead of tiers.** Checked rather than
-  assumed: Claude Code has **no persistable effort setting**
-  (`alwaysThinkingEnabled` is a boolean for *whether* extended thinking runs,
-  not a level), so a session-wide effort choice would still require David to
-  type `/effort` — one blocking ask swapped for another. Per-subagent `effort`
-  remains available and in use.
+- **Considered, initially rejected on a factual error, now available —
+  dialing effort instead of tiers.** The first version of this entry said
+  Claude Code has **no persistable effort setting**, and called that
+  "checked rather than assumed." It was wrong: the check read the settings
+  **docs page** (which omits the key) rather than the settings **JSON
+  schema** (which carries `effortLevel`: `low` | `medium` | `high` |
+  `xhigh`, *"Persisted effort level for supported models"*). Corrected the
+  same day, before merge. So `model: opus` + `effortLevel` **is** a real
+  session-wide cost dial requiring no ask from David — it does not reverse
+  this decision (the tier gate was a *blocking-ask* problem, not a cost
+  problem), but it is the first lever to reach for if Opus-everywhere gets
+  expensive, ahead of reinstating any switch-ask. **Durable lesson: for
+  settings questions the schema is the source of truth; a docs-page absence
+  is not evidence of non-existence.** Per-subagent `effort` was always
+  available and is unaffected.
 - **Reference:** `CLAUDE.md` → *Token / cost discipline* and *Watching the PRs
   I open*; the `model-routing` and `pr-watch` skills. Note the `model` key is
   read once at session start, so the change lands on the *next* session.
 - **Revisit if:** cumulative quota usage becomes a real constraint again (the
-  honest cost of this decision is that ops-shaped turns now run at Opus rates),
-  or a persistable effort setting ships — that would reopen the
-  cheaper-without-switching option this decision had to reject.
+  honest cost of this decision is that ops-shaped turns now run at Opus
+  rates). The first response then is **`effortLevel`**, not a switch-ask —
+  see the corrected bullet above.
 
 ---
 
