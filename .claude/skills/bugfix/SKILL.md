@@ -222,10 +222,13 @@ the PR back only delays the review that catches things.
    Match the most recent surviving `docs/tests/UAT/PR<N>_*_UAT.md`. Publish
    it as an Artifact page too (per
    CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
-   which owns that rule). A `TEST_RUN` doc only if something genuinely
-   needs Replit's environment — per
+   which owns that rule). The PR body's Post-merge verification section
+   gets real content only if something genuinely needs Replit's
+   environment — per
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
-   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to
+   is not a default ("none needed" is the correct content otherwise; the
+   standalone TEST_RUN file is retired, 2026-08-15). **Add the UAT doc
+   link to
    the workstream issue's State of Play `Artifacts` field once committed** —
    the same instruction `pr-docs` follows for feature-mode UAT docs, so a
    cold-resumed session finds the doc regardless of which path produced it.

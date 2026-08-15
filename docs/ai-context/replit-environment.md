@@ -1,7 +1,7 @@
 # Replit: the live environment, not a fourth reviewer
 
 Replit is where the app actually runs — dev and production both. It executes
-the post-merge `TEST_RUN` checklists (see
+each PR's post-merge verification checks (see
 [`test-run-contract.md`](../tests/test-run-contract.md)), and it also
 diagnoses and repairs problems it finds there directly against the running
 environment, including database migrations. This file is the shared,
@@ -13,8 +13,8 @@ how the rest of us treat its output. Sibling to
 ## Claude Code can run *inside* the Repl — and the repo's agent config is not written for it
 
 Claude Code is installed in the Repl's shell (2026-08-11), which makes it a
-third actor: a **live-environment operator** — diagnostics, ops, `TEST_RUN`
-execution — distinct from Claude Code on the Web, which is the builder. It is
+third actor: a **live-environment operator** — diagnostics, ops,
+post-merge verification runs — distinct from Claude Code on the Web, which is the builder. It is
 powerful like Replit Agent, not constrained like the web sandbox: it holds the
 Repl's git credentials and can reach the running app.
 
@@ -120,7 +120,7 @@ prompts becoming rare enough to actually be read, not merely fewer.
 The `env.DATABASE_URL` now points at the real **dev** database (`heliumdb`),
 not the sandbox test database it originally inherited from the versioned
 settings — wired in deliberately so in-Repl sessions can do real diagnostics
-and, eventually, database-touching `TEST_RUN` steps. **Production (`neondb`
+and, eventually, database-touching post-merge verification steps. **Production (`neondb`
 on Neon) is not present anywhere in this file, or anywhere else in the Repl's
 environment, and that is deliberate** — see the dev/prod split noted below,
 which the production guard now protects explicitly.

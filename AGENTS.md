@@ -8,7 +8,7 @@
 >
 > **One source of truth for all agents.** These docs are shared by Codex, Claude
 > Code, and future agents. Claude Code's `CLAUDE.md` holds only Claude-specific
-> ceremony (plan-mode delivery, its PR/squash-merge workflow, TEST_RUN/UAT,
+> ceremony (plan-mode delivery, its PR/squash-merge workflow, post-merge verification/UAT,
 > auto-watch) and defers to these shared docs for every cross-agent principle. When
 > shared product/architecture/principle truth changes, edit the shared doc here —
 > do not fork a divergent copy into any agent's own file or private memory.
@@ -104,9 +104,9 @@ Engineering practice: [`docs/engineering/`](docs/engineering/) —
 [ncmec-audit-ledger-hardening](docs/engineering/ncmec-audit-ledger-hardening.md),
 for a migration that cannot enforce its own privilege boundary),
 [code-review](docs/engineering/code-review.md),
-[test-run-contract](docs/tests/test-run-contract.md) (what a per-PR
-`TEST_RUN` checklist must contain — Replit executes it post-merge against the
-live DB),
+[test-run-contract](docs/tests/test-run-contract.md) (what a PR's
+*Post-merge verification* section must contain — Replit executes it
+post-merge against the live DB, driven through the Replit connector),
 [deferred-work](docs/engineering/deferred-work.md) (the backlog of parked
 maintenance/security/tech-debt items — engineering deferrals only; product
 deferrals stay in the roadmap). Subsystem gotchas: `.agents/memory/`.

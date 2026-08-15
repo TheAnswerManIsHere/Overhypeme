@@ -12,7 +12,7 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
      Project item instead of a public issue — leave this line blank/deleted
      only for that case. Keep "Workstream: #N" as the very first thing on its
      own line, plain text, no markdown bold, nothing before it on that line —
-     /status-all and scripts/sync-test-run-completion.mjs both parse
+     /status-all and the /status skill both parse
      it with the anchored regex `^Workstream:[ \t]*#(\d+)` (multiline,
      line-start only), which bold formatting (`**Workstream:**`), leading
      text, or a line break between the colon and the number all break. -->
@@ -99,6 +99,21 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
 <!-- Exact commands run + results. Separate valid failures from environment/
      deferred-to-CI ones. For product-visible behavior, name the manual steps to
      observe it. -->
+
+## Post-merge verification (live environment)
+
+<!-- What only Replit's live environment can verify — executed by the driving
+     agent through the Replit connector after merge + sync, results reported
+     in the close-out report. Content rules and the section template live in
+     docs/tests/test-run-contract.md: read-only by default (migration state,
+     read-only SQL, live-config behavior checks, post-merge repo-health
+     gates); never re-run suites CI already ran; any mutating one-time deploy
+     step is clearly labeled as such with its credential and ordering
+     prerequisites. Write "none needed" for PRs with nothing
+     environment-specific (pure docs, pure infra). This section replaced the
+     standalone TEST_RUN doc (David, 2026-08-15). -->
+
+none needed
 
 ## Checklist
 

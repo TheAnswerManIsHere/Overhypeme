@@ -58,7 +58,7 @@ to review.
 
 | Artifact class | Ceremony | Why |
 | --- | --- | --- |
-| **Transient, single-use process docs** — TEST_RUN checklists, one-off run notes, anything deleted after one execution by one person | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request. The cap ends the *loop*, never a fix: the one triage still fixes anything safety-relevant (see the next column). | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and gets fixed in the single triage. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
+| **Transient, single-use process docs** — handoff docs, one-off run notes, legacy TEST_RUN checklists (the TEST_RUN file itself is retired as of 2026-08-15 — new PRs carry a *Post-merge verification* PR-body section reviewed with the diff, per [`test-run-contract.md`](../tests/test-run-contract.md); this row still governs the legacy files while they run out), anything deleted after one execution | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request. The cap ends the *loop*, never a fix: the one triage still fixes anything safety-relevant (see the next column). | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and gets fixed in the single triage. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
 | **Loop-ledger records** — `.agents/metrics/loops/<pr>.json`, filed per *The loop ledger* below | **This cap covers only findings *on the ledger file itself*.** The record "rides any PR of mine except the one it measures" (see *The loop ledger* below), so it routinely shares a carrier PR with unrelated product-code changes — this row never governs those; they keep their own artifact class's ceremony (product code: review to convergence, as normal). For the ledger file: write it, one review pass, ship regardless of findings. The review *request* itself states the narrowed bar (mechanical-value-or-factual-claim only, scoped explicitly to the ledger JSON — see [`code-review.md`](../engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08)'s loop-ledger carve-out), so Codex is asked not to surface prose/wording findings on that file in the first place, and a carrier PR's review request says which files this bar applies to. Whatever the first pass returns *on the ledger file* gets one triage — fix anything that's actually a wrong stored number or a factually wrong claim about the loop; anything else (a defensible reading of an ambiguous rubric clause, imprecise phrasing around a correct label) is merged as written, no re-request. | Criticality ≈ 1 (David, 2026-08-11, after PR #406 — the record for PR #398 — ran three review rounds on a JSON file with no product surface: the causal numbers were correct every round, only the prose explaining them kept needing polish). This is a self-measurement about an already-closed, already-merged loop; looping review on it is the same ceremony-mismatch the *transient process docs* row above exists to prevent, just on a record that happens to be kept rather than deleted. If the author's own judgment says a finding reveals something genuinely missed (not just an alternate phrasing), fix it in that one triage or flag it to David directly — never loop Codex again to confirm. The scope-to-the-file-not-the-PR caveat was added the same day, after Codex's review of PR #407 (the PR introducing this row) correctly flagged that unscoped "ship regardless of findings" language would, read literally, excuse a carrier PR's product-code changes from review too. |
 | **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **Write it, one review pass, ship.** No plan document, no convergence loop. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
 | **Product code** | Today's full feature ceremony — plan, review to convergence, approval. | Codex's review is a real net, but a subtly wrong behavior can reach users. |
@@ -307,7 +307,7 @@ will keep finding things, and each fix adds surface for the next round.
   criticality), ship, and move on. Correctness of the findings is not the
   test — in the loop that taught this rule, every finding was correct and the
   loop was still the wrong place to spend tokens. Rate the artifact 1–100 on
-  "what breaks in production if this is wrong"; a TEST_RUN checklist is a 1,
+  "what breaks in production if this is wrong"; a transient run checklist is a 1,
   and nothing rated in the single digits earns a second round.
 - **The count trend is a tripwire, not a verdict (David, 2026-08-13 —
   superseding "findings must fall round over round").** Report the trend
@@ -478,8 +478,8 @@ cap, not a convergence target:
    rule already routes to a scope decision, hardened here into the
    default.
 
-The floor tiers stay stricter: TEST_RUN checklists and loop-ledger records
-keep their zero-re-request rule from the ceremony table. And the
+The floor tiers stay stricter: transient process docs and loop-ledger
+records keep their zero-re-request rule from the ceremony table. And the
 criticality gate above becomes **mechanical** at the same time: any
 re-request, on any PR of any kind, states the artifact's 1–100 criticality
 number in the request text itself. A request the author cannot put a
@@ -496,7 +496,7 @@ route it to `/bugfix` or a feature workstream, where code rules apply.
 
 **The PR body states the scope oracle, so the reviewer reviews the right
 thing (David, 2026-08-15).** Every meta-artifact PR — ledger records,
-TEST_RUN docs, `/document` harvests, agent-facing markdown — carries a
+`/document` harvests, agent-facing markdown — carries a
 short *review scope* block naming what review is *for* on this artifact and
 what is out of scope. A `/document` harvest's oracle, as the worked
 example: *in scope — routing correctness against
@@ -932,11 +932,14 @@ Everything in Tier A, plus:
 - **A real UAT doc** (`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`) — the click-through
   acceptance script, so David's product-verification net is restored for exactly
   the fixes that can reach past the reported symptom.
-- **A TEST_RUN doc only when the fix genuinely needs one** — i.e. when something
-  can only be verified in Replit's environment (live DB state, live config/data).
-  Per [`../tests/test-run-contract.md`](../tests/test-run-contract.md),
-  a TEST_RUN is not a default; most bug fixes need none, and one that re-verifies
-  what CI already gates is waste.
+- **A Post-merge verification section in the PR body only when the fix
+  genuinely needs one** — i.e. when something can only be verified in
+  Replit's environment (live DB state, live config/data). Per
+  [`../tests/test-run-contract.md`](../tests/test-run-contract.md), it is
+  not a default; most bug fixes need none ("none needed" is the correct
+  content), and a check that re-verifies what CI already gates is waste.
+  The driving agent executes the section through the Replit connector at
+  close-out (the standalone TEST_RUN file is retired, 2026-08-15).
 - **The strongest model tier available** for the fix itself.
 
 **Internal/infra-only exception on the UAT doc.** The test is **whether the
@@ -1079,10 +1082,11 @@ this miss a caller?*
 - No plan file, no pre-plan ceremony, no plan-review loop.
 - No forced "ship a new UI surface" gate for a pure fix (include UI only if the fix
   genuinely needs it to be testable).
-- No UAT/TEST_RUN docs on **Tier A**. On **Tier B**, a UAT ships only if the fix
-  has product-visible behavior (a written verification note otherwise — see the
-  internal/infra-only exception above), and a TEST_RUN only when something
-  truly needs Replit's environment.
+- No UAT doc and no post-merge verification checks on **Tier A**. On
+  **Tier B**, a UAT ships only if the fix has product-visible behavior (a
+  written verification note otherwise — see the internal/infra-only
+  exception above), and the PR-body verification section gets real content
+  only when something truly needs Replit's environment.
 
 **What it KEEPS (non-negotiable):**
 - **Pause-and-ask on real ambiguity.** If a "bug" is actually a behavior change in

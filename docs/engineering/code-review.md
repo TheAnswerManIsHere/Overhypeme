@@ -156,7 +156,7 @@ style nit.
 
 ### Documentation-only PRs get a light review (David, 2026-08-08)
 
-When a PR changes only documentation — TEST_RUN/UAT docs, `docs/ai-context/`,
+When a PR changes only documentation — UAT docs, `docs/ai-context/`,
 `docs/engineering/`, skills, READMEs, the manual — the review bar drops to:
 **is it generally correct, with no glaring issues?** A glaring issue means an
 instruction that would lead someone to do something harmful or wrong, a claim

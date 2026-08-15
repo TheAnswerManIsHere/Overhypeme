@@ -20,7 +20,7 @@ test("docs, .agents, .claude, and top-level prose are inert", () => {
 test("workflows, scripts, product code, and package configs are never inert", () => {
   assert.equal(isInertPath(".github/workflows/build.yml"), false);
   assert.equal(isInertPath(".github/pull_request_template.md"), false); // .github stays heavy wholesale
-  assert.equal(isInertPath("scripts/sync-test-run-completion.mjs"), false);
+  assert.equal(isInertPath("scripts/sync-project-fields.mjs"), false);
   assert.equal(isInertPath("scripts/__tests__/classify-ci-paths.test.mjs"), false);
   assert.equal(isInertPath("artifacts/api-server/src/index.ts"), false);
   assert.equal(isInertPath("lib/api-zod/src/index.ts"), false);
@@ -50,7 +50,7 @@ test("needsHeavyJobs is false only when every file is inert", () => {
 
 test("one non-inert file among many inert ones forces the full suite", () => {
   assert.equal(
-    needsHeavyJobs(["docs/ai-context/decisions.md", "scripts/sync-test-run-completion.mjs", "CLAUDE.md"]),
+    needsHeavyJobs(["docs/ai-context/decisions.md", "scripts/sync-project-fields.mjs", "CLAUDE.md"]),
     true,
   );
 });

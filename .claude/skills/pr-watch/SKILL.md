@@ -148,10 +148,11 @@ the diff *is* the plan. While watching an implementation PR:
   breaks in production if this ships wrong" and say the number in the round
   record and in the re-request comment itself. Single-digit artifacts
   **never get a re-request** — transient
-  docs (TEST_RUN checklists) get Codex's automatic first pass, one triage,
+  docs (handoff docs, legacy TEST_RUN checklists) get Codex's automatic
+  first pass, one triage,
   and the loop is over, regardless of finding badges. The cap is on rounds,
   never on fixes: that one triage still fixes anything safety-relevant
-  (an instruction that could touch live state breaks the TEST_RUN
+  (an instruction that could touch live state breaks the verification
   read-only contract and is a glaring issue). This gate exists
   because PR #356 ran five rounds and 36 findings on a delete-after-one-use
   checklist; the re-request bullet below applies only to artifacts that pass
@@ -247,23 +248,23 @@ silently leaving the workstream unlabeled):
   `waiting:david`, deliver the 🛑 merge ask, and don't let it sit at
   `stage:code-review` — a ready-to-go workstream parked under the wrong
   label is exactly what `/status-all` exists to surface.
-- **The PR merges with a TEST_RUN doc** (`docs/tests/Replit/PR<N>_..._TEST_RUN.md`) →
-  `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
-  between Merge and UAT, not a step to skip past. Per the `pr-docs`
-  contract, the TEST_RUN doc is transient: **I** delete it once its
-  checklist fully passes (David, 2026-08-15 — via a tiny deletion PR,
-  self-merged; full pass only, a failed item keeps the doc in place), so
-  its **absence on `main`** is the completion signal.
-  **The `test-run-completion.yml` Action owns what happens next** —
-  triggered on the push that deletes the doc, it applies the same
-  UAT-vs-close-out check as the next bullet and moves the label itself
-  (`scripts/sync-test-run-completion.mjs`), no agent session required. This
-  replaced an earlier best-effort "whoever notices next" design that Codex
-  correctly flagged twice as having no real owner (round-2 and round-3 of
-  PR #334's review). I don't need to do anything here beyond setting the
-  initial `stage:test-run` at merge — just know it's not a dead end if
-  `/status-all` later reports the issue already moved on its own.
-- **The PR merges with no TEST_RUN doc** → `stage:uat` **only if a UAT doc
+- **The PR merges with a Post-merge verification section that has real
+  content** → `stage:test-run`, `waiting:replit` — the lifecycle's own
+  Test-run stage, between Merge and UAT, not a step to skip past. Per the
+  `pr-docs` contract this stage is now **executed inside close-out**: I
+  drive the section through the connector, read the results, and on a
+  clean pass move the label myself to `stage:uat`/`stage:close-out` per
+  the next bullet's check, in the same close-out sequence. A failure
+  keeps the workstream here while it routes through the normal channel.
+  (The `test-run-completion.yml` Action that used to own this transition —
+  built on PR #334 when file deletion was the completion signal and no
+  agent owned the moment — is retired along with the TEST_RUN file
+  pattern, 2026-08-15: close-out now has an owner, me. A **legacy**
+  `docs/tests/Replit/PR<N>_..._TEST_RUN.md` doc still on `main` follows
+  this same flow, plus deleting the doc on a full pass — a tiny deletion
+  PR, self-merged; the label move is likewise mine, since the Action is
+  gone.)
+- **The PR merges with "none needed" verification** → `stage:uat` **only if a UAT doc
   exists or is actually due** — pure-docs/pure-devops PRs never have one,
   and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
   internal (per `working-modes.md`'s Tier B exception): all three go

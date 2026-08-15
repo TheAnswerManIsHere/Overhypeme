@@ -9,7 +9,7 @@ agents (Codex, Replit) provide the technical safety net.
 
 **This file holds only what is specific to *me* (Claude Code): my plan-mode
 delivery ritual, the automated Codex plan-review loop, the PR / squash-merge
-workflow, the TEST_RUN + UAT docs, and PR auto-watch.** Everything that is *shared* across agents — the product truth,
+workflow, the post-merge-verification + UAT docs, and PR auto-watch.** Everything that is *shared* across agents — the product truth,
 architecture, and the working/product principles — lives in the repo-native
 context system and **applies to me too**. I read it and keep it current; I do
 **not** restate it here (single source of truth).
@@ -68,14 +68,15 @@ forward.
   `pnpm worker:deploy` and gave him a verification `curl` command, when both
   needed to go through Replit instead. Whenever a bugfix or feature needs a
   command run — read-only verification **or** a real operational/deploy
-  action — it goes in a `docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` doc
-  per *Every PR ships with a Replit test plan + a UAT* below, never a chat
-  instruction to
-  David. The `pr-docs` skill and
-  [`test-run-contract.md`](docs/tests/test-run-contract.md) own the doc's
-  shape; a genuine one-time deploy step (needing a credential David doesn't
-  hold, e.g. `CLOUDFLARE_API_TOKEN`) is a legitimate TEST_RUN section, clearly
-  labeled as a mutating action rather than disguised as a routine check.
+  action — it goes in the PR body's **Post-merge verification** section and
+  I execute it through the Replit connector at close-out, per *Every PR
+  ships post-merge verification + a UAT* below — never a chat instruction
+  to David. The `pr-docs` skill and
+  [`test-run-contract.md`](docs/tests/test-run-contract.md) own the
+  section's shape; a genuine one-time deploy step (needing a credential
+  David doesn't hold, e.g. `CLOUDFLARE_API_TOKEN`) is a legitimate section
+  entry, clearly labeled as a mutating action rather than disguised as a
+  routine check, and I run it through the connector at the same point.
 - **David never eyeballs commits or diffs — he verifies only the finished result
   in the app, via UAT.** So I never offer, suggest, or pause for him to "review
   the commits / the diff / the code," and I never gate progress on his code
@@ -176,7 +177,7 @@ forward.
      a number in does not get posted; the missing number is how PR #434 (a
      docs-only `/document` harvest, criticality ~10) ran **eight rounds**
      past the ceremony table's existing cap without anything forcing me to
-     notice the artifact's class. TEST_RUN docs, loop-ledger records
+     notice the artifact's class. Loop-ledger records
      (`.agents/metrics/loops/<pr>.json`), and anything else transient or
      purely self-measuring are a 1 — they get the automatic first pass, one
      triage, and no re-request, ever (the cap is on rounds, never on fixes:
@@ -295,7 +296,8 @@ veto surface, and `/bugfix` survives as an explicit override):
 
 - **Feature-building mode is the default.** The full ceremony in this file —
   pre-plan conversation, the automated Codex plan-review loop, the full build,
-  Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan mode and any "let's build / add / change X" request put
+  the PR's post-merge verification section, `UAT` doc, ship-the-UI-surface
+  gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
   - **But the phrase only picks the *mode*; the artifact picks the *ceremony*
     (David, 2026-08-05).** The shared rule is
@@ -733,32 +735,35 @@ See
 [`code-review.md`](docs/engineering/code-review.md#the-review-oracle-the-pr-body)
 for what the reviewer does with it.
 
-### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
+### Every PR ships post-merge verification + a UAT (David, 2026-08-15 — the standalone TEST_RUN file is retired)
 
-For **every** feature-mode PR with product-visible or testable behavior, I ship
-two docs, named after the PR's number, each in its own directory (David,
-2026-08-14):
-`docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` (the Replit engineering
-checklist) and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` (David's in-app
-click-through). Because the PR number doesn't exist until the PR is opened,
-the flow is **PR-first**: open the PR with a "Docs pending" note, then add
-both docs to the **same PR before merge** and replace the note with links.
+For **every** feature-mode PR with product-visible or testable behavior, I
+ship two things: the PR body's **Post-merge verification** section (the
+engineering checks for Replit's live environment, written with the diff and
+reviewed with it — this replaced the `docs/tests/Replit/PR<N>_..._TEST_RUN.md`
+file) and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` (David's in-app
+click-through, unchanged and deliberately file-based). The UAT doc still
+follows the **PR-first** flow, since the PR number is in its filename: open
+the PR with a "Docs pending" note, add the doc to the **same PR before
+merge**, replace the note with the link.
 
 **A product-visible feature PR is not complete — and I don't present it to
-David as done — until both docs exist and the PR body links them**, unless the
-ship-the-UI-surface exception applies. They are **never** a separate later PR.
+David as done — until the verification section has real content (or an
+explicit "none needed") and the UAT doc exists and is linked**, unless the
+ship-the-UI-surface exception applies. The UAT doc is **never** a separate
+later PR.
 
-The **`pr-docs` skill** owns the rest: both templates, the
-[`test-run-contract.md`](docs/tests/test-run-contract.md) rules (including
-"Replit owns the database connection" and the conditional full-suite run), the
-UAT Artifact page, and the fact that the TEST_RUN half is transient — **I
-delete it once its checklist fully passes (David, 2026-08-15; formerly
-David's click)**, via a tiny deletion PR self-merged under the close-out
-rule, so a missing `*_TEST_RUN.md` on `main` is **expected, not a bug**. A
-doc still on `main` means not-run or not-clean — any failed item keeps it
-in place while the failure routes through the normal channel. The UAT half
-stays the mirror-image: **David deletes those himself** as his own done
-list; I never delete a UAT doc.
+The **`pr-docs` skill** owns the rest: the
+[`test-run-contract.md`](docs/tests/test-run-contract.md) rules (the
+section template, the read-only rule, "Replit owns the database
+connection"), the UAT Artifact page, and how the section is **executed as
+part of close-out** — after merge + sync I drive it through the Replit
+connector and report the results in the merge report; a failure routes
+through the normal channel. Legacy `*_TEST_RUN.md` files still on `main`
+run out under the old pattern (I drive the run and delete each on a full
+pass); their absence is expected, not a bug. UAT deletion stays the
+mirror-image: **David deletes those himself** as his own done list; I
+never delete a UAT doc.
 
 Bugfix mode does **not** inherit this pairing — its docs are conditional per
 tier, per
@@ -863,8 +868,8 @@ a build in front of him; production is a separate `publish_app` step that
 stays deferred and explicitly asked. Getting this backwards is the one
 mistake to avoid here — I first wrote this contract gating the merge on
 David's UAT, which is impossible, because the merge is UAT's *prerequisite*.
-Everything post-merge in this repo — his UAT, Replit's TEST_RUN — is
-post-merge for the same structural reason.
+Everything post-merge in this repo — his UAT, the live-environment
+verification — is post-merge for the same structural reason.
 
 1. **I merge when the PR is ready — no ask (David, 2026-08-15).** **Ready
    means CI green, Codex converged, and every review thread resolved. That
@@ -885,13 +890,18 @@ post-merge for the same structural reason.
    picture.
 4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
    checked-out SHA matches the new `main` commit *and* that its worktree is
-   clean.** Neither check is optional and neither substitutes for the other
+   clean → execute the PR's Post-merge verification section** through the
+   connector (the two-call sequence below; read-only scoping stated), when
+   the section has real content. Neither sync check is optional and neither
+   substitutes for the other
    (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
    a sync that silently didn't land looks exactly like one that did, and a
    leftover local edit rides along invisibly behind a correct SHA.
-5. **I report the outcome with both SHAs and hand off to UAT** — naming what
-   he should go click, since the sync is the moment his testing becomes
-   possible. With no merge ask ahead of it, this report is now the moment
+5. **I report the outcome with both SHAs, the verification section's
+   results, and hand off to UAT** — naming what he should go click, since
+   the sync is the moment his testing becomes possible. A verification
+   failure is reported plainly and routes through the normal channel; the
+   handoff to UAT waits until the checks are clean. With no merge ask ahead of it, this report is now the moment
    David learns the build landed, so it's a major completion per the
    notification rule: it gets a push notification, and for a review loop it
    carries the loop-close decision trail (tripwires fired, how each was
@@ -1098,31 +1108,33 @@ it lives here rather than in the shared docs.
     Git-pane toggle that does not exist, in fluent detail, and I wrote it
     into the docs before David caught it. Corroborate before recording any
     such answer as fact.
-  - It still doesn't replace a **TEST_RUN doc** where the point is that
-    *Replit* ran the checklist and reported back (a full regression pass,
-    a multi-step operational procedure) — that's a different artifact with
-    a different audience, not a weaker version of this call. **Running one
-    is a two-call sequence, not a single `ask_question` (David, 2026-08-14,
-    PR #405/#443 close-out)** — my first attempt pasted the whole checklist
-    into one `ask_question` call, which is wrong on two counts: it's a
-    multi-step operational procedure (an `update_app_using_prompt` job, per
-    the class-of-request rule below), and pasting the content defeats the
-    point of the doc already being a file Replit can read itself.
-    1. **Kick it off with `update_app_using_prompt`**, pointing at the
-       doc's **path**, not its contents, and — per the scoping rule just
-       above — explicitly telling it not to write or edit anything:
-       *"Please run all tests in `docs/tests/Replit/PR<N>_..._TEST_RUN.md`.
-       Read-only: execute the checklist and report results; do not write or
-       edit any code or files, even if a step fails."* Replit Agent reads
-       the file and works the checklist itself.
-    2. **Wait a few minutes** — a real TEST_RUN is repo-health commands
-       plus a dozen-plus SQL/HTTP checks, genuinely slow, not a quick
-       read. `ask_question` calls fired immediately or in tight
+  - It still doesn't replace the **post-merge verification run**, where the
+    point is that *Replit* worked a multi-step checklist and reported back —
+    that's a procedure, not a question. **Running one is a two-call
+    sequence, not a single `ask_question` (David, 2026-08-14, PR #405/#443
+    close-out)** — my first attempt jammed a whole checklist into one
+    `ask_question` call, which is wrong because a multi-step operational
+    procedure is an `update_app_using_prompt` job, per the class-of-request
+    rule below. The checks come from the PR body's *Post-merge
+    verification* section (per the `pr-docs` skill and
+    [`test-run-contract.md`](docs/tests/test-run-contract.md); the
+    standalone TEST_RUN file is retired, 2026-08-15 — for a legacy doc
+    still on `main`, point at its path instead of pasting it).
+    1. **Kick it off with `update_app_using_prompt`**, carrying the
+       section's checks and — per the scoping rule just above — explicitly
+       telling it not to write or edit anything: *"Please run the following
+       post-merge verification checks for PR <N>. Read-only: execute and
+       report results; do not write or edit any code or files, even if a
+       step fails."* A clearly-labeled mutating deploy step in the section
+       is the one exception, named as such in the prompt.
+    2. **Wait a few minutes** — a real verification run is repo-health
+       commands plus a dozen-plus SQL/HTTP checks, genuinely slow, not a
+       quick read. `ask_question` calls fired immediately or in tight
        succession just return `"busy"` (real work in progress, not
        stuck) — that's expected here, not a sign to switch tack.
-    3. **Then `ask_question` for the results**: *"How did the TEST_RUN
-       checklist in `docs/tests/Replit/PR<N>_..._TEST_RUN.md` go? Report
-       pass/fail with the raw output for each item."*
+    3. **Then `ask_question` for the results**: *"How did the post-merge
+       verification checks for PR <N> go? Report pass/fail with the raw
+       output for each item."*
   - **What it is NOT:** a reason to reach for `update_app_using_prompt`
     to read something. The original version of this bullet told me to
     prefer a "scoped execute-and-report through `update_app_using_prompt`"

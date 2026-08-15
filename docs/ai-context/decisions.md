@@ -44,14 +44,27 @@
      loop's close. Standalone ledger-only PRs are retired; meta-artifact PRs
      carry a stated review-scope oracle and convergence-by-decline in one
      pass is convergence for that class.
-  5. **The agent deletes a passed TEST_RUN doc.** Once a TEST_RUN
-     checklist fully passes, the driving agent deletes the doc (a small
-     deletion PR, self-merged) — deletion was already the completion
-     signal the `test-run-completion.yml` Action watches, and git history
-     retains the file, so a passed checklist on `main` is pure noise. Full
-     pass only: a failed item keeps the doc in place. UAT docs stay
-     David-deleted — they are his personal done list, and their presence
-     is what tells him what still needs his testing.
+  5. **The standalone TEST_RUN file is retired; post-merge verification
+     moves into the PR body and the close-out sequence.** The checks that
+     only Replit's live environment can verify are written into the PR
+     body's *Post-merge verification* section (reviewed by Codex with the
+     diff they verify — a stronger review point than the old standalone
+     criticality-1 doc), and executed by the driving agent through the
+     Replit connector after merge + sync, results reported in the merge
+     report. The `test-run-completion.yml` Action and
+     `sync-test-run-completion.mjs` are retired with the file pattern —
+     both existed because file presence was the only owner of "has this
+     run yet," and close-out now has an owner. The content rules
+     (read-only by default, Replit owns the DB connection, clearly-labeled
+     mutating deploy steps executed by the agent at close-out) survive in
+     `test-run-contract.md`, relocated, not weakened. Legacy TEST_RUN
+     files on `main` run out under the old pattern: the agent drives each
+     run and deletes the doc on a full pass. (An interim version of this
+     item, superseded within the same conversation, merely moved the
+     deletion click from David to the agent — stepping back showed the
+     file itself was a relic of the pre-connector, David-as-courier era.)
+     UAT docs are deliberately untouched: they are David's personal done
+     list, file-based on purpose, and only he deletes them.
 - **Why:** the per-round check-ins were scaffolding that forced the judgment
   rubric to be applied while it was still being built; a year of David's
   corrections is now encoded in the rubric itself (the bucket sort, the
@@ -64,8 +77,10 @@
   principle applied to the process itself.
 - **Reference:** [`working-modes.md`](./working-modes.md)'s *scope-of-work
   gate*, *post-round adjudication*, stopping-rule and loop-ledger sections;
-  [`CLAUDE.md`](../../CLAUDE.md)'s *Close-out is mine, end to end*; the
-  `plan-review-loop`, `pr-watch`, `maintenance`, and `model-routing` skills.
+  [`CLAUDE.md`](../../CLAUDE.md)'s *Close-out is mine, end to end*;
+  [`test-run-contract.md`](../tests/test-run-contract.md) and the PR
+  template's *Post-merge verification* section; the `plan-review-loop`,
+  `pr-watch`, `pr-docs`, `maintenance`, and `model-routing` skills.
 - **Revisit if:** an autonomous loop ships a miss that the retired
   check-ins would have caught — the agreed response is reinstating the
   narrowest rule that would have caught it, not wholesale reversion — or

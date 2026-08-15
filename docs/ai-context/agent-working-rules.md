@@ -4,7 +4,7 @@
 > AI agent (Codex, Claude, future agents) to work. The root
 > [`AGENTS.md`](../../AGENTS.md) is the short constitution that points here.
 > Claude Code's [`CLAUDE.md`](../../CLAUDE.md) keeps only Claude-specific
-> *ceremony* (plan-mode delivery, the PR/squash-merge workflow, TEST_RUN/UAT,
+> *ceremony* (plan-mode delivery, the PR/squash-merge workflow, post-merge verification/UAT,
 > auto-watch) and defers to **this** file for the shared principles below. If
 > they ever conflict, this file wins — and one of them is out of date (see the
 > keep-in-sync note at the bottom).
