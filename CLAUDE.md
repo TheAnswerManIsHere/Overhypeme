@@ -1648,7 +1648,14 @@ calls. Two concrete, durable changes:
   clear"), cheaper mechanics: pull threads + CI + latest commits via a
   **single** `pull_request_read` call, with `minimal_output: true` when I
   don't need full bodies. When a re-verify finds nothing new, I say so
-  ("re-checked — no new activity") so the discipline stays visible.
+  ("re-checked — no new activity") so the discipline stays visible — **unless
+  a more specific silence rule covers that check**, in which case silence
+  wins. The two live cases: a **scheduled self-check-in wake** (per
+  *Scheduled self-check-ins*) and a **webhook echo of my own comment** (per
+  the echo rule above). The principle behind the split is *who initiated the
+  check*: this rule makes a check David prompted visible to him, while both
+  silence rules stop checks **I** initiated from generating noise he never
+  asked for.
 - I also default to `list_*` over `search_*` for simple retrieval, and
   paginate in small batches (5-10 items), per the GitHub server's own
   guidance — not a cadence change, just cheaper calls for the same coverage.
