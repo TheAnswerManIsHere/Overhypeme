@@ -1,6 +1,16 @@
 ## Writing a GitHub Action that mutates issue labels concurrently with agents/humans
 
-`scripts/sync-test-run-completion.mjs` (PR #334) writes `stage:`/`waiting:`
+> **The worked example is retired; the pattern is not.**
+> `scripts/sync-test-run-completion.mjs` (PR #334), which this note was
+> extracted from, was deleted 2026-08-15 along with the
+> `test-run-completion.yml` Action and the TEST_RUN file pattern it served
+> (see `decisions.md`, 2026-08-15) — do not go looking for the script or
+> schedule verification of it. This note survives as design history: the
+> settled shape for **any future** Action that mutates labels concurrently
+> with agents/humans, bought with ~12 review rounds that should not be
+> re-paid.
+
+The original context: the script wrote `stage:`/`waiting:`
 labels on a workstream issue that Claude, Codex, and David can all also be
 touching at any moment. Getting this safe took ~12 review rounds of
 increasingly subtle bugs, each one a real concurrency window the previous
@@ -69,6 +79,7 @@ fix didn't close. The settled pattern, in order of what actually broke:
    won't happen twice. Don't assume a lost body edit here self-corrects;
    it needs a human to notice and fix it manually.
 
-See `docs/ai-context/workstream-tracking.md` for what this Action owns; see
-the script's own comments for the current, load-bearing implementation of
-each point above.
+`docs/ai-context/workstream-tracking.md` records what this now-retired
+Action used to own. The script itself is deleted (per the header above) —
+there is no live implementation to consult; the points above are the
+complete, standalone record of the pattern.

@@ -156,7 +156,7 @@ style nit.
 
 ### Documentation-only PRs get a light review (David, 2026-08-08)
 
-When a PR changes only documentation — TEST_RUN/UAT docs, `docs/ai-context/`,
+When a PR changes only documentation — UAT docs, `docs/ai-context/`,
 `docs/engineering/`, skills, READMEs, the manual — the review bar drops to:
 **is it generally correct, with no glaring issues?** A glaring issue means an
 instruction that would lead someone to do something harmful or wrong, a claim
@@ -173,14 +173,18 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
 cost more than the defects they describe. This is the *depth* rule; the
-*round-count* rule for the same artifacts is now a hard cap — the automatic
-first pass plus **at most one re-request**, with out-of-diff findings
-routed to follow-up issues by default — defined in
-[`working-modes.md`](../ai-context/working-modes.md#docs-only-prs-cap-at-one-re-request--review-of-prose-is-structurally-unbounded-david-2026-08-14)
-(David, 2026-08-14, after PR #434 ran eight rounds on a `/document`
-harvest). The author's review request on a docs-only PR states this bar
-explicitly ("docs-only — light review per code-review.md"), so the
-reviewer calibrates from the request itself, not just from this file.
+*continuation* rule for the same artifacts is consequence-based — a round
+earns a successor only if it surfaced behavior-changing defects (this
+file's "glaring issue" class), the re-request names the specific fixes it
+verifies, out-of-diff findings route to follow-up issues by default, and a
+third round fires the adversarial adjudication tripwire — defined in
+[`working-modes.md`](../ai-context/working-modes.md#docs-only-loops-continue-on-consequence-not-count-david-2026-08-15-superseding-the-2026-08-14-one-re-request-cap)
+(David, 2026-08-15, superseding the brief 2026-08-14 hard cap; PR #434's
+eight polish rounds and PR #449's behavior-changing second pass are the
+two calibration cases). The author's review request on a docs-only PR
+states this bar explicitly ("docs-only — light review per
+code-review.md"), so the reviewer calibrates from the request itself, not
+just from this file.
 
 **Loop-ledger records get the same light bar, split by which half of the
 record a finding touches (David, 2026-08-11).** A `.agents/metrics/loops/
@@ -201,7 +205,8 @@ concrete cost this carve-out exists to stop paying twice.
 **This bar, and the one-pass cap in `working-modes.md`'s ceremony table,
 apply only to findings on the ledger JSON file itself.** A ledger record
 routinely rides a carrier PR alongside unrelated product-code changes (it
-"rides any PR of mine except the one it measures" — see `working-modes.md`'s
+"rides any *mergeable* PR of mine except the one it measures — never a
+`[PLAN REVIEW]` PR" — see `working-modes.md`'s
 *The loop ledger*); those changes are reviewed to convergence as normal
 product code, exactly as if the ledger file weren't in the diff. The
 author's review request on a loop-ledger PR states this bar explicitly, and

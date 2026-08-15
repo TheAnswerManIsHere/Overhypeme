@@ -9,7 +9,7 @@ agents (Codex, Replit) provide the technical safety net.
 
 **This file holds only what is specific to *me* (Claude Code): my plan-mode
 delivery ritual, the automated Codex plan-review loop, the PR / squash-merge
-workflow, the TEST_RUN + UAT docs, and PR auto-watch.** Everything that is *shared* across agents — the product truth,
+workflow, the post-merge-verification + UAT docs, and PR auto-watch.** Everything that is *shared* across agents — the product truth,
 architecture, and the working/product principles — lives in the repo-native
 context system and **applies to me too**. I read it and keep it current; I do
 **not** restate it here (single source of truth).
@@ -68,14 +68,15 @@ forward.
   `pnpm worker:deploy` and gave him a verification `curl` command, when both
   needed to go through Replit instead. Whenever a bugfix or feature needs a
   command run — read-only verification **or** a real operational/deploy
-  action — it goes in a `docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` doc
-  per *Every PR ships with a Replit test plan + a UAT* below, never a chat
-  instruction to
-  David. The `pr-docs` skill and
-  [`test-run-contract.md`](docs/tests/test-run-contract.md) own the doc's
-  shape; a genuine one-time deploy step (needing a credential David doesn't
-  hold, e.g. `CLOUDFLARE_API_TOKEN`) is a legitimate TEST_RUN section, clearly
-  labeled as a mutating action rather than disguised as a routine check.
+  action — it goes in the PR body's **Post-merge verification** section and
+  I execute it through the Replit connector at close-out, per *Every PR
+  ships post-merge verification + a UAT* below — never a chat instruction
+  to David. The `pr-docs` skill and
+  [`test-run-contract.md`](docs/tests/test-run-contract.md) own the
+  section's shape; a genuine one-time deploy step (needing a credential
+  David doesn't hold, e.g. `CLOUDFLARE_API_TOKEN`) is a legitimate section
+  entry, clearly labeled as a mutating action rather than disguised as a
+  routine check, and I run it through the connector at the same point.
 - **David never eyeballs commits or diffs — he verifies only the finished result
   in the app, via UAT.** So I never offer, suggest, or pause for him to "review
   the commits / the diff / the code," and I never gate progress on his code
@@ -114,25 +115,48 @@ forward.
      picking it. Enough for an informed decision at a glance; no more. Save the
      deep evidence/verification for the Codex threads and the plan, not this
      banner.
-  3. **Fire a push notification at those moments** (the `PushNotification`
-     tool) so David gets pulled back to the app. **Every 🛑 NEED YOU banner
-     gets a notification — no exceptions, no judgment call (David,
-     2026-08-11).** The banner and the notification are one action, not two:
-     if I am writing the banner, I am firing the notification in the same
-     turn. This is stricter than the old "when I'm blocked" phrasing, which
-     left me room to skip one for a question that felt small — and I did,
-     on the engine-bands confirmation in the permissions plan, which is
-     exactly the miss David is correcting. **The consequence of missing one
-     is that the work silently stalls:** he does not see chat unless he
-     opens the app, and a banner he never learns about is a blocked session
-     nobody knows is blocked. When I catch myself thinking "this question is
-     minor enough to skip the notification," the answer is that it was
-     apparently major enough to stop and ask, so it gets one.
+  3. **A push notification fires on the blocked STATE, not on the banner
+     (David, 2026-08-15 — the third tightening of this rule, and the one
+     that removes the last judgment gap).** The 2026-08-11 version tied
+     the notification to writing a 🛑 banner — which still missed every
+     ask that didn't take banner form: a numbered-question list, an
+     `AskUserQuestion`, a model-switch request, a standing ask restated at
+     the end of a later turn. David's report: he was getting notifications
+     "only occasionally" and had to keep coming back to watch the session.
+     So the trigger is now mechanical and format-independent — **the
+     last thing I do before ending ANY turn is ask: does this turn end
+     with something I need from David that is holding work up?** A
+     question awaiting his answer, a decision, an approval, a model
+     switch, a carve-out merge — any of it. **If yes, `PushNotification`
+     fires in that same turn. No exceptions, no size threshold, no "he
+     probably saw it."** Three consequences spelled out so they can't be
+     reasoned around:
+     - **Every ask-shaped output notifies**: 🛑 banners (unchanged),
+       `AskUserQuestion` calls, numbered-question lists, and any plain
+       ask embedded in a closing paragraph.
+     - **A still-unanswered ask re-fires.** If a turn ends still blocked
+       on something I already asked — because David replied about
+       something else, or came back for a different thread — the
+       notification fires again. An unanswered notification is
+       indistinguishable from one that never reached him, and re-firing
+       is what makes a forgotten ask impossible to lose.
+     - **"He's clearly active right now" is not a reason to skip.** The
+       `PushNotification` tool suppresses itself when David is actively
+       present, so always-fire costs nothing when he's watching and is
+       exactly what's needed when he's not. The dedupe lives in the tool,
+       never in my judgment — a "not sent (redundant)" result is the
+       system working, not evidence I should have skipped the call.
      **Also** fire at **major completions** that hand the turn back to him
-     (plan converged & ready for approval, PR green/ready, build done). Not
-     for routine progress — there, still bias to *fewer*. The "bias to fewer"
-     guidance governs the discretionary completions only; it has never
-     governed 🛑, and now explicitly does not.
+     (plan converged & ready for approval, PR ready, build done, the
+     close-out merge report). Not for routine progress — there, still bias
+     to *fewer*. The "bias to fewer" guidance governs the discretionary
+     progress notifications only; it has never governed blocking asks, and
+     under this version it cannot: blocking asks are not a judgment call.
+     **If a miss happens again under this rule, the next step is a
+     deterministic Stop-hook nag** per the standing
+     recurring-failure-patterns rule — a contract line I've now had to
+     tighten three times is exactly the "broken twice" case that
+     graduates to a guard.
 - **A second, non-blocking "FYI" marker for autonomy-era judgment calls
   (David, 2026-08-06).** Now that I resolve review threads myself once
   addressed (see the pr-watch discipline below) instead of leaving every one
@@ -176,16 +200,21 @@ forward.
      a number in does not get posted; the missing number is how PR #434 (a
      docs-only `/document` harvest, criticality ~10) ran **eight rounds**
      past the ceremony table's existing cap without anything forcing me to
-     notice the artifact's class. TEST_RUN docs, loop-ledger records
+     notice the artifact's class. Loop-ledger records
      (`.agents/metrics/loops/<pr>.json`), and anything else transient or
      purely self-measuring are a 1 — they get the automatic first pass, one
      triage, and no re-request, ever (the cap is on rounds, never on fixes:
      the one triage still fixes anything the finding reveals I actually
-     missed). **Docs-only PRs of every kind cap at the first pass plus at
-     most one re-request, with out-of-diff findings filed as follow-up
-     issues, never rounds** — the shared contract is
+     missed). **Docs-only PRs of every kind continue on consequence, not
+     count (David, 2026-08-15, superseding the brief 2026-08-14 hard
+     cap)**: a round earns a successor only if it surfaced
+     behavior-changing findings and the re-request names the specific
+     fixes it verifies; a polish-only round is convergence; out-of-diff
+     findings file as follow-up issues, never rounds; and a third round
+     fires the adversarial-adjudication tripwire before any further one —
+     the shared contract is
      [`working-modes.md`](docs/ai-context/working-modes.md)'s *Docs-only
-     PRs cap at one re-request* section. **A ledger record ran three rounds
+     loops continue on consequence, not count* section. **A ledger record ran three rounds
      on PR #406 before this line named it explicitly (David, 2026-08-11)**
      — the causal numbers were right every round, only my own prose kept
      needing polish, which is exactly the ceremony-mismatch this rule
@@ -295,7 +324,8 @@ veto surface, and `/bugfix` survives as an explicit override):
 
 - **Feature-building mode is the default.** The full ceremony in this file —
   pre-plan conversation, the automated Codex plan-review loop, the full build,
-  Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan mode and any "let's build / add / change X" request put
+  the PR's post-merge verification section, `UAT` doc, ship-the-UI-surface
+  gate — applies. Plan mode and any "let's build / add / change X" request put
   me here.
   - **But the phrase only picks the *mode*; the artifact picks the *ceremony*
     (David, 2026-08-05).** The shared rule is
@@ -483,6 +513,15 @@ loaded:
   tweaks*' entry on this below for why the earlier moment is the one that
   matters on a public repo (I typically push the plan to a branch well before
   opening the PR).
+- **The scope-of-work gate opens the loop (David, 2026-08-15).** Between the
+  pre-plan conversation and the first push of any plan document, I bring
+  David the scope of work — direction, product intent, must-not-change,
+  settled decisions, the now/next/never boundaries already decided, ceremony
+  tier, criticality — as a 🛑 NEED YOU banner, and only his explicit
+  agreement starts the loop. That agreement is what authorizes the loop to
+  run autonomously to convergence (the shared contract is
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s *scope-of-work
+  gate*); the `plan-review-loop` skill owns the mechanics.
 - **The plan-review PR is never merged**, and its branch is **never reused for
   implementation**. A `docs/plans/` file reaches `main` only if David
   explicitly asks to keep it.
@@ -510,36 +549,45 @@ loaded:
   each bucket decides live in
   [`working-modes.md`](docs/ai-context/working-modes.md)'s stopping-rule
   section — the shared contract, not restated here. My enactment: I run that
-  bucket sort at the pause, lead the check-in with the bucket mix, and David
-  decides from it. **I track the plan file's line count the same way and state it in
+  bucket sort at the pause and **decide from it myself, through the
+  adversarial-subagent adjudication (David, 2026-08-15)** — continue and
+  cap-and-implement/stop are my calls; a split, a scope addition, or a
+  product fork still escalates. **I track the plan file's line count the same way and state it in
   the same breath (David, 2026-08-11)** — the growth tripwire in
   [`working-modes.md`](docs/ai-context/working-modes.md) fires at roughly +50%
   from round 1, and it is the tripwire a *falling* finding count hides. **When
-  it fires I present the full menu — split / cap-and-implement / stop — and
+  it fires I work the full menu — split / cap-and-implement / stop — and
   say which kind of growth fired it (David, 2026-08-13).** "Split" is the
   answer for *scope accretion*, not for a coupled mechanism that merely got
   deeper; I recommended splitting PR #422 by pattern-matching the rule, at a
   seam that would have manufactured a third ordering dependency, and David
-  caught it. **I also report oscillation** — a round dominated by failures of
-  the previous round's fixes — as its own stopping condition, since prose
-  cannot be executed and only implementation converges that. Both live in
+  caught it — which is why a split conclusion always goes to him, while the
+  other two are mine. **I also treat oscillation** — a round dominated by
+  failures of the previous round's fixes — as its own stopping condition,
+  since prose cannot be executed and only implementation converges that.
+  Both live in
   [`working-modes.md`](docs/ai-context/working-modes.md)'s stopping-rule
-  section. Agent-facing markdown caps at **1–2 rounds** (and normally has
-  no loop at all — see the ceremony-tiering rule above). **I also triage:
+  section. Agent-facing markdown (docs-only PRs) has **no round cap** —
+  rounds continue only on behavior-changing findings, per
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s *Docs-only
+  loops continue on consequence, not count* (David, 2026-08-15,
+  superseding the brief 2026-08-14 hard cap and the earlier "1–2 rounds"
+  figure this line stated) — and normally has no loop at all, see the
+  ceremony-tiering rule above. **I also triage:
   every finding gets fix / accept-and-document / escalate, stated explicitly.**
   Codex marks everything "Required Revision" because that is its job;
   treating that as automatically meaning *fix* is how PR #333 ended up
   specifying compare-and-swap semantics for a GitHub label write. The shared
   contract is [`working-modes.md`](docs/ai-context/working-modes.md)'s
   *"Review loops need a stopping rule"* and *"Findings are triaged against the
-  artifact's real risk."* **And since 2026-08-07, the trend statement grew
-  into a full per-round gate**: every substantive round of any review loop —
-  plan or code — pauses *before* fixes are implemented and brings David the
-  post-round check-in (count + trend, per-finding verdict, the causal flag —
-  new ground vs. repairing an earlier fix vs. impossible-as-specified — and a
-  continue/stop recommendation); clean or trivial-nits-only rounds skip the
-  pause with a one-line status. The contract is `working-modes.md`'s *"The
-  post-round check-in."*
+  artifact's real risk."* **The 2026-08-07 per-round David gate is retired
+  (David, 2026-08-15)**: every substantive round still pauses *before* fixes
+  are implemented, triages, and produces the full round record — but the
+  continue/stop decision is now mine, made through the adversarial-subagent
+  adjudication, with the record kept in the loop's own trail and the whole
+  decision trail summarized for David at the loop's close. The contract is
+  `working-modes.md`'s *"The post-round adjudication"*; what still blocks on
+  him, always: product/design forks, scope additions, splits, disclosure.
 - **No `send_later` self-check-ins for this loop** — the standing
   no-background-check-ins rule applies.
 
@@ -549,7 +597,11 @@ David works exclusively from the Claude Code on the Web UI. Pushing to
 a feature branch is necessary but not sufficient — he only sees
 merge-able work via GitHub pull requests.
 
-**David ALWAYS squash-merges.** Every merged PR collapses my branch's
+**Every merge in this repo is a squash-merge, whoever clicks it (David,
+2026-08-15 — this line previously read "David ALWAYS squash-merges," which
+went stale the moment general self-merge started; squash-merge is a
+*method* invariant, not an attribution of who performs it — see *Close-out
+is mine, end to end*).** Every merged PR collapses my branch's
 commits into one new commit on `main` that shares no history with my
 branch — so git can't tell the old commits are already merged, and any
 follow-up work on the same branch looks like it conflicts / re-includes
@@ -720,27 +772,35 @@ See
 [`code-review.md`](docs/engineering/code-review.md#the-review-oracle-the-pr-body)
 for what the reviewer does with it.
 
-### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
+### Every PR ships post-merge verification + a UAT (David, 2026-08-15 — the standalone TEST_RUN file is retired)
 
-For **every** feature-mode PR with product-visible or testable behavior, I ship
-two docs, named after the PR's number, each in its own directory (David,
-2026-08-14):
-`docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` (the Replit engineering
-checklist) and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` (David's in-app
-click-through). Because the PR number doesn't exist until the PR is opened,
-the flow is **PR-first**: open the PR with a "Docs pending" note, then add
-both docs to the **same PR before merge** and replace the note with links.
+For **every** feature-mode PR with product-visible or testable behavior, I
+ship two things: the PR body's **Post-merge verification** section (the
+engineering checks for Replit's live environment, written with the diff and
+reviewed with it — this replaced the `docs/tests/Replit/PR<N>_..._TEST_RUN.md`
+file) and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` (David's in-app
+click-through, unchanged and deliberately file-based). The UAT doc still
+follows the **PR-first** flow, since the PR number is in its filename: open
+the PR with a "Docs pending" note, add the doc to the **same PR before
+merge**, replace the note with the link.
 
 **A product-visible feature PR is not complete — and I don't present it to
-David as done — until both docs exist and the PR body links them**, unless the
-ship-the-UI-surface exception applies. They are **never** a separate later PR.
+David as done — until the verification section has real content (or an
+explicit "none needed") and the UAT doc exists and is linked**, unless the
+ship-the-UI-surface exception applies. The UAT doc is **never** a separate
+later PR.
 
-The **`pr-docs` skill** owns the rest: both templates, the
-[`test-run-contract.md`](docs/tests/test-run-contract.md) rules (including
-"Replit owns the database connection" and the conditional full-suite run), the
-UAT Artifact page, and the fact that the TEST_RUN half is transient — David
-deletes it once Replit has run it, so a missing `*_TEST_RUN.md` on `main` is
-**expected, not a bug**.
+The **`pr-docs` skill** owns the rest: the
+[`test-run-contract.md`](docs/tests/test-run-contract.md) rules (the
+section template, the read-only rule, "Replit owns the database
+connection"), the UAT Artifact page, and how the section is **executed as
+part of close-out** — after merge + sync I drive it through the Replit
+connector and report the results in the merge report; a failure routes
+through the normal channel. Legacy `*_TEST_RUN.md` files still on `main`
+run out under the old pattern (I drive the run and delete each on a full
+pass); their absence is expected, not a bug. UAT deletion stays the
+mirror-image: **David deletes those himself** as his own done list; I
+never delete a UAT doc.
 
 Bugfix mode does **not** inherit this pairing — its docs are conditional per
 tier, per
@@ -778,31 +838,37 @@ gets invoked at all, and one because it changes when David hears from me:
 - **I never arm background self-check-in loops** (`send_later`), don't offer
   to, and don't ask — David checks PR status manually and pings me. Standing,
   across all PRs, independent of model tier.
-- **Every substantive review round pauses for the post-round check-in before
-  any fix is implemented (David, 2026-08-07).** When a round's findings land,
-  I triage first — nature, affected area, verdict, and the causal flag (new
+- **Every substantive review round pauses for the post-round adjudication
+  before any fix is implemented (David, 2026-08-15 — superseding the
+  2026-08-07 per-round David check-in).** When a round's findings land, I
+  triage first — nature, affected area, verdict, and the causal flag (new
   ground vs. repairing an earlier round's fix vs. impossible-as-specified) —
-  and bring David the report with a continue/stop recommendation as a
-  🛑 NEED YOU banner, waiting for his go before pushing fixes. Clean or
-  trivial-nits-only rounds skip the pause (fix silently, one status line).
-  **Every recommendation carries its flip condition, and no recommendation
-  ships carrying an unrefuted argument against itself (David, 2026-08-13).**
-  Before sending, I re-read my own draft for sentences arguing the other way
+  and then **decide continue/stop myself** through the adjudication in
+  [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
+  adjudication"*: the full round record goes in the loop's own trail, the
+  judgment moments go through the adversarial subagent, noteworthy
+  adjudications surface as 👀 FYIs, and David gets the whole decision trail
+  at the loop's close. What still stops the loop for a 🛑: a genuine
+  product/design fork, a scope addition, a split, or a disclosure question.
+  Clean or trivial-nits-only rounds skip even the adjudication (fix
+  silently, one status line).
+  **Every decision carries its flip condition, and no decision executes
+  carrying an unrefuted argument against itself (David, 2026-08-13).**
+  Before acting, I re-read my own draft for sentences arguing the other way
   and treat each as a stop signal, not a hedge — that is the mechanical form
   of a tendency David caught twice in one session, where the correct answer
   was already in my output, demoted to a caveat under a
   recommendation it should have reversed. A caveat I cannot refute *is* the
-  recommendation.
-  The shared contract is
-  [`working-modes.md`](docs/ai-context/working-modes.md)'s *"The post-round
-  check-in"*; my enactment lives in the `pr-watch` and `plan-review-loop`
-  skills, and the model mechanics (Sonnet check-ins; a one-shot, announced
+  decision — and either flip-condition failure dispatches the adversarial
+  subagent before anything executes.
+  The model mechanics (a one-shot, announced
   Opus subagent fired on the structural triggers — any decline, any
   unmechanizable finding, any recurrence of a swept class, per 2026-08-08;
   and a one-shot **adversarial Fable subagent** on the loop's judgment
   moments — a fired tripwire, a rising count, an oscillation signal, any
   split/cap/stop call, or a missing-or-already-true flip condition, per
-  2026-08-13) in the `model-routing` skill — David never switches models mid-loop for
+  2026-08-13, now carrying the decision weight the retired check-in used to)
+  live in the `model-routing` skill — David never switches models mid-loop for
   this.
 - **I resolve each review thread myself once I've addressed it (David,
   2026-08-06 — reversing the prior "never resolve, that's David's" rule).**
@@ -819,14 +885,18 @@ I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR
 merges or closes.
 
-### Close-out is mine; the go is David's (David, 2026-08-11)
+### Close-out is mine, end to end (David, 2026-08-15 — superseding the 2026-08-11 merge gate)
 
 The end of a build has two mechanical steps David used to do by hand:
 squash-merging the PR, and then syncing the Repl so the live environment
 actually has the merged code. Neither carries judgment, and the sync is easy
 to forget in a way that leaves the running app silently stale — there is no
-auto-sync (see the connector policy below). So I own the mechanics and he
-owns the decision:
+auto-sync (see the connector policy below). The 2026-08-11 version of this
+contract kept the merge click as David's; on 2026-08-15 he retired it
+("there's absolutely nothing that I do other than push the button"), so the
+merge is now mine too, under the same bar he was applying — with the
+carve-outs below, which are the part of the old gate that was never about
+the button:
 
 **Merging is not shipping — it is what makes the work testable (David,
 2026-08-11).** The app runs from the Repl, and the Repl tracks `main`, so
@@ -835,32 +905,59 @@ a build in front of him; production is a separate `publish_app` step that
 stays deferred and explicitly asked. Getting this backwards is the one
 mistake to avoid here — I first wrote this contract gating the merge on
 David's UAT, which is impossible, because the merge is UAT's *prerequisite*.
-Everything post-merge in this repo — his UAT, Replit's TEST_RUN — is
-post-merge for the same structural reason.
+Everything post-merge in this repo — his UAT, the live-environment
+verification — is post-merge for the same structural reason.
 
-1. **I bring the merge ask when the PR is ready** — as a 🛑 NEED YOU banner
-   with a push notification, since it both blocks on him and hands the turn
-   back. **Ready means CI green, Codex converged, and every review thread
-   resolved. That is the whole bar**, for product-visible and docs-only PRs
-   alike. CI and Codex catch *broken*; David's UAT catches *wrong* — and it
-   catches it after the sync, not before the merge. Merging on green is safe
-   precisely because it doesn't touch production.
-2. **Only an explicit yes authorizes the merge.** Same bar as plan approval:
-   silence, a reaction, or approval of something adjacent is not a go. If I'm
-   unsure whether I've been authorized, I have not been.
+1. **I merge when the PR is ready — no ask (David, 2026-08-15).** **Ready
+   means CI green, Codex converged, and every review thread resolved. That
+   is the whole bar**, for product-visible and docs-only PRs alike. CI and
+   Codex catch *broken*; David's UAT catches *wrong* — and it catches it
+   after the sync, not before the merge. Merging on green is safe precisely
+   because it doesn't touch production, and the Repl sync it enables is
+   what makes his testing possible at all; production remains behind the
+   separate, explicitly-asked `publish_app` step he manages.
+   **A confirmed Codex usage-limit bounce is a stated exception to
+   "converged," not a block on the whole bar (David, 2026-08-15)** —
+   `pr-watch`'s outage rule already says not to wait on a review that isn't
+   coming, and this reconciles the two: for a docs-only or low-criticality
+   artifact, "Codex converged" is satisfied by *ran-to-completion-or-
+   confirmed-unavailable*, and I say plainly in the merge report that the
+   round shipped without a live pass. For anything higher-stakes, the
+   outage rule's own guidance governs — I wait rather than self-merge, and
+   say so.
+2. **The carve-outs below are the only PRs that still wait for his click**
+   — for those, the old ritual holds unchanged: a 🛑 NEED YOU banner with a
+   push notification when the PR is ready, and only an explicit yes counts.
+   If I'm unsure whether a PR falls under a carve-out, it does.
 3. **I re-verify live PR state immediately before merging** — a fresh
-   `pull_request_read`, not the cached green from when I asked. If anything
-   moved (a new commit, a re-opened thread, CI flipped), I stop and re-ask
-   rather than merging on a stale picture.
+   `pull_request_read`, not the cached green from when the bar was last
+   checked. If anything moved (a new commit, a re-opened thread, CI
+   flipped), I stop and re-work the bar rather than merging on a stale
+   picture. **If this PR is the parent of a stacked dependent bugfix** (the
+   working-modes.md *Dependent bugs* shape — a child branched from this
+   PR's head with its own PR still open), confirm the child has already
+   been retargeted to `main` before merging: this repo auto-deletes the
+   parent branch on merge, with no reliable window afterward to retarget,
+   so this check has to happen *before* the click, not after.
 4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
    checked-out SHA matches the new `main` commit *and* that its worktree is
-   clean.** Neither check is optional and neither substitutes for the other
+   clean → execute the PR's Post-merge verification section** through the
+   connector (the two-call sequence below; read-only scoping stated), when
+   the section has real content. Neither sync check is optional and neither
+   substitutes for the other
    (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
    a sync that silently didn't land looks exactly like one that did, and a
    leftover local edit rides along invisibly behind a correct SHA.
-5. **I report the outcome with both SHAs and hand off to UAT** — naming what
-   he should go click, since the sync is the moment his testing becomes
-   possible. "It's live in the environment" is evidenced, not asserted. If
+5. **I report the outcome with both SHAs, the verification section's
+   results, and hand off to UAT** — naming what he should go click, since
+   the sync is the moment his testing becomes possible. A verification
+   failure is reported plainly and routes through the normal channel; the
+   handoff to UAT waits until the checks are clean. With no merge ask ahead of it, this report is now the moment
+   David learns the build landed, so it's a major completion per the
+   notification rule: it gets a push notification, and for a review loop it
+   carries the loop-close decision trail (tripwires fired, how each was
+   adjudicated, declines) per `working-modes.md`'s post-round adjudication.
+   "It's live in the environment" is evidenced, not asserted. If
    the sync fails or the checks don't match, I say so plainly and stop — no
    blind retries, never papering over a partial sync, and I don't invite him
    to test something that isn't actually there.
@@ -877,30 +974,43 @@ post-merge for the same structural reason.
   production. Different acts, and only the first is in scope — publish stays
   per-use and explicitly asked (see the connector policy).
 - **`[PLAN REVIEW]` PRs**, which are never merged at all.
-- **Anything that widens my own guardrails** — `.claude/guard.sh`, permission
-  changes in `.claude/settings.json`, or a CI check that exists to constrain
-  me. The standing rule is that I may *propose* a guard change in a PR
-  **David merges**; his merge is the entire control. If I could merge those
-  myself I'd be self-modifying my guardrails in two steps instead of one,
-  which is exactly what that rule prevents. I flag such a PR as
-  David-merge-only when I open it.
+- **Anything that widens my own guardrails or authority** — `.claude/guard.sh`,
+  permission changes in `.claude/settings.json`, a CI check that exists to
+  constrain me, or a working-contract change that grants me new autonomy
+  (this self-merge rule itself is the model case). The standing rule is that
+  I may *propose* a guard change in a PR **David merges**; his merge is the
+  entire control. Now that I merge everything else myself, this carve-out is
+  the *only* thing standing between "propose a wider grant" and "hold a
+  wider grant" — merging such a PR myself would collapse self-modification
+  into one step, which is exactly what the rule prevents. I flag such a PR
+  as David-merge-only when I open it.
 
-## I record a loop when it closes
+## I record loops at the weekly `/maintenance` flush
 
 The obligation itself is **shared and lives in
 [`working-modes.md`](docs/ai-context/working-modes.md#the-loop-ledger)** — it
 binds Codex too, so it is not restated here. What is mine is only the
 enactment:
 
-- **When a PR I own reaches its terminal point, its record is owed** before I
-  consider the work finished. Terminal point is: closed or merged, **and** no
-  reviewer pass for a full digest window — reviews land after merge, so
-  recording at close would persist zeroes and look healthy. The record is one
-  file, `.agents/metrics/loops/<pr>.json`, and it **rides any PR of mine
-  except the one it measures** (adding it there changes the diff it
-  describes). No dedicated PR type, no batching, no title prefix — the
-  `[LEDGER]` PR is retired (David, 2026-08-07), and with it the
-  squash-merge-it-myself authorization that existed for that PR type.
+- **Records are written and delivered at the `/maintenance` flush, not at
+  each loop's close (David, 2026-08-15 — superseding the record-owed-at-close
+  rule).** David consumes the ledger exactly once a week, through the digest
+  and the "how are we doing" conversation `/maintenance` hosts, so per-close
+  recording was a review loop per loop for data nobody read early. A loop
+  closing now creates no recording work; at the maintenance pass I create
+  the records for every loop closed since the last one and commit them on
+  that pass's docs-only commit. Terminal point still defines *eligibility*:
+  closed or merged, full stop — there is **no settling-window wait**
+  (`working-modes.md`'s standing rule; this line previously stated one and
+  contradicted it). Reviews can land after merge and a too-early record can
+  understate rounds and findings; the fix is re-deriving and editing the
+  record when a late review shows up, an ordinary commit, never a wait
+  baked into eligibility. The record is one file,
+  `.agents/metrics/loops/<pr>.json`, and it still **never rides the PR it
+  measures** (adding it there changes the diff it describes) — riding some
+  unrelated carrier PR early is fine, a standalone ledger-only PR is not.
+  No dedicated PR type, no title prefix — the `[LEDGER]` PR stays retired
+  (David, 2026-08-07).
 - **I run `node scripts/loop-metrics.mjs --pr <number> --write` and never
   type the mechanical values from memory** — or `--mcp-snapshot <file>` in
   this container, whose `GITHUB_TOKEN` is proxy-scoped and 401s against the
@@ -916,10 +1026,12 @@ enactment:
   `never-run`** — `pr % 5 === 0` or `findings >= 30` are the only loops that
   get the blind pass, and each of those is still adjudicated over its full
   finding population. A sampled loop I skip fails CI.
-- **Missing records are not a CI failure any more.** They surface in the
-  digest at `/maintenance`. That means *I* am the one who notices them
-  between runs — if I close a loop and don't record it, nothing stops me
-  except this rule.
+- **Missing records are not a CI failure any more.** Under the flush model,
+  a record absent *between* maintenance passes is the expected state, not a
+  gap. The flush runs first, then the digest's completeness check runs
+  against the flushed state — so a record the digest still names as missing
+  after the flush is a real miss (a loop the flush skipped), and fixing it
+  is part of that same maintenance pass, not a report line to carry forward.
 - **I dispatch the blind adjudication subagent** — this is a named exception to
   the subagent-delegation rules below, for the same reason the fresh-context
   preflight would be: its value is the *absence* of my context, which my main
@@ -928,13 +1040,15 @@ enactment:
 ## Standing devops rituals (David, 2026-07-22)
 
 - **Weekly maintenance is a David-invoked ritual, not a background task.** The
-  `/maintenance` skill owns the contract; the standing authorization worth
-  restating: green minor/patch Dependabot bumps are the one category of PR I
-  squash-merge myself. (The other category this line used to name, green
-  `[LEDGER]` PRs, is retired along with the `[LEDGER]` PR type itself — see
-  the loop-ledger section above.) David invokes it roughly weekly; I never
-  schedule it (no-background-check-ins stands). David asked for a one-shot
-  ~4-week reminder (around 2026-08-19) to revisit automating it.
+  `/maintenance` skill owns the contract. (Its old distinction — green
+  minor/patch Dependabot bumps as the one PR category I merge myself — is
+  absorbed by the 2026-08-15 general self-merge rule in the close-out
+  section; Dependabot majors still never auto-merge.) The pass now also
+  hosts the **loop-ledger flush and the weekly "how are we doing, what can
+  we improve" conversation** — see the loop-ledger section above. David
+  invokes it roughly weekly; I never schedule it (no-background-check-ins
+  stands). David asked for a one-shot ~4-week reminder (around 2026-08-19)
+  to revisit automating it.
 - **Quarterly security review.** Roughly every quarter — or after any
   payment-path / auth-touching feature merges, whichever comes first — David
   asks for a `/security-review` pass. Opus always (per the tier table: a missed
@@ -1047,31 +1161,33 @@ it lives here rather than in the shared docs.
     Git-pane toggle that does not exist, in fluent detail, and I wrote it
     into the docs before David caught it. Corroborate before recording any
     such answer as fact.
-  - It still doesn't replace a **TEST_RUN doc** where the point is that
-    *Replit* ran the checklist and reported back (a full regression pass,
-    a multi-step operational procedure) — that's a different artifact with
-    a different audience, not a weaker version of this call. **Running one
-    is a two-call sequence, not a single `ask_question` (David, 2026-08-14,
-    PR #405/#443 close-out)** — my first attempt pasted the whole checklist
-    into one `ask_question` call, which is wrong on two counts: it's a
-    multi-step operational procedure (an `update_app_using_prompt` job, per
-    the class-of-request rule below), and pasting the content defeats the
-    point of the doc already being a file Replit can read itself.
-    1. **Kick it off with `update_app_using_prompt`**, pointing at the
-       doc's **path**, not its contents, and — per the scoping rule just
-       above — explicitly telling it not to write or edit anything:
-       *"Please run all tests in `docs/tests/Replit/PR<N>_..._TEST_RUN.md`.
-       Read-only: execute the checklist and report results; do not write or
-       edit any code or files, even if a step fails."* Replit Agent reads
-       the file and works the checklist itself.
-    2. **Wait a few minutes** — a real TEST_RUN is repo-health commands
-       plus a dozen-plus SQL/HTTP checks, genuinely slow, not a quick
-       read. `ask_question` calls fired immediately or in tight
+  - It still doesn't replace the **post-merge verification run**, where the
+    point is that *Replit* worked a multi-step checklist and reported back —
+    that's a procedure, not a question. **Running one is a two-call
+    sequence, not a single `ask_question` (David, 2026-08-14, PR #405/#443
+    close-out)** — my first attempt jammed a whole checklist into one
+    `ask_question` call, which is wrong because a multi-step operational
+    procedure is an `update_app_using_prompt` job, per the class-of-request
+    rule below. The checks come from the PR body's *Post-merge
+    verification* section (per the `pr-docs` skill and
+    [`test-run-contract.md`](docs/tests/test-run-contract.md); the
+    standalone TEST_RUN file is retired, 2026-08-15 — for a legacy doc
+    still on `main`, point at its path instead of pasting it).
+    1. **Kick it off with `update_app_using_prompt`**, carrying the
+       section's checks and — per the scoping rule just above — explicitly
+       telling it not to write or edit anything: *"Please run the following
+       post-merge verification checks for PR <N>. Read-only: execute and
+       report results; do not write or edit any code or files, even if a
+       step fails."* A clearly-labeled mutating deploy step in the section
+       is the one exception, named as such in the prompt.
+    2. **Wait a few minutes** — a real verification run is repo-health
+       commands plus a dozen-plus SQL/HTTP checks, genuinely slow, not a
+       quick read. `ask_question` calls fired immediately or in tight
        succession just return `"busy"` (real work in progress, not
        stuck) — that's expected here, not a sign to switch tack.
-    3. **Then `ask_question` for the results**: *"How did the TEST_RUN
-       checklist in `docs/tests/Replit/PR<N>_..._TEST_RUN.md` go? Report
-       pass/fail with the raw output for each item."*
+    3. **Then `ask_question` for the results**: *"How did the post-merge
+       verification checks for PR <N> go? Report pass/fail with the raw
+       output for each item."*
   - **What it is NOT:** a reason to reach for `update_app_using_prompt`
     to read something. The original version of this bullet told me to
     prefer a "scoped execute-and-report through `update_app_using_prompt`"
@@ -1146,8 +1262,8 @@ it lives here rather than in the shared docs.
   My addition here is only the authorization layer, below.
 - **Syncing the Repl is authorized as part of close-out; publishing is
   not.** Triggering a post-merge git sync is an ops action inside the class
-  boundary above, and it's a standing step in *Close-out is mine; the go is
-  David's* — including the SHA check that proves it landed.
+  boundary above, and it's a standing step in *Close-out is mine, end to
+  end* — including the SHA check that proves it landed.
   **`publish_app` is a separate act and stays per-use and explicitly asked,
   never automatic** — it's production-facing. We haven't started using it;
   we're deferring until closer to going live, at which point we still need

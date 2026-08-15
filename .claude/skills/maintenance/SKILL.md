@@ -21,10 +21,10 @@ PRs") — the discipline stays visible, the report stays short.
 2. For each PR, check CI status via a single `pull_request_read` call
    (`minimal_output: true` where possible).
 3. **Grouped minor/patch PRs with green CI → squash-merge them**
-   (standing authorization, David 2026-07-22 — this is the one merge I
-   perform myself; everything else in the repo stays David-merges-only).
-   If CI is red, diagnose briefly: a flaky run gets one re-trigger; a real
-   incompatibility gets flagged, not merged.
+   (originally the one merge I performed myself, David 2026-07-22; since
+   2026-08-15 subsumed by the general self-merge rule in CLAUDE.md's
+   close-out contract). If CI is red, diagnose briefly: a flaky run gets
+   one re-trigger; a real incompatibility gets flagged, not merged.
 4. **Major-version bumps are never auto-merged.** For each, one line in
    the report: package, old → new, why it matters (or doesn't), and my
    merge/hold recommendation. David decides.
@@ -96,9 +96,65 @@ and re-check **each entry's revisit trigger**:
 - Write it **PM-facing**: what changed in product terms, one line per PR,
   grouped as features / fixes / dependencies / infra. Not a commit log.
 
-## 6. Loop-efficacy digest
+## 6. Loop-efficacy digest — flush first, then digest, then the conversation
 
-**Build the closed-PR inventory and pass it — this step is required, not
+**Step 6a — the ledger flush (David, 2026-08-15).** Loop records are no
+longer written at each loop's close; this pass is where they get created.
+List the loops that reached their terminal point since the last maintenance
+run (the closed-PR inventory below already covers this window), and for each
+one with no record yet: run `node scripts/loop-metrics.mjs --pr <n> --write`
+(or `--mcp-snapshot`, per the shared contract's mechanics in
+[`working-modes.md`](../../../docs/ai-context/working-modes.md#the-loop-ledger)),
+fill the judgment, run the blind adjudication where sampled, and commit the
+records together as part of this pass. **Also sweep for staleness across
+two sets, not just the previous window**: (a) every record from the
+*previous* window's flush, and (b) **every existing record with a `null`
+`mechanical.reviewInterval`, regardless of which window it was created
+in** — a null interval (the field `loop-metrics.mjs`'s `reviewInterval()`
+returns when the record was written with zero reviewer stamps) means the
+loop had no review yet as of its last derivation, and stays exactly
+`null` until something re-derives it; scoping the null-check to only "the
+previous window" would let a record whose first review lands two or more
+flushes later evade the sweep permanently, since it's no longer in that
+narrower set on any later pass. For either set: a record whose PR shows
+review/comment activity newer than the record's own captured
+`last_review_at` (a late-landing pass — the frozen ledger's rows #323/#324
+are the observed shape), **or whose `reviewInterval` is `null` while the
+live PR shows any reviewer activity at all**, gets re-derived and edited
+this pass, per the shared contract's late-review rule. Compare against
+what the record actually captured, not an inferred commit or derivation
+time — a review landing after the PR snapshot was fetched but before the
+record was committed can predate that inferred time and evade the sweep
+even though the record never captured it. Without
+this sweep the correction path is a promise nothing triggers — the
+new-records selection skips loops that already have a record, and the
+completeness check sees the stale file as present. **There is no settling-window
+skip** — `working-modes.md`'s standing rule is that terminal point (closed
+or merged) is eligibility, full stop; a loop whose review lands late gets
+its record re-derived and edited at a future flush, not held back from
+this one. The flush runs
+**before** the digest so the completeness check below runs against flushed
+state — a gap it still names afterward is a real miss to fix in this same
+pass, not a report line.
+
+**Delivery route (David, 2026-08-15).** The records need an ordinary
+reviewed PR to reach `main` — this repo requires a PR before merging, and
+the ledger contract bans a standalone ledger-only PR the same way it
+always has. Two cases: **if any of my own *mergeable* PRs are open**, the
+flush commit rides one of them as a normal additional commit (any PR
+except the one a given record measures, per the loop-ledger's own rule —
+and **never a `[PLAN REVIEW]` PR**, which is closed without merging, so a
+record riding it would never reach `main` at all). **If none are
+open**, this pass opens one small `docs(maintenance): weekly digest` PR
+carrying the flush commit plus this week's `deferred-work.md` updates (the
+other docs-only exception in Boundaries below) — reviewed by Codex like any
+docs-only PR, continuing on consequence rather than a round cap (per
+`working-modes.md`'s *Docs-only loops continue on consequence, not
+count*), then self-merged under the general close-out rule once ready.
+Never skip straight to a direct push: that bypasses the Codex pass the
+ledger contract still requires.
+
+**Step 6b — the digest.** **Build the closed-PR inventory and pass it — this step is required, not
 optional.** Since this PR retired CI's coverage gate, the digest's
 `--inventory` completeness check is the *only* remaining mechanism that
 notices a missing record; skipping it every week means coverage can rot
@@ -123,6 +179,16 @@ routine.
 Run `node scripts/loop-report.mjs --inventory <file>` and **narrate the
 result to David in plain language** — a few sentences, not the raw tables.
 The script computes; this step interprets; David decides.
+
+**Step 6c — the "how are we doing" conversation (David, 2026-08-15).** The
+narrated digest opens the weekly conversation David actually wants from the
+ledger: *how are we doing, and is there anything we can improve?* Beyond
+the numbers, bring anything the week's loops suggest about the process
+itself — a tripwire that keeps firing, a decline pattern, a ceremony that
+looks mismatched to its artifact class — as candidates, for him to engage
+with or skip. This conversation is the ledger's entire delivery surface
+now; a flush-and-digest with no interpretation is the measurement half
+shipping without the delivery half again.
 
 This section exists because the measurement half shipped in PR #270 and the
 delivery half never did: for a year the answers sat in a file David doesn't
@@ -256,12 +322,13 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   longer batches, see
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#one-bug-one-branch-one-pr-david-2026-07-26))
   if he says so. Maintenance touches nothing but
-  dependency merges, **with one narrow exception**: committing updates to
+  dependency merges, **with two narrow exceptions**: committing updates to
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
-  (step 4) — recording a newly-parked item or updating an entry's status.
-  That's docs-only, zero behavior/dependency change, no PR ceremony, and
-  matches the tier table's "documentation is Sonnet-always, drift is
-  self-catching" rationale. It is **not** license to fix, refactor, or bump
+  (step 4) — recording a newly-parked item or updating an entry's status —
+  and committing the loop-ledger flush records (step 6a). Both are
+  docs-only, zero behavior/dependency change, no PR ceremony, and match
+  the tier table's "documentation is Sonnet-always, drift is
+  self-catching" rationale. Neither is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
   (dependency or Action) still only ever becomes a reported decision item,
   never a direct action, per step 4 above.

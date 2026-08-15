@@ -27,10 +27,11 @@ I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event or David re-engages me — I just never schedule my own wake-up
 for it. Whenever a watched PR merges or closes, I unsubscribe.
 
-**The break-after-~2-rounds and skip-review-if-docs-only rules below are
+**The convergence-break and skip-review-if-docs-only rules below are
 for implementation PRs.** A `[PLAN REVIEW]` draft PR follows
 `plan-review-loop`'s own cadence instead — minimum 3 rounds even on a clean
-early pass, no ~2-round break (its soft cap is ~20 rounds), and every
+early pass, no count-based break (its stopping rule is the judgment rubric,
+per that skill's step 9), and every
 revision re-triggered regardless of whether the diff is docs-only, since
 the diff *is* the plan. While watching an implementation PR:
 
@@ -61,26 +62,42 @@ the diff *is* the plan. While watching an implementation PR:
   being re-engaged: per David's standing instruction above, he checks PR status
   manually and pings me if he needs me, so there is nothing for me to
   proactively poll for.
-- **Every substantive review round pauses for the post-round check-in before
-  any fix is implemented (David, 2026-08-07).** When a round's findings land,
-  I triage first and bring David the check-in defined in
-  [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-check-in-david-2026-08-07):
-  count + trend against prior rounds, each finding's nature / affected area /
-  verdict (fix, accept-and-document, escalate, decline) with whether it's
-  critical to the delivery, the causal flag (new ground vs. repairing an
-  earlier round's fix vs. impossible-as-specified), and a continue/stop
-  recommendation — delivered as a 🛑 NEED YOU banner, then I wait for his go
-  before pushing fixes. **Every finding in the check-in is written in product
-  English** per the contract's 2026-08-08 addition — David's four-question
-  template, outcomes never mechanics; the mechanics stay in the PR thread. **Skip-on-clean:** a round with zero findings or only
-  the unambiguous mechanical nits below doesn't pause — fix silently, one
-  status line. **Model mechanics:** the check-in is written on the session's
-  current tier (usually Sonnet); Opus-subagent escalation is **structural,
-  not self-assessed** — the three triggers in the sweep-protocol bullet
-  below (any decline, any unmechanizable finding, any recurrence of a swept
-  class), which superseded the 2026-08-07 ambiguous-triage judgment call
-  and the `/advisor opus` review-loop trial (see the `model-routing`
-  skill).
+- **Every substantive review round runs the post-round adjudication before
+  any fix is implemented (David, 2026-08-15 — superseding the 2026-08-07
+  per-round David check-in).** When a round's findings land, I triage first
+  and produce the round record defined in
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in):
+  count + trend + bucket mix against prior rounds, each finding's nature /
+  affected area / verdict (fix, accept-and-document, escalate, decline) with
+  whether it's critical to the delivery, the causal flag (new ground vs.
+  repairing an earlier round's fix vs. impossible-as-specified), and the
+  continue/stop decision with its flip condition — **decided by me**, with
+  the judgment moments gated by the adversarial subagent and noteworthy
+  adjudications surfaced as 👀 FYIs. **The durable trail is a maintained PR
+  body section (David, 2026-08-15)** — unlike a plan-review PR, an
+  implementation PR has no findings-ledger section to hold this, and
+  per-comment thread replies can't carry an aggregate record, so I keep a
+  `## Review round ledger` section in the PR body (append-and-edit, same
+  pattern as `plan-review-loop`'s Findings ledger), updated in the same
+  push as each round's fix commits — never a standalone summary *comment*
+  (that rule is unchanged; this is the PR body, not a comment). If the loop
+  stops without a further re-request, this section is still what the
+  close-out report and any later audit read from — session context alone
+  isn't durable. What still stops for a 🛑: a genuine design/architecture/product decision
+  (the escalate rule below), a scope addition, a split. David gets the
+  whole decision trail in the merge report at close. **Anything that
+  reaches him is written in product English** per the contract's 2026-08-08
+  rule — David's four-question template, outcomes never mechanics; the
+  mechanics stay in the PR thread. **Skip-on-clean:** a round with zero
+  findings or only the unambiguous mechanical nits below needs no
+  adjudication — fix silently, one status line. **Model mechanics:** the
+  adjudication is run on the session's current tier (usually Sonnet);
+  subagent escalation is **structural, not self-assessed** — the three
+  Opus triggers in the sweep-protocol bullet below (any decline, any
+  unmechanizable finding, any recurrence of a swept class), plus the
+  adversarial Fable subagent on the judgment moments, which now carries
+  the decision weight the retired check-in used to (see the
+  `model-routing` skill).
 - **Every fix is class-level — the sweep protocol (David, 2026-08-08).** The
   shared contract is
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)'s
@@ -104,26 +121,31 @@ the diff *is* the plan. While watching an implementation PR:
      verdict comes from the Opus subagent.
   3. **Any recurrence of a swept class** (the shared protocol's process
      failure): the class re-naming goes to the Opus subagent, and the
-     recurrence is called out in that round's check-in.
+     recurrence is called out in that round's record.
   Sensitive-path PRs (the tier table's Opus-always rows) run the whole loop
   on Opus, so triggers 1–2's Opus-subagent dispatch is redundant there — the
   main loop already is Opus. **The sweep itself (name the class, write the
-  oracle, sweep to zero) and the recurrence check-in flag still apply on
+  oracle, sweep to zero) and the recurrence round-record flag still apply on
   Opus loops** — a swept class recurring is a process signal David needs to
   see regardless of which tier caught it.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class
-  are the skip-on-clean category — they don't wait on a check-in, but they
+  are the skip-on-clean category — they don't wait on an adjudication, but they
   do get the class sweep above (a lint error's class is "this lint rule,
   everywhere in the diff").
 - **Escalate anything that's a real decision.** A design / architecture /
   trade-off comment (which abstraction to use, whether to refactor more, a
   behavior change) goes to David via AskUserQuestion — I do **not** silently
   rewrite the design on a reviewer's say-so, even a bot's.
-- **Break non-converging loops.** If a fix would be contested, or after ~2
-  rounds without convergence, I stop and bring David the diagnosis instead of
-  churning the code.
+- **Break non-converging loops — by diagnosis, not by count (David,
+  2026-08-15).** The signal is the bucket mix, not the round number: a round
+  dominated by failures of the previous round's fixes (oscillation), or a
+  fix that would be contested, ends the loop — I run the adversarial
+  adjudication and either ship what's sound, or escalate with the diagnosis
+  if the disagreement is substantive. A loop still yielding new ground in
+  the diff keeps running, however many rounds it takes; the criticality gate
+  keeps low-stakes artifacts from getting extra rounds at all.
 - **Reply inline on each comment's own thread — never a standalone summary.**
   When I act on (or decline) a reviewer comment (Codex or otherwise), I reply
   **directly on that specific comment's thread**, one reply per comment, saying
@@ -132,21 +154,32 @@ the diff *is* the plan. While watching an implementation PR:
   each thread, and a catch-all comment defeats that.
 - **The criticality gate fires before every re-request (David, 2026-08-08).**
   Before posting any `@codex review`, I rate the artifact 1–100 on "what
-  breaks in production if this ships wrong" and say the number in the
-  check-in. Single-digit artifacts **never get a re-request** — transient
-  docs (TEST_RUN checklists) get Codex's automatic first pass, one triage,
+  breaks in production if this ships wrong" and say the number in the round
+  record and in the re-request comment itself. Single-digit artifacts
+  **never get a re-request** — transient
+  docs (handoff docs, legacy TEST_RUN checklists) get Codex's automatic
+  first pass, one triage,
   and the loop is over, regardless of finding badges. The cap is on rounds,
   never on fixes: that one triage still fixes anything safety-relevant
-  (an instruction that could touch live state breaks the TEST_RUN
+  (an instruction that could touch live state breaks the verification
   read-only contract and is a glaring issue). This gate exists
   because PR #356 ran five rounds and 36 findings on a delete-after-one-use
   checklist; the re-request bullet below applies only to artifacts that pass
   this gate. On any **docs-only PR** that does warrant a review request, the
   request itself states the light bar
   ([`code-review.md`](../../../docs/engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08):
-  generally correct, glaring issues only, no grammar/count nits), and
-  pedantic findings that arrive anyway are declined against that rule in one
-  pass.
+  generally correct, glaring issues only, no grammar/count nits), the PR
+  body carries the **review-scope oracle** naming what review is for on
+  this artifact (`working-modes.md`'s 2026-08-15 rule), and out-of-scope or
+  pedantic findings that arrive anyway are declined against those stated
+  rules in one pass — convergence-by-decline is convergence for this class,
+  and same-day self-merge after it is the expected outcome. **Docs-loop
+  continuation is consequence-based, not capped (David, 2026-08-15)**: a
+  further round needs behavior-changing findings and a re-request naming
+  the specific fixes it verifies (a polish-only round is convergence), and
+  a third round fires the adversarial-adjudication tripwire — per
+  `working-modes.md`'s *Docs-only loops continue on consequence, not
+  count*.
 - **A Codex "usage limits for security reviews" bounce is not a real
   finding-in-waiting — don't block on it (David, 2026-08-08).** The
   connector's bounce comment ("You have reached your Codex usage limits
@@ -157,13 +190,18 @@ the diff *is* the plan. While watching an implementation PR:
   other, undocumented limit specific to this feature; there's no
   documentation either way, and no predictable time it clears. One retry
   is fine, but past that: **don't keep retrying, don't treat the silence
-  as "no findings," and don't hold the PR waiting on a review that isn't
-  coming** — proceed as if that round's review is unavailable and move the
-  PR forward (merge-ready for docs-only/low-criticality artifacts; for
-  anything higher-stakes, say plainly that the round shipped without a
-  live Codex pass rather than silently treating it as clean). Note the
-  skip in the workstream/PR status rather than pretending a review
-  happened.
+  as "no findings," and don't hold the *work* waiting on a review that
+  isn't coming** — proceed as if that round's review is unavailable.
+  **What "proceed" means now splits by stakes, matching CLAUDE.md's
+  self-merge ready bar (2026-08-15):** for docs-only/low-criticality
+  artifacts, confirmed-unavailable satisfies the bar's "converged"
+  condition — self-merge, saying plainly in the merge report that the
+  round shipped without a live pass. For anything higher-stakes, keep
+  working everything except the merge (CI, threads, other rounds), but
+  the PR does **not** self-merge on an outage — it waits for the review
+  to come back or escalates to David with the state, per the ready-bar
+  exception in CLAUDE.md's close-out contract. Note the skip in the
+  workstream/PR status rather than pretending a review happened.
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or
@@ -175,7 +213,7 @@ the diff *is* the plan. While watching an implementation PR:
   never my prose replies. **No minimum rounds, no convergence ceremony** — that
   is the plan loop, not this: a clean/silent re-review ends it, and new
   substantive findings just follow the rules above (fix the mechanical,
-  escalate real decisions, break after ~2 non-converging rounds). Only
+  escalate real decisions, break on oscillation per the diagnosis rule). Only
   exception: a genuinely zero-risk push (docs-only, comment typo) doesn't need
   one — anything touching product code or test logic does. **The re-request
   says what to reconcile.** A bare `@codex review` on a fix round invites a
@@ -221,27 +259,39 @@ silently leaving the workstream unlabeled):
 - **A genuine design/architecture decision goes to David** (the escalate
   rule above) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
-- **CI is green and Codex has converged, but the PR isn't merged yet** →
-  `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
-  the issue at `stage:code-review` here is exactly the kind of ready-to-go
-  workstream `/status-all` exists to surface, so don't let it sit
-  unlabeled just because nothing forced a transition.
-- **The PR merges with a TEST_RUN doc** (`docs/tests/Replit/PR<N>_..._TEST_RUN.md`) →
-  `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
-  between Merge and UAT, not a step to skip past. Per the `pr-docs`
-  contract, the TEST_RUN doc is transient: David deletes it once Replit has
-  actually run it, so its **absence on `main`** is the completion signal.
-  **The `test-run-completion.yml` Action owns what happens next** —
-  triggered on the push that deletes the doc, it applies the same
-  UAT-vs-close-out check as the next bullet and moves the label itself
-  (`scripts/sync-test-run-completion.mjs`), no agent session required. This
-  replaced an earlier best-effort "whoever notices next" design that Codex
-  correctly flagged twice as having no real owner (round-2 and round-3 of
-  PR #334's review). I don't need to do anything here beyond setting the
-  initial `stage:test-run` at merge — just know it's not a dead end if
-  `/status-all` later reports the issue already moved on its own.
-- **The PR merges with no TEST_RUN doc** → `stage:uat` **only if a UAT doc
-  exists or is actually due** — pure-docs/pure-devops PRs never have one,
+- **CI is green and Codex has converged, and every thread is resolved** →
+  the ready bar is met and **I merge it myself per CLAUDE.md's close-out
+  contract (David, 2026-08-15)** — re-verify live state, squash-merge, sync,
+  verify, report — so `stage:merge` is normally a moment, not a resting
+  state. The exception is a carve-out PR (guardrail/authority-widening,
+  which stays David-merge-only): there, label `stage:merge`,
+  `waiting:david`, deliver the 🛑 merge ask, and don't let it sit at
+  `stage:code-review` — a ready-to-go workstream parked under the wrong
+  label is exactly what `/status-all` exists to surface.
+- **The PR merges with a Post-merge verification section that has real
+  content** → `stage:test-run`, `waiting:replit` — the lifecycle's own
+  Test-run stage, between Merge and UAT, not a step to skip past. Per the
+  `pr-docs` contract this stage is now **executed inside close-out**: I
+  drive the section through the connector, read the results, and on a
+  clean pass move the label myself to `stage:uat`/`stage:close-out` per
+  the next bullet's check, in the same close-out sequence. A failure
+  keeps the workstream here while it routes through the normal channel.
+  (The `test-run-completion.yml` Action that used to own this transition —
+  built on PR #334 when file deletion was the completion signal and no
+  agent owned the moment — is retired along with the TEST_RUN file
+  pattern, 2026-08-15: close-out now has an owner, me. A **legacy**
+  `docs/tests/Replit/PR<N>_..._TEST_RUN.md` doc still on `main` follows
+  this same flow, plus deleting the doc on a full pass — a tiny deletion
+  PR, self-merged; the label move is likewise mine, since the Action is
+  gone.)
+- **The PR merges with "none needed" verification** → `stage:uat` **only
+  after the close-out sync checks pass, and only if a UAT doc
+  exists or is actually due**. The transition moment is the verified Repl
+  sync (matching SHA + clean worktree, per CLAUDE.md's close-out
+  sequence), not the merge click — a failed sync would otherwise put a
+  David-held UAT gate on the board for a build he can't actually reach;
+  until the checks pass the workstream stays agent-held in close-out.
+  On the UAT-doc test: pure-docs/pure-devops PRs never have one,
   and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
   internal (per `working-modes.md`'s Tier B exception): all three go
   straight to `stage:close-out` instead, since holding them at `uat` would

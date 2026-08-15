@@ -91,7 +91,7 @@ PRs opened around the same time can independently pick the same next index
 around it but conflicts exactly on the journal's tail entry. **Resolution: the
 PR that merges first keeps its number; the other PR renumbers to the next free
 index** (rename the `.sql` file, fix its journal entry, and grep the PR's own
-docs for the old number — a TEST_RUN/UAT doc or an inline comment can cite it).
+docs for the old number — a UAT doc, the PR body's verification section, or an inline comment can cite it).
 **Also grep the migration file's own SQL for the old number** — a literal
 inside a `RAISE NOTICE`/comment string is easy to miss since it isn't the
 filename or the journal entry, but it's still a rename site (PR #427 renamed

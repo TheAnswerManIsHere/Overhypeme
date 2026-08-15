@@ -206,11 +206,12 @@ priorities (moderation speed, render/enrichment quality, video). See
   write a Projects v2 item field** — the same constraint that keeps
   `/status-all` reading labels rather than the board. Label maintenance is owned
   by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
-  points they already hit, not by a standing habit — plus one automated
-  exception: the `test-run-completion.yml` Action (PR #334) is the sole
-  non-agent label writer, moving a workstream from `stage:test-run` to
-  `stage:uat`/`stage:close-out` the moment its TEST_RUN doc is deleted,
-  since nothing else was guaranteed to notice that event. See
+  points they already hit, not by a standing habit. (The one automated
+  exception this entry used to name — the `test-run-completion.yml` Action
+  (PR #334), the sole non-agent label writer — was retired 2026-08-15 with
+  the TEST_RUN file pattern: `pr-watch`'s close-out sequence owns the
+  `stage:test-run` transition now, per the 2026-08-15 `decisions.md`
+  entry.) See
   [`workstream-tracking.md`](./workstream-tracking.md) and
   [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
 - **`test-run-completion.yml` hardened to convergence; `/status` naming
@@ -230,19 +231,17 @@ priorities (moderation speed, render/enrichment quality, video). See
   suites on provably docs-only PRs — see the
   [2026-08-07 `decisions.md` entry](./decisions.md#2026-08-07--ci-cancels-superseded-pr-runs-and-skips-the-heavy-suites-on-provably-docs-only-changes)
   and the two GitHub Actions gotchas it links from `.agents/memory/`.
-  **Open next — still genuinely open, not resolved by the hardening above:**
-  the 20 rounds validated the 8 pure parsing/routing/body-transformation
-  helpers `sync-test-run-completion.mjs` exports (`extractPrNumberFromTestRunPath`,
-  `extractWorkstreamIssueNumber`, `hasUatDoc`, `findUatDocFilename`,
-  `stillHasTestRunDoc`, `computeTransition`, `updateStateOfPlayBody`,
-  `handoffText`) against unit tests; `ensureCleanLabels()`,
-  `processDeletedTestRunDoc()`, every REST call, retry orchestration, and
-  board synchronization are validated by code review only, never executed by
-  a test. Nothing yet has exercised the deployed Action itself either — the
-  actual `push`-to-`main` trigger, its permissions,
-  `PROJECTS_TOKEN`/`GITHUB_TOKEN` scoping, and a real label/board write —
-  since no push since it landed has deleted a matching TEST_RUN doc. Worth a
-  check once a real TEST_RUN doc deletion has gone through it live.
+  **Superseded 2026-08-15 — the "open next" this entry used to carry is
+  moot:** the Action, `sync-test-run-completion.mjs`, and their tests were
+  retired with the TEST_RUN file pattern (post-merge verification now lives
+  in the PR body and runs through the Replit connector at close-out; see
+  the 2026-08-15 `decisions.md` entry). The live-trigger verification this
+  item was waiting on — exercising the deployed Action's `push`-to-`main`
+  trigger, permissions, and board write — will never happen and no longer
+  needs to; the untested-by-execution halves it flagged were deleted, not
+  fixed. The concurrent-label-mutation *pattern* the hardening produced
+  remains recorded in `.agents/memory/` as design history for any future
+  Action that mutates labels.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
@@ -325,10 +324,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   markdown file to `prose/contract` by bare presence — it now weighs
   changed-line counts, so a code-majority mixed PR lands in `feature/code`
   (see `cohortWeights` in `scripts/loop-metrics.mjs`); presence alone only
-  decides when one side is entirely absent. **Still open, for David to
-  decide:** #279 ran 32 rounds, about 12 past the ~20-round soft cap meant
-  to trigger a check-in, with no record of whether one happened (see the
-  frozen ledger's row 6).
+  decides when one side is entirely absent. **Resolved 2026-08-15, not by
+  deciding this specific case but by retiring the cap it questioned:**
+  #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
+  trigger a check-in, with no record of whether one happened (see the
+  frozen ledger's row 6) — the open question was whether the cap needed a
+  firmer trigger. It doesn't, because the cap itself is gone:
+  `working-modes.md`'s stopping rule replaced round-count caps with the
+  bucket-mix/tripwire/criticality rubric, so there is no threshold left to
+  miss triggering.
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). **Superseded 2026-08-07** (see the bullet above): loops no
   longer append to this table, and adjudication no longer covers every

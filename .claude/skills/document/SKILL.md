@@ -48,8 +48,23 @@ Decide by what "this" refers to (contract's trigger table):
   first. I go straight to `git fetch origin main`, a fresh branch off
   `origin/main` created with **`-b` (never `-B`)**, and open a **new**, small
   docs-only PR for the harvest — never try to reuse or reopen the
-  already-merged feature PR. No TEST_RUN/UAT docs on that PR (pure-docs
-  exception) — a short verification note in the PR body suffices. I only
+  already-merged feature PR. No UAT doc and "none needed" post-merge
+  verification on that PR (pure-docs
+  exception) — a short verification note in the PR body suffices.
+  **The PR body carries the harvest's review-scope oracle (David,
+  2026-08-15**, per
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md)'s
+  meta-artifact scope-oracle rule — this PR class is its worked example,
+  after PR #434 ran eight rounds of prose polish): *in scope — routing
+  correctness against `documentation-workflow.md`, factual accuracy against
+  the merged diffs, contradiction or duplication with existing docs; out of
+  scope — prose style, structure preferences, completeness beyond the
+  session's actual learnings.* Out-of-scope findings are declined against
+  the stated oracle in one triage pass; rounds continue only on
+  behavior-changing findings per `working-modes.md`'s consequence rule
+  (a polish-only round is convergence), and once the ready bar is met I
+  self-merge per CLAUDE.md's close-out contract — same-day
+  convergence-by-decline is the expected outcome, not a shortcut. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
   force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old

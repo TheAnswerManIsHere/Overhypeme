@@ -176,14 +176,6 @@ jobs:
       - name: Check project-sync label mapping
         run: node --test scripts/__tests__/sync-project-fields.test.mjs
 
-      # A workstream stuck at stage:test-run after Replit actually finished is
-      # invisible in exactly the way the whole board exists to prevent — this
-      # script is the only writable trigger for that transition, so its
-      # filename parsing, UAT-doc detection, and label/body rewrites need to
-      # be provably right, not just plausible.
-      - name: Check TEST_RUN completion sync logic
-        run: node --test scripts/__tests__/sync-test-run-completion.test.mjs
-
       # The classifier decides which PRs get to skip the Test/Frontend
       # Test/E2E Smoke jobs entirely. A bug in its allowlist is the one way
       # this workflow could silently wave a code change past the suites, so

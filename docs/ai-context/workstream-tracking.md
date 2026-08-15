@@ -20,8 +20,8 @@ David-gate is actually asking).
 
 ## The lifecycle
 
-Discovery → Planning → 🛑 Plan approval → Coding → Code review → 🛑 Merge →
-Test run → 🛑 UAT → Close-out → Done
+Discovery → 🛑 Scope of work → Planning → 🛑 Plan approval → Coding →
+Code review → Merge → Test run → 🛑 UAT → Close-out → Done
 
 Bug-fixing mode (`/bugfix`) branches straight from Discovery to Coding,
 skipping Planning and Plan approval — it still lands in Code review, Merge,
@@ -29,7 +29,22 @@ Test run, and UAT like everything else.
 
 🛑 marks a **David-gate** — a stage only he can move past. It's the same
 glyph used for the mid-task interruption banner in chat, deliberately: one
-symbol means "David," everywhere, not only in conversation.
+symbol means "David," everywhere, not only in conversation. **Merge stopped
+being a David-gate on 2026-08-15** (the agent driving the PR merges it once
+CI is green, the reviewer has converged, and every thread is resolved — see
+CLAUDE.md's close-out contract), and the **scope-of-work gate** was added
+the same day at the front of Planning (see
+[`working-modes.md`](./working-modes.md#the-scope-of-work-gate-david-2026-08-15)).
+The one exception that still holds Merge as a David-gate: a PR that widens
+the agent's own guardrails or authority, which stays David-merge-only.
+**Known interim mismatch:** the Project board's verbatim Status option is
+still named `🛑 Merge` (the sync script maps labels onto the board's exact
+option names, and renaming an option is a board-config edit only David can
+make, paired with a `sync-project-fields.mjs` + fixture code change) — so
+until that follow-up lands, ordinary self-merged workstreams passing
+through `stage:merge` briefly display the stop glyph on the board without
+meaning "needs David." The label semantics in this doc are the truth;
+`waiting:david` is what actually marks the carve-out case.
 
 ## The State of Play block
 
@@ -60,10 +75,11 @@ in the same edit** — the two must never drift apart, since a label with a
 stale narrative behind it is worse than an honest gap. That means the same
 skills that own label transitions
 (`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`) own keeping this block
-current at those same trigger points, plus the one automated exception:
-`test-run-completion.yml` updates Stage/Waiting on/Last movement and the
-What's-blocking/What-you-need-to-do sections itself, at the one transition
-it owns. There is no separate maintainer beyond those five.
+current at those same trigger points. There is no separate maintainer
+beyond those four. (The old fifth maintainer — the `test-run-completion.yml`
+Action, which owned the deletion-of-a-TEST_RUN-doc transition — is retired
+with the TEST_RUN file pattern, 2026-08-15: `pr-watch`'s close-out sequence
+owns that transition now.)
 
 ## Labels are the actual source of truth
 
@@ -74,12 +90,11 @@ twice, independently, building the sync mechanism (PR #318) and again
 confirming `/status-all` has to read labels rather than the board (PR #323). A
 `.github/workflows/project-sync.yml` Action
 (`scripts/sync-project-fields.mjs`) mirrors labels onto the board's fields
-on every label change. One deliberate exception: `test-run-completion.yml`
-(`scripts/sync-test-run-completion.mjs`) writes labels with `GITHUB_TOKEN`,
-whose events GitHub does not cascade to other workflows — so
-`project-sync.yml`'s own `issues:labeled` trigger would never fire from
-that write — and calls `sync-project-fields.mjs`'s `syncIssue` directly
-instead of relying on the event chain. Nothing else writes to the board.
+on every label change. Nothing else writes to the board. (The retired
+`test-run-completion.yml` Action was once a deliberate exception here —
+its `GITHUB_TOKEN` label writes didn't cascade to `project-sync.yml`, so
+it called `syncIssue` directly; with all label writes back in agent
+sessions, that exception is gone.)
 
 Every workstream issue carries exactly one label from each of three
 prefixes:
@@ -111,8 +126,7 @@ work it's already doing — not as a separate reminder to go check the board:
 | --- | --- |
 | `plan-review-loop` | `waiting` toggling `claude`/`codex` each review round; `stage:plan-approval` + `waiting:david` at convergence/close-out |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
-| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when a TEST_RUN doc ships, else `stage:uat`/`stage:close-out` directly |
-| `test-run-completion.yml` (`scripts/sync-test-run-completion.mjs`) | The **only** automated (non-agent) label writer here: triggers on the push that deletes a `docs/tests/Replit/PR<N>_..._TEST_RUN.md` doc and moves that PR's workstream from `stage:test-run` to `stage:uat`/`stage:close-out` itself — no agent session needs to be engaged for this one transition |
+| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
 

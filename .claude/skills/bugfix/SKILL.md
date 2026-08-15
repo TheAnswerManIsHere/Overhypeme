@@ -222,10 +222,13 @@ the PR back only delays the review that catches things.
    Match the most recent surviving `docs/tests/UAT/PR<N>_*_UAT.md`. Publish
    it as an Artifact page too (per
    CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
-   which owns that rule). A `TEST_RUN` doc only if something genuinely
-   needs Replit's environment — per
+   which owns that rule). The PR body's Post-merge verification section
+   gets real content only if something genuinely needs Replit's
+   environment — per
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
-   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to
+   is not a default ("none needed" is the correct content otherwise; the
+   standalone TEST_RUN file is retired, 2026-08-15). **Add the UAT doc
+   link to
    the workstream issue's State of Play `Artifacts` field once committed** —
    the same instruction `pr-docs` follows for feature-mode UAT docs, so a
    cold-resumed session finds the doc regardless of which path produced it.
@@ -243,16 +246,19 @@ The review-loop contract is shared and enacted elsewhere — **the mechanics
 live in the `pr-watch` skill** (which loads for any watched PR, bugfix or
 feature) **and in
 [`working-modes.md`](../../../docs/ai-context/working-modes.md)**: the
-post-round check-in before any fixes are implemented (count + trend, product
-English, causal flags, continue/stop recommendation — skip-on-clean), the
+post-round adjudication before any fixes are implemented (count + trend,
+causal flags, the continue/stop decision made in-loop via the adversarial
+subagent, product English on anything that reaches David — skip-on-clean), the
 class-sweep protocol (name the class, cite the mechanical oracle, sweep to
 zero, re-run prior rounds' oracles before every push), the criticality gate
 before every re-request, the fix / accept-and-document / escalate / decline
 triage (a decline posts only after surviving the Opus-subagent challenge),
 resolving each thread myself right after addressing it, per-round
 `@codex review` re-requests naming what the round closes, the
-cumulative-diff rule after 2+ fix rounds, breaking non-converging loops
-(~2 rounds), and unsubscribing at merge/close. **Pointer, not a copy** —
+cumulative-diff rule after 2+ fix rounds, breaking non-converging loops by
+diagnosis — oscillation or a genuinely contested fix, not a round count
+(David, 2026-08-15, superseding the earlier ~2-round figure) — and
+unsubscribing at merge/close. **Pointer, not a copy** —
 restating those mechanics here is how this section went stale once already
 (it carried a "never resolve threads" rule for two months after David
 reversed it, 2026-08-06).
@@ -275,8 +281,11 @@ What is *bugfix-specific* about the loop:
   that it's a fix.** A fix to product code passes the gate normally; a real
   product fix is essentially never single-digit. But routed entry means a bug
   can be *in the docs*: when the whole diff is agent-facing markdown or a
-  transient checklist, that artifact's cap governs (1–2 rounds, and the
-  automatic first pass with no re-request, respectively) and the review
+  transient checklist, that artifact's rule governs — no round cap but
+  continuation gated on behavior-changing findings for markdown, and the
+  automatic first pass with no re-request for a transient checklist — per
+  `working-modes.md`'s *Docs-only loops continue on consequence, not
+  count* and the ceremony table, and the review
   request states the docs-only light bar — exactly as if the same change had
   arrived through feature mode. Entering through this mode never raises an
   artifact's ceremony, and never lowers product code's.

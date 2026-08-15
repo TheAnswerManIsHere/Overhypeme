@@ -123,7 +123,7 @@ structural ones** — each a fact about the situation, not a self-assessment:
 3. **Any recurrence of a swept class.** A later round re-finding a class
    that was already swept means the class was misnamed at the cheaper
    tier — the re-naming goes to the Opus subagent, and the recurrence is
-   flagged in that round's check-in.
+   flagged in that round's record.
 
 Unchanged from 2026-08-07: one-shot, no session switch, no action from
 David, and the announce-don't-sneak rule — a subagent spending above the
@@ -131,7 +131,7 @@ session's rate gets said out loud in the same breath as dispatching it.
 This is a sanctioned judgment escalation, not a verify-my-own-work
 subagent (which stays barred by CLAUDE.md's delegation caps). On loops
 already running at Opus (sensitive-path PRs, all plan reviews), triggers
-1–2 are moot; trigger 3's check-in flag still applies.
+1–2 are moot; trigger 3's round-record flag still applies.
 
 **The `/advisor opus` review-loop trial is deprioritized by the same
 change (2026-08-08):** the structural triggers cover its review-loop use
@@ -155,12 +155,22 @@ facts about the situation, not self-assessments:
 - any **split / cap-and-implement / stop** decision
 - any recommendation where a **flip condition cannot be named**, or where the
   named flip condition is **already true** (`working-modes.md`'s post-round
-  check-in)
+  adjudication)
 
-**What gets dispatched:** my drafted recommendation *and* my reasoning, with
-the subagent prompted adversarially — *try to reverse this*. Not "review it,"
-which invites agreement. The banner to David goes out after that, carrying
-whatever survived.
+**What gets dispatched:** my drafted decision *and* my reasoning — including
+every counter-argument in my own draft, verbatim — with the subagent
+prompted adversarially: *try to reverse this*. Not "review it," which
+invites agreement.
+
+**As of 2026-08-15 this pass carries the decision weight the per-round
+David check-in used to.** Under the autonomy contract
+(`working-modes.md`'s *post-round adjudication*), what survives the
+adversarial pass *executes* — there is no banner waiting on David for
+continue/cap/stop calls. The surviving decision and what it overrode go
+into the loop's trail (an 👀 FYI when noteworthy, always the loop-close
+report); the reserved escalations — product/design forks, scope additions,
+splits, disclosure — still go to David as 🛑 banners, with this subagent's
+output attached.
 
 **Why Fable, and why only here.** A planning loop is mostly execution-shaped —
 verifying findings against source, writing thread replies, editing markdown —
