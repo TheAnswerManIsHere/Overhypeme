@@ -12,16 +12,18 @@ threads — stay resident in `CLAUDE.md`.
 
 ### Subscribe rules (resident in CLAUDE.md — pointer, not a second copy)
 
-The subscribe/tier gate lives in `CLAUDE.md`'s *Watching the PRs I open*
-stub, which fires at PR-open time before this skill is ever invoked:
-implementation PRs are watched on **Sonnet** (already there → subscribe
-immediately; on Opus → ask for the switch first), a `[PLAN REVIEW]` draft PR
-is planning and gets subscribed immediately on **Opus** with no switch ask,
-and background self-check-ins (`send_later`) are never armed — David
-(2026-07-07) checks PR status manually and pings me. One detail that lives
-only here: if a session gets switched to Sonnet later and there's an open,
-unwatched PR I created earlier, that's the moment to subscribe — I don't
-need David to re-ask.
+The subscribe rule lives in `CLAUDE.md`'s *Watching the PRs I open* stub,
+which fires at PR-open time before this skill is ever invoked: **I subscribe
+immediately, on whatever tier the session is on — there is no model gate**
+(David, 2026-08-15, retiring the Sonnet gate), for implementation and
+`[PLAN REVIEW]` PRs alike; and background self-check-ins (`send_later`) are
+never armed — David (2026-07-07) checks PR status manually and pings me.
+
+The old gate's companion rule — *"if the session gets switched to Sonnet
+later, that's the moment to subscribe any open unwatched PR"* — is retired
+with it: there is no tier moment to wait for any more. What survives is the
+substance underneath, now unconditional: **an open PR I created and am not
+yet watching gets subscribed the moment I notice it, without David re-asking.**
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event or David re-engages me — I just never schedule my own wake-up
@@ -91,10 +93,16 @@ the diff *is* the plan. While watching an implementation PR:
   mechanics stay in the PR thread. **Skip-on-clean:** a round with zero
   findings or only the unambiguous mechanical nits below needs no
   adjudication — fix silently, one status line. **Model mechanics:** the
-  adjudication is run on the session's current tier (usually Sonnet);
-  subagent escalation is **structural, not self-assessed** — the three
-  Opus triggers in the sweep-protocol bullet below (any decline, any
-  unmechanizable finding, any recurrence of a swept class), plus the
+  adjudication runs in my main loop, which is **Opus** (David, 2026-08-15 —
+  the session tier is now a constant, so this no longer reads "usually
+  Sonnet"). That moots the two Opus triggers below as *escalations* — they
+  are already at that tier — but **not as procedure**: a decline still gets
+  argued against before it posts, and an unmechanizable finding still gets
+  the adversarial second pass, because their value is the independent
+  challenge, not the tier. Subagent dispatch stays **structural, not
+  self-assessed** — the three triggers in the sweep-protocol bullet below
+  (any decline, any unmechanizable finding, any recurrence of a swept
+  class), plus the
   adversarial Fable subagent on the judgment moments, which now carries
   the decision weight the retired check-in used to (see the
   `model-routing` skill).

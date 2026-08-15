@@ -9,32 +9,72 @@ Migrated out of `CLAUDE.md` so it loads when a routing question is actually
 live. The task-shape tier table stays resident in `CLAUDE.md`, because it has
 to fire at task boundaries without being invoked.
 
-### What can and cannot switch models (settled — don't relitigate)
+### The session model is a constant, not a dial (David, 2026-08-15)
 
-David asked (2026-07-24) whether the Opus→Fable switch could be automated. I
-verified this against the Claude Code docs rather than guessing, and the answer
-is stable enough to record so neither of us re-derives it:
+David asked (2026-07-24) whether the Opus→Fable switch could be automated, and
+(2026-08-15) whether we could stop switching models altogether — the switch-ask
+was "a real blocker." Both answers come from the same verified facts:
 
 - **Nothing can change the session model except David.** Hooks can *read* the
   active model (`SessionStart` receives a `model` field) but there is **no hook
   output, skill field, or setting that writes it**, and there is no
-  `$CLAUDE_MODEL` variable. So the "switch me to Opus / Sonnet" ask in this file
-  stays a real ask, and I keep prompting for it.
-- **`opusplan` is the one automatic session-model switch**, and it is
-  mode-triggered, not task-triggered: Opus during plan mode, Sonnet for
-  execution. It is our session default per `.claude/settings.json`. Its blind
-  spots are the pre-plan conversation and the Codex plan-review loop — see the
-  "mind the gap" note in `CLAUDE.md`'s *Token / cost discipline* section.
-- **Everything else routes work to a stronger model without moving the
-  session**: subagents pinned to a model, and the advisor tool. Both below.
+  `$CLAUDE_MODEL` variable.
+- **So we stopped depending on him moving it.** `.claude/settings.json` pins
+  **`opus`**, and the session stays there for everything: pre-plan
+  conversation, planning, the plan-review loop, building, PR-watching, ops.
+  **I no longer ask for a switch in any direction.** The `opusplan` default is
+  retired along with its "mind the gap" caveat — that gap existed because plan
+  mode was what put the session on Opus, and now nothing needs to.
+- **The `model` key is read once at session start.** A change to it lands on
+  the *next* session; the current one is unaffected. Worth saying out loud
+  when the setting changes, so a "nothing happened" reaction doesn't read as
+  a broken edit.
+- **Every tier that isn't Opus is reached by subagent routing** — Fable and
+  Opus upward (below), Sonnet downward (next section) — plus the advisor tool.
 
-### Effort is the second dial — and we had never used it
+### Routing work *down* to Sonnet — stateless and bounded only
+
+The 2026-08-15 change removed the downshift ask; it did **not** remove the
+cost concern behind it. The replacement is subagent routing, and the boundary
+is **state**, not difficulty:
+
+- **Routable**: a documentation drafting or `/document` harvest pass, a
+  codebase "how does X work" investigation, a mechanical multi-file edit from
+  an already-approved plan, a bounded research sweep or reproduction. Each has
+  a clean handoff and a self-contained report.
+- **Not routable**: a review loop or any long-running stateful loop; anything
+  whose judgment is mine under the 2026-08-15 adjudication rules; verification
+  of my own work (barred by `CLAUDE.md`'s delegation caps).
+- **Why PR-watching specifically was considered and rejected.** It looks like
+  the ideal candidate — high volume, mostly mechanical — but it carries
+  per-round state (round number, cumulative-diff rule, declines and their
+  reasoning, resolved threads, finding-count and plan-growth tripwires) that a
+  subagent would re-establish on every webhook event, while my main loop stays
+  engaged anyway because the adjudication is mine. Plausibly *more* expensive
+  than simply watching on Opus, not less. Recorded here so it isn't re-proposed
+  as an obvious optimization.
+- **Announce every dispatch, in both directions.** The announce-don't-sneak
+  rule was written for expensive escalations; it applies just as much to a
+  Sonnet dispatch, because "which tier did that work actually run on" is
+  something David can't see and shouldn't have to ask.
+
+### Effort is the second dial — but it cannot be persisted (verified 2026-08-15)
 
 The tier table in `CLAUDE.md` is entirely about *which model*. `effort` is a separate
 control for *how hard it thinks*, and it applies on Opus 5, Sonnet 5, and Fable
 5 alike: `low`, `medium`, `high`, `xhigh`, `max`, defaulting to `high`. David
 sets it with `/effort`; I can set it per-subagent via `effort` frontmatter, and
 subagents otherwise inherit the session level.
+
+**It is not a substitute for the retired tier gate, and this was checked rather
+than assumed.** When the 2026-08-15 change was proposed, dialing effort down on
+Opus looked like a cleaner cost lever than routing to Sonnet — same model, same
+context, no state loss. Claude Code's settings reference says otherwise:
+**there is no persistable `effort` / `reasoningEffort` key.** The nearest thing,
+`alwaysThinkingEnabled`, is a boolean for *whether* extended thinking runs, not
+a level. So a session-wide effort choice would still require David to type
+`/effort` — swapping one blocking ask for another. Per-subagent effort remains
+genuinely useful and stays in play.
 
 This matters for quota because **Opus 5 at `low`/`medium` is unusually strong** —
 Anthropic's own guidance is to start at `xhigh` for coding/agentic work and then

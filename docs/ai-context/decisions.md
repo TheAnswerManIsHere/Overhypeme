@@ -13,6 +13,57 @@
 
 ---
 
+### 2026-08-15 · The session model is a constant (Opus); tier changes route to subagents instead of asking David to switch
+- **Decision:** Three changes, superseding the model-switching half of the
+  2026-07-24 entry below:
+  1. **`.claude/settings.json` default model → `opus`** (was `opusplan`).
+     Every session — pre-plan conversation, planning, the plan-review loop,
+     building, PR-watching, ops — starts and stays on Opus.
+  2. **The Sonnet gate on PR-watching is retired.** Claude subscribes to a PR
+     it opens immediately, on whatever tier the session is on, for
+     implementation and `[PLAN REVIEW]` PRs alike. Claude no longer asks for a
+     model switch **in any direction**.
+  3. **Cheaper and stronger tiers are reached by subagent routing only.**
+     Sonnet downward for stateless, bounded work (documentation passes,
+     codebase Q&A, mechanical multi-file edits from an approved plan, bounded
+     research sweeps); Fable and Opus upward as already practised. Every
+     dispatch is announced, in both directions.
+- **Why:** David reported the switch-ask was "a real blocker," and it was
+  structural rather than occasional: the contract carried asks pointing *both*
+  ways — up to Opus for planning (because `opusplan` only covers plan-mode
+  turns, missing the pre-plan conversation and the whole plan-review loop) and
+  down to Sonnet before watching a PR. Each landed exactly where work should
+  have flowed. The downward one directly contradicted the same-day SOW-gate
+  decision above: David's scope approval is what authorizes an autonomous run,
+  and the first thing that run did was stop and block on a model switch. The
+  gate also only ever protected **cost, never safety** — and the safety
+  argument now runs the other way, since the post-round adjudication moved the
+  loop's real judgment (continue/stop, declines, tripwires) onto Claude.
+- **Considered and rejected — delegating PR-watching to a Sonnet subagent.**
+  This was David's own proposed mechanism and it looks ideal (high-volume,
+  mostly mechanical), but a review loop is long-running and *stateful*: round
+  number, the cumulative-diff rule, declines and their reasoning, resolved
+  threads, finding-count and plan-growth tripwires. A subagent starts cold and
+  would re-establish all of it per webhook event, while the main loop stays
+  engaged anyway because the adjudication is Claude's. Plausibly *more*
+  expensive than simply watching on Opus. Recorded so it isn't re-proposed as
+  an obvious optimization.
+- **Also rejected — dialing effort instead of tiers.** Checked rather than
+  assumed: Claude Code has **no persistable effort setting**
+  (`alwaysThinkingEnabled` is a boolean for *whether* extended thinking runs,
+  not a level), so a session-wide effort choice would still require David to
+  type `/effort` — one blocking ask swapped for another. Per-subagent `effort`
+  remains available and in use.
+- **Reference:** `CLAUDE.md` → *Token / cost discipline* and *Watching the PRs
+  I open*; the `model-routing` and `pr-watch` skills. Note the `model` key is
+  read once at session start, so the change lands on the *next* session.
+- **Revisit if:** cumulative quota usage becomes a real constraint again (the
+  honest cost of this decision is that ops-shaped turns now run at Opus rates),
+  or a persistable effort setting ships — that would reopen the
+  cheaper-without-switching option this decision had to reject.
+
+---
+
 ### 2026-08-15 · SDLC autonomy: the SOW gate + in-loop adjudication replace per-round check-ins; Claude self-merges; the ledger flushes weekly
 - **Decision:** Six related changes, agreed in one conversation, that move
   David's control points to the bookends of each loop instead of inside it:

@@ -192,14 +192,11 @@ the disclosure check passes:
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)
    measures against, and it is unrecoverable after the fact once revisions
    land.
-2. **Subscribe** with `subscribe_pr_activity` immediately — regardless of model
-   tier, and **without asking to switch tiers.** The Sonnet gate under *Watching
-   the PRs I open* is for *implementation* PRs (ops-shaped work); a
-   `[PLAN REVIEW]` PR and the whole revise-until-converged loop are **planning**,
-   so I stay on **Opus** for all of it and do **not** ask David to switch me to
-   Sonnet mid-plan. The tier only ever changes *after* David approves the plan,
-   at the transition to execution — see the tier-lifecycle rule in
-   *Token / cost discipline*.
+2. **Subscribe** with `subscribe_pr_activity` immediately. No tier check, no
+   switch-ask — the session model is a constant (Opus) and there is no model
+   gate on watching any PR (David, 2026-08-15). This step used to carve the
+   `[PLAN REVIEW]` PR out of an implementation-PR Sonnet gate; that gate is
+   retired, so there is nothing left to carve out of.
 3. **Trigger the first review explicitly.** I do **not** assume opening the PR
    auto-triggers Codex — I post an explicit `@codex review` comment after
    opening. I never treat a push, or webhook silence, as proof the current

@@ -158,13 +158,16 @@ the PR. Tier A is the exception, by design.
 
 **Model tier follows the classification (CLAUDE.md's *Token / cost discipline*):**
 
-- **Entering the bugfix workflow** (routed or via `/bugfix`) — Sonnet is
-  fine. Triage and diagnosis are usually shallow, and Codex's diff review is
-  the net.
-- **The moment I classify a fix as Tier B** — I say so and ask David to switch me
-  to **Opus** before I write it. That is the whole point of the tier: these are
-  the fixes where a subtle error slips both nets. I don't switch myself; a
-  system-reminder confirming the change is what tells me it happened.
+- **Entering the bugfix workflow** (routed or via `/bugfix`) — no switch, no
+  ask (David, 2026-08-15: the session tier is a constant, Opus). Triage and
+  diagnosis stay in my main loop. A **bounded** piece of the work — reproduce
+  the symptom, find every caller of X — is eligible for a Sonnet subagent;
+  the diagnosis itself is not, because it is stateful.
+- **The moment I classify a fix as Tier B** — I say so, and what it now means
+  is that the fix is **not eligible for subagent routing**: I write it myself,
+  in my main loop. (This used to be an ask for a switch up to Opus; the session
+  is already there.) That is the whole point of the tier: these are the fixes
+  where a subtle error slips both nets.
 - **Tier C** — stop and escalate to David; it isn't a bug fix, so this mode
   doesn't pick its model tier. Where it goes next does: non-trivial or
   behavior-changing Tier C work **restarts in feature mode**, which picks the
@@ -273,13 +276,10 @@ the PR back only delays the review that catches things.
    the workstream issue's State of Play `Artifacts` field once committed** —
    the same instruction `pr-docs` follows for feature-mode UAT docs, so a
    cold-resumed session finds the doc regardless of which path produced it.
-4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open* — including its
-   **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately;
-   on **any other tier** — Opus (which a Tier B fix will have put me on),
-   Fable, or anything future — tell David the PR is ready to watch and ask him
-   to switch me to Sonnet first. The gate is "not Sonnet," not "is Opus":
-   naming one non-default tier is how this rule got read literally and missed
-   once already (David, 2026-08-08).
+4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open*:
+   `subscribe_pr_activity` immediately, on whatever tier the session is on.
+   **There is no model gate** (David, 2026-08-15 — the Sonnet gate this step
+   used to carry is retired, along with the switch-ask it forced).
 
 ## 4. Drive the review to convergence
 
