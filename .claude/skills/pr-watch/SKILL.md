@@ -368,6 +368,11 @@ this is the UAT-descent shape:
   Skipping this leaves the unblocked parent sitting at `waiting:claude`
   indefinitely — mechanically releasable per the `Blocked by:` contract,
   but with no open question left for anyone to notice needs restoring.
+  **If that matched issue is itself a phase sub-issue, restore its
+  parent's `waiting:` the same way, in the same edit** — `bugfix` mirrors
+  the descent flip onto the parent at intake, so the restore has to mirror
+  back the same way, or the parent is left stuck at `waiting:claude` after
+  the phase itself has already recovered.
 - **Otherwise** — an ordinary workstream-to-workstream dependency, or a
   blocked backlog item — **only remove the stale `Blocked by:` line.**
   Nothing stashed a prior value for these, so guessing a `waiting:` (or

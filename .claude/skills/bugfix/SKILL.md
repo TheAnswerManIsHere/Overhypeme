@@ -128,6 +128,12 @@ pre-launch, but the interrupted UAT is what gets lost. Per
   is the new bug, which is agent-held work. `waiting:claude` is accurate:
   a session needs to close this bug before David has anything to look at
   again.
+- **If the interrupted workstream is a phase sub-issue, mirror the same
+  flip onto its parent, in the same edit.** The parent's `waiting:`
+  mirroring obligation (`pr-watch`, per `workstream-tracking.md`'s *Phased
+  features*) only covers PR-driven toggles — this is an issue edit, not a
+  PR one, so without this the parent sits at `waiting:david` for the whole
+  descent while the phase correctly shows `waiting:claude`.
 - Do it at intake, while the context is in front of me. A session that ends
   before this is written loses the link entirely; nothing reconstructs it.
 - The chain nests if the fix hits its own blocker, and it pops on its own:
