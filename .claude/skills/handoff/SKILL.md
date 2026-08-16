@@ -73,8 +73,12 @@ before Step 4 writes anything:
 
 - **Everything worth keeping is committed and pushed.** A new session gets a
   fresh container and a fresh clone — unpushed work does not cross, silently.
-  If work in progress isn't PR-ready, push it to the branch as a WIP commit
-  anyway, or say plainly in the handoff that it will be lost.
+  **The default is push**, as a WIP commit if it isn't PR-ready. The one
+  alternative is work this session is *deliberately abandoning*, and it is
+  spent only by **enumerating** it — each file and why it isn't worth
+  keeping, written into the handoff comment. "Some scratch edits will be
+  lost" is not an enumeration and does not clear this gate; if the list
+  can't be written, push instead.
 - **Session-bound obligations are enumerated.** PR subscriptions
   (`subscribe_pr_activity` binds to *this* session) and any armed
   self-check-in or trigger do **not** transfer. Each one becomes either an
@@ -100,8 +104,12 @@ already exists to make a workstream "resumable cold, in a fresh session with
 zero prior context." That is this skill's channel; don't invent a second one.
 
 **If a workstream issue exists:** refresh the whole State of Play block
-(replace that section only, preserve the rest of the body), then add a
-handoff comment.
+(replace that section only, preserve the rest of the body), **then** add a
+handoff comment. The comment never substitutes for the block — a
+free-standing comment leaves the block's resumable-state claim stale, which
+is the drift `workstream-tracking.md` warns about and a mistake an earlier
+handoff actually made (PR #424). `/status`, `/status-all` and any cold
+reader all check the block, not the comment stream.
 
 **If none exists** — the Discovery gap `/status-all` names — open one. First
 apply the [backlog promotion rule](../../../docs/ai-context/workstream-tracking.md#the-backlog-work-thats-queued-but-hasnt-started):
