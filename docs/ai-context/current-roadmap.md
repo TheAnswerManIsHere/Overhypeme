@@ -37,9 +37,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`security-model.md`](./security-model.md)'s generation-spend section and the
   two 2026-08-16 entries in [`decisions.md`](./decisions.md).
   **Still owed from that pass:** the `is_estimated` ledger column (approved,
-  queued), the `recordCost` swallow it folds in, and the fired-but-open
-  `IP_HASH_SALT` boot assertion — all tracked in
-  [`deferred-work.md`](../engineering/deferred-work.md).
+  queued) and the `recordCost` swallow it folds in — both tracked in
+  [`deferred-work.md`](../engineering/deferred-work.md). The twice-deferred
+  `IP_HASH_SALT` boot assertion the pass also re-flagged is now done (PR
+  #<TBD>).
 
 - **The admin help system — the Manual, rendered in-console** (2026-08-16,
   PR #472, workstream #463). `docs/manual/` is now readable at `/admin/help`
