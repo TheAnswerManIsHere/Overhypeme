@@ -122,6 +122,15 @@ Decided in response to Codex round 1:
     `docs/manual/`, which is already public, so nothing non-public can reach a
     publicly-fetchable asset.
 
+Decided in response to Codex round 2:
+
+12. **`/admin/help` renders the README**, so every in-app link target has a
+    rendered destination. Fragments are validated against that **rendered
+    destination**, not the source file — the two coincide only for chapters.
+13. **Fragment navigation is an explicit mechanism, not an assumption** —
+    post-mount, against the real scroll container, across all three entry
+    paths (cold bookmark, cross-chapter, same-page).
+
 ## Repo Context Inspected
 
 - `docs/manual/` — all 12 chapters plus `README.md` (the charter, chapter
@@ -291,6 +300,25 @@ of the surface. Recorded so the trade is visible rather than implied.
 lazy-loaded like every other admin page, rendered inside `AdminLayout`, with a
 new sidebar entry.
 
+**`/admin/help` renders `docs/manual/README.md`** — the Manual's charter — with
+the chapter list and search as navigation chrome around it (Codex round 2). An
+earlier draft classified `./README.md` links as in-app but specified the index
+route as a chapter list only, so `12-background-work.md:88` ("the manual's
+charter") would have landed on unrelated content and `:255`'s
+`./README.md#contents` on nothing at all.
+
+**Rendering it whole is forced, not chosen.** The README mixes reader-facing
+orientation (*How to read this manual*) with authoring guidance (chapter
+template, quality bar, the tuning-language boundary) that an admin looking for
+product help does not need. Filtering it would mean generating an edited
+variant of a `docs/manual/` file — a second, divergent version of the text —
+which *Must Not Change* #1 forbids outright. So the whole document renders, and
+the mild noise is accepted.
+
+One consequence worth taking deliberately: the README's own **contents table is
+the chapter list**, rather than the UI maintaining a parallel one. That keeps
+the chapter-ordering source of truth single, per *Source-of-Truth Analysis*.
+
 Invariants:
 
 - **Per-chapter URLs are bookmarkable and shareable**, and a section anchor
@@ -303,6 +331,35 @@ Invariants:
 - **Section anchors match the anchors GitHub generates** for the same headings,
   so a link that works in one place works in the other, and the `?` map's
   targets can be validated against the source markdown.
+- **A fragment lands on its heading *after* the chapter's chunk has mounted,
+  and scrolls the container that actually scrolls** (Codex round 2). This
+  invariant is stated separately from "anchors match" because a correct anchor
+  and a correct `id` are not sufficient here, and the naive implementation
+  fails silently in three compounding ways this app specifically has:
+
+  1. **Lazy mount timing.** Chapters load as their own chunks, so the browser
+     can process the fragment before the target heading exists. Nothing scrolls
+     and nothing errors.
+  2. **The scroll container is not the window.** The admin shell is
+     `fixed inset-0` and scrolling happens in an inner `overflow-auto`
+     (`AdminLayout.tsx:337`). Anything that scrolls `window` moves nothing.
+  3. **An existing handler actively resets it.** `ScrollToTop`
+     (`App.tsx:351-355`) fires `window.scrollTo({top: 0})` on *every* location
+     change. It is a no-op inside the admin shell today, but any fragment
+     handling must not be defeated by it, and it must not start defeating
+     fragment handling if the shell's scroll model changes.
+
+  Confirmed by search: the frontend has **no** `location.hash` or `hashchange`
+  handler anywhere; the only two `scrollIntoView` calls are unrelated
+  (`Step2Image.tsx:326`, `FactDetail.tsx:497`). So there is no existing
+  mechanism to inherit — this has to be built, and a plan that assumed
+  "anchors just work" would have shipped a feature whose deep links quietly
+  do nothing.
+
+  **The invariant covers all three entry paths**, because they differ in
+  timing: a cold load of a bookmarked `/admin/help/:chapter#section`, a
+  cross-chapter navigation (search result or `?` link) where a new chunk
+  loads, and a same-page anchor click where nothing loads.
 - **An unknown chapter slug renders a not-found state inside the console**, not
   a blank page or a crash — the route is reachable by bookmark, so a stale one
   is an expected input, not an error case.
@@ -318,7 +375,8 @@ resolves each at generation time:
 
 | Link shape in source | Resolves to |
 | --- | --- |
-| `./N-chapter.md`, `./README.md` (± `#anchor`) | In-app route under `/admin/help` |
+| `./N-chapter.md` (± `#anchor`) | In-app chapter route under `/admin/help` |
+| `./README.md` (± `#anchor`) | `/admin/help` itself, which **renders the README** — see below |
 | Any other repo-relative path (`../ai-context/*.md`, `../ADMIN_FIELD_REFERENCE.md`, `../SENTRY.md`, `../tests/TESTING.md`, `../engineering/*.md`, and bare directories like `../ai-context/`) | GitHub URL at a pinned ref, opened in a new tab |
 | Absolute `http(s)://` | Unchanged, new tab |
 | Bare `#anchor` | In-page anchor |
@@ -344,6 +402,19 @@ Invariants:
   (`../ai-context/*.md` and friends) — the files are all present at generation
   time, so there is no reason to check one and not the other. Only fragments on
   absolute `http(s)://` links are out of reach and stay unchecked.
+
+- **Fragments are validated against the RENDERED destination, not the source
+  file** (Codex round 2). These coincide for chapters and diverge everywhere
+  else, which is how the round-1 invariant above could pass while an in-app
+  link still landed nowhere: a `#anchor` can be perfectly valid in the source
+  markdown and absent from whatever the app actually renders for that target.
+  Validating the source proves the *author* wrote a real reference; only
+  validating the destination proves the *admin* arrives somewhere.
+
+  **Corollary — every in-app link target must have a rendered destination that
+  preserves that document's headings.** A source document rewritten to an
+  in-app route without being rendered anywhere is a generation error, not a
+  link that merely looks odd.
 
   This is deliberately **wider than the two instances Codex cited**, because
   the class is wider: a sweep of `docs/manual/` finds **222 fragment links, of
@@ -547,6 +618,16 @@ Automated, with the runner each belongs to:
    table, or vice versa, fails generation.
 8. **Route smoke** — `/admin/help` added to `routeLoadSmoke.spec.ts`, which is
    the existing net for the lazy-chunk failure class.
+9. **Fragment landing** — end-to-end, because this is a render-timing property
+   that unit tests cannot observe. All three entry paths assert the heading is
+   actually in view *after* Suspense resolves: a cold-loaded bookmarked
+   `/admin/help/:chapter#section`, a cross-chapter link that loads a new chunk,
+   and a same-page anchor. A test that only asserts the `id` exists would pass
+   against the broken implementation, which is the whole point.
+10. **Rendered-destination resolvability** — every in-app link target renders
+    somewhere, and its fragments resolve against that rendering. Negative case:
+    an in-app-classified link whose target has no rendered destination must
+    fail generation.
 
 Manual QA belongs in the UAT doc at PR time, not here.
 
@@ -580,6 +661,8 @@ Ordered smallest-coherent-change first; each leaves the tree green.
 | **`?` links rot** when a heading is renamed — invisible until clicked. | Resolvability test over the real Manual; renaming a heading fails CI, which is what `check:docs` cannot do for anchors. |
 | **Any Manual link's anchor rots** the same way — 222 fragment links, none checked by anything today (Codex round 1). | Generation validates every repo-resolvable fragment, not just `?` map entries. Sweep confirms 0 currently broken, so this costs nothing to adopt. |
 | **Chapter numbering forks** — table reordered without touching filenames, headings, or `**Next:**` footers (Codex round 1). | Generation fails unless all four representations agree. The Manual's README asked for exactly this check. |
+| **Deep links silently do nothing** — correct anchor, correct `id`, no scroll, because the chunk mounts after the browser processes the fragment and the scroll container is not the window (Codex round 2). | Fragment navigation specified as an explicit post-mount mechanism against the real container, with an e2e test across all three entry paths. A unit test asserting the `id` exists would pass against the broken build. |
+| **An in-app link points at a document nothing renders** (Codex round 2). | Every in-app link target must have a rendered destination, and fragments validate against that destination rather than the source file. |
 | **Bundle regression** on admin screens unrelated to help. | Content and index kept out of the main and existing admin chunks. |
 | **A chapter renumber breaks bookmarks.** | Accepted. Renumbering is already a deliberate multi-file act per the Manual's rules, and it is rare. Not worth a redirect table for an admin-only surface — flagged so the acceptance is explicit rather than an oversight. |
 | **New markdown constructs in future chapters** render badly or not at all. | The generator errors on what it cannot classify rather than passing it through; a future chapter using something unsupported fails CI rather than shipping broken. |
@@ -618,6 +701,11 @@ rather than raised here.
       section.
 - [ ] Intra-Manual links navigate in-app; off-Manual links open GitHub in a new
       tab; no relative link is dead.
+- [ ] A cold-loaded bookmarked `/admin/help/:chapter#section` lands on that
+      heading after the chunk mounts — not merely renders an element with that
+      `id`. Same for a cross-chapter link and a same-page anchor.
+- [ ] `/admin/help` renders the README, and `./README.md#contents` from
+      chapter 12 lands on its contents section.
 - [ ] Renaming a heading that an existing Manual link points at fails
       generation — verified deliberately against a real anchor, not assumed.
 - [ ] Renumbering a chapter in the contents table without updating its file,
