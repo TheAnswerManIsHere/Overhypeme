@@ -1,67 +1,75 @@
-# `check-docs-accuracy` only validates repo-root-prefixed paths — shorthand is unchecked *and* allowed
+# Path citation: two deliberate conventions, and what the docs-accuracy gate actually covers
 
-**The mechanic.** `scripts/check-docs-accuracy.mjs` treats a backticked token as
-a repo path only when it starts with a known top-level directory:
+## The mechanic
+
+`scripts/check-docs-accuracy.mjs` treats a backticked token as a repo path only
+when it starts with a known top-level directory:
 
 ```js
 const TOP_LEVEL = /^(docs|lib|artifacts|scripts|cloudflare|\.agents|\.claude|\.github)\//;
 ```
 
-Anything else is **skipped, not flagged**. So `` `src/components/admin/helpMap.ts` ``
-— a path that exists under no repo root — passes silently, while
-`` `artifacts/overhype-me/src/components/admin/helpMap.ts` `` is verified.
+Anything else is **skipped, not flagged**.
 
-**A green `check:docs` therefore does not mean every cited path resolves.** It
-means every *prefixed* cited path resolves. Know which claim you're relying on.
+**And the path check runs on the "library" only** — `docs/ai-context`,
+`docs/engineering`, `docs/manual`, `AGENTS.md`, `.agents/PLANS.md`. Not
+`docs/tests`, not `CLAUDE.md` (link-checked only, deliberately), and **not
+`.agents/memory/`** — so the citations in this very note are unverified.
 
-## The important half: shorthand is the house convention, not a bug
+So the precise claim is: **a green `check:docs` means every prefixed path *in
+the path-checked library* resolves.** Not every prefixed path, and certainly
+not every path. Don't over-read it.
 
-Do **not** conclude from the above that unprefixed citations are errors to be
-hunted. Measured on 2026-08-16: **46 shorthand citations across 13 docs**
-(`meme-and-video-studio.md`, `community-and-engagement.md`,
-`public-site-and-sharing.md`, `accounts-and-auth.md`, `visual-pipeline.md`,
-`known-failure-patterns.md`, `decisions.md` and others). Every one points at a
-file that really exists — they are real paths with the workspace prefix
-omitted, not dangling references.
+## Two conventions, both deliberate — don't flatten them
 
-That's deliberate practice, and it reads better: in a doc entirely about the
-frontend auth pages, `` `pages/Login.tsx` `` is unambiguous, while
-`` `artifacts/overhype-me/src/pages/Login.tsx` `` is thirty characters of noise
-in the middle of a sentence.
+**`docs/ai-context/` and `docs/engineering/`: shorthand is fine.** Measured
+2026-08-16, 46 shorthand citations across 13 docs, every one pointing at a file
+that really exists. In a doc entirely about frontend auth pages,
+`` `pages/Login.tsx` `` is unambiguous and reads better than thirty characters
+of prefix mid-sentence. Not sloppiness — practice.
 
-**An earlier version of this note said "in a monorepo, always cite from the
-repo root."** That was wrong — I generalized it from a single inconsistent
-table without checking whether the repo agreed. It doesn't. Correcting it here
-because that sentence would have pushed the next agent into a 46-file rewrite
-of a convention nobody asked to change.
+**`docs/manual/` chapters: root-relative is REQUIRED**, by the manual's own
+charter (see its README's *Citing code in a chapter*), for exactly the reason
+above — bare filenames are skipped by the checker, so a chapter could keep a
+confidently wrong reference under green CI. The charter already knew about this
+blind spot and handled it for chapters.
 
-## What actually goes wrong, and the real guidance
+An earlier version of this note said "in a monorepo, always cite from the repo
+root," full stop. That was right for `docs/manual/` and wrong for
+`docs/ai-context/`, and stated as a blanket rule it would have driven a 46-file
+rewrite of a convention nobody asked to change.
 
-The incident behind this note (PR #475) was **not** shorthand. It was
-**inconsistency inside one table**: two rows repo-root-qualified, three rows
-shorthand, in the same five-row table. That's what made those three read and
-behave as broken.
+## The real guidance
 
-So:
+1. **Writing a manual chapter → root-relative, always.** Non-negotiable, per
+   the charter.
+2. **Writing ai-context / engineering docs → shorthand is fine**, and often
+   better.
+3. **Consistency applies to adjacent paths from the SAME workspace**, not
+   across a whole doc or list. Mixed lists are correct and common: see
+   `accounts-and-auth.md`'s file inventory, which fully qualifies
+   `artifacts/api-server/…` and `lib/db/…` and then lists the frontend files as
+   bare `pages/…`. That's rule 4 working, not an inconsistency to fix.
+4. **Qualify anything outside the doc's obvious workspace.** A doc about the
+   frontend can say `pages/Login.tsx`; the moment it references the API server
+   or a shared lib, that reference gets its prefix.
+5. **Qualify when you want the checker to verify it.** Shorthand is unverified
+   by construction — that's the trade for readability, and it's a fine trade
+   for a path a reader can place from context.
 
-1. **Be consistent within a doc, and especially within a table or list.** Mixed
-   styles side by side are what mislead.
-2. **Prefer the repo-root form when the file is outside the doc's obvious
-   workspace**, or when the doc spans several workspaces — that's where
-   shorthand genuinely stops resolving in a reader's head, not just in `cat`.
-3. **Use the repo-root form when you want the checker to actually verify it.**
-   Shorthand is unverified by construction; that's the trade for readability.
+**The failure this note exists for** was none of the above: PR #475 had a
+five-row table with *two* frontend-workspace paths qualified and *three*
+shorthand — same workspace, same table, adjacent rows. That's rule 3, and it's
+what made those three read and behave as broken.
 
 ## A gate for this was built and rejected — don't rebuild it
 
 A narrow check was implemented (flag an unprefixed token only when it's a
-suffix of a file that really exists, so the noise floor is near zero and the
-error can name the correct path). It worked. **David declined it** once the 46
-existing findings showed it was a house-style change across 13 docs rather than
-a bug sweep — the blast radius (a reader re-derives a path in seconds) doesn't
-justify 46 edits plus permanent verbosity plus an ongoing constraint on every
-future doc author.
+suffix of a file that really exists — near-zero noise, and the error names the
+correct path). It worked. **David declined it** once the 46 findings showed it
+would impose root-relative style on `docs/ai-context/`, where shorthand is
+deliberate: the blast radius (a reader re-derives a path in seconds) doesn't
+carry 46 edits plus permanent verbosity plus an ongoing constraint.
 
-Recorded so this isn't rediscovered and re-proposed. See #479, closed as
-accepted-and-documented, for the full reasoning and the rejected
-implementation.
+Recorded so it isn't rediscovered and re-proposed. Full reasoning and the
+rejected implementation: issue #479, closed as accepted-and-documented.

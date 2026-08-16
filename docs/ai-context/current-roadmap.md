@@ -609,13 +609,11 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
-- **Manual chapter 13 — the render-quality eval dashboard** (David, 2026-08-16;
-  settled from an open product question the help-system harvest raised). Eval
-  gets **its own chapter**, not a section in chapter 5 or an expanded clause in
-  chapter 11. More than a writing job: the four-representation gate now
-  enforces chapter numbering, so a 13th chapter also gives chapter 12 the
-  `**Next:**` footer it currently must *not* have. Full constraint list and
-  rationale in **#480** — not restated here.
+- **Manual chapter 13 — the render-quality eval dashboard.** Settled as its own
+  chapter (not a section in chapter 5, not an expanded clause in chapter 11) —
+  the decision and its rationale are in
+  [`decisions.md`](./decisions.md); the constraint list, including the chapter-12
+  footer flip the four-representation gate forces, is on **#480**.
 - **Retrofit the async-queue parent for phase-tracking.** NCMEC's parent
   (#310) got its Phases checklist 2026-08-15, as part of PR #453's
   post-merge retrofit — done, not a remaining item. The async-queue
