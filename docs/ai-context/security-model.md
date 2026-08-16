@@ -218,8 +218,18 @@ ceiling** on paid generation (fal.ai image and video calls), and it is a
 fail-closed control, not just a budgeting nicety — an unbounded generation path
 spends real money with no upper limit.
 
-`checkBudget` (`artifacts/api-server/src/lib/budgetGate.ts`) is the single gate.
-Its contract, established across #409 / PR #443 / PR #474:
+**Two independent layers, and changes must not update only one.**
+`checkBudget` (`budgetGate.ts`) is the **durable, ledger-backed per-user
+ceiling** and is what the rest of this section describes. `enforceGovernance`
+(`resourceGovernance.ts`) runs *first* on the synchronous image and video routes
+(`routes/memes.ts`, `routes/videos.ts`) and independently rejects on
+`DAILY_SPEND_CAP_EXCEEDED` / `MONTHLY_SPEND_CAP_EXCEEDED` plus request-rate,
+concurrency, duration and payload caps. Its accounting is **in-memory and
+per-process**, so like the global rate limiter it is a per-instance backstop
+rather than a fleet-wide guarantee — see the
+[decision record](./decisions.md) for that layer.
+
+`checkBudget`'s contract, established across #409 / PR #443 / PR #474:
 
 - **It denies when it cannot answer.** A config-read, tier-lookup, or ledger-sum
   failure throws `BudgetGateError` rather than returning `{allowed: true}`. That
@@ -237,24 +247,39 @@ Its contract, established across #409 / PR #443 / PR #474:
   the TypeScript AST and fails the build if a `checkBudget` call is ever made
   conditional on price resolution again; its known limits are documented in its
   own header, and it is a backstop rather than the control.
-- **The fallback estimate comes from the persisted `engines` row**, not the code
-  catalogue — `estimatedCostUsdPerCall` is admin-editable and `engines/reconcile.ts`
-  strips `ADMIN_EDITABLE_FIELDS` from its boot update precisely so operator edits
-  survive. A model-specific figure always beats an aggregate, so an incomplete
-  table cannot lower the floor; and if the `engines` read itself fails the gate
-  **denies**, because no catalogue-derived number provably avoids undercutting an
-  admin-set one.
-- **The admin exemption resolves before any fallible read**, so a transient
-  failure never denies an admin who is not subject to a limit. A caller whose
-  cost is itself fallible to determine passes a **thunk**, which `checkBudget`
-  invokes only after that exemption.
-- **The ledger records measured prices only.** `recordCost` writes
-  `user_generation_costs` after a successful call, and an estimate is never
-  written as if it were measured. Consequence, tracked in
-  [`deferred-work.md`](../engineering/deferred-work.md): an unpriced generation
-  is currently not recorded at all, so across a *sustained* pricing outage
-  recorded spend stops growing and the ceiling is measured against a stale
-  total.
+- **The fallback estimate prefers the persisted `engines` row over the code
+  catalogue, but does use the catalogue as a fallback.** Precedence is
+  persisted-exact → catalogue-exact → the maximum across both sources.
+  The persisted row wins because `estimatedCostUsdPerCall` is admin-editable and
+  `engines/reconcile.ts` strips `ADMIN_EDITABLE_FIELDS` from its boot update
+  precisely so operator edits survive; the catalogue still supplies a value when
+  the table legitimately has no row for that model, which happens (a seeded test
+  database has far fewer rows than the catalogue). A model-specific figure always
+  beats an aggregate, so an incomplete table cannot lower the floor. If the
+  `engines` read itself **fails**, the gate denies rather than falling back —
+  when the persisted values are unknown, no catalogue-derived number provably
+  avoids undercutting them.
+- **The admin exemption precedes the *cost* resolution and the config/ledger
+  reads — not every fallible read.** `checkBudget` must first read the user row
+  to know whether the caller is an admin at all, and that read sits inside the
+  same fail-closed catch, so a `users`-table failure denies an admin like anyone
+  else. What the exemption does guarantee is that an admin never triggers, or is
+  denied by, the *proposed-cost* lookup or the downstream config/ledger reads: a
+  caller whose cost is itself fallible to determine passes a **thunk**, which
+  `checkBudget` invokes only after the exemption.
+- **The ledger is NOT measured-prices-only, despite the shape of `recordCost`'s
+  arguments.** The synchronous image path records only real resolved prices, but
+  `videoPipelineRunner.ts` writes **estimates** for all three stages — stages 1
+  and 3 always (from the engine's configured per-call figure, or a hardcoded
+  fallback), and stage 2 on its pricing-failure path — each with a synthetic
+  `pricingFetchedAt` of "now". Nothing in the row distinguishes those from
+  measured ones. Two consequences, both tracked in
+  [`deferred-work.md`](../engineering/deferred-work.md): an *unpriced image*
+  generation is not recorded at all, so across a sustained pricing outage that
+  path's recorded spend stops growing and its ceiling is measured against a
+  stale total; and the planned `is_estimated` column has to cover these existing
+  video-pipeline writers and their historical rows, not just the new image path,
+  or it will assert a fidelity the data does not have.
 
 ## HTTP security headers (C5)
 

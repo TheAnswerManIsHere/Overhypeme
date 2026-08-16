@@ -46,19 +46,30 @@
 - **Decision:** `user_generation_costs` gets an `is_estimated` column, and a
   generation whose price could not be resolved is recorded with the gating
   estimate, flagged. Ships as its own migration PR, sequenced after PR #474.
-- **Why:** Today `recordCost` is guarded on a real price, so an unpriced
-  generation is not recorded at all. Across a sustained pricing outage recorded
-  spend stops growing, which means the restored ceiling is measured against a
-  stale total and a user under their limit can keep generating indefinitely —
-  the gap PR #474 closes per-request but not cumulatively. Two alternatives were
-  put to David with their ramifications and rejected: recording estimates into
-  the existing columns with no flag (cheaper, no migration, but
-  `unit_price_at_creation` and `pricing_fetched_at` would carry synthetic values
-  and cost reporting would permanently lose the measured-vs-estimated
-  distinction), and leaving it (free now, window stays open). Pre-launch is when
-  a schema change is cheapest, and it is the only option that does not put
-  estimates into the ledger disguised as measurements.
-- **Reference:** PR #474's "known residual"; David's call, 2026-08-16.
+- **Why:** On the synchronous image path `recordCost` is guarded on a real
+  price, so an unpriced generation is not recorded at all. Across a sustained
+  pricing outage recorded spend stops growing, which means the restored ceiling
+  is measured against a stale total and a user under their limit can keep
+  generating indefinitely — the gap PR #474 closes per-request but not
+  cumulatively. Two alternatives were put to David with their ramifications and
+  rejected: recording estimates into the existing columns with no flag (cheaper,
+  no migration, but `unit_price_at_creation` and `pricing_fetched_at` would
+  carry synthetic values and cost reporting would permanently lose the
+  measured-vs-estimated distinction), and leaving it (free now, window stays
+  open). Pre-launch is when a schema change is cheapest.
+- **Correction, found in review of the harvest that recorded this (PR #477):**
+  the decision was taken on the belief that the ledger held measured prices
+  only, and **it does not.** `videoPipelineRunner.ts` already writes estimates
+  for stages 1 and 3 on every job, and for stage 2 on its pricing-failure path,
+  each with a synthetic `pricingFetchedAt`. So the rejected "no flag" option was
+  not a choice between clean data and dirty data — the video path had *already*
+  made that choice implicitly, and the flag's real value is larger than the
+  decision assumed: it retires an existing ambiguity rather than only preventing
+  a new one. The decision stands; its scope grows. Implementation must cover the
+  video-pipeline writers and take an explicit position on historical rows rather
+  than defaulting them to `false`.
+- **Reference:** PR #474's "known residual"; David's call, 2026-08-16; scope
+  correction from PR #477 round 1.
 - **Revisit if:** the three ledger consumers (`checkBudget`, the user
   monthly-spend endpoint, the admin per-user spend panel) need estimates
   *excluded* rather than labelled — an open product question at the time of the

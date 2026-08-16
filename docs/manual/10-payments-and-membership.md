@@ -173,13 +173,18 @@ a comp from a real sale.
   looked up, the check still happens — against the engine's configured cost
   estimate rather than a real price — and if even that can't be read, the
   generation is refused rather than waved through. What is *not* yet handled
-  is the running total: a generation priced from an estimate isn't written to
-  the spend ledger at all, because the ledger deliberately records only real
-  measured prices. So while an outage lasts, recorded spend stops growing, and
-  a member already under their limit can keep generating against a total that
-  no longer moves. Each request is capped; the month isn't. Closing that needs
-  the ledger to be able to say "this figure was an estimate," which is
-  approved and queued rather than open-ended.
+  is the running total: on the image side, a generation priced from an estimate
+  isn't added to the member's spend record at all, because that record is only
+  written when a real price was available. So while an outage lasts, recorded
+  spend stops growing, and a member already under their limit can keep
+  generating against a total that no longer moves. Each request is capped; the
+  month isn't.
+- **Recorded spend reads as more precise than it is, for video.** Video
+  generations are recorded using the engine's configured cost figure rather
+  than a measured one, and nothing on the record marks them as estimates — so
+  a member's spend history mixes measured and estimated figures without saying
+  which is which. Approved and queued work adds that distinction, and closes
+  the image-side gap above at the same time.
 - **The grace window's deadline can go unset, in one rare case — but only the
   first time.** If the system can't pin down exactly when a subscription's
   failed-payment run actually started — an incomplete Stripe invoice page, an

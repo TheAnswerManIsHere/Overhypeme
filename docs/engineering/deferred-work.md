@@ -57,13 +57,31 @@ we've sequenced for later.
   hold has a security dimension (we're declining a patch-eligible bump), so the
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
-  - **Re-checked 2026-08-16 (the auth/entitlement/spend security pass):
-    negative.** `pnpm audit` reports no advisory against sharp at any version
-    in the tree. The hold remains safe on security grounds. *Not* a statement
-    about the other 70 advisories that audit reports — those are the
-    Dependabot backlog, several of them on production-path packages
-    (`express` → `body-parser`, `path-to-regexp`), and triaging them is
-    tracked separately.
+  - **Re-checked 2026-08-16 (the auth/entitlement/spend security pass). The
+    libvips CVEs still stand — the hold is NOT security-safe.** `pnpm audit`
+    reports no advisory against sharp, and that is **not evidence**: `audit`
+    surfaces npm-registry advisories, while sharp's exposure is inherited from
+    the **libvips binary bundled inside it**, which no npm advisory covers.
+    The four CVEs recorded under *Cost of waiting* above (incl.
+    [GHSA-f88m-g3jw-g9cj](https://github.com/lovell/sharp/security/advisories/GHSA-f88m-g3jw-g9cj),
+    High) remain a known, accepted risk while this stays parked. The remaining
+    gate is unchanged: a deliberate visual-pipeline upgrade with UAT, targeting
+    0.35.1+.
+  - **This entry was briefly edited to claim the opposite, which is the second
+    occurrence of a pattern this repo already documents.** The first version of
+    this line, in 2026-07, asserted "no known CVE" from assumption; the
+    2026-08-16 version asserted "negative" from a clean `pnpm audit`. Different
+    reasoning, same false conclusion, on the same dependency. See
+    [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#security-relevant-dependency-claims-written-from-assumption-not-verification)
+    — whose worked example *is* this line. The check that would have caught
+    both is the one that pattern already prescribes: read the package's own
+    GHSA/changelog, and treat a tool's silence as silence rather than as a
+    negative result. **Nothing here should be re-marked "clear" without a
+    libvips-version check.**
+  - **Separately, `pnpm audit` on 2026-08-16 reported ~70 advisories overall.**
+    Not a statement about sharp; that is the Dependabot backlog, and several
+    sit on production-path packages (`express` → `body-parser`,
+    `path-to-regexp`) rather than dev tooling. Triaging it is tracked below.
 
 - **Nothing alerts if the `rate_limit_counters` purge silently stops running.**
   - **What.** `jobs/rateLimitCounterPurger.ts` reports through structured log
@@ -151,18 +169,35 @@ we've sequenced for later.
     alerts on it.
   - **Revisit trigger.** Fold into the `is_estimated` migration PR.
 
-- **Unpriced generations are not recorded to the cost ledger (approved fix, sequenced).**
-  - **What.** `recordCost` is guarded on a real resolved price, and every
-    `user_generation_costs` column is `NOT NULL` with no measured-vs-estimated
-    flag, so a generation gated on a fallback estimate is written nowhere.
-    Across a sustained pricing outage recorded spend stops growing and the
-    ceiling PR #474 restored is measured against a stale total.
+- **The cost ledger cannot distinguish a measured price from an estimate, and the image path records neither (approved fix, sequenced).**
+  - **What.** Two related gaps, and the second is the one that is easy to get
+    wrong. **(a)** On the synchronous image path `recordCost` is guarded on a
+    real resolved price, so a generation gated on a fallback estimate is written
+    nowhere; across a sustained pricing outage that path's recorded spend stops
+    growing and the ceiling PR #474 restored is measured against a stale total.
+    **(b)** The ledger is nonetheless **already full of estimates**:
+    `videoPipelineRunner.ts` records stage 1 and stage 3 from the engine's
+    configured per-call figure (or a hardcoded fallback) on *every* job, and
+    stage 2 from a fallback on its pricing-failure path — each with a synthetic
+    `pricingFetchedAt` of "now". Every `user_generation_costs` column is
+    `NOT NULL` and none flags provenance, so those rows are indistinguishable
+    from measured ones today, including historical rows.
   - **Why deferred now.** Closing it needs a schema column, which is Tier C
     (migration ceremony, its own PR), and it builds on the fallback path PR
     #474 introduced — so it is sequenced after that merge rather than folded
     into it.
-  - **Cost of waiting.** The per-request ceiling holds; the cumulative one
-    does not, for the duration of a pricing outage.
+  - **Cost of waiting.** The per-request ceiling holds; the cumulative one does
+    not, for the duration of a pricing outage on the image path. Cost reporting
+    already overstates its own precision on the video path.
+  - **Scope warning for whoever builds it.** An `is_estimated` column that
+    covers only the new image-path writes would be **worse than none** — it
+    would assert a measured-vs-estimated distinction while silently leaving the
+    video pipeline's estimates and every historical row marked "measured." The
+    migration has to decide what to do about rows written before the column
+    existed (stage 1 and 3 rows are identifiable by their
+    `jobReferenceId` suffixes; stage 2's failure-path rows are not distinguishable
+    from its success-path rows after the fact), and say so explicitly rather
+    than defaulting them all to `false`.
   - **Revisit trigger.** **Approved by David 2026-08-16** — not a parked
     condition, queued work. See the decision entry in
     [`decisions.md`](../ai-context/decisions.md), which also records the open
