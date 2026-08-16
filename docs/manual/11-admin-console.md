@@ -88,6 +88,29 @@ the background: the health of the [job queues](../ai-context/glossary.md#async-j
 quality of AI-rendered images against a curated reference set, and which
 pages are actually getting traffic.
 
+### Reading this manual without leaving the console
+
+This manual is readable inside the console itself. Every chapter has its
+own address, so a section can be bookmarked or pasted to a colleague and
+it opens on that section rather than at the top of the page. A search box
+covers all twelve chapters and every result names both the chapter and
+the section it came from, so it's clear where an answer lives before
+clicking it.
+
+Most usefully, each admin screen carries a **`?`** that opens the part of
+the manual describing *that* screen — the queue-health screen opens the
+section on watching background work, the taxonomy screen opens the
+taxonomy chapter, and so on. It's a way into the explanation from the
+place where the question actually occurs, rather than a documentation
+site to be navigated separately.
+
+The chapters shown are built from the same files the team edits, so what
+you read in the console is the same text as on GitHub, never a stale
+copy. Search covers the chapters themselves; the front page you land on
+is the manual's own charter — readable, but deliberately not indexed, so
+that every search result is guaranteed to point at a real chapter
+section.
+
 ## Why it works this way
 
 - **Centralizing admin work in one gated place, rather than scattering
@@ -104,6 +127,17 @@ pages are actually getting traffic.
   [taxonomy](../ai-context/glossary.md#taxonomy) evolves — a hand-maintained version would drift the moment
   someone added a field and forgot to update a doc; a generated one
   can't drift, and a build check catches it if it ever tries to.
+- **The in-console manual is built from the source files rather than
+  copied into the app**, for the same reason: a copy would drift, and a
+  drifted manual is worse than no manual because it's confidently wrong.
+  The build refuses to produce a version that disagrees with the source,
+  and it refuses outright rather than quietly rendering something
+  approximate — a chapter that would look different in the console than
+  it does on GitHub stops the build instead of shipping.
+- **Being able to read the manual in the console is not a claim that
+  it's private.** These pages are already public in the repository, so
+  putting them behind the console's gate makes them convenient to reach,
+  not confidential. Nothing that isn't already public goes into them.
 
 ## Boundaries & known limitations
 
@@ -122,6 +156,12 @@ pages are actually getting traffic.
   yet** — the machinery they'd configure isn't live, so those particular
   fields exist ahead of what they control. They look like any other
   setting in the list; nothing currently marks them as different.
+- **One screen's `?` points at a neighbouring chapter rather than its
+  own.** The render-quality eval dashboard has no chapter of its own yet,
+  so its `?` opens the [visual pipeline](./5-visual-pipeline.md)
+  chapter — the nearest relevant explanation, but not a description of
+  that screen. A real gap in this manual, recorded rather than papered
+  over.
 - **The "flagged comments" review tab's own description overstates what
   populates it** — see
   [`8-community-and-engagement.md`](./8-community-and-engagement.md#boundaries--known-limitations)

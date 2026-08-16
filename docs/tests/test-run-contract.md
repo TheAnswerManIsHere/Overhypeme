@@ -139,6 +139,27 @@ guard), but they run in CI, not here.
 
 ## What to demote
 
+- **Anything behind the admin gate belongs in the UAT, not here (learned
+  2026-08-16, PR #472).** The agent executing this section has **no admin
+  session**, so every `/admin/*` URL returns *Access Denied*. A section
+  containing "open `/admin/help`, click the `?`, run a search" doesn't come
+  back failed — it comes back **not run**, which is worse, because a section
+  written to be verified and then reported as unverifiable is indistinguishable
+  from one nobody bothered with. Seven of PR #472's nine items landed that way.
+
+  The fix is placement, not wording: an admin-console click-through is
+  **UAT-shaped by construction** — David runs it while signed in as an admin,
+  which is the only context where it can pass. Keep this section to what a
+  session-less agent can actually execute: repo-health commands, HTTP checks on
+  public routes, database reads, log and worker inspection. If a check needs a
+  logged-in admin, it is a UAT step; putting it in both places just guarantees
+  one copy reports "not run" every time.
+
+  One thing the failed attempt *did* establish for free, and it's worth
+  knowing: a non-admin hitting an admin URL correctly gets *Access Denied*. If
+  that's the property under test, it belongs here — it's the only admin-route
+  check a session-less agent can genuinely confirm.
+
 - **The full sharded suite** (`pnpm --filter @workspace/api-server test`) is
   **omitted by default — CI ran it on this exact code.** Per the read-only
   rule above, "the PR touches shared infra" is no longer a reason to re-run
