@@ -270,10 +270,10 @@ rather than a fleet-wide guarantee — see the
 - **The ledger cannot tell you how a figure was arrived at.** Some rows are
   computed from fal's published rate for that endpoint; others from an
   operator-configured estimate. No column distinguishes them, and no row is a
-  reconciled provider charge. Consequences for this gate: an unpriced image
-  generation is not recorded at all, so across a sustained pricing outage its
-  recorded spend stops growing and the ceiling is measured against a stale
-  total. Which writers produce which kind of figure is **not** stated here —
+  reconciled provider charge. Consequences for this gate: an unpriced generation on either
+  synchronous path (image or video) is not recorded at all, so across a sustained
+  pricing outage its recorded spend stops growing and the ceiling is measured
+  against a stale total. Which writers produce which kind of figure is **not** stated here —
   see [`deferred-work.md`](../engineering/deferred-work.md), and derive it from
   the code rather than from either doc, because that breakdown was mis-stated
   three times in one review.

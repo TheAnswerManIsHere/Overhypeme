@@ -173,12 +173,17 @@ we've sequenced for later.
     precondition for the fail-open. Nothing alerts on either case.
   - **Revisit trigger.** Fold into the `is_estimated` migration PR.
 
-- **The cost ledger records no provenance, and an unpriced synchronous image generation is not recorded at all (approved fix, sequenced).**
+- **The cost ledger records no provenance, and an unpriced synchronous generation — image OR video — is not recorded at all (approved fix, sequenced).**
   - **What.** Two related gaps, and the second is the one that is easy to get
-    wrong. **(a)** On the synchronous image path `recordCost` is guarded on a
-    real resolved price, so a generation gated on a fallback estimate is written
-    nowhere; across a sustained pricing outage that path's recorded spend stops
-    growing and the ceiling PR #474 restored is measured against a stale total.
+    wrong. **(a)** On **both** synchronous paths — `aiMemePipeline` and
+    `POST /videos/generate` — `recordCost` is guarded on a provider-resolved
+    price, so a generation gated on a fallback estimate is written nowhere. Both
+    routes gate correctly on the fallback and then decline to record it, which
+    is the same asymmetry in two places: across a sustained pricing outage their
+    recorded spend stops growing and the ceiling PR #474 restored is measured
+    against a stale total. **Scope the fix to both writers** — an earlier version
+    of this entry said "synchronous image," which would have left unpriced
+    synchronous videos permanently unrecorded.
     **(b)** The ledger **mixes two different kinds of figure**, with nothing
     marking which is which. No `user_generation_costs` column flags provenance,
     and the cost columns are all `NOT NULL` — but **`job_reference_id` is
@@ -211,7 +216,7 @@ we've sequenced for later.
     #474 introduced — so it is sequenced after that merge rather than folded
     into it.
   - **Cost of waiting.** The per-request ceiling holds; the cumulative one does
-    not, for the duration of a pricing outage on the image path. Cost reporting
+    not, for the duration of a pricing outage on either synchronous path. Cost reporting
     already overstates its own precision on the video path.
   - **Scope warning for whoever builds it.** An `is_estimated` column that
     covers only the new image-path writes would be **worse than none** — it

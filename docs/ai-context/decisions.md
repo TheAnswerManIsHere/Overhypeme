@@ -49,7 +49,7 @@
 - **Decision:** `user_generation_costs` gets an `is_estimated` column, and a
   generation whose price could not be resolved is recorded with the gating
   estimate, flagged. Ships as its own migration PR, sequenced after PR #474.
-- **Why:** On the synchronous image path `recordCost` is guarded on a real
+- **Why:** On both synchronous paths (image and video) `recordCost` is guarded on a real
   price, so an unpriced generation is not recorded at all. Across a sustained
   pricing outage recorded spend stops growing, which means the restored ceiling
   is measured against a stale total and a user under their limit can keep

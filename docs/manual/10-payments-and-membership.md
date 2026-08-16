@@ -173,7 +173,7 @@ a comp from a real sale.
   looked up, the check still happens — against the engine's configured cost
   estimate rather than a real price — and if even that can't be read, the
   generation is refused rather than waved through. What is *not* yet handled
-  is the running total: on the image side, a generation priced from an estimate
+  is the running total: for an image or a video generated on the spot, one priced from an estimate
   isn't added to the member's spend record at all, because that record is only
   written when a real price was available. So while an outage lasts, recorded
   spend stops growing, and a member already under their limit can keep
