@@ -17,8 +17,21 @@
  * large route/pipeline functions, and the regression is a re-introduced
  * conditional, not a wrong number. So this is a source guard, the same
  * instrument `check-permission-chokepoint.mjs` uses for the authorization
- * chokepoint: it fails the build if a `checkBudget` call is ever nested inside
- * a block guarded by a pricing-resolution conditional.
+ * chokepoint.
+ *
+ * WHY THE TYPESCRIPT AST, NOT A REGEX. The first version of this guard matched
+ * `if (<identifier>) {` textually. Round 1 of PR #474's review demonstrated
+ * with a probe file that `if (priced !== null) { await checkBudget(...) }`
+ * sailed straight through it — as would `if (priced && x)`, a brace-less
+ * `if (priced) await checkBudget(...)`, and an early-return
+ * `if (!priced) return;`. A guard that is the SOLE regression check for a
+ * money bug cannot be narrower than the bug, so this walks parsed control flow
+ * and catches all four shapes:
+ *
+ *   1. the call nested inside a branch of a price-conditional `if`
+ *   2. the call inside a price-conditional ternary
+ *   3. a brace-less price-conditional statement wrapping the call
+ *   4. an earlier `if (!priced) return/throw/continue/break;` in the same block
  *
  * What it does NOT check: that the fallback estimate is well-chosen. That is a
  * judgement, not an invariant. This guard only enforces that the gate RUNS.
@@ -27,12 +40,26 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const API_SRC = join(REPO_ROOT, "artifacts/api-server/src");
 
-/** Identifiers that hold a resolved-price result; `if (<one of these>)` gates. */
-const PRICE_HOLDER = /^priced[A-Za-z0-9_]*$/;
+/**
+ * Identifiers treated as holding a price-resolution result. Deliberately broad
+ * (anything with "price"/"priced" in the name): for a guard, over-matching is
+ * loud and fixable at review time, while under-matching is silent and is
+ * exactly what round 1 caught. A legitimately-blocked call site goes in
+ * ALLOWLIST below rather than being handled by narrowing this.
+ */
+const PRICE_IDENTIFIER = /price/i;
+
+/**
+ * Named, reviewed exceptions. Each MUST carry the reason — an exception
+ * without one is just a hole. Empty today, and that is the intended state.
+ * Shape: { file: "<repo-relative path>", line: <number>, reason: "..." }
+ */
+const ALLOWLIST = [];
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -47,66 +74,105 @@ function walk(dir, out = []) {
   return out;
 }
 
-/**
- * Blanks comment bodies while preserving newlines, so a rule described in
- * prose isn't read as code and reported line numbers stay accurate.
- */
-function stripComments(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ""))
-    .replace(/^(\s*)\/\/.*$/gm, "$1");
+/** True if any identifier under `node` looks like a price-resolution result. */
+function referencesPrice(node) {
+  if (!node) return false;
+  let found = false;
+  const visit = (n) => {
+    if (found) return;
+    if (ts.isIdentifier(n) && PRICE_IDENTIFIER.test(n.text)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
 }
 
-/** Index of the `}` closing the `{` at `openIdx`, or -1. Ignores string bodies. */
-function matchBrace(src, openIdx) {
-  let depth = 0;
-  for (let i = openIdx; i < src.length; i++) {
-    const ch = src[i];
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const quote = ch;
-      i++;
-      while (i < src.length && src[i] !== quote) {
-        if (src[i] === "\\") i++;
-        i++;
-      }
-      continue;
-    }
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) return i;
-    }
+/** True if this statement always leaves the current block. */
+function alwaysExits(stmt) {
+  if (!stmt) return false;
+  if (
+    ts.isReturnStatement(stmt) ||
+    ts.isThrowStatement(stmt) ||
+    ts.isContinueStatement(stmt) ||
+    ts.isBreakStatement(stmt)
+  ) {
+    return true;
   }
-  return -1;
+  if (ts.isBlock(stmt)) {
+    return stmt.statements.some(alwaysExits);
+  }
+  return false;
+}
+
+/** `checkBudget(...)` / `something.checkBudget(...)` */
+function isCheckBudgetCall(node) {
+  if (!ts.isCallExpression(node)) return false;
+  const callee = node.expression;
+  if (ts.isIdentifier(callee)) return callee.text === "checkBudget";
+  if (ts.isPropertyAccessExpression(callee)) return callee.name.text === "checkBudget";
+  return false;
 }
 
 const violations = [];
 
 for (const file of walk(API_SRC)) {
   const rel = relative(REPO_ROOT, file).split(sep).join("/");
-  const src = stripComments(readFileSync(file, "utf8"));
-  if (!src.includes("checkBudget(")) continue;
+  const source = readFileSync(file, "utf8");
+  if (!source.includes("checkBudget")) continue;
 
-  // Find every `if (<priceHolder>)` and check whether a checkBudget call lives
-  // inside the block it opens.
-  const ifPattern = /\bif\s*\(\s*([A-Za-z0-9_]+)\s*\)\s*\{/g;
-  let match;
-  while ((match = ifPattern.exec(src)) !== null) {
-    if (!PRICE_HOLDER.test(match[1])) continue;
+  const sf = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, /* setParentNodes */ true, ts.ScriptKind.TS);
 
-    const openIdx = src.indexOf("{", match.index + match[0].length - 1);
-    const closeIdx = matchBrace(src, openIdx);
-    if (closeIdx === -1) continue;
+  const report = (node, shape) => {
+    const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+    if (ALLOWLIST.some((e) => e.file === rel && e.line === line)) return;
+    violations.push({ file: rel, line, shape });
+  };
 
-    const body = src.slice(openIdx, closeIdx);
-    if (!body.includes("checkBudget(")) continue;
+  const visit = (node) => {
+    if (isCheckBudgetCall(node)) {
+      // Shapes 1–3: an enclosing price-conditional.
+      for (let p = node.parent; p; p = p.parent) {
+        if (ts.isIfStatement(p) && referencesPrice(p.expression)) {
+          // Only the BRANCHES are conditional. A call sitting in the condition
+          // itself runs unconditionally, so it is not a violation — test by
+          // position rather than by text.
+          const pos = node.getStart(sf);
+          const inBranch =
+            (p.thenStatement && pos >= p.thenStatement.getStart(sf) && pos < p.thenStatement.getEnd()) ||
+            (p.elseStatement && pos >= p.elseStatement.getStart(sf) && pos < p.elseStatement.getEnd());
+          if (inBranch) {
+            report(node, `nested inside \`if (${p.expression.getText(sf).slice(0, 60)})\``);
+            break;
+          }
+        }
+        if (ts.isConditionalExpression(p) && referencesPrice(p.condition)) {
+          report(node, `inside a price-conditional ternary`);
+          break;
+        }
+        if (ts.isFunctionLike(p)) break; // don't escape the enclosing function
+      }
 
-    violations.push({
-      file: rel,
-      line: src.slice(0, match.index).split("\n").length,
-      identifier: match[1],
-    });
-  }
+      // Shape 4: an earlier price-conditional early-return in the same block.
+      let stmt = node;
+      while (stmt.parent && !ts.isBlock(stmt.parent)) stmt = stmt.parent;
+      const block = stmt.parent;
+      if (block && ts.isBlock(block)) {
+        for (const prior of block.statements) {
+          if (prior === stmt) break;
+          if (ts.isIfStatement(prior) && referencesPrice(prior.expression) && alwaysExits(prior.thenStatement)) {
+            report(node, `preceded by an early-return guard \`if (${prior.expression.getText(sf).slice(0, 60)})\``);
+            break;
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sf);
 }
 
 if (violations.length > 0) {
@@ -114,9 +180,9 @@ if (violations.length > 0) {
   for (const v of violations) {
     console.error(
       `  ${v.file}:${v.line}\n` +
-        `    checkBudget() is nested inside \`if (${v.identifier})\`, so a pricing\n` +
-        `    miss skips the spend check entirely. Call the gate unconditionally and\n` +
-        `    pass a fallback estimate instead — see estimateStage2Cost() in\n` +
+        `    checkBudget() is ${v.shape}, so a pricing miss skips the spend\n` +
+        `    check entirely. Call the gate unconditionally and pass a fallback\n` +
+        `    estimate instead — see estimateStage2Cost() in\n` +
         `    lib/videoPipelineRunner.ts for the shape.\n`,
     );
   }

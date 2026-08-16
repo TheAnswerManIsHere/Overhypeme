@@ -21,6 +21,7 @@ import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
 import { getScenePromptSystem } from "./scenePromptConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
+import { ALL_ENGINES } from "./engines";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
 import { BudgetExceededError, checkBudget, recordCost } from "./budgetGate";
 import { logger } from "./logger";
@@ -54,14 +55,48 @@ const DEFAULT_IMAGE_SIZE            = "square_hd";
 
 /**
  * Per-call cost used to gate an image generation whose real price could not be
- * resolved. Mirrors `STAGE1_FALLBACK_COST` in `videoPipelineRunner.ts`, which
- * covers the same class of single stylize-image call.
- *
- * This exists so the budget gate still runs when pricing is unavailable. It is
- * a GATING estimate only — never written to the cost ledger, which records
+ * resolved, so the budget gate still runs when pricing is unavailable. A
+ * GATING estimate only — never written to the cost ledger, which records
  * measured prices.
+ *
+ * Resolved from the engine catalogue's `estimatedCostUsdPerCall` — the same
+ * canonical per-engine figure the admin console edits — keyed by the fal
+ * endpoint id. A single hardcoded number cannot be right for every model:
+ * round 1 of PR #474's review caught a flat $0.03 (PuLID's figure) gating the
+ * standard path's `fal-ai/flux-pro/v1.1`, which is catalogued at $0.04, so a
+ * user with $0.030–$0.039 left was allowed a call expected to exceed the
+ * ceiling. Reading the catalogue also stops this drifting from the engine
+ * estimate the way a literal would.
+ *
+ * `Number(null)` is `0`, not `NaN`, and several engines legitimately carry a
+ * null estimate — so null is rejected explicitly rather than via
+ * `Number.isFinite` alone, which would silently price those calls at zero and
+ * reintroduce the very hole this gate closes.
  */
-const IMAGE_FALLBACK_COST_USD = 0.03;
+function cataloguedCostUsdPerCall(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Used only when the model is absent from the catalogue or carries no estimate.
+ * Deliberately the HIGHEST catalogued per-call cost rather than a typical one:
+ * on an unknown model during a pricing outage the gate must not under-charge,
+ * and over-estimating refuses a call the user can retry once pricing recovers,
+ * while under-estimating spends money that is never recovered. Derived rather
+ * than written down so it cannot drift as the catalogue changes.
+ */
+const UNKNOWN_MODEL_FALLBACK_COST_USD = Math.max(
+  ...ALL_ENGINES
+    .map((e) => cataloguedCostUsdPerCall(e.estimatedCostUsdPerCall))
+    .filter((n): n is number => n !== null),
+);
+
+function fallbackImageCostUsd(model: string): number {
+  const engine = ALL_ENGINES.find((e) => e.endpointId === model);
+  return cataloguedCostUsdPerCall(engine?.estimatedCostUsdPerCall) ?? UNKNOWN_MODEL_FALLBACK_COST_USD;
+}
 
 /**
  * Models that accept a face-reference image input.
@@ -250,7 +285,7 @@ async function generateAndStoreImage(
     // The gate runs whether or not pricing resolved. This used to be
     // `if (priced)`, which skipped the check entirely on a pricing miss and
     // left the ceiling unenforced exactly when something else was failing.
-    const budget = await checkBudget(userId, priced?.costUsd ?? IMAGE_FALLBACK_COST_USD);
+    const budget = await checkBudget(userId, priced?.costUsd ?? fallbackImageCostUsd(model));
     if (!budget.allowed) throw new BudgetExceededError(budget);
     // Only a REAL price is carried forward for ledger recording.
     if (priced) cachedImgPrice = priced.price;
@@ -499,7 +534,7 @@ async function generateAndStoreImageFromReference(
     // The gate runs whether or not pricing resolved. This used to be
     // `if (priced)`, which skipped the check entirely on a pricing miss and
     // left the ceiling unenforced exactly when something else was failing.
-    const budget = await checkBudget(userId, priced?.costUsd ?? IMAGE_FALLBACK_COST_USD);
+    const budget = await checkBudget(userId, priced?.costUsd ?? fallbackImageCostUsd(model));
     if (!budget.allowed) throw new BudgetExceededError(budget);
     // Only a REAL price is carried forward for ledger recording.
     if (priced) cachedRefPrice = priced.price;
