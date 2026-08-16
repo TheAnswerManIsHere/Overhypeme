@@ -240,6 +240,23 @@ doesn't land on a real heading. So a broken glossary anchor in a chapter is a
 build failure, not a review miss. (The `check:docs` limitation still holds for
 docs outside `docs/manual/`.)
 
+**This manual is a build input, not only prose.** Chapters are rendered in-app
+at `/admin/help` from generated modules under
+`artifacts/overhype-me/src/generated/help/` (PR #472), so **editing any chapter
+requires regenerating them in the same commit**:
+
+```
+pnpm --filter @workspace/overhype-me run generate:help
+```
+
+`check:help-content` fails the Build job when the generated modules drift from
+their source, so this is CI-enforced rather than a convention — a docs-only PR
+that touches a chapter and nothing else will still go red without it. A
+prose-only edit regenerates that chapter's content module and `searchIndex.ts`;
+adding, removing or renaming a **heading** also regenerates `manifest.ts`, and
+editing this README regenerates `content/_index.ts`. Check the diff against
+what you edited rather than against a fixed file count.
+
 ## Contents
 
 In reading order. A chapter file appears only once it holds real content, so
