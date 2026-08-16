@@ -164,20 +164,26 @@ we've sequenced for later.
     (below) — both change when and what `recordCost` writes — so doing them
     separately would touch the same function twice with the second change
     partly reverting the first's assumptions.
-  - **Cost of waiting.** Bounded: it needs a *sustained* insert failure, which
-    would also be visible in logs. Unbounded in principle, since nothing
-    alerts on it.
+  - **Cost of waiting.** Higher than "sustained failure" framing suggests, and
+    an earlier version of this entry understated it. **One** swallowed insert
+    permanently understates the ledger — there is no retry and no backfill — so
+    a single lost write is enough for a later request to pass
+    `currentSpend + proposedCost <= limit` while real cumulative spend has
+    crossed the ceiling. A sustained failure widens the gap; it is not a
+    precondition for the fail-open. Nothing alerts on either case.
   - **Revisit trigger.** Fold into the `is_estimated` migration PR.
 
-- **The cost ledger cannot distinguish a measured price from an estimate, and the image path records neither (approved fix, sequenced).**
+- **The cost ledger records no provenance, and an unpriced synchronous image generation is not recorded at all (approved fix, sequenced).**
   - **What.** Two related gaps, and the second is the one that is easy to get
     wrong. **(a)** On the synchronous image path `recordCost` is guarded on a
     real resolved price, so a generation gated on a fallback estimate is written
     nowhere; across a sustained pricing outage that path's recorded spend stops
     growing and the ceiling PR #474 restored is measured against a stale total.
     **(b)** The ledger **mixes two different kinds of figure**, with nothing
-    marking which is which. Every `user_generation_costs` column is `NOT NULL`
-    and none flags provenance.
+    marking which is which. No `user_generation_costs` column flags provenance,
+    and the cost columns are all `NOT NULL` — but **`job_reference_id` is
+    nullable** (`recordCost` stores `?? null`), which matters below: a row with
+    no reference carries no stage suffix to recover provenance from.
 
     **Note the distinction is NOT measured-vs-estimated.** *No* row records an
     actual provider charge: `getCachedPrice` returns an hourly-refreshed unit
@@ -209,17 +215,21 @@ we've sequenced for later.
     already overstates its own precision on the video path.
   - **Scope warning for whoever builds it.** An `is_estimated` column that
     covers only the new image-path writes would be **worse than none** — it
-    would assert a measured-vs-estimated distinction while silently leaving the
-    video pipeline's estimates and every historical row marked "measured."
+    would assert a provenance distinction while silently leaving the video
+    pipeline's operator-configured rows, and every historical row, flagged as
+    if they were provider-resolved. Note the column name itself invites the
+    retired framing: `is_estimated = false` must mean *provider-resolved rate*,
+    not *measured charge*, since no row is a measured charge.
   - **Historical rows are more recoverable than a first look suggests** — so
     don't default them all to `false` without checking. Two discriminators
     exist in the data and are worth investigating before deciding:
-    `job_reference_id` carries a per-stage suffix, and `billing_units` differs
-    sharply between the two writers on the video pipeline's main stage (a
-    computed token count versus a literal `1`). **Both are leads, not
-    conclusions** — confirm the current code still writes them that way and
-    validate the distribution against live data before a backfill relies on
-    either. An earlier version of this entry asserted the opposite (that those
+    `job_reference_id` carries a per-stage suffix **where it is present at all**
+    (the column is nullable, so some rows have none), and `billing_units`
+    differs sharply between the two writers on the video pipeline's main stage
+    (a computed token count versus a literal `1`). **Both are leads, not
+    conclusions** — confirm the current code still writes them that way,
+    establish how many rows carry a null reference, and validate the
+    distribution against live data before a backfill relies on either. An earlier version of this entry asserted the opposite (that those
     rows were indistinguishable), which would have discarded recoverable
     provenance permanently.
   - **A missing row is not automatically normal, and not automatically a gap.**

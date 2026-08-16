@@ -185,8 +185,9 @@ a comp from a real sale.
   But some steps of a video job — the optional stylise step, the subtitling
   step, and the main step when its rate couldn't be looked up — fall back to
   our own configured cost figure instead, and nothing on the record says which
-  kind an entry is. So a member's spend total is approximately right, with no
-  way to tell from the record how precise any individual entry was. Approved
+  kind an entry is — there is no provenance field on it. So a member's spend
+  total is approximately right, and the record itself won't tell them how
+  precise any individual entry was. Approved
   and queued work adds that distinction, and closes the gap above at the same
   time.
 - **The grace window's deadline can go unset, in one rare case — but only the
