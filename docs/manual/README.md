@@ -204,9 +204,11 @@ pnpm --filter @workspace/overhype-me run generate:help
 
 `check:help-content` fails the Build job when the generated modules drift from
 their source, so this is CI-enforced rather than a convention — a docs-only PR
-that touches a chapter and nothing else will still go red without it. Expect
-exactly two files to change per edited chapter (that chapter's content module
-and `searchIndex.ts`); a wider diff means something else moved too.
+that touches a chapter and nothing else will still go red without it. A
+prose-only edit regenerates that chapter's content module and `searchIndex.ts`;
+adding, removing or renaming a **heading** also regenerates `manifest.ts`, and
+editing this README regenerates `content/_index.ts`. Check the diff against
+what you edited rather than against a fixed file count.
 
 ## Contents
 

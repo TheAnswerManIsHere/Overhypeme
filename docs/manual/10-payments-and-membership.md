@@ -179,15 +179,16 @@ a comp from a real sale.
   spend stops growing, and a member already under their limit can keep
   generating against a total that no longer moves. Each request is capped; the
   month isn't.
-- **A spend history can mix real prices with estimates, without saying which
-  is which.** Most of what gets recorded is the real price actually charged.
+- **A spend history is a good estimate, not a bill.** Nothing recorded is an
+  actual charge reconciled against the provider. Most entries are worked out
+  from the provider's published rate for that job's settings, which is close.
   But some steps of a video job — the optional stylise step, the subtitling
-  step, and the main generation step when its price couldn't be looked up —
-  are recorded using the engine's configured cost figure instead, and nothing
-  on the record marks those as estimates. So a member's spend total is close
-  to right rather than exact, and there's currently no way to tell from the
-  record which figures were which. Approved and queued work adds that
-  distinction, and closes the gap above at the same time.
+  step, and the main step when its rate couldn't be looked up — fall back to
+  our own configured cost figure instead, and nothing on the record says which
+  kind an entry is. So a member's spend total is approximately right, with no
+  way to tell from the record how precise any individual entry was. Approved
+  and queued work adds that distinction, and closes the gap above at the same
+  time.
 - **The grace window's deadline can go unset, in one rare case — but only the
   first time.** If the system can't pin down exactly when a subscription's
   failed-payment run actually started — an incomplete Stripe invoice page, an

@@ -17,9 +17,14 @@ that a generator is involved.
 pnpm --filter @workspace/overhype-me run generate:help
 ```
 
-Expect exactly **two** files to change per edited chapter: that chapter's
-content module and `searchIndex.ts`. A wider diff means something else moved
-too — check before committing rather than assuming the generator is noisy.
+**How many files change depends on the edit's shape.** A prose-only edit that
+leaves every heading alone changes two: that chapter's content module and
+`searchIndex.ts`. **Adding, removing or renaming a heading also changes
+`manifest.ts`**, which carries each chapter's title and section list — that
+third file is correct and required, not stray output. Editing `README.md`
+changes `content/_index.ts` instead of a chapter module. So sanity-check the
+diff against what you actually edited rather than against a fixed count;
+discarding a "surplus" generated file just fails `check:help-content` later.
 
 **`README.md` counts as a manual file.** Editing the charter regenerates
 `content/_index.ts`, not a chapter module — so "I only touched the README, not a

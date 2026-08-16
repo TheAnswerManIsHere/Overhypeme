@@ -175,22 +175,31 @@ we've sequenced for later.
     real resolved price, so a generation gated on a fallback estimate is written
     nowhere; across a sustained pricing outage that path's recorded spend stops
     growing and the ceiling PR #474 restored is measured against a stale total.
-    **(b)** The ledger **already mixes measured and estimated rows**, with
-    nothing marking which is which. Every `user_generation_costs` column is
-    `NOT NULL` and none flags provenance. **This is the canonical breakdown —
-    other docs reference it rather than restating it:**
+    **(b)** The ledger **mixes two different kinds of figure**, with nothing
+    marking which is which. Every `user_generation_costs` column is `NOT NULL`
+    and none flags provenance.
 
-    | Row source | Provenance |
-    |---|---|
-    | Sync image path (`aiMemePipeline`) | **Measured** — only written when a price resolved; otherwise not written at all, which is gap (a) |
-    | Sync video route (`routes/videos.ts`) | **Measured** — guarded on the cached price |
-    | Async **stage 2**, normal path | **Measured** — real `unitPrice` and `pricingFetchedAt` |
-    | Async **stage 2**, pricing-failure path | **Estimated** — fallback cost, synthetic `pricingFetchedAt` |
-    | Async **stage 1** | **Estimated** — engine's configured per-call figure or `STAGE1_FALLBACK_COST`. Written only when `sourceMode === "stylize-then-video"`; the bypass path runs no stage 1 and writes no row |
-    | Async **stage 3** | **Estimated** — subtitle engine's configured figure or `STAGE3_FALLBACK_COST`. Written only after stage 2 succeeds |
+    **Note the distinction is NOT measured-vs-estimated.** *No* row records an
+    actual provider charge: `getCachedPrice` returns an hourly-refreshed unit
+    rate and `costComputation.ts` derives a cost from dimensions, count and
+    duration without ever reading a billing result. The real distinction is
+    **provider-resolved rate** (fal's published price for that endpoint, applied
+    to the request's actual parameters) versus **operator-configured estimate**
+    (the engine's `estimatedCostUsdPerCall`, or a hardcoded fallback). Both are
+    computed; one tracks the provider, the other tracks our own guess.
 
-    A *missing* stage row is therefore normal, not a ledger gap — worth knowing
-    before anyone writes a reconciliation check that expects three rows per job.
+    **Which writers produce which is deliberately NOT enumerated here.** This
+    entry carried a per-writer table for two review rounds and it was wrong in a
+    different way each round — stage gating, row distinguishability, and the
+    measured/estimated framing itself all had to be corrected (PR #477, rounds
+    1–3). A specification that unreliable is worse than none, because the
+    migration would inherit its errors with more confidence than they deserve.
+    **Derive it from `videoPipelineRunner.ts`, `aiMemePipeline.ts` and
+    `routes/videos.ts` at build time and verify against live data.** What is
+    safe to carry forward is only the shape: the async video pipeline writes
+    operator-configured figures for its stylise and subtitle stages and for its
+    main stage's pricing-failure path, while the synchronous paths and the main
+    stage's normal path write provider-resolved ones.
   - **Why deferred now.** Closing it needs a schema column, which is Tier C
     (migration ceremony, its own PR), and it builds on the fallback path PR
     #474 introduced — so it is sequenced after that merge rather than folded
@@ -202,22 +211,27 @@ we've sequenced for later.
     covers only the new image-path writes would be **worse than none** — it
     would assert a measured-vs-estimated distinction while silently leaving the
     video pipeline's estimates and every historical row marked "measured."
-  - **Historical rows are more recoverable than they first look.** Each
-    estimate-writing path above leaves a discriminator, so the backfill is a
-    real option rather than a forced `false` default:
-    - **Stage 1 and stage 3** — the `job_reference_id` suffix
-      (`…_stage1_<attempt>`, `…_stage3`) identifies them directly.
-    - **Stage 2's fallback rows** share the *same* `job_reference_id` as its
-      measured ones, so that column does not separate them — but
-      `billing_units` does: the measured writer stores the computed
-      `(width × height × fps × duration) / 1024`, which is orders of magnitude
-      above 1 at every supported resolution and duration, while the fallback
-      writer stores a literal `1`. **Validate that distribution against live
-      data before relying on it** rather than trusting the arithmetic alone.
-    An earlier version of this entry claimed stage 2's rows were not
-    distinguishable at all — wrong, and wrong in the direction that would have
-    left avoidably identifiable estimates marked as measured. Caught in PR
-    #477 round 2.
+  - **Historical rows are more recoverable than a first look suggests** — so
+    don't default them all to `false` without checking. Two discriminators
+    exist in the data and are worth investigating before deciding:
+    `job_reference_id` carries a per-stage suffix, and `billing_units` differs
+    sharply between the two writers on the video pipeline's main stage (a
+    computed token count versus a literal `1`). **Both are leads, not
+    conclusions** — confirm the current code still writes them that way and
+    validate the distribution against live data before a backfill relies on
+    either. An earlier version of this entry asserted the opposite (that those
+    rows were indistinguishable), which would have discarded recoverable
+    provenance permanently.
+  - **A missing row is not automatically normal, and not automatically a gap.**
+    Some stages legitimately don't run — the stylise stage only on the
+    stylize-then-video path, the subtitle stage only after the main stage
+    succeeds — so their rows are correctly absent for many healthy jobs. But
+    `recordCost` swallows an insert failure (the entry above), so an
+    expected row can also be missing from a perfectly healthy job. **Normality
+    has to be judged from `sourceMode` and the stage/job outcome, not from row
+    count**, and an expected-but-missing row is a write gap — precisely the
+    accounting failure the `recordCost` item exists to track. A reconciliation
+    check that treats absence as benign would ignore it.
   - **Revisit trigger.** **Approved by David 2026-08-16** — not a parked
     condition, queued work. See the decision entry in
     [`decisions.md`](../ai-context/decisions.md), which also records the open

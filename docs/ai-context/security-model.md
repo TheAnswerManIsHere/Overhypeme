@@ -267,19 +267,16 @@ rather than a fleet-wide guarantee — see the
   denied by, the *proposed-cost* lookup or the downstream config/ledger reads: a
   caller whose cost is itself fallible to determine passes a **thunk**, which
   `checkBudget` invokes only after the exemption.
-- **The ledger is NOT measured-prices-only, despite the shape of `recordCost`'s
-  arguments.** The synchronous image and video paths record real resolved prices,
-  and so does the async pipeline's stage 2 on its normal path — but stage 1,
-  stage 3, and stage 2's pricing-failure path all write the engine's *configured*
-  figure with a synthetic `pricingFetchedAt`, and nothing in the row marks them
-  as estimates. The per-writer breakdown lives in
-  [`deferred-work.md`](../engineering/deferred-work.md) and is not restated here.
-  Two consequences: an *unpriced image* generation is not recorded at all, so
-  across a sustained pricing outage that path's recorded spend stops growing and
-  its ceiling is measured against a stale total; and the planned `is_estimated`
-  column has to cover the existing video-pipeline writers and their historical
-  rows, not just the new image path, or it will assert a fidelity the data does
-  not have.
+- **The ledger cannot tell you how a figure was arrived at.** Some rows are
+  computed from fal's published rate for that endpoint; others from an
+  operator-configured estimate. No column distinguishes them, and no row is a
+  reconciled provider charge. Consequences for this gate: an unpriced image
+  generation is not recorded at all, so across a sustained pricing outage its
+  recorded spend stops growing and the ceiling is measured against a stale
+  total. Which writers produce which kind of figure is **not** stated here —
+  see [`deferred-work.md`](../engineering/deferred-work.md), and derive it from
+  the code rather than from either doc, because that breakdown was mis-stated
+  three times in one review.
 
 ## HTTP security headers (C5)
 

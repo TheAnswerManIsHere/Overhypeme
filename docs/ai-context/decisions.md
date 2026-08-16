@@ -23,7 +23,10 @@
 - **Why:** The two cases look alike ("we cannot determine the true cost") and
   were deliberately split. A pricing miss still leaves a defensible,
   model-specific figure available: the operator-configured estimate for that
-  exact engine. An unreadable `engines` table leaves nothing defensible — if you
+  exact engine — from the persisted row where one exists, and **falling back to
+  the code catalogue's entry for that same model when the table has no row for
+  it**, which happens legitimately. An unreadable `engines` table leaves nothing
+  defensible — if you
   could not read the persisted values, no number derived from the catalogue is
   provably above them, so a $0.04 seed can silently displace an admin-set $0.08
   and let a call through. "Fall back to something that cannot undercut" was
@@ -59,13 +62,13 @@
   open). Pre-launch is when a schema change is cheapest.
 - **Correction, found in review of the harvest that recorded this (PR #477):**
   the decision was taken on the belief that the ledger held measured prices
-  only, and **it does not.** `videoPipelineRunner.ts` already writes estimates —
-  stage 1 (on the stylize path), stage 3 (once stage 2 succeeds), and stage 2's
-  own pricing-failure path — each with a synthetic `pricingFetchedAt`. The
-  per-writer breakdown is in
-  [`deferred-work.md`](../engineering/deferred-work.md); it is not restated here
-  because it moved twice during this PR's review and should have one home. So
-  the rejected "no flag" option was
+  only, and **it does not** — the async video pipeline already writes
+  operator-configured figures for some of its stages, indistinguishably. The
+  per-writer detail lives in
+  [`deferred-work.md`](../engineering/deferred-work.md) and is deliberately not
+  repeated here; it was restated in several docs and corrected three times in
+  one review, which is what a fact with no single home does. So the rejected
+  "no flag" option was
   not a choice between clean data and dirty data — the video path had *already*
   made that choice implicitly, and the flag's real value is larger than the
   decision assumed: it retires an existing ambiguity rather than only preventing
