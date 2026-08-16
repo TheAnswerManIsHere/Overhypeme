@@ -16,7 +16,7 @@ import { callUtilityLLM } from "./utilityLLM";
 import { ObjectStorageService } from "./objectStorage";
 import { aiBackgroundKey } from "./storageKeys";
 import { db } from "@workspace/db";
-import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema";
+import { factsTable, userAiImagesTable, usersTable, enginesTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
 import { getScenePromptSystem } from "./scenePromptConfig";
@@ -59,43 +59,91 @@ const DEFAULT_IMAGE_SIZE            = "square_hd";
  * GATING estimate only — never written to the cost ledger, which records
  * measured prices.
  *
- * Resolved from the engine catalogue's `estimatedCostUsdPerCall` — the same
- * canonical per-engine figure the admin console edits — keyed by the fal
- * endpoint id. A single hardcoded number cannot be right for every model:
- * round 1 of PR #474's review caught a flat $0.03 (PuLID's figure) gating the
- * standard path's `fal-ai/flux-pro/v1.1`, which is catalogued at $0.04, so a
- * user with $0.030–$0.039 left was allowed a call expected to exceed the
- * ceiling. Reading the catalogue also stops this drifting from the engine
- * estimate the way a literal would.
+ * A single hardcoded number cannot be right for every model: round 1 of PR
+ * #474's review caught a flat $0.03 (PuLID's figure) gating the standard
+ * path's `fal-ai/flux-pro/v1.1`, seeded at $0.04, so a user with $0.030–$0.039
+ * left was allowed a call expected to exceed the ceiling.
  *
- * `Number(null)` is `0`, not `NaN`, and several engines legitimately carry a
- * null estimate — so null is rejected explicitly rather than via
- * `Number.isFinite` alone, which would silently price those calls at zero and
- * reintroduce the very hole this gate closes.
+ * THE PERSISTED ROW IS THE SOURCE OF TRUTH, NOT THE CODE CATALOGUE. Round 2
+ * caught the first fix reading `ALL_ENGINES`, which is only the seed:
+ * `estimatedCostUsdPerCall` is in `ADMIN_EDITABLE_FIELDS`, and
+ * `engines/reconcile.ts` strips those fields from its boot update
+ * (`codeOwnedFields`) precisely so admin edits survive. An operator who raises
+ * an engine's estimate would not have moved the gate at all.
+ *
+ * `Number(null)` is `0`, not `NaN`, and many engines legitimately carry a null
+ * estimate — so null is rejected explicitly rather than via `Number.isFinite`
+ * alone, which would silently price those calls at zero and reintroduce the
+ * very hole this gate closes. The numeric columns also arrive as strings.
  */
-function cataloguedCostUsdPerCall(value: number | null | undefined): number | null {
+function positiveCostOrNull(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/**
- * Used only when the model is absent from the catalogue or carries no estimate.
- * Deliberately the HIGHEST catalogued per-call cost rather than a typical one:
- * on an unknown model during a pricing outage the gate must not under-charge,
- * and over-estimating refuses a call the user can retry once pricing recovers,
- * while under-estimating spends money that is never recovered. Derived rather
- * than written down so it cannot drift as the catalogue changes.
- */
-const UNKNOWN_MODEL_FALLBACK_COST_USD = Math.max(
-  ...ALL_ENGINES
-    .map((e) => cataloguedCostUsdPerCall(e.estimatedCostUsdPerCall))
-    .filter((n): n is number => n !== null),
-);
+function maxPositiveCost(values: readonly unknown[]): number | null {
+  const nums = values.map(positiveCostOrNull).filter((n): n is number => n !== null);
+  return nums.length > 0 ? Math.max(...nums) : null;
+}
 
-function fallbackImageCostUsd(model: string): number {
-  const engine = ALL_ENGINES.find((e) => e.endpointId === model);
-  return cataloguedCostUsdPerCall(engine?.estimatedCostUsdPerCall) ?? UNKNOWN_MODEL_FALLBACK_COST_USD;
+/**
+ * Last-resort seed value, used only if the engines table itself cannot be read.
+ * The gate must still run in that case — and note a failed read here does not
+ * change the outcome for a truly broken database, since `checkBudget` queries
+ * too and fails closed on its own.
+ */
+const CATALOGUE_MAX_COST_USD = maxPositiveCost(ALL_ENGINES.map((e) => e.estimatedCostUsdPerCall));
+
+/**
+ * Resolves the gating estimate for a model, preferring the persisted engine
+ * row over the seed. Falls back to the highest known per-call cost when the
+ * model has no estimate of its own: on an unknown model during a pricing
+ * outage the gate must not under-charge, because over-estimating refuses a
+ * call the user can retry once pricing recovers, while under-estimating spends
+ * money that is never recovered. Derived rather than written down so it cannot
+ * go stale.
+ *
+ * Only ever called on the degraded path (pricing already unavailable), so the
+ * extra read costs nothing in the normal case.
+ */
+async function fallbackImageCostUsd(model: string): Promise<number> {
+  const catalogueExact = positiveCostOrNull(
+    ALL_ENGINES.find((e) => e.endpointId === model)?.estimatedCostUsdPerCall,
+  );
+
+  let persistedExact: number | null = null;
+  let persistedMax: number | null = null;
+  try {
+    const rows = await db
+      .select({
+        endpointId: enginesTable.endpointId,
+        cost: enginesTable.estimatedCostUsdPerCall,
+      })
+      .from(enginesTable);
+    persistedExact = positiveCostOrNull(rows.find((r) => r.endpointId === model)?.cost);
+    persistedMax = maxPositiveCost(rows.map((r) => r.cost));
+  } catch (err) {
+    logger.warn(
+      { err, model },
+      "[aiMemePipeline] engines table unreadable — gating on the code catalogue's estimate",
+    );
+  }
+
+  // ORDER MATTERS, and not in the obvious way. A MODEL-SPECIFIC figure always
+  // beats an aggregate, even a persisted aggregate — otherwise an incomplete
+  // engines table silently under-gates. Concretely: the table can legitimately
+  // lack a row for a model the code knows about (a seeded test database has 7
+  // rows and no `fal-ai/flux-pro/v1.1`; production relies on `reconcileEngines`
+  // having run at boot). Preferring `max(persisted)` over the catalogue's own
+  // $0.04 entry for that model would gate it at some other engine's $0.03 —
+  // reintroducing round 1's under-gating through a different door.
+  if (persistedExact !== null) return persistedExact; // admin-editable truth
+  if (catalogueExact !== null) return catalogueExact; // model-specific seed
+
+  // Genuinely unknown model: the highest cost either source knows about, so an
+  // incomplete table cannot lower the floor.
+  return Math.max(persistedMax ?? 0, CATALOGUE_MAX_COST_USD ?? 0) || 0.15;
 }
 
 /**
@@ -285,7 +333,7 @@ async function generateAndStoreImage(
     // The gate runs whether or not pricing resolved. This used to be
     // `if (priced)`, which skipped the check entirely on a pricing miss and
     // left the ceiling unenforced exactly when something else was failing.
-    const budget = await checkBudget(userId, priced?.costUsd ?? fallbackImageCostUsd(model));
+    const budget = await checkBudget(userId, priced?.costUsd ?? (await fallbackImageCostUsd(model)));
     if (!budget.allowed) throw new BudgetExceededError(budget);
     // Only a REAL price is carried forward for ledger recording.
     if (priced) cachedImgPrice = priced.price;
@@ -534,7 +582,7 @@ async function generateAndStoreImageFromReference(
     // The gate runs whether or not pricing resolved. This used to be
     // `if (priced)`, which skipped the check entirely on a pricing miss and
     // left the ceiling unenforced exactly when something else was failing.
-    const budget = await checkBudget(userId, priced?.costUsd ?? fallbackImageCostUsd(model));
+    const budget = await checkBudget(userId, priced?.costUsd ?? (await fallbackImageCostUsd(model)));
     if (!budget.allowed) throw new BudgetExceededError(budget);
     // Only a REAL price is carried forward for ledger recording.
     if (priced) cachedRefPrice = priced.price;

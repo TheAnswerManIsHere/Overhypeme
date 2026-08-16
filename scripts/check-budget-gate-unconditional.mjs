@@ -26,12 +26,21 @@
  * `if (priced) await checkBudget(...)`, and an early-return
  * `if (!priced) return;`. A guard that is the SOLE regression check for a
  * money bug cannot be narrower than the bug, so this walks parsed control flow
- * and catches all four shapes:
+ * and catches five shapes:
  *
  *   1. the call nested inside a branch of a price-conditional `if`
- *   2. the call inside a price-conditional ternary
+ *   2. the call inside a branch of a price-conditional ternary
  *   3. a brace-less price-conditional statement wrapping the call
  *   4. an earlier `if (!priced) return/throw/continue/break;` in the same block
+ *   5. the call short-circuited by `priced && …`, `priced || …`, `priced ?? …`
+ *
+ * Shape 5 is the one that survived the first AST rewrite: that version treated
+ * everything in an `if` condition as unconditional, which is true of the
+ * condition as a whole but false of the right-hand operand of a `&&` inside
+ * it — `if (priced && await checkBudget(...))` skips the gate on a pricing
+ * miss. Round 2 caught it with its own probe. The lesson worth keeping: each
+ * time this guard was narrowed to what looked like "the" shape of the bug, a
+ * cheaper equivalent shape was still reachable.
  *
  * What it does NOT check: that the fallback estimate is well-chosen. That is a
  * judgement, not an invariant. This guard only enforces that the gate RUNS.
@@ -133,25 +142,52 @@ for (const file of walk(API_SRC)) {
 
   const visit = (node) => {
     if (isCheckBudgetCall(node)) {
-      // Shapes 1–3: an enclosing price-conditional.
+      // Shapes 1–3 and 5: an enclosing price-conditional.
+      const pos = node.getStart(sf);
+      const within = (n) => n && pos >= n.getStart(sf) && pos < n.getEnd();
+
       for (let p = node.parent; p; p = p.parent) {
+        // Short-circuit operands. `if (priced && await checkBudget(...))` skips
+        // the gate on a pricing miss just as surely as nesting does — round 2
+        // of PR #474's review found the first AST version exempting the whole
+        // condition as "unconditional", which is true of the condition but NOT
+        // of the right-hand side of an `&&`/`||` inside it. Checked before the
+        // `if` case below, and independently of it, because this shape occurs
+        // in assignments and returns too, not only in conditions.
+        if (
+          ts.isBinaryExpression(p) &&
+          (p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+            p.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+            p.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) &&
+          within(p.right) &&
+          referencesPrice(p.left)
+        ) {
+          report(
+            node,
+            `short-circuited by \`${p.left.getText(sf).slice(0, 40)} ${p.operatorToken.getText(sf)} …\``,
+          );
+          break;
+        }
+
         if (ts.isIfStatement(p) && referencesPrice(p.expression)) {
-          // Only the BRANCHES are conditional. A call sitting in the condition
-          // itself runs unconditionally, so it is not a violation — test by
-          // position rather than by text.
-          const pos = node.getStart(sf);
-          const inBranch =
-            (p.thenStatement && pos >= p.thenStatement.getStart(sf) && pos < p.thenStatement.getEnd()) ||
-            (p.elseStatement && pos >= p.elseStatement.getStart(sf) && pos < p.elseStatement.getEnd());
-          if (inBranch) {
+          // Only the BRANCHES are conditional — a call in the condition itself
+          // runs unconditionally unless short-circuited, which the check above
+          // already caught. Test by position rather than by text.
+          if (within(p.thenStatement) || within(p.elseStatement)) {
             report(node, `nested inside \`if (${p.expression.getText(sf).slice(0, 60)})\``);
             break;
           }
         }
-        if (ts.isConditionalExpression(p) && referencesPrice(p.condition)) {
-          report(node, `inside a price-conditional ternary`);
+
+        if (
+          ts.isConditionalExpression(p) &&
+          referencesPrice(p.condition) &&
+          (within(p.whenTrue) || within(p.whenFalse))
+        ) {
+          report(node, `inside a branch of a price-conditional ternary`);
           break;
         }
+
         if (ts.isFunctionLike(p)) break; // don't escape the enclosing function
       }
 
