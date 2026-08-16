@@ -30,9 +30,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   fal pricing miss skipped the ceiling entirely — enforcement disappearing at
   the moment something else was already failing. All sites now degrade to the
   engine's configured estimate and still gate, or deny when the authoritative
-  cost can't be read; the fallback reads the persisted `engines` row rather
-  than the code seed, honors a deliberate `0`, and resolves after the admin
-  exemption. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop.
+  cost can't be read; the fallback prefers the persisted `engines` row over the
+  code seed (falling back to the seed for a model the table has no row for),
+  honors a deliberate `0`, and resolves after the admin exemption. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop.
   Five Codex rounds, eight findings, all real. See
   [`security-model.md`](./security-model.md)'s generation-spend section and the
   two 2026-08-16 entries in [`decisions.md`](./decisions.md).

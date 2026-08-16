@@ -59,9 +59,13 @@
   open). Pre-launch is when a schema change is cheapest.
 - **Correction, found in review of the harvest that recorded this (PR #477):**
   the decision was taken on the belief that the ledger held measured prices
-  only, and **it does not.** `videoPipelineRunner.ts` already writes estimates
-  for stages 1 and 3 on every job, and for stage 2 on its pricing-failure path,
-  each with a synthetic `pricingFetchedAt`. So the rejected "no flag" option was
+  only, and **it does not.** `videoPipelineRunner.ts` already writes estimates —
+  stage 1 (on the stylize path), stage 3 (once stage 2 succeeds), and stage 2's
+  own pricing-failure path — each with a synthetic `pricingFetchedAt`. The
+  per-writer breakdown is in
+  [`deferred-work.md`](../engineering/deferred-work.md); it is not restated here
+  because it moved twice during this PR's review and should have one home. So
+  the rejected "no flag" option was
   not a choice between clean data and dirty data — the video path had *already*
   made that choice implicitly, and the flag's real value is larger than the
   decision assumed: it retires an existing ambiguity rather than only preventing

@@ -268,18 +268,18 @@ rather than a fleet-wide guarantee — see the
   caller whose cost is itself fallible to determine passes a **thunk**, which
   `checkBudget` invokes only after the exemption.
 - **The ledger is NOT measured-prices-only, despite the shape of `recordCost`'s
-  arguments.** The synchronous image path records only real resolved prices, but
-  `videoPipelineRunner.ts` writes **estimates** for all three stages — stages 1
-  and 3 always (from the engine's configured per-call figure, or a hardcoded
-  fallback), and stage 2 on its pricing-failure path — each with a synthetic
-  `pricingFetchedAt` of "now". Nothing in the row distinguishes those from
-  measured ones. Two consequences, both tracked in
-  [`deferred-work.md`](../engineering/deferred-work.md): an *unpriced image*
-  generation is not recorded at all, so across a sustained pricing outage that
-  path's recorded spend stops growing and its ceiling is measured against a
-  stale total; and the planned `is_estimated` column has to cover these existing
-  video-pipeline writers and their historical rows, not just the new image path,
-  or it will assert a fidelity the data does not have.
+  arguments.** The synchronous image and video paths record real resolved prices,
+  and so does the async pipeline's stage 2 on its normal path — but stage 1,
+  stage 3, and stage 2's pricing-failure path all write the engine's *configured*
+  figure with a synthetic `pricingFetchedAt`, and nothing in the row marks them
+  as estimates. The per-writer breakdown lives in
+  [`deferred-work.md`](../engineering/deferred-work.md) and is not restated here.
+  Two consequences: an *unpriced image* generation is not recorded at all, so
+  across a sustained pricing outage that path's recorded spend stops growing and
+  its ceiling is measured against a stale total; and the planned `is_estimated`
+  column has to cover the existing video-pipeline writers and their historical
+  rows, not just the new image path, or it will assert a fidelity the data does
+  not have.
 
 ## HTTP security headers (C5)
 
