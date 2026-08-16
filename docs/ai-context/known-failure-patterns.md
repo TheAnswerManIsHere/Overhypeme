@@ -47,6 +47,23 @@ character classes for "what the slugger emits" were each measured wrong — the
 first excluded 1164 characters it really emits, the second still excluded 61.
 The fix in each case was to stop describing the producer and start executing it.
 
+**The same shape, one level up: describing a GUARD's coverage from the part of
+it you read.** A doc, a decision entry or a PR body that states what a check
+protects is making a claim about that check's *inputs* — which file list it
+walks, which paths it classifies, which branches it exempts — and those live in
+a different part of the file from the logic you were reading. Two instances in
+two review rounds on the same afternoon: *"`classify-ci-paths.mjs` treats all of
+`docs/**` as inert"* (it carries an explicit `ADMIN_FIELD_REFERENCE.md`
+exception, for the symmetric reason) and *"a green `check:docs` means every
+prefixed path resolves"* (it runs on a five-entry library list, so `docs/tests`,
+`CLAUDE.md` and all of `.agents/memory/` are outside it). Both read as
+confident, both were wrong in the **over**-claiming direction, and an
+over-claimed guard is the dangerous direction — it tells the next reader they're
+covered where they aren't. **Avoid:** before writing what a guard covers, read
+the collection it iterates and the exemptions it applies, not just the rule it
+enforces. If the sentence names a scope, that scope is a claim, and claims get
+checked against the source.
+
 ## A guard that matches spelling instead of resolving bindings fails open
 
 **Looks like:** a static check that recognises its target by name — counting
