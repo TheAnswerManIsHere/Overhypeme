@@ -7,14 +7,22 @@ description: Any curl/fetch to api.github.com from a Bash tool call returns 403 
 
 ## The mechanic
 
-Any direct call to `api.github.com` from a `Bash` tool call returns:
+Any direct call to `api.github.com` from a `Bash` tool call returns **HTTP
+403**:
 
 ```json
 {"message":"GitHub access is not enabled for this session. An org admin must
 connect the Claude GitHub App for this organization."}
 ```
 
-**Every endpoint. Every URL shape. With or without a token.** The agent proxy
+**Every endpoint. Every URL shape. With or without a token** — measured
+2026-08-16 by running the same request bare and with `Authorization: Bearer
+$GITHUB_TOKEN` and reading `%{http_code}`, not inferred. (Two places in the
+repo previously described this as a **401**; both are corrected. Neither had
+been measured, and the difference matters — a 401 reads as "bad credential,
+try another", which is what sends you hunting for an alternate token path. A
+403 with this body is the proxy saying the door does not exist.) The agent
+proxy
 deliberately scopes GitHub access to what the GitHub MCP server's app
 permissions cover, and nothing reaches the REST API outside that. This is not a
 misconfiguration and **not something to route around** — stop trying alternate

@@ -21,8 +21,10 @@
  *
  * `--mcp-snapshot` is for agents whose only working GitHub credential is a
  * tool-calling MCP integration rather than a direct token against
- * api.github.com (this repo's own dev container is one such agent — its
- * GITHUB_TOKEN is scoped to a local git proxy and 401s against the real API).
+ * api.github.com (this repo's own dev container is one such agent — the agent
+ * proxy blocks api.github.com outright, returning HTTP 403 "GitHub access is
+ * not enabled for this session" with or without GITHUB_TOKEN; measured
+ * 2026-08-16, correcting an earlier unmeasured claim of 401 here).
  * See `fromMcp()` below for the exact shape and how it differs from the REST
  * shape `gh()` expects.
  *

@@ -1186,8 +1186,13 @@ enactment:
   (David, 2026-08-07).
 - **I run `node scripts/loop-metrics.mjs --pr <number> --write` and never
   type the mechanical values from memory** — or `--mcp-snapshot <file>` in
-  this container, whose `GITHUB_TOKEN` is proxy-scoped and 401s against the
-  real API (my working GitHub access here is the MCP integration). The
+  this container, where the real API is unreachable from a shell at all —
+  **HTTP 403 "GitHub access is not enabled for this session", measured
+  2026-08-16, with or without `GITHUB_TOKEN`** (an earlier version of this line
+  said 401; that was never measured). My working GitHub access here is the MCP
+  integration — see
+  [`github-rest-api-blocked-from-bash.md`](.agents/memory/github-rest-api-blocked-from-bash.md).
+  The
   snapshot must carry `closed_at` and a complete issue-comment collection;
   `--write` refuses without them, because a record that understates rounds
   would land as measured data. Recalled numbers in this repo have been wrong
@@ -1215,39 +1220,43 @@ enactment:
 Distinct from the scheduled check-ins below, which are about *arming a timer*.
 This is about waiting for CI or any GitHub state **within** a turn.
 
+The **shared invariant** — a wait has three outcomes, cannot-tell terminates
+loudly, never report a wait as a verification it didn't perform, and poll the
+thing you're actually waiting for — lives in
+[`agent-working-rules.md`](docs/ai-context/agent-working-rules.md) and binds
+Codex too, so per this file's single-source-of-truth rule I don't restate it.
+What's below is my enactment.
+
 **There is no bash path to the GitHub API here.** Every direct
-`api.github.com` call from a Bash tool call returns 403 *"GitHub access is not
-enabled for this session"* — every endpoint, every URL shape, token or no
-token. The proxy scopes GitHub access to the MCP server's permissions and
-nothing escapes that. Full mechanics:
+`api.github.com` call from a Bash tool call returns **HTTP 403** *"GitHub
+access is not enabled for this session"* — measured 2026-08-16, identical with
+and without `GITHUB_TOKEN`, on every endpoint and URL shape tried. The proxy
+scopes GitHub access to the MCP server's permissions and nothing escapes it.
+Full mechanics:
 [`github-rest-api-blocked-from-bash.md`](.agents/memory/github-rest-api-blocked-from-bash.md).
 
 **So the shape of a wait is fixed:**
 
 1. `sleep N` in bash — the **delay, and nothing else**.
-2. `mcp__github__pull_request_read` (`get_check_runs`) for the actual state. It
-   takes a **PR number**, so there is no ref or SHA to mistype.
+2. **The `mcp__github__*` method that observes the condition I actually named.**
+   `pull_request_read` / `get_check_runs` for **CI**; `get_reviews` or
+   `get_review_comments` for a review landing; `get` for merge state,
+   mergeability or a base change; `issue_read` for label or issue movement.
+   Green CI says nothing about whether a review arrived — polling the wrong
+   signal is how a wait ends early on data that never described the condition.
+   All of them take a **PR or issue number**, so there's no ref or SHA to
+   mistype.
 3. Still pending? Repeat. A turn per check is cheap next to sitting on a dead
    loop.
 
 **Never build a bash poll loop that parses a GitHub response.** It cannot
 work, and — this is the part that bites — **it does not announce that it
-cannot work.** `grep` over the error body finds nothing, which reads as
-"nothing pending"; add a guard demanding a real field first and it inverts to
-"still pending" forever. Both are silent, and neither mentions GitHub. On
-2026-08-16 every CI-wait loop in a long session was a pure sleep; they looked
-fine only because CI happened to be green by the time each ended, until one
-sat 12 minutes on a PR that had been green for 25.
-
-**Three-state discipline, generally.** Any wait must distinguish **ready /
-not-ready / cannot-tell**, and *cannot-tell terminates loudly*. Sleeping
-through an unparseable response is the same defect as
-[`ci-guard-must-fail-loud-on-missing-inputs.md`](.agents/memory/ci-guard-must-fail-loud-on-missing-inputs.md)
-— a check that skips silently is indistinguishable from one that passed.
-
-**And never narrate a wait as a verification it didn't perform.** "Waiting for
-CI" is honest; "re-checked, still pending" is a claim about an observation, and
-if the loop only slept, that claim is false.
+cannot work.** `grep` over the 403 body finds nothing, which reads as "nothing
+pending"; add a guard demanding a real field first and it inverts to "still
+pending" forever. Both are silent, and neither mentions GitHub. On 2026-08-16
+every CI-wait loop in a long session was a pure sleep; they looked fine only
+because CI happened to be green by the time each ended, until one sat 12
+minutes on a PR that had been green for 25.
 
 ## Scheduled self-check-ins (David, 2026-08-15 — replacing the blanket ban)
 
