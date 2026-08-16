@@ -72,13 +72,21 @@
   reporting path. Until then "is this worth it" is a judgement on
   recollection, and this decision should not be revisited on the strength of
   counts that don't exist.
-- **Also fixed:** `.claude/settings.json`'s allowlist carried only
-  `delete_trigger`, so scheduling would have prompted David even once
-  permitted. All five trigger tools are now allowlisted. **Known fragility:**
-  those entries are keyed to an MCP server prefix containing a volatile
-  per-environment UUID — proven volatile in the authoring session, where the
-  Replit server's prefix changed mid-conversation. A returning permission
-  prompt means a changed UUID, and the fix is re-pointing the entries.
+- **Superseded sub-decision (2026-08-16): the allowlist does not govern these
+  prompts, and `send_later` one-shots are the only trigger tool autonomous
+  sessions may use.** This entry originally recorded allowlisting all five
+  trigger tools with a "volatile UUID prefix" fragility note. That theory was
+  refuted empirically (Overhypeme issue #468): a fresh session's
+  `create_trigger` prompted under a tool name exactly matching an allow rule;
+  PR #469 (re-pointed entries) changed nothing, and PR #470 (`autoMode.allow`)
+  was closed unmerged because the official auto-mode docs say the classifier
+  deliberately ignores both repo-resident `autoMode` keys and, per
+  anthropics/claude-code#38834 (closed, not planned), does not honor allow
+  rules for MCP mutations in auto mode. The standing rule now lives in
+  `CLAUDE.md` → *Scheduled self-check-ins* → *Permissions*: schedule with
+  `send_later` exclusively; never create/update/delete triggers (one-shots
+  self-disable after firing, and the platform auto-disables triggers whose
+  session is gone, so skipped cleanup costs at most one no-op wake).
 - **Explicitly NOT authorized by this:** scheduling `/maintenance`. A weekly
   ritual is a heartbeat, not a wait on external state. Automating it stays a
   separate decision, which David's one-shot ~4-week reminder (around

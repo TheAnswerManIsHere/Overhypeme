@@ -1229,13 +1229,44 @@ recollection, and that limitation is the honest state.** Recording it here
 because this is the third claim today I asserted without checking the
 implementation behind it.
 
-**Permissions.** Scheduling and cancelling both need the MCP trigger tools
-allowlisted in `.claude/settings.json`. Those entries are keyed to an MCP
-server prefix containing a **volatile per-environment UUID** — proven volatile
-in this session, where the Replit server's prefix changed mid-conversation —
-so if David is ever prompted to approve a trigger call again, a changed UUID
-is the first thing to check, and the fix is re-pointing the allowlist entries
-at the current prefix.
+**Permissions — `send_later` one-shots ONLY; the allowlist cannot fix the
+prompts (David + investigation, 2026-08-15/16, superseding the volatile-UUID
+note that stood here).** The old note claimed trigger-tool approval prompts
+meant a stale server prefix in `.claude/settings.json`'s allowlist and the
+fix was re-pointing the entries. A fresh-session probe **refuted that**: a
+`create_trigger` call prompted under a tool name that exactly matched an
+existing allow rule (evidence: issue #468; PR #469 merged the re-pointed
+entries and changed nothing; PR #470, which tried `autoMode.allow`, was
+closed unmerged when the docs showed why it can't work). The real mechanism,
+per the official docs and anthropics/claude-code#38834 (closed, not
+planned): **in auto-mode web sessions the classifier decides these calls,
+it does not honor repo-resident allow rules for MCP mutations, and it
+deliberately ignores the `autoMode` key from project settings** so a
+checked-in repo can't inject its own consent rules. No settings.json change
+can fix this, so stop diagnosing it as one.
+
+What actually works, observed across every incident in this workstream:
+`send_later` passes the classifier silently; `create_trigger`,
+`update_trigger`, and `delete_trigger` prompt. So the discipline is:
+
+- **Autonomous sessions schedule with `send_later` one-shots exclusively** —
+  never `create_trigger`, never `update_trigger`, and **never
+  `delete_trigger`, including for cleanup.** An obsolete not-yet-fired
+  check-in is left alone: it fires once, the wake finds its exit condition
+  met and silently no-ops, and the trigger self-disables
+  (`run_once_fired`). The platform also auto-disables triggers whose bound
+  session is gone (`auto_disabled_session_gone`) — both behaviors verified
+  in this account's own trigger history. Cost of never deleting: at most
+  one wasted wake per obsolete timer, already bounded by this contract's
+  caps. Triggers are platform objects — a PR merge never touches them —
+  but one-shots die on their own, and the check-in pattern never creates
+  recurring crons.
+- **Re-arming means a fresh `send_later`, not an update** — which is how
+  this contract already worked; the mutation calls were only ever cleanup
+  niceties, and they are exactly the calls that block autonomous sessions.
+- This is observed classifier behavior, not a guarantee. If a `send_later`
+  call ever prompts, that's new information — record it on the workstream
+  issue rather than re-litigating the allowlist theory.
 
 ## Standing devops rituals (David, 2026-07-22)
 
