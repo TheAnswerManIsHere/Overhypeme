@@ -198,8 +198,14 @@ for (const file of walk(API_SRC)) {
       if (block && ts.isBlock(block)) {
         for (const prior of block.statements) {
           if (prior === stmt) break;
-          if (ts.isIfStatement(prior) && referencesPrice(prior.expression) && alwaysExits(prior.thenStatement)) {
-            report(node, `preceded by an early-return guard \`if (${prior.expression.getText(sf).slice(0, 60)})\``);
+          if (!ts.isIfStatement(prior) || !referencesPrice(prior.expression)) continue;
+          // EITHER branch exiting makes everything after it price-conditional:
+          // `if (!priced) return;` and `if (priced) {…} else return;` reach the
+          // same place by opposite routes. Round 3 of PR #474's review found
+          // only the then-branch being inspected, and verified the else form
+          // passing the guard.
+          if (alwaysExits(prior.thenStatement) || alwaysExits(prior.elseStatement)) {
+            report(node, `preceded by an early-exit guard \`if (${prior.expression.getText(sf).slice(0, 60)})\``);
             break;
           }
         }
