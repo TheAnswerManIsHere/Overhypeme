@@ -193,6 +193,21 @@ chapters in the same commit. `pnpm run check:docs` verifies that a linked
 *file* exists but **not** that an anchor within it does, so anchors are
 review-checked, not CI-checked.
 
+**This manual is a build input, not only prose.** Chapters are rendered in-app
+at `/admin/help` from generated modules under
+`artifacts/overhype-me/src/generated/help/` (PR #472), so **editing any chapter
+requires regenerating them in the same commit**:
+
+```
+pnpm --filter @workspace/overhype-me run generate:help
+```
+
+`check:help-content` fails the Build job when the generated modules drift from
+their source, so this is CI-enforced rather than a convention — a docs-only PR
+that touches a chapter and nothing else will still go red without it. Expect
+exactly two files to change per edited chapter (that chapter's content module
+and `searchIndex.ts`); a wider diff means something else moved too.
+
 ## Contents
 
 In reading order. A chapter file appears only once it holds real content, so
