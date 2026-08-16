@@ -7,22 +7,40 @@ description: Any curl/fetch to api.github.com from a Bash tool call returns 403 
 
 ## The mechanic
 
-Any direct call to `api.github.com` from a `Bash` tool call returns **HTTP
-403**:
+No bash transport yields usable GitHub API data — **but the two available
+transports fail for different reasons, and confusing them wastes a diagnosis.**
+All four cells measured 2026-08-16:
 
-```json
-{"message":"GitHub access is not enabled for this session. An org admin must
-connect the Claude GitHub App for this organization."}
-```
+| From Bash | No token | With `$GITHUB_TOKEN` |
+| --- | --- | --- |
+| **`curl`** | 403 *"GitHub access is not enabled for this session"* | 403, identical |
+| **Node `fetch`** | 403 *"API rate limit exceeded for `<ip>`"* | 401 *"Bad credentials"* |
 
-**Every endpoint. Every URL shape. With or without a token** — measured
-2026-08-16 by running the same request bare and with `Authorization: Bearer
-$GITHUB_TOKEN` and reading `%{http_code}`, not inferred. (Two places in the
-repo previously described this as a **401**; both are corrected. Neither had
-been measured, and the difference matters — a 401 reads as "bad credential,
-try another", which is what sends you hunting for an alternate token path. A
-403 with this body is the proxy saying the door does not exist.) The agent
-proxy
+**The difference is the proxy, not GitHub.** `HTTPS_PROXY` is set
+(`http://127.0.0.1:39015`); **`curl` honours it and Node 22 does not** without
+`NODE_USE_ENV_PROXY`. So:
+
+- **`curl` never leaves the box.** The agent proxy intercepts and answers with
+  its own 403 — *"GitHub access is not enabled for this session"* is the proxy
+  talking, not GitHub.
+- **Node `fetch` goes straight to the real api.github.com**, where it is either
+  an anonymous rate-limited caller or presents `GITHUB_TOKEN`, which is scoped
+  to the local git proxy and is **not a GitHub API credential** — hence "Bad
+  credentials".
+
+**Read the failure to know which one you hit.** A 403 with the "not enabled"
+body means the proxy stopped you. A 401 "Bad credentials" or a rate-limit 403
+means you reached GitHub and the credential is wrong or absent. Neither is
+fixable from bash, but only the second would ever tempt you to go hunting for a
+better token — and there isn't one.
+
+This is why `CLAUDE.md` and `scripts/loop-metrics.mjs` both say **401**: that
+script uses Node `fetch`, so 401 is exactly what it sees. Those statements are
+correct for their transport, and an attempt to "correct" them to 403 during
+this very investigation was itself the error — caught by review, on the grounds
+that the claim had been generalised past the transport actually tested.
+
+The agent proxy
 deliberately scopes GitHub access to what the GitHub MCP server's app
 permissions cover, and nothing reaches the REST API outside that. This is not a
 misconfiguration and **not something to route around** — stop trying alternate

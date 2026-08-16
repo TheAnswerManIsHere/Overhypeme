@@ -1186,13 +1186,12 @@ enactment:
   (David, 2026-08-07).
 - **I run `node scripts/loop-metrics.mjs --pr <number> --write` and never
   type the mechanical values from memory** — or `--mcp-snapshot <file>` in
-  this container, where the real API is unreachable from a shell at all —
-  **HTTP 403 "GitHub access is not enabled for this session", measured
-  2026-08-16, with or without `GITHUB_TOKEN`** (an earlier version of this line
-  said 401; that was never measured). My working GitHub access here is the MCP
-  integration — see
+  this container, whose `GITHUB_TOKEN` is proxy-scoped and **401s "Bad
+  credentials"** against the real API — that script uses Node `fetch`, and the
+  401 is what it genuinely sees (measured 2026-08-16). `curl` from the same
+  shell fails *differently*, and the distinction matters when diagnosing: see
   [`github-rest-api-blocked-from-bash.md`](.agents/memory/github-rest-api-blocked-from-bash.md).
-  The
+  My working GitHub access here is the MCP integration. The
   snapshot must carry `closed_at` and a complete issue-comment collection;
   `--write` refuses without them, because a record that understates rounds
   would land as measured data. Recalled numbers in this repo have been wrong
@@ -1227,12 +1226,15 @@ thing you're actually waiting for — lives in
 Codex too, so per this file's single-source-of-truth rule I don't restate it.
 What's below is my enactment.
 
-**There is no bash path to the GitHub API here.** Every direct
-`api.github.com` call from a Bash tool call returns **HTTP 403** *"GitHub
-access is not enabled for this session"* — measured 2026-08-16, identical with
-and without `GITHUB_TOKEN`, on every endpoint and URL shape tried. The proxy
-scopes GitHub access to the MCP server's permissions and nothing escapes it.
-Full mechanics:
+**No bash transport yields usable GitHub API data** — but they fail
+*differently*, and reading the failure tells me which wall I hit. Measured
+2026-08-16: **`curl`** is intercepted by the agent proxy (it honours
+`HTTPS_PROXY`) and returns **403 "GitHub access is not enabled for this
+session"** with or without a token; **Node `fetch`** ignores the proxy, reaches
+the real API, and returns **401 "Bad credentials"** with `GITHUB_TOKEN` (which
+is a git-proxy credential, not a GitHub API one) or a rate-limit **403**
+without. Neither is fixable from bash, and only the second would tempt me to go
+looking for a better token — there isn't one. Full table:
 [`github-rest-api-blocked-from-bash.md`](.agents/memory/github-rest-api-blocked-from-bash.md).
 
 **So the shape of a wait is fixed:**
