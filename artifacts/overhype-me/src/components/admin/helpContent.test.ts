@@ -96,6 +96,32 @@ describe("generated help content", () => {
     }
   });
 
+  // Generated anchors are raw <a> inside injected HTML, so wouter's <Link>
+  // base handling never sees them. The marker is what lets the page prefix the
+  // router base and route the click instead of reloading the document — under a
+  // non-root BASE_PATH an unmarked link navigates clean out of the app.
+  it("marks every in-app link so the page can make it base-aware and routed", async () => {
+    let internal = 0;
+    for (const { slug, html } of await allGeneratedHtml()) {
+      for (const m of html.matchAll(/<a\b([^>]*)>/g)) {
+        const attrs = m[1];
+        const href = /href="([^"]*)"/.exec(attrs)?.[1] ?? "";
+        if (!href.startsWith("/admin/help")) continue;
+        internal++;
+        expect(attrs, `${slug}: unmarked in-app link -> ${href}`).toContain('data-help-internal="true"');
+      }
+    }
+    expect(internal, "found no in-app links to check").toBeGreaterThan(5);
+  });
+
+  it("emits no relative image sources", async () => {
+    for (const { slug, html } of await allGeneratedHtml()) {
+      for (const m of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
+        expect(/^(https?:|data:)/.test(m[1]), `${slug}: relative image src -> ${m[1]}`).toBe(true);
+      }
+    }
+  });
+
   it("opens every off-manual link in a new tab, and no in-app link", async () => {
     for (const { slug, html } of await allGeneratedHtml()) {
       for (const m of html.matchAll(/<a\b([^>]*)>/g)) {

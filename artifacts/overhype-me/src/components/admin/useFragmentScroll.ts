@@ -57,8 +57,22 @@ export function useFragmentScroll(hash: string, ready: boolean): void {
   }, [hash, ready]);
 }
 
-/** The current `#fragment` without its `#`. Wouter's router ignores the hash. */
+/**
+ * The current `#fragment` without its `#`, percent-DECODED.
+ *
+ * Browsers expose a non-ASCII fragment percent-encoded (`#caf%C3%A9`), while
+ * the generated element id holds the decoded text (`café`) — so a raw
+ * `getElementById` on the encoded form silently finds nothing and the page
+ * never scrolls. `decodeURIComponent` throws on a malformed sequence, which a
+ * hand-edited URL can produce, so fall back to the raw value rather than
+ * letting a bad bookmark take the page down.
+ */
 export function currentHash(): string {
   if (typeof window === "undefined") return "";
-  return window.location.hash.replace(/^#/, "");
+  const raw = window.location.hash.replace(/^#/, "");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }

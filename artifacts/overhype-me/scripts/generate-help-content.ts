@@ -43,6 +43,7 @@ const OUT_DIR = resolve(__dirname, "..", "src", "generated", "help");
 
 const GITHUB_BLOB = "https://github.com/TheAnswerManIsHere/Overhypeme/blob/main";
 const GITHUB_TREE = "https://github.com/TheAnswerManIsHere/Overhypeme/tree/main";
+const GITHUB_RAW = "https://raw.githubusercontent.com/TheAnswerManIsHere/Overhypeme/main";
 
 /** In-app route base. Chapter routes are `${HELP_BASE}/${slug}`. */
 const HELP_BASE = "/admin/help";
@@ -156,11 +157,16 @@ function assertNumbering(rows: { number: number; file: string }[], sources: Map<
     if (prefix !== row.number) {
       fail(`Chapter number disagreement: contents table says ${row.number} but the filename is \`${row.file}\`.`);
     }
-    // 3. The chapter's own `# Chapter N · Title` heading.
-    const src = sources.get(row.file)!;
-    const headingMatch = /^#\s+Chapter\s+(\d+)\s+·\s+(.+)$/m.exec(src);
+    // 3. The chapter's own `# Chapter N · Title` heading — read from the
+    //    PARSED tree's first depth-1 heading, not by regex over raw source. A
+    //    fenced code example containing a line like `# Chapter 4 · …` would
+    //    satisfy a source regex while the real H1 said something else.
+    const tree = parseMarkdown(sources.get(row.file)!) as { children: { type: string; depth?: number }[] };
+    const h1 = tree.children.find((n) => n.type === "heading" && n.depth === 1);
+    if (!h1) fail(`\`${row.file}\` has no top-level \`# Chapter N · Title\` heading.`);
+    const headingMatch = /^Chapter\s+(\d+)\s+·\s+(.+)$/.exec(mdastToString(h1 as never).trim());
     if (!headingMatch) {
-      fail(`\`${row.file}\` has no \`# Chapter N · Title\` heading.`);
+      fail(`\`${row.file}\`'s first heading is not of the form \`# Chapter N · Title\`: "${mdastToString(h1 as never).trim().slice(0, 60)}".`);
     }
     if (Number(headingMatch[1]) !== row.number) {
       fail(`Chapter number disagreement in \`${row.file}\`: contents table says ${row.number}, its heading says ${headingMatch[1]}.`);
@@ -190,22 +196,56 @@ function assertNumbering(rows: { number: number; file: string }[], sources: Map<
 
 // ── Vocabulary ───────────────────────────────────────────────────────────────
 
+/**
+ * True only if the block is entirely HTML comments and whitespace.
+ *
+ * A greedy `/^<!--[\s\S]*-->$/` is NOT sufficient: it also accepts
+ * `<!-- a --> <b>visible</b> <!-- b -->`, because the `[\s\S]*` swallows the
+ * markup between the two comments. `remarkRehype` then drops the whole node
+ * while GitHub renders the `<b>` — a rendering-parity break that generation
+ * would have waved through.
+ */
+function isOnlyComments(raw: string): boolean {
+  let rest = raw.trim();
+  if (rest === "") return false;
+  while (rest.length > 0) {
+    if (!rest.startsWith("<!--")) return false;
+    const end = rest.indexOf("-->");
+    if (end === -1) return false;
+    rest = rest.slice(end + 3).trim();
+  }
+  return true;
+}
+
+/**
+ * GitHub's alert syntax (`> [!NOTE]`, `[!WARNING]`, …) parses as an ordinary
+ * blockquote, so the node-type check above cannot see it — but GitHub renders
+ * a titled, coloured callout while this converter emits a plain quotation with
+ * a literal `[!NOTE]` in it. That is exactly the silent degradation decision 16
+ * requires generation to reject rather than ship.
+ */
+const GITHUB_ALERT = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/;
+
 function assertVocabulary(tree: unknown, file: string): void {
-  visit(tree as never, (node: { type: string; value?: string }) => {
+  visit(tree as never, (node: { type: string; value?: string; children?: unknown[] }) => {
     if (!ALLOWED_NODES.has(node.type)) {
       fail(
         `\`${file}\` uses markdown that this generator does not support: node type \`${node.type}\`. ` +
         `Either add it to ALLOWED_NODES (and verify it converts to the same thing GitHub renders) or change the source.`,
       );
     }
-    if (node.type === "html") {
-      const raw = (node.value ?? "").trim();
-      if (!/^<!--[\s\S]*-->$/.test(raw)) {
-        fail(
-          `\`${file}\` contains raw HTML that is not a comment: ${raw.slice(0, 80)}. ` +
-          `Raw HTML is dropped during conversion, so it would render on GitHub but vanish in-app.`,
-        );
-      }
+    if (node.type === "html" && !isOnlyComments(node.value ?? "")) {
+      fail(
+        `\`${file}\` contains raw HTML that is not purely comments: ${(node.value ?? "").trim().slice(0, 80)}. ` +
+        `Raw HTML is dropped during conversion, so it would render on GitHub but vanish in-app.`,
+      );
+    }
+    if (node.type === "blockquote" && GITHUB_ALERT.test(mdastToString(node as never))) {
+      fail(
+        `\`${file}\` uses GitHub alert syntax (\`> [!NOTE]\` and friends). GitHub renders a titled callout; ` +
+        `this converter would emit a plain blockquote containing the literal marker. Rewrite it as ordinary ` +
+        `markdown, or teach the generator a faithful alert transform first.`,
+      );
     }
   });
 }
@@ -220,6 +260,19 @@ interface LinkTargets {
 }
 
 function rewriteLinks(tree: unknown, file: string, ownAnchors: Set<string>, targets: LinkTargets): void {
+  // `image` is in the supported vocabulary, so its `src` needs the same
+  // treatment: an untouched relative src would resolve under `/admin/help/…`
+  // and 404, while resolving correctly on GitHub. Rewriting it to the GitHub
+  // raw/blob URL keeps the two renderings equivalent.
+  visit(tree as never, "image", (node: { url: string; alt?: string }) => {
+    if (/^(https?:)?\/\//.test(node.url) || node.url.startsWith("data:")) return;
+    const abs = resolve(MANUAL_DIR, node.url.split("#")[0]);
+    if (!existsSync(abs)) {
+      fail(`\`${file}\` embeds an image at \`${node.url}\`, which does not exist.`);
+    }
+    node.url = `${GITHUB_RAW}/${relative(REPO_ROOT, abs)}`;
+  });
+
   visit(tree as never, "link", (node: { url: string; data?: Record<string, unknown> }) => {
     const url = node.url;
     if (/^(https?:)?\/\//.test(url) || url.startsWith("mailto:")) {
@@ -265,6 +318,11 @@ function rewriteLinks(tree: unknown, file: string, ownAnchors: Set<string>, targ
         }
       }
       node.url = destSlug === "" ? `${HELP_BASE}${fragment ? `#${fragment}` : ""}` : `${HELP_BASE}/${destSlug}${fragment ? `#${fragment}` : ""}`;
+      // Marked so the renderer can (a) prefix the router base — these are raw
+      // anchors inside generated HTML, so wouter's <Link> base handling never
+      // sees them — and (b) intercept the click for SPA navigation instead of
+      // a full document load.
+      node.data = { ...(node.data ?? {}), hProperties: { "data-help-internal": "true" } };
       return;
     }
 
@@ -298,33 +356,54 @@ interface SearchEntry { doc: string; section: string; sectionTitle: string; text
  * Attribution is established here, during conversion, because section identity
  * comes from headings the same pass is transforming.
  */
-function buildSearchEntries(tree: { children: { type: string; depth?: number }[] }, docSlug: string, sections: Section[]): SearchEntry[] {
-  const entries: SearchEntry[] = [];
-  let headingIdx = -1;
-  let current: Section | null = null;
-  let buffer: string[] = [];
+function buildSearchEntries(tree: unknown, docSlug: string, sections: Section[]): SearchEntry[] {
+  interface Pos { start: number; end: number }
+  const posOf = (n: { position?: { start: { offset?: number }; end: { offset?: number } } }): Pos | null =>
+    n.position?.start.offset === undefined || n.position.end.offset === undefined
+      ? null
+      : { start: n.position.start.offset, end: n.position.end.offset };
 
-  const flush = () => {
-    if (!current || buffer.length === 0) return;
-    const text = buffer.join(" ").replace(/\s+/g, " ").trim();
-    if (text) entries.push({ doc: docSlug, section: current.id, sectionTitle: current.title, text });
-    buffer = [];
-  };
+  // Headings in DOCUMENT ORDER, at any depth. `collectSections` already walks
+  // the whole tree, so pairing by index against top-level children only would
+  // desynchronise the moment a heading appeared inside a blockquote or list —
+  // every later section would then be attributed to the wrong anchor, and
+  // search results would link somewhere unrelated. Matching on source position
+  // keeps the two orderings aligned by construction.
+  const headings: { section: Section; pos: Pos }[] = [];
+  let hIdx = 0;
+  visit(tree as never, "heading", (node: never) => {
+    const pos = posOf(node);
+    const section = sections[hIdx++];
+    if (pos && section) headings.push({ section, pos });
+  });
 
-  for (const node of tree.children) {
-    if (node.type === "heading") {
-      flush();
-      headingIdx += 1;
-      const section = sections[headingIdx];
-      // Depth-1 is the chapter title; its own text is worth indexing under itself.
-      current = section;
-      buffer.push(section.title);
-      continue;
-    }
-    if (!current) continue;
-    buffer.push(mdastToString(node as never));
+  // Visible text only. `html` is deliberately absent: comment nodes are dropped
+  // during conversion, so indexing their text would make keywords searchable
+  // that an admin cannot see anywhere on the page — decision 14's exact
+  // prohibition. `code` IS included: fenced blocks render visibly.
+  const chunks: { text: string; at: number }[] = [];
+  for (const type of ["text", "inlineCode", "code"] as const) {
+    visit(tree as never, type, (node: { value?: string }) => {
+      const pos = posOf(node as never);
+      if (!pos || !node.value) return;
+      // Skip text that IS a heading's own words — the heading title is added
+      // to its section explicitly below, and counting it twice would weight it.
+      if (headings.some((h) => pos.start >= h.pos.start && pos.end <= h.pos.end)) return;
+      chunks.push({ text: node.value, at: pos.start });
+    });
   }
-  flush();
+  chunks.sort((a, b) => a.at - b.at);
+
+  const entries: SearchEntry[] = [];
+  for (let i = 0; i < headings.length; i++) {
+    const { section, pos } = headings[i];
+    const nextStart = i + 1 < headings.length ? headings[i + 1].pos.start : Infinity;
+    const body = chunks
+      .filter((c) => c.at >= pos.end && c.at < nextStart)
+      .map((c) => c.text);
+    const text = [section.title, ...body].join(" ").replace(/\s+/g, " ").trim();
+    if (text) entries.push({ doc: docSlug, section: section.id, sectionTitle: section.title, text });
+  }
   return entries;
 }
 

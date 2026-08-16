@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,11 +23,26 @@ const SRC = resolve(__dirname, "..", "..");
 
 const EXT = [".ts", ".tsx", ".js", ".jsx"];
 
+class UnresolvedSpecifier extends Error {}
+
+/**
+ * Resolve a source-local specifier, FAILING CLOSED.
+ *
+ * Returning `null` for anything unresolvable is what made this check
+ * dangerous: a perfectly valid Vite import with a query suffix — say
+ * `@/generated/help/content/3-moderation.ts?raw` — matched the regex, failed
+ * every filesystem candidate, and was then silently dropped from the graph.
+ * The prose would ship inside the importing chunk while this suite stayed
+ * green. So query/hash suffixes are stripped (Vite resolves the file, the
+ * suffix only picks a transform), and a source-local specifier that still
+ * cannot be resolved throws rather than being ignored.
+ */
 function resolveImport(fromFile: string, spec: string): string | null {
+  const clean = spec.split("?")[0].split("#")[0];
   let base: string;
-  if (spec.startsWith("@/")) base = join(SRC, spec.slice(2));
-  else if (spec.startsWith(".")) base = resolve(dirname(fromFile), spec);
-  else return null; // bare package specifier — not our source graph
+  if (clean.startsWith("@/")) base = join(SRC, clean.slice(2));
+  else if (clean.startsWith(".")) base = resolve(dirname(fromFile), clean);
+  else return null; // bare package specifier — genuinely not our source graph
 
   const candidates = [
     base,
@@ -37,7 +52,13 @@ function resolveImport(fromFile: string, spec: string): string | null {
   for (const c of candidates) {
     if (existsSync(c) && statSync(c).isFile()) return c;
   }
-  return null;
+  // Non-code assets (css, svg, json) are legitimately unresolvable as modules
+  // we would traverse, and cannot carry help prose.
+  if (/\.(css|svg|png|jpe?g|webp|json|txt|wasm)$/.test(clean)) return null;
+  throw new UnresolvedSpecifier(
+    `Could not resolve source-local import "${spec}" from ${rel(fromFile)}. ` +
+    `Failing closed: an unresolved specifier could be a real edge into generated help content.`,
+  );
 }
 
 /**
@@ -105,6 +126,27 @@ describe("help bundle boundary", () => {
     const reachable = staticallyReachable(join(SRC, "components", "admin", "AdminLayout.tsx"));
     const leaked = [...reachable.keys()].filter(isGeneratedHelp);
     expect(leaked.map(rel), `AdminLayout can statically reach: ${leaked.map(rel).join(", ")}`).toEqual([]);
+  });
+
+  // (Codex) App's walk stops at lazy imports and AdminLayout's walk goes
+  // outward from the layout, so NEITHER sees a non-help admin page importing
+  // help content directly — e.g. pages/admin/facts.tsx. Vite would put the
+  // prose in that route's chunk with this suite green. Walk each admin page
+  // entry itself.
+  it("cannot reach generated help content from any non-help admin route", () => {
+    const pagesDir = join(SRC, "pages", "admin");
+    const entries = readdirSync(pagesDir)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\./.test(f) && f !== "help.tsx");
+    expect(entries.length, "found no admin page entries to check").toBeGreaterThan(8);
+
+    const offenders: string[] = [];
+    for (const entry of entries) {
+      const reachable = staticallyReachable(join(pagesDir, entry));
+      for (const f of reachable.keys()) {
+        if (isGeneratedHelp(f)) offenders.push(`${entry} → ${rel(f)}`);
+      }
+    }
+    expect(offenders, `admin routes reaching help content: ${offenders.join(", ")}`).toEqual([]);
   });
 
   it("keeps the search index out of the help page's own initial chunk", () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { HELP_CHAPTERS, HELP_INDEX_DOC, findHelpDoc, type HelpDocMeta } from "@/generated/help/manifest";
@@ -73,17 +73,22 @@ function SearchPanel() {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState<HelpSearchEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [indexFailed, setIndexFailed] = useState(false);
 
   // The index is its own chunk, fetched the first time someone actually
   // searches — it is the single largest generated artifact, and most admin
   // visits to help never search at all.
   useEffect(() => {
-    if (query.trim().length < 2 || index || loading) return;
+    if (query.trim().length < 2 || index || loading || indexFailed) return;
     setLoading(true);
     void import("@/generated/help/searchIndex")
       .then((m) => setIndex(m.HELP_SEARCH_INDEX))
+      // A chunk can genuinely fail to load — most commonly an open tab whose
+      // chunks a deploy has replaced. Without a terminal state the guard above
+      // is satisfied again on the next keystroke and this re-imports forever.
+      .catch(() => setIndexFailed(true))
       .finally(() => setLoading(false));
-  }, [query, index, loading]);
+  }, [query, index, loading, indexFailed]);
 
   const titleFor = useCallback((slug: string) => findHelpDoc(slug)?.title ?? slug, []);
   const hits: HelpSearchHit[] = useMemo(
@@ -111,7 +116,12 @@ function SearchPanel() {
       {searching && (
         <div data-testid="help-search-results" className="space-y-1">
           {loading && !index && <p className="text-sm text-muted-foreground px-1">Loading the index…</p>}
-          {index && hits.length === 0 && (
+          {indexFailed && (
+            <p className="text-sm text-muted-foreground px-1">
+              Search is unavailable — reload the page to try again. Chapters below still work.
+            </p>
+          )}
+          {index && !indexFailed && hits.length === 0 && (
             <p className="text-sm text-muted-foreground px-1">No matches for “{query.trim()}”.</p>
           )}
           {hits.map((hit, i) => (
@@ -155,7 +165,8 @@ function NotFound({ slug }: { slug: string }) {
 function DocView({ doc }: { doc: HelpDocMeta }) {
   const [html, setHtml] = useState<string | null>(null);
   const [hash, setHash] = useState(currentHash());
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   // Wouter does not re-render on hash-only changes, and an in-page anchor
   // click is exactly that — so track it directly.
@@ -179,6 +190,41 @@ function DocView({ doc }: { doc: HelpDocMeta }) {
 
   useFragmentScroll(hash, html !== null);
 
+  /**
+   * Generated in-app links are plain `<a data-help-internal>` inside injected
+   * HTML, so wouter never sees them. Two consequences, both fixed here:
+   * the href must carry the router base (`import.meta.env.BASE_URL`), and the
+   * click must navigate through the router rather than reloading the document.
+   */
+  useEffect(() => {
+    if (html === null) return;
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    if (base) {
+      for (const a of bodyRef.current?.querySelectorAll<HTMLAnchorElement>("a[data-help-internal]") ?? []) {
+        const raw = a.getAttribute("href") ?? "";
+        if (raw.startsWith("/") && !raw.startsWith(base + "/")) a.setAttribute("href", base + raw);
+      }
+    }
+  }, [html]);
+
+  const onBodyClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Leave modified clicks alone — cmd/ctrl/shift/middle all mean "not here".
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const anchor = (e.target as HTMLElement).closest?.("a[data-help-internal]") as HTMLAnchorElement | null;
+    if (!anchor) return;
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const href = anchor.getAttribute("href") ?? "";
+    const routed = base && href.startsWith(base + "/") ? href.slice(base.length) : href;
+    if (!routed.startsWith("/")) return;
+    e.preventDefault();
+    const [path, frag] = routed.split("#");
+    setLocation(path);
+    // wouter drops the hash, so restore it — this is what a cross-chapter
+    // section link depends on, and useFragmentScroll listens for the change.
+    if (frag) window.location.hash = frag;
+    else if (window.location.hash) window.history.replaceState({}, "", path);
+  }, [setLocation]);
+
   return (
     <article className={CONTENT_WRAP}>
       <div id="admin-help-top" />
@@ -190,7 +236,7 @@ function DocView({ doc }: { doc: HelpDocMeta }) {
         <>
           {/* Generated at build time from docs/manual/, with raw HTML dropped
               and the output asserted free of executable content. */}
-          <div className={PROSE} dangerouslySetInnerHTML={{ __html: html }} />
+          <div ref={bodyRef} className={PROSE} onClick={onBodyClick} dangerouslySetInnerHTML={{ __html: html }} />
           <div className="mt-10 pt-4 border-t border-border">
             <a
               href={doc.githubUrl}
