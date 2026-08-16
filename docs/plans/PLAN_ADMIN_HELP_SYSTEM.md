@@ -2,7 +2,9 @@
 
 **Workstream:** [#463](https://github.com/TheAnswerManIsHere/Overhypeme/issues/463)
 **Mode:** feature-building, full ceremony · **Criticality:** ~15/100
-**Status:** draft for Codex plan review. Not approved. Not started.
+**Status:** Codex plan-review loop closed after 3 rounds (9 findings, all
+addressed). **Awaiting David's approval — not approved, not started.** One
+product fork is open for him: *is the README searchable?*
 
 ---
 
@@ -109,7 +111,7 @@ repo dictates):
    suite** — see *The drift gate cannot sit where the precedent sits*, below.
    This is the sharpest invariant in the plan.
 
-Decided in response to Codex round 1:
+Decided during review:
 
 9. **Generation validates fragments, not just files** — every `#anchor` whose
    target file lives in this repo must resolve to a real heading, or generation
@@ -121,15 +123,22 @@ Decided in response to Codex round 1:
     replaced by an input-boundary invariant: the generator reads only
     `docs/manual/`, which is already public, so nothing non-public can reach a
     publicly-fetchable asset.
-
-Decided in response to Codex round 2:
-
 12. **`/admin/help` renders the README**, so every in-app link target has a
     rendered destination. Fragments are validated against that **rendered
     destination**, not the source file — the two coincide only for chapters.
 13. **Fragment navigation is an explicit mechanism, not an assumption** —
     post-mount, against the real scroll container, across all three entry
     paths (cold bookmark, cross-chapter, same-page).
+14. **The search index holds rendered-visible text only**, attributed to its
+    nearest section heading — not raw HTML, not `href` targets.
+15. **The bundle boundary is asserted against the production build's module
+    graph**, not merely stated as an intention.
+16. **The supported markdown vocabulary is declared**, conversion of it is
+    GitHub-compatible, and syntax outside it fails generation rather than
+    silently degrading to a paragraph.
+
+**One question remains open for David** — whether the README is searchable.
+See *Questions for David*; it is a genuine product fork, not an omission.
 
 ## Repo Context Inspected
 
@@ -245,7 +254,7 @@ Invariants the generator owes:
   make that table authoritative; a generator that quietly diverges from it
   creates the second source of truth this plan forbids.
 - **All four representations of a chapter's number must agree, or generation
-  fails** (Codex round 1). Membership alone is not enough: `README.md:216-223`
+  fails**. Membership alone is not enough: `README.md:216-223`
   states that the number lives in the contents table, the filename prefix, the
   chapter's own `# Chapter N · Title` heading, **and** the preceding chapter's
   `**Next:** chapter N — …` footer, and that all must agree. A row reordered in
@@ -279,6 +288,32 @@ is not a mechanical guarantee, and the failure it protects against (script
 execution inside an authenticated admin session) is the one place this
 low-criticality feature touches something that matters.
 
+**Invariant: the supported source vocabulary is defined, and conversion of it
+is GitHub-compatible.** The Manual's markdown is not plain CommonMark, and the
+plan's earlier mitigation — "the generator errors on what it cannot classify" —
+was not a mechanism. Markdown parsers do not throw on unfamiliar syntax; they
+**degrade it to an ordinary paragraph**, which passes determinism, freshness,
+link, fragment, and executable-content checks alike.
+
+The stake is concrete rather than theoretical, and it is sharpest at the one
+place this plan made load-bearing: **the README's contents table is the chapter
+list.** A non-GFM or misconfigured converter renders it as pipe-delimited text,
+so the help system's primary navigation degrades into a paragraph of `|`
+characters while every gate stays green.
+
+What `docs/manual/` uses today and therefore must convert correctly: headings,
+paragraphs, emphasis, inline code, links (including nested inline links),
+nested lists, block quotes, fenced code blocks, GFM tables, and HTML comments
+(the `<!-- tuning-ok -->` markers). **Syntax outside the declared vocabulary
+must fail generation rather than silently degrade** — that is the invariant the
+old wording only gestured at.
+
+Worth being straight about which safety net covers what: the *visible* half of
+this failure (a table rendering as pipe text) is exactly what David's UAT
+catches on first look. The half that needs the gate is everything subtler than
+that, and the fact that a converter swap could reintroduce it silently long
+after the UAT passed.
+
 **Invariant: the generated artifact contains no executable content.** No
 `<script>`, no event-handler attributes, no `javascript:` URLs, no embedded
 `<iframe>`/`<object>`. Raw-HTML passthrough is disabled at conversion, and the
@@ -301,7 +336,7 @@ lazy-loaded like every other admin page, rendered inside `AdminLayout`, with a
 new sidebar entry.
 
 **`/admin/help` renders `docs/manual/README.md`** — the Manual's charter — with
-the chapter list and search as navigation chrome around it (Codex round 2). An
+the chapter list and search as navigation chrome around it. An
 earlier draft classified `./README.md` links as in-app but specified the index
 route as a chapter list only, so `12-background-work.md:88` ("the manual's
 charter") would have landed on unrelated content and `:255`'s
@@ -332,7 +367,7 @@ Invariants:
   so a link that works in one place works in the other, and the `?` map's
   targets can be validated against the source markdown.
 - **A fragment lands on its heading *after* the chapter's chunk has mounted,
-  and scrolls the container that actually scrolls** (Codex round 2). This
+  and scrolls the container that actually scrolls**. This
   invariant is stated separately from "anchors match" because a correct anchor
   and a correct `id` are not sufficient here, and the naive implementation
   fails silently in three compounding ways this app specifically has:
@@ -363,10 +398,24 @@ Invariants:
 - **An unknown chapter slug renders a not-found state inside the console**, not
   a blank page or a crash — the route is reachable by bookmark, so a stale one
   is an expected input, not an error case.
-- **Help content must not enter the main bundle or any existing admin chunk.**
-  ~161 KB of prose loaded on every admin page view is a real regression to
-  screens that have nothing to do with help. Per-chapter granularity is an
-  implementation choice; keeping it out of unrelated chunks is the invariant.
+- **Help content must not enter the main bundle or any existing admin chunk,
+  and something must *prove* it.** ~161 KB of prose loaded on every admin page
+  view is a real regression to screens that have nothing to do with help.
+
+  Stating this as an aspiration is not enough, which is the correction here: a
+  single eager `import` from `App.tsx` or `AdminLayout.tsx` would pull the
+  generated prose and index into an entry or shared admin chunk, and **every
+  other check in this plan would still pass**. Nothing errors, no test fails,
+  admin pages just get heavier — the definition of a regression that ships
+  invisibly. There is no existing bundle-size or chunk assertion anywhere in
+  the repo to inherit.
+
+  **Invariant: the boundary is an import-graph property, asserted automatically
+  against the production build.** No entry chunk and no chunk shared with a
+  non-help admin route may reach the generated help module. The acceptance case
+  is adversarial rather than confirmatory: add an eager import from an admin
+  module and the gate must fail. Per-chapter granularity below that boundary
+  stays an implementation choice.
 
 ### 4. Link rewriting
 
@@ -388,7 +437,7 @@ Invariants:
   failure this prevents is a dead in-app link that looks live — the class of
   bug `check:docs` exists to prevent on the GitHub side, and which would
   otherwise reappear untested on the in-app side.
-- **Fragments resolve too, not just files** (Codex round 1). Classifying a
+- **Fragments resolve too, not just files**. Classifying a
   link by target *shape* leaves the `#anchor` unchecked, and
   `check-docs-accuracy.mjs:140` strips the fragment (`m[1].split("#")[0]`)
   before testing existence — so today **nothing anywhere** verifies that a
@@ -404,7 +453,7 @@ Invariants:
   absolute `http(s)://` links are out of reach and stay unchecked.
 
 - **Fragments are validated against the RENDERED destination, not the source
-  file** (Codex round 2). These coincide for chapters and diverge everywhere
+  file**. These coincide for chapters and diverge everywhere
   else, which is how the round-1 invariant above could pass while an in-app
   link still landed nowhere: a `#anchor` can be perfectly valid in the source
   markdown and absent from whatever the app actually renders for that target.
@@ -444,13 +493,29 @@ Invariants:
 
 - **The index is derived from the generated content**, never from a second read
   of `docs/manual/` — one pass, one truth.
+- **The index contains rendered-visible text, and only that.** "Derived from
+  the generated content" fixes freshness but not *what is searchable* once
+  markdown has become serialized HTML, and the two plausible implementations
+  fail in opposite directions: indexing the HTML matches tag names and `href`
+  targets an admin cannot see, while naive tag-stripping drops visible text
+  (link labels, table cells, block-quote prose) or detaches it from its
+  heading. Both satisfy a "same-pass" wording, so the wording is not enough.
+
+  The rule: **an admin can find any text they can read on the page, and cannot
+  match anything they cannot see.** Link *labels* are visible and indexed;
+  link *targets* are not. This matters at scale here — the Manual carries 344
+  links, so indexing `href`s would flood results with `../ai-context/…` noise.
+- **Every indexed unit is attributed to its nearest preceding section heading,
+  and that attribution is the anchor the result links to.** Section identity
+  comes from headings that the same pass is transforming, so attribution has to
+  be established during conversion rather than recovered from the output.
 - **A result identifies the chapter and section it came from and links to that
   anchor.** A hit that only names a chapter makes search useless for the
   161 KB case it exists to serve.
-- **The index must not load with the main admin bundle** — same reasoning as
-  the content itself.
+- **The index must not load with the main admin bundle** — same reasoning, and
+  the same enforcement mechanism, as the content itself.
 - Ranking quality is not specified here. It is observable, tunable, and
-  cheaply fixed; the plan constrains where the index comes from, not how it
+  cheaply fixed; the plan constrains what goes into the index, not how it
   scores.
 
 ### 6. The per-screen `?` map
@@ -553,7 +618,7 @@ because its absence should read as a decision, not an omission.
   above, enforced at generation. It matters because the content renders inside
   an authenticated admin session.
 - **The admin gate governs the console surface, not the prose's
-  confidentiality** (corrected after Codex round 1). An earlier draft of this
+  confidentiality** . An earlier draft of this
   plan promised that the console "must not become a second, unauthenticated way
   to read" the Manual. **That promise was unenforceable and is withdrawn.**
   `/admin/help`'s content ships as a lazy-loaded static chunk, exactly like
@@ -628,6 +693,17 @@ Automated, with the runner each belongs to:
     somewhere, and its fragments resolve against that rendering. Negative case:
     an in-app-classified link whose target has no rendered destination must
     fail generation.
+11. **Search corpus content** — visible link *label* text is findable and lands
+    on the right anchor; a token appearing only in an `href` is **not** found.
+    The negative half is the half that matters: an index built over raw HTML
+    passes a positive-only test.
+12. **Bundle boundary** — asserted against the production build's module graph.
+    Adversarial acceptance: adding an eager help import to an admin module must
+    make it fail. A test that only confirms the happy path proves nothing here.
+13. **Vocabulary conversion** — each construct the Manual uses today converts
+    to its GitHub equivalent (the README's contents table must become a real
+    table, not pipe text), and syntax outside the declared vocabulary fails
+    rather than degrading to a paragraph.
 
 Manual QA belongs in the UAT doc at PR time, not here.
 
@@ -659,10 +735,13 @@ Ordered smallest-coherent-change first; each leaves the tree green.
 | **Stale artifact merges green** on a chapter-only PR, because `docs/**` is inert. | The freshness gate runs in the always-on Build job, not the path-gated suites. This is the plan's core CI invariant. |
 | **Generated markup executes script** in an authenticated admin session. | Raw-HTML passthrough disabled; generator asserts its own output and fails generation. Enforced for future chapters, not just today's. |
 | **`?` links rot** when a heading is renamed — invisible until clicked. | Resolvability test over the real Manual; renaming a heading fails CI, which is what `check:docs` cannot do for anchors. |
-| **Any Manual link's anchor rots** the same way — 222 fragment links, none checked by anything today (Codex round 1). | Generation validates every repo-resolvable fragment, not just `?` map entries. Sweep confirms 0 currently broken, so this costs nothing to adopt. |
-| **Chapter numbering forks** — table reordered without touching filenames, headings, or `**Next:**` footers (Codex round 1). | Generation fails unless all four representations agree. The Manual's README asked for exactly this check. |
-| **Deep links silently do nothing** — correct anchor, correct `id`, no scroll, because the chunk mounts after the browser processes the fragment and the scroll container is not the window (Codex round 2). | Fragment navigation specified as an explicit post-mount mechanism against the real container, with an e2e test across all three entry paths. A unit test asserting the `id` exists would pass against the broken build. |
-| **An in-app link points at a document nothing renders** (Codex round 2). | Every in-app link target must have a rendered destination, and fragments validate against that destination rather than the source file. |
+| **Any Manual link's anchor rots** the same way — 222 fragment links, none checked by anything today. | Generation validates every repo-resolvable fragment, not just `?` map entries. Sweep confirms 0 currently broken, so this costs nothing to adopt. |
+| **Chapter numbering forks** — table reordered without touching filenames, headings, or `**Next:**` footers. | Generation fails unless all four representations agree. The Manual's README asked for exactly this check. |
+| **Deep links silently do nothing** — correct anchor, correct `id`, no scroll, because the chunk mounts after the browser processes the fragment and the scroll container is not the window. | Fragment navigation specified as an explicit post-mount mechanism against the real container, with an e2e test across all three entry paths. A unit test asserting the `id` exists would pass against the broken build. |
+| **An in-app link points at a document nothing renders**. | Every in-app link target must have a rendered destination, and fragments validate against that destination rather than the source file. |
+| **Search silently indexes the wrong thing** — raw HTML matching invisible tags and `href`s, or over-stripped text detached from its heading. Both pass a "derived from the generated content" wording. | Index holds rendered-visible text attributed to its nearest heading. The acceptance case is negative: an `href`-only token must **not** be findable. |
+| **A bundling regression ships invisibly** — one eager import moves 161 KB of prose into an entry chunk and every other gate stays green. | Import-graph assertion against the production build, with an adversarial acceptance case (add the eager import, watch it fail). No such check exists in the repo to inherit. |
+| **A converter swap degrades markdown instead of failing** — parsers turn unknown syntax into paragraphs, so the README's contents table (the chapter list) becomes pipe text under green CI. | Declared vocabulary, GitHub-compatible conversion, and failure — not degradation — outside it. The visible half of this is also what David's UAT catches first. |
 | **Bundle regression** on admin screens unrelated to help. | Content and index kept out of the main and existing admin chunks. |
 | **A chapter renumber breaks bookmarks.** | Accepted. Renumbering is already a deliberate multi-file act per the Manual's rules, and it is rare. Not worth a redirect table for an admin-only surface — flagged so the acceptance is explicit rather than an oversight. |
 | **New markdown constructs in future chapters** render badly or not at all. | The generator errors on what it cannot classify rather than passing it through; a future chapter using something unsupported fails CI rather than shipping broken. |
@@ -679,9 +758,31 @@ plan owns is "nothing new in the client bundle," which the build verifies.
 
 ## Questions for David
 
-**One**, and it is a reaction rather than a blocker:
+**Two.** The first genuinely blocks the plan; the second is a reaction.
 
-1. **The `?` map above** — does each admin screen point where you would expect?
+1. **Is the README searchable?** (Codex round 3, and a fork my own round-2
+   decision created.) Rendering the README in-app put a document in the corpus
+   that the search contract cannot describe: every result is specified to name
+   a **chapter and section**, and the README has no chapter identity. Both
+   answers are real, which is why this is yours and not mine:
+
+   - **Exclude it.** Search stays purely about the twelve chapters — the
+     product help an admin is actually looking for. *Ramification:* content
+     that is visibly readable in the help system cannot be found by searching
+     it, which is a genuine wart, and the exclusion is invisible to whoever
+     hits it.
+   - **Include it, with its own result label** (something like *About this
+     manual*) and `/admin/help#…` result destinations. *Ramification:* honest
+     coverage, but an admin searching for product help gets hits on the chapter
+     template, the quality bar, and the tuning-language boundary — authoring
+     guidance that is noise to them.
+
+   **My recommendation: exclude, and revisit if it ever bites.** The README is
+   predominantly authoring guidance; the twelve chapters are the help. But the
+   argument for including is not weak, and this is a product judgment about who
+   the surface serves, which is why it isn't mine to settle.
+
+2. **The `?` map above** — does each admin screen point where you would expect?
    The two spots I would most expect you to want changed are **Eval** (no
    Manual coverage exists; it currently points at Ch. 5 Visual Pipeline as the
    nearest neighbour) and **Engines / Features / Configuration** (all three
