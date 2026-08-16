@@ -1055,6 +1055,48 @@ caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
 count found is the count that exists.
 
+### Sub-pattern: the sweep itself has three failure modes, learned one per round
+
+PRs #458/#459 ran five review rounds where **every round's finding was
+something the previous round's sweep was structurally incapable of catching**.
+Each round taught a distinct lesson, and each invalidated the verification
+method that had felt sufficient the round before. The parent pattern above
+covers only the first.
+
+1. **Sweep by class, not by phrasing.** The first sweep grepped the exact
+   strings it had just removed ("switch me to", "Sonnet gate") and passed —
+   while `maintenance/SKILL.md` still said *"suggest switching before
+   starting."* Same rule, different words. Grep for what the rule **means**,
+   with an alternation wide enough to catch paraphrase, and accept noise over
+   a false clean.
+2. **Re-sweep what the fixes themselves introduce.** The second sweep
+   correctly enumerated every home of every rule the PR *set out to change* —
+   and missed the Opus-reserved-execution exception entirely, because that
+   rule was **created by the previous round's fix**. A sweep anchored to the
+   starting set cannot see what the fixes add. Re-run the enumeration over
+   the round's own output before calling it done.
+3. **The unit is the assertion, not the file.** The third sweep asked, per
+   file, *"does this file carry the exception?"* — a boolean that passes the
+   moment **one** mention exists. `CLAUDE.md` passed while containing both
+   the exception and a contradicting sibling two sections away. Check every
+   individual site, and specifically look for **two rules that fire on the
+   same condition and disagree** — that shape accounted for three of the last
+   four findings.
+
+**A fourth home is easy to forget entirely: the PR body.** It asserts the
+rules too, it is what the human actually reads, and no sweep that greps the
+working tree will ever touch it. In #459 it still described a superseded
+version of the contract — one cap instead of two, a claim the ledger tracked
+self-wakes, a rejected case listed as allowed — after five rounds had
+corrected all three in the files.
+
+**Avoid:** treat "I swept for it" as a claim needing the same verification as
+any other. The honest generalization from these rounds is that self-review
+converges on *the method you already had*; an outside reviewer is what
+corrects the method. Where no reviewer is available, at minimum re-derive the
+sweep from the rule's meaning rather than re-running the grep that already
+passed.
+
 ## Satisfying a lexical guard by changing a value's form, not its meaning
 
 **Looks like:** a CI text guard flags a stated value in prose. The fix changes
