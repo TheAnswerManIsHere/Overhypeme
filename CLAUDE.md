@@ -1070,20 +1070,53 @@ verification — is post-merge for the same structural reason.
    (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
    a sync that silently didn't land looks exactly like one that did, and a
    leftover local edit rides along invisibly behind a correct SHA.
-5. **I make the `/document` judgement BEFORE writing the merge report**, so
-   its verdict can go in that report rather than needing a second one. The
-   bar, the Opus tier guard, and the rule that the harvest itself stays in
-   my main loop are in *I proactively remind David to run `/document`*
-   above. (This used to sit *after* the report while also requiring its
-   verdict to appear *in* the report — an ordering that couldn't be
-   satisfied without a second message or silence.) If the verdict is
-   "run a pass," the pass itself happens after the report; only the
-   judgement has to precede it.
+5. **I make the `/document` judgement AND run the pass it calls for, both
+   BEFORE writing the merge report (David, 2026-08-16 — the third and, I
+   expect, final ordering of this step).** Judging and running are one
+   step, not two. The bar, the Opus tier guard, and the rule that the
+   harvest itself stays in my main loop are in *I proactively remind David
+   to run `/document`* above.
+
+   **Why this keeps getting re-ordered, and why splitting it fails.** v1 put
+   the judgement *after* the report while requiring its verdict *in* the
+   report — unsatisfiable. v2 (2026-08-15) fixed that by moving the
+   judgement before the report and leaving the pass after it. That looked
+   correct and was still a trap, because **step 6 is a hand-the-turn-back
+   message**: it ends by telling David to go run his UAT. Writing "and I'm
+   about to do more work" inside a handoff is structurally self-defeating —
+   the message's form says stop, its content says continue, and the form
+   wins. It did, immediately: on PR #472 I wrote the verdict, wrote
+   "Starting that now," and ended the turn. David had to ask where the pass
+   went.
+
+   **So the gap is closed rather than guarded.** No verdict is ever recorded
+   before the work it describes exists. The consequence is a mechanical
+   one — see the promise ban in step 6 — and it is what makes this
+   unbreakable-by-forgetting rather than merely discouraged.
 6. **I report the outcome with both SHAs, the verification section's
-   results, the `/document` verdict, and hand off to UAT** — naming what he
+   results, the `/document` outcome, and hand off to UAT** — naming what he
    should go click, since the sync is the moment his testing becomes
    possible. A "no pass needed" verdict is stated in one line, not left
-   silent: David should be able to see the judgement was made. A
+   silent: David should be able to see the judgement was made.
+
+   **The `/document` line is written in the PAST TENSE or not at all.** It
+   is exactly one of two sentences: *"no pass needed — `<one-line why>`"* or
+   *"harvest in PR #`<N>`"*. **"Running it now", "starting that next", and
+   every other future-tense variant are banned in this report** — not
+   discouraged, banned. If I cannot yet write either sentence, the pass
+   hasn't run and **the report is not ready to send**; I finish the work
+   first. This is the whole enforcement mechanism, and it is deliberately
+   one David can check at a glance: future tense on that line means the rule
+   broke, with no need to reconstruct what I was thinking.
+
+   **If this breaks again, it graduates to a Stop hook** — the standing
+   recurring-failure rule (a discipline broken twice becomes a check, not
+   another undertaking). The shape is already clear: block session-stop when
+   this session merged a PR and neither a `mode:docs` harvest PR nor a
+   recorded "no pass needed" exists. That needs a machine-readable verdict
+   and David's merge (the guard carve-out), so it is the escalation, not the
+   first move. Recording the trigger condition here so a future session
+   doesn't have to re-derive it. A
    verification failure is reported plainly and routes through the normal
    channel; the handoff to UAT waits until the checks are clean. With no merge ask ahead of it, this report is now the moment
    David learns the build landed, so it's a major completion per the
@@ -1094,10 +1127,13 @@ verification — is post-merge for the same structural reason.
    the sync fails or the checks don't match, I say so plainly and stop — no
    blind retries, never papering over a partial sync, and I don't invite him
    to test something that isn't actually there.
-7. **Then I run the `/document` pass itself, if step 5's judgement called
-   for one — no ask (David, 2026-08-15).** Close-out is the moment the
-   task's learnings are complete and freshest, which is why the judgement
-   sits inside it rather than waiting to be asked for.
+7. **Nothing follows the merge report.** It is the last step of close-out by
+   construction, because it is the message that hands the turn back. Any
+   future step I'm tempted to sequence after it belongs *before* it — the
+   `/document` pass was the one that tried, and step 5 is where it now
+   lives. (The old step 7 — "then I run the `/document` pass" — is gone for
+   that reason, not because the pass stopped being required. It is required;
+   it just happens earlier, and no ask, per David 2026-08-15.)
 8. **A failed UAT is a follow-up PR, not a crisis.** The merge already
    happened; that's the design, not a mistake to undo. I fix forward on a
    fresh branch through the normal pipeline. A revert is only for a `main`
