@@ -55,9 +55,23 @@ export const ADMIN_HELP_MAP: Record<string, HelpTarget> = {
   "/admin/config": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },
 };
 
+/**
+ * Normalise a router location before lookup.
+ *
+ * The router renders `/admin/queue-health/` the same as `/admin/queue-health`,
+ * and `isAdminNavItemActive` treats both as active — but an exact-key lookup
+ * misses the trailing-slash form, so the `?` would silently fall back to the
+ * index instead of the section it promises. Query and hash are stripped for
+ * the same reason.
+ */
+function normaliseLocation(location: string): string {
+  const path = location.split("?")[0].split("#")[0];
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
 /** The in-app URL a `?` control points at, or the help index if unmapped. */
 export function helpHrefFor(location: string): string {
-  const target = ADMIN_HELP_MAP[location];
+  const target = ADMIN_HELP_MAP[normaliseLocation(location)];
   if (!target) return "/admin/help";
   return `/admin/help/${target.chapter}${target.anchor ? `#${target.anchor}` : ""}`;
 }

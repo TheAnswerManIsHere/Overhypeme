@@ -36,6 +36,36 @@ const PROSE = [
 /** Wide content (tables, code) must scroll inside itself, never the page. */
 const CONTENT_WRAP = "min-w-0 overflow-x-auto";
 
+const ROUTER_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+/**
+ * Navigate to a help path + optional fragment through the router.
+ *
+ * Every in-app help link goes through here — generated anchors AND search
+ * results — because the two diverging is exactly what broke same-chapter
+ * navigation: wouter does not re-render on a hash-only change and its history
+ * navigation emits no native `hashchange`, so a search hit into the chapter
+ * already on screen moved nothing at all.
+ *
+ * `onHash` is called unconditionally rather than relying on the event, which
+ * is what makes the same-chapter case work.
+ */
+function navigateToHelp(
+  setLocation: (to: string) => void,
+  path: string,
+  fragment: string,
+  onHash: (h: string) => void,
+): void {
+  const current = window.location.pathname.replace(ROUTER_BASE, "") || "/";
+  if (current !== path) setLocation(path);
+  if (fragment) {
+    window.history.replaceState({}, "", `${ROUTER_BASE}${path}#${fragment}`);
+  } else if (window.location.hash) {
+    window.history.replaceState({}, "", `${ROUTER_BASE}${path}`);
+  }
+  onHash(fragment);
+}
+
 function ChapterNav({ activeSlug }: { activeSlug: string | null }) {
   return (
     <nav className="space-y-0.5" aria-label="Manual chapters">
@@ -69,7 +99,7 @@ function ChapterNav({ activeSlug }: { activeSlug: string | null }) {
   );
 }
 
-function SearchPanel() {
+function SearchPanel({ onNavigate }: { onNavigate: (path: string, fragment: string) => void }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState<HelpSearchEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -125,7 +155,16 @@ function SearchPanel() {
             <p className="text-sm text-muted-foreground px-1">No matches for “{query.trim()}”.</p>
           )}
           {hits.map((hit, i) => (
-            <Link key={`${hit.doc}-${hit.section}-${i}`} href={`/admin/help/${hit.doc}#${hit.section}`}>
+            <a
+              key={`${hit.doc}-${hit.section}-${i}`}
+              href={`${ROUTER_BASE}/admin/help/${hit.doc}#${hit.section}`}
+              onClick={(e) => {
+                if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                onNavigate(`/admin/help/${hit.doc}`, hit.section);
+              }}
+              className="block no-underline"
+            >
               <div className="rounded-sm border border-border bg-card px-3 py-2 cursor-pointer hover:border-primary/60 transition-colors">
                 <div className="flex items-baseline gap-2 min-w-0">
                   <span className="text-sm font-semibold text-foreground truncate">{hit.sectionTitle}</span>
@@ -133,7 +172,7 @@ function SearchPanel() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{hit.snippet}</p>
               </div>
-            </Link>
+            </a>
           ))}
         </div>
       )}
@@ -162,10 +201,20 @@ function NotFound({ slug }: { slug: string }) {
   );
 }
 
-function DocView({ doc }: { doc: HelpDocMeta }) {
+function DocView({
+  doc,
+  navHash,
+  onNavigate,
+}: {
+  doc: HelpDocMeta;
+  /** Fragment set by an in-app navigation, which emits no `hashchange`. */
+  navHash: { value: string; nonce: number } | null;
+  onNavigate: (path: string, fragment: string) => void;
+}) {
   const [html, setHtml] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [hash, setHash] = useState(currentHash());
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // Wouter does not re-render on hash-only changes, and an in-page anchor
@@ -177,12 +226,22 @@ function DocView({ doc }: { doc: HelpDocMeta }) {
     return () => window.removeEventListener("hashchange", sync);
   }, [location]);
 
+  // An in-app navigation sets the fragment directly, because neither wouter
+  // nor history.replaceState fires `hashchange`.
+  useEffect(() => {
+    if (navHash !== null) setHash(navHash.value);
+  }, [navHash]);
+
   useEffect(() => {
     let cancelled = false;
     setHtml(null);
-    void loadHelpContent(doc.slug)?.then((m) => {
-      if (!cancelled) setHtml(m.html);
-    });
+    setLoadFailed(false);
+    void loadHelpContent(doc.slug)
+      ?.then((m) => { if (!cancelled) setHtml(m.html); })
+      // Same production condition as the search index: an open tab whose
+      // chunks a deploy replaced. Without this the page sits on "Loading…"
+      // forever and the rejection never reaches an error boundary.
+      .catch(() => { if (!cancelled) setLoadFailed(true); });
     return () => {
       cancelled = true;
     };
@@ -197,13 +256,15 @@ function DocView({ doc }: { doc: HelpDocMeta }) {
    * click must navigate through the router rather than reloading the document.
    */
   useEffect(() => {
-    if (html === null) return;
-    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-    if (base) {
-      for (const a of bodyRef.current?.querySelectorAll<HTMLAnchorElement>("a[data-help-internal]") ?? []) {
-        const raw = a.getAttribute("href") ?? "";
-        if (raw.startsWith("/") && !raw.startsWith(base + "/")) a.setAttribute("href", base + raw);
-      }
+    if (html === null || !ROUTER_BASE) return;
+    for (const a of bodyRef.current?.querySelectorAll<HTMLAnchorElement>("a[data-help-internal]") ?? []) {
+      // The UNBASED path comes from the data attribute, never from parsing the
+      // href. Inferring "already prefixed?" from the href breaks whenever the
+      // deployment base is itself a prefix of the route — with BASE_PATH=/admin
+      // every href already starts with `/admin/`, so the guard skipped it and
+      // the click handler then stripped a base that was never added.
+      const unbased = a.getAttribute("data-help-internal") ?? "";
+      if (unbased.startsWith("/")) a.setAttribute("href", ROUTER_BASE + unbased);
     }
   }, [html]);
 
@@ -212,23 +273,22 @@ function DocView({ doc }: { doc: HelpDocMeta }) {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const anchor = (e.target as HTMLElement).closest?.("a[data-help-internal]") as HTMLAnchorElement | null;
     if (!anchor) return;
-    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-    const href = anchor.getAttribute("href") ?? "";
-    const routed = base && href.startsWith(base + "/") ? href.slice(base.length) : href;
-    if (!routed.startsWith("/")) return;
+    // Read the UNBASED path from the attribute; never re-derive it from href.
+    const unbased = anchor.getAttribute("data-help-internal") ?? "";
+    if (!unbased.startsWith("/")) return;
     e.preventDefault();
-    const [path, frag] = routed.split("#");
-    setLocation(path);
-    // wouter drops the hash, so restore it — this is what a cross-chapter
-    // section link depends on, and useFragmentScroll listens for the change.
-    if (frag) window.location.hash = frag;
-    else if (window.location.hash) window.history.replaceState({}, "", path);
-  }, [setLocation]);
+    const [path, frag] = unbased.split("#");
+    onNavigate(path, frag ?? "");
+  }, [onNavigate]);
 
   return (
     <article className={CONTENT_WRAP}>
       <div id="admin-help-top" />
-      {html === null ? (
+      {loadFailed ? (
+        <p className="text-sm text-muted-foreground" data-testid="help-chapter-failed">
+          This chapter could not be loaded — reload the page to try again.
+        </p>
+      ) : html === null ? (
         <div aria-busy="true" className="text-sm text-muted-foreground">
           Loading…
         </div>
@@ -256,8 +316,20 @@ function DocView({ doc }: { doc: HelpDocMeta }) {
 
 export default function AdminHelp() {
   const [, params] = useRoute("/admin/help/:chapter");
+  const [, setLocation] = useLocation();
   const slug = params?.chapter ?? "";
   const doc = findHelpDoc(slug);
+  const [navHash, setNavHash] = useState<{ value: string; nonce: number } | null>(null);
+
+  const goToHelp = useCallback(
+    (path: string, fragment: string) =>
+      // Stamped, so re-clicking the SAME result still re-scrolls — a bare
+      // string would compare equal and the effect would never re-fire.
+      navigateToHelp(setLocation, path, fragment, (value) =>
+        setNavHash((prev) => ({ value, nonce: (prev?.nonce ?? 0) + 1 })),
+      ),
+    [setLocation],
+  );
 
   return (
     <AdminLayout title="Help">
@@ -265,7 +337,7 @@ export default function AdminHelp() {
         {/* One search surface for every breakpoint. Rendering it twice gave two
             independent query states and two elements sharing one test id. */}
         <div className="max-w-xl">
-          <SearchPanel />
+          <SearchPanel onNavigate={goToHelp} />
         </div>
 
         <div className="flex gap-6 items-start">
@@ -283,7 +355,7 @@ export default function AdminHelp() {
               </div>
             </details>
 
-            {doc ? <DocView doc={doc} /> : <NotFound slug={slug} />}
+            {doc ? <DocView doc={doc} navHash={navHash} onNavigate={goToHelp} /> : <NotFound slug={slug} />}
           </div>
         </div>
       </div>

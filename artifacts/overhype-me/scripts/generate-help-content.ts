@@ -175,23 +175,40 @@ function assertNumbering(rows: { number: number; file: string }[], sources: Map<
     //    this "the easiest of the three to miss".
     if (i > 0) {
       const prev = rows[i - 1];
-      const prevSrc = sources.get(prev.file)!;
-      const nextMatch = /^\*\*Next:\*\*\s+chapter\s+(\d+)/m.exec(prevSrc);
-      if (!nextMatch) {
-        fail(`\`${prev.file}\` has no \`**Next:** chapter N\` footer, but chapter ${row.number} follows it.`);
+      const nextNum = parsedNextFooter(sources.get(prev.file)!);
+      if (nextNum === null) {
+        fail(`\`${prev.file}\` has no rendered \`**Next:** chapter N\` footer, but chapter ${row.number} follows it.`);
       }
-      if (Number(nextMatch[1]) !== row.number) {
-        fail(`\`${prev.file}\` footer points at chapter ${nextMatch[1]}, but chapter ${row.number} follows it.`);
+      if (nextNum !== row.number) {
+        fail(`\`${prev.file}\` footer points at chapter ${nextNum}, but chapter ${row.number} follows it.`);
       }
     }
   });
 
   // The last chapter must NOT have a Next footer pointing anywhere.
   const last = rows[rows.length - 1];
-  const lastNext = /^\*\*Next:\*\*\s+chapter\s+(\d+)/m.exec(sources.get(last.file)!);
-  if (lastNext) {
-    fail(`\`${last.file}\` is the last chapter but its footer points at chapter ${lastNext[1]}.`);
+  const lastNext = parsedNextFooter(sources.get(last.file)!);
+  if (lastNext !== null) {
+    fail(`\`${last.file}\` is the last chapter but its footer points at chapter ${lastNext}.`);
   }
+}
+
+/**
+ * The chapter number in a RENDERED `**Next:** chapter N` footer, or null.
+ *
+ * Read from the parsed tree for the same reason the H1 is: a fenced code
+ * example whose first line is `**Next:** chapter 7` would satisfy a raw-source
+ * regex, and the four-representation gate would stay green on a chapter with
+ * no usable footer at all. Only a top-level paragraph counts.
+ */
+function parsedNextFooter(src: string): number | null {
+  const tree = parseMarkdown(src) as { children: { type: string }[] };
+  for (const node of tree.children) {
+    if (node.type !== "paragraph") continue;
+    const m = /^Next:\s+chapter\s+(\d+)/.exec(mdastToString(node as never).trim());
+    if (m) return Number(m[1]);
+  }
+  return null;
 }
 
 // ── Vocabulary ───────────────────────────────────────────────────────────────
@@ -304,6 +321,15 @@ function rewriteLinks(tree: unknown, file: string, ownAnchors: Set<string>, targ
       const destSlug = base === "README.md" ? "" : targets.chapterSlug.get(base);
       if (destSlug === undefined) {
         fail(`\`${file}\` links to \`${url}\`, which is inside docs/manual/ but is not a known chapter or the README.`);
+      }
+      // The basename alone is not enough: a mistyped directory with a real
+      // basename would rewrite to a working in-app route while the same link
+      // stayed broken on GitHub. Require the path to BE the canonical file.
+      if (absTarget !== join(MANUAL_DIR, base)) {
+        fail(
+          `\`${file}\` links to \`${url}\`, which resolves to \`${repoRel}\` — not the canonical ` +
+          `\`docs/manual/${base}\`. It would work in-app and 404 on GitHub.`,
+        );
       }
       // Fragments validate against the RENDERED destination, not the source
       // file. They coincide for chapters and diverge everywhere else, which is
