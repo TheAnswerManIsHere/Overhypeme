@@ -31,7 +31,9 @@
  *   1. the call nested inside a branch of a price-conditional `if`
  *   2. the call inside a branch of a price-conditional ternary
  *   3. a brace-less price-conditional statement wrapping the call
- *   4. an earlier `if (!priced) return/throw/continue/break;` in the same block
+ *   4. an earlier price-conditional early exit in the same block, via EITHER
+ *      branch — `if (!priced) return;` and `if (priced) {…} else return;` land
+ *      in the same place by opposite routes (round 3 found only the first)
  *   5. the call short-circuited by `priced && …`, `priced || …`, `priced ?? …`
  *
  * Shape 5 is the one that survived the first AST rewrite: that version treated
@@ -41,6 +43,25 @@
  * miss. Round 2 caught it with its own probe. The lesson worth keeping: each
  * time this guard was narrowed to what looked like "the" shape of the bug, a
  * cheaper equivalent shape was still reachable.
+ *
+ * KNOWN LIMITS — deliberate, not oversights. Three review rounds each found one
+ * more reachable shape, which is evidence the space of "equivalent conditional"
+ * is larger than a syntactic matcher can close. Rather than keep widening it,
+ * the residual is recorded here:
+ *
+ *   - A price check hoisted into a helper predicate (`if (havePrice()) …`) is
+ *     not followed across the call boundary; only identifiers matching
+ *     PRICE_IDENTIFIER in the condition itself are seen.
+ *   - Indirection through `Promise.all`, a callback, or a stored function
+ *     reference can separate the gate from its guard.
+ *   - Only `artifacts/api-server/src` is scanned, and only `.ts`.
+ *
+ * That residual is acceptable because this guard is a backstop, not the
+ * control: the four real spend call sites are correct today, and
+ * `fallbackImageCostUsd` denies via `BudgetGateError` rather than guessing when
+ * it cannot resolve an authoritative cost. If a future call site needs a shape
+ * this misses, the fix is to write the site correctly — not to assume silence
+ * here means safety.
  *
  * What it does NOT check: that the fallback estimate is well-chosen. That is a
  * judgement, not an invariant. This guard only enforces that the gate RUNS.
