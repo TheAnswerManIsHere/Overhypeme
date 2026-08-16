@@ -134,6 +134,49 @@ for that pass's history. From here on, growth is incremental only.
 Chapters describe the system **as it is now**. History and chronology belong to
 `decisions.md` and git — no "changelog" sections accumulate here.
 
+## This manual is also a shipped surface — editing it can fail CI
+
+Since PR #472 these files are rendered inside the admin console at
+`/admin/help`, from a **committed generated artifact** built at build time.
+Two consequences for anyone editing a chapter:
+
+**1. If you change a chapter, regenerate and commit the artifact.** A CI check
+in the always-on Build job compares the two and fails when they disagree:
+
+```
+pnpm --filter @workspace/overhype-me run generate:help    # rebuild
+pnpm --filter @workspace/overhype-me run check:help-content   # what CI runs
+```
+
+It has to run in that job specifically: `docs/**` is classified as inert, so a
+chapter-only PR skips the test suites entirely — a gate living there could
+never fire on the change that invalidates the artifact.
+
+**2. Generation *fails* rather than degrading quietly**, and several of its
+gates are about things the manual already asked authors to keep consistent but
+nothing enforced. Generation stops if:
+
+- a chapter file and the **Contents table** disagree about which chapters
+  exist, or the table isn't numbered sequentially from 1;
+- a chapter's number disagrees across **any** of its four representations —
+  the table's ordinal, the filename prefix, its `# Chapter N · Title` heading,
+  and the **previous** chapter's `**Next:** chapter N` footer (the one this
+  README already called the easiest to miss);
+- a link can't be classified, or a `#fragment` doesn't resolve to a real
+  heading **in its rendered destination** — note *rendered*: for a link into
+  another chapter that's the same file, but for a link into
+  `docs/ai-context/` it is checked against that file's real headings;
+- a chapter uses markdown outside the supported vocabulary. This is the one
+  most likely to surprise you: **GitHub's alert syntax (`> [!NOTE]`) is
+  rejected**, because GitHub renders a titled callout and the in-app converter
+  would render a plain quote containing a literal `[!NOTE]`. Raw HTML is
+  rejected for the same reason (comments excepted). Footnotes are not
+  supported. Images must point at files that exist.
+
+None of this changes how you *write* — it's the same prose for the same reader.
+It means a mistake that used to render slightly wrong on GitHub now stops the
+build instead, which is the intent: the two renderings must agree.
+
 ## Chapter quality bar — no empty chapters
 
 A chapter file exists **only** when it holds meaningful present-tense content
@@ -190,8 +233,12 @@ thing (a submit-form *Preview*, a shared link's *rich preview*, the admin
 Glossary anchors are generated from its `###` headings, so renaming a heading
 breaks every chapter link into it — rename deliberately and update the
 chapters in the same commit. `pnpm run check:docs` verifies that a linked
-*file* exists but **not** that an anchor within it does, so anchors are
-review-checked, not CI-checked.
+*file* exists but **not** that an anchor within it does — however, since the
+help system shipped, **anchors in these manual files are checked**: generation
+resolves every `#fragment` against its rendered destination and fails if it
+doesn't land on a real heading. So a broken glossary anchor in a chapter is a
+build failure, not a review miss. (The `check:docs` limitation still holds for
+docs outside `docs/manual/`.)
 
 ## Contents
 
@@ -218,9 +265,12 @@ appears in two other places that must agree with it: each chapter's own `#
 Chapter N · Title` heading, and the `**Next:** chapter N — …` footer of the
 chapter before it. Inserting or reordering a chapter therefore renumbers a run
 of files, not just this table — do it in the same commit, and check the
-footers, which are the easiest of the three to miss. (Nothing enforces this
-yet; a consistency check is a good candidate for the Build job if it ever
-drifts.)
+footers, which are the easiest of the three to miss. **This is now enforced**:
+help-content generation compares all four representations (this table's
+ordinal, the filename prefix, the `# Chapter N · Title` heading, and the
+previous chapter's `**Next:**` footer) and fails the Build job on any
+disagreement. The parenthetical that used to sit here predicted exactly that
+check and has been overtaken by it.
 
 Deliberately **not** written anywhere: "chapter N **of 12**." A total restated
 across twelve files is exactly the kind of count that goes stale the moment a

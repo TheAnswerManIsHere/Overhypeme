@@ -13,6 +13,77 @@
 
 ---
 
+### 2026-08-16 · A `docs/` → code generator puts its freshness gate in the always-on Build job, never in a test suite
+- **Decision:** The admin help system renders `docs/manual/` in-app from a
+  **committed generated artifact** (`artifacts/overhype-me/src/generated/help/`,
+  built by `artifacts/overhype-me/scripts/generate-help-content.ts`) — the
+  `generate:field-docs`
+  shape, but with the **direction inverted**: source in `docs/`, artifact in
+  code. Because of that inversion its drift check runs as a step in the
+  **always-on Build job**, not in Frontend Test. Generation also **fails
+  loudly** rather than emitting a plausible-but-wrong artifact: on disk/table
+  disagreement, on chapter-number disagreement across any of its four
+  representations, on an unclassifiable link or a `#fragment` that doesn't
+  resolve **in its rendered destination**, on markdown outside the declared
+  vocabulary, and on anything executable in the output.
+- **Why:** `scripts/classify-ci-paths.mjs` classifies `docs/**` as **inert**,
+  so a chapter-only PR skips Test, Frontend Test and E2E Smoke entirely. A
+  staleness assertion living in the frontend suite would therefore never run on
+  the exact change that can invalidate the artifact — the gate would be
+  structurally incapable of firing when it mattered, while looking fully wired
+  up.
+- **The general rule has two answers, not one — pick by where the check must
+  live.** When a generated artifact's source or output sits under an inert
+  path, either (a) **move the gate to the always-on Build job**, or (b) **make
+  that specific path non-inert** so the heavy suite runs. This repo already
+  does both, deliberately: `isInertPath()` carries an explicit
+  `docs/ADMIN_FIELD_REFERENCE.md → false` exception precisely so
+  `fieldDocs.test.ts` (Frontend Test) keeps asserting byte-parity against it.
+  The deciding question is what form the check takes — a **script** you can run
+  as a Build step chooses (a), a **vitest assertion** that has to run inside a
+  suite chooses (b). Help content is a `--check` script, so it took (a);
+  the field reference is a parity test, so it took (b). Reading "all of
+  `docs/**` is inert" as a blanket fact — as the first version of this entry
+  did — would send a future gate to the wrong job.
+- **Also settled here:** the README renders at `/admin/help` (so every
+  intra-Manual link has a rendered destination, and fragments validate against
+  that destination rather than the source file), but is **not** search-indexed
+  — David, 2026-08-16: *"Ignore the readme."* Accepted cost: readable in-app,
+  not findable by search; the benefit is that every search result names a
+  chapter and a section with no exceptions.
+- **Reference:** PR #472 (plan-review PR #464, workstream #463).
+  [`admin-console.md`](./admin-console.md) holds the subsystem shape;
+  [`docs/manual/README.md`](../manual/README.md) tells chapter authors what the
+  gates mean for them.
+- **Revisit if:** `classify-ci-paths.mjs` stops treating `docs/**` as inert, or
+  a second docs→code generator appears and the placement rule is worth
+  extracting rather than repeating.
+
+### 2026-08-16 · Client-side routing is not a confidentiality boundary — "admin-only reading" was withdrawn as unenforceable
+- **Decision:** The admin help system makes **no claim** that the Manual's prose
+  is confidential to admins. The plan originally asserted admin-only *reading*;
+  that claim was withdrawn during plan review rather than implemented, and
+  replaced with an **input-boundary invariant**: the generator reads only
+  `docs/manual/`, which is already public in a public repo, so the exposure
+  delta is exactly zero.
+- **Why:** the content ships as a static chunk, and a static asset is served
+  **before** any client-side role check runs. `AdminLayout`'s gate controls what
+  the *console renders*, not what the CDN hands out — so no amount of routing
+  work could have made the claim true. The honest fix was to stop claiming it
+  and to constrain the **input** instead: if nothing non-public can enter the
+  generator, nothing non-public can reach a publicly-fetchable asset,
+  regardless of who can reach the URL.
+- **The generalizing form:** for any client-rendered surface, ask *"is this
+  content confidential, or merely inconvenient to find?"* Only a server-side
+  boundary answers the first. A privilege gate in the client is a **navigation**
+  control, and treating it as an access control is how a false confidentiality
+  claim gets written into a plan and then into a doc.
+- **Reference:** PR #472 settled decision 11; plan-review PR #464.
+  [`security-model.md`](./security-model.md) is the deep doc for the real
+  boundaries.
+- **Revisit if:** the Manual ever needs to hold something genuinely non-public,
+  in which case it needs a server-side surface — not a client-side gate.
+
 ### 2026-08-15 · Scheduled self-check-ins return under a bounded contract, scoped to the behavior rather than a tool name
 - **Decision:** The 2026-07-07 blanket ban on background self-check-ins is
   replaced by a bounded contract. **Scope: a timer or trigger the agent
