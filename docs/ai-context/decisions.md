@@ -13,6 +13,32 @@
 
 ---
 
+### 2026-08-16 · The eval dashboard gets its own manual chapter, not a section inside an existing one
+- **Decision:** The render-quality eval dashboard gets **Manual chapter 13**.
+  Rejected: a section inside chapter 5 (visual pipeline), and expanding the
+  one-clause mention it already has in chapter 11's *Watching the machinery*.
+- **Why:** eval is a distinct workflow with its own vocabulary — a golden fact
+  set, cost-confirmed runs, per-render rating, run-vs-run comparison — and
+  enough substance to fill the chapter template rather than a paragraph. The
+  rejected options each bury an admin-facing workflow somewhere a reader
+  wouldn't look for *"what is this screen?"*: chapter 5 is about the pipeline
+  that produces renders, not about the instrument that scores them, and
+  chapter 11 is a map that links out rather than a place for depth.
+- **What it costs, which is more than writing:** the four-representation gate
+  shipped in PR #472 now enforces chapter numbering, so a 13th chapter also
+  flips chapter 12 from *must have no `**Next:**` footer* (it is currently
+  last) to *must have one pointing at 13* — alongside the filename prefix, the
+  `# Chapter 13 · Title` heading and the README's Contents row, all of which
+  must agree in the same commit or the Build job fails. It also needs
+  `helpMap.ts` repointed from chapter 5, and probably a `docs/ai-context/`
+  spec for eval to link into, since none exists (the manual charter's
+  link-don't-fork rule).
+- **Reference:** #480 (the workstream, carrying the full constraint list),
+  raised as an open product question by the PR #472 harvest (#476).
+- **Revisit if:** eval turns out to hold less durable truth than expected once
+  someone reads the subsystem — the manual's no-empty-chapters bar wins over
+  this decision, and "it's a section after all" is a legitimate finding to
+  bring back rather than pad around.
 ### 2026-08-16 · The claude.ai "Create PRs automatically" and "Autofix pull requests" toggles stay OFF
 - **Decision:** Both account-level Claude Code settings (claude.ai → Settings →
   Claude Code → Pull requests) stay **off**. Branch prefix stays `claude`,
