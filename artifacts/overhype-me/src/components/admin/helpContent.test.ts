@@ -6,6 +6,7 @@ import { HELP_DOCS, HELP_CHAPTERS, findHelpDoc } from "@/generated/help/manifest
 import { HELP_SEARCH_INDEX } from "@/generated/help/searchIndex";
 import { loadHelpContent } from "@/generated/help/content";
 import { searchHelp } from "./helpSearch";
+import { internalHelpTarget, INTERNAL_HELP_PATH } from "./helpLinkGuard";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..", "..");
@@ -108,10 +109,41 @@ describe("generated help content", () => {
         const href = /href="([^"]*)"/.exec(attrs)?.[1] ?? "";
         if (!href.startsWith("/admin/help")) continue;
         internal++;
-        expect(attrs, `${slug}: unmarked in-app link -> ${href}`).toContain('data-help-internal="true"');
+        expect(attrs, `${slug}: unmarked in-app link -> ${href}`).toMatch(/\bdata-help-internal="/);
       }
     }
     expect(internal, "found no in-app links to check").toBeGreaterThan(5);
+  });
+
+  /**
+   * THE GENERATOR/CONSUMER CONTRACT, asserted against real generated anchors.
+   *
+   * This is the test that was missing: the guard's own unit test exercised
+   * standalone strings and passed happily while the generator was writing the
+   * literal "true" into the attribute the consumer reads a PATH out of — so
+   * every in-app link silently fell back to a full page navigation. A test
+   * that never touches the artifact cannot see a contract break.
+   */
+  it("emits a data-help-internal value the guard accepts, matching the href", async () => {
+    let checked = 0;
+    for (const { slug, html } of await allGeneratedHtml()) {
+      for (const m of html.matchAll(/<a\b([^>]*\bdata-help-internal="([^"]*)"[^>]*)>/g)) {
+        const attrs = m[1];
+        const marker = m[2];
+        const href = /href="([^"]*)"/.exec(attrs)?.[1] ?? "";
+        checked++;
+        expect(
+          INTERNAL_HELP_PATH.test(marker),
+          `${slug}: data-help-internal="${marker}" is not a valid help path — the consumer would ignore this link`,
+        ).toBe(true);
+        expect(marker, `${slug}: marker and href disagree`).toBe(href);
+
+        // Through the real consumer, via a stub element — no DOM needed.
+        const el = { getAttribute: (k: string) => (k === "data-help-internal" ? marker : null) } as unknown as Element;
+        expect(internalHelpTarget(el), `${slug}: guard rejected a generated link`).toBe(href);
+      }
+    }
+    expect(checked, "found no generated in-app links to check").toBeGreaterThan(5);
   });
 
   it("emits no relative image sources", async () => {

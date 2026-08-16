@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useRoute } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { HELP_CHAPTERS, HELP_INDEX_DOC, findHelpDoc, type HelpDocMeta } from "@/generated/help/manifest";
 import { loadHelpContent } from "@/generated/help/content";
@@ -58,20 +58,40 @@ function navigateToHelp(
   fragment: string,
   onHash: (h: string) => void,
 ): void {
-  const current = window.location.pathname.replace(ROUTER_BASE, "") || "/";
-  if (current !== path) setLocation(path);
-  if (fragment) {
-    window.history.replaceState({}, "", `${ROUTER_BASE}${path}#${fragment}`);
-  } else if (window.location.hash) {
-    window.history.replaceState({}, "", `${ROUTER_BASE}${path}`);
+  const current = window.location.pathname.slice(ROUTER_BASE.length) || "/";
+  const samePath = current === path;
+  const url = `${ROUTER_BASE}${path}${fragment ? `#${fragment}` : ""}`;
+
+  if (!samePath) {
+    // A path change is the router's own history entry; adding the fragment
+    // afterwards must not create a second one.
+    setLocation(path);
+    if (fragment || window.location.hash) window.history.replaceState({}, "", url);
+  } else if (fragment !== currentHash()) {
+    // Same path, different fragment: this is user-initiated navigation and
+    // must be reversible. `replaceState` here overwrote the entry the reader
+    // came from, so Back skipped past the previous section and left Help —
+    // unlike an ordinary anchor, which is the behaviour being imitated.
+    window.history.pushState({}, "", url);
   }
   onHash(fragment);
 }
 
-function ChapterNav({ activeSlug }: { activeSlug: string | null }) {
+function ChapterNav({
+  activeSlug,
+  onNavigate,
+}: {
+  activeSlug: string | null;
+  onNavigate: (path: string, fragment: string) => void;
+}) {
+  const go = (path: string) => (e: React.MouseEvent) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    onNavigate(path, "");
+  };
   return (
     <nav className="space-y-0.5" aria-label="Manual chapters">
-      <Link href="/admin/help">
+      <a href={`${ROUTER_BASE}/admin/help`} onClick={go("/admin/help")} className="block no-underline">
         <div
           className={`flex items-center gap-2 rounded-sm px-3 py-2 text-sm cursor-pointer transition-colors ${
             activeSlug === ""
@@ -82,9 +102,14 @@ function ChapterNav({ activeSlug }: { activeSlug: string | null }) {
           <BookOpen className="w-4 h-4 shrink-0" />
           <span className="truncate">{HELP_INDEX_DOC.title}</span>
         </div>
-      </Link>
+      </a>
       {HELP_CHAPTERS.map((c) => (
-        <Link key={c.slug} href={`/admin/help/${c.slug}`}>
+        <a
+          key={c.slug}
+          href={`${ROUTER_BASE}/admin/help/${c.slug}`}
+          onClick={go(`/admin/help/${c.slug}`)}
+          className="block no-underline"
+        >
           <div
             className={`flex items-start gap-2 rounded-sm px-3 py-2 text-sm cursor-pointer transition-colors ${
               activeSlug === c.slug
@@ -95,7 +120,7 @@ function ChapterNav({ activeSlug }: { activeSlug: string | null }) {
             <span className="font-mono text-[11px] opacity-70 pt-0.5 w-5 shrink-0">{c.number}</span>
             <span className="min-w-0">{c.title}</span>
           </div>
-        </Link>
+        </a>
       ))}
     </nav>
   );
@@ -182,7 +207,7 @@ function SearchPanel({ onNavigate }: { onNavigate: (path: string, fragment: stri
   );
 }
 
-function NotFound({ slug }: { slug: string }) {
+function NotFound({ slug, onNavigate }: { slug: string; onNavigate: (path: string, fragment: string) => void }) {
   return (
     <div className="max-w-xl space-y-4" data-testid="help-not-found">
       <FileQuestion className="w-12 h-12 text-muted-foreground" />
@@ -194,11 +219,17 @@ function NotFound({ slug }: { slug: string }) {
         <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{slug}</code>. It may have
         been renamed or renumbered since this link was saved.
       </p>
-      <Link href="/admin/help">
-        <span className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline cursor-pointer">
-          <ChevronLeft className="w-4 h-4" /> Back to the manual
-        </span>
-      </Link>
+      <a
+        href={`${ROUTER_BASE}/admin/help`}
+        onClick={(e) => {
+          if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          onNavigate("/admin/help", "");
+        }}
+        className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+      >
+        <ChevronLeft className="w-4 h-4" /> Back to the manual
+      </a>
     </div>
   );
 }
@@ -346,7 +377,7 @@ export default function AdminHelp() {
 
         <div className="flex gap-6 items-start">
           <aside className="hidden lg:block w-64 shrink-0 sticky top-0">
-            <ChapterNav activeSlug={doc ? slug : null} />
+            <ChapterNav activeSlug={doc ? slug : null} onNavigate={goToHelp} />
           </aside>
 
           <div className="flex-1 min-w-0">
@@ -355,11 +386,11 @@ export default function AdminHelp() {
                 All chapters
               </summary>
               <div className="p-2 pt-0">
-                <ChapterNav activeSlug={doc ? slug : null} />
+                <ChapterNav activeSlug={doc ? slug : null} onNavigate={goToHelp} />
               </div>
             </details>
 
-            {doc ? <DocView doc={doc} navHash={navHash} onNavigate={goToHelp} /> : <NotFound slug={slug} />}
+            {doc ? <DocView doc={doc} navHash={navHash} onNavigate={goToHelp} /> : <NotFound slug={slug} onNavigate={goToHelp} />}
           </div>
         </div>
       </div>

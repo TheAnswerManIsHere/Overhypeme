@@ -120,17 +120,44 @@ interface HelpDoc {
  * and a hand-kept list here would be a second source of truth.
  */
 function parseContentsTable(readmeSrc: string): { number: number; file: string }[] {
+  // Read from the PARSED table node, not a raw-source regex. A table-shaped
+  // line inside a fenced code block or an HTML comment is not part of the
+  // rendered Contents table, but a source regex cannot tell the difference —
+  // so a decoy row could supply an expected ordinal while a real row was
+  // removed or reordered, and the disk/number checks would still pass.
+  const tree = parseMarkdown(readmeSrc) as { children: unknown[] };
   const rows: { number: number; file: string }[] = [];
-  const re = /^\|\s*(\d+)\s*\|\s*\[`([^`]+)`\]\(\.\/([^)]+)\)/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(readmeSrc)) !== null) {
-    const [, num, label, target] = m;
-    if (label !== target) {
-      fail(`README contents table row ${num}: label \`${label}\` does not match link target \`${target}\`.`);
+
+  for (const node of tree.children as { type: string; children?: unknown[] }[]) {
+    if (node.type !== "table") continue;
+    const bodyRows = (node.children ?? []).slice(1) as { children?: unknown[] }[];
+    const parsed: { number: number; file: string }[] = [];
+    for (const row of bodyRows) {
+      const cells = (row.children ?? []) as unknown[];
+      if (cells.length < 2) continue;
+      const num = Number(mdastToString(cells[0] as never).trim());
+      if (!Number.isInteger(num)) continue;
+      // The chapter cell must contain a real link; its label and target must
+      // agree, which is the invariant the old regex encoded inline.
+      let target: string | null = null;
+      let label: string | null = null;
+      visit(cells[1] as never, "link", (link: { url: string }) => {
+        if (target === null) {
+          target = link.url.replace(/^\.\//, "");
+          label = mdastToString(link as never).trim();
+        }
+      });
+      if (target === null) continue;
+      if (label !== target) {
+        fail(`README contents table row ${num}: label \`${label}\` does not match link target \`${target}\`.`);
+      }
+      parsed.push({ number: num, file: target });
     }
-    rows.push({ number: Number(num), file: target });
+    // The Contents table is the one whose rows are numbered chapter links.
+    if (parsed.length > rows.length) rows.length = 0, rows.push(...parsed);
   }
-  if (rows.length === 0) fail("Could not parse any rows from the README contents table.");
+
+  if (rows.length === 0) fail("Could not parse any rows from the rendered README contents table.");
   return rows;
 }
 
@@ -202,10 +229,19 @@ function assertNumbering(rows: { number: number; file: string }[], sources: Map<
  * no usable footer at all. Only a top-level paragraph counts.
  */
 function parsedNextFooter(src: string): number | null {
-  const tree = parseMarkdown(src) as { children: { type: string }[] };
+  const tree = parseMarkdown(src) as { children: { type: string; children?: unknown[] }[] };
   for (const node of tree.children) {
     if (node.type !== "paragraph") continue;
-    const m = /^Next:\s+chapter\s+(\d+)/.exec(mdastToString(node as never).trim());
+    // Structure, not flattened text: the paragraph must OPEN with a `strong`
+    // node reading "Next:". `mdastToString` discards the bold marks, so a
+    // plain `Next: chapter 6` line anywhere in the chapter would otherwise
+    // satisfy the gate with no real footer present.
+    const first = (node.children ?? [])[0] as { type: string } | undefined;
+    if (!first || first.type !== "strong") continue;
+    if (mdastToString(first as never).trim() !== "Next:") continue;
+    const m = /^chapter\s+(\d+)/.exec(
+      mdastToString(node as never).trim().slice("Next:".length).trim(),
+    );
     if (m) return Number(m[1]);
   }
   return null;
@@ -344,11 +380,16 @@ function rewriteLinks(tree: unknown, file: string, ownAnchors: Set<string>, targ
         }
       }
       node.url = destSlug === "" ? `${HELP_BASE}${fragment ? `#${fragment}` : ""}` : `${HELP_BASE}/${destSlug}${fragment ? `#${fragment}` : ""}`;
-      // Marked so the renderer can (a) prefix the router base — these are raw
-      // anchors inside generated HTML, so wouter's <Link> base handling never
-      // sees them — and (b) intercept the click for SPA navigation instead of
-      // a full document load.
-      node.data = { ...(node.data ?? {}), hProperties: { "data-help-internal": "true" } };
+      // Carries the UNBASED path, not a boolean marker. The renderer needs it
+      // to (a) prefix the router base — these are raw anchors inside generated
+      // HTML, so wouter's <Link> base handling never sees them — and (b) route
+      // the click instead of letting the browser do a full document load.
+      //
+      // The value must be the path itself rather than "true": once the base is
+      // prefixed onto `href`, the href alone can no longer tell you what the
+      // unbased path was, which is the ambiguity that broke base handling when
+      // BASE_PATH is itself a route prefix.
+      node.data = { ...(node.data ?? {}), hProperties: { "data-help-internal": node.url } };
       return;
     }
 
