@@ -26,13 +26,25 @@
   representations, on an unclassifiable link or a `#fragment` that doesn't
   resolve **in its rendered destination**, on markdown outside the declared
   vocabulary, and on anything executable in the output.
-- **Why:** `scripts/classify-ci-paths.mjs` classifies all of `docs/**` as
-  **inert**, so a chapter-only PR skips Test, Frontend Test and E2E Smoke
-  entirely. A staleness assertion living in the frontend suite would therefore
-  never run on the exact change that can invalidate the artifact — the gate
-  would be structurally incapable of firing when it mattered, while looking
-  fully wired up. This is a property of the *direction*, not of this feature:
-  **any** future generator whose source lives under an inert path inherits it.
+- **Why:** `scripts/classify-ci-paths.mjs` classifies `docs/**` as **inert**,
+  so a chapter-only PR skips Test, Frontend Test and E2E Smoke entirely. A
+  staleness assertion living in the frontend suite would therefore never run on
+  the exact change that can invalidate the artifact — the gate would be
+  structurally incapable of firing when it mattered, while looking fully wired
+  up.
+- **The general rule has two answers, not one — pick by where the check must
+  live.** When a generated artifact's source or output sits under an inert
+  path, either (a) **move the gate to the always-on Build job**, or (b) **make
+  that specific path non-inert** so the heavy suite runs. This repo already
+  does both, deliberately: `isInertPath()` carries an explicit
+  `docs/ADMIN_FIELD_REFERENCE.md → false` exception precisely so
+  `fieldDocs.test.ts` (Frontend Test) keeps asserting byte-parity against it.
+  The deciding question is what form the check takes — a **script** you can run
+  as a Build step chooses (a), a **vitest assertion** that has to run inside a
+  suite chooses (b). Help content is a `--check` script, so it took (a);
+  the field reference is a parity test, so it took (b). Reading "all of
+  `docs/**` is inert" as a blanket fact — as the first version of this entry
+  did — would send a future gate to the wrong job.
 - **Also settled here:** the README renders at `/admin/help` (so every
   intra-Manual link has a rendered destination, and fragments validate against
   that destination rather than the source file), but is **not** search-indexed

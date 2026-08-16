@@ -233,8 +233,12 @@ thing (a submit-form *Preview*, a shared link's *rich preview*, the admin
 Glossary anchors are generated from its `###` headings, so renaming a heading
 breaks every chapter link into it — rename deliberately and update the
 chapters in the same commit. `pnpm run check:docs` verifies that a linked
-*file* exists but **not** that an anchor within it does, so anchors are
-review-checked, not CI-checked.
+*file* exists but **not** that an anchor within it does — however, since the
+help system shipped, **anchors in these manual files are checked**: generation
+resolves every `#fragment` against its rendered destination and fails if it
+doesn't land on a real heading. So a broken glossary anchor in a chapter is a
+build failure, not a review miss. (The `check:docs` limitation still holds for
+docs outside `docs/manual/`.)
 
 ## Contents
 
@@ -261,9 +265,12 @@ appears in two other places that must agree with it: each chapter's own `#
 Chapter N · Title` heading, and the `**Next:** chapter N — …` footer of the
 chapter before it. Inserting or reordering a chapter therefore renumbers a run
 of files, not just this table — do it in the same commit, and check the
-footers, which are the easiest of the three to miss. (Nothing enforces this
-yet; a consistency check is a good candidate for the Build job if it ever
-drifts.)
+footers, which are the easiest of the three to miss. **This is now enforced**:
+help-content generation compares all four representations (this table's
+ordinal, the filename prefix, the `# Chapter N · Title` heading, and the
+previous chapter's `**Next:**` footer) and fails the Build job on any
+disagreement. The parenthetical that used to sit here predicted exactly that
+check and has been overtaken by it.
 
 Deliberately **not** written anywhere: "chapter N **of 12**." A total restated
 across twelve files is exactly the kind of count that goes stale the moment a

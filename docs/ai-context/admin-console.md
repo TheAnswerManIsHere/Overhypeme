@@ -18,7 +18,7 @@
 
 ## Page inventory
 
-Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS`:
+Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 16 `NAV_ITEMS`:
 
 | Route | File | What it's for |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS`:
 | `/admin/features` | `features.tsx` | The tier × feature-flag permission matrix — see *Config surfaces*. |
 | `/admin/email-queue` | `emailQueue.tsx` | Outbound transactional-email outbox: pending/failed rows, retry, requeue. |
 | `/admin/queue-health` | `queueHealth.tsx` | Background job-queue infra dashboard: per-queue/lane status counts, oldest-pending age, per-item drill-in. |
-| `/admin/help`, `/admin/help/:chapter` | `help.tsx` | The [Overhype.me Manual](../manual/README.md), rendered in-console — see *The in-app Manual* below. Not a `NAV_ITEMS` entry; reached from the `?` control on each screen. |
+| `/admin/help`, `/admin/help/:chapter` | `help.tsx` | The [Overhype.me Manual](../manual/README.md), rendered in-console — see *The in-app Manual* below. A `NAV_ITEMS` entry ("Help"), and also reached from the `?` control on each screen. |
 
 `/admin/comments` and `/admin/ai` are routed to redirect components
 (`AdminModerationRedirect`, `AdminAIRedirect`) rather than to the
@@ -60,9 +60,9 @@ frontend suite could never fire on a chapter-only PR.
 | --- | --- |
 | Generator (+ `--check` mode, the CI gate) | `artifacts/overhype-me/scripts/generate-help-content.ts` |
 | Route + search UI + navigation | `artifacts/overhype-me/src/pages/admin/help.tsx` |
-| Screen → chapter/anchor map for the `?` control | `src/components/admin/helpMap.ts` |
-| Link validation shared by both consumer call sites | `src/components/admin/helpLinkGuard.ts` |
-| Fragment scrolling | `src/components/admin/useFragmentScroll.ts` |
+| Screen → chapter/anchor map for the `?` control | `artifacts/overhype-me/src/components/admin/helpMap.ts` |
+| Link validation shared by both consumer call sites | `artifacts/overhype-me/src/components/admin/helpLinkGuard.ts` |
+| Fragment scrolling | `artifacts/overhype-me/src/components/admin/useFragmentScroll.ts` |
 
 **Generation fails rather than emitting a plausible-but-wrong artifact** — on
 disk/table disagreement, chapter-number disagreement across any of the four
