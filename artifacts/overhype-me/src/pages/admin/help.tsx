@@ -6,6 +6,7 @@ import { loadHelpContent } from "@/generated/help/content";
 import type { HelpSearchEntry } from "@/generated/help/searchIndex";
 import { useFragmentScroll, currentHash } from "@/components/admin/useFragmentScroll";
 import { searchHelp, type HelpSearchHit } from "@/components/admin/helpSearch";
+import { internalHelpTarget } from "@/components/admin/helpLinkGuard";
 import { BookOpen, ExternalLink, Search, ChevronLeft, FileQuestion } from "lucide-react";
 
 /**
@@ -37,6 +38,7 @@ const PROSE = [
 const CONTENT_WRAP = "min-w-0 overflow-x-auto";
 
 const ROUTER_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 
 /**
  * Navigate to a help path + optional fragment through the router.
@@ -263,8 +265,8 @@ function DocView({
       // deployment base is itself a prefix of the route — with BASE_PATH=/admin
       // every href already starts with `/admin/`, so the guard skipped it and
       // the click handler then stripped a base that was never added.
-      const unbased = a.getAttribute("data-help-internal") ?? "";
-      if (unbased.startsWith("/")) a.setAttribute("href", ROUTER_BASE + unbased);
+      const unbased = internalHelpTarget(a);
+      if (unbased) a.setAttribute("href", ROUTER_BASE + unbased);
     }
   }, [html]);
 
@@ -274,8 +276,10 @@ function DocView({
     const anchor = (e.target as HTMLElement).closest?.("a[data-help-internal]") as HTMLAnchorElement | null;
     if (!anchor) return;
     // Read the UNBASED path from the attribute; never re-derive it from href.
-    const unbased = anchor.getAttribute("data-help-internal") ?? "";
-    if (!unbased.startsWith("/")) return;
+    // Same validation as the href write above — one helper, so the two cannot
+    // drift apart the way this file's earlier paired checks did.
+    const unbased = internalHelpTarget(anchor);
+    if (!unbased) return;
     e.preventDefault();
     const [path, frag] = unbased.split("#");
     onNavigate(path, frag ?? "");
