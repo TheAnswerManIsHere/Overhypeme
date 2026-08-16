@@ -23,13 +23,16 @@ node scripts/loop-report.mjs [--since YYYY-MM-DD] [--inventory <file>]
 language. If you find yourself reading records to answer a question, the
 digest should probably answer it instead.
 
-**The derived numbers undercount in two known ways — a zero is not proof of
-an absence.** `loop-metrics.mjs` counts findings from inline **review
-threads**, so a finding delivered in the review *body* is invisible (PR
-#447); and it counts rounds from a `**Reviewed commit:**` marker, so a
-**👍-only clean pass** — the connector's documented way of saying "no
-findings" — is invisible too (PRs #414, #415, #416). Before reading
-`rounds: 0` as "never reviewed," check the PR's reactions and review bodies.
+**The derived numbers undercount in at least three known ways — a zero is not
+proof of an absence.** `loop-metrics.mjs` counts findings from inline **review
+threads**, so a finding delivered in the review *body* is invisible (PR #447).
+It counts rounds from a `**Reviewed commit:**` marker, so two kinds of clean
+pass are invisible too: a **👍-only** reaction (PRs #414, #415, #416), and a
+**`## Review Result`** comment, which carries full prose and a testing
+checklist but no marker (PR #465). The list is open-ended by construction —
+the collector keys on a convention the connector never promised to keep, so
+expect it to grow whenever the output shape changes. Before reading
+`rounds: 0` as "never reviewed," check the PR's reactions and its comments.
 Do **not** hand-correct the numbers: note the gap in the record's `notes`
 and leave the derived value alone, per the never-type-mechanical-values rule
 above. Full pattern, including the fix if it recurs, in

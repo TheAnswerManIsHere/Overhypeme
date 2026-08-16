@@ -1647,13 +1647,23 @@ several. The failure is invisible at the point of use: a zero from "nothing
 happened" and a zero from "the thing happened somewhere I don't look" are the
 same zero.
 
-**The two live instances**, both in `scripts/loop-metrics.mjs`, both found on
-2026-08-15 during the first `/maintenance` ledger flush:
+**The three live instances**, all in `scripts/loop-metrics.mjs`, all found on
+2026-08-15 during and immediately after the first `/maintenance` ledger flush:
 
 | Channel | What the collector reads | What it misses |
 |---|---|---|
 | Findings | inline **review threads** | a finding delivered in the review **body** — PR #447's round 1 raised a real one (broken TEST_RUN↔UAT sibling links), so the record reads `findings: 0` on a loop that had one |
 | Rounds | issue comments and review bodies carrying a `**Reviewed commit:**` marker | a **👍-only clean pass** — the connector's documented behaviour is "if Codex has suggestions, it will comment; otherwise it will react with 👍," and a reaction emits no marker, so PRs #414, #415 and #416 record `rounds: 0` |
+| Rounds | the same marker | a clean pass posted in the **`## Review Result`** comment format, which carries prose, a testing checklist and permalinks but **no marker at all** — unlike the older `Codex Review: Didn't find any major issues. **Reviewed commit:** <sha>` shape, which has one |
+
+**The third one is the most instructive, because it happened *to this entry's
+own PR* (#465) minutes after the first two were written.** Codex returned a
+full, clean, visibly thorough code review — and it will still record as
+`rounds: 0`, because the connector emits at least two clean-pass formats and
+only one of them carries the marker. The lesson is not "there are two gaps,"
+it is that **the collector keys on a convention the source never promised to
+keep**, so the gap list is open-ended and will grow again whenever the
+connector changes its output shape.
 
 **Why it bites harder than an ordinary bug:** the undercount is *credible*.
 `loop-metrics.mjs` exists because recalled figures in this repo were wrong
