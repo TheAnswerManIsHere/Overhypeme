@@ -13,6 +13,95 @@
 
 ---
 
+### 2026-08-16 · The claude.ai "Create PRs automatically" and "Autofix pull requests" toggles stay OFF
+- **Decision:** Both account-level Claude Code settings (claude.ai → Settings →
+  Claude Code → Pull requests) stay **off**. Branch prefix stays `claude`,
+  which already matches the `claude/*` convention the guard and branch rules
+  assume. Not revisited on discovery — only on the trigger below.
+- **Why — "Create pull requests automatically":** it automates something the
+  agent already does under a standing rule, while removing the two things that
+  carry the value. **Timing:** it fires on *push*, not on *done*, and the
+  agent commits in verified slices — so a PR would open mid-build and Codex,
+  which auto-reviews every non-draft PR on open, would spend rounds on
+  half-finished diffs (the loop cost the criticality gate and stopping rules
+  exist to contain). **Body:** an auto-opened PR carries no `Workstream: #N`
+  line (parsed by `/status` and `/status-all`), no
+  [review oracle](../engineering/code-review.md#the-review-oracle-the-pr-body),
+  no post-merge verification section, no checklist. **Branches that must not
+  get a PR:** `plan-review/<slug>-combined` deliberately has none, and
+  `plan-review/<slug>` needs the loop's own `[PLAN REVIEW]` title and template.
+- **Why — "Autofix pull requests":** it collides with the standing
+  `subscribe_pr_activity` + `pr-watch` discipline, and does so **silently**.
+  Per the subscription tool's own contract, when a PR Steward is already
+  watching a PR the agent's subscribe call still *succeeds* while its session
+  receives no events — so the agent would believe it was watching while a cold
+  agent handled the loop. Cold is the defect: a review loop is stateful (round
+  number, cumulative-diff rule, prior declines, finding-count trend, the
+  plan-growth tripwire, the criticality gate), and a steward re-establishes
+  none of it per event. This is the same trade already rejected in
+  [`CLAUDE.md`](../../CLAUDE.md) when delegating the watch to a cheaper
+  subagent was considered — except imposed invisibly. Also, "may post comments
+  on your behalf" puts comments in David's name outside the attribution and
+  review-bar discipline.
+- **The gap it would have covered is REAL and has no automatic mitigation** — a
+  first draft of this entry claimed the bounded self-check-in contract already
+  covered it, which is false and was caught in review on PR #481. A session
+  that is archived or dies takes its subscription with it, leaving an open PR
+  unwatched (not hypothetical: PR #458 merged with a round outstanding, and 7
+  findings landed 47 seconds later). The check-in contract **cannot** be the
+  backup, because it schedules session-bound `send_later` one-shots and the
+  platform auto-disables a trigger whose bound session is gone
+  (`auto_disabled_session_gone` — see [`CLAUDE.md`](../../CLAUDE.md) →
+  *Scheduled self-check-ins* → *Permissions*, the same section that documents
+  the behavior). The check-in covers "a live session's PR goes quiet"; it
+  covers nothing once the session itself is gone. **Recovery from that state
+  is manual:** David notices, or `/status-all` surfaces the stalled workstream,
+  and a new session re-subscribes. So this decision knowingly accepts an
+  unmitigated rare gap.
+- **Why the trade is worth taking — two verified bug reports, not just the
+  collision argument.** The original reasoning treated the steward's precedence
+  (does it claim every PR, or only ones with no live subscriber?) as the
+  decisive unknown, and an A/B trial was offered and declined on cost/benefit.
+  Research settled it a different way: precedence is undocumented, but two
+  reports on `anthropics/claude-code` describe failures that match this repo's
+  exact configuration and were verified by reading the issues directly (both
+  closed, so treat them as reports rather than vendor-confirmed behavior):
+  - **[#62977](https://github.com/anthropics/claude-code/issues/62977)** (closed
+    as duplicate) — on Claude Code on the web, with a PR subscribed via
+    `subscribe_pr_activity` **and the Autofix setting ON**, sessions stop
+    receiving **bot-authored** review events, naming
+    `chatgpt-codex-connector[bot]` explicitly. Human comments and CI events
+    still arrive; bot reviews are silently dropped. Since Codex *is* the review
+    signal in this repo, enabling Autofix plausibly blinds the loop to the only
+    reviewer that matters — and note this is a property of the **setting being
+    on**, not of a steward claiming a PR, so it is not avoidable by winning the
+    precedence question.
+  - **[#65488](https://github.com/anthropics/claude-code/issues/65488)** (closed
+    as not planned) — Autofix monitoring subscribes only to the **first** PR
+    created in a session; later same-session PRs receive no review-comment or
+    CI events. This repo routinely opens several PRs from one session (#469,
+    #470, #471 and #481 all came from a single session), so most PRs would go
+    unmonitored.
+  Together these make Autofix strictly worse than the status quo for this
+  workflow: it would degrade the common case (live review loops) via a
+  documented regression while covering the rare case unreliably. The
+  collision/cold-watcher argument above stands, but it is no longer what the
+  decision rests on.
+- **Reference:** `CLAUDE.md` → *Always open a PR when work is done*, *Watching
+  the PRs I open*; the `pr-watch` skill; this decision was taken in the
+  session that shipped PR #471, and refined by the review on PR #481.
+- **Revisit if:** [#62977](https://github.com/anthropics/claude-code/issues/62977)
+  is fixed (bot-authored review events delivered to subscribed sessions with
+  Autofix on) **and**
+  [#65488](https://github.com/anthropics/claude-code/issues/65488) is fixed
+  (all session-created PRs monitored, not just the first) — those are the two
+  concrete blockers, and both are checkable rather than judgement calls. A PR
+  actually going unwatched because its session ended is the other trigger: a
+  demonstrated incident, not a calendar date. Documented steward precedence
+  favouring live subscribers would remove the collision argument but **not**
+  the #62977 problem, so it is no longer sufficient on its own.
+
+---
 ### 2026-08-16 · An unresolvable generation cost degrades to a defensible estimate, but an unreadable authoritative source denies
 - **Decision:** The generation spend gate runs on every generation. When the fal
   price cannot be resolved, the call site degrades to the engine's configured
