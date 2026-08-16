@@ -1210,6 +1210,45 @@ enactment:
   preflight would be: its value is the *absence* of my context, which my main
   loop cannot reproduce at any size.
 
+## Waiting inside a turn: bash sleeps, MCP tells the truth (David, 2026-08-16)
+
+Distinct from the scheduled check-ins below, which are about *arming a timer*.
+This is about waiting for CI or any GitHub state **within** a turn.
+
+**There is no bash path to the GitHub API here.** Every direct
+`api.github.com` call from a Bash tool call returns 403 *"GitHub access is not
+enabled for this session"* — every endpoint, every URL shape, token or no
+token. The proxy scopes GitHub access to the MCP server's permissions and
+nothing escapes that. Full mechanics:
+[`github-rest-api-blocked-from-bash.md`](.agents/memory/github-rest-api-blocked-from-bash.md).
+
+**So the shape of a wait is fixed:**
+
+1. `sleep N` in bash — the **delay, and nothing else**.
+2. `mcp__github__pull_request_read` (`get_check_runs`) for the actual state. It
+   takes a **PR number**, so there is no ref or SHA to mistype.
+3. Still pending? Repeat. A turn per check is cheap next to sitting on a dead
+   loop.
+
+**Never build a bash poll loop that parses a GitHub response.** It cannot
+work, and — this is the part that bites — **it does not announce that it
+cannot work.** `grep` over the error body finds nothing, which reads as
+"nothing pending"; add a guard demanding a real field first and it inverts to
+"still pending" forever. Both are silent, and neither mentions GitHub. On
+2026-08-16 every CI-wait loop in a long session was a pure sleep; they looked
+fine only because CI happened to be green by the time each ended, until one
+sat 12 minutes on a PR that had been green for 25.
+
+**Three-state discipline, generally.** Any wait must distinguish **ready /
+not-ready / cannot-tell**, and *cannot-tell terminates loudly*. Sleeping
+through an unparseable response is the same defect as
+[`ci-guard-must-fail-loud-on-missing-inputs.md`](.agents/memory/ci-guard-must-fail-loud-on-missing-inputs.md)
+— a check that skips silently is indistinguishable from one that passed.
+
+**And never narrate a wait as a verification it didn't perform.** "Waiting for
+CI" is honest; "re-checked, still pending" is a claim about an observation, and
+if the loop only slept, that claim is false.
+
 ## Scheduled self-check-ins (David, 2026-08-15 — replacing the blanket ban)
 
 **The rule is scoped to the behavior, not to a tool name — that is the whole
