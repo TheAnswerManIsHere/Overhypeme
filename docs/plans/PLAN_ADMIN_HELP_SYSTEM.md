@@ -57,8 +57,13 @@ scope this plan has already declined.
 admin console at a bookmarkable URL, search it, and jump into the relevant
 chapter from a `?` control on the admin screen they are already looking at.
 
-It does *not* make the Manual editable from the UI, and it does not expose the
-Manual to anyone who is not already an admin.
+It does *not* make the Manual editable from the UI, and it adds no reading
+surface *in the console* for anyone who is not already an admin. It makes no
+claim about the confidentiality of the prose itself — that text is already
+published on a public repository, and the generated chunk is a
+publicly-fetchable static asset like every other route's. See *Security,
+Permissions, and Validation* for why the stronger-sounding version of this
+sentence was withdrawn.
 
 ## Must Not Change
 
@@ -103,6 +108,19 @@ repo dictates):
 8. **The drift gate runs in the always-on Build job, not in the Frontend Test
    suite** — see *The drift gate cannot sit where the precedent sits*, below.
    This is the sharpest invariant in the plan.
+
+Decided in response to Codex round 1:
+
+9. **Generation validates fragments, not just files** — every `#anchor` whose
+   target file lives in this repo must resolve to a real heading, or generation
+   fails. Nothing in the repo checks this today.
+10. **Generation enforces chapter-number agreement across all four
+    representations** — contents table, filename prefix, chapter heading, and
+    the previous chapter's `**Next:**` footer.
+11. **The plan's admin-only-reading claim is withdrawn as unenforceable**, and
+    replaced by an input-boundary invariant: the generator reads only
+    `docs/manual/`, which is already public, so nothing non-public can reach a
+    publicly-fetchable asset.
 
 ## Repo Context Inspected
 
@@ -217,6 +235,21 @@ Invariants the generator owes:
   versa, is a generation error**, not a silent omission. The Manual's own rules
   make that table authoritative; a generator that quietly diverges from it
   creates the second source of truth this plan forbids.
+- **All four representations of a chapter's number must agree, or generation
+  fails** (Codex round 1). Membership alone is not enough: `README.md:216-223`
+  states that the number lives in the contents table, the filename prefix, the
+  chapter's own `# Chapter N · Title` heading, **and** the preceding chapter's
+  `**Next:** chapter N — …` footer, and that all must agree. A row reordered in
+  the table without touching the files leaves every file still *present* in the
+  table, so a membership check passes while the help system orders chapters by
+  one numbering and titles and routes them by another — the exact
+  two-sources-of-truth split this plan claims to prevent.
+
+  That same README passage says outright: *"Nothing enforces this yet; a
+  consistency check is a good candidate for the Build job if it ever drifts."*
+  This generator is that check's natural home — it must read all four
+  representations to do its job anyway — so adopting it here is closing a gap
+  the Manual already asked for, not scope this plan invented.
 - **The generator never writes to `docs/`.** One direction only.
 
 ### 2. Content conversion at build time
@@ -297,6 +330,33 @@ Invariants:
   failure this prevents is a dead in-app link that looks live — the class of
   bug `check:docs` exists to prevent on the GitHub side, and which would
   otherwise reappear untested on the in-app side.
+- **Fragments resolve too, not just files** (Codex round 1). Classifying a
+  link by target *shape* leaves the `#anchor` unchecked, and
+  `check-docs-accuracy.mjs:140` strips the fragment (`m[1].split("#")[0]`)
+  before testing existence — so today **nothing anywhere** verifies that a
+  Manual link's anchor points at a real heading. Renaming a heading therefore
+  breaks every incoming link silently, in-app and on GitHub alike, under fully
+  green CI.
+
+  **Invariant: every fragment whose target file is in this repository must
+  resolve to a real heading in that file, or generation fails.** That covers
+  both intra-Manual links and the repo-relative off-Manual ones
+  (`../ai-context/*.md` and friends) — the files are all present at generation
+  time, so there is no reason to check one and not the other. Only fragments on
+  absolute `http(s)://` links are out of reach and stay unchecked.
+
+  This is deliberately **wider than the two instances Codex cited**, because
+  the class is wider: a sweep of `docs/manual/` finds **222 fragment links, of
+  which only 4 are intra-Manual and 218 are off-Manual** (overwhelmingly
+  `glossary.md` term anchors). Fixing only the intra-Manual case would have
+  addressed under 2% of the class and left the Manual's most-used link shape
+  exactly as unprotected as before.
+
+  **The same sweep finds 0 currently broken**, so this invariant is adoptable
+  immediately at zero cost — it clears no backlog of pre-existing breakage and
+  blocks nothing. Anchor computation must match GitHub's own algorithm, which
+  preserves underscores; a checker that drops them reports false breakage on
+  headings containing identifiers like `parent_id`.
 - **GitHub links point at `main`, not at a commit sha**, so a link followed six
   months later shows current truth rather than a snapshot. (`check:docs`
   already guarantees these paths exist on `main`.)
@@ -421,9 +481,37 @@ because its absence should read as a decision, not an omission.
 - **The one real security property is the no-executable-content invariant**
   above, enforced at generation. It matters because the content renders inside
   an authenticated admin session.
-- **The Manual is admin-only in-app.** It is already public on GitHub, so this
-  is not a confidentiality boundary — but the console must not become a second,
-  unauthenticated way to read it.
+- **The admin gate governs the console surface, not the prose's
+  confidentiality** (corrected after Codex round 1). An earlier draft of this
+  plan promised that the console "must not become a second, unauthenticated way
+  to read" the Manual. **That promise was unenforceable and is withdrawn.**
+  `/admin/help`'s content ships as a lazy-loaded static chunk, exactly like
+  every other admin route's chunk; a static asset is served to whoever requests
+  its URL, and `AdminLayout`'s `role === "admin"` check runs only *after* that
+  JavaScript has been fetched and executed. No client-side gate can change
+  that, and no gate was ever going to.
+
+  **The correct statement of the property:** the admin gate controls who sees
+  the *console surface* — the nav entry, the `?` controls, the rendered
+  reading experience. It does not, and is not claimed to, control who can
+  retrieve the underlying prose.
+
+  **The enforceable invariant that replaces it: the generator's only input is
+  `docs/manual/`.** Every byte of that directory is already published on a
+  public GitHub repository, so nothing non-public can enter a
+  publicly-fetchable asset — guaranteed by the generator's input boundary
+  rather than by a runtime check that cannot work. The exposure delta of this
+  feature is therefore **zero**: it re-serves already-public prose from a
+  second public location.
+
+  **Why this is not a decision for David.** Codex raised it as a product fork —
+  accept public asset-level retrieval, or drop the no-backend decision. The
+  second branch is vacuous: adding a backend to authenticate access to text
+  that David has already published on a public repo protects nothing, at the
+  cost of a settled decision (#463 decision 4). A fork with one empty branch is
+  not a fork, so this resolves as a correction to the plan's wording rather
+  than an escalation. Recorded here so the reasoning is auditable rather than
+  silently applied.
 
 ## Testing Plan
 
@@ -437,6 +525,16 @@ Automated, with the runner each belongs to:
 3. **Link classification** — every relative link in every chapter classifies
    into a known class; an unclassifiable link fails. Proves the general
    invariant, not a sampled set, by running over the real Manual.
+3a. **Fragment resolvability** — every `#anchor` on a repo-resolvable link
+   points at a real heading in its target file. Runs over the real Manual (222
+   fragment links today), so it proves the class rather than a sample. Negative
+   case: renaming a referenced heading without updating its incoming link must
+   fail the gate. The anchor algorithm must match GitHub's, underscores
+   included — a checker that drops them reports false breakage.
+3b. **Chapter-number agreement** — contents-table ordinal, filename prefix,
+   `# Chapter N` heading, and the previous chapter's `**Next:** chapter N`
+   footer all agree. Negative case: changing only a table row's number or
+   position must fail Build after regeneration.
 4. **No executable content** — asserted over the generated artifact, negative
    cases included (a fixture chapter containing `<script>`, an `onclick=`
    attribute, and a `javascript:` href must each fail generation).
@@ -459,9 +557,10 @@ Ordered smallest-coherent-change first; each leaves the tree green.
 1. Add the generator's dev-time toolchain as a **devDependency of the frontend
    workspace only**, and confirm nothing new reaches the client bundle.
 2. Write the generator: read chapters, order from the contents table, convert,
-   rewrite links, build the search index, assert the no-executable-content and
-   link-classification properties, write the committed artifact. Add the
-   `generate:help` script.
+   rewrite links, build the search index, then assert its four properties —
+   no-executable-content, link classification, fragment resolvability, and
+   chapter-number agreement across all four representations — and write the
+   committed artifact. Add the `generate:help` script.
 3. Add the freshness + determinism gates, with the freshness gate wired into
    the always-on Build job.
 4. Add the `/admin/help` route, chapter rendering, sidebar entry, and
@@ -479,6 +578,8 @@ Ordered smallest-coherent-change first; each leaves the tree green.
 | **Stale artifact merges green** on a chapter-only PR, because `docs/**` is inert. | The freshness gate runs in the always-on Build job, not the path-gated suites. This is the plan's core CI invariant. |
 | **Generated markup executes script** in an authenticated admin session. | Raw-HTML passthrough disabled; generator asserts its own output and fails generation. Enforced for future chapters, not just today's. |
 | **`?` links rot** when a heading is renamed — invisible until clicked. | Resolvability test over the real Manual; renaming a heading fails CI, which is what `check:docs` cannot do for anchors. |
+| **Any Manual link's anchor rots** the same way — 222 fragment links, none checked by anything today (Codex round 1). | Generation validates every repo-resolvable fragment, not just `?` map entries. Sweep confirms 0 currently broken, so this costs nothing to adopt. |
+| **Chapter numbering forks** — table reordered without touching filenames, headings, or `**Next:**` footers (Codex round 1). | Generation fails unless all four representations agree. The Manual's README asked for exactly this check. |
 | **Bundle regression** on admin screens unrelated to help. | Content and index kept out of the main and existing admin chunks. |
 | **A chapter renumber breaks bookmarks.** | Accepted. Renumbering is already a deliberate multi-file act per the Manual's rules, and it is rare. Not worth a redirect table for an admin-only surface — flagged so the acceptance is explicit rather than an oversight. |
 | **New markdown constructs in future chapters** render badly or not at all. | The generator errors on what it cannot classify rather than passing it through; a future chapter using something unsupported fails CI rather than shipping broken. |
@@ -517,6 +618,10 @@ rather than raised here.
       section.
 - [ ] Intra-Manual links navigate in-app; off-Manual links open GitHub in a new
       tab; no relative link is dead.
+- [ ] Renaming a heading that an existing Manual link points at fails
+      generation — verified deliberately against a real anchor, not assumed.
+- [ ] Renumbering a chapter in the contents table without updating its file,
+      heading, and the preceding `**Next:**` footer fails Build.
 - [ ] Editing a chapter and pushing **without** regenerating fails CI in the
       always-on Build job — verified deliberately, not assumed.
 - [ ] The generated artifact contains no executable content, proven by negative
