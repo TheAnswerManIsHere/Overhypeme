@@ -24,6 +24,52 @@ everything through it. **Overhype:** `facts.*` is the sole *active* enrichment
 truth — `fact_enrichment_versions` is an archive, not lineage. The visual
 **compiler** owns identity/text-policy language; the planner must not re-author it.
 
+## A test asserting what you believe a producer emits, instead of what it emits
+
+**Looks like:** a test that hardcodes the producer's output — a marker value, a
+slug, a character class — from your understanding of the producer rather than
+from the producer itself. It passes. **Dangerous:** it doesn't just fail to
+catch a broken contract, it **actively enforces the broken version**, so the
+suite is greenest exactly when the contract is most broken. Both halves of a
+producer/consumer pair can be individually tested, both green, and the pair
+still dead. **Avoid:** for any generated artifact, assert against the **real
+committed output** run through the **real consumer** — import the generated
+module, pull the actual values out of it, and feed them to the actual guard. If
+a test names a literal the producer emits, that literal is a belief, and beliefs
+in tests are how this happens. **Overhype:** PR #472 hit this three times in one
+build. (1) A test asserted `data-help-internal="true"` while the consumer had
+been changed to read a *path* out of that attribute — every in-app Manual link
+was silently inert, with that test and the consumer's own unit test both
+passing, because neither touched the artifact. (2) A test asserted
+`#emoji-🎉-heading` was a producible heading slug; `github-slugger` strips emoji
+and actually emits `emoji--heading`. (3) Two successive hand-written Unicode
+character classes for "what the slugger emits" were each measured wrong — the
+first excluded 1164 characters it really emits, the second still excluded 61.
+The fix in each case was to stop describing the producer and start executing it.
+
+## A guard that matches spelling instead of resolving bindings fails open
+
+**Looks like:** a static check that recognises its target by name — counting
+`setLocation(` occurrences, matching a callee called `useLocation`, grepping for
+an import string. **Dangerous:** it fails in the **open** direction. Renaming or
+aliasing produces a fully functional second path that the guard cannot see, and
+because the *original* spelling is usually still present somewhere, the guard's
+own "did I find anything?" assertion stays satisfied — so it reports green while
+certifying the exact regression it exists to prevent. **Avoid:** resolve the
+**binding**, not the text — follow a destructuring to whatever name it binds,
+and follow an import specifier (`propertyName ?? name`) to whatever the module
+actually exported. And give the guard **bypass fixtures**: mutate a copy of the
+source to introduce the violation and require the analysis to object, with an
+assertion that the mutation actually applied — a fixture whose `.replace()`
+silently no-ops is itself a vacuous test. **Overhype:** PR #472's navigation
+guard, three versions deep. v1 counted `setLocation(` and was defeated by
+`const [, navigate] = useLocation()`; v2 resolved the destructuring but matched
+the hook by callee text and was defeated by
+`import { useLocation as useHelpLocation }`; v3 resolves the import specifier.
+Each version's guards-the-guard assertion passed throughout, because token
+presence is not the property being guarded. See
+`artifacts/overhype-me/src/components/admin/helpNavigationGuard.test.ts`.
+
 ## Preview/runtime mismatch
 
 **Looks like:** an admin preview that shows something different from what

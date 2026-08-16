@@ -37,11 +37,67 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS`:
 | `/admin/features` | `features.tsx` | The tier × feature-flag permission matrix — see *Config surfaces*. |
 | `/admin/email-queue` | `emailQueue.tsx` | Outbound transactional-email outbox: pending/failed rows, retry, requeue. |
 | `/admin/queue-health` | `queueHealth.tsx` | Background job-queue infra dashboard: per-queue/lane status counts, oldest-pending age, per-item drill-in. |
+| `/admin/help`, `/admin/help/:chapter` | `help.tsx` | The [Overhype.me Manual](../manual/README.md), rendered in-console — see *The in-app Manual* below. Not a `NAV_ITEMS` entry; reached from the `?` control on each screen. |
 
 `/admin/comments` and `/admin/ai` are routed to redirect components
 (`AdminModerationRedirect`, `AdminAIRedirect`) rather than to the
 `comments.tsx`/`ai.tsx` files that still exist on disk — see *Dead and
 misleading surfaces* below.
+
+## The in-app Manual (`/admin/help`)
+
+`docs/manual/` is the single source of truth and is only ever **read**. The
+console serves a **committed generated artifact** built from it at
+`artifacts/overhype-me/src/generated/help/` — the `generate:field-docs` shape
+with the direction inverted (source in `docs/`, artifact in code), which is why
+its freshness gate lives where it does. See
+[`decisions.md`](./decisions.md) for that decision and its rationale; the short
+version is that `scripts/classify-ci-paths.mjs` treats all of `docs/**` as
+inert, so the gate **must** run in the always-on Build job — a check in the
+frontend suite could never fire on a chapter-only PR.
+
+| Piece | File |
+| --- | --- |
+| Generator (+ `--check` mode, the CI gate) | `artifacts/overhype-me/scripts/generate-help-content.ts` |
+| Route + search UI + navigation | `artifacts/overhype-me/src/pages/admin/help.tsx` |
+| Screen → chapter/anchor map for the `?` control | `src/components/admin/helpMap.ts` |
+| Link validation shared by both consumer call sites | `src/components/admin/helpLinkGuard.ts` |
+| Fragment scrolling | `src/components/admin/useFragmentScroll.ts` |
+
+**Generation fails rather than emitting a plausible-but-wrong artifact** — on
+disk/table disagreement, chapter-number disagreement across any of the four
+representations, an unclassifiable link, a `#fragment` that doesn't resolve in
+its *rendered destination*, markdown outside the declared vocabulary, or
+anything executable in the output. What that means for chapter authors is in
+[`docs/manual/README.md`](../manual/README.md); this is the machinery side.
+
+**Four things that will bite you if you touch this code:**
+
+1. **Document order is not top-level order.** `unist-util-visit` walks headings
+   at every depth; iterating `tree.children` walks only the top level. Pairing
+   the two by index desynchronises on the first heading nested in a blockquote
+   or list, and every later section silently attributes to the wrong anchor.
+   Pair by **source position** (`position.offset`), not by counter. The chapter
+   title comes from the validated top-level `H1` for the same reason —
+   `sections[0]` is whatever the visitor reached first.
+2. **Validate the representation that renders.** Anything checked with a
+   raw-source regex can be satisfied by a decoy inside a fenced code block. Read
+   the parsed node — and bind it to the right one: *"the table under
+   `## Contents`"*, not "the largest table"; *"the last `**Next:**` paragraph in
+   the closing nodes"*, not "the first paragraph starting with Next".
+3. **The bundle boundary is an import-graph property**, asserted in
+   `helpBundleBoundary.test.ts` across the app entry, `AdminLayout`, and every
+   non-help admin route. ~160 KB of prose landing in a shared chunk is
+   invisible to every other check — nothing fails, admin pages just get heavier.
+   This is why `helpMap.ts` holds string literals and imports nothing generated.
+4. **Navigation is consolidated behind one function** and held there by an AST
+   check (`helpNavigationGuard.test.ts`). wouter neither re-renders on a
+   hash-only change nor emits a native `hashchange`, so a second navigation path
+   fails *silently* — the address bar updates and the page doesn't move.
+
+**No backend surface**: no API route, no table, no server render path. And no
+confidentiality claim over the prose — see the decision on why client-side
+routing is not a confidentiality boundary.
 
 ## Admin access at the UI level
 

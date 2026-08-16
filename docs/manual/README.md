@@ -134,6 +134,49 @@ for that pass's history. From here on, growth is incremental only.
 Chapters describe the system **as it is now**. History and chronology belong to
 `decisions.md` and git — no "changelog" sections accumulate here.
 
+## This manual is also a shipped surface — editing it can fail CI
+
+Since PR #472 these files are rendered inside the admin console at
+`/admin/help`, from a **committed generated artifact** built at build time.
+Two consequences for anyone editing a chapter:
+
+**1. If you change a chapter, regenerate and commit the artifact.** A CI check
+in the always-on Build job compares the two and fails when they disagree:
+
+```
+pnpm --filter @workspace/overhype-me run generate:help    # rebuild
+pnpm --filter @workspace/overhype-me run check:help-content   # what CI runs
+```
+
+It has to run in that job specifically: `docs/**` is classified as inert, so a
+chapter-only PR skips the test suites entirely — a gate living there could
+never fire on the change that invalidates the artifact.
+
+**2. Generation *fails* rather than degrading quietly**, and several of its
+gates are about things the manual already asked authors to keep consistent but
+nothing enforced. Generation stops if:
+
+- a chapter file and the **Contents table** disagree about which chapters
+  exist, or the table isn't numbered sequentially from 1;
+- a chapter's number disagrees across **any** of its four representations —
+  the table's ordinal, the filename prefix, its `# Chapter N · Title` heading,
+  and the **previous** chapter's `**Next:** chapter N` footer (the one this
+  README already called the easiest to miss);
+- a link can't be classified, or a `#fragment` doesn't resolve to a real
+  heading **in its rendered destination** — note *rendered*: for a link into
+  another chapter that's the same file, but for a link into
+  `docs/ai-context/` it is checked against that file's real headings;
+- a chapter uses markdown outside the supported vocabulary. This is the one
+  most likely to surprise you: **GitHub's alert syntax (`> [!NOTE]`) is
+  rejected**, because GitHub renders a titled callout and the in-app converter
+  would render a plain quote containing a literal `[!NOTE]`. Raw HTML is
+  rejected for the same reason (comments excepted). Footnotes are not
+  supported. Images must point at files that exist.
+
+None of this changes how you *write* — it's the same prose for the same reader.
+It means a mistake that used to render slightly wrong on GitHub now stops the
+build instead, which is the intent: the two renderings must agree.
+
 ## Chapter quality bar — no empty chapters
 
 A chapter file exists **only** when it holds meaningful present-tense content

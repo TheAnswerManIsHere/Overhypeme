@@ -24,6 +24,18 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **The admin help system — the Manual, rendered in-console** (2026-08-16,
+  PR #472, workstream #463). `docs/manual/` is now readable at `/admin/help`
+  with per-chapter bookmarkable URLs, client-side search over a build-time
+  index, and a `?` on each admin screen that deep-links into the section
+  describing that screen. Content is a committed generated artifact — no
+  backend, no API, no table — with its freshness gate in the always-on Build
+  job because `docs/**` is CI-inert, and generation that **fails** rather than
+  degrading when the source drifts out of what it can faithfully render. Two
+  decisions worth reading rather than rederiving: the CI-placement rule for
+  any `docs/` → code generator, and the withdrawal of the "admin-only reading"
+  claim as unenforceable ([`decisions.md`](./decisions.md)).
+
 - **`/next` — the "what should we work on now" skill, plus the two
   tracking primitives it needed** (2026-08-15). Three coupled pieces:
   **phase-tracking** for multi-PR features (the parent-issue + phase
@@ -670,4 +682,13 @@ priorities (moderation speed, render/enrichment quality, video). See
     takes it as a required argument and throws without one rather than
     inventing a placeholder. Needs a configured home before phase 5 (the
     worker) can call it for real.
+- **The render-quality eval dashboard has no Manual chapter.** Its `?` control
+  points at chapter 5 (visual pipeline) as the nearest relevant explanation,
+  which is a real documentation gap rather than a mapping shortcut — eval
+  scores image-prompt attempts, but no chapter describes the screen, the
+  golden fact set, or how to read a run-vs-run comparison. Surfaced building
+  the help system (PR #472) and deliberately not absorbed into it. The product
+  question is whether eval warrants its own chapter or a section inside
+  chapter 5. Recorded in the Manual's own boundaries section too, so a reader
+  who notices the mismatch finds it acknowledged.
 - *(Add here when a real product decision is pending — don't guess.)*

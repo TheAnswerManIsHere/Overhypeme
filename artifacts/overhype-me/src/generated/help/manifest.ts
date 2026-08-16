@@ -44,6 +44,11 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 2
       },
       {
+        "id": "this-manual-is-also-a-shipped-surface--editing-it-can-fail-ci",
+        "title": "This manual is also a shipped surface — editing it can fail CI",
+        "depth": 2
+      },
+      {
         "id": "chapter-quality-bar--no-empty-chapters",
         "title": "Chapter quality bar — no empty chapters",
         "depth": 2
@@ -716,6 +721,11 @@ export const HELP_DOCS: HelpDocMeta[] = [
       {
         "id": "watching-the-machinery",
         "title": "Watching the machinery",
+        "depth": 3
+      },
+      {
+        "id": "reading-this-manual-without-leaving-the-console",
+        "title": "Reading this manual without leaving the console",
         "depth": 3
       },
       {
