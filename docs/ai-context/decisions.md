@@ -58,25 +58,48 @@
   is manual:** David notices, or `/status-all` surfaces the stalled workstream,
   and a new session re-subscribes. So this decision knowingly accepts an
   unmitigated rare gap.
-- **Why the trade is still worth taking:** the collision cost lands on the
-  *common* case (every live review loop, silently), the gap lands on a *rare*
-  one (a dead session's open PR) and is recoverable by hand. An A/B trial with
-  Autofix on was offered and declined (David had no strong preference and left
-  the call to the agent): during the trial, real review loops would run under a
-  cold watcher to probe a corner case, which is the wrong ratio, and
-  [engineer-to-the-blast-radius](./agent-working-rules.md#engineer-to-the-blast-radius)
-  favors the boring answer for internal tooling. **The decisive unknown is the
-  steward's precedence** — whether it claims every PR or only those with no
-  live subscriber. If it is the latter, the collision disappears and Autofix
-  becomes pure upside on exactly this gap.
+- **Why the trade is worth taking — two verified bug reports, not just the
+  collision argument.** The original reasoning treated the steward's precedence
+  (does it claim every PR, or only ones with no live subscriber?) as the
+  decisive unknown, and an A/B trial was offered and declined on cost/benefit.
+  Research settled it a different way: precedence is undocumented, but two
+  reports on `anthropics/claude-code` describe failures that match this repo's
+  exact configuration and were verified by reading the issues directly (both
+  closed, so treat them as reports rather than vendor-confirmed behavior):
+  - **[#62977](https://github.com/anthropics/claude-code/issues/62977)** (closed
+    as duplicate) — on Claude Code on the web, with a PR subscribed via
+    `subscribe_pr_activity` **and the Autofix setting ON**, sessions stop
+    receiving **bot-authored** review events, naming
+    `chatgpt-codex-connector[bot]` explicitly. Human comments and CI events
+    still arrive; bot reviews are silently dropped. Since Codex *is* the review
+    signal in this repo, enabling Autofix plausibly blinds the loop to the only
+    reviewer that matters — and note this is a property of the **setting being
+    on**, not of a steward claiming a PR, so it is not avoidable by winning the
+    precedence question.
+  - **[#65488](https://github.com/anthropics/claude-code/issues/65488)** (closed
+    as not planned) — Autofix monitoring subscribes only to the **first** PR
+    created in a session; later same-session PRs receive no review-comment or
+    CI events. This repo routinely opens several PRs from one session (#469,
+    #470, #471 and #481 all came from a single session), so most PRs would go
+    unmonitored.
+  Together these make Autofix strictly worse than the status quo for this
+  workflow: it would degrade the common case (live review loops) via a
+  documented regression while covering the rare case unreliably. The
+  collision/cold-watcher argument above stands, but it is no longer what the
+  decision rests on.
 - **Reference:** `CLAUDE.md` → *Always open a PR when work is done*, *Watching
   the PRs I open*; the `pr-watch` skill; this decision was taken in the
-  session that shipped PR #471.
-- **Revisit if:** a PR actually goes unwatched because its session ended — a
-  demonstrated incident, not a calendar date. At that point Autofix is the
-  obvious fix for a real problem and is cheap to enable. Also revisit if the
-  steward's precedence is documented as claiming only PRs with no live
-  subscriber, which would remove the collision entirely.
+  session that shipped PR #471, and refined by the review on PR #481.
+- **Revisit if:** [#62977](https://github.com/anthropics/claude-code/issues/62977)
+  is fixed (bot-authored review events delivered to subscribed sessions with
+  Autofix on) **and**
+  [#65488](https://github.com/anthropics/claude-code/issues/65488) is fixed
+  (all session-created PRs monitored, not just the first) — those are the two
+  concrete blockers, and both are checkable rather than judgement calls. A PR
+  actually going unwatched because its session ended is the other trigger: a
+  demonstrated incident, not a calendar date. Documented steward precedence
+  favouring live subscribers would remove the collision argument but **not**
+  the #62977 problem, so it is no longer sufficient on its own.
 
 ---
 ### 2026-08-16 · A `docs/` → code generator puts its freshness gate in the always-on Build job, never in a test suite
