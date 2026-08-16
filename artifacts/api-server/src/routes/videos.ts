@@ -601,42 +601,60 @@ router.post("/videos/generate", async (req, res) => {
       ).costUsd;
       priced = { price, costUsd };
     } catch (err) {
-      // Pricing unavailable — fail open, log and continue. Deliberately its
-      // own catch, separate from the gate call below: a gate failure must
-      // never be swallowed here as if it were a pricing miss (#409).
-      logger.warn({ err, endpointId }, "[videos/generate] Budget gate skipped (pricing unavailable)");
+      // Pricing unavailable — degrade to the engine's own configured estimate
+      // below. Deliberately its own catch, separate from the gate call: a gate
+      // failure must never be swallowed here as if it were a pricing miss
+      // (#409).
+      logger.warn({ err, endpointId }, "[videos/generate] Pricing unavailable — gating on the engine estimate");
     }
 
-    if (priced) {
-      try {
-        // Deliberately outside the catch above (#409): a gate failure is not
-        // a pricing failure, and must propagate rather than be swallowed.
-        const budget = await checkBudget(authenticatedUserId, priced.costUsd);
-        if (!budget.allowed) {
-          budgetGateRefusal = true;
-          res.status(429).json({
-            error: "BUDGET_EXCEEDED",
-            currentSpend: budget.currentSpend,
-            limit: budget.limit,
-            remainingBudget: budget.remainingBudget,
-            upgradePath: "/upgrade",
-          });
-          return;
-        }
+    // The gate runs whether or not pricing resolved. `estimateStage2Cost` in
+    // videoPipelineRunner.ts already degrades this way for the async path;
+    // this route used to skip the check entirely instead, which left the
+    // ceiling unenforced exactly when something else was already failing.
+    // Null-safety matters here: `Number(null)` is 0, not NaN, so a null column
+    // would silently price the call at zero — hence the explicit null check
+    // rather than a bare `Number.isFinite`.
+    const perSecRaw = engine.estimatedCostUsdPerSecond;
+    const perSecParsed = perSecRaw === null || perSecRaw === undefined ? NaN : Number(perSecRaw);
+    const ENGINE_PER_SEC_FALLBACK = 0.05; // mirrors videoPipelineRunner.ts
+    const gateCostUsd =
+      priced?.costUsd
+      ?? (Number.isFinite(perSecParsed) ? perSecParsed : ENGINE_PER_SEC_FALLBACK) * durationSec;
+
+    try {
+      // Deliberately outside the catch above (#409): a gate failure is not
+      // a pricing failure, and must propagate rather than be swallowed.
+      const budget = await checkBudget(authenticatedUserId, gateCostUsd);
+      if (!budget.allowed) {
+        budgetGateRefusal = true;
+        res.status(429).json({
+          error: "BUDGET_EXCEEDED",
+          currentSpend: budget.currentSpend,
+          limit: budget.limit,
+          remainingBudget: budget.remainingBudget,
+          upgradePath: "/upgrade",
+        });
+        return;
+      }
+      // Only a REAL price is carried forward for ledger recording — an
+      // estimate is good enough to gate on, but must not be written to the
+      // cost ledger as if it were measured.
+      if (priced) {
         cachedPriceForRecording = priced.price;
         estimatedCostUsd = priced.costUsd;
-      } catch (err) {
-        if (err instanceof BudgetGateError) {
-          // The gate could not answer — this is the server's fault, not the
-          // user's. Deny with a retry-able 503, not the 429 above: conflating
-          // the two would tell someone hitting a transient database error to
-          // go buy more credit.
-          budgetGateRefusal = true;
-          res.status(503).json({ error: err.message });
-          return;
-        }
-        throw err;
       }
+    } catch (err) {
+      if (err instanceof BudgetGateError) {
+        // The gate could not answer — this is the server's fault, not the
+        // user's. Deny with a retry-able 503, not the 429 above: conflating
+        // the two would tell someone hitting a transient database error to
+        // go buy more credit.
+        budgetGateRefusal = true;
+        res.status(503).json({ error: err.message });
+        return;
+      }
+      throw err;
     }
   }
 

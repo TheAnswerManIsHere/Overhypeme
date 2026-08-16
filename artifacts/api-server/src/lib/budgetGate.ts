@@ -112,10 +112,19 @@ async function resolveBudgetFloat(
  * Fails CLOSED: throws `BudgetGateError` if the check cannot complete.
  * Determining spend is a precondition for spending money, so a gate that
  * cannot answer denies rather than grants.
+ *
+ * `proposedCost` may be a number or a thunk. Pass a THUNK when determining the
+ * cost is itself expensive or fallible — it is invoked only after the admin
+ * exemption, so an exempt admin never triggers a lookup their request does not
+ * need, and a failure in that lookup cannot deny them. A thunk that throws is
+ * caught by this function's own handler and surfaces as `BudgetGateError`,
+ * which is the correct classification: the cost could not be determined, so
+ * the check could not complete. That is NOT the same as being over limit, and
+ * callers must keep treating the two differently (#409).
  */
 export async function checkBudget(
   userId: string,
-  proposedCostUsd: number,
+  proposedCost: number | (() => Promise<number>),
 ): Promise<BudgetStatus> {
   try {
     // Look up user tier and per-user override
@@ -145,6 +154,15 @@ export async function checkBudget(
     if (isAdmin) {
       return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
     }
+
+    // Resolve the proposed cost only now, AFTER the exemption. A caller whose
+    // cost is itself expensive or fallible to determine passes a thunk rather
+    // than a number, so an exempt admin never pays for — or gets denied by —
+    // a lookup their request does not need. Round 4 of PR #474's review caught
+    // the eager form: `checkBudget(userId, await resolveCost())` evaluates its
+    // argument before this function is entered, so a throwing resolver
+    // preempted the exemption above and rejected admins outright.
+    const proposedCostUsd = typeof proposedCost === "function" ? await proposedCost() : proposedCost;
 
     // Fetch config values WITH provenance: `fallback_default` means the read
     // itself failed, not that the key is legitimately unset. A non-admin's

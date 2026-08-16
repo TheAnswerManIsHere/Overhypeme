@@ -220,6 +220,68 @@ describe("checkBudget — admin", () => {
       else process.env["ADMIN_USER_IDS"] = prevAdminUserIds;
     }
   });
+
+  // Round 4 of PR #474's review. The cost of a generation whose fal price is
+  // unavailable has to be looked up, and that lookup can fail. Passed eagerly
+  // — `checkBudget(userId, await resolveCost())` — its failure preempts the
+  // exemption above, because the argument is evaluated before this function is
+  // ever entered. An admin was therefore refused a generation by a check they
+  // are exempt from. The thunk form defers it past the exemption.
+  it("an admin is exempt without the cost thunk ever being invoked", async () => {
+    await setStandardLimits({ registeredUsd: 0.5 });
+    const userId = await createTestUser({ isAdmin: true });
+
+    let thunkCalls = 0;
+    const status = await checkBudget(userId, async () => {
+      thunkCalls++;
+      throw new Error("cost lookup failed — must never run for an exempt admin");
+    });
+
+    assert.equal(thunkCalls, 0, "the cost thunk must not run for an exempt admin");
+    assert.equal(status.allowed, true);
+    assert.equal(status.limit, Infinity);
+  });
+
+  it("a non-admin still gets a failing cost lookup as BudgetGateError, not as over-limit", async () => {
+    // The other half of the same behavior: deferring the lookup must not turn
+    // a genuine cost-resolution failure into a silent pass for everyone else.
+    await setStandardLimits({ registeredUsd: 0.5 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    let thunkCalls = 0;
+    await assert.rejects(
+      () =>
+        checkBudget(userId, async () => {
+          thunkCalls++;
+          throw new Error("cost lookup failed");
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof BudgetGateError, `expected BudgetGateError, got ${String(err)}`);
+        assert.ok(
+          !(err instanceof BudgetExceededError),
+          "a cost-resolution failure is not the same as being over limit (#409)",
+        );
+        return true;
+      },
+    );
+    assert.equal(thunkCalls, 1, "the thunk must run for a non-exempt user");
+  });
+
+  it("a thunk returning a number gates identically to passing that number", async () => {
+    await setStandardLimits({ registeredUsd: 0.5 });
+    const userId = await createTestUser({ tier: "registered" });
+
+    const viaNumber = await checkBudget(userId, 0.10);
+    const viaThunk = await checkBudget(userId, async () => 0.10);
+    assert.equal(viaThunk.allowed, viaNumber.allowed);
+    assert.equal(viaThunk.limit, viaNumber.limit);
+    assert.equal(viaThunk.remainingBudget, viaNumber.remainingBudget);
+
+    const overNumber = await checkBudget(userId, 99999);
+    const overThunk = await checkBudget(userId, async () => 99999);
+    assert.equal(overThunk.allowed, false);
+    assert.equal(overNumber.allowed, false);
+  });
 });
 
 describe("checkBudget — registered tier", () => {

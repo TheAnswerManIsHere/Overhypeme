@@ -258,6 +258,12 @@ jobs:
       - name: Permission chokepoint check (frontend)
         run: pnpm run check:permissions:frontend
 
+      # The spend gate must run even when pricing can't be resolved. Wrapping
+      # checkBudget() in `if (priced)` skips the check on a pricing miss, so
+      # the guard makes that shape impossible rather than merely discouraged.
+      - name: Budget gate unconditional check
+        run: pnpm run check:budget-gate
+
       - name: Build app
         run: pnpm run build
         env:
