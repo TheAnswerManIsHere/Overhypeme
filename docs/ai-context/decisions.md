@@ -13,6 +13,57 @@
 
 ---
 
+### 2026-08-16 · An unresolvable generation cost degrades to a defensible estimate, but an unreadable authoritative source denies
+- **Decision:** The generation spend gate runs on every generation. When the fal
+  price cannot be resolved, the call site degrades to the engine's configured
+  estimate and **still** calls `checkBudget`; it never skips the check. But when
+  the *authoritative source for that estimate* — the persisted `engines` row —
+  cannot be read, the gate **denies** (`BudgetGateError`) rather than
+  substituting the code catalogue's seeded value.
+- **Why:** The two cases look alike ("we cannot determine the true cost") and
+  were deliberately split. A pricing miss still leaves a defensible,
+  model-specific figure available: the operator-configured estimate for that
+  exact engine. An unreadable `engines` table leaves nothing defensible — if you
+  could not read the persisted values, no number derived from the catalogue is
+  provably above them, so a $0.04 seed can silently displace an admin-set $0.08
+  and let a call through. "Fall back to something that cannot undercut" was
+  considered and is **not achievable** in that branch, which is what makes
+  denying the only sound option rather than merely the more cautious one. The
+  failure modes are also uncorrelated: an `engines` read can fail transiently or
+  by table-scoped permissions while `checkBudget`'s own queries still succeed,
+  so "the database is broken anyway, checkBudget will fail too" was an assumption
+  that did not hold.
+- **Also settled:** a deliberate `0` cost is honored rather than overridden — the
+  admin validator accepts any non-negative value, so a waived or promotional
+  engine is real configuration, not a missing value.
+- **Reference:** PR #474 (rounds 2–3), `artifacts/api-server/src/lib/aiMemePipeline.ts`,
+  [`security-model.md`](./security-model.md)'s generation-spend section.
+- **Revisit if:** the estimate/deny split proves confusing in practice, or if a
+  future change makes a provably-conservative floor available in the unreadable
+  branch (which would make degrading defensible there too).
+
+### 2026-08-16 · Unpriced generations will be recorded to the cost ledger behind an `is_estimated` flag
+- **Decision:** `user_generation_costs` gets an `is_estimated` column, and a
+  generation whose price could not be resolved is recorded with the gating
+  estimate, flagged. Ships as its own migration PR, sequenced after PR #474.
+- **Why:** Today `recordCost` is guarded on a real price, so an unpriced
+  generation is not recorded at all. Across a sustained pricing outage recorded
+  spend stops growing, which means the restored ceiling is measured against a
+  stale total and a user under their limit can keep generating indefinitely —
+  the gap PR #474 closes per-request but not cumulatively. Two alternatives were
+  put to David with their ramifications and rejected: recording estimates into
+  the existing columns with no flag (cheaper, no migration, but
+  `unit_price_at_creation` and `pricing_fetched_at` would carry synthetic values
+  and cost reporting would permanently lose the measured-vs-estimated
+  distinction), and leaving it (free now, window stays open). Pre-launch is when
+  a schema change is cheapest, and it is the only option that does not put
+  estimates into the ledger disguised as measurements.
+- **Reference:** PR #474's "known residual"; David's call, 2026-08-16.
+- **Revisit if:** the three ledger consumers (`checkBudget`, the user
+  monthly-spend endpoint, the admin per-user spend panel) need estimates
+  *excluded* rather than labelled — an open product question at the time of the
+  decision, to be settled when the migration ships.
+
 ### 2026-08-15 · Scheduled self-check-ins return under a bounded contract, scoped to the behavior rather than a tool name
 - **Decision:** The 2026-07-07 blanket ban on background self-check-ins is
   replaced by a bounded contract. **Scope: a timer or trigger the agent

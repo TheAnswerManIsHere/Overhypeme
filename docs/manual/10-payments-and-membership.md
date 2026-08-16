@@ -166,6 +166,20 @@ a comp from a real sale.
 
 ## Boundaries & known limitations
 
+- **A long fal pricing outage can let generation spend drift past a member's
+  ceiling, even though every individual request is still checked.** Each
+  generation is priced before it runs, and that price is what gets checked
+  against the member's remaining budget. When the price genuinely can't be
+  looked up, the check still happens — against the engine's configured cost
+  estimate rather than a real price — and if even that can't be read, the
+  generation is refused rather than waved through. What is *not* yet handled
+  is the running total: a generation priced from an estimate isn't written to
+  the spend ledger at all, because the ledger deliberately records only real
+  measured prices. So while an outage lasts, recorded spend stops growing, and
+  a member already under their limit can keep generating against a total that
+  no longer moves. Each request is capped; the month isn't. Closing that needs
+  the ledger to be able to say "this figure was an estimate," which is
+  approved and queued rather than open-ended.
 - **The grace window's deadline can go unset, in one rare case — but only the
   first time.** If the system can't pin down exactly when a subscription's
   failed-payment run actually started — an incomplete Stripe invoice page, an

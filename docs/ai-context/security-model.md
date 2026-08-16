@@ -211,6 +211,51 @@ Webhook signature verification is delegated to `stripe-replit-sync` (Replit's
 fork of Supabase's stripe-sync-engine); it sits in the payment-critical path and
 is pinned exact + Dependabot-monitored.
 
+## Generation spend enforcement
+
+Distinct from the membership-grant trust above: this is the per-user **spend
+ceiling** on paid generation (fal.ai image and video calls), and it is a
+fail-closed control, not just a budgeting nicety — an unbounded generation path
+spends real money with no upper limit.
+
+`checkBudget` (`artifacts/api-server/src/lib/budgetGate.ts`) is the single gate.
+Its contract, established across #409 / PR #443 / PR #474:
+
+- **It denies when it cannot answer.** A config-read, tier-lookup, or ledger-sum
+  failure throws `BudgetGateError` rather than returning `{allowed: true}`. That
+  error is deliberately distinct from `BudgetExceededError`: the first is a
+  retry-able 503 ("we could not tell"), the second a 429 that sends the user to
+  the upgrade path ("you are over"). **Never conflate them** — telling someone
+  hitting a transient database error to go buy more credit is the failure this
+  split exists to prevent.
+- **The gate's input is part of the gate.** Resolving the fal price can fail, and
+  a call site that skips the check when it does leaves the ceiling unenforced at
+  precisely the wrong moment. Every call site therefore either degrades to a
+  defensible estimate and still gates, or denies. See the
+  [precondition failure pattern](./known-failure-patterns.md) for the general
+  shape. `scripts/check-budget-gate-unconditional.mjs` is a CI guard that walks
+  the TypeScript AST and fails the build if a `checkBudget` call is ever made
+  conditional on price resolution again; its known limits are documented in its
+  own header, and it is a backstop rather than the control.
+- **The fallback estimate comes from the persisted `engines` row**, not the code
+  catalogue — `estimatedCostUsdPerCall` is admin-editable and `engines/reconcile.ts`
+  strips `ADMIN_EDITABLE_FIELDS` from its boot update precisely so operator edits
+  survive. A model-specific figure always beats an aggregate, so an incomplete
+  table cannot lower the floor; and if the `engines` read itself fails the gate
+  **denies**, because no catalogue-derived number provably avoids undercutting an
+  admin-set one.
+- **The admin exemption resolves before any fallible read**, so a transient
+  failure never denies an admin who is not subject to a limit. A caller whose
+  cost is itself fallible to determine passes a **thunk**, which `checkBudget`
+  invokes only after that exemption.
+- **The ledger records measured prices only.** `recordCost` writes
+  `user_generation_costs` after a successful call, and an estimate is never
+  written as if it were measured. Consequence, tracked in
+  [`deferred-work.md`](../engineering/deferred-work.md): an unpriced generation
+  is currently not recorded at all, so across a *sustained* pricing outage
+  recorded spend stops growing and the ceiling is measured against a stale
+  total.
+
 ## HTTP security headers (C5)
 
 `artifacts/api-server/src/lib/securityHeaders.ts`, mounted **first** in `app.ts` so every response

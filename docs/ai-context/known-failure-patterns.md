@@ -1700,3 +1700,48 @@ deterministic check.
 [`.agents/metrics/loops/README.md`](../../.agents/metrics/loops/README.md); the
 ledger obligation that binds every agent is
 [`working-modes.md`](./working-modes.md#the-loop-ledger).
+
+## A gate's precondition is treated as optional, so the gate silently doesn't run
+
+**Looks like:** a check that fails closed correctly — it denies on its own
+internal error, it distinguishes "you are over the limit" from "I could not
+tell" — but whose *input* is resolved beforehand by something that can fail,
+and whose call site expresses "we could not get the input" as **"there is
+nothing to check"** rather than **"check anyway, conservatively"** or
+**"deny."** The gate's own hardening reads as complete because every branch
+*inside* it is correct; the hole is in front of it.
+
+**Dangerous:** the skip fires exactly when something else is already broken,
+so the protection disappears at the moment it is most needed, and typically
+with only a WARN log to say so. It also survives review well, because the
+conditional looks like ordinary defensive coding (`if (priced) { …gate… }`)
+and reads as *more* careful, not less.
+
+**Avoid:** treat resolving the gate's input as part of the gate. On failure,
+either degrade to a conservative estimate and still run the check, or deny —
+never skip. When choosing between those two, ask whether a *defensible*
+substitute value exists: a model-specific configured estimate is defensible;
+a number derived from a source you could not read is not, because nothing
+proves it doesn't undercut what that source actually said.
+
+**The precondition can also be ORDERING, not just availability.** A callee
+that resolves a cheap exemption *before* its own fallible work is defeated by
+a caller that resolves that fallible work in the argument list — arguments are
+evaluated before the callee is entered, so `gate(user, await expensive())`
+puts `expensive()`'s failure in front of an exemption the user was entitled
+to. The fix belongs in the callee (accept a thunk, invoke it after the
+exemption), not in the caller re-deriving the exemption — a caller that
+re-derives an authorization decision to fix an ordering bug trades a
+correctness bug for a source-of-truth-drift bug.
+
+**Overhype:** the generation spend gate. `checkBudget` was hardened to fail
+closed on its own errors (#409, PR #443), but three of four call sites wrapped
+it in `if (priced)`, so a fal pricing miss — no cached row, pricing API down,
+no FAL key — skipped the spend check entirely and left the per-user ceiling
+unenforced (PR #474). `videoPipelineRunner.ts` had always had the right shape:
+`estimateStage2Cost` degrades to the engine's configured estimate and still
+calls the gate. The ordering variant appeared *inside the fix for that*:
+resolving the fallback eagerly in `checkBudget`'s argument list put a fallible
+`engines` read ahead of the admin exemption, refusing admins a check they are
+exempt from. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop;
+see also [`security-model.md`](./security-model.md)'s generation-spend section.

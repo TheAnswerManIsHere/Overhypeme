@@ -57,6 +57,13 @@ we've sequenced for later.
   hold has a security dimension (we're declining a patch-eligible bump), so the
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
+  - **Re-checked 2026-08-16 (the auth/entitlement/spend security pass):
+    negative.** `pnpm audit` reports no advisory against sharp at any version
+    in the tree. The hold remains safe on security grounds. *Not* a statement
+    about the other 70 advisories that audit reports — those are the
+    Dependabot backlog, several of them on production-path packages
+    (`express` → `body-parser`, `path-to-regexp`), and triaging them is
+    tracked separately.
 
 - **Nothing alerts if the `rate_limit_counters` purge silently stops running.**
   - **What.** `jobs/rateLimitCounterPurger.ts` reports through structured log
@@ -118,6 +125,49 @@ we've sequenced for later.
     review. Fix is a boot assertion on the canonical production predicate
     (`REPLIT_DEPLOYMENT === "1" || NODE_ENV === "production"`), tested on
     **both** branches of that `||`.
+  - **⚠️ TRIGGER FIRED, STILL OPEN — 2026-08-16.** The auth/entitlement/spend
+    security pass re-checked this and the fallback is unchanged and live:
+    `transientRenderLog.ts` still substitutes a repository-known salt when
+    `IP_HASH_SALT` is missing or under 16 characters, with a WARN as the only
+    signal, and the boot assertion has not landed. This is now a **fired**
+    revisit condition rather than a parked one — the next pass through here
+    should either implement the assertion or record a positive decision not
+    to, not silently re-defer it a third time.
+
+- **`recordCost` swallows a ledger-write failure (found on the 2026-08-16 security pass).**
+  - **What.** `budgetGate.recordCost` catches and logs at WARN, deliberately —
+    it runs *after* a successful fal call, so throwing would fail a generation
+    the user has already been charged compute for. The consequence is that a
+    persistent ledger-write failure means spend accumulates while recorded
+    spend does not, and the per-user ceiling silently stops binding. That is
+    the same fail-open family as the gate skip PR #474 closed, on the
+    accounting side rather than the enforcement side.
+  - **Why deferred now.** It overlaps the approved `is_estimated` ledger work
+    (below) — both change when and what `recordCost` writes — so doing them
+    separately would touch the same function twice with the second change
+    partly reverting the first's assumptions.
+  - **Cost of waiting.** Bounded: it needs a *sustained* insert failure, which
+    would also be visible in logs. Unbounded in principle, since nothing
+    alerts on it.
+  - **Revisit trigger.** Fold into the `is_estimated` migration PR.
+
+- **Unpriced generations are not recorded to the cost ledger (approved fix, sequenced).**
+  - **What.** `recordCost` is guarded on a real resolved price, and every
+    `user_generation_costs` column is `NOT NULL` with no measured-vs-estimated
+    flag, so a generation gated on a fallback estimate is written nowhere.
+    Across a sustained pricing outage recorded spend stops growing and the
+    ceiling PR #474 restored is measured against a stale total.
+  - **Why deferred now.** Closing it needs a schema column, which is Tier C
+    (migration ceremony, its own PR), and it builds on the fallback path PR
+    #474 introduced — so it is sequenced after that merge rather than folded
+    into it.
+  - **Cost of waiting.** The per-request ceiling holds; the cumulative one
+    does not, for the duration of a pricing outage.
+  - **Revisit trigger.** **Approved by David 2026-08-16** — not a parked
+    condition, queued work. See the decision entry in
+    [`decisions.md`](../ai-context/decisions.md), which also records the open
+    product question it carries (whether the two spend-display surfaces
+    should include, label, or exclude estimated rows).
 
 **Security follow-ups from the C5/C9 review.** Lower-risk hardening the
 security review consciously deferred. Full context lives in

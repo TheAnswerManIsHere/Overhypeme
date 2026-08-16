@@ -24,6 +24,23 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **The generation spend gate now runs even when pricing can't be resolved**
+  (2026-08-16, PR #474). Found by the auth/entitlement/spend security pass:
+  three of four spend call sites wrapped `checkBudget` in `if (priced)`, so a
+  fal pricing miss skipped the ceiling entirely — enforcement disappearing at
+  the moment something else was already failing. All sites now degrade to the
+  engine's configured estimate and still gate, or deny when the authoritative
+  cost can't be read; the fallback reads the persisted `engines` row rather
+  than the code seed, honors a deliberate `0`, and resolves after the admin
+  exemption. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop.
+  Five Codex rounds, eight findings, all real. See
+  [`security-model.md`](./security-model.md)'s generation-spend section and the
+  two 2026-08-16 entries in [`decisions.md`](./decisions.md).
+  **Still owed from that pass:** the `is_estimated` ledger column (approved,
+  queued), the `recordCost` swallow it folds in, and the fired-but-open
+  `IP_HASH_SALT` boot assertion — all tracked in
+  [`deferred-work.md`](../engineering/deferred-work.md).
+
 - **`/next` — the "what should we work on now" skill, plus the two
   tracking primitives it needed** (2026-08-15). Three coupled pieces:
   **phase-tracking** for multi-PR features (the parent-issue + phase
