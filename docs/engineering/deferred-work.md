@@ -57,6 +57,31 @@ we've sequenced for later.
   hold has a security dimension (we're declining a patch-eligible bump), so the
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
+  - **Re-checked 2026-08-16 (the auth/entitlement/spend security pass). The
+    libvips CVEs still stand — the hold is NOT security-safe.** `pnpm audit`
+    reports no advisory against sharp, and that is **not evidence**: `audit`
+    surfaces npm-registry advisories, while sharp's exposure is inherited from
+    the **libvips binary bundled inside it**, which no npm advisory covers.
+    The four CVEs recorded under *Cost of waiting* above (incl.
+    [GHSA-f88m-g3jw-g9cj](https://github.com/lovell/sharp/security/advisories/GHSA-f88m-g3jw-g9cj),
+    High) remain a known, accepted risk while this stays parked. The remaining
+    gate is unchanged: a deliberate visual-pipeline upgrade with UAT, targeting
+    0.35.1+.
+  - **This entry was briefly edited to claim the opposite, which is the second
+    occurrence of a pattern this repo already documents.** The first version of
+    this line, in 2026-07, asserted "no known CVE" from assumption; the
+    2026-08-16 version asserted "negative" from a clean `pnpm audit`. Different
+    reasoning, same false conclusion, on the same dependency. See
+    [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#security-relevant-dependency-claims-written-from-assumption-not-verification)
+    — whose worked example *is* this line. The check that would have caught
+    both is the one that pattern already prescribes: read the package's own
+    GHSA/changelog, and treat a tool's silence as silence rather than as a
+    negative result. **Nothing here should be re-marked "clear" without a
+    libvips-version check.**
+  - **Separately, `pnpm audit` on 2026-08-16 reported ~70 advisories overall.**
+    Not a statement about sharp; that is the Dependabot backlog, and several
+    sit on production-path packages (`express` → `body-parser`,
+    `path-to-regexp`) rather than dev tooling. Triaging it is tracked below.
 
 - **Nothing alerts if the `rate_limit_counters` purge silently stops running.**
   - **What.** `jobs/rateLimitCounterPurger.ts` reports through structured log
@@ -118,6 +143,115 @@ we've sequenced for later.
     review. Fix is a boot assertion on the canonical production predicate
     (`REPLIT_DEPLOYMENT === "1" || NODE_ENV === "production"`), tested on
     **both** branches of that `||`.
+  - **⚠️ TRIGGER FIRED, STILL OPEN — 2026-08-16.** The auth/entitlement/spend
+    security pass re-checked this and the fallback is unchanged and live:
+    `transientRenderLog.ts` still substitutes a repository-known salt when
+    `IP_HASH_SALT` is missing or under 16 characters, with a WARN as the only
+    signal, and the boot assertion has not landed. This is now a **fired**
+    revisit condition rather than a parked one — the next pass through here
+    should either implement the assertion or record a positive decision not
+    to, not silently re-defer it a third time.
+
+- **`recordCost` swallows a ledger-write failure (found on the 2026-08-16 security pass).**
+  - **What.** `budgetGate.recordCost` catches and logs at WARN, deliberately —
+    it runs *after* a successful fal call, so throwing would fail a generation
+    the user has already been charged compute for. The consequence is that a
+    persistent ledger-write failure means spend accumulates while recorded
+    spend does not, and the per-user ceiling silently stops binding. That is
+    the same fail-open family as the gate skip PR #474 closed, on the
+    accounting side rather than the enforcement side.
+  - **Why deferred now.** It overlaps the approved `is_estimated` ledger work
+    (below) — both change when and what `recordCost` writes — so doing them
+    separately would touch the same function twice with the second change
+    partly reverting the first's assumptions.
+  - **Cost of waiting.** Higher than "sustained failure" framing suggests, and
+    an earlier version of this entry understated it. **One** swallowed insert
+    permanently understates the ledger — there is no retry and no backfill — so
+    a single lost write is enough for a later request to pass
+    `currentSpend + proposedCost <= limit` while real cumulative spend has
+    crossed the ceiling. A sustained failure widens the gap; it is not a
+    precondition for the fail-open. Nothing alerts on either case.
+  - **Revisit trigger.** Fold into the `is_estimated` migration PR.
+
+- **The cost ledger records no provenance, and an unpriced synchronous generation — image OR video — is not recorded at all (approved fix, sequenced).**
+  - **What.** Two related gaps, and the second is the one that is easy to get
+    wrong. **(a)** On **both** synchronous paths — `aiMemePipeline` and
+    `POST /videos/generate` — `recordCost` is guarded on a provider-resolved
+    price, so a generation gated on a fallback estimate is written nowhere. Both
+    routes gate correctly on the fallback and then decline to record it, which
+    is the same asymmetry in two places: across a sustained pricing outage their
+    recorded spend stops growing and the ceiling PR #474 restored is measured
+    against a stale total. **Scope the fix to both writers** — an earlier version
+    of this entry said "synchronous image," which would have left unpriced
+    synchronous videos permanently unrecorded.
+    **(b)** The ledger **mixes two different kinds of figure**, with nothing
+    marking which is which. No `user_generation_costs` column flags provenance,
+    and the cost columns are all `NOT NULL` — but **`job_reference_id` is
+    nullable** (`recordCost` stores `?? null`), which matters below: a row with
+    no reference carries no stage suffix to recover provenance from.
+
+    **Note the distinction is NOT measured-vs-estimated.** *No* row records an
+    actual provider charge: `getCachedPrice` returns an hourly-refreshed unit
+    rate and `costComputation.ts` derives a cost from dimensions, count and
+    duration without ever reading a billing result. The real distinction is
+    **provider-resolved rate** (fal's published price for that endpoint, applied
+    to the request's actual parameters) versus **operator-configured estimate**
+    (the engine's `estimatedCostUsdPerCall`, or a hardcoded fallback). Both are
+    computed; one tracks the provider, the other tracks our own guess.
+
+    **Which writers produce which is deliberately NOT enumerated here.** This
+    entry carried a per-writer table for two review rounds and it was wrong in a
+    different way each round — stage gating, row distinguishability, and the
+    measured/estimated framing itself all had to be corrected (PR #477, rounds
+    1–3). A specification that unreliable is worse than none, because the
+    migration would inherit its errors with more confidence than they deserve.
+    **Derive it from `videoPipelineRunner.ts`, `aiMemePipeline.ts` and
+    `routes/videos.ts` at build time and verify against live data.** What is
+    safe to carry forward is only the shape: the async video pipeline writes
+    operator-configured figures for its stylise and subtitle stages and for its
+    main stage's pricing-failure path, while the synchronous paths and the main
+    stage's normal path write provider-resolved ones.
+  - **Why deferred now.** Closing it needs a schema column, which is Tier C
+    (migration ceremony, its own PR), and it builds on the fallback path PR
+    #474 introduced — so it is sequenced after that merge rather than folded
+    into it.
+  - **Cost of waiting.** The per-request ceiling holds; the cumulative one does
+    not, for the duration of a pricing outage on either synchronous path. Cost reporting
+    already overstates its own precision on the video path.
+  - **Scope warning for whoever builds it.** An `is_estimated` column that
+    covers only the new image-path writes would be **worse than none** — it
+    would assert a provenance distinction while silently leaving the video
+    pipeline's operator-configured rows, and every historical row, flagged as
+    if they were provider-resolved. Note the column name itself invites the
+    retired framing: `is_estimated = false` must mean *provider-resolved rate*,
+    not *measured charge*, since no row is a measured charge.
+  - **Historical rows are more recoverable than a first look suggests** — so
+    don't default them all to `false` without checking. Two discriminators
+    exist in the data and are worth investigating before deciding:
+    `job_reference_id` carries a per-stage suffix **where it is present at all**
+    (the column is nullable, so some rows have none), and `billing_units`
+    differs sharply between the two writers on the video pipeline's main stage
+    (a computed token count versus a literal `1`). **Both are leads, not
+    conclusions** — confirm the current code still writes them that way,
+    establish how many rows carry a null reference, and validate the
+    distribution against live data before a backfill relies on either. An earlier version of this entry asserted the opposite (that those
+    rows were indistinguishable), which would have discarded recoverable
+    provenance permanently.
+  - **A missing row is not automatically normal, and not automatically a gap.**
+    Some stages legitimately don't run — the stylise stage only on the
+    stylize-then-video path, the subtitle stage only after the main stage
+    succeeds — so their rows are correctly absent for many healthy jobs. But
+    `recordCost` swallows an insert failure (the entry above), so an
+    expected row can also be missing from a perfectly healthy job. **Normality
+    has to be judged from `sourceMode` and the stage/job outcome, not from row
+    count**, and an expected-but-missing row is a write gap — precisely the
+    accounting failure the `recordCost` item exists to track. A reconciliation
+    check that treats absence as benign would ignore it.
+  - **Revisit trigger.** **Approved by David 2026-08-16** — not a parked
+    condition, queued work. See the decision entry in
+    [`decisions.md`](../ai-context/decisions.md), which also records the open
+    product question it carries (whether the two spend-display surfaces
+    should include, label, or exclude estimated rows).
 
 **Security follow-ups from the C5/C9 review.** Lower-risk hardening the
 security review consciously deferred. Full context lives in
