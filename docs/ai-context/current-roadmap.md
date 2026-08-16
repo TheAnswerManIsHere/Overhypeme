@@ -609,6 +609,13 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
+- **Manual chapter 13 — the render-quality eval dashboard** (David, 2026-08-16;
+  settled from an open product question the help-system harvest raised). Eval
+  gets **its own chapter**, not a section in chapter 5 or an expanded clause in
+  chapter 11. More than a writing job: the four-representation gate now
+  enforces chapter numbering, so a 13th chapter also gives chapter 12 the
+  `**Next:**` footer it currently must *not* have. Full constraint list and
+  rationale in **#480** — not restated here.
 - **Retrofit the async-queue parent for phase-tracking.** NCMEC's parent
   (#310) got its Phases checklist 2026-08-15, as part of PR #453's
   post-merge retrofit — done, not a remaining item. The async-queue
@@ -682,13 +689,4 @@ priorities (moderation speed, render/enrichment quality, video). See
     takes it as a required argument and throws without one rather than
     inventing a placeholder. Needs a configured home before phase 5 (the
     worker) can call it for real.
-- **The render-quality eval dashboard has no Manual chapter.** Its `?` control
-  points at chapter 5 (visual pipeline) as the nearest relevant explanation,
-  which is a real documentation gap rather than a mapping shortcut — eval
-  scores image-prompt attempts, but no chapter describes the screen, the
-  golden fact set, or how to read a run-vs-run comparison. Surfaced building
-  the help system (PR #472) and deliberately not absorbed into it. The product
-  question is whether eval warrants its own chapter or a section inside
-  chapter 5. Recorded in the Manual's own boundaries section too, so a reader
-  who notices the mismatch finds it acknowledged.
 - *(Add here when a real product decision is pending — don't guess.)*

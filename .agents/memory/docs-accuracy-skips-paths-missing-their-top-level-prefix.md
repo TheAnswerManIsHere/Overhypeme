@@ -1,40 +1,67 @@
-# `check-docs-accuracy` silently skips a path missing its top-level prefix
+# `check-docs-accuracy` only validates repo-root-prefixed paths — shorthand is unchecked *and* allowed
 
-**Symptom.** A doc cites `src/components/admin/helpMap.ts`. No such file exists
-— the real path is `artifacts/overhype-me/src/components/admin/helpMap.ts` —
-and `pnpm run check:docs` passes anyway. A human reviewer following the link
-hits nothing.
-
-**Cause.** `scripts/check-docs-accuracy.mjs` only *considers* a token a repo
-path when it matches:
+**The mechanic.** `scripts/check-docs-accuracy.mjs` treats a backticked token as
+a repo path only when it starts with a known top-level directory:
 
 ```js
 const TOP_LEVEL = /^(docs|lib|artifacts|scripts|cloudflare|\.agents|\.claude|\.github)\//;
 ```
 
-Anything not starting with a known top-level directory is skipped — not
-flagged, **skipped**. So the check is blind in exactly the direction that
-matters: a path is wrong *because* it omits its prefix, and omitting the prefix
-is what makes the checker ignore it. Correct paths get validated; this specific
-class of incorrect path is invisible.
+Anything else is **skipped, not flagged**. So `` `src/components/admin/helpMap.ts` ``
+— a path that exists under no repo root — passes silently, while
+`` `artifacts/overhype-me/src/components/admin/helpMap.ts` `` is verified.
 
-The guard is doing what it was written to do (it can't validate every
-slash-containing token in prose without drowning in false positives), but the
-consequence is worth knowing before trusting a green `check:docs` as "every
-cited path is real."
+**A green `check:docs` therefore does not mean every cited path resolves.** It
+means every *prefixed* cited path resolves. Know which claim you're relying on.
 
-**What actually catches it.** Human or bot review. On PR #475 Codex caught
-three such rows in one table while `check:docs` reported clean across 141
-files — in the same run where it *did* catch a malformed `scripts/...` path,
-because that one started with a known prefix.
+## The important half: shorthand is the house convention, not a bug
 
-**When writing docs.** In a monorepo, always cite from the **repo root**.
-`artifacts/overhype-me/src/...`, never `src/...` — even inside a section that's
-obviously about the frontend workspace, because the checker's coverage depends
-on that prefix and so does anyone running `cat` on it.
+Do **not** conclude from the above that unprefixed citations are errors to be
+hunted. Measured on 2026-08-16: **46 shorthand citations across 13 docs**
+(`meme-and-video-studio.md`, `community-and-engagement.md`,
+`public-site-and-sharing.md`, `accounts-and-auth.md`, `visual-pipeline.md`,
+`known-failure-patterns.md`, `decisions.md` and others). Every one points at a
+file that really exists — they are real paths with the workspace prefix
+omitted, not dangling references.
 
-**Improving the checker** is a real option (e.g. flag a token that looks like a
-path, contains a known source extension, and resolves under no workspace root)
-and would need to be weighed against false-positive noise. Logged as a
-follow-up rather than fixed inside a `/document` run, which is docs-only by
-contract.
+That's deliberate practice, and it reads better: in a doc entirely about the
+frontend auth pages, `` `pages/Login.tsx` `` is unambiguous, while
+`` `artifacts/overhype-me/src/pages/Login.tsx` `` is thirty characters of noise
+in the middle of a sentence.
+
+**An earlier version of this note said "in a monorepo, always cite from the
+repo root."** That was wrong — I generalized it from a single inconsistent
+table without checking whether the repo agreed. It doesn't. Correcting it here
+because that sentence would have pushed the next agent into a 46-file rewrite
+of a convention nobody asked to change.
+
+## What actually goes wrong, and the real guidance
+
+The incident behind this note (PR #475) was **not** shorthand. It was
+**inconsistency inside one table**: two rows repo-root-qualified, three rows
+shorthand, in the same five-row table. That's what made those three read and
+behave as broken.
+
+So:
+
+1. **Be consistent within a doc, and especially within a table or list.** Mixed
+   styles side by side are what mislead.
+2. **Prefer the repo-root form when the file is outside the doc's obvious
+   workspace**, or when the doc spans several workspaces — that's where
+   shorthand genuinely stops resolving in a reader's head, not just in `cat`.
+3. **Use the repo-root form when you want the checker to actually verify it.**
+   Shorthand is unverified by construction; that's the trade for readability.
+
+## A gate for this was built and rejected — don't rebuild it
+
+A narrow check was implemented (flag an unprefixed token only when it's a
+suffix of a file that really exists, so the noise floor is near zero and the
+error can name the correct path). It worked. **David declined it** once the 46
+existing findings showed it was a house-style change across 13 docs rather than
+a bug sweep — the blast radius (a reader re-derives a path in seconds) doesn't
+justify 46 edits plus permanent verbosity plus an ongoing constraint on every
+future doc author.
+
+Recorded so this isn't rediscovered and re-proposed. See #479, closed as
+accepted-and-documented, for the full reasoning and the rejected
+implementation.
