@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 
 /**
  * Scroll a `#fragment` into view once its heading actually exists.
@@ -20,19 +20,36 @@ import { useEffect } from "react";
  * actually scrolls — so the work here is (1) and (3): wait for the element,
  * and re-run on every navigation rather than only on mount.
  *
+ * SCOPED TO THE RENDERED CHAPTER, never `document`. The fragment comes from a
+ * URL, so a global `getElementById` resolves it against the WHOLE admin shell
+ * — the sidebar, the header, any widget a future admin screen adds. A chapter
+ * heading slugged `search` or `overview` would then scroll to a control in the
+ * chrome instead of the prose, and the shape of that bug (the page moves, just
+ * to the wrong place) is one nobody reads as a fragment-resolution problem.
+ * Confining the lookup to the container makes the collision impossible rather
+ * than unlikely.
+ *
  * @param hash    the fragment WITHOUT `#`, or "" for none
  * @param ready   false while the chapter's chunk is still loading; the effect
  *                re-runs when it flips, which is what makes a cold-loaded
  *                bookmark land rather than silently doing nothing
+ * @param scopeRef the rendered chapter. Fragments resolve inside it, and it is
+ *                 itself the scroll target when there is no fragment.
  */
-export function useFragmentScroll(hash: string, ready: boolean): void {
+export function useFragmentScroll(
+  hash: string,
+  ready: boolean,
+  scopeRef: RefObject<HTMLElement | null>,
+): void {
   useEffect(() => {
     if (!ready) return;
 
     if (!hash) {
       // A chapter opened without a fragment starts at the top — otherwise the
-      // previous chapter's scroll position persists across navigation.
-      document.getElementById("admin-help-top")?.scrollIntoView({ block: "start" });
+      // previous chapter's scroll position persists across navigation. The
+      // container's own top IS that position, so this needs no sentinel
+      // element (and therefore no second global id to collide with).
+      scopeRef.current?.scrollIntoView({ block: "start" });
       return;
     }
 
@@ -44,7 +61,7 @@ export function useFragmentScroll(hash: string, ready: boolean): void {
 
     const attempt = (): void => {
       if (cancelled) return;
-      const el = document.getElementById(hash);
+      const el = findById(scopeRef.current, hash);
       if (el) {
         el.scrollIntoView({ block: "start" });
         return;
@@ -54,7 +71,24 @@ export function useFragmentScroll(hash: string, ready: boolean): void {
 
     requestAnimationFrame(attempt);
     return () => { cancelled = true; };
-  }, [hash, ready]);
+  }, [hash, ready, scopeRef]);
+}
+
+/**
+ * `getElementById` restricted to a subtree.
+ *
+ * Compared by PROPERTY rather than by building a `#id` selector: heading ids
+ * are slugged from prose and can hold characters a CSS selector treats as
+ * syntax, where `querySelector` throws instead of returning null — turning a
+ * missing anchor into a crash. Matching `el.id` needs no escaping at all.
+ */
+function findById(scope: HTMLElement | null, id: string): HTMLElement | null {
+  if (!scope) return null;
+  if (scope.id === id) return scope;
+  for (const el of scope.querySelectorAll<HTMLElement>("[id]")) {
+    if (el.id === id) return el;
+  }
+  return null;
 }
 
 /**

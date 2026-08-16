@@ -128,7 +128,20 @@ function parseContentsTable(readmeSrc: string): { number: number; file: string }
   const tree = parseMarkdown(readmeSrc) as { children: unknown[] };
   const rows: { number: number; file: string }[] = [];
 
-  for (const node of tree.children as { type: string; children?: unknown[] }[]) {
+  // Bind to the table that FOLLOWS the `## Contents` heading. Picking the
+  // largest candidate meant any other numbered-link table — especially one
+  // earlier in the file — could stand in for the declared source of truth
+  // while the real Contents table lost or reordered a row.
+  const children = tree.children as { type: string; depth?: number; children?: unknown[] }[];
+  const contentsAt = children.findIndex(
+    (n) => n.type === "heading" && mdastToString(n as never).trim().toLowerCase() === "contents",
+  );
+  if (contentsAt === -1) fail("README.md has no `## Contents` heading to read the chapter table from.");
+
+  for (const node of children.slice(contentsAt + 1)) {
+    // Stop at the next heading of the same or higher level — the Contents
+    // table is the one inside that section, not merely somewhere after it.
+    if (node.type === "heading" && (node.depth ?? 6) <= (children[contentsAt].depth ?? 2)) break;
     if (node.type !== "table") continue;
     const bodyRows = (node.children ?? []).slice(1) as { children?: unknown[] }[];
     const parsed: { number: number; file: string }[] = [];
@@ -153,8 +166,7 @@ function parseContentsTable(readmeSrc: string): { number: number; file: string }
       }
       parsed.push({ number: num, file: target });
     }
-    // The Contents table is the one whose rows are numbered chapter links.
-    if (parsed.length > rows.length) rows.length = 0, rows.push(...parsed);
+    if (parsed.length > 0) { rows.push(...parsed); break; }
   }
 
   if (rows.length === 0) fail("Could not parse any rows from the rendered README contents table.");
@@ -228,9 +240,31 @@ function assertNumbering(rows: { number: number; file: string }[], sources: Map<
  * regex, and the four-representation gate would stay green on a chapter with
  * no usable footer at all. Only a top-level paragraph counts.
  */
+/**
+ * A chapter's display title, from its top-level H1 only.
+ *
+ * NOT `sections[0]`: `collectSections` visits every heading at any depth, so a
+ * heading nested inside an introductory blockquote would come first and be
+ * published as the chapter's title in the sidebar and every search result.
+ * Same document-order-versus-top-level-order confusion as the search-index
+ * misattribution — this is that class's fourth site.
+ */
+function chapterTitle(tree: unknown, file: string): string {
+  const children = (tree as { children: { type: string; depth?: number }[] }).children;
+  const h1 = children.find((n) => n.type === "heading" && n.depth === 1);
+  if (!h1) fail(`\`${file}\` has no top-level heading to take a title from.`);
+  return mdastToString(h1 as never).trim().replace(/^Chapter\s+\d+\s+·\s+/, "");
+}
+
 function parsedNextFooter(src: string): number | null {
   const tree = parseMarkdown(src) as { children: { type: string; children?: unknown[] }[] };
-  for (const node of tree.children) {
+  // Search from the END. A chapter must END with its navigation footer; an
+  // earlier `**Next:** chapter N` paragraph is not that footer, and accepting
+  // one let the gate pass on a chapter whose real footer had been removed.
+  // Only the closing run of the document is eligible — the footer is followed
+  // at most by the "Verified against …" provenance line.
+  const tail = tree.children.slice(-4);
+  for (const node of tail) {
     if (node.type !== "paragraph") continue;
     // Structure, not flattened text: the paragraph must OPEN with a `strong`
     // node reading "Next:". `mdastToString` discards the bold marks, so a
@@ -563,9 +597,7 @@ function build(): Map<string, string> {
     const html = toHtml(doc.tree, doc.sections);
     assertNoExecutableContent(html, doc.file);
 
-    const title = doc.kind === "readme"
-      ? "About this manual"
-      : doc.sections[0]?.title.replace(/^Chapter\s+\d+\s+·\s+/, "") ?? doc.file;
+    const title = doc.kind === "readme" ? "About this manual" : chapterTitle(doc.tree, doc.file);
 
     docs.push({
       slug: doc.slug, kind: doc.kind, number: doc.number, title,

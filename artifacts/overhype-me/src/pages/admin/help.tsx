@@ -280,7 +280,10 @@ function DocView({
     };
   }, [doc.slug]);
 
-  useFragmentScroll(hash, html !== null);
+  // Scoped to the rendered prose: every fragment this page can produce targets
+  // a generated heading inside it, so resolving them against `document` could
+  // only ever find something that is NOT the intended anchor.
+  useFragmentScroll(hash, html !== null, bodyRef);
 
   /**
    * Generated in-app links are plain `<a data-help-internal>` inside injected
@@ -318,7 +321,6 @@ function DocView({
 
   return (
     <article className={CONTENT_WRAP}>
-      <div id="admin-help-top" />
       {loadFailed ? (
         <p className="text-sm text-muted-foreground" data-testid="help-chapter-failed">
           This chapter could not be loaded — reload the page to try again.

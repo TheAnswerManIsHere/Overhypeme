@@ -182,36 +182,5 @@ describe("help bundle boundary", () => {
   });
 });
 
-/**
- * A guard, because a promise has already failed three times.
- *
- * Every in-app help navigation must go through `navigateToHelp`. That was
- * established once and then missed on three separate call sites in succession
- * — search results, then ChapterNav, then NotFound — each found by review
- * rather than by anything mechanical. Per this repo's rule that a discipline
- * broken twice becomes a check rather than another undertaking, this is the
- * check.
- *
- * A bare `<Link>` or a direct `setLocation` in the help page is precisely how
- * the class recurs: both navigate without the fragment handling that hash-only
- * changes require, and both fail silently — the address bar updates while the
- * page does not move.
- */
-describe("help navigation stays consolidated", () => {
-  const helpPage = readFileSync(join(SRC, "pages", "admin", "help.tsx"), "utf8");
-
-  it("routes every in-app navigation through navigateToHelp", () => {
-    expect(helpPage, "help.tsx must not import wouter's <Link>").not.toMatch(/\bLink\b[^\n]*from "wouter"/);
-    expect(helpPage, "help.tsx must not render a bare <Link>").not.toMatch(/<Link[\s>]/);
-
-    // `setLocation` belongs to navigateToHelp alone; anywhere else is a second
-    // navigation path with its own fragment behaviour.
-    const setLocationCalls = [...helpPage.matchAll(/setLocation\(/g)].length;
-    expect(setLocationCalls, "setLocation should be called only inside navigateToHelp").toBe(1);
-  });
-
-  it("still contains the shared navigator (guards the assertions above)", () => {
-    expect(helpPage).toMatch(/function navigateToHelp\(/);
-    expect(helpPage).toMatch(/onNavigate/);
-  });
-});
+// The navigation-consolidation guard lives in ./helpNavigationGuard.test.ts —
+// it is an AST check on the help page, not a bundling property.
