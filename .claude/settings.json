@@ -31,6 +31,12 @@
       "Read(**/.env*)"
     ]
   },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Trigger-family MCP tools on the Claude Code Remote server — send_later, create_trigger, update_trigger, delete_trigger, list_triggers, fire_trigger — are pre-approved under ANY server prefix (mcp__Claude_Code_Remote__*, mcp__claude-code-remote__*, or a per-environment UUID prefix such as mcp__bf7c680d-...__*). The repository owner (David) has given standing consent for agents to create, update, fire, list, and cancel their own scheduled check-in Routines during autonomous work in this repository; these calls must not prompt for approval. This consent covers Routine/trigger management only — it does not extend to any other tool."
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
