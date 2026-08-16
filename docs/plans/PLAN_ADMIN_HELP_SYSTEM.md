@@ -1,0 +1,529 @@
+# Plan — Admin help system: render the Manual in-app at `/admin/help`
+
+**Workstream:** [#463](https://github.com/TheAnswerManIsHere/Overhypeme/issues/463)
+**Mode:** feature-building, full ceremony · **Criticality:** ~15/100
+**Status:** draft for Codex plan review. Not approved. Not started.
+
+---
+
+## Preflight: is this a plan, or a direction?
+
+**Increment test — passes as a plan.**
+
+- *Universal quantifier?* No. The scope is one route, one generated artifact,
+  one deep-link map over today's admin nav. Nothing here reads "every X" over
+  an open-ended set.
+- *Independently-shippable Phases?* No. The generator, the route, the search
+  index, and the `?` map are one mechanism: the route has nothing to render
+  without the generator, search has nothing to index without the artifact, and
+  the `?` links have nowhere to point without the route. Splitting would create
+  ordering dependencies between pieces that are useless alone — the
+  manufactured-ceremony case, not the coupled-mechanism case.
+
+Recorded in issue #463 decision 6: one increment, David invited to push back
+and did not.
+
+**Specification test applied while drafting.** Where the compiler, the test
+suite, or diff review would catch a mistake, this plan stays silent. It
+specifies invariants — the source-of-truth boundary, where the drift gate must
+live, link resolution semantics, the map's completeness contract, the
+no-executable-content rule — and leaves component structure, file names, and
+test assertions to the build.
+
+---
+
+## Problem
+
+An admin who wants to know how a part of the product works has to leave the
+console, find the repo on GitHub, and navigate `docs/manual/`. The Manual is
+already written — twelve chapters, ~160 KB of narrative — and it is the answer
+to almost every "what does this screen actually do?" question the console
+raises. It just isn't reachable from the place the question gets asked.
+
+## Direction
+
+No standing direction document covers in-app help; this increment stands alone
+and issue #463 is its only antecedent. Stated explicitly rather than left
+blank, per the template.
+
+The *next* step beyond it — a public or user-facing help centre — is recorded
+in #463 as out of scope here, so a reviewer should read any pull toward
+public-facing concerns (SEO, anonymous access, a second content pipeline) as
+scope this plan has already declined.
+
+## Product Intent
+
+**This increment makes true:** an admin can read any Manual chapter inside the
+admin console at a bookmarkable URL, search it, and jump into the relevant
+chapter from a `?` control on the admin screen they are already looking at.
+
+It does *not* make the Manual editable from the UI, and it does not expose the
+Manual to anyone who is not already an admin.
+
+## Must Not Change
+
+1. **`docs/manual/*.md` remain the single source of truth for Manual content.**
+   The help system reads them. It never forks, edits, or becomes a second place
+   the text can be changed.
+2. **The Manual keeps rendering correctly on GitHub.** The generator adapts to
+   the Manual's existing markdown; the Manual is never reshaped to suit the
+   generator. If a chapter would have to change to be renderable in-app, the
+   generator is wrong, not the chapter.
+3. **No change to admin nav behavior**, the `AdminLayout` privilege gate, or the
+   existing `stage`/badge/collapse behavior of the sidebar. A new nav entry is
+   added; nothing existing moves.
+4. **No change to the docs-accuracy gate** (`scripts/check-docs-accuracy.mjs`)
+   or the manual-tuning gate (`scripts/check-manual-tuning-language.mjs`). Both
+   continue to run over `docs/manual/` exactly as today.
+5. **No new backend surface** — no API route, no DB table, no server-side
+   rendering path.
+6. **No new privilege rail.** `/admin/help` is gated by exactly what every other
+   admin route is gated by, and adds no second notion of who may read it.
+
+## Settled Decisions
+
+From issue #463, agreed with David 2026-08-15:
+
+1. **Full page at `/admin/help`**, inside the existing `AdminLayout`.
+   Per-section URLs are bookmarkable. (Chosen over a slide-over drawer.)
+2. **Links out of the Manual resolve to GitHub**; intra-Manual links become
+   in-app routes.
+3. **Search ships in this increment** — client-side, over a build-time index.
+4. **Content is baked in at build time** as a committed generated artifact with
+   a CI drift check. No backend, no new API, no DB.
+5. **Each admin screen gets a `?` deep-link** into the relevant chapter or
+   section.
+6. **One increment, not phased.**
+
+Decided during this plan (the open question #463 deferred here, plus what the
+repo dictates):
+
+7. **Markdown is converted to HTML at generation time, not at runtime** — see
+   *Source-of-Truth Analysis* and *Risks* for why, and what it costs.
+8. **The drift gate runs in the always-on Build job, not in the Frontend Test
+   suite** — see *The drift gate cannot sit where the precedent sits*, below.
+   This is the sharpest invariant in the plan.
+
+## Repo Context Inspected
+
+- `docs/manual/` — all 12 chapters plus `README.md` (the charter, chapter
+  template, contents table, and the tuning-language boundary). ~161 KB total.
+- `artifacts/overhype-me/scripts/generate-admin-field-reference.ts` and
+  `src/components/admin/fieldDocs/renderMarkdown.ts` — the generated-artifact
+  precedent named in #463.
+- `artifacts/overhype-me/src/components/admin/fieldDocs/fieldDocs.test.ts:135-148`
+  — where that precedent's determinism and staleness checks actually live.
+- `artifacts/overhype-me/src/components/admin/AdminLayout.tsx` — `NAV_ITEMS`
+  (15 entries), the privilege gate, `isAdminNavItemActive`, the mobile drawer.
+- `artifacts/overhype-me/src/App.tsx:377-394` — admin route table, `lazy`
+  route-chunk convention (`lazyWithRetry`).
+- `artifacts/overhype-me/vite.config.ts` — aliases, `optimizeDeps`, and the
+  Vite root that puts `docs/` outside importable range.
+- `.github/workflows/build.yml` — job topology: the `changes` classifier, the
+  always-on `build` job (which runs `pnpm install` before its later gates), and
+  the `if:`-gated `test` / frontend / e2e jobs.
+- `scripts/classify-ci-paths.mjs:59-76` — `isInertPath`, including the
+  `docs/ADMIN_FIELD_REFERENCE.md` carve-out and its stated reasoning.
+- `scripts/check-docs-accuracy.mjs:33-36` — `LIBRARY_DIRS` includes
+  `docs/manual`, so link and path checks already cover it.
+- `scripts/check-permission-chokepoint-frontend.mjs` — confirms the
+  `role === "admin"` rail is exempt (per #463).
+- `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` — the route-load smoke
+  net and its admin-auth bypass.
+- `package.json` (root and `artifacts/overhype-me`) — confirms **no markdown
+  parser, renderer, or sanitizer exists anywhere in the workspace today**.
+- `docs/ai-context/documentation-workflow.md`, `docs/ai-context/admin-console.md`,
+  `docs/engineering/code-review.md`, `docs/ai-context/working-modes.md`.
+
+## Current Behavior
+
+- `docs/manual/` is authored by hand, gated by `check:docs` (links + cited
+  paths) and `check:manual-tuning` (lexical value-language check), both in the
+  always-on Build job. It is readable only on GitHub or in a checkout.
+- The admin console is a wouter route table under `/admin/*`, each page
+  lazy-loaded into its own chunk, all rendered inside `AdminLayout`, which
+  performs the `role === "admin"` gate and renders a fixed 15-item sidebar.
+- One generated doc artifact exists (`docs/ADMIN_FIELD_REFERENCE.md`),
+  produced from a code-side registry by `generate:field-docs`, with
+  determinism and byte-parity assertions in the **Frontend Test** vitest suite.
+- CI classifies changed paths: anything under `docs/` is inert and skips the
+  Test / Frontend Test / E2E Smoke jobs, with one explicit carve-out for
+  `docs/ADMIN_FIELD_REFERENCE.md`.
+
+## Source-of-Truth Analysis
+
+| Concept | Source of truth | How this plan keeps it single |
+| --- | --- | --- |
+| Manual prose | `docs/manual/*.md` | Generated artifact is derived and committed; never hand-edited; drift gate proves it matches. |
+| Chapter numbering & order | The contents table in `docs/manual/README.md` | Generator reads chapter order from that table rather than from filename sort or a hand-kept list, so the Manual's own stated source of truth stays the only one. |
+| Search index | The generated artifact | The index is derived from the same generation pass, never from a second read of the Manual — otherwise a bug could make search and page content disagree. |
+| Screen → help target map | One table in code | Not derivable from anything; it is a product judgment. It gets a completeness test instead of a second source. |
+| Who may read the Manual in-app | `AdminLayout`'s existing gate | No second check is introduced. |
+
+**The generator direction is the inverse of the field-docs precedent**, and
+that inversion is what makes the CI question below load-bearing. Field docs:
+source in code → artifact in `docs/`. Help content: source in `docs/` →
+artifact in code.
+
+### The drift gate cannot sit where the precedent sits
+
+`isInertPath` (`scripts/classify-ci-paths.mjs:67`) classifies everything under
+`docs/` as inert, so a PR that edits only a Manual chapter skips the Test,
+Frontend Test, and E2E Smoke jobs. The field-docs staleness assertion lives in
+the Frontend Test suite, which is correct **for that direction** — its source is
+code, so any change that could invalidate the artifact is itself a heavy path,
+and its one `docs/`-side output is explicitly carved out of the inert list.
+
+Reversed, the same placement fails silently: a chapter-only edit is entirely
+inert, the heavy jobs never run, and a stale committed help artifact merges
+green. The console would then show a Manual that no longer matches
+`docs/manual/`, with every CI check passing and nothing to notice it — the
+single-source-of-truth invariant broken by exactly the workflow it exists to
+protect.
+
+**Invariant: the help artifact's drift check must run on every PR that can
+change either side of it, without depending on path classification.** The
+always-on Build job is the only place that holds unconditionally, and it
+already runs `pnpm install` before its later gates, so the generator's
+dev-time toolchain is available there.
+
+Adding `docs/manual/**` to the inert carve-out list is the alternative and is
+**rejected**: it would force the full heavy suite — two Postgres boots, a
+Chromium download, the integration and e2e suites — onto every prose edit, and
+this repo's `/document` harvests are a large share of its PR volume. The
+carve-out solves the correctness problem by paying the cost the classifier was
+built to avoid.
+
+## Proposed Design
+
+Four pieces, one mechanism.
+
+### 1. A generator, following the `generate:field-docs` shape
+
+A script in `artifacts/overhype-me/scripts/` reads `docs/manual/`, converts
+each chapter to render-ready content plus a search index, and writes a
+**committed generated module** under the frontend's `src/` tree. Invoked by a
+`generate:help` package script, mirroring `generate:field-docs`.
+
+Invariants the generator owes:
+
+- **Deterministic.** Two runs over identical input produce byte-identical
+  output. (Same assertion the field-docs precedent carries; it is what makes a
+  drift check meaningful at all.)
+- **Chapter order comes from the README contents table**, not filename sort —
+  `10-`, `11-`, `12-` sort before `2-` lexically, and the table is the Manual's
+  declared source of truth for numbering.
+- **A chapter present on disk but absent from the contents table, or vice
+  versa, is a generation error**, not a silent omission. The Manual's own rules
+  make that table authoritative; a generator that quietly diverges from it
+  creates the second source of truth this plan forbids.
+- **The generator never writes to `docs/`.** One direction only.
+
+### 2. Content conversion at build time
+
+Markdown becomes HTML during generation. The runtime ships strings and renders
+them; no markdown parser enters the client bundle.
+
+**Why build-time** (the open question #463 deferred to this plan): the Manual
+is ~161 KB of prose, and a runtime renderer would add a parser *on top of*
+shipping the same prose. Build-time conversion also puts the output where a
+dependency-free CI gate can assert things about it, and matches the one
+generated-artifact precedent the repo already has.
+
+**The trust boundary, stated plainly.** Generated HTML is injected into the
+admin console as markup. The content is repo-authored and passes through code
+review, so the threat model is not untrusted input — but "reviewed by a human"
+is not a mechanical guarantee, and the failure it protects against (script
+execution inside an authenticated admin session) is the one place this
+low-criticality feature touches something that matters.
+
+**Invariant: the generated artifact contains no executable content.** No
+`<script>`, no event-handler attributes, no `javascript:` URLs, no embedded
+`<iframe>`/`<object>`. Raw-HTML passthrough is disabled at conversion, and the
+generator **asserts** the property on its own output before writing — a
+generation-time failure, not a reviewer's promise. Being generator-enforced,
+this holds for chapters written later by anyone, which review alone does not.
+
+Rejected alternative: emitting a structured node tree and rendering it with
+React components, which would make injection impossible by construction rather
+than by assertion. It is the stronger shape, and it is rejected on proportion —
+it means owning a renderer for the Manual's full markdown vocabulary (tables,
+nested lists, block quotes, code fences, inline HTML comments) for an
+admin-only reader, and the assertion above closes the same hole at a fraction
+of the surface. Recorded so the trade is visible rather than implied.
+
+### 3. The route
+
+`/admin/help` and `/admin/help/:chapter` (and an in-page anchor for sections),
+lazy-loaded like every other admin page, rendered inside `AdminLayout`, with a
+new sidebar entry.
+
+Invariants:
+
+- **Per-chapter URLs are bookmarkable and shareable**, and a section anchor
+  lands on that section. This is decision 1's actual content.
+- **Chapter slugs are stable and derived from the chapter files**, so a
+  bookmark does not break when a chapter's prose changes. Renaming or
+  renumbering a chapter file is already a deliberate, multi-file act per the
+  Manual's own rules; that it also changes a help URL is acceptable and is
+  called out in *Risks*.
+- **Section anchors match the anchors GitHub generates** for the same headings,
+  so a link that works in one place works in the other, and the `?` map's
+  targets can be validated against the source markdown.
+- **An unknown chapter slug renders a not-found state inside the console**, not
+  a blank page or a crash — the route is reachable by bookmark, so a stale one
+  is an expected input, not an error case.
+- **Help content must not enter the main bundle or any existing admin chunk.**
+  ~161 KB of prose loaded on every admin page view is a real regression to
+  screens that have nothing to do with help. Per-chapter granularity is an
+  implementation choice; keeping it out of unrelated chunks is the invariant.
+
+### 4. Link rewriting
+
+Every link in the Manual falls into one of these classes, and the generator
+resolves each at generation time:
+
+| Link shape in source | Resolves to |
+| --- | --- |
+| `./N-chapter.md`, `./README.md` (± `#anchor`) | In-app route under `/admin/help` |
+| Any other repo-relative path (`../ai-context/*.md`, `../ADMIN_FIELD_REFERENCE.md`, `../SENTRY.md`, `../tests/TESTING.md`, `../engineering/*.md`, and bare directories like `../ai-context/`) | GitHub URL at a pinned ref, opened in a new tab |
+| Absolute `http(s)://` | Unchanged, new tab |
+| Bare `#anchor` | In-page anchor |
+
+Invariants:
+
+- **Every relative link resolves to something.** A link the generator cannot
+  classify is a **generation error**, not a silently-passed-through href. The
+  failure this prevents is a dead in-app link that looks live — the class of
+  bug `check:docs` exists to prevent on the GitHub side, and which would
+  otherwise reappear untested on the in-app side.
+- **GitHub links point at `main`, not at a commit sha**, so a link followed six
+  months later shows current truth rather than a snapshot. (`check:docs`
+  already guarantees these paths exist on `main`.)
+- **Off-Manual links are visibly external** — an admin should know before
+  clicking that they are leaving the console for GitHub.
+- The generator's classification is by **link target shape only**. It never
+  needs the Manual to adopt a new link convention, per *Must Not Change* #2.
+
+### 5. Search
+
+Client-side, over an index built in the same generation pass.
+
+Invariants:
+
+- **The index is derived from the generated content**, never from a second read
+  of `docs/manual/` — one pass, one truth.
+- **A result identifies the chapter and section it came from and links to that
+  anchor.** A hit that only names a chapter makes search useless for the
+  161 KB case it exists to serve.
+- **The index must not load with the main admin bundle** — same reasoning as
+  the content itself.
+- Ranking quality is not specified here. It is observable, tunable, and
+  cheaply fixed; the plan constrains where the index comes from, not how it
+  scores.
+
+### 6. The per-screen `?` map
+
+A single table mapping admin route → help target (chapter, optionally a
+section anchor). `AdminLayout` renders a `?` control in the header, which
+deep-links to that target.
+
+**Invariants, both of which need a test because nothing else catches them:**
+
+- **Completeness** — every admin nav route has a help target. A nav item added
+  later with no entry means a `?` that silently does nothing.
+- **Resolvability** — every target names a chapter that exists and a section
+  anchor that exists in it. This is the one that rots on its own: the Manual's
+  own README notes that renaming a heading breaks every link into it, and that
+  `check:docs` validates linked *files* but **not** anchors. A `?` pointing at
+  a heading that was renamed six weeks ago is invisible until an admin clicks
+  it.
+
+**Proposed map — for David to react to.** Note #463 said 16 nav items; the
+actual `NAV_ITEMS` list is **15**, which is what this map covers. The three
+redirect routes (`/admin/comments`, `/admin/reviews` → moderation; `/admin/ai`
+→ config) inherit their destination's target and need no entry.
+
+| Admin screen | Help target |
+| --- | --- |
+| Dashboard (`/admin`) | Ch. 11 Admin Console (chapter top) |
+| Facts | Ch. 2 Content Lifecycle |
+| Users | Ch. 11 § Managing people |
+| Moderation | Ch. 3 Moderation |
+| Eval | Ch. 5 Visual Pipeline |
+| Billing | Ch. 10 § For the admin |
+| Refunds & Disputes | Ch. 10 § For the admin |
+| Affiliate | Ch. 7 § Turning a meme into merch |
+| Video Styles | Ch. 6 Meme and Video Studio |
+| Engines | Ch. 11 § Tuning how the product behaves |
+| Taxonomy Health | Ch. 4 § For the admin (Taxonomy Health) |
+| Email Queue | Ch. 12 § Email, the most consequential rider |
+| Queue Health | Ch. 12 § Worker liveness and the Queue Health surface |
+| Features | Ch. 11 § Tuning how the product behaves |
+| Configuration | Ch. 11 § Tuning how the product behaves |
+
+**Two honest weaknesses in this map, surfaced rather than smoothed over:**
+
+1. **Eval has no real home in the Manual.** No chapter describes the eval
+   dashboard; Ch. 5 is the nearest neighbour because eval scores image-prompt
+   attempts. This is a genuine documentation gap, not a mapping mistake. It is
+   *not* fixed here — writing a new chapter section is `/document`'s job, and
+   doing it inside this plan would be scope David hasn't agreed. Flagged as a
+   follow-up.
+2. **Engines, Features, and Configuration all land on the same section.** That
+   is accurate to what the Manual currently says — Ch. 11 § *Tuning how the
+   product behaves* covers all three together. It is honest, and it is a signal
+   about chapter depth rather than about this feature.
+
+## Data Model and Migration Impact
+
+**None.** No schema change, no stored data, no backfill, no migration. The
+feature reads committed files and ships static content.
+
+## Runtime Behavior
+
+- An admin opens `/admin/help` → chapter list plus search entry.
+- Selecting a chapter navigates to its own URL; the sidebar shows Help active;
+  the chapter's content loads as its own chunk.
+- A section anchor scrolls to that section.
+- Searching filters against the index; selecting a result navigates to the
+  chapter and section.
+- Clicking `?` on any admin screen navigates to that screen's mapped target.
+- An intra-Manual link navigates in-app; an off-Manual link opens GitHub in a
+  new tab.
+- An unknown chapter slug (stale bookmark) renders a not-found state inside the
+  console, with a route back to the chapter list.
+
+**No async status surface applies.** Everything here is static content already
+in the bundle; there is no job, no fetch, and nothing to report progress on —
+so `docs/ai-context/async-ui-status.md` has no obligation to discharge. Stated
+because its absence should read as a decision, not an omission.
+
+## Admin/User UX Impact
+
+- One new sidebar entry (Help), consistent with the existing pattern, collapsed
+  and mobile-drawer behavior included.
+- One new `?` control in the `AdminLayout` header, present on every admin
+  screen.
+- States: chapter list, chapter content, search-with-results, search-with-no-
+  results, unknown-chapter. No loading state beyond the existing route-level
+  Suspense fallback, and no error state beyond the existing boundary — the
+  content is in the bundle.
+- No moderation implications. No end-user-visible change of any kind.
+
+## Security, Permissions, and Validation
+
+- **No new privilege rail.** `/admin/help` renders inside `AdminLayout`, which
+  performs the same `role === "admin"` gate as every other admin route. The
+  frontend permission-chokepoint checker exempts that rail (#463), so no new
+  tier or role comparison is introduced and no exemption needs widening.
+- **No new server surface** — no route, no handler, no validation schema.
+- **The one real security property is the no-executable-content invariant**
+  above, enforced at generation. It matters because the content renders inside
+  an authenticated admin session.
+- **The Manual is admin-only in-app.** It is already public on GitHub, so this
+  is not a confidentiality boundary — but the console must not become a second,
+  unauthenticated way to read it.
+
+## Testing Plan
+
+Automated, with the runner each belongs to:
+
+1. **Generator determinism** — two runs byte-identical. (Frontend Test suite,
+   mirroring `fieldDocs.test.ts`.)
+2. **Artifact freshness** — the committed artifact matches a fresh generation.
+   **Runs in the always-on Build job**, per the invariant above, so a
+   chapter-only PR cannot skip it.
+3. **Link classification** — every relative link in every chapter classifies
+   into a known class; an unclassifiable link fails. Proves the general
+   invariant, not a sampled set, by running over the real Manual.
+4. **No executable content** — asserted over the generated artifact, negative
+   cases included (a fixture chapter containing `<script>`, an `onclick=`
+   attribute, and a `javascript:` href must each fail generation).
+5. **`?` map completeness** — every `NAV_ITEMS` route has a target; a nav item
+   with no entry fails.
+6. **`?` map resolvability** — every target's chapter and section anchor exist
+   in the source Manual. This is the anchor check `check:docs` explicitly does
+   not do.
+7. **Contents-table agreement** — a chapter on disk but not in the README
+   table, or vice versa, fails generation.
+8. **Route smoke** — `/admin/help` added to `routeLoadSmoke.spec.ts`, which is
+   the existing net for the lazy-chunk failure class.
+
+Manual QA belongs in the UAT doc at PR time, not here.
+
+## Implementation Steps
+
+Ordered smallest-coherent-change first; each leaves the tree green.
+
+1. Add the generator's dev-time toolchain as a **devDependency of the frontend
+   workspace only**, and confirm nothing new reaches the client bundle.
+2. Write the generator: read chapters, order from the contents table, convert,
+   rewrite links, build the search index, assert the no-executable-content and
+   link-classification properties, write the committed artifact. Add the
+   `generate:help` script.
+3. Add the freshness + determinism gates, with the freshness gate wired into
+   the always-on Build job.
+4. Add the `/admin/help` route, chapter rendering, sidebar entry, and
+   not-found state.
+5. Add search over the generated index.
+6. Add the `?` map, the header control, and the two map tests.
+7. Add `/admin/help` to the route-load smoke spec.
+8. `/simplify` pass, then open the PR with the plan's oracle sections and a
+   UAT doc.
+
+## Risks and Mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| **Stale artifact merges green** on a chapter-only PR, because `docs/**` is inert. | The freshness gate runs in the always-on Build job, not the path-gated suites. This is the plan's core CI invariant. |
+| **Generated markup executes script** in an authenticated admin session. | Raw-HTML passthrough disabled; generator asserts its own output and fails generation. Enforced for future chapters, not just today's. |
+| **`?` links rot** when a heading is renamed — invisible until clicked. | Resolvability test over the real Manual; renaming a heading fails CI, which is what `check:docs` cannot do for anchors. |
+| **Bundle regression** on admin screens unrelated to help. | Content and index kept out of the main and existing admin chunks. |
+| **A chapter renumber breaks bookmarks.** | Accepted. Renumbering is already a deliberate multi-file act per the Manual's rules, and it is rare. Not worth a redirect table for an admin-only surface — flagged so the acceptance is explicit rather than an oversight. |
+| **New markdown constructs in future chapters** render badly or not at all. | The generator errors on what it cannot classify rather than passing it through; a future chapter using something unsupported fails CI rather than shipping broken. |
+| **Eval's missing chapter coverage** makes one `?` link unsatisfying. | Named above as a follow-up for `/document`, deliberately not absorbed into this plan's scope. |
+
+## External-Claim Verification
+
+**Not applicable.** This plan makes no external API, SDK, model, pricing, or
+rate-limit claim. Every constraint it relies on was verified against this
+repository at the paths cited in *Repo Context Inspected*. The one dependency
+decision (a markdown toolchain as a frontend devDependency) is deliberately not
+pinned to a named package here — that is implementation, and the invariant this
+plan owns is "nothing new in the client bundle," which the build verifies.
+
+## Questions for David
+
+**One**, and it is a reaction rather than a blocker:
+
+1. **The `?` map above** — does each admin screen point where you would expect?
+   The two spots I would most expect you to want changed are **Eval** (no
+   Manual coverage exists; it currently points at Ch. 5 Visual Pipeline as the
+   nearest neighbour) and **Engines / Features / Configuration** (all three
+   land on Ch. 11 § *Tuning how the product behaves*, which is genuinely what
+   the Manual covers them under).
+
+Everything else the repo answered, and those resolutions are recorded above
+rather than raised here.
+
+## Definition of Done
+
+- [ ] `/admin/help` renders every Manual chapter inside the admin console, at a
+      bookmarkable per-chapter URL, with section anchors that land.
+- [ ] Search returns chapter + section hits across the whole Manual and links
+      to them.
+- [ ] Every admin screen has a `?` that lands on a real chapter and a real
+      section.
+- [ ] Intra-Manual links navigate in-app; off-Manual links open GitHub in a new
+      tab; no relative link is dead.
+- [ ] Editing a chapter and pushing **without** regenerating fails CI in the
+      always-on Build job — verified deliberately, not assumed.
+- [ ] The generated artifact contains no executable content, proven by negative
+      fixtures.
+- [ ] `docs/manual/*.md` are unchanged by this work, and the Manual still
+      renders correctly on GitHub.
+- [ ] No new backend route, no schema change, no new privilege rail.
+- [ ] Admin screens unrelated to help load no additional help content.
+- [ ] The behavior can be exercised in the product: an admin clicks `?` on
+      Taxonomy Health and lands on Ch. 4 § *For the admin*.
