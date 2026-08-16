@@ -30,7 +30,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   index, and a `?` on each admin screen that deep-links into the section
   describing that screen. Content is a committed generated artifact — no
   backend, no API, no table — with its freshness gate in the always-on Build
-  job because `docs/**` is CI-inert, and generation that **fails** rather than
+  job because `docs/manual/**` is CI-inert, and generation that **fails** rather than
   degrading when the source drifts out of what it can faithfully render. Two
   decisions worth reading rather than rederiving: the CI-placement rule for
   any `docs/` → code generator, and the withdrawal of the "admin-only reading"

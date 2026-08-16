@@ -52,9 +52,12 @@ console serves a **committed generated artifact** built from it at
 with the direction inverted (source in `docs/`, artifact in code), which is why
 its freshness gate lives where it does. See
 [`decisions.md`](./decisions.md) for that decision and its rationale; the short
-version is that `scripts/classify-ci-paths.mjs` treats all of `docs/**` as
-inert, so the gate **must** run in the always-on Build job — a check in the
-frontend suite could never fire on a chapter-only PR.
+version is that `scripts/classify-ci-paths.mjs` classifies `docs/manual/**` as
+inert, so a check in the frontend suite could never fire on a chapter-only PR.
+The other way out of that bind — making the path non-inert, as
+`docs/ADMIN_FIELD_REFERENCE.md` does — wasn't available here, because this gate
+is a script rather than a vitest assertion. The decision entry has the full
+comparison.
 
 | Piece | File |
 | --- | --- |
