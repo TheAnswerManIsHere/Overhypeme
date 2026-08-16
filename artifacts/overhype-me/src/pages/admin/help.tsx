@@ -6,7 +6,7 @@ import { loadHelpContent } from "@/generated/help/content";
 import type { HelpSearchEntry } from "@/generated/help/searchIndex";
 import { useFragmentScroll, currentHash } from "@/components/admin/useFragmentScroll";
 import { searchHelp, type HelpSearchHit } from "@/components/admin/helpSearch";
-import { internalHelpTarget } from "@/components/admin/helpLinkGuard";
+import { internalHelpTarget, helpHref } from "@/components/admin/helpLinkGuard";
 import { BookOpen, ExternalLink, Search, ChevronLeft, FileQuestion } from "lucide-react";
 
 /**
@@ -60,7 +60,10 @@ function navigateToHelp(
 ): void {
   const current = window.location.pathname.slice(ROUTER_BASE.length) || "/";
   const samePath = current === path;
-  const url = `${ROUTER_BASE}${path}${fragment ? `#${fragment}` : ""}`;
+  // One href builder for every navigation, so the address bar carries the same
+  // percent-encoded form the generated anchors do — and the form `currentHash()`
+  // decodes on the way back.
+  const url = helpHref(ROUTER_BASE, { path, fragment });
 
   if (!samePath) {
     // A path change is the router's own history entry; adding the fragment
@@ -299,8 +302,10 @@ function DocView({
       // deployment base is itself a prefix of the route — with BASE_PATH=/admin
       // every href already starts with `/admin/`, so the guard skipped it and
       // the click handler then stripped a base that was never added.
-      const unbased = internalHelpTarget(a);
-      if (unbased) a.setAttribute("href", ROUTER_BASE + unbased);
+      const target = internalHelpTarget(a);
+      // Built from a validated ASCII path plus a percent-encoded fragment —
+      // never by concatenating the raw attribute onto the base.
+      if (target) a.setAttribute("href", helpHref(ROUTER_BASE, target));
     }
   }, [html]);
 
@@ -312,11 +317,10 @@ function DocView({
     // Read the UNBASED path from the attribute; never re-derive it from href.
     // Same validation as the href write above — one helper, so the two cannot
     // drift apart the way this file's earlier paired checks did.
-    const unbased = internalHelpTarget(anchor);
-    if (!unbased) return;
+    const target = internalHelpTarget(anchor);
+    if (!target) return;
     e.preventDefault();
-    const [path, frag] = unbased.split("#");
-    onNavigate(path, frag ?? "");
+    onNavigate(target.path, target.fragment);
   }, [onNavigate]);
 
   return (

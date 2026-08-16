@@ -132,15 +132,22 @@ describe("generated help content", () => {
         const marker = m[2];
         const href = /href="([^"]*)"/.exec(attrs)?.[1] ?? "";
         checked++;
-        expect(
-          INTERNAL_HELP_PATH.test(marker),
-          `${slug}: data-help-internal="${marker}" is not a valid help path — the consumer would ignore this link`,
-        ).toBe(true);
         expect(marker, `${slug}: marker and href disagree`).toBe(href);
 
-        // Through the real consumer, via a stub element — no DOM needed.
+        // Through the real consumer, via a stub element — no DOM needed. The
+        // guard returns the split target, so reassembling it must reproduce
+        // the marker exactly: that is the generator/consumer contract.
         const el = { getAttribute: (k: string) => (k === "data-help-internal" ? marker : null) } as unknown as Element;
-        expect(internalHelpTarget(el), `${slug}: guard rejected a generated link`).toBe(href);
+        const target = internalHelpTarget(el);
+        expect(target, `${slug}: guard rejected a generated link -> ${marker}`).not.toBeNull();
+        expect(
+          INTERNAL_HELP_PATH.test(target!.path),
+          `${slug}: guard returned a path that is not a help route -> ${target!.path}`,
+        ).toBe(true);
+        expect(
+          target!.path + (target!.fragment ? `#${target!.fragment}` : ""),
+          `${slug}: guard's split does not reassemble to the marker`,
+        ).toBe(marker);
       }
     }
     expect(checked, "found no generated in-app links to check").toBeGreaterThan(5);

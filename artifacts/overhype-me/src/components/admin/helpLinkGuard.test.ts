@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { INTERNAL_HELP_PATH } from "./helpLinkGuard";
+import GithubSlugger from "github-slugger";
+import { INTERNAL_HELP_PATH, internalHelpTarget, helpHref } from "./helpLinkGuard";
 
-const accepts = (s: string) => INTERNAL_HELP_PATH.test(s);
+/** Through the real consumer, via a stub element — no DOM needed. */
+const parse = (raw: string) =>
+  internalHelpTarget({ getAttribute: (k: string) => (k === "data-help-internal" ? raw : null) } as unknown as Element);
+
+const accepts = (s: string) => parse(s) !== null;
 
 describe("internal help link guard", () => {
   it("accepts the shapes the generator actually emits", () => {
@@ -17,37 +22,12 @@ describe("internal help link guard", () => {
     }
   });
 
-  // github-slugger keeps non-ASCII letters, so the generator can legitimately
-  // emit `#café`. An ASCII-only fragment class rejected it — and a rejected
-  // marker means the href never gets base-prefixed and the click falls back to
-  // a full page load, silently.
-  it("accepts the non-ASCII fragments github-slugger actually produces", () => {
-    for (const ok of [
-      "/admin/help/3-moderation#café",
-      "/admin/help/3-moderation#straße",
-      "/admin/help/4-taxonomy-and-enrichment#日本語の見出し",
-      "/admin/help#emoji-🎉-heading",
-    ]) {
-      expect(accepts(ok), `should accept ${ok}`).toBe(true);
-    }
-  });
-
-  // The widened fragment must not have reopened the hole the module exists to
-  // close. Only the leading PATH can change where navigation goes, so these
-  // stay rejected no matter what the fragment allows.
-  it("still rejects origin-changing values after the fragment was widened", () => {
-    for (const bad of [
-      "//evil.com#café",
-      "/admin/help/3-moderation#a/b",
-      "/admin/help/3-moderation#javascript:alert(1)",
-      "/admin/help/3-moderation#x?y",
-      "/admin/help/3-moderation#a#b",
-      "/admin/help/3-moderation#with space",
-      "/admin/help/3-moderation#back\\slash",
-      "/admin/help/café",
-    ]) {
-      expect(accepts(bad), `should reject ${JSON.stringify(bad)}`).toBe(false);
-    }
+  it("splits the target into an ASCII path and a raw fragment", () => {
+    expect(parse("/admin/help/3-moderation#the-queue")).toEqual({
+      path: "/admin/help/3-moderation",
+      fragment: "the-queue",
+    });
+    expect(parse("/admin/help")).toEqual({ path: "/admin/help", fragment: "" });
   });
 
   // The reason this module exists. `startsWith("/")` accepted the first two,
@@ -76,5 +56,89 @@ describe("internal help link guard", () => {
 
   it("rejects a nested path that is not a chapter slug", () => {
     expect(accepts("/admin/help/a/b")).toBe(false);
+    expect(accepts("/admin/help/café"), "chapter slugs come from filenames and stay ASCII").toBe(false);
+  });
+
+  // A fragment cannot change where navigation goes, so it is split off rather
+  // than pattern-matched — the security property lives entirely in the path.
+  // These prove the split does not weaken that: an origin-changing prefix is
+  // still rejected no matter what follows the `#`.
+  it("keeps rejecting origin-changing values regardless of the fragment", () => {
+    for (const bad of [
+      "//evil.com#café",
+      "https://evil.com/admin/help#x",
+      "javascript:alert(1)#x",
+      "/admin/config#café",
+    ]) {
+      expect(accepts(bad), `should reject ${JSON.stringify(bad)}`).toBe(false);
+    }
+  });
+});
+
+/**
+ * THE PRODUCER'S ACTUAL ALPHABET, not a guess at it.
+ *
+ * The previous version of this guard held the fragment to `[A-Za-z0-9._-]`,
+ * which rejected links `github-slugger` legitimately produces. Replacing that
+ * with a hand-written Unicode class would have been a guess — verified
+ * empirically to be an incomplete one, since the slugger also emits combining
+ * marks, connector punctuation and enclosed alphanumerics. So the fragment is
+ * not matched at all, and these tests run REAL slugger output through the
+ * guard rather than asserting a character class I believe it uses.
+ */
+describe("the guard accepts whatever github-slugger produces", () => {
+  const slugOf = (heading: string) => new GithubSlugger().slug(heading);
+
+  it("accepts real slugs from every script, including ones a character class would miss", () => {
+    for (const heading of [
+      "café au lait",
+      "Straße",
+      "日本語の見出し",
+      "русский заголовок",
+      "Ωmega ϑeta",
+      "Ñoño",
+      "emoji 🎉 heading",   // slugger STRIPS the emoji -> "emoji--heading"
+      "C++ & you",
+      'quote "x"',
+      "v1.2.3 release",
+      "paren (x)",
+      "under_score",
+    ]) {
+      const slug = slugOf(heading);
+      const raw = `/admin/help/3-moderation#${slug}`;
+      const target = parse(raw);
+      expect(target, `guard rejected a real slug for ${JSON.stringify(heading)} -> ${JSON.stringify(slug)}`).not.toBeNull();
+      expect(target!.fragment).toBe(slug);
+    }
+  });
+
+  it("emits an ASCII href that round-trips back to the slug", () => {
+    // Percent-encoding is what makes the fragment safe to place in an href at
+    // all; `currentHash()` decodes it on the way back, so the pair must be
+    // lossless or a cold bookmark lands nowhere.
+    for (const heading of ["café au lait", "日本語の見出し", "Ñoño", "under_score"]) {
+      const slug = slugOf(heading);
+      const href = helpHref("/base", { path: "/admin/help/3-moderation", fragment: slug });
+      expect(href.startsWith("/base/admin/help/3-moderation#")).toBe(true);
+      // eslint-disable-next-line no-control-regex
+      expect(/^[\x00-\x7F]*$/.test(href), `href should be ASCII: ${href}`).toBe(true);
+      expect(decodeURIComponent(href.split("#")[1])).toBe(slug);
+    }
+  });
+
+  it("leaves an already-ASCII slug readable in the href", () => {
+    expect(helpHref("", { path: "/admin/help/3-moderation", fragment: "a_slug-with.dots" }))
+      .toBe("/admin/help/3-moderation#a_slug-with.dots");
+    expect(helpHref("/admin", { path: "/admin/help", fragment: "" })).toBe("/admin/admin/help");
+  });
+});
+
+describe("INTERNAL_HELP_PATH", () => {
+  // Exported for the generator/consumer contract test, which checks the
+  // committed artifact's anchors. It now matches the PATH only.
+  it("matches paths without fragments", () => {
+    expect(INTERNAL_HELP_PATH.test("/admin/help/3-moderation")).toBe(true);
+    expect(INTERNAL_HELP_PATH.test("/admin/help/3-moderation#x")).toBe(false);
+    expect(INTERNAL_HELP_PATH.test("//evil.com")).toBe(false);
   });
 });
