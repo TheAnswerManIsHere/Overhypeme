@@ -280,6 +280,42 @@ matching the docs-only convention above.
   [`decisions.md`](../ai-context/decisions.md) → "Recurring failure patterns
   become CI guards."
 
+### A source guard bounds a *shape*, and shapes have more forms than they look
+
+The CI-guard rule above is right, but a source guard has a specific failure
+mode worth pricing in when reviewing one. It matches **syntax**, while the
+defect is **semantics**, and the set of syntactic forms with the same meaning
+is usually larger than the author enumerated.
+
+Worked example, PR #474's `check-budget-gate-unconditional.mjs` — a guard
+against a spend check being made conditional. Three consecutive review rounds
+each found one more reachable form the current version missed: a regex over
+`if (<identifier>)` missed `if (priced !== null)`; the AST rewrite that fixed
+that treated an entire `if` condition as unconditional and so missed
+`if (priced && await checkBudget(…))`; and the fix for *that* inspected only
+the then-branch, missing `if (priced) {…} else return;`. Each fix was correct
+and each left a cheaper equivalent reachable.
+
+What to take from it, as a reviewer or an author:
+
+- **Probe, don't reason.** Every one of those was found by writing the form
+  into a throwaway source file and running the guard — never by reading it.
+  A guard's own correctness claim is worth exactly the probes behind it, so ask
+  which forms were actually executed against it.
+- **Prefer a real test when the behavior is testable.** The same PR's
+  admin-exemption regression was ordinary unit-testable behavior and got three
+  tests pinning it, verified to fail against the old code. A source guard is
+  the right instrument only when the invariant is inline control flow that no
+  unit test can reach — not merely when writing one is inconvenient.
+- **Expect to cap it, and document the residual.** At some point another
+  missed shape is evidence the space cannot be closed syntactically, not a
+  to-do. Record the known limits in the guard's own header, and be explicit
+  that it is a backstop rather than the control — silence from it is not proof
+  of safety.
+- **Watch the cost.** That guard was belt-and-braces on an otherwise ~10-line
+  fix and generated three of the loop's eight findings. Worth it here, on a
+  money path; not worth it by default.
+
 ## Observability
 
 - Failures reported (Sentry where appropriate)? Bulk operations expose what
