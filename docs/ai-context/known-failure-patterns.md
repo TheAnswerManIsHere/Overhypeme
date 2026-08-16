@@ -1636,3 +1636,57 @@ anything else on the deny list, through a prefix the rule never inspects
 past. **Overhype:** the local settings override in the Repl (see
 [`replit-environment.md`](replit-environment.md#the-repl-requires-a-local-settings-override-that-is-not-in-git),
 which also has the corrected list and the full reasoning).
+
+## A derived metric that silently undercounts because its collector only reads one delivery channel
+
+**Symptom:** a number computed from an external source looks authoritative —
+counted, not recalled, by a script written specifically so nobody types it from
+memory — and is quietly wrong in one direction. Not because the arithmetic is
+wrong, but because the *collector* reads one channel and the source emits on
+several. The failure is invisible at the point of use: a zero from "nothing
+happened" and a zero from "the thing happened somewhere I don't look" are the
+same zero.
+
+**The two live instances**, both in `scripts/loop-metrics.mjs`, both found on
+2026-08-15 during the first `/maintenance` ledger flush:
+
+| Channel | What the collector reads | What it misses |
+|---|---|---|
+| Findings | inline **review threads** | a finding delivered in the review **body** — PR #447's round 1 raised a real one (broken TEST_RUN↔UAT sibling links), so the record reads `findings: 0` on a loop that had one |
+| Rounds | issue comments and review bodies carrying a `**Reviewed commit:**` marker | a **👍-only clean pass** — the connector's documented behaviour is "if Codex has suggestions, it will comment; otherwise it will react with 👍," and a reaction emits no marker, so PRs #414, #415 and #416 record `rounds: 0` |
+
+**Why it bites harder than an ordinary bug:** the undercount is *credible*.
+`loop-metrics.mjs` exists because recalled figures in this repo were wrong
+three times out of three, so a counted figure carries earned authority — and
+that authority transfers to the gaps. On the 2026-08-15 pass the `rounds: 0`
+on #414/#415/#416 was read as "these PRs were never reviewed," reported to
+David as a process failure, and nearly written into three records as a
+finding. The truth was the opposite: all three were reviewed and came back
+clean. **Each record's own original note had said so correctly**; the sweep
+that re-derived them replaced a right answer with a wrong one, because the
+sweep trusted the number over the prose.
+
+**Avoid:** before reading a zero as an absence, ask *which channel would this
+have arrived on, and does the collector read it?* Check the cheap
+disconfirming signal — for a review, that is the PR's reactions and its review
+bodies, neither of which the marker scan touches. And when a record's prose
+disagrees with its own derived number, **that is a signal to investigate, not
+prose to correct**: the human note was written with context the collector
+never had.
+
+**Do not hand-fix the numbers.** The never-type-mechanical-values rule still
+governs — a hand-edited count is exactly the failure `loop-metrics.mjs` was
+built to prevent, and a corrected-by-hand record is indistinguishable from a
+fabricated one. Record the gap in the affected record's `notes` and leave the
+derived value alone, which is what #414, #415, #416 and #447 now do.
+
+**The real fix, if this recurs:** teach the collector the missing channels —
+reactions for the clean-pass case, and a body-level finding count for the
+other — rather than documenting around them a third time. Per this repo's
+standing rule, a pattern that recurs graduates from a memory note to a
+deterministic check.
+
+**Overhype:** the store's own contract is
+[`.agents/metrics/loops/README.md`](../../.agents/metrics/loops/README.md); the
+ledger obligation that binds every agent is
+[`working-modes.md`](./working-modes.md#the-loop-ledger).

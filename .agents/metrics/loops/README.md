@@ -23,6 +23,18 @@ node scripts/loop-report.mjs [--since YYYY-MM-DD] [--inventory <file>]
 language. If you find yourself reading records to answer a question, the
 digest should probably answer it instead.
 
+**The derived numbers undercount in two known ways — a zero is not proof of
+an absence.** `loop-metrics.mjs` counts findings from inline **review
+threads**, so a finding delivered in the review *body* is invisible (PR
+#447); and it counts rounds from a `**Reviewed commit:**` marker, so a
+**👍-only clean pass** — the connector's documented way of saying "no
+findings" — is invisible too (PRs #414, #415, #416). Before reading
+`rounds: 0` as "never reviewed," check the PR's reactions and review bodies.
+Do **not** hand-correct the numbers: note the gap in the record's `notes`
+and leave the derived value alone, per the never-type-mechanical-values rule
+above. Full pattern, including the fix if it recurs, in
+[`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md#a-derived-metric-that-silently-undercounts-because-its-collector-only-reads-one-delivery-channel).
+
 ## Why one file per loop
 
 The predecessor was a single markdown table
