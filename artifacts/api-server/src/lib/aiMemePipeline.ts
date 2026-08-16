@@ -347,7 +347,12 @@ async function generateAndStoreImage(
     // The gate runs whether or not pricing resolved. This used to be
     // `if (priced)`, which skipped the check entirely on a pricing miss and
     // left the ceiling unenforced exactly when something else was failing.
-    const budget = await checkBudget(userId, priced?.costUsd ?? (await fallbackImageCostUsd(model)));
+    // The fallback is passed as a THUNK, not awaited here: it is only needed
+      // for a user who is actually subject to a limit, and resolving it eagerly
+      // would let its failure preempt checkBudget's admin exemption (round 4).
+      const budget = await checkBudget(userId, () =>
+        priced ? Promise.resolve(priced.costUsd) : fallbackImageCostUsd(model),
+      );
     if (!budget.allowed) throw new BudgetExceededError(budget);
     // Only a REAL price is carried forward for ledger recording.
     if (priced) cachedImgPrice = priced.price;
@@ -596,7 +601,12 @@ async function generateAndStoreImageFromReference(
     // The gate runs whether or not pricing resolved. This used to be
     // `if (priced)`, which skipped the check entirely on a pricing miss and
     // left the ceiling unenforced exactly when something else was failing.
-    const budget = await checkBudget(userId, priced?.costUsd ?? (await fallbackImageCostUsd(model)));
+    // The fallback is passed as a THUNK, not awaited here: it is only needed
+      // for a user who is actually subject to a limit, and resolving it eagerly
+      // would let its failure preempt checkBudget's admin exemption (round 4).
+      const budget = await checkBudget(userId, () =>
+        priced ? Promise.resolve(priced.costUsd) : fallbackImageCostUsd(model),
+      );
     if (!budget.allowed) throw new BudgetExceededError(budget);
     // Only a REAL price is carried forward for ledger recording.
     if (priced) cachedRefPrice = priced.price;
