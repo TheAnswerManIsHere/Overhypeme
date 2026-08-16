@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
+import { helpHrefFor } from "./helpMap";
 import {
   LayoutDashboard,
   FileText,
@@ -26,6 +27,8 @@ import {
   Activity,
   FlaskConical,
   HeartPulse,
+  BookOpen,
+  HelpCircle,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -49,6 +52,7 @@ const NAV_ITEMS = [
   { href: "/admin/queue-health", label: "Queue Health", icon: HeartPulse, badge: false as const },
   { href: "/admin/features", label: "Features", icon: ToggleLeft, badge: false as const },
   { href: "/admin/config", label: "Configuration", icon: Settings, badge: false as const },
+  { href: "/admin/help", label: "Help", icon: BookOpen, badge: false as const },
 ];
 
 const COLLAPSED_KEY = "admin_sidebar_collapsed";
@@ -319,6 +323,18 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             </h1>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {!isAdminNavItemActive(location, "/admin/help") && (
+              <Link href={helpHrefFor(location)}>
+                <div
+                  title="How does this screen work?"
+                  aria-label="Help for this screen"
+                  data-testid="admin-help-link"
+                  className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm cursor-pointer transition-colors"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </div>
+              </Link>
+            )}
             <Link href="/">
               <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm cursor-pointer transition-colors">
                 <ChevronRight className="w-4 h-4" />

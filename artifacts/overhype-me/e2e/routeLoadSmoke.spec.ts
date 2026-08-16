@@ -62,6 +62,11 @@ const ROUTES: SmokeRoute[] = [
   { path: "/admin/billing", name: "Admin · Billing", admin: true },
   { path: "/admin/taxonomy-health", name: "Admin · Taxonomy Health", admin: true },
   { path: "/admin/eval", name: "Admin · Eval Dashboard", admin: true },
+  // Help carries the largest generated payload in the console (the manual is
+  // ~160 KB of prose across 13 dynamically-imported chunks), so it is exactly
+  // the shape that trips the lazy-chunk failure class this spec guards.
+  { path: "/admin/help", name: "Admin · Help", admin: true },
+  { path: "/admin/help/11-admin-console", name: "Admin · Help chapter", admin: true },
 ];
 
 /** Console / pageerror strings that mean a lazy chunk failed to load. */
