@@ -39,8 +39,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   **Still owed from that pass:** the `is_estimated` ledger column (approved,
   queued) and the `recordCost` swallow it folds in — both tracked in
   [`deferred-work.md`](../engineering/deferred-work.md). The twice-deferred
-  `IP_HASH_SALT` boot assertion the pass also re-flagged is now done (PR
-  #<TBD>).
+  `IP_HASH_SALT` boot assertion the pass also re-flagged is now done (PR #484).
 
 - **The admin help system — the Manual, rendered in-console** (2026-08-16,
   PR #472, workstream #463). `docs/manual/` is now readable at `/admin/help`

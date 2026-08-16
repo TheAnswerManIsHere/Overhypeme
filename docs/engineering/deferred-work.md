@@ -131,7 +131,7 @@ we've sequenced for later.
 
 - **`IP_HASH_SALT` production fallback — SHIPPED, off this list.** Deferred
   twice (found on PR #299's review, deferred by PR #308; trigger fired again on
-  the 2026-08-16 security pass) and closed by **PR #<TBD>**:
+  the 2026-08-16 security pass) and closed by **PR #484**:
   `assertIpSaltConfigured()` runs at boot from `index.ts` and refuses to start
   a production process whose `IP_HASH_SALT` is missing or under 16 characters.
   Recorded here rather than deleted because two other entries cite this one's
