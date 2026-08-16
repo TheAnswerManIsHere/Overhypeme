@@ -13,6 +13,58 @@
 
 ---
 
+### 2026-08-16 · The claude.ai "Create PRs automatically" and "Autofix pull requests" toggles stay OFF
+- **Decision:** Both account-level Claude Code settings (claude.ai → Settings →
+  Claude Code → Pull requests) stay **off**. Branch prefix stays `claude`,
+  which already matches the `claude/*` convention the guard and branch rules
+  assume. Not revisited on discovery — only on the trigger below.
+- **Why — "Create pull requests automatically":** it automates something the
+  agent already does under a standing rule, while removing the two things that
+  carry the value. **Timing:** it fires on *push*, not on *done*, and the
+  agent commits in verified slices — so a PR would open mid-build and Codex,
+  which auto-reviews every non-draft PR on open, would spend rounds on
+  half-finished diffs (the loop cost the criticality gate and stopping rules
+  exist to contain). **Body:** an auto-opened PR carries no `Workstream: #N`
+  line (parsed by `/status` and `/status-all`), no
+  [review oracle](../engineering/code-review.md#the-review-oracle-the-pr-body),
+  no post-merge verification section, no checklist. **Branches that must not
+  get a PR:** `plan-review/<slug>-combined` deliberately has none, and
+  `plan-review/<slug>` needs the loop's own `[PLAN REVIEW]` title and template.
+- **Why — "Autofix pull requests":** it collides with the standing
+  `subscribe_pr_activity` + `pr-watch` discipline, and does so **silently**.
+  Per the subscription tool's own contract, when a PR Steward is already
+  watching a PR the agent's subscribe call still *succeeds* while its session
+  receives no events — so the agent would believe it was watching while a cold
+  agent handled the loop. Cold is the defect: a review loop is stateful (round
+  number, cumulative-diff rule, prior declines, finding-count trend, the
+  plan-growth tripwire, the criticality gate), and a steward re-establishes
+  none of it per event. This is the same trade already rejected in
+  [`CLAUDE.md`](../../CLAUDE.md) when delegating the watch to a cheaper
+  subagent was considered — except imposed invisibly. Also, "may post comments
+  on your behalf" puts comments in David's name outside the attribution and
+  review-bar discipline.
+- **The gap it would have covered, named honestly:** a session that is archived
+  or dies takes its subscription with it, leaving an open PR unwatched — not
+  hypothetical (PR #458 merged with a round outstanding; 7 findings landed 47
+  seconds later). That gap is now mitigated by the bounded self-check-in
+  contract, so the setting would be a backup for an already-handled rare case.
+- **An A/B trial was offered and declined on cost/benefit** (David had no
+  strong preference and left the call to the agent). The upside is information
+  about a rare, mitigated case; the downside lands on the common case — during
+  the trial, real review loops would run under a cold watcher. Degrading the
+  main quality mechanism to probe a corner case is the wrong ratio, and
+  [engineer-to-the-blast-radius](./agent-working-rules.md#engineer-to-the-blast-radius)
+  favors the boring answer for internal tooling.
+- **Reference:** `CLAUDE.md` → *Always open a PR when work is done*, *Watching
+  the PRs I open*; the `pr-watch` skill; this decision was taken in the
+  session that shipped PR #471.
+- **Revisit if:** a PR actually goes unwatched because its session ended — a
+  demonstrated incident, not a calendar date. At that point Autofix is the
+  obvious fix for a real problem and is cheap to enable. Also revisit if the
+  steward's precedence is documented as claiming only PRs with no live
+  subscriber, which would remove the collision entirely.
+
+---
 ### 2026-08-16 · A `docs/` → code generator puts its freshness gate in the always-on Build job, never in a test suite
 - **Decision:** The admin help system renders `docs/manual/` in-app from a
   **committed generated artifact** (`artifacts/overhype-me/src/generated/help/`,
