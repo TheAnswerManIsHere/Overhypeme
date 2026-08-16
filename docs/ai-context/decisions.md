@@ -43,18 +43,32 @@
   subagent was considered — except imposed invisibly. Also, "may post comments
   on your behalf" puts comments in David's name outside the attribution and
   review-bar discipline.
-- **The gap it would have covered, named honestly:** a session that is archived
-  or dies takes its subscription with it, leaving an open PR unwatched — not
-  hypothetical (PR #458 merged with a round outstanding; 7 findings landed 47
-  seconds later). That gap is now mitigated by the bounded self-check-in
-  contract, so the setting would be a backup for an already-handled rare case.
-- **An A/B trial was offered and declined on cost/benefit** (David had no
-  strong preference and left the call to the agent). The upside is information
-  about a rare, mitigated case; the downside lands on the common case — during
-  the trial, real review loops would run under a cold watcher. Degrading the
-  main quality mechanism to probe a corner case is the wrong ratio, and
+- **The gap it would have covered is REAL and has no automatic mitigation** — a
+  first draft of this entry claimed the bounded self-check-in contract already
+  covered it, which is false and was caught in review on PR #481. A session
+  that is archived or dies takes its subscription with it, leaving an open PR
+  unwatched (not hypothetical: PR #458 merged with a round outstanding, and 7
+  findings landed 47 seconds later). The check-in contract **cannot** be the
+  backup, because it schedules session-bound `send_later` one-shots and the
+  platform auto-disables a trigger whose bound session is gone
+  (`auto_disabled_session_gone` — see [`CLAUDE.md`](../../CLAUDE.md) →
+  *Scheduled self-check-ins* → *Permissions*, the same section that documents
+  the behavior). The check-in covers "a live session's PR goes quiet"; it
+  covers nothing once the session itself is gone. **Recovery from that state
+  is manual:** David notices, or `/status-all` surfaces the stalled workstream,
+  and a new session re-subscribes. So this decision knowingly accepts an
+  unmitigated rare gap.
+- **Why the trade is still worth taking:** the collision cost lands on the
+  *common* case (every live review loop, silently), the gap lands on a *rare*
+  one (a dead session's open PR) and is recoverable by hand. An A/B trial with
+  Autofix on was offered and declined (David had no strong preference and left
+  the call to the agent): during the trial, real review loops would run under a
+  cold watcher to probe a corner case, which is the wrong ratio, and
   [engineer-to-the-blast-radius](./agent-working-rules.md#engineer-to-the-blast-radius)
-  favors the boring answer for internal tooling.
+  favors the boring answer for internal tooling. **The decisive unknown is the
+  steward's precedence** — whether it claims every PR or only those with no
+  live subscriber. If it is the latter, the collision disappears and Autofix
+  becomes pure upside on exactly this gap.
 - **Reference:** `CLAUDE.md` → *Always open a PR when work is done*, *Watching
   the PRs I open*; the `pr-watch` skill; this decision was taken in the
   session that shipped PR #471.
