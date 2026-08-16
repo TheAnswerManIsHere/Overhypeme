@@ -17,6 +17,39 @@ describe("internal help link guard", () => {
     }
   });
 
+  // github-slugger keeps non-ASCII letters, so the generator can legitimately
+  // emit `#café`. An ASCII-only fragment class rejected it — and a rejected
+  // marker means the href never gets base-prefixed and the click falls back to
+  // a full page load, silently.
+  it("accepts the non-ASCII fragments github-slugger actually produces", () => {
+    for (const ok of [
+      "/admin/help/3-moderation#café",
+      "/admin/help/3-moderation#straße",
+      "/admin/help/4-taxonomy-and-enrichment#日本語の見出し",
+      "/admin/help#emoji-🎉-heading",
+    ]) {
+      expect(accepts(ok), `should accept ${ok}`).toBe(true);
+    }
+  });
+
+  // The widened fragment must not have reopened the hole the module exists to
+  // close. Only the leading PATH can change where navigation goes, so these
+  // stay rejected no matter what the fragment allows.
+  it("still rejects origin-changing values after the fragment was widened", () => {
+    for (const bad of [
+      "//evil.com#café",
+      "/admin/help/3-moderation#a/b",
+      "/admin/help/3-moderation#javascript:alert(1)",
+      "/admin/help/3-moderation#x?y",
+      "/admin/help/3-moderation#a#b",
+      "/admin/help/3-moderation#with space",
+      "/admin/help/3-moderation#back\\slash",
+      "/admin/help/café",
+    ]) {
+      expect(accepts(bad), `should reject ${JSON.stringify(bad)}`).toBe(false);
+    }
+  });
+
   // The reason this module exists. `startsWith("/")` accepted the first two,
   // and the first one is a protocol-relative URL that navigates off-site.
   it("rejects the values the old startsWith('/') guard let through", () => {

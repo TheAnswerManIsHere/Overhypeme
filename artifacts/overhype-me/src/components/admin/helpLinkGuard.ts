@@ -16,8 +16,23 @@
  * Lives in its own module so both call sites share one implementation — the
  * paired-check drift this feature was caught on twice — and so the property is
  * testable without mounting the page.
+ *
+ * THE PATH AND THE FRAGMENT ARE NOT THE SAME PROBLEM, and holding them to one
+ * character class was a defect in the other direction. Chapter slugs come from
+ * filenames and stay strictly ASCII, so the path segment stays narrow. But a
+ * fragment is a HEADING slug produced by `github-slugger`, which preserves
+ * non-ASCII letters — so an ASCII-only fragment class rejects a link the
+ * generator legitimately emits (`#café`), leaving the href unprefixed under a
+ * non-root base and falling back to a full page load at the root. The generator
+ * accepting what the consumer rejects is the same producer/consumer split that
+ * previously made every in-app link inert.
+ *
+ * Widening the fragment costs nothing security-wise: only the leading path can
+ * change the navigation target, and the fragment class still excludes the
+ * characters that could — `/`, `\`, `:`, `?`, `#`, and whitespace — so
+ * `//evil.com` and `javascript:` remain unrepresentable.
  */
-export const INTERNAL_HELP_PATH = /^\/admin\/help(?:\/[A-Za-z0-9._-]+)?(?:#[A-Za-z0-9._-]+)?$/;
+export const INTERNAL_HELP_PATH = /^\/admin\/help(?:\/[A-Za-z0-9._-]+)?(?:#[^\s/\\:?#]+)?$/;
 
 /** The vetted in-app path an element carries, or null if it is not one. */
 export function internalHelpTarget(el: Element | null): string | null {

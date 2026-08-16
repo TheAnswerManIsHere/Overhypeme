@@ -60,6 +60,36 @@ const where = (n: ts.Node) =>
   `line ${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}: ${n.getText(sf).slice(0, 90)}`;
 
 /**
+ * Local names for wouter's `useLocation`, resolved through the IMPORT.
+ *
+ * Matching the literal callee name `useLocation` was the same mistake one
+ * level up from the rename hole: `import { useLocation as useHelpLocation }
+ * from "wouter"` gives a fully functional hook the analysis cannot see, and
+ * because the unaliased binding elsewhere keeps the setter list non-empty,
+ * every assertion below — and all three self-tests — stay green while the
+ * regression walks back in. So the hook is identified by what it IS, not by
+ * what it is called here.
+ */
+function locationHookNames(): string[] {
+  const names: string[] = [];
+  walk(sf, (n) => {
+    if (!ts.isImportDeclaration(n)) return;
+    if (!ts.isStringLiteral(n.moduleSpecifier) || n.moduleSpecifier.text !== "wouter") return;
+    const bindings = n.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) return;
+    for (const spec of bindings.elements) {
+      // `propertyName` is set only when aliased: `{ useLocation as x }` gives
+      // propertyName=useLocation, name=x. Unaliased, the name IS the export.
+      const exported = (spec.propertyName ?? spec.name).text;
+      if (exported === "useLocation") names.push(spec.name.text);
+    }
+  });
+  return names;
+}
+
+const LOCATION_HOOKS = locationHookNames();
+
+/**
  * Names bound to wouter's navigate function, however they are spelled.
  * `const [location, setLocation] = useLocation()` binds at index 1; so does
  * `const [, navigate] = useLocation()`.
@@ -70,11 +100,11 @@ function setterNames(): string[] {
     if (!ts.isVariableDeclaration(n)) return;
     const init = n.initializer;
     if (!init || !ts.isCallExpression(init)) return;
-    if (!ts.isIdentifier(init.expression) || init.expression.text !== "useLocation") return;
+    if (!ts.isIdentifier(init.expression) || !LOCATION_HOOKS.includes(init.expression.text)) return;
     // A non-destructuring binding (`const loc = useLocation()`) would hide the
     // setter behind `loc[1]`, so it is rejected outright below.
     if (!ts.isArrayBindingPattern(n.name)) {
-      throw new Error(`useLocation() must be array-destructured so its setter is named — got: ${where(n)}`);
+      throw new Error(`wouter's useLocation() must be array-destructured so its setter is named — got: ${where(n)}`);
     }
     const el = n.name.elements[1];
     if (el && ts.isBindingElement(el) && ts.isIdentifier(el.name)) names.push(el.name.text);
@@ -206,10 +236,23 @@ describe("the navigation guard detects a bypass", () => {
       if (ts.isFunctionDeclaration(n) && n.name?.text === NAVIGATOR) decl = n;
     });
     const s = { start: decl!.getStart(f), end: decl!.getEnd() };
+    // Mirrors locationHookNames(): resolve the hook through the wouter import
+    // so an aliased spelling is followed here too. Without this, the fixture
+    // below could not detect the very hole it is meant to prove is closed.
+    const hooks: string[] = [];
+    walkF(f, (n) => {
+      if (!ts.isImportDeclaration(n)) return;
+      if (!ts.isStringLiteral(n.moduleSpecifier) || n.moduleSpecifier.text !== "wouter") return;
+      const b = n.importClause?.namedBindings;
+      if (!b || !ts.isNamedImports(b)) return;
+      for (const spec of b.elements) {
+        if ((spec.propertyName ?? spec.name).text === "useLocation") hooks.push(spec.name.text);
+      }
+    });
     const names: string[] = [];
     walkF(f, (n) => {
       if (!ts.isVariableDeclaration(n) || !n.initializer || !ts.isCallExpression(n.initializer)) return;
-      if (!ts.isIdentifier(n.initializer.expression) || n.initializer.expression.text !== "useLocation") return;
+      if (!ts.isIdentifier(n.initializer.expression) || !hooks.includes(n.initializer.expression.text)) return;
       if (!ts.isArrayBindingPattern(n.name)) return;
       const el = n.name.elements[1];
       if (el && ts.isBindingElement(el) && ts.isIdentifier(el.name)) names.push(el.name.text);
@@ -221,7 +264,7 @@ describe("the navigation guard detects a bypass", () => {
       if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && names.includes(n.expression.text)) stray++;
       if (isHistoryMutation(n)) stray++;
     });
-    return { setters: names, stray };
+    return { setters: names, hooks, stray };
   }
 
   it("sees a stray call through the setter's real name", () => {
@@ -245,6 +288,25 @@ describe("the navigation guard detects a bypass", () => {
     const { setters, stray } = analyse(renamed);
     expect(setters, "the guard must follow the binding, not the spelling").toContain("navigate");
     expect(stray, "a renamed setter is still a navigation path").toBeGreaterThan(0);
+  });
+
+  it("sees a stray call through an ALIASED hook import — the hole one level up", () => {
+    // `import { useLocation as useHelpLocation }` gives a working hook under a
+    // name the analysis never sees if it matches the callee literally. The
+    // unaliased binding elsewhere keeps the setter list non-empty, so nothing
+    // else in this suite would have gone red.
+    const aliased = source
+      .replace('import { useLocation, useRoute } from "wouter";',
+               'import { useLocation, useLocation as useHelpLocation, useRoute } from "wouter";')
+      .replace(
+        "const bodyRef = useRef<HTMLDivElement>(null);",
+        "const bodyRef = useRef<HTMLDivElement>(null);\n  const [, jump] = useHelpLocation();\n  const bypass = () => jump('/admin/help/3-moderation');",
+      );
+    expect(aliased, "alias fixture did not apply").not.toBe(source);
+    const { hooks, setters, stray } = analyse(aliased);
+    expect(hooks, "the guard must resolve the hook through its import").toContain("useHelpLocation");
+    expect(setters, "a setter bound from the aliased hook must be tracked").toContain("jump");
+    expect(stray, "an aliased hook is still a navigation path").toBeGreaterThan(0);
   });
 
   it("sees a stray history mutation", () => {

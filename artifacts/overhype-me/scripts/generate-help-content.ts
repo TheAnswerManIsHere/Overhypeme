@@ -133,8 +133,11 @@ function parseContentsTable(readmeSrc: string): { number: number; file: string }
   // earlier in the file — could stand in for the declared source of truth
   // while the real Contents table lost or reordered a row.
   const children = tree.children as { type: string; depth?: number; children?: unknown[] }[];
+  // The DEPTH is part of the identity, not decoration: the declared source of
+  // truth is `## Contents`, so an earlier heading named "Contents" at another
+  // level — with its own numbered-link table — must not stand in for it.
   const contentsAt = children.findIndex(
-    (n) => n.type === "heading" && mdastToString(n as never).trim().toLowerCase() === "contents",
+    (n) => n.type === "heading" && n.depth === 2 && mdastToString(n as never).trim().toLowerCase() === "contents",
   );
   if (contentsAt === -1) fail("README.md has no `## Contents` heading to read the chapter table from.");
 
@@ -263,8 +266,14 @@ function parsedNextFooter(src: string): number | null {
   // one let the gate pass on a chapter whose real footer had been removed.
   // Only the closing run of the document is eligible — the footer is followed
   // at most by the "Verified against …" provenance line.
+  //
+  // Reversed, so the LAST eligible footer wins. Taking the first meant that if
+  // a second `**Next:**` paragraph were appended after the real one, the gate
+  // would validate the earlier paragraph while the reader ends the chapter on
+  // the later one — validating something other than what renders, which is the
+  // failure this whole gate exists to prevent.
   const tail = tree.children.slice(-4);
-  for (const node of tail) {
+  for (const node of [...tail].reverse()) {
     if (node.type !== "paragraph") continue;
     // Structure, not flattened text: the paragraph must OPEN with a `strong`
     // node reading "Next:". `mdastToString` discards the bold marks, so a
