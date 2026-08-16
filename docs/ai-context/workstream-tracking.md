@@ -280,7 +280,15 @@ stale narrative behind it is worse than an honest gap. That means the same
 skills that own label transitions
 (`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`) own keeping this block
 current at those same trigger points. There is no separate maintainer
-beyond those four. (The old fifth maintainer — the `test-run-completion.yml`
+beyond those four **for label-driven updates**.
+
+**One writer updates this block without any label change: `/handoff`**
+(`.claude/skills/handoff/SKILL.md`, Claude-only). When a session's context is
+moved to a fresh session, the narrative changes while `stage:` and `waiting:`
+deliberately do not — the holder is `claude` before and after, and a handoff
+is not a lifecycle transition. This is consistent with the rule above rather
+than an exception to it: the rule binds a label change to a block update, not
+the reverse. (The old fifth maintainer — the `test-run-completion.yml`
 Action, which owned the deletion-of-a-TEST_RUN-doc transition — is retired
 with the TEST_RUN file pattern, 2026-08-15: `pr-watch`'s close-out sequence
 owns that transition now.)

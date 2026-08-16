@@ -71,6 +71,18 @@ fail the disclosure check, it does not go in this folder — it stays on the
 manual/private path, same carve-out `plan-review-loop` uses for a plan that
 can't go through the public channel.
 
+## Not to be confused with Claude's `/handoff` skill
+
+The name collides, the job doesn't. **This folder is cross-*tool* transit** —
+it exists because Replit and Codex have no shared channel with anyone except
+the repo. **`/handoff`** (`.claude/skills/handoff/SKILL.md`) moves one Claude
+Code *session's* context to a fresh Claude Code session, and its channel is
+the workstream issue's State of Play block plus a handoff comment — never a
+file here. A session handoff carries no delete-when-addressed obligation and
+has a live reader by construction, so both of this folder's defining
+properties are absent. If you are reaching for a file here to hand context
+between two Claude sessions, that's the wrong artifact.
+
 ## What this folder is not
 
 Not a place for durable docs (those go in `docs/ai-context/` or

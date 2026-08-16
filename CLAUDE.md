@@ -407,6 +407,32 @@ sessions, and `/compact` only preserves a lossy summary of it. So by
 durable memory lives in versioned files (single source of truth), so David
 keeps short, disposable chats without losing area context.
 
+### `/handoff` is how a session ends without losing what it knew
+
+The short-disposable-chats habit above only works if ending a chat is cheap.
+The **`handoff` skill** is what makes it cheap: when a session finishes one
+thing and is about to turn to something else, it judges whether the context
+actually needs to move, and when it does, externalizes it onto the workstream
+issue and hands David a copy-pasteable prompt for the new session.
+
+Two things stay resident because they govern whether the skill fires at all:
+
+- **The first thing it does is decide whether a handoff is needed** — and it
+  **stops** when the answer is no, rather than building the artifact anyway.
+  Staying wins whenever the session is mid-flight in a stateful ceremony (a
+  plan-review loop between rounds, a PR watch before close-out, an
+  outstanding `@codex review`), holds live state no artifact can carry, or
+  when the load-bearing context is a few lines long. This is my judgement
+  call, not a checkpoint with David — he asked for the call.
+- **It runs in the main loop, never a subagent.** The session's own context
+  is the subject matter; a subagent has none of it. Same boundary as the
+  `/document` harvest.
+
+Distinct from both neighbours: `/document` harvests learnings that outlive the
+*task*, `/handoff` carries the state needed to continue the *work*, and
+[`docs/handoff/`](docs/handoff/README.md) is cross-*tool* transit that a
+session handoff never writes to.
+
 ### The `/document` ceremony is the explicit end-of-feature fold-in
 
 The running working-notes habit above captures learnings *during* a build; the
