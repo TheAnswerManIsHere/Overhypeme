@@ -225,6 +225,27 @@ jobs:
       - name: Codegen drift check
         run: pnpm run check:codegen-drift
 
+      # The in-app admin help content is GENERATED FROM docs/manual/, which is
+      # the inverse of the generate:field-docs precedent (source in code,
+      # artifact in docs/) — and that inversion is why this gate lives HERE
+      # rather than in the Frontend Test suite where the field-docs staleness
+      # assertion sits.
+      #
+      # scripts/classify-ci-paths.mjs classifies all of docs/** as inert, so a
+      # PR that edits only a manual chapter skips Test / Frontend Test / E2E
+      # Smoke entirely. A freshness check living in those suites would never
+      # run on the exact change that can invalidate the artifact, and a stale
+      # help bundle would merge green with the console showing a manual that no
+      # longer matches docs/manual/.
+      #
+      # This job is never gated, so the check runs on every PR that can touch
+      # either side. Adding docs/manual/** to the inert carve-out was the
+      # alternative and was rejected: it would force two Postgres boots and a
+      # Chromium download onto every prose edit, which is the cost the
+      # classifier exists to avoid.
+      - name: Check admin help content is in sync with docs/manual/
+        run: pnpm --filter @workspace/overhype-me run check:help-content
+
       # The permission chokepoint. A tier-keyed hasFeature() reachable from route
       # code is how PR #402's bug class reproduces, so the guard makes the wrong
       # call impossible rather than merely discouraged.
