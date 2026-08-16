@@ -53,6 +53,17 @@ const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
 
 /**
+ * Per-call cost used to gate an image generation whose real price could not be
+ * resolved. Mirrors `STAGE1_FALLBACK_COST` in `videoPipelineRunner.ts`, which
+ * covers the same class of single stylize-image call.
+ *
+ * This exists so the budget gate still runs when pricing is unavailable. It is
+ * a GATING estimate only — never written to the cost ledger, which records
+ * measured prices.
+ */
+const IMAGE_FALLBACK_COST_USD = 0.03;
+
+/**
  * Models that accept a face-reference image input.
  * Each uses a different parameter name for the reference URL.
  */
@@ -231,15 +242,18 @@ async function generateAndStoreImage(
       // Pricing unavailable — fail open, log and continue. Deliberately its
       // own catch, separate from the gate call below: a gate failure must
       // never be swallowed here as if it were a pricing miss (#409).
-      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped (pricing unavailable)");
+      logger.warn({ err, model }, "[aiMemePipeline] Pricing unavailable — gating on the fallback estimate");
     }
-    if (priced) {
-      // Deliberately outside the catch above (#409): a gate failure is not a
-      // pricing failure, and must propagate rather than be swallowed.
-      const budget = await checkBudget(userId, priced.costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
-      cachedImgPrice = priced.price;
-    }
+    // Deliberately outside the catch above (#409): a gate failure is not a
+    // pricing failure, and must propagate rather than be swallowed.
+    //
+    // The gate runs whether or not pricing resolved. This used to be
+    // `if (priced)`, which skipped the check entirely on a pricing miss and
+    // left the ceiling unenforced exactly when something else was failing.
+    const budget = await checkBudget(userId, priced?.costUsd ?? IMAGE_FALLBACK_COST_USD);
+    if (!budget.allowed) throw new BudgetExceededError(budget);
+    // Only a REAL price is carried forward for ledger recording.
+    if (priced) cachedImgPrice = priced.price;
   }
 
   const result = await fal.subscribe(model, {
@@ -477,15 +491,18 @@ async function generateAndStoreImageFromReference(
       // Pricing unavailable — fail open, log and continue. Deliberately its
       // own catch, separate from the gate call below: a gate failure must
       // never be swallowed here as if it were a pricing miss (#409).
-      logger.warn({ err, model, path: "reference" }, "[aiMemePipeline] Budget gate skipped (pricing unavailable)");
+      logger.warn({ err, model, path: "reference" }, "[aiMemePipeline] Pricing unavailable — gating on the fallback estimate");
     }
-    if (priced) {
-      // Deliberately outside the catch above (#409): a gate failure is not a
-      // pricing failure, and must propagate rather than be swallowed.
-      const budget = await checkBudget(userId, priced.costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
-      cachedRefPrice = priced.price;
-    }
+    // Deliberately outside the catch above (#409): a gate failure is not a
+    // pricing failure, and must propagate rather than be swallowed.
+    //
+    // The gate runs whether or not pricing resolved. This used to be
+    // `if (priced)`, which skipped the check entirely on a pricing miss and
+    // left the ceiling unenforced exactly when something else was failing.
+    const budget = await checkBudget(userId, priced?.costUsd ?? IMAGE_FALLBACK_COST_USD);
+    if (!budget.allowed) throw new BudgetExceededError(budget);
+    // Only a REAL price is carried forward for ledger recording.
+    if (priced) cachedRefPrice = priced.price;
   }
 
   const result = await fal.subscribe(model, {
