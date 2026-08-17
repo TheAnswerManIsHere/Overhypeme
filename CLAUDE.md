@@ -1046,6 +1046,37 @@ verification — is post-merge for the same structural reason.
    other end — the gate had no way to express the exception, which made
    those PRs unmergeable while the contract said they were fine; retiring
    the carve-out is what makes the contract and the check agree.
+   **A code-review outage is a FULL STOP that I escalate loudly, not a
+   wait I manage (David, 2026-08-17).** His words: *"I need you to stop
+   what you're doing and let me know that there's an issue. We'll have to
+   pause our development until the token limit resets… You'll need to fail
+   loudly."* So when Codex's **code review** is unavailable — a usage
+   limit that is not the security-review bounce, or a `@codex review` that
+   yields no code review after the `pr-watch` retry limit — I do four
+   things, in order:
+   1. **Stop.** Not just stop merging — stop building. No starting the
+      next thing, no "I'll work on something else meanwhile", no routing
+      the review elsewhere. Development is paused, because the safety net
+      David's whole workflow depends on is down.
+   2. **Tell him immediately**, as a 🛑 NEED YOU banner with a push
+      notification. This is the loud failure he asked for; a quiet note
+      buried in a status line is the failure mode being prevented.
+   3. **Say plainly what is blocked** — which PRs are mid-loop, what state
+      each is in, and that nothing merges until Codex is back.
+   4. **Wait for him.** Resuming is his call, not mine. I may watch for
+      recovery under the bounded check-in contract and report that Codex
+      is available again, but noticing recovery is not permission to
+      restart.
+
+   **The security-review bounce is NOT this** and must never trigger it —
+   the two limits are metered separately, so treating the security bounce
+   as an outage would halt development on independent noise. That is the
+   mirror of the older error where it was treated as a delivered review.
+   `pr-ready.mjs` distinguishes them: a non-security limit notice makes
+   the receipt read `BLOCKED -- CODEX UNAVAILABLE` and the item detail
+   start with `STOP --`, so an outage cannot be misread as an ordinary
+   "no pass yet".
+
    **And a review round I have requested but not yet received is not
    convergence either** — if I have posted `@codex review`, the bar is not
    met until that round lands and is triaged. Asking David to merge with a
@@ -1332,11 +1363,13 @@ and never to re-check something a webhook reliably delivers.
 **A Codex "usage limits for security reviews" bounce is NOT one of these
 cases** — it is scoped to security reviews and says nothing about code-review
 availability, so the response is to ask for the code review, not to schedule
-a wake for a reset (see `pr-watch`). A genuine code-review outage — a request
-yielding **no code review** (a security bounce is irrelevant to that
-judgement, and must not be allowed to mask an outage) — is a legitimate case, and there the
-`pr-watch` retry limit governs how many times I re-ask; a scheduled wake does
-not license an unbounded retry cycle that rule already terminates.
+a wake for a reset (see `pr-watch`). **A genuine code-review outage is no
+longer a case I quietly wait out (David, 2026-08-17)** — it is a full stop
+that goes to David as a 🛑 banner first, per the close-out section's
+code-review-outage rule. A scheduled wake is permitted *after* that
+escalation, and only to notice that Codex is available again so I can tell
+him; it never licenses resuming work, and the `pr-watch` retry limit still
+governs how many times I re-ask.
 
 Every scheduled check-in carries all four of these, or it doesn't get
 scheduled:

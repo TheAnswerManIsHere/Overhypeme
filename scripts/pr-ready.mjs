@@ -61,18 +61,48 @@ export const CODEX_BOT = "chatgpt-codex-connector[bot]";
  */
 const PASSING_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
+const authorOf = (c) => c?.user?.login ?? c?.author?.login ?? c?.author ?? "";
+const bodyOf = (c) => c?.body ?? "";
+const timeOf = (c) => Date.parse(c?.created_at ?? c?.submitted_at ?? 0) || 0;
+
 /**
- * The Codex comment that is NOT a review.
+ * The Codex comment that is NOT a review, and the one that means STOP.
  *
- * Codex meters security reviews and code reviews separately, and a security
- * bounce says nothing whatever about code-review availability -- CLAUDE.md
- * spells this out because treating the bounce as "Codex responded" is exactly
- * how an outstanding round gets mistaken for a finished one. Matching on the
- * bounce text is payload-text matching, which this repo generally avoids, but
- * here the text IS the signal and the failure direction is safe: an
- * unrecognised bounce variant makes the gate stricter, never looser.
+ * Codex meters security reviews and code reviews separately, so the two
+ * bounces mean opposite things and must never be collapsed:
+ *
+ *   - A **security-review** bounce says nothing whatever about code-review
+ *     availability. The response is to ask for the code review. Treating it as
+ *     "Codex responded" is how an outstanding round gets mistaken for a
+ *     finished one; treating it as an outage would let independent noise mask
+ *     a real one indefinitely.
+ *   - A **code-review** bounce is a development stop (David, 2026-08-17):
+ *     *"I need you to stop what you're doing and let me know that there's an
+ *     issue. We'll have to pause our development until the token limit
+ *     resets."* Not a wait, not a workaround -- a loud halt.
+ *
+ * `CODEX_USAGE_LIMIT` is deliberately BROADER than any wording I have actually
+ * observed. I have seen the security variant verbatim and have never seen the
+ * code-review one, so writing a regex for its exact text would be inventing
+ * the very string the check depends on. Instead: any Codex comment about usage
+ * limits that is not the known security variant is surfaced as a possible
+ * outage. The failure direction is a false alarm that costs one question to
+ * David, against a missed outage that leaves me quietly waiting on a review
+ * that is never coming.
  */
 const SECURITY_BOUNCE = /usage limits for security reviews/i;
+const CODEX_USAGE_LIMIT = /usage limits?|rate limit|quota/i;
+
+/** A Codex comment reporting a limit that is NOT the security-review one. */
+export function codeReviewOutage(issueComments, reviews) {
+  const hit = [...issueComments, ...reviews].find(
+    (c) =>
+      authorOf(c) === CODEX_BOT &&
+      CODEX_USAGE_LIMIT.test(bodyOf(c)) &&
+      !SECURITY_BOUNCE.test(bodyOf(c)),
+  );
+  return hit ? { at: hit.created_at ?? hit.submitted_at ?? null, body: bodyOf(hit).slice(0, 200) } : null;
+}
 
 /** A comment that requests a review round. */
 const REVIEW_REQUEST = /@codex\s+review/i;
@@ -192,10 +222,6 @@ export function assertSnapshot(snapshot, prNumber) {
   }
 }
 
-const authorOf = (c) => c?.user?.login ?? c?.author?.login ?? c?.author ?? "";
-const bodyOf = (c) => c?.body ?? "";
-const timeOf = (c) => Date.parse(c?.created_at ?? c?.submitted_at ?? 0) || 0;
-
 /**
  * Item 1: every check run finished on THIS commit, and none of them failed.
  *
@@ -285,6 +311,7 @@ export function checkCi(checkRuns, headSha = null) {
  * the one soft edge here, and it is stated rather than buried.
  */
 export function checkCodex(issueComments, reviews, headSha = null) {
+  const outage = codeReviewOutage(issueComments, reviews);
   const requests = issueComments
     .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
     .sort((a, b) => timeOf(a) - timeOf(b));
@@ -306,6 +333,19 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   const thumbsUp = (latestRequest.reactions?.["+1"] ?? 0) > 0;
 
   if (announcements.length === 0 && !thumbsUp) {
+    // An outage is not "still waiting". CLAUDE.md requires a full stop and a
+    // 🛑 banner to David, so the receipt has to make the two distinguishable
+    // at a glance rather than leaving me to notice. (David, 2026-08-17.)
+    if (outage) {
+      return {
+        pass: false,
+        outage,
+        detail:
+          `STOP -- Codex reports a usage limit that is not the security-review one: ` +
+          `"${outage.body.replace(/\s+/g, " ").trim()}". Development pauses until the limit resets; ` +
+          `raise this with David rather than waiting or working around it.`,
+      };
+    }
     return {
       pass: false,
       detail:
@@ -404,7 +444,7 @@ export function evaluate(snapshot, now = Date.now()) {
   };
   const ready = Object.values(items).every((i) => i.pass);
   return {
-    verdict: ready ? "READY" : "NOT READY",
+    verdict: ready ? "READY" : items.codex.outage ? "BLOCKED -- CODEX UNAVAILABLE" : "NOT READY",
     pr: snapshot.pr.number,
     headSha,
     branch: snapshot.pr.head.ref,

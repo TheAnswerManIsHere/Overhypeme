@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   assertSnapshot,
   checkCapture,
+  codeReviewOutage,
   checkCi,
   checkCodex,
   checkThreads,
@@ -203,6 +204,60 @@ test("Codex: a security-review usage bounce is not a response", () => {
   );
   assert.equal(withBounce.pass, false);
   assert.match(withBounce.detail, /metered separately/);
+});
+
+test("outage: a code-review usage limit is a STOP, not a wait", () => {
+  // David, 2026-08-17: a code-review outage halts development and goes to him
+  // as a 🛑 banner. The receipt has to make that distinguishable from an
+  // ordinary "no pass yet" at a glance.
+  const res = checkCodex(
+    [
+      comment("me", "@codex review", "2026-08-17T04:00:00Z"),
+      comment(CODEX_BOT, "You have reached your Codex usage limits for code reviews.", "2026-08-17T04:01:00Z"),
+    ],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /^STOP --/);
+  assert.ok(res.outage);
+});
+
+test("outage: the SECURITY bounce is not an outage", () => {
+  // The two limits are metered separately. Treating the security bounce as an
+  // outage would let independent noise halt development indefinitely -- the
+  // mirror of the error that let it mask a real review round.
+  assert.equal(
+    codeReviewOutage(
+      [comment(CODEX_BOT, "You have reached your Codex usage limits for security reviews.", "2026-08-17T04:01:00Z")],
+      [],
+    ),
+    null,
+  );
+});
+
+test("outage: a delivered review is unaffected by an earlier limit notice", () => {
+  // The outage branch is reached only when NO pass has come back, so a limit
+  // notice followed by a real review still converges.
+  const res = checkCodex(
+    [
+      comment("me", "@codex review", "2026-08-17T04:00:00Z"),
+      comment(CODEX_BOT, "You have reached your Codex usage limits.", "2026-08-17T04:01:00Z"),
+    ],
+    [pass("2026-08-17T04:10:00Z", HEAD)],
+    HEAD,
+  );
+  assert.equal(res.pass, true);
+});
+
+test("outage: the receipt verdict names it, not a generic NOT READY", () => {
+  const snap = goodSnapshot();
+  snap.reviews = [];
+  snap.issueComments = [
+    comment("me", "@codex review", "2026-08-17T04:00:00Z"),
+    comment(CODEX_BOT, "You have reached your Codex usage limits for code reviews.", "2026-08-17T04:01:00Z"),
+  ];
+  assert.equal(evaluate(snap).verdict, "BLOCKED -- CODEX UNAVAILABLE");
 });
 
 test("Codex: the bot's own comments never count as review requests", () => {
