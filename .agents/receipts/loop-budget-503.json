@@ -1,0 +1,8 @@
+{
+  "pr": 503,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 45,
+  "artifact": "review-round budget guard (scripts/review-budget.mjs + contract updates)",
+  "declaredAt": "2026-08-17T21:32:52.886Z"
+}
