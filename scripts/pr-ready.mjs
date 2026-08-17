@@ -72,8 +72,15 @@ const PASSING_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
  * These are the `jobs.*.name` values in .github/workflows/build.yml. Renaming a
  * job there without updating this list blocks every merge until someone
  * notices -- the fail-closed direction, and loud rather than silent.
+ *
+ * The list must contain EVERY `needs: changes` job, not just the one whose
+ * absence was first demonstrated: `Test`, `Frontend Test` and `E2E Smoke` all
+ * appear late for the same reason, so naming only `Test` left two jobs that
+ * could still show up after a receipt was minted. (Codex, #490 round 3 --
+ * a follow-on to the same finding, which is why the rule here is now the
+ * *scheduling shape* rather than a list of examples.)
  */
-const REQUIRED_CHECKS = ["Classify changed paths", "Build", "Test"];
+const REQUIRED_CHECKS = ["Classify changed paths", "Build", "Test", "Frontend Test", "E2E Smoke"];
 
 /**
  * How stale the underlying evidence may be when a receipt is minted.
@@ -292,6 +299,16 @@ export function checkCi(checkRuns, headSha = null) {
           `not ${headSha.slice(0, 7)} -- re-read get_check_runs after the push`,
       };
     }
+    const undated = checkRuns.filter((r) => !Number.isFinite(Date.parse(r.started_at ?? "")));
+    if (undated.length) {
+      return {
+        pass: false,
+        detail:
+          `${undated.length} check run(s) carry no parseable started_at. That timestamp is what dates the ` +
+          `head commit, and without it a review request made for an earlier commit cannot be told from one ` +
+          `made for this one -- capture started_at with each run`,
+      };
+    }
     const unbound = checkRuns.filter((r) => !r.head_sha);
     if (unbound.length) {
       return {
@@ -393,7 +410,7 @@ export function checkCi(checkRuns, headSha = null) {
  * David, with that observation as the evidence. Fail-closed here costs one
  * blocked merge; fail-open costs the failure this file exists to prevent.
  */
-export function checkCodex(issueComments, reviews, headSha = null) {
+export function checkCodex(issueComments, reviews, headSha = null, headStartedAt = null) {
   const requests = issueComments
     .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
     .sort((a, b) => timeOf(a) - timeOf(b));
@@ -408,7 +425,12 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   const requestedAt = timeOf(latestRequest);
   // Scoped to the round being waited on, so a limit hit on round 2 is a STOP
   // even though round 1 completed normally. (Codex, #490.)
-  const outage = codeReviewOutage(issueComments, reviews, requestedAt);
+  // Strictly after: a notice created in the same second as the retry request
+  // cannot be shown to answer it, and mis-attributing the previous attempt's
+  // notice would escalate an ordinary unanswered round into a development
+  // stop. Same posture this file takes on every other second-resolution tie.
+  // (Codex, #490 round 3.)
+  const outage = codeReviewOutage(issueComments, reviews, requestedAt + 1);
 
   // A completed pass: connector-authored, carrying the marker, with the sha it
   // reviewed. No `commit_id` fallback -- GitHub sets that field on every review
@@ -424,6 +446,38 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   const qualifying = passes.filter(
     (p) => p.at > requestedAt && (!headSha || sameCommit(p.sha, headSha)),
   );
+
+  // ONE PASS PER REQUEST ON THIS HEAD, not one pass for the latest request.
+  //
+  // The stall-and-retry shape defeats the single-element rule on its own:
+  // `pr-watch` permits one retry when a round produces no review, and that
+  // retry needs no push, so both requests name the same commit. A late
+  // response to the FIRST request then postdates the retry and matches the
+  // head -- indistinguishable, in the data, from a response to the retry. It
+  // would mint READY with a round still outstanding, which is exactly the
+  // PR #458 failure arriving through a different door. (Codex, #490 round 3.)
+  //
+  // GitHub exposes nothing that ties a review to the request that triggered
+  // it, so this ambiguity is IRREDUCIBLE -- and the response is to stop trying
+  // to resolve it and take the safe side: every request made since this commit
+  // appeared must be answered by its own pass.
+  //
+  // The accepted cost, stated rather than discovered later: if Codex ever
+  // answers two requests with a single review, this blocks until the head
+  // moves. That is escapable (any push restarts the count, and a new head
+  // needs a fresh review anyway) and it is the over-blocking direction.
+  const onThisHead = headStartedAt ? requests.filter((r) => timeOf(r) >= headStartedAt) : requests;
+  if (qualifying.length && qualifying.length < onThisHead.length) {
+    return {
+      pass: false,
+      detail:
+        `${onThisHead.length} review requests on ${headSha ? headSha.slice(0, 7) : "this head"} but only ` +
+        `${qualifying.length} completed pass(es). Nothing in GitHub's data ties a review to the request ` +
+        `that triggered it, so a late response to an earlier request cannot be told apart from a response ` +
+        `to the latest one -- this fails closed rather than guess. Wait for the outstanding round; if Codex ` +
+        `answered both requests with one review, push and take a fresh pass on the new head.`,
+    };
+  }
 
   if (qualifying.length === 0) {
     // An outage is not "still waiting". CLAUDE.md requires a full stop and a
@@ -498,13 +552,22 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
   // state that may have moved on. (Codex, #490.)
   const times = Object.values(capturedAt ?? {}).map((v) => Date.parse(v ?? ""));
   const oldest = times.length ? Math.min(...times) : NaN;
-  if (!Number.isFinite(oldest) || now - oldest > MAX_EVIDENCE_AGE_MS || oldest > now) {
+  // EVERY capture must be in the past, not merely the oldest one. Checking
+  // only `oldest` let a single future-dated collection ride along beside valid
+  // recent ones -- and if that collection were reviewThreads or checkRuns, the
+  // future value would also satisfy the ordering comparison below while the
+  // read had actually happened before the response. (Codex, #490 round 3.)
+  const newest = times.length ? Math.max(...times) : NaN;
+  if (!Number.isFinite(oldest) || !Number.isFinite(newest) || now - oldest > MAX_EVIDENCE_AGE_MS || newest > now) {
     return {
       pass: false,
       detail:
-        `the evidence was captured ${Number.isFinite(oldest) ? new Date(oldest).toISOString() : "at an unreadable time"}, ` +
-        `outside the ${MAX_EVIDENCE_AGE_MS / 60000}-minute window ending now. Re-reading a saved snapshot ` +
-        "resets generatedAt but not the data -- capture the pages again.",
+        newest > now
+          ? `a capture time (${new Date(newest).toISOString()}) is in the future -- capture times are ` +
+            "attested, so one that cannot have happened invalidates the attestation"
+          : `the evidence was captured ${Number.isFinite(oldest) ? new Date(oldest).toISOString() : "at an unreadable time"}, ` +
+            `outside the ${MAX_EVIDENCE_AGE_MS / 60000}-minute window ending now. Re-reading a saved snapshot ` +
+            "resets generatedAt but not the data -- capture the pages again.",
     };
   }
   if (!acceptedAt) return { pass: true, detail: "no accepted response to order against" };
@@ -512,7 +575,13 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
   // read in the same second as the response cannot be shown to postdate it --
   // and this file already treats an exact request/response tie as unanswered
   // for that reason. (Codex, #490.)
-  const stale = ["reviewThreads", "checkRuns"].filter(
+  //
+  // `issueComments` is in the list because the REQUEST SET comes from it: read
+  // before the accepted pass, it can miss a retry request posted after that
+  // pass was requested, and the one-pass-per-request rule then counts a set it
+  // never saw. An early read of the request set is exactly as dangerous as an
+  // early read of the threads. (Codex, #490 round 3.)
+  const stale = ["reviewThreads", "checkRuns", "issueComments"].filter(
     (key) => Date.parse(capturedAt?.[key] ?? "") <= acceptedAt,
   );
   if (stale.length) {
@@ -530,7 +599,16 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
 /** The full verdict for a validated snapshot. */
 export function evaluate(snapshot, now = Date.now()) {
   const headSha = snapshot.pr.head.sha;
-  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha);
+  // When this commit came into existence, taken from the earliest check run on
+  // it. That is what separates review requests made for THIS head from ones
+  // made for an earlier commit -- without it, a round that stalled before a
+  // push would go on demanding a pass forever. Check runs are already required
+  // to be head-bound, so this needs no new evidence, only the field.
+  const startedAt = snapshot.checkRuns
+    .map((r) => Date.parse(r.started_at ?? ""))
+    .filter(Number.isFinite);
+  const headStartedAt = startedAt.length ? Math.min(...startedAt) : null;
+  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha, headStartedAt);
   const items = {
     ci: checkCi(snapshot.checkRuns, headSha),
     codex,
@@ -552,6 +630,27 @@ export function evaluate(snapshot, now = Date.now()) {
     evidenceAt: oldest.length ? new Date(Math.min(...oldest)).toISOString() : null,
     items,
   };
+}
+
+/**
+ * Why a stored receipt can no longer be shown as current, or null if it can.
+ *
+ * Deliberately the same window and the same field the merge hook ages
+ * against, so the two paths cannot disagree about the same receipt.
+ */
+export function staleReason(receipt, now = Date.now()) {
+  if (!receipt?.evidenceAt) {
+    return "this receipt records no evidenceAt, so its age describes when the check ran rather than when the PR was read -- re-run with a fresh snapshot";
+  }
+  const age = now - Date.parse(receipt.evidenceAt);
+  if (!Number.isFinite(age) || age < 0 || age > MAX_EVIDENCE_AGE_MS) {
+    return (
+      `this receipt rests on evidence read ${receipt.evidenceAt} and is no longer current ` +
+      `(older than ${MAX_EVIDENCE_AGE_MS / 60000} minutes). Reviews land and CI re-runs -- ` +
+      "re-run with a fresh snapshot before quoting it"
+    );
+  }
+  return null;
 }
 
 export function receiptPath(prNumber) {
@@ -601,6 +700,16 @@ function main() {
     }
     const receipt = JSON.parse(readFileSync(p, "utf8"));
     process.stdout.write(`${formatReceipt(receipt)}\n`);
+    // `--show` is the manual-merge path: for a PR David merges, quoting this
+    // output IS the control, because no hook sees his click. Printing a stored
+    // verdict without re-applying the age check would present an hours-old
+    // READY as current -- past a failed re-run or a reopened thread. The merge
+    // hook has always aged the receipt; this path had not. (Codex, #490.)
+    const stale = staleReason(receipt);
+    if (stale) {
+      process.stderr.write(`pr-ready: ${stale}\n`);
+      return 1;
+    }
     return receipt.verdict === "READY" ? 0 : 1;
   }
 

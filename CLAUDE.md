@@ -1106,16 +1106,31 @@ verification — is post-merge for the same structural reason.
    **Every PR gets a Codex review, and no PR merges before it returns
    (David, 2026-08-17).** Not "most PRs", not "PRs where I expect
    findings" — every one. A clean pass is still a pass that has to *come
-   back*: no findings means a **👍 reaction**, findings mean a review I
-   respond to, and either way the merge waits for it. So "Codex converged"
-   is never satisfiable by my judgement that a PR looks fine, by a round
-   I requested but haven't received, or by a review of an *earlier* commit
-   — a pass on a commit I have since pushed past has not reviewed the diff
-   that would merge. `pr-ready.mjs` computes all of this: it requires a
-   request, requires a completed pass (the connector's `**Reviewed
-   commit:**` announcement — which arrives as a plain issue comment when
-   nothing was found — or a 👍 on the latest request), and requires that
-   pass to cover the head commit.
+   back*, and the merge waits for it either way. So "Codex converged" is
+   never satisfiable by my judgement that a PR looks fine, by a round I
+   requested but haven't received, or by a review of an *earlier* commit —
+   a pass on a commit I have since pushed past has not reviewed the diff
+   that would merge.
+
+   **What counts as the review returning is the `**Reviewed commit:**`
+   announcement, and ONLY that** — in a review when Codex found something,
+   in a plain issue comment when it didn't. **A 👍 reaction does not count
+   on its own (Codex, #490 round 2).** The connector's own footer says a
+   clean pass reacts 👍, so this reads as a narrowing of David's rule and
+   isn't: it narrows what counts as *proof* the review returned, not what
+   has to happen. GitHub delivers a reaction as a **count** — no identity,
+   no timestamp — so it cannot show that the pass came from Codex or that
+   it covers this commit rather than the one the request was posted for.
+   A clean pass announces too, so nothing is lost in the measured case.
+   **If a clean pass ever arrives as a reaction with no announcement, that
+   goes to David** — it does not go back to accepting the inference.
+
+   `pr-ready.mjs` computes all of this: it requires a request, requires a
+   completed pass carrying the announcement, requires that pass to cover
+   the head commit, and requires **one pass per request made since that
+   commit appeared** — because nothing in GitHub's data ties a review to
+   the request that triggered it, so two requests on one head (a stalled
+   round plus its retry) cannot be told apart by their answers.
 
    **Why this is a check and not another undertaking:** the bar has been
    reported from a single checked item **twice**. PR #458 merged with a

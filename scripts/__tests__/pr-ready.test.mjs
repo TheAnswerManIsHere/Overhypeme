@@ -9,6 +9,7 @@ import {
   checkCodex,
   checkThreads,
   evaluate,
+  staleReason,
   CODEX_BOT,
 } from "../pr-ready.mjs";
 
@@ -22,14 +23,15 @@ import {
 // ---------------------------------------------------------------------------
 
 const HEAD = "a".repeat(40);
-const run = (name, status, conclusion, head_sha = HEAD) => ({ name, status, conclusion, head_sha });
+const STARTED = "2026-08-17T03:30:00Z";
+const run = (name, status, conclusion, head_sha = HEAD, started_at = STARTED) => ({ name, status, conclusion, head_sha, started_at });
 
 /**
  * The repo's mandatory jobs. Present-ness is its own check: `Test` depends on
  * `Classify changed paths`, so a snapshot can hold a complete green set while a
  * required job has not been created yet. (Codex, #490.)
  */
-const REQUIRED = ["Classify changed paths", "Build", "Test"];
+const REQUIRED = ["Classify changed paths", "Build", "Test", "Frontend Test", "E2E Smoke"];
 const allRequired = (status = "completed", conclusion = "success", head_sha = HEAD) =>
   REQUIRED.map((n) => run(n, status, conclusion, head_sha));
 
@@ -67,7 +69,29 @@ test("CI: a green set missing a MANDATORY job is not green", () => {
   // receipt it mints stays usable for an hour. (Codex, #490.)
   const res = checkCi([run("Classify changed paths", "completed", "success"), run("Build", "completed", "success")], HEAD);
   assert.equal(res.pass, false);
-  assert.match(res.detail, /Test is absent/);
+  assert.match(res.detail, /absent from the check runs/);
+});
+
+test("CI: every classifier-dependent job is required, not just Test", () => {
+  // Round 3's follow-on: `Test`, `Frontend Test` and `E2E Smoke` all carry
+  // `needs: changes` in build.yml, so all three appear late for the same
+  // reason. Naming only the one whose absence was demonstrated left two jobs
+  // that could still turn up — and fail — after a receipt was minted.
+  // (Codex, #490.)
+  for (const missing of ["Frontend Test", "E2E Smoke"]) {
+    const res = checkCi(allRequired().filter((r) => r.name !== missing), HEAD);
+    assert.equal(res.pass, false, `${missing} must be required`);
+    assert.match(res.detail, new RegExp(`${missing} is absent`));
+  }
+});
+
+test("CI: a run with no started_at cannot date the head commit", () => {
+  // started_at is what separates review requests made for THIS commit from
+  // ones made for an earlier one. (Codex, #490 round 3.)
+  const undated = allRequired().map(({ started_at, ...rest }) => rest);
+  const res = checkCi(undated, HEAD);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no parseable started_at/);
 });
 
 test("CI: no runs at all is not green -- it is CI that has not started", () => {
@@ -86,7 +110,7 @@ test("CI: green checks from ANOTHER commit do not count", () => {
 });
 
 test("CI: a run with no head_sha cannot be tied to the head", () => {
-  const res = checkCi([{ name: "build", status: "completed", conclusion: "success" }], HEAD);
+  const res = checkCi([{ name: "build", status: "completed", conclusion: "success", started_at: STARTED }], HEAD);
   assert.equal(res.pass, false);
   assert.match(res.detail, /no head_sha/);
 });
@@ -178,6 +202,62 @@ test("Codex: ordering and coverage must hold of the SAME pass", () => {
     HEAD,
   );
   assert.equal(res.pass, false);
+});
+
+test("Codex: two requests on one head need two passes -- the stall-and-retry shape", () => {
+  // `pr-watch` permits one retry when a round produces no review, and that
+  // retry needs no push, so both requests name the same commit. A late
+  // response to the FIRST then postdates the retry AND matches the head, and
+  // nothing in GitHub's data tells the two apart. This fails closed rather
+  // than guess — it is the PR #458 failure arriving through a new door.
+  // (Codex, #490 round 3.)
+  const headStarted = Date.parse("2026-08-17T03:30:00Z");
+  const res = checkCodex(
+    [
+      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
+      comment("me", "@codex review\n\nRound 1, retry.", "2026-08-17T04:20:00Z"),
+    ],
+    [pass("2026-08-17T04:30:00Z", HEAD)],
+    HEAD,
+    headStarted,
+  );
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /2 review requests on .* but only 1 completed pass/);
+});
+
+test("Codex: a request from BEFORE this head does not demand a pass on it", () => {
+  // The mirror. A round that stalled, then a push, then one request answered
+  // by one pass, is convergence — counting the pre-push request would leave
+  // the PR permanently unmergeable.
+  const headStarted = Date.parse("2026-08-17T04:10:00Z");
+  const res = checkCodex(
+    [
+      comment("me", "@codex review\n\nRound 1 (stalled, older commit).", "2026-08-17T04:00:00Z"),
+      comment("me", "@codex review\n\nRound 2.", "2026-08-17T04:20:00Z"),
+    ],
+    [pass("2026-08-17T04:30:00Z", HEAD)],
+    HEAD,
+    headStarted,
+  );
+  assert.equal(res.pass, true);
+});
+
+test("outage: a same-second limit notice is not attributed to the retry", () => {
+  // Second resolution makes the order unknowable, and mis-attributing the
+  // previous attempt's notice escalates an ordinary unanswered round into a
+  // development stop. (Codex, #490 round 3.)
+  const at = "2026-08-17T04:20:00Z";
+  const res = checkCodex(
+    [
+      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
+      comment(CODEX_BOT, "You have reached your Codex usage limits for code reviews.", at),
+      comment("me", "@codex review\n\nRound 2.", at),
+    ],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+  assert.equal(res.outage, undefined);
 });
 
 test("Codex: a review object with a commit_id but no marker is not a pass", () => {
@@ -481,6 +561,40 @@ test("capture recency: a saved snapshot cannot mint a fresh receipt", () => {
   const receipt = evaluate(snap, NOW + 3 * 60 * 60 * 1000);
   assert.equal(receipt.verdict, "NOT READY");
   assert.match(receipt.items.capture.detail, /outside the 60-minute window/);
+});
+
+test("capture recency: ONE future timestamp is enough to reject", () => {
+  // Checking only the oldest capture let a future-dated collection ride along
+  // beside valid recent ones — and if that collection were reviewThreads or
+  // checkRuns, the future value would also satisfy the ordering comparison
+  // while the read had actually happened first. (Codex, #490 round 3.)
+  const snap = goodSnapshot();
+  snap.capturedAt.reviewThreads = new Date(NOW + 60 * 60 * 1000).toISOString();
+  const receipt = evaluate(snap, NOW);
+  assert.equal(receipt.verdict, "NOT READY");
+  assert.match(receipt.items.capture.detail, /is in the future/);
+});
+
+test("capture ordering: the REQUEST SET must also be read after the response", () => {
+  // issueComments is where the requests come from. Read before the accepted
+  // pass, it can miss a retry posted after that pass was requested — and the
+  // one-pass-per-request rule then counts a set it never saw.
+  // (Codex, #490 round 3.)
+  const snap = goodSnapshot();
+  snap.capturedAt.issueComments = "2026-08-17T04:09:00Z"; // before the 04:10 pass
+  const receipt = evaluate(snap, NOW);
+  assert.equal(receipt.verdict, "NOT READY");
+  assert.match(receipt.items.capture.detail, /issueComments/);
+});
+
+test("--show: a stale stored receipt is not presentable as READY", () => {
+  // The manual-merge path: for a PR David merges, quoting this output IS the
+  // control, because no hook sees his click. (Codex, #490 round 3.)
+  const fresh = { verdict: "READY", evidenceAt: new Date(NOW - 60_000).toISOString() };
+  assert.equal(staleReason(fresh, NOW), null);
+  const old = { verdict: "READY", evidenceAt: new Date(NOW - 3 * 60 * 60 * 1000).toISOString() };
+  assert.match(staleReason(old, NOW), /no longer current/);
+  assert.match(staleReason({ verdict: "READY" }, NOW), /records no evidenceAt/);
 });
 
 test("outage: a limit on a LATER round is still a STOP", () => {
