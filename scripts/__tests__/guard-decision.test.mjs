@@ -704,3 +704,117 @@ for (const words of ARRAY_INVARIANT_CASES) {
     assert.equal(blocked(`arr=(${words})`), blocked(words));
   });
 }
+
+// ---------------------------------------------------------------------------
+// The review-round budget, at the routing layer.
+//
+// `review-budget.test.mjs` owns the budget matrix itself. What is pinned HERE
+// is the thing only this file can break: that one hook carries two judgements
+// without either one leaking into the other. The Bash pipeline must never see
+// a comment payload (it would tokenise a JSON blob and judge prose), and the
+// budget must never see a Bash payload (it would refuse a commit message that
+// quotes the trigger phrase).
+// ---------------------------------------------------------------------------
+
+const REVIEW_TOOL = "mcp__github__add_issue_comment";
+
+const reviewPayload = (body, overrides = {}) =>
+  JSON.stringify({
+    tool_name: REVIEW_TOOL,
+    tool_input: {
+      owner: "TheAnswerManIsHere",
+      repo: "Overhypeme",
+      issue_number: 991,
+      body,
+      ...overrides,
+    },
+  });
+
+/** An in-memory receipt store, so these tests never touch .agents/receipts. */
+const memoryIo = (files = {}) => {
+  const store = { ...files };
+  return {
+    store,
+    now: () => "2026-08-17T00:00:00.000Z",
+    read: (rel) => (rel in store ? store[rel] : null),
+    exists: (rel) => rel in store,
+    listReceipts: () =>
+      Object.keys(store)
+        .filter((k) => k.startsWith(".agents/receipts/"))
+        .map((k) => k.slice(".agents/receipts/".length)),
+    write: (rel, text) => {
+      store[rel] = text;
+    },
+  };
+};
+
+const budgetFile = (pr, tier, cap) =>
+  JSON.stringify({ pr, tier, budget: cap, criticality: 30, artifact: "x", declaredAt: "2026-08-17T00:00:00.000Z" });
+const roundsFile = (pr, n) =>
+  JSON.stringify({ pr, rounds: Array.from({ length: n }, () => ({ at: "2026-08-17T00:00:00.000Z", tool: REVIEW_TOOL })) });
+
+test("an @codex review post with no declared budget is refused", () => {
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), memoryIo());
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no round budget declared for PR #991/);
+});
+
+test("an @codex review post inside its budget is allowed", () => {
+  const io = memoryIo({
+    ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3),
+    ".agents/receipts/loop-rounds-991.json": roundsFile(991, 1),
+  });
+  assert.equal(decide(reviewPayload("@codex review"), io).blocked, false);
+});
+
+test("an @codex review post past its budget is refused at tripwire 1", () => {
+  const io = memoryIo({
+    ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3),
+    ".agents/receipts/loop-rounds-991.json": roundsFile(991, 3),
+  });
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), io);
+  assert.equal(isBlocked, true);
+  assert.match(reason, /TRIPWIRE 1/);
+});
+
+test("a valid extension receipt is honoured by the hook, and tripwire 2 is not", () => {
+  const base = {
+    ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3),
+    ".agents/receipts/loop-extension-991-1.json": JSON.stringify({
+      pr: 991,
+      kind: "adjudication",
+      verdict: "continue",
+      grant: 2,
+      risk: "the guard tallies a round it then refuses",
+      recordPath: ".agents/adjudications/991-1.json",
+    }),
+  };
+  assert.equal(
+    decide(reviewPayload("@codex review"), memoryIo({ ...base, ".agents/receipts/loop-rounds-991.json": roundsFile(991, 4) })).blocked,
+    false,
+    "round 5 sits inside 3 + 2",
+  );
+
+  const exhausted = decide(
+    reviewPayload("@codex review"),
+    memoryIo({ ...base, ".agents/receipts/loop-rounds-991.json": roundsFile(991, 5) }),
+  );
+  assert.equal(exhausted.blocked, true);
+  assert.match(exhausted.reason, /TRIPWIRE 2/);
+});
+
+test("an ordinary PR comment is unaffected by the budget", () => {
+  const io = memoryIo();
+  assert.equal(decide(reviewPayload("Fixed in abc1234 — resolving this thread."), io).blocked, false);
+  assert.deepEqual(io.store, {}, "and nothing is tallied");
+});
+
+test("the two judgements do not leak into each other", () => {
+  // A commit message quoting the trigger goes down the Bash path, where the
+  // budget has no say -- otherwise writing about this mechanism would block
+  // every commit that mentions it.
+  assert.equal(blocked('git commit -m "post @codex review after the fix"'), false);
+  // And a comment payload never reaches the tokeniser: this body is a shell
+  // string that WOULD be blocked as a command.
+  assert.equal(decide(reviewPayload("git push -f origin main"), memoryIo()).blocked, false);
+});

@@ -997,6 +997,95 @@ I escalate anything that's a real design/architecture decision to David rather
 than rewriting the design on a reviewer's say-so, and I unsubscribe once the PR
 merges or closes.
 
+### Every review loop declares a round budget, and a guard enforces it (David, 2026-08-17)
+
+**Why this is a check and not another line I promise to follow.** PR #488 ran
+**22 Codex review rounds on a ~10-line guard change**. The post-mortem's
+finding was structural rather than a diligence failure: *every round was
+locally rational*. Real findings, correct fixes, a sensible next step each
+time — and no event in the loop ever put the **aggregate** in front of me.
+The judgment-shaped stopping devices already in this contract (the criticality
+gate, the count trend, the growth tripwire, the oscillation diagnosis) went
+**0-for-15** in that loop. The two stops that did happen were both a
+**pre-registered flip condition colliding with an event**, 2-for-2. Per the
+standing rule that a discipline broken twice becomes a check, the stopping
+rule now lives on the action path: `.claude/guard.sh` →
+[`review-budget.mjs`](scripts/review-budget.mjs) **refuses the `@codex review`
+post itself** when the loop is out of rounds. The shared stopping rules in
+[`working-modes.md`](docs/ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)
+— criticality gate, bucket rubric, growth and oscillation tripwires — are
+unchanged and still govern *within* a budget; this is the outer bound they
+never had. Pointer, not fork: the buckets are not restated here.
+
+1. **Declare the budget before round 1**, tiered by blast radius. There is no
+   declare-it-later path — the guard refuses the *first* request until the
+   receipt exists, which is what makes "before round 1" mechanical rather than
+   remembered:
+
+   ```
+   node scripts/review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> \
+        --criticality <1-100> --artifact "<what is under review>"
+   ```
+
+   | Tier | Rounds | What it covers |
+   |---|---|---|
+   | `internal` | **3** | internal tooling, docs, guards, agent contracts |
+   | `product` | **5** | product code |
+   | `sensitive` | **uncapped, mandatory 🛑 at 5** | auth, payments, migrations |
+
+   The tier picks the number — it is not a field I fill in. I also **state the
+   budget in the PR body**, so it is visible to David and to the reviewer, not
+   only to the guard. The receipts under `.agents/receipts/` are **committed**:
+   the container is ephemeral, and an uncommitted tally resets the count.
+
+2. **Tripwire 1 — self-serve, and it must run in FRESH CONTEXT.** At the
+   budget, the guard refuses. To proceed I dispatch **one** adjudicator
+   subagent (`.claude/agents/review-loop-adjudicator.md`) whose only input is a
+   **script-generated mechanical record**
+   (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file> --write`)
+   — never the loop's own prose, and never a case for continuing written by
+   me. Counted, not recalled: recalled numbers in this repo have been wrong 3
+   times out of 3. A same-context "pause and re-evaluate" is explicitly
+   **rejected** — that is the criticality gate again, and the criticality gate
+   is one of the devices that went 0-for-15. Verdict ∈
+   **ship-with-gaps-recorded (default) / split / continue +N (N ≤ 2) /
+   escalate**; a `continue` is valid only when the adjudicator **names the
+   specific unaddressed behavioral risk**. I write the verdict to
+   `.agents/receipts/loop-extension-<pr>-<n>.json`, which the guard honors
+   exactly. This runs autonomously; David gets a 👀 FYI, not a 🛑.
+
+3. **Tripwire 2 — hard stop to David. No second self-service extension,
+   ever.** When the extension is spent, the guard refuses again and stays
+   refused: a 🛑 NEED YOU, one sentence, with the adjudication record
+   pre-written as the options. His answer is recorded in a `david` receipt
+   quoting his words. **The guard cannot verify authorship and does not try** —
+   fabricating a receipt is a different failure class from the one being
+   closed (a loop that never notices its own length), and a guard that pretends
+   to defend against its own author is a false assurance. The receipts are
+   committed, reviewed, and read back in the weekly digest; that is the
+   control.
+
+Two operating rules ride with the budget, because both are about *spending* a
+round rather than counting one:
+
+- **No re-request without a behavioral change since the last reviewed
+  commit.** A round bought with prose edits is a round spent on nothing the
+  reviewer can act on. `review-loop-record.mjs` classifies the diff since the
+  last reviewed commit as `code` / `agent-contract` / `prose` / `record` and
+  precomputes `proseOnly` — **a skill file, `CLAUDE.md`, or a
+  `docs/ai-context/` contract counts as behavioral**, because in this repo
+  those change what agents do.
+- **Every review request carries pre-registered flip conditions.** This is the
+  only judgment-shaped device with a working record — 2-for-2 on the loop that
+  produced this contract, against 0-for-15 for everything else — and it works
+  because a flip condition written *in advance* collides with an event instead
+  of waiting to be recalled. So the re-request names, before the round runs,
+  what would make me stop: the finding that would end the loop, the count that
+  would trip it, the change of shape that would mean split. A round record
+  whose flip condition is missing or was already true when written is one of
+  the triggers for the adversarial subagent (see *The post-round
+  adjudication*).
+
 ### Close-out is mine, end to end (David, 2026-08-15 — superseding the 2026-08-11 merge gate)
 
 The end of a build has two mechanical steps David used to do by hand:

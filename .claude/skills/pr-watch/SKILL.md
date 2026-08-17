@@ -40,6 +40,29 @@ status alone does not. The old tier gate happened to enforce this ordering as
 a side effect of making me wait — with the gate gone, the ordering has to be
 stated outright or it silently breaks.
 
+### Declare the round budget at loop start (David, 2026-08-17)
+
+**Before round 1, in the same breath as subscribing**, this loop declares its
+round budget:
+
+```
+node scripts/review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> \
+     --criticality <1-100> --artifact "<what is under review>"
+```
+
+`internal` = 3 rounds (tooling, docs, guards, agent contracts), `product` = 5,
+`sensitive` = uncapped with a mandatory 🛑 at 5 (auth, payments, migrations).
+The tier picks the number; it is not a field to fill in. Commit the receipt and
+**state the budget in the PR body**.
+
+This is not optional and not a reminder: `.claude/guard.sh` refuses the
+**first** `@codex review` post until the receipt exists, and refuses again at
+the budget. The full contract — the two tripwires, the fresh-context
+adjudication, and the no-second-self-service-extension rule — is resident in
+`CLAUDE.md`'s *Every review loop declares a round budget*, because it has to
+hold whether or not this skill is loaded. What belongs here is only the timing:
+**declare at loop start**, alongside the subscribe.
+
 I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event arrives or David re-engages me. I may additionally schedule a
 wake-up **when a specific external state won't reliably deliver one** — a CI
@@ -261,8 +284,30 @@ the diff *is* the plan. While watching an implementation PR:
   substantive findings just follow the rules above (fix the mechanical,
   escalate real decisions, break on oscillation per the diagnosis rule). Only
   exception: a genuinely zero-risk push (docs-only, comment typo) doesn't need
-  one — anything touching product code or test logic does. **The re-request
-  says what to reconcile.** A bare `@codex review` on a fix round invites a
+  one — anything touching product code or test logic does.
+  **Two conditions gate every re-request, on top of the criticality gate
+  above (David, 2026-08-17 — the round-budget contract).**
+  1. **A behavioral change since the last reviewed commit.** No re-request
+     buys a round with prose edits: `node scripts/review-loop-record.mjs`
+     classifies the diff since the last reviewed commit and precomputes
+     `proseOnly`. A **skill file, `CLAUDE.md`, or a `docs/ai-context/`
+     contract counts as behavioral** — in this repo those change what
+     agents do — while comment wording, a UAT doc, and a ledger record do
+     not. This is the *stronger* of the two exceptions above: "docs-only
+     doesn't need one" says a round may be skipped; this says a
+     prose-only round may not be requested.
+  2. **Pre-registered flip conditions, in the request itself.** Name, before
+     the round runs, what would stop the loop: the finding that would end
+     it, the count that would trip it, the shape change that would mean
+     split. This is the only judgment-shaped device with a working record
+     (2-for-2 on PR #488, against 0-for-15 for everything else), and it
+     works precisely because a condition written in advance collides with an
+     event instead of waiting to be recalled. A missing flip condition — or
+     one that was already true when written — fires the adversarial subagent
+     before the round proceeds.
+
+  The round count itself is no longer mine to track: the guard tallies it and
+  refuses past the budget. **The re-request says what to reconcile.** A bare `@codex review` on a fix round invites a
   review of just the new commits, so I state in the comment which findings the
   round was meant to close and ask Codex to confirm each is actually resolved
   in the code — not merely responded to. **The reviewer's side of this is the

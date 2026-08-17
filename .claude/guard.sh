@@ -38,4 +38,15 @@ if printf '%s' "$payload" | grep -Eq 'drizzle-kit[[:space:]]+push|rm[[:space:]]+
   echo "Guard: blocked a destructive command (node unavailable -- conservative fallback)" >&2
   exit 2
 fi
+
+# Second judgement behind the same hook: the review-round budget (see
+# scripts/review-budget.mjs). Reading the budget receipts needs node, so the
+# fallback cannot check the count -- and a budget guard that fails OPEN is a
+# budget guard that disappears exactly when something is already wrong. So the
+# degraded path refuses the review request outright and says why. Blunter than
+# the real check, in the same direction as the block above.
+if printf '%s' "$payload" | grep -Eqi '@codex[[:space:]]+review'; then
+  echo "Guard: blocked an @codex review post -- the round budget cannot be checked (node unavailable -- conservative fallback)" >&2
+  exit 2
+fi
 exit 0

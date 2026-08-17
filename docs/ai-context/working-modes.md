@@ -433,6 +433,21 @@ will keep finding things, and each fix adds surface for the next round.
   retiring the prior ~20-round soft-cap/check-in figure) — the bucket mix,
   the tripwires, and the criticality gate are the whole stopping rule; see
   *The post-round adjudication* and the `plan-review-loop` skill's step 9.
+  - **An outer bound now sits above all of this, for loops Claude Code
+    drives (David, 2026-08-17).** Every such loop declares a **round budget**
+    before round 1 — 3 rounds for internal tooling/docs/guards, 5 for product
+    code, uncapped-with-a-mandatory-🛑-at-5 for auth/payments/migrations —
+    and a guard **refuses the `@codex review` post** past it, releasing only
+    on a fresh-context adjudication (once) or David's authorization. The
+    rules in this section are unchanged and still decide everything *inside*
+    a budget; what they never had was a bound that fires without anyone
+    choosing to look. PR #488 is why: 22 rounds on a ~10-line change with
+    every device in this section available and none of them firing, because
+    each round was locally rational and nothing ever presented the aggregate.
+    The mechanism, the tiers, and the tripwire procedure are Claude Code's
+    (it posts the trigger), so they live in
+    [`CLAUDE.md`](../../CLAUDE.md)'s *Every review loop declares a round
+    budget* rather than being restated here.
 - **The historical record reads cleanly under the bucket rubric — the
   diagnosis, never the number, was the decision every time.** PR #329's guard
   (9, 11, 12, 19 — 2026-08-05) was new-ground-in-diff against an unbounded

@@ -192,6 +192,28 @@ with or skip. This conversation is the ledger's entire delivery surface
 now; a flush-and-digest with no interpretation is the measurement half
 shipping without the delivery half again.
 
+**Step 6d — the week's round-budget events (David, 2026-08-17).** The budget
+guard's receipts are committed, so this is a directory read, not a
+recollection. From `.agents/receipts/`, for loops that ran this week:
+
+- **Loops opened** — one line: how many budgets were declared, and their tier
+  mix. `node scripts/review-budget.mjs status --pr <n>` prints one loop's
+  state.
+- **Tripwires hit** — every loop where `rounds` reached its cap. This is the
+  number worth watching over time: a tier whose loops routinely trip is a tier
+  whose budget is wrong, and that is a David conversation, not a silent
+  adjustment.
+- **Adjudication verdicts** — the `loop-extension-*` receipts, by verdict.
+  A run of `continue` verdicts means the adjudicator is being talked into
+  extensions, which would be the mechanism failing in the way it was built to
+  resist; `ship-with-gaps-recorded` is meant to dominate.
+- **Tier-2 escalations** — every loop that reached David. Rare by design; if
+  it isn't rare, say so.
+
+Feed all four into the 6c conversation rather than reporting them as a table.
+The question they answer is *are the budgets the right size*, and only David
+can settle that.
+
 This section exists because the measurement half shipped in PR #270 and the
 delivery half never did: for a year the answers sat in a file David doesn't
 open, and he discovered the records were duplicating by stumbling into it.
@@ -356,9 +378,44 @@ approve or amend, never an open-ended "is the backlog still right?"
 6. If nothing's drifted, one line: "backlog hygiene: N queued items, M
    blocked, no drift."
 
+## 10. Contract diet — one rule out, every pass (David, 2026-08-17)
+
+A standing item, not a conditional one. **Each maintenance pass, exactly one
+judgment-shaped rule in `CLAUDE.md` is either converted into a mechanical
+check or deleted.**
+
+The rationale is the same evidence that produced the round-budget guard: on PR
+#488 the judgment-shaped stopping devices went 0-for-15 while pre-registered,
+mechanically-collided conditions went 2-for-2. A contract that only grows adds
+rules of the losing kind, and each one dilutes attention on the rules that
+work. Length is itself a failure mode — a rule nobody can hold in mind at the
+moment it applies is not a rule, it is a record of an intention.
+
+How to run it:
+
+1. **Pick one rule** that asks me to *notice*, *remember*, *judge*, or *stay
+   vigilant* — as opposed to one that fires on an event or is enforced by a
+   guard, a hook, or CI. Prefer rules that have been broken, restated, or
+   tightened more than once: the tightening count is the strongest available
+   signal that judgment isn't carrying it.
+2. **Decide which of the two happens.** *Convert* when there is a real action
+   path to hang a check on (a tool call, a commit, a hook point) — that's the
+   `.claude/guard.sh` / build.yml pattern. *Delete* when there isn't one, or
+   when the rule turns out to be advice rather than a contract. **Deleting is
+   a legitimate outcome, not a failure to find a check** — an unenforceable
+   rule that stays in the file is worse than no rule, because it reads as
+   coverage.
+3. **Propose, don't apply.** This is a `CLAUDE.md` edit, so it goes in the
+   numbered decision list for David and lands through the normal PR path.
+   Guard and permission changes stay David-merge-only per CLAUDE.md's
+   close-out carve-outs.
+4. **Say which rule you picked and why, every pass** — including a pass where
+   the honest answer is "the best candidate this week is weak." One line. A
+   silent skip is how a standing item becomes a dead one.
+
 ## Report delivery
 
-Single message, nine short sections, worst news first. When something needs
+Single message, ten short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page — the chat

@@ -191,6 +191,8 @@
  *   direction announces itself. (Codex, #488 rounds 6-10 and round 16.)
  */
 
+import { REVIEW_REQUEST_TOOLS, judgeReviewRequest, nodeIo } from "./review-budget.mjs";
+
 const ALLOW = 0;
 const BLOCK = 2;
 
@@ -1552,8 +1554,44 @@ function evaluateScript(text, depth) {
   return null;
 }
 
-/** Full decision for a raw payload. Returns { blocked, reason }. */
-export function decide(raw) {
+/**
+ * Read `tool_name` / `tool_input` out of a PreToolUse payload.
+ *
+ * Returns null for anything that is not the shape we expect, which routes the
+ * payload to the Bash pipeline exactly as before -- including the bare-string
+ * inputs this module's own tests feed it.
+ */
+export function extractToolCall(raw) {
+  try {
+    const payload = JSON.parse(raw);
+    if (typeof payload?.tool_name !== "string") return null;
+    return { toolName: payload.tool_name, toolInput: payload.tool_input ?? {} };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Full decision for a raw payload. Returns { blocked, reason }.
+ *
+ * Two judgements live behind one hook, because they are the same kind of thing
+ * -- an action-path check on a move that cannot be undone by noticing later:
+ *
+ *   - A Bash command: is this a force push that would overwrite work the
+ *     ephemeral container holds no second copy of?
+ *   - An `@codex review` post: is this round inside the budget this loop
+ *     declared before round 1? (See `review-budget.mjs` for why that is a
+ *     check and not a contract line.)
+ *
+ * The review-request branch is taken ONLY for the specific comment-posting
+ * tools, so every other payload -- Bash today, anything a future matcher adds
+ * -- keeps the existing behaviour unchanged.
+ */
+export function decide(raw, io = undefined) {
+  const call = extractToolCall(raw);
+  if (call && REVIEW_REQUEST_TOOLS.has(call.toolName)) {
+    return judgeReviewRequest(call, io ?? nodeIo());
+  }
   const command = extractCommand(raw);
   const reason = evaluateScript(command, 0);
   return reason ? { blocked: true, reason } : { blocked: false, reason: null };

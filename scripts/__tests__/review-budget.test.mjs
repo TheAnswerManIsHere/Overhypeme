@@ -1,0 +1,343 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  TIERS,
+  tierCap,
+  allowance,
+  budgetPath,
+  roundsPath,
+  extensionPath,
+  loadLoop,
+  mentionsReviewRequest,
+  prNumberFrom,
+  targetsThisRepo,
+  validateBudget,
+  validateExtension,
+  judgeReviewRequest,
+  REPO_OWNER,
+  REPO_NAME,
+} from "../review-budget.mjs";
+
+// ---------------------------------------------------------------------------
+// A filesystem the tests can assert against. The guard's whole decision is a
+// function of these files, so faking them is faking the world.
+// ---------------------------------------------------------------------------
+
+export function fakeIo(files = {}) {
+  const store = { ...files };
+  return {
+    store,
+    now: () => "2026-08-17T00:00:00.000Z",
+    read: (rel) => (rel in store ? store[rel] : null),
+    exists: (rel) => rel in store,
+    listReceipts: () =>
+      Object.keys(store)
+        .filter((k) => k.startsWith(".agents/receipts/"))
+        .map((k) => k.slice(".agents/receipts/".length)),
+    write: (rel, text) => {
+      store[rel] = text;
+    },
+  };
+}
+
+const json = (value) => JSON.stringify(value, null, 2);
+
+const budget = (pr, tier = "internal", extra = {}) =>
+  json({
+    pr,
+    tier,
+    budget: TIERS[tier].budget,
+    criticality: 30,
+    artifact: "a thing under review",
+    declaredAt: "2026-08-17T00:00:00.000Z",
+    ...extra,
+  });
+
+const rounds = (pr, n) =>
+  json({ pr, rounds: Array.from({ length: n }, () => ({ at: "2026-08-17T00:00:00.000Z", tool: "t" })) });
+
+// ---------------------------------------------------------------------------
+// Trigger detection
+// ---------------------------------------------------------------------------
+
+test("the trigger phrase is detected in the shapes it is actually posted in", () => {
+  assert.equal(mentionsReviewRequest("@codex review"), true);
+  assert.equal(mentionsReviewRequest("Round 2 fixes pushed.\n\n@codex review — please confirm."), true);
+  assert.equal(mentionsReviewRequest("@Codex   review"), true, "case and spacing vary in practice");
+  assert.equal(mentionsReviewRequest("@codex reviewed the thing"), false, "word boundary, not a prefix match");
+  assert.equal(mentionsReviewRequest("thanks codex, review looks good"), false);
+  assert.equal(mentionsReviewRequest(undefined), false);
+});
+
+test("the PR number is read from either resource's parameter name", () => {
+  assert.equal(prNumberFrom({ issue_number: 502 }), 502, "add_issue_comment addresses the issue resource");
+  assert.equal(prNumberFrom({ pullNumber: 502 }), 502, "the pull-resource tools use pullNumber");
+  assert.equal(prNumberFrom({ pullNumber: "502" }), 502);
+  assert.equal(prNumberFrom({}), null);
+  assert.equal(prNumberFrom({ pullNumber: 0 }), null);
+});
+
+test("only this repo's loops are budgeted", () => {
+  assert.equal(targetsThisRepo({ owner: REPO_OWNER, repo: REPO_NAME }), true);
+  assert.equal(targetsThisRepo({ owner: "someone", repo: "else" }), false);
+});
+
+// ---------------------------------------------------------------------------
+// Tier table
+// ---------------------------------------------------------------------------
+
+test("the tiers are the ones the contract declares", () => {
+  assert.equal(tierCap("internal"), 3);
+  assert.equal(tierCap("product"), 5);
+  assert.equal(tierCap("sensitive"), 5, "uncapped, but the mandatory stop is at 5");
+  assert.equal(TIERS.sensitive.budget, null);
+  assert.equal(TIERS.sensitive.selfServe, false, "auth/payments/migrations never self-serve their tripwire");
+});
+
+// ---------------------------------------------------------------------------
+// Budget receipt validation
+// ---------------------------------------------------------------------------
+
+test("a budget cannot declare a number its tier does not have", () => {
+  const receipt = JSON.parse(budget(1, "internal"));
+  assert.equal(validateBudget(1, receipt), null);
+
+  receipt.budget = 20;
+  assert.match(
+    validateBudget(1, receipt),
+    /declares budget 20 but tier "internal" is 3/,
+    "a free-text budget field is the no-stopping-rule state wearing a receipt",
+  );
+});
+
+test("a budget receipt for the wrong PR is refused, not adopted", () => {
+  assert.match(validateBudget(2, JSON.parse(budget(1))), /names PR 1, not 2/);
+});
+
+test("a budget receipt needs a criticality rating and a named artifact", () => {
+  const noCriticality = JSON.parse(budget(1, "internal", { criticality: null }));
+  assert.match(validateBudget(1, noCriticality), /criticality/);
+  const noArtifact = JSON.parse(budget(1, "internal", { artifact: "  " }));
+  assert.match(validateBudget(1, noArtifact), /artifact/);
+});
+
+// ---------------------------------------------------------------------------
+// Extension receipt validation — the tier-2 rule lives here
+// ---------------------------------------------------------------------------
+
+const adjudication = (pr, extra = {}) => ({
+  pr,
+  kind: "adjudication",
+  verdict: "continue",
+  grant: 2,
+  risk: "the retry path can double-charge on a 409",
+  recordPath: ".agents/adjudications/1-1.json",
+  ...extra,
+});
+
+test("a valid adjudication extension passes", () => {
+  assert.equal(validateExtension(1, "internal", adjudication(1), { adjudicationsAlreadySeen: 0 }), null);
+});
+
+test("a SECOND adjudication extension is never valid", () => {
+  assert.match(
+    validateExtension(1, "internal", adjudication(1), { adjudicationsAlreadySeen: 1 }),
+    /SECOND adjudication extension is never valid/,
+  );
+});
+
+test("a continue verdict must name a behavioral risk and grant at most 2", () => {
+  assert.match(
+    validateExtension(1, "internal", adjudication(1, { risk: "" }), { adjudicationsAlreadySeen: 0 }),
+    /must name the specific unaddressed BEHAVIORAL risk/,
+  );
+  assert.match(
+    validateExtension(1, "internal", adjudication(1, { grant: 5 }), { adjudicationsAlreadySeen: 0 }),
+    /grants 1-2 rounds/,
+  );
+});
+
+test("a non-continue verdict is valid but grants nothing", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", recordPath: "" });
+  assert.equal(validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0 }), null);
+  assert.equal(allowance("internal", [shipped]), 3, "a stop verdict does not extend the budget");
+});
+
+test("the sensitive tier has no self-serve extension at all", () => {
+  assert.match(
+    validateExtension(1, "sensitive", adjudication(1), { adjudicationsAlreadySeen: 0 }),
+    /no self-serve extension/,
+  );
+});
+
+test("a David authorization must quote his words and grant something concrete", () => {
+  const ok = { pr: 1, kind: "david", grant: 3, authorization: "go ahead, three more" };
+  assert.equal(validateExtension(1, "internal", ok, { adjudicationsAlreadySeen: 1 }), null);
+  assert.equal(allowance("internal", [ok]), 6);
+
+  assert.match(
+    validateExtension(1, "internal", { ...ok, authorization: "" }, { adjudicationsAlreadySeen: 1 }),
+    /quote his words/,
+  );
+  assert.match(
+    validateExtension(1, "internal", { ...ok, grant: 0 }, { adjudicationsAlreadySeen: 1 }),
+    /positive integer of rounds or "uncapped"/,
+  );
+  assert.equal(
+    allowance("sensitive", [{ ...ok, grant: "uncapped" }]),
+    Infinity,
+    "uncapped is what the sensitive tier means once David has been asked",
+  );
+});
+
+test("an unknown extension kind is refused rather than ignored", () => {
+  assert.match(
+    validateExtension(1, "internal", { pr: 1, kind: "self", grant: 9 }, { adjudicationsAlreadySeen: 0 }),
+    /is not "adjudication" or "david"/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// loadLoop — fail closed on anything unreadable
+// ---------------------------------------------------------------------------
+
+test("a malformed receipt refuses the loop instead of being skipped", () => {
+  const io = fakeIo({ [budgetPath(1)]: "{ not json" });
+  assert.deepEqual(loadLoop(1, io), {
+    problem: "bad-receipt",
+    detail: loadLoop(1, io).detail,
+  });
+  assert.match(loadLoop(1, io).detail, /not valid JSON/);
+});
+
+test("a malformed rounds tally refuses too — an unreadable tally is not zero rounds", () => {
+  const io = fakeIo({ [budgetPath(1)]: budget(1), [roundsPath(1)]: "[]" });
+  assert.match(loadLoop(1, io).detail, /"rounds" must be an array/);
+});
+
+test("extensions are read in sequence order, not directory order", () => {
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, authorization: "ok" }),
+    [extensionPath(1, 1)]: json(adjudication(1)),
+  });
+  const state = loadLoop(1, io);
+  assert.deepEqual(
+    state.extensions.map((e) => e.kind),
+    ["adjudication", "david"],
+    "sequence order is what makes 'the adjudication came first' checkable",
+  );
+  assert.equal(allowance("internal", state.extensions), 3 + 2 + 1);
+});
+
+// ---------------------------------------------------------------------------
+// The decision itself
+// ---------------------------------------------------------------------------
+
+const post = (pr, body = "@codex review") => ({
+  toolName: "mcp__github__add_issue_comment",
+  toolInput: { owner: REPO_OWNER, repo: REPO_NAME, issue_number: pr, body },
+});
+
+test("no budget declared refuses the very first round", () => {
+  const { blocked, reason } = judgeReviewRequest(post(1), fakeIo());
+  assert.equal(blocked, true);
+  assert.match(reason, /no round budget declared/);
+  assert.match(reason, /review-budget\.mjs declare/, "the refusal has to say what to do next");
+});
+
+test("an in-budget round is allowed and tallied", () => {
+  const io = fakeIo({ [budgetPath(1)]: budget(1), [roundsPath(1)]: rounds(1, 2) });
+  assert.equal(judgeReviewRequest(post(1), io).blocked, false);
+  assert.equal(JSON.parse(io.store[roundsPath(1)]).rounds.length, 3, "the tally is written before the post");
+});
+
+test("the round at the budget is refused, and the refusal names tripwire 1", () => {
+  const io = fakeIo({ [budgetPath(1)]: budget(1), [roundsPath(1)]: rounds(1, 3) });
+  const { blocked, reason } = judgeReviewRequest(post(1), io);
+  assert.equal(blocked, true);
+  assert.match(reason, /TRIPWIRE 1/);
+  assert.match(reason, /review-loop-record\.mjs/, "the record is script-generated, never the loop's prose");
+  assert.match(reason, /fresh-context adjudicator/);
+  assert.equal(io.store[roundsPath(1)], rounds(1, 3), "a refused round is not counted");
+});
+
+test("a valid extension reopens the guard for exactly the rounds it granted", () => {
+  const files = {
+    [budgetPath(1)]: budget(1),
+    [roundsPath(1)]: rounds(1, 3),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 1 })),
+  };
+  assert.equal(judgeReviewRequest(post(1), fakeIo(files)).blocked, false, "round 4 is inside the +1 grant");
+
+  const spent = fakeIo({ ...files, [roundsPath(1)]: rounds(1, 4) });
+  assert.equal(judgeReviewRequest(post(1), spent).blocked, true, "round 5 is not");
+});
+
+test("tripwire 2 is a hard stop to David, with no second self-service extension", () => {
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [roundsPath(1)]: rounds(1, 5),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 2 })),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io);
+  assert.equal(blocked, true);
+  assert.match(reason, /TRIPWIRE 2/);
+  assert.match(reason, /never a second one/);
+  assert.match(reason, /🛑 NEED YOU/);
+});
+
+test("a second adjudication receipt refuses the post rather than granting rounds", () => {
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [roundsPath(1)]: rounds(1, 5),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 2 })),
+    [extensionPath(1, 2)]: json(adjudication(1, { grant: 2 })),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io);
+  assert.equal(blocked, true);
+  assert.match(reason, /SECOND adjudication extension is never valid/);
+});
+
+test("David's authorization clears tripwire 2", () => {
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [roundsPath(1)]: rounds(1, 5),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 2 })),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 2, authorization: "yes, keep going" }),
+  });
+  assert.equal(judgeReviewRequest(post(1), io).blocked, false);
+});
+
+test("the sensitive tier runs to 5 and then stops for David, self-serve unavailable", () => {
+  const at4 = fakeIo({ [budgetPath(1)]: budget(1, "sensitive"), [roundsPath(1)]: rounds(1, 4) });
+  assert.equal(judgeReviewRequest(post(1), at4).blocked, false, "uncapped below the mandatory stop");
+
+  const at5 = fakeIo({ [budgetPath(1)]: budget(1, "sensitive"), [roundsPath(1)]: rounds(1, 5) });
+  const { blocked, reason } = judgeReviewRequest(post(1), at5);
+  assert.equal(blocked, true);
+  assert.match(reason, /TRIPWIRE 2/, "sensitive work skips the self-serve tripwire entirely");
+});
+
+test("a review request with no readable PR number is refused, not waved through", () => {
+  const call = { toolName: "mcp__github__add_issue_comment", toolInput: { owner: REPO_OWNER, repo: REPO_NAME, body: "@codex review" } };
+  assert.match(judgeReviewRequest(call, fakeIo()).reason, /no readable PR number/);
+});
+
+test("ordinary comments, other repos, and other tools are untouched", () => {
+  const io = fakeIo();
+  assert.equal(judgeReviewRequest(post(1, "Fixed in abc123 — thanks."), io).blocked, false);
+  assert.equal(
+    judgeReviewRequest(
+      { toolName: "mcp__github__add_issue_comment", toolInput: { owner: "other", repo: "repo", issue_number: 1, body: "@codex review" } },
+      io,
+    ).blocked,
+    false,
+  );
+  assert.equal(
+    judgeReviewRequest({ toolName: "mcp__github__create_pull_request", toolInput: { body: "@codex review" } }, io).blocked,
+    false,
+  );
+  assert.deepEqual(io.store, {}, "nothing is tallied for a call that is not a review request");
+});

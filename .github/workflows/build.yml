@@ -193,6 +193,16 @@ jobs:
       - name: Check Bash guard decisions
         run: node --test scripts/__tests__/guard-decision.test.mjs
 
+      # The second judgement behind the same hook: the review-round budget.
+      # It exists because per-round judgment provably cannot stop a runaway
+      # review loop (PR #488: 22 rounds on ~10 lines, 0-for-15 on the
+      # judgment-shaped stopping rules). A budget guard whose refusal matrix
+      # is unasserted would be the same failure one level up -- a stopping
+      # rule nobody can rely on, which is worse than none because it is
+      # trusted.
+      - name: Check review-round budget decisions
+        run: node --test scripts/__tests__/review-budget.test.mjs
+
       # Record validity, offline. Needs no token, no PR context, and no base
       # diff, so it runs identically on a PR and on push-to-main.
       #
