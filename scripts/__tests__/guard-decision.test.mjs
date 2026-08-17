@@ -151,6 +151,15 @@ const MUST_BLOCK = [
   ["the attached long form of the same", "wget --input-file=https://api.github.com/x"],
   ["the separate long form of the same", "wget --input-file https://api.github.com/x"],
   ["-i inside a bundle is still a fetch target", "wget -qi https://api.github.com/x"],
+  // Round 3: options whose value is a host the client CONNECTs to. Codex
+  // confirmed each with a verbose/spider run emitting CONNECT api.github.com:443.
+  ["the attached short form, which a hyphen-prefix rule discarded whole", "wget -ihttps://api.github.com/rate_limit"],
+  ["wget --base resolves relative links in an HTML input file", "wget -F -i local.html -B https://api.github.com/"],
+  ["the attached form of --base", "wget -F -i local.html -Bhttps://api.github.com/"],
+  ["curl --doh-url is an outbound endpoint", "curl --doh-url https://api.github.com/dns https://example.com"],
+  ["curl --ipfs-gateway likewise", "curl --ipfs-gateway https://api.github.com/gw ipfs://x"],
+  ["a proxy is a host curl connects to", "curl -x https://api.github.com https://example.com"],
+  ["the attached form of -x", "curl -xhttps://api.github.com https://example.com"],
 ];
 
 const MUST_ALLOW = [
@@ -176,6 +185,11 @@ const MUST_ALLOW = [
   ["a value option measured from curl's own help, not recalled", "curl --noproxy api.github.com https://example.com"],
   ["curl's -r is a byte range, so its value is data", "curl -r 0-99 https://example.com"],
   ["wget's -T is a timeout, so its value is data", "wget -T 30 https://example.com"],
+  // The suffix scan must not swallow an attached value that belongs to a known
+  // DATA option -- that is what keeps it from becoming a substring match.
+  ["an attached POST body naming the host", "curl -dapi.github.com https://example.com"],
+  ["an attached header value naming the host", "curl -HX-Note:api.github.com https://example.com"],
+  ["wget -qO- keeps working, with - as O's attached value", "wget -qO- https://example.com"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],

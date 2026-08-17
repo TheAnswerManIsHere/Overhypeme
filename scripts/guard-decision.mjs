@@ -853,101 +853,119 @@ function isRecursiveAndForced(args) {
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 
 /**
- * Which options consume the FOLLOWING token as a value, per program.
+ * Per-program option knowledge, in two layers.
  *
- * Derived by parsing `curl --help all` and `wget --help` from the binaries in
- * this container (curl 8.5.0, wget 1.21.4) rather than written from memory.
- * That provenance is the point: the hand-written version of this table had
- * three defects Codex found in one round, and all three came from recalling an
- * option's arity instead of reading it.
+ * `value` is the complete ARITY: which options consume a value at all, derived
+ * by parsing `curl --help all` and `wget --help` from the binaries in this
+ * container (curl 8.5.0, wget 1.21.4) rather than written from memory. That
+ * provenance is the point -- the hand-written first version had three defects
+ * in one review round, all from recalling an arity instead of reading it.
+ *
+ * `target` is the subset whose value is a HOST THE CLIENT CONNECTS TO rather
+ * than data. Its values are inspected, not skipped.
+ *
+ * WHY TWO LAYERS RATHER THAN ONE. The previous revision tried to express
+ * "target" by deleting the option from the arity set, so its value would fall
+ * through to the generic inspect-this-operand path. That silently broke short
+ * parsing: with `i` deleted, `wget -ihttps://api.github.com/x` no longer found
+ * a value-taking letter at index 1, so the scan ran on into the VALUE and hit
+ * `t` (`-t, --tries`), decided the token carried an attached data value, and
+ * skipped it. Arity and purpose are different facts and conflating them
+ * corrupts the parse. (Codex, #488 rounds 2 and 3.)
  *
  * SEPARATE PER PROGRAM, because the two clients disagree on the same letters
- * and sharing one table imports each one's arity into the other. `-O` takes a
+ * and one shared table imports each one's arity into the other. `-O` takes a
  * filename for wget and is a boolean for curl, so a shared table made
  * `curl -O <url>` skip its own target; `-r` is a range for curl and a boolean
- * for wget, so `wget -r <url>` did the same. Both were fail-OPEN. (Codex, #488.)
+ * for wget, so `wget -r <url>` did the same. Both were fail-OPEN.
  *
- * NOT EXHAUSTIVE, AND SAFE THAT WAY. An option missing from these tables is
- * simply not skipped, so its value is inspected as a possible target -- the
- * fail-CLOSED direction, matching this module's stated posture that a gap
- * over-blocks rather than under-blocks. Version drift can therefore only make
- * the guard stricter. Adding an entry is a precision improvement, never a
- * correctness dependency; wrongly adding one is the only way to open a hole,
- * which is why nothing goes in here unmeasured.
- *
- * `--url` is deliberately ABSENT from curl's long set: its value IS the
- * transfer URL. Under the fail-closed default that needs no special case --
- * an unlisted option's value is checked, which is exactly right for `--url`.
+ * `value` IS NOT EXHAUSTIVE, AND IS SAFE THAT WAY. An option missing from it
+ * is not skipped, so its value is inspected -- the fail-CLOSED direction,
+ * matching this module's stated posture that a gap over-blocks rather than
+ * under-blocks. Version drift can therefore only make the guard stricter.
+ * Wrongly ADDING an entry is the one way to open a hole, which is why nothing
+ * goes in unmeasured -- and `--input-file` is the worked example: it belongs in
+ * `value` (it takes one) and in `target` (wget fetches it), and listing it in
+ * `value` alone allowed `wget -i https://api.github.com/rate_limit`.
  */
 const FETCHER_OPTIONS = {
   curl: {
     // `curl --help all | grep -oE '^ +-[A-Za-z], --[a-z0-9.-]+ +<'`
-    short: new Set("ACDEFHKPQTUXYbcdehmortuwyz"),
-    long: new Set([
-      "abstract-unix-socket", "alt-svc", "aws-sigv4", "cacert", "capath", "cert",
-      "cert-type", "ciphers", "config", "connect-timeout", "connect-to",
-      "continue-at", "cookie", "cookie-jar", "create-file-mode", "crlfile",
-      "curves", "data", "data-ascii", "data-binary", "data-raw", "data-urlencode",
-      "delegation", "dns-interface", "dns-ipv4-addr", "dns-ipv6-addr",
-      "dns-servers", "doh-url", "dump-header", "egd-file", "engine",
-      "etag-compare", "etag-save", "expect100-timeout", "form", "form-string",
-      "ftp-account", "ftp-alternative-to-user", "ftp-method", "ftp-port",
-      "ftp-ssl-ccc-mode", "happy-eyeballs-timeout-ms", "header", "help",
-      "hostpubmd5", "hostpubsha256", "hsts", "interface", "ipfs-gateway", "json",
-      "keepalive-time", "key", "key-type", "krb", "libcurl", "limit-rate",
-      "local-port", "login-options", "mail-auth", "mail-from", "mail-rcpt",
-      "max-filesize", "max-redirs", "max-time", "netrc-file", "noproxy",
-      "oauth2-bearer", "output", "output-dir", "parallel-max", "pass",
-      "pinnedpubkey", "proto", "proto-default", "proto-redir", "proxy-cacert",
-      "proxy-capath", "proxy-cert", "proxy-cert-type", "proxy-ciphers",
-      "proxy-crlfile", "proxy-header", "proxy-key", "proxy-key-type",
-      "proxy-pass", "proxy-pinnedpubkey", "proxy-service-name",
-      "proxy-tls13-ciphers", "proxy-tlsauthtype", "proxy-tlspassword",
-      "proxy-tlsuser", "proxy-user", "proxy1.0", "pubkey", "quote", "random-file",
-      "range", "rate", "referer", "request", "request-target", "resolve", "retry",
-      "retry-delay", "retry-max-time", "sasl-authzid", "service-name", "socks4",
-      "socks4a", "socks5", "socks5-gssapi-service", "socks5-hostname",
-      "speed-limit", "speed-time", "stderr", "telnet-option", "tftp-blksize",
-      "time-cond", "tls-max", "tls13-ciphers", "tlsauthtype", "tlspassword",
-      "tlsuser", "trace", "trace-ascii", "trace-config", "unix-socket",
-      "upload-file", "url-query", "user", "user-agent", "variable", "write-out",
-      // `--proxy` and `--preproxy` take values but are spelled `-x, --proxy <url>`
-      // and `--preproxy [protocol://]host[:port]`, which the `<`-anchored sweep
-      // above misses; both are value-taking and measured by hand from the same
-      // help output.
-      "proxy", "preproxy",
-    ]),
+    value: {
+      short: new Set("ACDEFHKPQTUXYbcdehmortuwxyz"),
+      long: new Set([
+        "abstract-unix-socket", "alt-svc", "aws-sigv4", "cacert", "capath", "cert",
+        "cert-type", "ciphers", "config", "connect-timeout", "connect-to",
+        "continue-at", "cookie", "cookie-jar", "create-file-mode", "crlfile",
+        "curves", "data", "data-ascii", "data-binary", "data-raw", "data-urlencode",
+        "delegation", "dns-interface", "dns-ipv4-addr", "dns-ipv6-addr",
+        "dns-servers", "doh-url", "dump-header", "egd-file", "engine",
+        "etag-compare", "etag-save", "expect100-timeout", "form", "form-string",
+        "ftp-account", "ftp-alternative-to-user", "ftp-method", "ftp-port",
+        "ftp-ssl-ccc-mode", "happy-eyeballs-timeout-ms", "header", "help",
+        "hostpubmd5", "hostpubsha256", "hsts", "interface", "ipfs-gateway", "json",
+        "keepalive-time", "key", "key-type", "krb", "libcurl", "limit-rate",
+        "local-port", "login-options", "mail-auth", "mail-from", "mail-rcpt",
+        "max-filesize", "max-redirs", "max-time", "netrc-file", "noproxy",
+        "oauth2-bearer", "output", "output-dir", "parallel-max", "pass",
+        "pinnedpubkey", "preproxy", "proto", "proto-default", "proto-redir", "proxy",
+        "proxy-cacert", "proxy-capath", "proxy-cert", "proxy-cert-type",
+        "proxy-ciphers", "proxy-crlfile", "proxy-header", "proxy-key",
+        "proxy-key-type", "proxy-pass", "proxy-pinnedpubkey", "proxy-service-name",
+        "proxy-tls13-ciphers", "proxy-tlsauthtype", "proxy-tlspassword",
+        "proxy-tlsuser", "proxy-user", "proxy1.0", "pubkey", "quote", "random-file",
+        "range", "rate", "referer", "request", "request-target", "resolve", "retry",
+        "retry-delay", "retry-max-time", "sasl-authzid", "service-name", "socks4",
+        "socks4a", "socks5", "socks5-gssapi-service", "socks5-hostname",
+        "speed-limit", "speed-time", "stderr", "telnet-option", "tftp-blksize",
+        "time-cond", "tls-max", "tls13-ciphers", "tlsauthtype", "tlspassword",
+        "tlsuser", "trace", "trace-ascii", "trace-config", "unix-socket",
+        "upload-file", "url", "url-query", "user", "user-agent", "variable",
+        "write-out",
+      ]),
+    },
+    // `--url` is the transfer URL by definition. Codex ran verbose curl with
+    // `--doh-url` and `--ipfs-gateway` pointed at this host and got
+    // `CONNECT api.github.com:443` from both -- against my written conclusion
+    // that neither routed to the API, which is why that conclusion is now a
+    // measurement. Proxies are here for the same reason: curl connects to them.
+    target: {
+      short: new Set("x"),
+      long: new Set([
+        "url", "doh-url", "ipfs-gateway", "proxy", "preproxy", "proxy1.0",
+        "socks4", "socks4a", "socks5", "socks5-hostname",
+      ]),
+    },
   },
   wget: {
-    // `wget --help | grep -oE '^ +-[A-Za-z], +--[a-z0-9.-]+='`, minus `i`.
-    //
-    // `-i, --input-file` is EXCLUDED even though it takes a value, for the same
-    // reason curl's `--url` is: wget's help calls its argument a "local or
-    // external FILE", and Codex confirmed with a spider run that
-    // `wget -i https://api.github.com/...` emits `CONNECT api.github.com:443`.
-    // Its value is a fetch target, not data, so skipping it opened a hole --
-    // the exact failure mode this table's own note warns about, where the only
-    // way to reopen one is to wrongly ADD an entry. (Codex, #488 round 2.)
-    short: new Set("ABDOPQRTUXaelotw"),
-    long: new Set([
-      "accept", "accept-regex", "append-output", "backups", "base",
-      "bind-address", "body-data", "body-file", "ca-certificate", "ca-directory",
-      "certificate", "certificate-type", "ciphers", "compression", "config",
-      "connect-timeout", "crl-file", "cut-dirs", "default-page",
-      "directory-prefix", "dns-timeout", "domains", "exclude-directories",
-      "exclude-domains", "execute", "follow-tags", "ftp-password", "ftp-user",
-      "header", "http-password", "http-user", "ignore-tags",
-      "include-directories", "level", "limit-rate", "load-cookies",
-      "local-encoding", "method", "output-document", "output-file", "password",
-      "pinnedpubkey", "post-data", "post-file", "prefer-family", "private-key",
-      "private-key-type", "progress", "proxy-password", "proxy-user", "quota",
-      "random-file", "read-timeout", "referer", "regex-type", "reject",
-      "reject-regex", "rejected-log", "remote-encoding", "report-speed",
-      "restrict-file-names", "retry-on-http-error", "save-cookies",
-      "secure-protocol", "start-pos", "timeout", "tries", "use-askpass", "user",
-      "user-agent", "wait", "waitretry", "warc-dedup", "warc-file", "warc-header",
-      "warc-max-size", "warc-tempdir",
-    ]),
+    // `wget --help | grep -oE '^ +-[A-Za-z], +--[a-z0-9.-]+='`
+    value: {
+      short: new Set("ABDIOPQRTUXaeilotw"),
+      long: new Set([
+        "accept", "accept-regex", "append-output", "backups", "base",
+        "bind-address", "body-data", "body-file", "ca-certificate", "ca-directory",
+        "certificate", "certificate-type", "ciphers", "compression", "config",
+        "connect-timeout", "crl-file", "cut-dirs", "default-page",
+        "directory-prefix", "dns-timeout", "domains", "exclude-directories",
+        "exclude-domains", "execute", "follow-tags", "ftp-password", "ftp-user",
+        "header", "http-password", "http-user", "ignore-tags",
+        "include-directories", "input-file", "level", "limit-rate", "load-cookies",
+        "local-encoding", "method", "output-document", "output-file", "password",
+        "pinnedpubkey", "post-data", "post-file", "prefer-family", "private-key",
+        "private-key-type", "progress", "proxy-password", "proxy-user", "quota",
+        "random-file", "read-timeout", "referer", "regex-type", "reject",
+        "reject-regex", "rejected-log", "remote-encoding", "report-speed",
+        "restrict-file-names", "retry-on-http-error", "save-cookies",
+        "secure-protocol", "start-pos", "timeout", "tries", "use-askpass", "user",
+        "user-agent", "wait", "waitretry", "warc-dedup", "warc-file", "warc-header",
+        "warc-max-size", "warc-tempdir",
+      ]),
+    },
+    // `--input-file` reads URLs from a "local or external FILE" -- wget fetches
+    // the external form itself. `--base` resolves the relative links inside an
+    // HTML input file, so it determines the host they land on. Codex confirmed
+    // both with spider runs emitting `CONNECT api.github.com:443`.
+    target: { short: new Set("iB"), long: new Set(["input-file", "base"]) },
   },
 };
 
@@ -980,24 +998,27 @@ function fetcherTargetHost(token) {
 }
 
 /**
- * Whether a short-option token consumes the NEXT token as its value.
+ * Where a short-option token's value lives, and whether it is a target.
  *
  * Short options bundle (`-sSd`), and a value-taking letter owns **the rest of
  * its own token** when there is any: curl documents `-X, --request <method>`
  * and accepts the attached spelling, so in `curl -XGET <url>` the value is
  * `GET` and the URL that follows is a real target. Treating the last character
  * of a bundle as the value-taking one instead made that trailing `T` look like
- * `-T, --upload-file`, skipped the URL, and allowed the fetch -- fail-open.
- * (Codex, #488.)
+ * `-T, --upload-file`, skipped the URL, and allowed the fetch. (Codex, #488.)
  *
- * So: walk left to right, stop at the FIRST value-taking letter, and consume
- * the next token only if that letter ends the bundle.
+ * The scan stops at the FIRST value-taking letter, which is also what keeps it
+ * from wandering into the value: in `wget -ihttps://...` it stops at `i` rather
+ * than running on and finding the `t` of `https`.
  */
-function shortOptionTakesNextToken(token, shortSet) {
+function shortOption(token, options) {
   for (let i = 1; i < token.length; i += 1) {
-    if (shortSet.has(token[i])) return i === token.length - 1;
+    const letter = token[i];
+    if (!options.value.short.has(letter)) continue;
+    const attached = i < token.length - 1 ? token.slice(i + 1) : null;
+    return { letter, attached, isTarget: options.target.short.has(letter) };
   }
-  return false;
+  return null;
 }
 
 /**
@@ -1024,20 +1045,33 @@ function fetchesGitHubApi(program, rest) {
     if (arg.startsWith("--")) {
       const eq = arg.indexOf("=");
       const name = (eq === -1 ? arg.slice(2) : arg.slice(2, eq)).toLowerCase();
-      const known = options.long.has(name);
+      const isTarget = options.target.long.has(name);
+      const takesValue = options.value.long.has(name);
       if (eq !== -1) {
-        // `--data=x` is self-contained. A KNOWN value option's payload is data;
-        // an unknown one's is inspected, which is what keeps `--url=<target>`
-        // caught without a special case for it.
-        if (!known && hits(arg.slice(eq + 1))) return true;
+        // `--data=x` is self-contained. A known DATA option's payload is
+        // skipped; a target's value, and an UNKNOWN option's value, are
+        // inspected -- the latter being what keeps a gap fail-closed.
+        if (!takesValue || isTarget) {
+          if (hits(arg.slice(eq + 1))) return true;
+        }
         continue;
       }
-      if (known) i += 1; // skip the value
+      if (isTarget) {
+        if (hits(rest[i + 1])) return true;
+        i += 1;
+      } else if (takesValue) {
+        i += 1; // data
+      }
+      // Unknown: consume nothing, so the next token is inspected as an operand.
       continue;
     }
 
     if (arg.length > 1 && arg.startsWith("-")) {
-      if (shortOptionTakesNextToken(arg, options.short)) i += 1;
+      const short = shortOption(arg, options);
+      if (!short) continue; // a bundle of booleans
+      const value = short.attached ?? rest[i + 1];
+      if (short.isTarget && hits(value)) return true;
+      if (short.attached === null) i += 1;
       continue;
     }
 
