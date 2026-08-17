@@ -69,6 +69,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -191,11 +192,19 @@ export function nodeIo(root = REPO_ROOT) {
   const abs = (rel) => path.join(root, rel);
   return {
     now: () => new Date().toISOString(),
+    /**
+     * `null` means the file is ABSENT. Anything else -- a permissions error, a
+     * transient I/O failure -- throws, and `readJson` turns that into a
+     * refusal. Collapsing the two (as this did until Codex round 1) makes an
+     * unreadable tally indistinguishable from zero rounds spent, which
+     * reopens an exhausted loop on an I/O error.
+     */
     read(rel) {
       try {
         return fs.readFileSync(abs(rel), "utf8");
-      } catch {
-        return null;
+      } catch (err) {
+        if (err.code === "ENOENT") return null;
+        throw err;
       }
     },
     exists: (rel) => fs.existsSync(abs(rel)),
@@ -210,12 +219,33 @@ export function nodeIo(root = REPO_ROOT) {
       fs.mkdirSync(path.dirname(abs(rel)), { recursive: true });
       fs.writeFileSync(abs(rel), text);
     },
+    /**
+     * The tally as `main`'s history has it, so the guard can tell a round that
+     * was recorded from a round that was recorded AND SURVIVES this container.
+     * Throws when git cannot answer; the caller refuses rather than guessing.
+     */
+    committedRounds(rel) {
+      let text;
+      try {
+        text = execFileSync("git", ["show", `HEAD:${rel}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      } catch {
+        return 0; // not in HEAD yet -- a loop whose first round has not landed
+      }
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed?.rounds)) throw new Error(`committed ${rel} has no rounds array`);
+      return parsed.rounds.length;
+    },
   };
 }
 
 /** Read + parse, distinguishing "absent" from "present but unreadable". */
 function readJson(io, rel) {
-  const text = io.read(rel);
+  let text;
+  try {
+    text = io.read(rel);
+  } catch (err) {
+    return { state: "unreadable", error: err.message };
+  }
   if (text === null) return { state: "absent" };
   try {
     return { state: "ok", value: JSON.parse(text) };
@@ -249,10 +279,54 @@ export function validateBudget(pr, receipt) {
   if (typeof receipt.artifact !== "string" || !receipt.artifact.trim()) {
     return "budget receipt needs a non-empty `artifact` naming what is under review";
   }
+  // Codex auto-reviews every non-draft PR on open, with no trigger comment --
+  // and `loop-metrics.mjs` counts that pass as round 1, because a round is a
+  // completed reviewer PASS, not a trigger. A tally that counts only the posts
+  // this guard sees would therefore enforce "3" as one automatic pass plus
+  // three re-requests: four rounds by the repo's own definition, and the same
+  // off-by-one on every tier. (Codex, round 1.) So the declaration states
+  // whether this PR gets that opening pass, and it is counted.
+  if (typeof receipt.autoOpeningReview !== "boolean") {
+    return "budget receipt needs a boolean `autoOpeningReview` (true for a non-draft PR, which Codex reviews on open; false for a draft that gets no automatic pass)";
+  }
   return null;
 }
 
-export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen }) {
+/** Whether the tally is a plausible round tally FOR THIS PR. */
+export function validateRounds(pr, receipt) {
+  if (!receipt || typeof receipt !== "object") return "rounds tally is not an object";
+  // Same rule the budget and extension receipts already had, and its absence
+  // here was a real hole: a tally copied or conflict-resolved from another PR
+  // silently resets a long loop to that PR's smaller count. (Codex, round 1.)
+  if (receipt.pr !== pr) return `rounds tally names PR ${receipt.pr}, not ${pr}`;
+  if (!Array.isArray(receipt.rounds)) return '"rounds" must be an array';
+  return null;
+}
+
+/**
+ * The mechanical record a `continue` verdict claims to have ruled on must
+ * actually exist, actually be one of ours, and actually describe THIS PR.
+ *
+ * Without this, any non-empty `recordPath` -- a typo, a stale path, another
+ * loop's record -- reopens the guard for two more rounds with the
+ * script-generated record never having existed. (Codex, round 1.) This is not
+ * an anti-forgery check and cannot be one; it catches the accidental
+ * malformation, which is a different and far likelier failure than the
+ * fabrication this module's header already declines to defend against.
+ */
+function validateRecordReference(pr, recordPath, io) {
+  if (!io) return null; // pure-validation callers; the guard always passes io
+  const parsed = readJson(io, recordPath);
+  if (parsed.state === "absent") return `cited mechanical record ${recordPath} does not exist`;
+  if (parsed.state !== "ok") return `cited mechanical record ${recordPath} is unreadable (${parsed.error})`;
+  if (parsed.value?.generator !== "scripts/review-loop-record.mjs") {
+    return `${recordPath} was not produced by review-loop-record.mjs (generator: ${JSON.stringify(parsed.value?.generator)})`;
+  }
+  if (parsed.value?.pr !== pr) return `${recordPath} describes PR ${parsed.value?.pr}, not ${pr}`;
+  return null;
+}
+
+export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen, io }) {
   if (!receipt || typeof receipt !== "object") return "extension receipt is not an object";
   if (receipt.pr !== pr) return `extension receipt names PR ${receipt.pr}, not ${pr}`;
 
@@ -279,7 +353,7 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen 
     if (typeof receipt.recordPath !== "string" || !receipt.recordPath.trim()) {
       return "adjudication receipt must cite the mechanical record it ruled on in `recordPath`";
     }
-    return null;
+    return validateRecordReference(pr, receipt.recordPath, io);
   }
 
   if (receipt.kind === "david") {
@@ -307,51 +381,97 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen 
 export function loadLoop(pr, io) {
   const budget = readJson(io, budgetPath(pr));
   if (budget.state === "absent") return { problem: "no-budget" };
-  if (budget.state === "malformed") {
-    return { problem: "bad-receipt", detail: `${budgetPath(pr)} is not valid JSON (${budget.error})` };
+  if (budget.state !== "ok") {
+    return { problem: "bad-receipt", detail: `${budgetPath(pr)} could not be read (${budget.state}: ${budget.error})` };
   }
   const budgetError = validateBudget(pr, budget.value);
   if (budgetError) return { problem: "bad-receipt", detail: `${budgetPath(pr)}: ${budgetError}` };
 
   const tier = budget.value.tier;
 
-  const seqs = io
-    .listReceipts()
-    .map((name) => extensionRe(pr).exec(name))
-    .filter(Boolean)
-    .map((m) => Number(m[1]))
-    .sort((a, b) => a - b);
+  // Iterate the FILENAMES, never a number reconstructed from them.
+  //
+  // Normalizing `loop-extension-1-01.json` to sequence 1 and then rebuilding
+  // the path from that number reads the canonical `-1.json` twice and never
+  // opens the malformed file at all -- so a David receipt granting two rounds
+  // silently grants four, and the extra grant comes from a file nobody
+  // validated. (Codex, round 2.) A non-canonical name is refused outright
+  // rather than tolerated: an ambiguous receipt set is exactly the input this
+  // guard must not resolve in its own favour.
+  const found = [];
+  for (const name of io.listReceipts()) {
+    const match = extensionRe(pr).exec(name);
+    if (!match) continue;
+    if (String(Number(match[1])) !== match[1]) {
+      return {
+        problem: "bad-receipt",
+        detail: `${RECEIPTS_DIR}/${name} is not a canonical extension name (sequence "${match[1]}" is zero-padded or otherwise non-canonical)`,
+      };
+    }
+    found.push({ seq: Number(match[1]), name });
+  }
+  found.sort((a, b) => a.seq - b.seq);
+  for (let i = 1; i < found.length; i += 1) {
+    if (found[i].seq === found[i - 1].seq) {
+      return {
+        problem: "bad-receipt",
+        detail: `two extension receipts claim sequence ${found[i].seq} (${found[i - 1].name}, ${found[i].name})`,
+      };
+    }
+  }
 
   const extensions = [];
   let adjudicationsSeen = 0;
-  for (const seq of seqs) {
-    const rel = extensionPath(pr, seq);
+  for (const { seq, name } of found) {
+    const rel = `${RECEIPTS_DIR}/${name}`;
     const parsed = readJson(io, rel);
     if (parsed.state !== "ok") {
-      return { problem: "bad-receipt", detail: `${rel} is not valid JSON (${parsed.error ?? "unreadable"})` };
+      return { problem: "bad-receipt", detail: `${rel} could not be read (${parsed.state}: ${parsed.error ?? "unreadable"})` };
     }
-    const error = validateExtension(pr, tier, parsed.value, { adjudicationsAlreadySeen: adjudicationsSeen });
+    const error = validateExtension(pr, tier, parsed.value, { adjudicationsAlreadySeen: adjudicationsSeen, io });
     if (error) return { problem: "bad-receipt", detail: `${rel}: ${error}` };
     if (parsed.value.kind === "adjudication") adjudicationsSeen += 1;
     extensions.push({ seq, ...parsed.value });
   }
 
   const rounds = readJson(io, roundsPath(pr));
-  if (rounds.state === "malformed") {
-    return { problem: "bad-receipt", detail: `${roundsPath(pr)} is not valid JSON (${rounds.error})` };
+  if (rounds.state !== "ok" && rounds.state !== "absent") {
+    return { problem: "bad-receipt", detail: `${roundsPath(pr)} could not be read (${rounds.state}: ${rounds.error})` };
   }
-  const tally = rounds.state === "ok" ? rounds.value?.rounds : [];
-  if (rounds.state === "ok" && !Array.isArray(tally)) {
-    return { problem: "bad-receipt", detail: `${roundsPath(pr)}: "rounds" must be an array` };
+  if (rounds.state === "ok") {
+    const error = validateRounds(pr, rounds.value);
+    if (error) return { problem: "bad-receipt", detail: `${roundsPath(pr)}: ${error}` };
   }
 
-  return { budget: budget.value, tier, extensions, rounds: tally ?? [] };
+  return {
+    budget: budget.value,
+    tier,
+    extensions,
+    rounds: rounds.state === "ok" ? rounds.value.rounds : [],
+  };
 }
 
-/** Rounds this loop may request in total, given its tier and extensions. */
-export function allowance(tier, extensions) {
+/**
+ * Rounds this loop may request in total, given its tier, its extensions, and
+ * how many rounds it has actually spent.
+ *
+ * EXTENSIONS ACTIVATE IN SEQUENCE, AND ONLY ONCE EVERYTHING BEFORE THEM IS
+ * SPENT. That dependency on `roundsSpent` is the whole point and is why this
+ * is not simply a sum. A `continue` receipt that raises the allowance the
+ * moment it exists -- written early, or carried over by accident -- means the
+ * loop sails past its cap and **tripwire 1 never fires**: no refusal, and the
+ * aggregate never gets presented to anyone. That is precisely the failure this
+ * module exists to prevent, arriving through the mechanism meant to prevent
+ * it. (Codex, round 1.)
+ *
+ * So a dormant extension is not consumed and not counted; it activates at the
+ * exact round the stage before it runs out, which is also the round the
+ * adjudication was supposed to be about.
+ */
+export function allowance(tier, extensions, roundsSpent = Infinity) {
   let total = tierCap(tier);
   for (const ext of extensions) {
+    if (roundsSpent < total) break; // this stage is not exhausted yet
     if (ext.kind === "david") {
       if (ext.grant === "uncapped") return Infinity;
       total += ext.grant;
@@ -362,6 +482,14 @@ export function allowance(tier, extensions) {
   return total;
 }
 
+/**
+ * Rounds this loop has spent. The tally counts the trigger posts this guard
+ * saw; the automatic opening pass has no trigger and is added here, so the cap
+ * is enforced against the repo's definition of a round rather than against
+ * "comments I posted".
+ */
+export const roundsSpent = (state) => state.rounds.length + (state.budget.autoOpeningReview ? 1 : 0);
+
 /** Whether the loop has already spent its one self-serve extension. */
 const hasAdjudication = (extensions) => extensions.some((e) => e.kind === "adjudication");
 
@@ -371,12 +499,13 @@ const hasAdjudication = (extensions) => extensions.some((e) => e.kind === "adjud
  * carry the aggregate the loop could not see for itself.
  */
 function refusal(pr, state) {
-  const { budget, tier, extensions, rounds } = state;
-  const spent = rounds.length;
-  const cap = allowance(tier, extensions);
+  const { budget, tier, extensions } = state;
+  const spent = roundsSpent(state);
+  const cap = allowance(tier, extensions, spent);
+  const opening = budget.autoOpeningReview ? " (including Codex's automatic opening pass)" : "";
   const head =
     `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
-    `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already requested; ` +
+    `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent${opening}; ` +
     `criticality ${budget.criticality}).`;
 
   if (!hasAdjudication(extensions) && TIERS[tier].selfServe) {
@@ -446,8 +575,37 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo()) {
     };
   }
 
-  if (state.rounds.length >= allowance(state.tier, state.extensions)) {
+  const spent = roundsSpent(state);
+  if (spent >= allowance(state.tier, state.extensions, spent)) {
     return { blocked: true, reason: refusal(pr, state) };
+  }
+
+  // The tally is only a stopping rule if it OUTLIVES the session that wrote
+  // it. This container is ephemeral: a round recorded and never committed
+  // vanishes with the container, and the next session reads the older
+  // committed tally and re-grants the round already spent -- the exact reset
+  // the receipt design claims to prevent. (Codex, round 1.) So durability is
+  // on the action path too: the previous round must be committed before the
+  // next one may be requested.
+  let committed;
+  try {
+    committed = io.committedRounds(roundsPath(pr));
+  } catch (err) {
+    return {
+      blocked: true,
+      reason:
+        `cannot read the committed round tally for PR #${pr} (${err.message}), so it cannot be verified as durable. ` +
+        `Refusing rather than assuming -- an unverifiable tally is how a spent round comes back.`,
+    };
+  }
+  if (committed !== state.rounds.length) {
+    return {
+      blocked: true,
+      reason:
+        `the round tally on disk (${state.rounds.length}) differs from the one in HEAD (${committed}). ` +
+        `Commit ${roundsPath(pr)} before requesting the next round: an uncommitted tally dies with this ` +
+        `container and silently re-grants the rounds it recorded.`,
+    };
   }
 
   recordRound(pr, state, { toolName, io });
@@ -482,8 +640,12 @@ export function parseArgs(argv) {
 }
 
 const USAGE = `usage:
-  review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> --criticality <1-100> --artifact "<text>"
+  review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> --criticality <1-100> --artifact "<text>" [--draft true]
   review-budget.mjs status  --pr <n>
+
+--draft true marks a PR that gets NO automatic opening review from Codex (a
+[PLAN REVIEW] draft). Omit it for an ordinary PR, whose opening pass counts as
+round 1.
 `;
 
 function declare(flags, io) {
@@ -493,12 +655,16 @@ function declare(flags, io) {
     throw new Error(`--tier must be one of: ${Object.keys(TIERS).join(", ")}`);
   }
   const criticality = Number(flags.criticality);
+  // Default true: nearly every loop is a non-draft PR, which Codex reviews on
+  // open. `--draft true` is for a `[PLAN REVIEW]` PR, which gets no automatic
+  // pass. Defaulting the other way would understate every loop by one round.
   const receipt = {
     pr,
     tier: flags.tier,
     budget: TIERS[flags.tier].budget,
     criticality,
     artifact: flags.artifact ?? "",
+    autoOpeningReview: flags.draft !== "true",
     declaredAt: io.now(),
   };
   const error = validateBudget(pr, receipt);
@@ -524,10 +690,13 @@ function status(flags, io) {
   const state = loadLoop(pr, io);
   if (state.problem === "no-budget") return `PR #${pr}: no budget declared.`;
   if (state.problem === "bad-receipt") return `PR #${pr}: unusable receipt -- ${state.detail}`;
-  const cap = allowance(state.tier, state.extensions);
+  const spent = roundsSpent(state);
+  const cap = allowance(state.tier, state.extensions, spent);
   return [
     `PR #${pr}: tier "${state.tier}", criticality ${state.budget.criticality}`,
-    `rounds requested: ${state.rounds.length} of ${cap === Infinity ? "uncapped" : cap}`,
+    `rounds spent: ${spent} of ${cap === Infinity ? "uncapped" : cap}` +
+      ` (${state.rounds.length} requested` +
+      `${state.budget.autoOpeningReview ? " + 1 automatic opening pass" : ", no automatic opening pass"})`,
     `extensions: ${state.extensions.length ? state.extensions.map((e) => `${e.kind}/${e.verdict ?? e.grant}`).join(", ") : "none"}`,
   ].join("\n");
 }

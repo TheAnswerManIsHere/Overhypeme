@@ -34,19 +34,37 @@ if command -v node >/dev/null 2>&1; then
   exit $?
 fi
 
-if printf '%s' "$payload" | grep -Eq 'drizzle-kit[[:space:]]+push|rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+/|git[[:space:]]+.*push[[:space:]].*(--force|--mirror|-[a-zA-Z]*f[a-zA-Z]*)|git[[:space:]]+update-ref'; then
-  echo "Guard: blocked a destructive command (node unavailable -- conservative fallback)" >&2
-  exit 2
-fi
+# Two judgements sit behind this hook, and they must stay isolated in the
+# degraded path exactly as they are in scripts/guard-decision.mjs. Running both
+# greps over every payload leaks in both directions: a commit message quoting
+# "@codex review" gets refused as a review request, and an ordinary PR comment
+# quoting a force push gets refused as a destructive command. So route on
+# tool_name first. An unrecognised payload shape runs BOTH scans -- if we
+# cannot tell what this is, both refusals apply. (Codex, round 2.)
+scan_destructive() {
+  if printf '%s' "$payload" | grep -Eq 'drizzle-kit[[:space:]]+push|rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+/|git[[:space:]]+.*push[[:space:]].*(--force|--mirror|-[a-zA-Z]*f[a-zA-Z]*)|git[[:space:]]+update-ref'; then
+    echo "Guard: blocked a destructive command (node unavailable -- conservative fallback)" >&2
+    exit 2
+  fi
+}
 
-# Second judgement behind the same hook: the review-round budget (see
-# scripts/review-budget.mjs). Reading the budget receipts needs node, so the
-# fallback cannot check the count -- and a budget guard that fails OPEN is a
-# budget guard that disappears exactly when something is already wrong. So the
-# degraded path refuses the review request outright and says why. Blunter than
-# the real check, in the same direction as the block above.
-if printf '%s' "$payload" | grep -Eqi '@codex[[:space:]]+review'; then
-  echo "Guard: blocked an @codex review post -- the round budget cannot be checked (node unavailable -- conservative fallback)" >&2
-  exit 2
+# Reading the budget receipts needs node, so the fallback cannot check the
+# count -- and a budget guard that fails OPEN is a budget guard that disappears
+# exactly when something is already wrong. The degraded path therefore refuses
+# the review request outright and says why.
+scan_review_request() {
+  if printf '%s' "$payload" | grep -Eqi '@codex[[:space:]]+review'; then
+    echo "Guard: blocked an @codex review post -- the round budget cannot be checked (node unavailable -- conservative fallback)" >&2
+    exit 2
+  fi
+}
+
+if printf '%s' "$payload" | grep -Eq '"tool_name"[[:space:]]*:[[:space:]]*"Bash"'; then
+  scan_destructive
+elif printf '%s' "$payload" | grep -Eq '"tool_name"[[:space:]]*:[[:space:]]*"mcp__github__'; then
+  scan_review_request
+else
+  scan_destructive
+  scan_review_request
 fi
 exit 0

@@ -57,6 +57,8 @@ import {
   findingsByRound,
   countFindings,
   artifactSize,
+  REVIEWER_LOGINS,
+  normalizeLogin,
 } from "./loop-metrics.mjs";
 import { loadLoop, allowance, tierCap, nodeIo, TIERS } from "./review-budget.mjs";
 
@@ -115,17 +117,27 @@ function git(args, { cwd = REPO_ROOT } = {}) {
  * strongest argument for stopping, so reporting it because a sha lookup failed
  * would be the most consequential possible false statement in this record.
  */
-export function changesSince(since, { runGit = git } = {}) {
+export function changesSince(since, head, { runGit = git } = {}) {
   if (!since) {
     return { resolved: false, reason: "no reviewed commit found in the snapshot (no completed reviewer pass yet)" };
   }
-  try {
-    runGit(["cat-file", "-e", `${since}^{commit}`]);
-  } catch {
-    return { resolved: false, reason: `commit ${since} is not present in this clone (fetch the branch, then re-run)` };
+  // The PR's head, from the snapshot — never the working tree's `HEAD`. Run
+  // from `main`, a stale branch, or any other checkout, a `..HEAD` diff
+  // describes an unrelated branch while every GitHub-derived field describes
+  // the requested PR, and `noChange`/`proseOnly` then drive the verdict off
+  // the wrong code. (Codex, round 1.)
+  if (!head) {
+    return { resolved: false, reason: "snapshot carries no pr.head.sha, so the diff has no verifiable endpoint" };
+  }
+  for (const [label, ref] of [["reviewed commit", since], ["PR head", head]]) {
+    try {
+      runGit(["cat-file", "-e", `${ref}^{commit}`]);
+    } catch {
+      return { resolved: false, reason: `${label} ${ref} is not present in this clone (fetch the branch, then re-run)` };
+    }
   }
 
-  const numstat = runGit(["diff", "--numstat", `${since}..HEAD`]);
+  const numstat = runGit(["diff", "--numstat", `${since}..${head}`]);
   const files = numstat
     .split("\n")
     .filter(Boolean)
@@ -143,7 +155,8 @@ export function changesSince(since, { runGit = git } = {}) {
   return {
     resolved: true,
     since,
-    commits: Number(runGit(["rev-list", "--count", `${since}..HEAD`])),
+    head,
+    commits: Number(runGit(["rev-list", "--count", `${since}..${head}`])),
     files,
     behavioralFiles: behavioral.length,
     // The re-request rule's whole test, precomputed so the adjudicator does
@@ -158,26 +171,56 @@ export function changesSince(since, { runGit = git } = {}) {
 // ---------------------------------------------------------------------------
 
 /**
+ * The reviewer-authored root comments, one per thread — the same population
+ * `countFindings` counts, but keeping the fields it drops (path, resolution
+ * state, body).
+ *
+ * The reviewer filter is not optional. `countFindings` and `findingsByRound`
+ * deliberately restrict to the Codex logins; a territory or gap list built
+ * over *every* thread would fold David's own inline comments into the measured
+ * loop and could flip a stop/continue decision on findings that were never
+ * part of it. (Codex, round 1.)
+ */
+export function reviewerFindings(reviewThreads) {
+  const out = [];
+  for (const thread of reviewThreads ?? []) {
+    const root = thread.comments?.[0];
+    if (!root) continue;
+    if (!REVIEWER_LOGINS.has(normalizeLogin(root.author ?? root.user?.login))) continue;
+    out.push({
+      threadId: thread.id ?? null,
+      path: thread.path ?? root.path ?? null,
+      line: thread.line ?? root.line ?? null,
+      // `isResolved` is what tells an unaddressed finding from a closed one.
+      // Absent in older snapshots, so it stays nullable rather than being
+      // defaulted to either answer.
+      resolved: typeof thread.isResolved === "boolean" ? thread.isResolved : null,
+      outdated: typeof thread.isOutdated === "boolean" ? thread.isOutdated : null,
+      createdAt: root.created_at ?? null,
+      excerpt: typeof root.body === "string" ? root.body.slice(0, 400) : null,
+    });
+  }
+  return out;
+}
+
+/**
  * Findings split by territory: does the finding's file appear in this PR's own
  * changed-file list?
  *
- * `flattenMcpThreads` drops the path (it exists to feed the counting
- * functions, which never needed it), so this reads the raw thread groups
- * instead. A snapshot whose threads carry no path at all reports `unknown`
- * rather than defaulting either way.
+ * A snapshot whose threads carry no path at all reports `unknown` rather than
+ * defaulting either way.
  */
-export function findingsByTerritory(reviewThreads, files) {
+export function findingsByTerritory(findings, files) {
   const changed = new Set(files.map((f) => f.filename));
   const out = { inDiff: 0, outsideDiff: 0, unknown: 0, outsideDiffPaths: [] };
-  for (const thread of reviewThreads ?? []) {
-    const p = thread.path ?? thread.comments?.[0]?.path ?? null;
-    if (!p) {
+  for (const finding of findings) {
+    if (!finding.path) {
       out.unknown += 1;
-    } else if (changed.has(p)) {
+    } else if (changed.has(finding.path)) {
       out.inDiff += 1;
     } else {
       out.outsideDiff += 1;
-      if (!out.outsideDiffPaths.includes(p)) out.outsideDiffPaths.push(p);
+      if (!out.outsideDiffPaths.includes(finding.path)) out.outsideDiffPaths.push(finding.path);
     }
   }
   return out;
@@ -196,9 +239,27 @@ export function lastReviewedCommit(passes) {
 // ---------------------------------------------------------------------------
 
 export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }) {
-  const passes = reviewerPasses(derived.reviews, derived.issueComments ?? []);
-  const byRound = findingsByRound(derived.reviews, derived.comments, derived.issueComments ?? []);
+  const passes = reviewerPasses(derived.reviews, derived.issueComments);
+  const byRound = findingsByRound(derived.reviews, derived.comments, derived.issueComments);
   const counts = byRound.map((r) => r.findings);
+  const total = countFindings(derived.comments);
+
+  // The same reconciliation `derive()` enforces, for the same reason: a root
+  // comment that cannot be correlated to a review event is counted by
+  // `countFindings` and omitted by `findingsByRound`, so the two disagree. A
+  // mechanical record whose own totals contradict each other is worse than no
+  // record — it is the loop's one trustworthy input, and the adjudicator is
+  // told to rule on it alone. (Codex, round 1.)
+  const summed = counts.reduce((a, b) => a + b, 0);
+  if (summed !== total) {
+    throw new Error(
+      `record would not reconcile: per-round findings sum to ${summed} but the total is ${total}. ` +
+        "Some reviewer root comment could not be attributed to a pass; fix the snapshot rather than " +
+        "shipping a record whose numbers disagree.",
+    );
+  }
+
+  const findings = reviewerFindings(snapshot.reviewThreads);
 
   const budget = budgetState?.problem
     ? { problem: budgetState.problem, detail: budgetState.detail ?? null }
@@ -231,10 +292,23 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
       completedReviewerPasses: passes.length,
       byRound,
       trend: counts,
-      totalFindings: countFindings(derived.comments),
+      totalFindings: total,
+    },
+    // The evidence both substantive verdicts require: `continue` must name a
+    // specific unaddressed behavioral risk, and ship-with-gaps-recorded must
+    // list the gaps being knowingly left. Counts alone cannot support either,
+    // so the adjudicator would have had to guess — on a record built
+    // specifically so it would not have to. (Codex, round 1.) Every field here
+    // is source-derived: GitHub's own thread state and the reviewer's own
+    // words, never the loop's account of them.
+    findings: {
+      unresolved: findings.filter((f) => f.resolved === false).length,
+      resolved: findings.filter((f) => f.resolved === true).length,
+      resolutionUnknown: findings.filter((f) => f.resolved === null).length,
+      items: findings,
     },
     territory: {
-      ...findingsByTerritory(snapshot.reviewThreads, derived.files),
+      ...findingsByTerritory(findings, derived.files),
       note:
         "Territory is mechanical (finding path vs. this PR's changed files). CAUSE " +
         "(new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no " +
@@ -273,7 +347,13 @@ export function parseArgs(argv) {
     flags[key] = value;
     i += 1;
   }
-  if (!flags.pr) throw new Error("--pr <number> is required");
+  // Validated here, not just checked for presence: `--pr 0`, `--pr -1` and
+  // `--pr abc` all used to reach the body, load receipts under a nonsense
+  // name, and (for NaN) write an adjudication file called `NaN-1.json` with a
+  // `null` PR in it. (Codex, round 1.)
+  const pr = Number(flags.pr);
+  if (!Number.isInteger(pr) || pr <= 0) throw new Error("--pr must be a positive integer");
+  flags.pr = pr;
   if (!flags["mcp-snapshot"]) {
     throw new Error(
       "--mcp-snapshot <file> is required. Assemble it with pull_request_read (get, get_reviews, " +
@@ -282,6 +362,36 @@ export function parseArgs(argv) {
     );
   }
   return flags;
+}
+
+/**
+ * Snapshot requirements this record adds on top of `fromMcp`'s.
+ *
+ * Both are about the record describing the loop it CLAIMS to describe:
+ *
+ *  - `pr.number` must match `--pr`. `fromMcp` only checks that the number is
+ *    numeric, so two files that disagree produce a record labelled as one PR
+ *    carrying another PR's rounds, findings and files alongside the requested
+ *    PR's budget — valid-looking, and about the wrong loop.
+ *  - `issueComments` must be present and attested complete. `fromMcp` tolerates
+ *    its absence for fixtures captured before clean-pass detection existed, and
+ *    that backward-compatibility mode is wrong here: a clean Codex pass is
+ *    delivered as an issue comment, so a snapshot without them understates the
+ *    round count and can select an older `lastReviewedCommit` — understating
+ *    exactly the number the tripwire turns on.
+ *
+ * (Both: Codex, round 1.)
+ */
+export function assertAdjudicationSnapshot(pr, snapshot) {
+  if (snapshot?.pr?.number !== pr) {
+    throw new Error(`snapshot describes PR ${snapshot?.pr?.number}, but --pr says ${pr}`);
+  }
+  if (!Array.isArray(snapshot.issueComments) || snapshot.complete?.issueComments !== true) {
+    throw new Error(
+      "an adjudication snapshot must carry issueComments with complete.issueComments === true. " +
+        "Clean reviewer passes are delivered as issue comments; without them the round count is short.",
+    );
+  }
 }
 
 /** Next free adjudication-record path, so a second loop never overwrites a first. */
@@ -303,17 +413,19 @@ function main() {
     return 1;
   }
 
-  const pr = Number(flags.pr);
+  const pr = flags.pr;
   const snapshot = JSON.parse(fs.readFileSync(flags["mcp-snapshot"], "utf8"));
 
   // Validate FIRST. `fromMcp` is where the completeness and shape assertions
   // live, and a partial snapshot understates rounds and findings on exactly
   // the long loops this record exists to characterise -- so nothing else may
   // read the raw snapshot before it has passed.
+  assertAdjudicationSnapshot(pr, snapshot);
   const derived = fromMcp(snapshot);
   const budgetState = loadLoop(pr, nodeIo());
   const changes = changesSince(
-    lastReviewedCommit(reviewerPasses(derived.reviews, derived.issueComments ?? [])),
+    lastReviewedCommit(reviewerPasses(derived.reviews, derived.issueComments)),
+    snapshot.pr?.head?.sha ?? null,
   );
 
   const record = buildRecord({

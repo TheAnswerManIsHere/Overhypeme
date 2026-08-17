@@ -22,10 +22,16 @@ week's budget events readable by the `/maintenance` digest.
 
 ```jsonc
 // loop-budget-<pr>.json — tier decides the number; it is not a free field.
+// autoOpeningReview: true for a normal PR (Codex reviews it on open, with no
+// trigger comment, and that pass IS round 1); false only for a draft, which
+// gets no automatic pass.
 { "pr": 502, "tier": "internal", "budget": 3, "criticality": 30,
-  "artifact": "review-round budget guard", "declaredAt": "2026-08-17T21:00:00.000Z" }
+  "artifact": "review-round budget guard", "autoOpeningReview": true,
+  "declaredAt": "2026-08-17T21:00:00.000Z" }
 
 // loop-rounds-<pr>.json — appended before the post, so a failed post still counts.
+// Rounds spent = this array's length + the opening pass, so the cap matches the
+// repo's definition of a round rather than "comments the guard saw".
 { "pr": 502, "rounds": [ { "at": "…", "tool": "mcp__github__add_issue_comment" } ] }
 
 // loop-extension-<pr>-1.json — tripwire 1, from the fresh-context adjudicator.
@@ -42,4 +48,17 @@ mandatory 🛑 to David at 5 (and no self-serve extension at all).
 
 A receipt the guard cannot parse, or one that disagrees with its tier, refuses
 the post rather than being ignored — a guard that skips receipts it can't read
-is a guard that a syntax error switches off.
+is a guard that a syntax error switches off. The same posture covers a tally
+naming another PR, a non-canonical filename (`loop-extension-1-01.json`), two
+receipts claiming one sequence, and a `continue` verdict citing a record that
+does not exist.
+
+**Commit the tally with each round.** The guard refuses the next request while
+the on-disk tally differs from the one in `HEAD` — an uncommitted tally dies
+with the container and silently re-grants the rounds it recorded, which is the
+reset these receipts exist to prevent.
+
+**An extension is dormant until the stage before it is spent.** A `continue`
+receipt written early does not raise the allowance early; it activates at the
+exact round its adjudication was about. Otherwise the loop sails past its cap
+and the tripwire never fires at all.

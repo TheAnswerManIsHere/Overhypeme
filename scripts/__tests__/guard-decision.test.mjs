@@ -745,11 +745,22 @@ const memoryIo = (files = {}) => {
     write: (rel, text) => {
       store[rel] = text;
     },
+    committedRounds: (rel) => (rel in store ? JSON.parse(store[rel]).rounds.length : 0),
   };
 };
 
+// autoOpeningReview:false keeps the arithmetic here about the tally alone —
+// the opening-pass accounting is pinned in review-budget.test.mjs.
 const budgetFile = (pr, tier, cap) =>
-  JSON.stringify({ pr, tier, budget: cap, criticality: 30, artifact: "x", declaredAt: "2026-08-17T00:00:00.000Z" });
+  JSON.stringify({
+    pr,
+    tier,
+    budget: cap,
+    criticality: 30,
+    artifact: "x",
+    autoOpeningReview: false,
+    declaredAt: "2026-08-17T00:00:00.000Z",
+  });
 const roundsFile = (pr, n) =>
   JSON.stringify({ pr, rounds: Array.from({ length: n }, () => ({ at: "2026-08-17T00:00:00.000Z", tool: REVIEW_TOOL })) });
 
@@ -788,6 +799,11 @@ test("a valid extension receipt is honoured by the hook, and tripwire 2 is not",
       risk: "the guard tallies a round it then refuses",
       recordPath: ".agents/adjudications/991-1.json",
     }),
+    ".agents/adjudications/991-1.json": JSON.stringify({
+      generator: "scripts/review-loop-record.mjs",
+      pr: 991,
+      generatedAt: "2026-08-17T00:00:00.000Z",
+    }),
   };
   assert.equal(
     decide(reviewPayload("@codex review"), memoryIo({ ...base, ".agents/receipts/loop-rounds-991.json": roundsFile(991, 4) })).blocked,
@@ -817,4 +833,46 @@ test("the two judgements do not leak into each other", () => {
   // And a comment payload never reaches the tokeniser: this body is a shell
   // string that WOULD be blocked as a command.
   assert.equal(decide(reviewPayload("git push -f origin main"), memoryIo()).blocked, false);
+});
+
+// ---------------------------------------------------------------------------
+// The DEGRADED path (Codex, round 2). When node is unavailable the hook falls
+// back to raw greps — and running both of them over every payload leaked in
+// both directions, which is the one thing the node path is careful never to
+// do. Running with node stripped from PATH is what makes this a test of the
+// fallback rather than a second test of the module.
+// ---------------------------------------------------------------------------
+
+function runHookWithoutNode(rawPayload) {
+  try {
+    execFileSync("bash", [".claude/guard.sh"], {
+      cwd: REPO_ROOT,
+      input: rawPayload,
+      env: { ...process.env, PATH: "/usr/bin:/bin" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return 0;
+  } catch (error) {
+    return error.status;
+  }
+}
+
+const FALLBACK_CASES = [
+  ["a commit quoting the trigger is not a review request", { tool_name: "Bash", tool_input: { command: 'git commit -m "post @codex review after the fix"' } }, 0],
+  ["a real force push is still refused", { tool_name: "Bash", tool_input: { command: "git push -f origin main" } }, 2],
+  ["a comment quoting a force push is not a command", { tool_name: "mcp__github__add_issue_comment", tool_input: { body: "git push -f origin main" } }, 0],
+  ["a comment carrying the trigger is refused — the budget cannot be checked without node", { tool_name: "mcp__github__add_issue_comment", tool_input: { body: "@codex review" } }, 2],
+  ["an unrecognised payload shape gets BOTH scans", { tool_input: { body: "@codex review" } }, 2],
+];
+
+for (const [name, payloadObject, expected] of FALLBACK_CASES) {
+  test(`fallback (no node): ${name}`, () => {
+    assert.equal(runHookWithoutNode(JSON.stringify(payloadObject)), expected);
+  });
+}
+
+test("the fallback really is the fallback — node must be absent from that PATH", () => {
+  // Without this the five cases above would silently be re-testing the node
+  // path, and would keep passing even if the fallback routing were removed.
+  assert.throws(() => execFileSync("node", ["--version"], { env: { PATH: "/usr/bin:/bin" }, stdio: "ignore" }));
 });
