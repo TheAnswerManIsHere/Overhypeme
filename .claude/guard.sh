@@ -9,18 +9,27 @@
 # on 2026-08-05. That ruleset is the real control: server-side, applied to every
 # actor, and not dependent on a local regex enumerating every spelling.
 #
-# So this hook does not try to reimplement it. Its FIRST job is to make the LEASE
-# MANDATORY on the branches this session owns, because the container is
-# ephemeral: the local reflog dies with it, so an overwritten remote branch has
-# no second copy to recover from. Note what the ruleset above does and does not
-# cover: it protects `main` and does NOT target `claude/*` or `plan-review/*`,
-# so on the branches the lease rule actually governs, this hook is the ONLY
-# line -- not the third one.
+# So this hook does not try to reimplement it. It has SEVERAL responsibilities
+# and this list is NOT exhaustive -- read guard-decision.mjs for the authority:
 #
-# Its SECOND, independent job as of 2026-08-17 is refusing `curl` and `wget`
-# -- a different failure mode, silent rather than destructive. Neither job is
-# backstopped server-side; they differ in how they FAIL, not in what stands
-# behind them. See docs/ai-context/decisions.md, 2026-08-17.
+#   - Making the LEASE MANDATORY on the branches this session owns. The
+#     container is ephemeral: the local reflog dies with it, so an overwritten
+#     remote branch has no second copy to recover from.
+#   - Refusing `curl` and `wget` (2026-08-17) -- a silent failure mode rather
+#     than a destructive one. See docs/ai-context/decisions.md, 2026-08-17.
+#   - Refusing root-shaped `rm -rf` and `drizzle-kit push`, which belong to
+#     neither of the above and predate both.
+#
+# An earlier version of this header called the lease the "FIRST" job and the
+# fetcher refusal the "SECOND", which reads as exhaustive and is false -- a
+# maintainer could conclude their command is outside the guard's contract when
+# it is not. Ordinals are avoided here for that reason. (Codex, #499 round 4.)
+#
+# Note what the ruleset above does and does not cover: it protects `main` and
+# does NOT target `claude/*` or `plan-review/*`, so on the branches the lease
+# rule actually governs, this hook is the ONLY line -- not the third one. No
+# responsibility above is backstopped server-side; they differ in how they
+# FAIL, not in what stands behind them.
 #
 # The decision logic lives in scripts/guard-decision.mjs -- next to the repo's
 # other guards, unit-tested in scripts/__tests__/guard-decision.test.mjs, and
@@ -29,17 +38,24 @@
 # version of this file blocked `git push --force` while waving `git push -f`
 # straight through, and nothing would have caught that.
 #
-# If node is somehow unavailable this falls back to a conservative regex scan
-# that blocks every force push including the permitted one -- degraded, never
-# weaker than the version it replaced.
+# If node is unavailable this falls back to the regex scan below. Its coverage
+# is MIXED -- not "weaker", and not "stricter" either. Both adjectives were
+# tried here and both were false. Measured (#499 rounds 3-4):
 #
-# BUT BOTH JOBS LIVE IN guard-decision.mjs, SO THE FALLBACK DELIVERS NEITHER IN
-# FULL. It is stricter than the parser on force pushes and has NO fetcher
-# alternative at all: a `curl` payload exits 0 here. Measured, not assumed
-# (#499 round 3). So the SECOND job above is a property of the node path, not
-# of this file -- which is the honest scope of every "refuses curl and wget"
-# claim in this repo. Closing it is a behavioral change and belongs in its own
-# bugfix PR, not in the documentation harvest that found it.
+#   command                                       node path   fallback
+#   git push -f origin claude/x                    BLOCK       BLOCK
+#   git push --force-with-lease origin claude/x    allow       BLOCK   <- stricter
+#   git-push -f origin claude/x                    BLOCK       allow   <- LOOSER
+#   rm -rf /                                       BLOCK       BLOCK
+#   drizzle-kit push                               BLOCK       BLOCK
+#   curl https://api.github.com/x                  BLOCK       allow   <- LOOSER
+#
+# So the fallback over-blocks the one permitted force push, and under-blocks
+# both the direct `git-push` executable form and every fetcher. Any claim that
+# a responsibility above holds "in the guard" is really a claim about the node
+# path; only the rows marked BLOCK in both columns hold unconditionally.
+# Closing the two LOOSER rows is a behavioral change and belongs in its own
+# bugfix PR, not in the documentation harvest that found them.
 set -uo pipefail
 
 payload=$(cat)

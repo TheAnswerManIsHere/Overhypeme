@@ -423,9 +423,20 @@ the one direction this module must never move in.
   being inspected is not there.
 
 **Avoid:** refuse the whole class instead of judging instances of it. #488's
-guard now refuses `curl` and `wget` outright, with no argument-shape exception,
-because that is the only version that is complete by construction. Accept and
-**write down** the residual gaps rather than closing them one at a time.
+decision module (`scripts/guard-decision.mjs`) refuses `curl` and `wget` with
+no argument-shape exception, because that is the only version that is complete
+by construction. Accept and **write down** the residual gaps rather than
+closing them one at a time.
+
+**Scoped to the module deliberately, and this sentence is itself an instance of
+the pattern below.** The refusal lives in `guard-decision.mjs`, which
+`.claude/guard.sh` runs *only when `node` is available*; the node-less fallback
+has no fetcher alternative and lets a `curl` payload through. An earlier
+version of this paragraph said the guard "refuses `curl` and `wget` outright"
+with no qualifier — a blanket claim about a wrapper that does no such thing,
+written in the entry warning against exactly that. It survived a repo-wide
+sweep for the *neighbouring* class because it used none of the swept words.
+(Codex, #499 round 4.)
 
 **One asymmetry worth keeping, because it is what finally converged:**
 **deleting an allow-producing rule cannot open a hole**, while adding

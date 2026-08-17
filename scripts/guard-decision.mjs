@@ -15,37 +15,47 @@
  *      and catches spellings a local hook cannot be trusted to enumerate.
  *   3. This hook.
  *
- * So this hook does NOT try to be GitHub's ruleset. Its FIRST job is to make
- * the LEASE MANDATORY on the branches this session owns. That matters more here
- * than on a normal machine: the container is ephemeral, so the local reflog
- * dies with it and an overwritten remote branch has no second copy to recover
- * from. `--force-with-lease` refuses when the remote moved since the last
- * fetch, which is exactly the "something I have not seen is up there" case.
+ * So this hook does NOT try to be GitHub's ruleset. It carries SEVERAL
+ * responsibilities, and the list below is NOT exhaustive -- `decide()` and the
+ * MUST_BLOCK/MUST_ALLOW table are the authority, this prose is a summary:
  *
- * READ LAYER 2 CAREFULLY BEFORE RELYING ON IT: the ruleset targets `main`. It
- * does NOT target `claude/*` or `plan-review/*` -- the branches the lease rule
- * actually governs -- so for THAT job this hook is the only line, not the
- * third. "Third line of defence" is true of protecting `main` and false of the
- * job this file mostly does. (Codex, #499 round 3.)
+ *   - THE LEASE, MANDATORY on the branches this session owns. The container is
+ *     ephemeral, so the local reflog dies with it and an overwritten remote
+ *     branch has no second copy. `--force-with-lease` refuses when the remote
+ *     moved since the last fetch -- exactly the "something I have not seen is
+ *     up there" case.
+ *   - REFUSING `curl` AND `wget` (2026-08-17), for a different reason: a
+ *     SILENT failure (api.github.com returns a 403 whose body a `grep` finds
+ *     nothing in, so a wait loop built on it sleeps forever without erroring)
+ *     rather than a destructive one.
+ *   - REFUSING root-shaped `rm -rf` and `drizzle-kit push`, in `checkCommand`,
+ *     which belong to neither of the above and predate both.
  *
- * IT HAS A SECOND, INDEPENDENT JOB AS OF 2026-08-17: refusing `curl` and
- * `wget` outright. That one exists for a different reason — a SILENT failure
- * (api.github.com returns a 403 whose body a `grep` finds nothing in, so a
- * wait loop built on it sleeps forever without erroring) rather than a
- * destructive one. NEITHER job is backstopped server-side; they differ in how
- * they FAIL, not in what stands behind them. An earlier version of this
- * paragraph claimed the lease rule had a backstop the fetcher rule lacked,
- * which read the ruleset's scope off its existence rather than off its target.
- * This header also said "one job" for a while after the fetcher rule shipped,
- * which is the source-of-truth contradiction the decision log's supersession
- * exists to resolve. See `docs/ai-context/decisions.md`, 2026-08-17, and the
- * `FETCHER_REFUSAL` block below for the full reasoning and its gap register.
- * (Codex, #499 rounds 2 and 3.)
+ * NO ORDINALS, deliberately. This header has now been wrong three ways about
+ * its own scope: it said "one job" after the fetcher rule shipped; then
+ * "FIRST"/"SECOND", which reads as exhaustive and omits `checkCommand`'s
+ * standing destructive/schema refusals -- letting a maintainer conclude their
+ * command is outside the guard's contract when it is not. A count is a claim,
+ * and it is the claim that keeps going stale. (Codex, #499 rounds 2-4.)
  *
- * BOTH jobs are lost if `node` is unavailable: `.claude/guard.sh` then falls
- * back to a regex scan with no fetcher alternative, and a `curl` payload exits
- * 0. Every "refuses curl and wget outright" claim in this repo is scoped to
- * the node path. Measured, not assumed (#499 round 3); closing it is a
+ * NONE of these is backstopped server-side; they differ in how they FAIL, not
+ * in what stands behind them. READ LAYER 2 CAREFULLY BEFORE RELYING ON IT: the
+ * ruleset targets `main`, and does NOT target `claude/*` or `plan-review/*` --
+ * the branches the lease rule actually governs -- so for THAT job this hook is
+ * the only line, not the third. "Third line of defence" is true of protecting
+ * `main` and false of the job this file mostly does. An earlier version also
+ * claimed the lease rule had a backstop the fetcher rule lacked, reading the
+ * ruleset's scope off its existence rather than off its target. See
+ * `docs/ai-context/decisions.md`, 2026-08-17, and the `FETCHER_REFUSAL` block
+ * below for the full reasoning and its gap register. (Codex, #499 round 3.)
+ *
+ * ALL of it is conditional on `node`. Without it `.claude/guard.sh` falls back
+ * to a regex scan whose coverage is MIXED -- looser on fetchers and on the
+ * direct `git-push` executable form, stricter on the permitted lease push.
+ * That file's header carries the measured matrix; do not paraphrase it as
+ * "weaker" or "stricter", because both were tried and both were false. Every
+ * "refuses curl and wget" claim in this repo is scoped to the node path.
+ * Measured, not assumed (#499 rounds 3-4); closing the looser rows is a
  * behavioral change owed its own bugfix PR.
  *
  * POSTURE
