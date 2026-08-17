@@ -135,6 +135,37 @@ explicit instruction, (2) the current repository implementation, (3) recently
 merged/approved plans, (4) older context as background only. When repo reality and
 an older note conflict, repo reality wins and the note should be corrected.
 
+## A wait has three outcomes, and "cannot tell" must be loud
+
+Any wait on external state — CI, a job, a remote process — must distinguish
+**ready / not-ready / cannot-tell**, and **cannot-tell has to terminate
+loudly.** Sleeping through a response you could not parse is the defect, not
+the resilience: it makes "the check is broken" indistinguishable from "the
+thing is still running", and the second reading is the one you will assume.
+
+This is the same failure as a CI guard that skips when its inputs are missing
+(see `.agents/memory/ci-guard-must-fail-loud-on-missing-inputs.md`): a check
+that goes quiet when it cannot do its job looks exactly like one that did its
+job and found nothing wrong.
+
+Two corollaries:
+
+- **Never report a wait as a verification it did not perform.** "Waiting for
+  CI" is honest. "Re-checked, still pending" claims an observation — if the
+  loop only slept, that claim is false.
+- **Poll the thing you are actually waiting for.** A check that observes a
+  *different* signal can be satisfied while the awaited condition is still
+  pending — CI going green says nothing about whether a review landed, a label
+  was applied, or a branch merged.
+
+Worked instance, 2026-08-16: in this environment every direct `api.github.com`
+call from a shell returns **HTTP 403** (measured, with and without a token) —
+so a shell poll loop over CI status returned an error body that `grep` read as
+"nothing pending". Every such loop in a long session was a pure sleep wearing
+the costume of a check. Claude Code's enactment (bash supplies the delay, an
+MCP call supplies the state) is in `CLAUDE.md`; the invariant above is the part
+that binds every agent.
+
 ## How to use repo context
 
 **Inspect the repo before planning, reviewing, or implementing.** This repo is the

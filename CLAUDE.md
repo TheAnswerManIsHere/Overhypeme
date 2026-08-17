@@ -1186,8 +1186,12 @@ enactment:
   (David, 2026-08-07).
 - **I run `node scripts/loop-metrics.mjs --pr <number> --write` and never
   type the mechanical values from memory** — or `--mcp-snapshot <file>` in
-  this container, whose `GITHUB_TOKEN` is proxy-scoped and 401s against the
-  real API (my working GitHub access here is the MCP integration). The
+  this container, whose `GITHUB_TOKEN` is proxy-scoped and **401s "Bad
+  credentials"** against the real API — that script uses Node `fetch`, and the
+  401 is what it genuinely sees (measured 2026-08-16). `curl` from the same
+  shell fails *differently*, and the distinction matters when diagnosing: see
+  [`github-rest-api-blocked-from-bash.md`](.agents/memory/github-rest-api-blocked-from-bash.md).
+  My working GitHub access here is the MCP integration. The
   snapshot must carry `closed_at` and a complete issue-comment collection;
   `--write` refuses without them, because a record that understates rounds
   would land as measured data. Recalled numbers in this repo have been wrong
@@ -1209,6 +1213,52 @@ enactment:
   the subagent-delegation rules below, for the same reason the fresh-context
   preflight would be: its value is the *absence* of my context, which my main
   loop cannot reproduce at any size.
+
+## Waiting inside a turn: bash sleeps, MCP tells the truth (David, 2026-08-16)
+
+Distinct from the scheduled check-ins below, which are about *arming a timer*.
+This is about waiting for CI or any GitHub state **within** a turn.
+
+The **shared invariant** — a wait has three outcomes, cannot-tell terminates
+loudly, never report a wait as a verification it didn't perform, and poll the
+thing you're actually waiting for — lives in
+[`agent-working-rules.md`](docs/ai-context/agent-working-rules.md) and binds
+Codex too, so per this file's single-source-of-truth rule I don't restate it.
+What's below is my enactment.
+
+**No bash transport yields usable GitHub API data** — but they fail
+*differently*, and reading the failure tells me which wall I hit. Measured
+2026-08-16: **`curl`** is intercepted by the agent proxy (it honours
+`HTTPS_PROXY`) and returns **403 "GitHub access is not enabled for this
+session"** with or without a token; **Node `fetch`** ignores the proxy, reaches
+the real API, and returns **401 "Bad credentials"** with `GITHUB_TOKEN` (which
+is a git-proxy credential, not a GitHub API one) or a rate-limit **403**
+without. Neither is fixable from bash, and only the second would tempt me to go
+looking for a better token — there isn't one. Full table:
+[`github-rest-api-blocked-from-bash.md`](.agents/memory/github-rest-api-blocked-from-bash.md).
+
+**So the shape of a wait is fixed:**
+
+1. `sleep N` in bash — the **delay, and nothing else**.
+2. **The `mcp__github__*` method that observes the condition I actually named.**
+   `pull_request_read` / `get_check_runs` for **CI**; `get_reviews` or
+   `get_review_comments` for a review landing; `get` for merge state,
+   mergeability or a base change; `issue_read` for label or issue movement.
+   Green CI says nothing about whether a review arrived — polling the wrong
+   signal is how a wait ends early on data that never described the condition.
+   All of them take a **PR or issue number**, so there's no ref or SHA to
+   mistype.
+3. Still pending? Repeat. A turn per check is cheap next to sitting on a dead
+   loop.
+
+**Never build a bash poll loop that parses a GitHub response.** It cannot
+work, and — this is the part that bites — **it does not announce that it
+cannot work.** `grep` over the 403 body finds nothing, which reads as "nothing
+pending"; add a guard demanding a real field first and it inverts to "still
+pending" forever. Both are silent, and neither mentions GitHub. On 2026-08-16
+every CI-wait loop in a long session was a pure sleep; they looked fine only
+because CI happened to be green by the time each ended, until one sat 12
+minutes on a PR that had been green for 25.
 
 ## Scheduled self-check-ins (David, 2026-08-15 — replacing the blanket ban)
 
