@@ -1700,29 +1700,52 @@ become one. It exists to make *my* reading of the web better.
   JS-blocked, or when I need structured extraction. Not for a routine docs
   lookup that `WebFetch` already handles.
   - **The escalation trigger is a `WebFetch` failure I can name, not a
-    hunch (measured 2026-08-17).** The clean signal is
-    **HTTP 403 with no body retrieved** — that is a bot block, and
-    Firecrawl reads the same URL fine (IMDb: 403 to `WebFetch`, 52KB of
-    markdown to `firecrawl_scrape`). The other two: a response that is
-    obviously a JS shell, and a page I need to **quote exactly** rather
-    than have summarized. **Try `WebFetch` first even on a site I expect to
-    fail** — it costs no credits, and the same run that IMDb 403'd had
-    Rotten Tomatoes and Google's Gemini pricing docs both come back
-    complete. Guessing "this looks like it needs Firecrawl" spends credits
-    on pages `WebFetch` would have handled.
-- **Which Firecrawl tool: `scrape` for a known page, `map` to discover URLs
-  — and `crawl` does not work on our key (measured 2026-08-17).**
-  `firecrawl_crawl` returned **429 on every attempt**: twice on IMDb 75
-  seconds apart, then once on a deliberately trivial 3-page site, while
-  `scrape` and `map` ran normally in between. So it is endpoint-scoped, not
-  a throttle I can wait out — and Firecrawl's own docs claim 2 crawls/min on
-  free, so **their documentation and their behavior disagree; trust the
-  behavior.** Do not burn turns retrying it.
-  - **The working multi-page pattern is `firecrawl_map` → `firecrawl_scrape`
-    per URL.** `map` returns titles and descriptions alongside the URLs, so
-    it doubles as a cheap filter — I pick the 2–3 pages actually worth
-    scraping instead of paying for a whole site. This is strictly better
-    budget behavior than `crawl` would have been anyway.
+    hunch (measured 2026-08-17).** The clearest one is **HTTP 403 with no
+    body retrieved** — on IMDb that was a bot block, and Firecrawl read the
+    same URL fine (403 to `WebFetch`, 52KB of markdown to
+    `firecrawl_scrape`). The other two: a response that is obviously a JS
+    shell, and a page I need to **quote exactly** rather than have
+    summarized.
+    - **A bodyless 403 is a reason to try Firecrawl, not a diagnosis of
+      why.** Authentication, authorization, geo-restriction and other
+      server policies return the same status as a bot block, and only the
+      bot-block case is one Firecrawl legitimately gets past. So when the
+      retry succeeds, **check that what came back is the page I wanted**
+      before using it — a login wall, a consent interstitial or a
+      geo-variant is a "successful" scrape that answers a different
+      question than the one I asked. If the 403 was an intentional refusal,
+      routing around it is not the goal.
+    - **Try `WebFetch` first even on a site I expect to fail** — it costs
+      no credits, and the same run that IMDb 403'd had Rotten Tomatoes and
+      Google's Gemini pricing docs both come back complete. Guessing "this
+      looks like it needs Firecrawl" spends credits on pages `WebFetch`
+      would have handled.
+- **Which Firecrawl tool: `scrape` for a known page, `map` to discover URLs,
+  `crawl` for multiple pages — but expect `crawl` to fail and have the
+  fallback ready.** On **2026-08-17** `firecrawl_crawl` returned **429 on
+  every attempt**: twice on IMDb 75 seconds apart, then once on a
+  deliberately trivial 3-page site, while `scrape` and `map` ran normally in
+  between. That rules out a shared limiter across the account, but three
+  failures inside five minutes **cannot** distinguish a permanent
+  plan restriction from a crawl-specific transient throttle, an exhausted
+  quota, or a vendor incident that day — and Firecrawl's docs claim 2
+  crawls/min on free, so one of the two is wrong and this sample can't say
+  which.
+  - **So: one attempt, then fall back — don't retry in a loop, and don't
+    permanently write the endpoint off either.** A later session finding
+    `crawl` working is the expected outcome if that day was transient, not
+    a contradiction of this note. What the measurement does earn is *don't
+    spend a wait cycle on it*: fall back immediately rather than sleeping
+    and re-trying, as I did here for no gain.
+  - **The fallback is `firecrawl_map` → `firecrawl_scrape` per URL, and it
+    is the better tool for large-site discovery specifically.** `map`
+    returns titles and descriptions alongside the URLs, so it doubles as a
+    cheap filter — I pick the 2–3 pages actually worth scraping instead of
+    paying for a whole site. **That is not a general budget win**: for a set
+    of pages I could already have bounded with a crawl `limit`, mapping
+    first adds a request on top of the same per-page scrapes and can cost
+    the same or more. The advantage is real only where discovery is the
+    problem.
 - **The free tier is a real budget, and structured extraction costs 5×
   (measured 2026-08-17, with a control).** 1,000 credits/month. A plain
   markdown scrape is **1 credit**; a scrape carrying `formats: ["json"]`
@@ -1735,10 +1758,11 @@ become one. It exists to make *my* reading of the web better.
   to reconsider the workflow, not to silently upgrade the plan.
 - **Two budgets pull against each other here, and the tiebreak is which one
   is scarcer.** Credits say *avoid json* (5× a markdown scrape); my context
-  window says *avoid full markdown* (a full-page scrape is routinely tens of
-  KB — the first IMDb one overflowed the tool's token ceiling and spilled to
-  a file I then had to read back, costing more than the fetch did). They are
-  not the same budget and the answer is not a blanket default:
+  window says *avoid full markdown* (a content-heavy page can run to tens of
+  KB — the first IMDb one came back at 52KB, overflowed the tool's token
+  ceiling and spilled to a file I then had to read back, costing more than
+  the fetch did). They are not the same budget and the answer is not a
+  blanket default:
   - **Narrow the cheap path first.** `onlyMainContent: true` always, plus
     `includeTags` when I know the region I want. That usually makes a
     1-credit markdown scrape context-safe, which is the best of both and
