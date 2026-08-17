@@ -853,44 +853,95 @@ function isRecursiveAndForced(args) {
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 
 /**
- * Options whose NEXT argument is a value, not a transfer URL.
+ * Which options consume the FOLLOWING token as a value, per program.
  *
- * Needed because the first version of this rule tested every argument, so
- * `curl -d https://api.github.com/x https://example.com/hook` was blocked even
- * though it only connects to example.com — a POST body that happens to be a
- * URL is data. (Codex, PR #487.) Long forms may also arrive as `--data=...`,
- * which is self-contained and never consumes the following token.
+ * Derived by parsing `curl --help all` and `wget --help` from the binaries in
+ * this container (curl 8.5.0, wget 1.21.4) rather than written from memory.
+ * That provenance is the point: the hand-written version of this table had
+ * three defects Codex found in one round, and all three came from recalling an
+ * option's arity instead of reading it.
  *
- * `--url` is deliberately ABSENT: its value IS the transfer URL, so it must be
- * checked rather than skipped.
+ * SEPARATE PER PROGRAM, because the two clients disagree on the same letters
+ * and sharing one table imports each one's arity into the other. `-O` takes a
+ * filename for wget and is a boolean for curl, so a shared table made
+ * `curl -O <url>` skip its own target; `-r` is a range for curl and a boolean
+ * for wget, so `wget -r <url>` did the same. Both were fail-OPEN. (Codex, #488.)
+ *
+ * NOT EXHAUSTIVE, AND SAFE THAT WAY. An option missing from these tables is
+ * simply not skipped, so its value is inspected as a possible target -- the
+ * fail-CLOSED direction, matching this module's stated posture that a gap
+ * over-blocks rather than under-blocks. Version drift can therefore only make
+ * the guard stricter. Adding an entry is a precision improvement, never a
+ * correctness dependency; wrongly adding one is the only way to open a hole,
+ * which is why nothing goes in here unmeasured.
+ *
+ * `--url` is deliberately ABSENT from curl's long set: its value IS the
+ * transfer URL. Under the fail-closed default that needs no special case --
+ * an unlisted option's value is checked, which is exactly right for `--url`.
  */
-const FETCHER_VALUE_FLAGS = new Set([
-  // curl
-  "-d", "--data", "--data-raw", "--data-binary", "--data-ascii", "--data-urlencode",
-  "-H", "--header", "--proxy-header", "-F", "--form", "--form-string",
-  "-o", "--output", "-T", "--upload-file", "-u", "--user", "-U", "--proxy-user",
-  "-A", "--user-agent", "-e", "--referer", "-X", "--request", "-b", "--cookie",
-  "-c", "--cookie-jar", "-w", "--write-out", "-x", "--proxy", "--preproxy",
-  "-E", "--cert", "--key", "--cacert", "--capath", "--resolve", "--connect-to",
-  "-m", "--max-time", "--connect-timeout", "--retry", "--retry-delay",
-  "--retry-max-time", "-K", "--config", "--interface", "--limit-rate", "-r", "--range",
-  // wget
-  "-O", "--output-document", "-P", "--directory-prefix", "--post-data",
-  "--post-file", "--body-data", "--body-file", "--user-agent", "--referer",
-  "--load-cookies", "--save-cookies", "--ca-certificate", "--certificate",
-  "--private-key", "-t", "--tries", "-T", "--timeout", "--bind-address",
-]);
-
-/**
- * The single-letter forms above, as bare letters.
- *
- * Bundled short flags (`curl -sSd <body> <url>`) put the value-taking letter
- * LAST in the bundle, so the bundle consumes the following token exactly as the
- * unbundled form does. Derived rather than re-listed so the two can't drift.
- */
-const SHORT_VALUE_FLAG_LETTERS = new Set(
-  [...FETCHER_VALUE_FLAGS].filter((f) => /^-[A-Za-z]$/.test(f)).map((f) => f.slice(1)),
-);
+const FETCHER_OPTIONS = {
+  curl: {
+    // `curl --help all | grep -oE '^ +-[A-Za-z], --[a-z0-9.-]+ +<'`
+    short: new Set("ACDEFHKPQTUXYbcdehmortuwyz"),
+    long: new Set([
+      "abstract-unix-socket", "alt-svc", "aws-sigv4", "cacert", "capath", "cert",
+      "cert-type", "ciphers", "config", "connect-timeout", "connect-to",
+      "continue-at", "cookie", "cookie-jar", "create-file-mode", "crlfile",
+      "curves", "data", "data-ascii", "data-binary", "data-raw", "data-urlencode",
+      "delegation", "dns-interface", "dns-ipv4-addr", "dns-ipv6-addr",
+      "dns-servers", "doh-url", "dump-header", "egd-file", "engine",
+      "etag-compare", "etag-save", "expect100-timeout", "form", "form-string",
+      "ftp-account", "ftp-alternative-to-user", "ftp-method", "ftp-port",
+      "ftp-ssl-ccc-mode", "happy-eyeballs-timeout-ms", "header", "help",
+      "hostpubmd5", "hostpubsha256", "hsts", "interface", "ipfs-gateway", "json",
+      "keepalive-time", "key", "key-type", "krb", "libcurl", "limit-rate",
+      "local-port", "login-options", "mail-auth", "mail-from", "mail-rcpt",
+      "max-filesize", "max-redirs", "max-time", "netrc-file", "noproxy",
+      "oauth2-bearer", "output", "output-dir", "parallel-max", "pass",
+      "pinnedpubkey", "proto", "proto-default", "proto-redir", "proxy-cacert",
+      "proxy-capath", "proxy-cert", "proxy-cert-type", "proxy-ciphers",
+      "proxy-crlfile", "proxy-header", "proxy-key", "proxy-key-type",
+      "proxy-pass", "proxy-pinnedpubkey", "proxy-service-name",
+      "proxy-tls13-ciphers", "proxy-tlsauthtype", "proxy-tlspassword",
+      "proxy-tlsuser", "proxy-user", "proxy1.0", "pubkey", "quote", "random-file",
+      "range", "rate", "referer", "request", "request-target", "resolve", "retry",
+      "retry-delay", "retry-max-time", "sasl-authzid", "service-name", "socks4",
+      "socks4a", "socks5", "socks5-gssapi-service", "socks5-hostname",
+      "speed-limit", "speed-time", "stderr", "telnet-option", "tftp-blksize",
+      "time-cond", "tls-max", "tls13-ciphers", "tlsauthtype", "tlspassword",
+      "tlsuser", "trace", "trace-ascii", "trace-config", "unix-socket",
+      "upload-file", "url-query", "user", "user-agent", "variable", "write-out",
+      // `--proxy` and `--preproxy` take values but are spelled `-x, --proxy <url>`
+      // and `--preproxy [protocol://]host[:port]`, which the `<`-anchored sweep
+      // above misses; both are value-taking and measured by hand from the same
+      // help output.
+      "proxy", "preproxy",
+    ]),
+  },
+  wget: {
+    // `wget --help | grep -oE '^ +-[A-Za-z], +--[a-z0-9.-]+='`
+    short: new Set("ABDIOPQRTUXaeilotw"),
+    long: new Set([
+      "accept", "accept-regex", "append-output", "backups", "base",
+      "bind-address", "body-data", "body-file", "ca-certificate", "ca-directory",
+      "certificate", "certificate-type", "ciphers", "compression", "config",
+      "connect-timeout", "crl-file", "cut-dirs", "default-page",
+      "directory-prefix", "dns-timeout", "domains", "exclude-directories",
+      "exclude-domains", "execute", "follow-tags", "ftp-password", "ftp-user",
+      "header", "http-password", "http-user", "ignore-tags",
+      "include-directories", "input-file", "level", "limit-rate", "load-cookies",
+      "local-encoding", "method", "output-document", "output-file", "password",
+      "pinnedpubkey", "post-data", "post-file", "prefer-family", "private-key",
+      "private-key-type", "progress", "proxy-password", "proxy-user", "quota",
+      "random-file", "read-timeout", "referer", "regex-type", "reject",
+      "reject-regex", "rejected-log", "remote-encoding", "report-speed",
+      "restrict-file-names", "retry-on-http-error", "save-cookies",
+      "secure-protocol", "start-pos", "timeout", "tries", "use-askpass", "user",
+      "user-agent", "wait", "waitretry", "warc-dedup", "warc-file", "warc-header",
+      "warc-max-size", "warc-tempdir",
+    ]),
+  },
+};
 
 /**
  * The hostname a fetcher argument would actually connect to, or null.
@@ -903,7 +954,7 @@ const SHORT_VALUE_FLAG_LETTERS = new Set(
  * Still PARSED rather than substring-matched, so `./api.github.com.md`, a
  * flag, and a JSON body mentioning the host are not mistaken for a request.
  * Host comparison is case-insensitive and ignores a userinfo prefix, since
- * `https://user@API.GitHub.com/…` reaches the same place.
+ * `https://user@API.GitHub.com/...` reaches the same place.
  */
 function fetcherTargetHost(token) {
   if (!token || token.startsWith("-")) return null;
@@ -921,42 +972,69 @@ function fetcherTargetHost(token) {
 }
 
 /**
+ * Whether a short-option token consumes the NEXT token as its value.
+ *
+ * Short options bundle (`-sSd`), and a value-taking letter owns **the rest of
+ * its own token** when there is any: curl documents `-X, --request <method>`
+ * and accepts the attached spelling, so in `curl -XGET <url>` the value is
+ * `GET` and the URL that follows is a real target. Treating the last character
+ * of a bundle as the value-taking one instead made that trailing `T` look like
+ * `-T, --upload-file`, skipped the URL, and allowed the fetch -- fail-open.
+ * (Codex, #488.)
+ *
+ * So: walk left to right, stop at the FIRST value-taking letter, and consume
+ * the next token only if that letter ends the bundle.
+ */
+function shortOptionTakesNextToken(token, shortSet) {
+  for (let i = 1; i < token.length; i += 1) {
+    if (shortSet.has(token[i])) return i === token.length - 1;
+  }
+  return false;
+}
+
+/**
  * True when a curl/wget invocation would actually connect to api.github.com.
  *
- * Walks the arguments so an option's VALUE is never mistaken for a target,
- * and so a schemeless target is still recognised.
+ * Walks the arguments so a known option's VALUE is not mistaken for a target,
+ * and so a schemeless target is still recognised. Anything the walk does not
+ * recognise is inspected rather than skipped.
  */
-function fetchesGitHubApi(rest) {
+function fetchesGitHubApi(program, rest) {
+  const options = FETCHER_OPTIONS[program];
+  if (!options) return rest.some((t) => fetcherTargetHost(t) === "api.github.com");
+
+  const hits = (token) => fetcherTargetHost(token) === "api.github.com";
+
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
+
     if (arg === "--") {
       // Everything after `--` is an operand.
-      for (const operand of rest.slice(i + 1)) {
-        if (fetcherTargetHost(operand) === "api.github.com") return true;
+      return rest.slice(i + 1).some(hits);
+    }
+
+    if (arg.startsWith("--")) {
+      const eq = arg.indexOf("=");
+      const name = (eq === -1 ? arg.slice(2) : arg.slice(2, eq)).toLowerCase();
+      const known = options.long.has(name);
+      if (eq !== -1) {
+        // `--data=x` is self-contained. A KNOWN value option's payload is data;
+        // an unknown one's is inspected, which is what keeps `--url=<target>`
+        // caught without a special case for it.
+        if (!known && hits(arg.slice(eq + 1))) return true;
+        continue;
       }
-      return false;
-    }
-    if (arg === "--url") {
-      if (fetcherTargetHost(rest[i + 1]) === "api.github.com") return true;
-      i += 1;
+      if (known) i += 1; // skip the value
       continue;
     }
-    if (arg.startsWith("--url=")) {
-      if (fetcherTargetHost(arg.slice(6)) === "api.github.com") return true;
+
+    if (arg.length > 1 && arg.startsWith("-")) {
+      if (shortOptionTakesNextToken(arg, options.short)) i += 1;
       continue;
     }
-    // `--data=...` and friends are self-contained; they consume no next token.
-    if (arg.startsWith("--") && arg.includes("=")) continue;
-    if (FETCHER_VALUE_FLAGS.has(arg)) {
-      i += 1; // skip the value
-      continue;
-    }
-    if (/^-[A-Za-z]{2,}$/.test(arg) && SHORT_VALUE_FLAG_LETTERS.has(arg.slice(-1))) {
-      i += 1; // bundle ending in a value-taking letter, e.g. `-sSd <body>`
-      continue;
-    }
-    if (arg.startsWith("-")) continue; // bare flag, or a bundle like -sS
-    if (fetcherTargetHost(arg) === "api.github.com") return true;
+
+    // A lone `-` is stdin, never a host; fetcherTargetHost rejects it anyway.
+    if (hits(arg)) return true;
   }
   return false;
 }
@@ -1074,7 +1152,7 @@ export function checkCommand(argv, depth = 0) {
   }
 
   if (HTTP_FETCHERS.has(program)) {
-    if (fetchesGitHubApi(rest)) {
+    if (fetchesGitHubApi(program, rest)) {
       return (
         "api.github.com is not reachable from bash in this container, and the failure is SILENT " +
         "inside a pipeline: curl is intercepted by the agent proxy (HTTP 403 \"GitHub access is not " +

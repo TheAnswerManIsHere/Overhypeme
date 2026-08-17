@@ -137,6 +137,13 @@ const MUST_BLOCK = [
   ["--url is a transfer URL, never a skipped value", "curl -sS --url https://api.github.com/x"],
   ["a target after the end-of-options marker", "curl -sS -- https://api.github.com/x"],
   ["a real target alongside an option value that names the host", "curl -H 'X-Note: https://api.github.com' https://api.github.com/x"],
+  // Three fail-OPEN holes from treating option arity as shared and bundles as
+  // ending in their value letter. (Codex, #488.)
+  ["an attached short value does not swallow the target", "curl -XGET https://api.github.com/x"],
+  ["curl's -O is boolean, whatever wget's -O does", "curl -O https://api.github.com/rate_limit"],
+  ["wget's -r is boolean, whatever curl's -r does", "wget -r https://api.github.com/x"],
+  ["an unknown option's value is inspected, not skipped", "curl --frobnicate api.github.com/x"],
+  ["an unknown attached long value is inspected too", "curl --frobnicate=https://api.github.com/x"],
 ];
 
 const MUST_ALLOW = [
@@ -159,6 +166,9 @@ const MUST_ALLOW = [
   ["an output filename equal to the host", "curl -o api.github.com https://example.com"],
   ["a bundle whose last letter takes the value", "curl -sSd https://api.github.com/x https://example.com/hook"],
   ["wget's output-document value", "wget -O api.github.com https://example.com"],
+  ["a value option measured from curl's own help, not recalled", "curl --noproxy api.github.com https://example.com"],
+  ["curl's -r is a byte range, so its value is data", "curl -r 0-99 https://example.com"],
+  ["wget's -T is a timeout, so its value is data", "wget -T 30 https://example.com"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
@@ -478,3 +488,4 @@ for (const depth of [5, 6]) {
     assert.equal(blocked(nestBashC("echo hi", depth)), true);
   });
 }
+
