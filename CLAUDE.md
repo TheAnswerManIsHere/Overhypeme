@@ -1216,8 +1216,18 @@ enactment:
 
 ## Waiting inside a turn: bash sleeps, MCP tells the truth (David, 2026-08-16)
 
-Distinct from the scheduled check-ins below, which are about *arming a timer*.
-This is about waiting for CI or any GitHub state **within** a turn.
+This is about waiting for CI or any GitHub state as part of work already in
+flight — as opposed to the scheduled check-ins below, which arm a timer against
+a named external state and then let the session go.
+
+**The two used to be cleanly separated by mechanism, and no longer are (2026-08-17).**
+This wait was once a blocking bash `sleep`, which genuinely kept everything
+inside one turn. Now that a bare `sleep` is blocked and the working form is a
+**background** sleep, this procedure also ends the turn and starts a future one
+— which is precisely the behavior the check-in contract governs. So the
+separation is now one of *intent*, not mechanism, and the bounds below are not
+optional garnish: step 4 inherits the check-in contract's caps because the
+thing it repeats is the same thing.
 
 The **shared invariant** — a wait has three outcomes, cannot-tell terminates
 loudly, never report a wait as a verification it didn't perform, and poll the
@@ -1239,8 +1249,24 @@ looking for a better token — there isn't one. Full table:
 
 **So the shape of a wait is fixed:**
 
-1. `sleep N` in bash — the **delay, and nothing else**.
-2. **The `mcp__github__*` method that observes the condition I actually named.**
+1. The **delay, and nothing else** — but **a bare `sleep N` no longer runs**
+   (measured 2026-08-17). The harness blocks both `sleep 120` on its own and
+   `sleep 120; echo …`, and its refusal names the two sanctioned forms:
+   `Monitor` with an until-loop, or **`run_in_background: true` on the sleep**,
+   which returns a task ID and re-invokes me when it elapses. **For a GitHub
+   wait, the background sleep is the one to reach for** — `Monitor`'s
+   until-loop wants a shell condition to poll, and the whole point of the
+   paragraph above is that no bash transport can observe GitHub state, so
+   there is no condition to write. Chaining shorter sleeps to dodge the block
+   is called out in the refusal text and is not an option.
+2. **End the turn.** A background sleep hands back its task ID *immediately*,
+   so running the next step in the same turn polls before any delay has
+   elapsed — a redundant check now, plus a stray wake later when the sleep
+   finally lands. The completion notification is what resumes the sequence;
+   nothing else should. This step exists because the old blocking `sleep`
+   made it automatic and the new one does not.
+3. **On that wake: the `mcp__github__*` method that observes the condition I
+   actually named.**
    `pull_request_read` / `get_check_runs` for **CI**; `get_reviews` or
    `get_review_comments` for a review landing; `get` for merge state,
    mergeability or a base change; `issue_read` for label or issue movement.
@@ -1248,8 +1274,14 @@ looking for a better token — there isn't one. Full table:
    signal is how a wait ends early on data that never described the condition.
    All of them take a **PR or issue number**, so there's no ref or SHA to
    mistype.
-3. Still pending? Repeat. A turn per check is cheap next to sitting on a dead
-   loop.
+4. Still pending? Repeat — **but every repetition is a wake I armed, so the
+   scheduled-check-in contract's bounds apply in full**: a named condition, an
+   exit condition, **3 consecutive no-op wakes**, and **6 wakes or 24 hours**,
+   whichever comes first. Hitting either cap means stop and say what I was
+   waiting for and what state it was left in. A turn per check is cheap next
+   to sitting on a dead loop; an unbounded chain of them is not, and "the CI
+   run kept changing" is exactly the case the six-wake ceiling exists for —
+   churn keeps resetting the no-op counter, so that cap alone never fires.
 
 **Never build a bash poll loop that parses a GitHub response.** It cannot
 work, and — this is the part that bites — **it does not announce that it
