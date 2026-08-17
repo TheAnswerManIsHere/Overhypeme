@@ -224,6 +224,15 @@ const MUST_BLOCK = [
   // reading the note above `segments()`.
   ["an array literal naming fetchers is over-blocked, and that is the accepted trade", "fetchers=(curl wget)"],
   ["the append spelling, same accepted trade", "fetchers+=(curl)"],
+  // Round 18: the over-block is NOT fetcher-only. Deleting the suppression
+  // restored it for every rule in the module, because the literal's words are
+  // emitted as a command segment that all of them judge. Pinned across three
+  // different rules so the class is what is asserted, not one example -- the
+  // first version of this note named only the fetcher case and understated
+  // the deletion's blast radius by three rules.
+  ["a push in an array literal is over-blocked too", "ops=(git push -f origin main)"],
+  ["an rm in an array literal, same class", "cleanup=(rm -rf /)"],
+  ["a drizzle-kit push in an array literal, same class", "migration=(drizzle-kit push)"],
   ["an unclosed array paren is not suppressed", "arr=(curl wget"],
   ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
   ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],

@@ -1059,16 +1059,41 @@ const FETCHER_REFUSAL =
  *  - `/usr/bin/cu?l --version` -- Bash expands the glob before command lookup;
  *    this module compares the unexpanded word.
  *
- * ACCEPTED IN THE OTHER DIRECTION, round 17: `fetchers=(curl wget)` is
- * REFUSED, though Bash assigns two strings and runs neither program. This is
- * the only accepted gap here that over-blocks rather than under-blocks, and it
- * is deliberate: the suppression written to allow it opened a fail-open in
- * each of its two versions (substitutions with no `$`, then integer-array
+ * ACCEPTED IN THE OTHER DIRECTION, round 17: ANY PROTECTED COMMAND NAMED IN AN
+ * ARRAY LITERAL IS REFUSED, though Bash assigns strings and runs nothing. Not
+ * just fetchers -- `ops=(git push -f origin main)`, `cleanup=(rm -rf /)` and
+ * `migration=(drizzle-kit push)` are all blocked too, because `(` is an
+ * operator and the literal's words are emitted as a command segment that every
+ * rule in this module then judges.
+ *
+ * The class is stated that way because the first version of this note said
+ * "`fetchers=(curl wget)`" and called it the only over-blocking gap, which
+ * understated the deletion's blast radius by three rules. (Codex, #488 round
+ * 18 -- the THIRD time in one session that a note here described less than its
+ * code did, after the heredoc limitation and CLAUDE.md's receipt claim. The
+ * standing lesson is in the heredoc note: a limitation stops being accurate
+ * the moment a rule is added above it or removed beneath it. Deleting
+ * `segments()`'s suppression was a removal, and I documented it by the example
+ * in front of me instead of by what the deletion restored.)
+ *
+ * It is deliberate: the suppression written to allow these opened a fail-open
+ * in each of its two versions (substitutions with no `$`, then integer-array
  * arithmetic evaluation), because whether an array's tokens are inert depends
  * on attributes set elsewhere in the command rather than on the tokens. The
  * full reasoning is above `segments()`. A blocked command with an explanatory
  * message is the failure this module is willing to have.
  *
+ * A FIFTH AND SIXTH under-blocking gap, round 18, both confirmed by running
+ * them and both the same dispatch-spelling class as the four below:
+ *
+ *  - `npm exec -c='curl --version'` / `npx -c='...'` -- the attached value is
+ *    modelled for `--call=` but not for `-c=`. Measured: `npm exec
+ *    -c='printf X'` runs the string.
+ *  - `eval -- 'curl --version'` -- `eval` joins its arguments verbatim, so the
+ *    recursive parse reads `--` as the program. Measured: `eval -- "printf X
+ *    > file"` writes the file.
+ *
+ * A FOURTH, round 16: `printf '%s\n' <url> | xargs curl -sS`.
  * A FOURTH, round 16: `printf '%s\n' <url> | xargs curl -sS`. `xargs` runs its
  * COMMAND operand, so the fetcher is reached while the resolved program stays
  * `xargs`. Confirmed by running it. Accepted for the same reason and by the
