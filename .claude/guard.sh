@@ -12,11 +12,15 @@
 # So this hook does not try to reimplement it. Its FIRST job is to make the LEASE
 # MANDATORY on the branches this session owns, because the container is
 # ephemeral: the local reflog dies with it, so an overwritten remote branch has
-# no second copy to recover from.
+# no second copy to recover from. Note what the ruleset above does and does not
+# cover: it protects `main` and does NOT target `claude/*` or `plan-review/*`,
+# so on the branches the lease rule actually governs, this hook is the ONLY
+# line -- not the third one.
 #
 # Its SECOND, independent job as of 2026-08-17 is refusing `curl` and `wget`
-# outright -- a different failure mode (silent, not destructive) with no
-# server-side backstop behind it. See docs/ai-context/decisions.md, 2026-08-17.
+# -- a different failure mode, silent rather than destructive. Neither job is
+# backstopped server-side; they differ in how they FAIL, not in what stands
+# behind them. See docs/ai-context/decisions.md, 2026-08-17.
 #
 # The decision logic lives in scripts/guard-decision.mjs -- next to the repo's
 # other guards, unit-tested in scripts/__tests__/guard-decision.test.mjs, and
@@ -28,6 +32,14 @@
 # If node is somehow unavailable this falls back to a conservative regex scan
 # that blocks every force push including the permitted one -- degraded, never
 # weaker than the version it replaced.
+#
+# BUT BOTH JOBS LIVE IN guard-decision.mjs, SO THE FALLBACK DELIVERS NEITHER IN
+# FULL. It is stricter than the parser on force pushes and has NO fetcher
+# alternative at all: a `curl` payload exits 0 here. Measured, not assumed
+# (#499 round 3). So the SECOND job above is a property of the node path, not
+# of this file -- which is the honest scope of every "refuses curl and wget"
+# claim in this repo. Closing it is a behavioral change and belongs in its own
+# bugfix PR, not in the documentation harvest that found it.
 set -uo pipefail
 
 payload=$(cat)

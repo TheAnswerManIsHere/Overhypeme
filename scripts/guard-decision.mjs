@@ -22,16 +22,31 @@
  * from. `--force-with-lease` refuses when the remote moved since the last
  * fetch, which is exactly the "something I have not seen is up there" case.
  *
+ * READ LAYER 2 CAREFULLY BEFORE RELYING ON IT: the ruleset targets `main`. It
+ * does NOT target `claude/*` or `plan-review/*` -- the branches the lease rule
+ * actually governs -- so for THAT job this hook is the only line, not the
+ * third. "Third line of defence" is true of protecting `main` and false of the
+ * job this file mostly does. (Codex, #499 round 3.)
+ *
  * IT HAS A SECOND, INDEPENDENT JOB AS OF 2026-08-17: refusing `curl` and
  * `wget` outright. That one exists for a different reason — a SILENT failure
  * (api.github.com returns a 403 whose body a `grep` finds nothing in, so a
  * wait loop built on it sleeps forever without erroring) rather than a
- * destructive one — and, unlike the lease rule, it is backstopped by nothing.
- * This header said "one job" for a while after that shipped, which is the
- * source-of-truth contradiction the decision log's supersession exists to
- * resolve. See `docs/ai-context/decisions.md`, 2026-08-17, and the
+ * destructive one. NEITHER job is backstopped server-side; they differ in how
+ * they FAIL, not in what stands behind them. An earlier version of this
+ * paragraph claimed the lease rule had a backstop the fetcher rule lacked,
+ * which read the ruleset's scope off its existence rather than off its target.
+ * This header also said "one job" for a while after the fetcher rule shipped,
+ * which is the source-of-truth contradiction the decision log's supersession
+ * exists to resolve. See `docs/ai-context/decisions.md`, 2026-08-17, and the
  * `FETCHER_REFUSAL` block below for the full reasoning and its gap register.
- * (Codex, #499 round 2.)
+ * (Codex, #499 rounds 2 and 3.)
+ *
+ * BOTH jobs are lost if `node` is unavailable: `.claude/guard.sh` then falls
+ * back to a regex scan with no fetcher alternative, and a `curl` payload exits
+ * 0. Every "refuses curl and wget outright" claim in this repo is scoped to
+ * the node path. Measured, not assumed (#499 round 3); closing it is a
+ * behavioral change owed its own bugfix PR.
  *
  * POSTURE
  * -------
@@ -1168,7 +1183,22 @@ const FETCHER_REFUSAL =
  *    recursive parse reads `--` as the program. Measured: `eval -- "printf X
  *    > file"` writes the file. Fix: strip a leading `--` before joining.
  *
- * WHY THOSE TWO ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
+ * A SEVENTH, #499 round 3 -- and it is NOT in this module, which is why five
+ * rounds of gap-hunting inside this file could never have found it. If `node`
+ * is unavailable, `.claude/guard.sh` never reaches this code at all: it falls
+ * back to a regex scan covering destructive git/rm/drizzle shapes and NOTHING
+ * ELSE, so a `curl` payload exits 0. Measured by hiding `node` from `PATH` and
+ * running the real hook. The fallback is stricter than this parser on force
+ * pushes and absent on fetchers -- degraded rather than uniformly weaker.
+ *
+ * Fix: add a fetcher alternative to that regex. Deferred here because it is a
+ * BEHAVIORAL change and the PR that found it is a documentation harvest; it is
+ * owed its own bugfix PR. What the harvest does instead is scope every
+ * "refuses curl and wget outright" claim in this repo to the node path, since
+ * an unqualified claim in a security-sensitive header is the exact false
+ * assurance this file's own notes are about.
+ *
+ * WHY THE FIFTH AND SIXTH ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
  *
  * Round 16 published a line here: a defect in a wrapper this module MODELS is
  * a correctness bug and gets fixed, while an unmodelled wrapper is the

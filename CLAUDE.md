@@ -690,10 +690,20 @@ one for the whole story. In order of authority:
    only, not `claude/*` (proven by `890528b`, a merge commit that pushed
    cleanly to a feature branch while *Require linear history* was on). This is
    the real protection for `main`: server-side, every actor, every spelling.
-3. **`.claude/guard.sh`.** Given layers 1 and 2, its only job is making the
+3. **`.claude/guard.sh`.** Given layers 1 and 2, its **first** job is making the
    **lease mandatory** on my own branches. That matters because the container
    is ephemeral — the local reflog dies with it, so an overwritten remote
-   branch has no second copy.
+   branch has no second copy. Its **second, independent** job as of 2026-08-17
+   is refusing `curl` and `wget` — a silent failure mode rather than a
+   destructive one (see the decision entry, 2026-08-17).
+   **Note what layer 2 does not do for either job.** The ruleset protects
+   `main`; it does not target `claude/*` or `plan-review/*`, so on the branches
+   the lease rule actually governs this hook is the *only* line, not the third.
+   Neither job is backstopped server-side — they differ in how they fail, not
+   in what stands behind them. And **both live in `guard-decision.mjs`**, so
+   both are absent from the node-unavailable fallback, where a `curl` payload
+   is allowed through; every "refuses curl and wget" claim is scoped to the
+   node path. (Codex, #499 round 3.)
 
 What that means in practice:
 

@@ -17,17 +17,34 @@
 - **Supersedes in part:** the 2026-08-05 entry below, which narrowed the guard
   to *"make the lease mandatory"* and called that its only real job. That
   framing is no longer complete: the guard now has a **second** independent
-  responsibility, refusing fetchers, added for a different reason (a silent
-  failure mode, not a destructive one) and backstopped by nothing — unlike the
-  lease rule, which sits behind GitHub's server-side ruleset. Everything else
-  in that entry stands, including its reasoning about why the lease scope
-  stayed narrow.
+  responsibility, refusing fetchers, added for a different reason — a silent
+  failure mode, not a destructive one. Everything else in that entry stands,
+  including its reasoning about why the lease scope stayed narrow.
+- **Neither job has a server-side backstop, and an earlier version of this
+  entry claimed the lease rule did.** GitHub's ruleset protects **`main`**; it
+  does not target `claude/*` or `plan-review/*`, which is the scope the lease
+  mandate actually governs. So on the branches that rule is *for*, the hook is
+  the only line — not the third one. The correction matters because the false
+  version invited exactly the wrong inference: that the lease rule could afford
+  gaps the fetcher rule could not, when in fact both fail the same way and
+  differ only in *how* (recoverable-but-destructive versus silent). The
+  "third line of defence" framing is true of protecting `main` and false of the
+  job this hook mostly does. (Codex, #499 round 3.)
 - **Decision:** `scripts/guard-decision.mjs` refuses the `curl` and `wget`
   programs entirely, with **no exception for any argument shape** — not even
   the agent proxy's own `__agentproxy/status` probe. It judges the *resolved
   program* and nothing else. The PR shipped with six known under-blocking gaps
   and one over-block **documented in the module header rather than closed**,
   each with a measured reproduction and the fix it would need.
+- **Scoped to the `node` path, which the title above does not say and should be
+  read as saying.** `.claude/guard.sh` runs `guard-decision.mjs` only when
+  `node` is present; without it the wrapper falls back to a regex scan with no
+  fetcher alternative, and a `curl` payload exits 0. Measured by hiding `node`
+  from `PATH` and running the real hook. Left open deliberately — closing it is
+  a behavioral change, and the PR that found it is a documentation harvest —
+  but recorded here and in both guard headers, because an unqualified
+  "refuses curl and wget outright" is the false assurance this decision is
+  otherwise about avoiding. (Codex, #499 round 3.)
 - **Why:** the first four revisions tried to decide whether a given invocation
   would actually reach `api.github.com`, so unrelated fetches stayed available.
   That is not a converging problem — doing it correctly means reimplementing
@@ -1145,6 +1162,16 @@
 > job — was true when written and is no longer: the guard also refuses `curl`
 > and `wget`. The rest of this entry, including why the lease scope stayed
 > narrow, still stands.
+>
+> **One clarification rather than a supersession**, because this entry states
+> both halves correctly and they are easy to combine wrongly: the ruleset that
+> makes this hook the *third* line covers `main`, while the job described below
+> is scoped to `claude/*` and `plan-review/*`. Both facts are here; the
+> inference "therefore the lease requirement is server-backed" is not, and is
+> false. On the branches this rule governs, the hook is the only line — which
+> strengthens rather than weakens the narrowing argument below, since a lease
+> is cheap and the branches it protects have no other protection at all.
+> (Codex, #499 round 3.)
 - **Decision:** `.claude/guard.sh` (via `scripts/guard-decision.mjs`) was rewritten
   from a single inverted grep — it blocked `git push --force` while waving
   through the equivalent `git push -f` — into a token-level parser, then
