@@ -849,7 +849,10 @@ router.post("/videos/generate", async (req, res) => {
             { endpointId, jobRef },
             "[videos/generate] gate figure unavailable at recording time — recording zero; recorded spend for this user is now understated",
           );
-          await noteLedgerWriteFailure();
+// Detached, not awaited: the pool checkout inside this call is
+          // unbounded and this is a user-facing path. See the call site in
+          // budgetGate.recordCost for the full reasoning.
+          void noteLedgerWriteFailure();
         }
         const total = gateResolvedCostUsd ?? 0;
         const perSecond = durationSec > 0 ? total / durationSec : total;

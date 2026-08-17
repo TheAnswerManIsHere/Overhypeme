@@ -255,7 +255,27 @@ export async function recordCost(params: RecordCostParams): Promise<void> {
       { err, userId: params.userId, jobType: params.jobType, endpointId: params.endpointId },
       "[budgetGate] recordCost failed (non-fatal) — this user's recorded spend is now permanently understated",
     );
-    await noteLedgerWriteFailure();
+    // NOT awaited. The bounds inside `noteLedgerWriteFailure` cover the SQL,
+    // but `db.transaction` first waits for a client from the shared pool, and
+    // that pool sets no `connectionTimeoutMillis` — so under saturation the
+    // checkout queues with no deadline and none of the SQL-level timeouts have
+    // been installed yet. Awaiting it can therefore still delay a response
+    // whose provider has already completed and been paid.
+    //
+    // Detaching is the right bound rather than a JS-side race on the whole
+    // call: abandoning a pending `pool.connect()` does not cancel it, so the
+    // client is still acquired and would have to be released by someone —
+    // racing it leaks a connection instead of freeing one.
+    //
+    // Raising `connectionTimeoutMillis` on the pool would also fix this, and is
+    // deliberately not done here: that pool serves every query in the process,
+    // so bounding checkout globally is a real behaviour change for unrelated
+    // paths and deserves its own consideration rather than riding along with a
+    // diagnostic counter.
+    //
+    // Losing the counter write at process exit is acceptable and already
+    // documented below: the structured log line above is the floor.
+    void noteLedgerWriteFailure();
   }
 }
 
@@ -293,10 +313,14 @@ export async function noteLedgerWriteFailure(): Promise<void> {
     //    order (VALUES order), so a burst serialises instead of deadlocking,
     //    and a failure costs one round trip rather than two.
     //  * `lock_timeout` / `statement_timeout` bound the wait *in Postgres*.
-    //    A JS-side race would not help: it abandons the promise while the
-    //    connection stays blocked, so the pool — the resource actually under
-    //    pressure — is still consumed. `SET LOCAL` reverts at commit, so
-    //    neither setting leaks onto the pooled connection.
+    //    A JS-side race on the SQL would not help: it abandons the promise
+    //    while the connection stays blocked, so the pool — the resource
+    //    actually under pressure — is still consumed. `SET LOCAL` reverts at
+    //    commit, so neither setting leaks onto the pooled connection.
+    //
+    // These bound the SQL only. They cannot bound the pool checkout that
+    // `db.transaction` performs first, which is why `recordCost` detaches this
+    // call rather than awaiting it — see the comment at that call site.
     //
     // The bound is short on purpose. This counter is a diagnostic; a user's
     // response must not wait seconds on it while the database is already
@@ -306,22 +330,43 @@ export async function noteLedgerWriteFailure(): Promise<void> {
       await tx.execute(sql`SET LOCAL lock_timeout = '500ms'`);
       await tx.execute(sql`SET LOCAL statement_timeout = '2s'`);
       await tx.execute(sql`
-        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        INSERT INTO admin_config (key, value, data_type, label, description, min_value, is_public)
         VALUES
-          ('ledger_write_failures', '1', 'number',
+          -- 'integer', not 'number'. The /admin/config PATCH route validates
+          -- 'integer' and 'float' and has NO else branch, so an unrecognised
+          -- data_type silently skips validation entirely and the row accepts
+          -- arbitrary text through the generic config UI. One decimal or one
+          -- stray character then fails the ::bigint cast below, rolling back
+          -- both keys — permanently disabling the very signal this exists to
+          -- preserve. min_value 0 additionally refuses a negative count.
+          ('ledger_write_failures', '1', 'integer',
            'Lost ledger writes',
            'Count of generation-cost rows that could not be written. Each one permanently understates that user''s recorded spend, so the ceiling binds against a low total. Non-zero warrants investigation.',
-           false),
+           0, false),
           ('ledger_write_failure_last_at', now()::text, 'string',
            'Last lost ledger write',
            'Timestamp of the most recent generation-cost row that could not be written.',
-           false)
+           NULL, false)
         ON CONFLICT (key) DO UPDATE
           SET value = CASE admin_config.key
             WHEN 'ledger_write_failures'
-              THEN (COALESCE(NULLIF(admin_config.value, ''), '0')::bigint + 1)::text
+              -- Total, not merely null-safe. A non-numeric value here would
+              -- fail the cast and roll the whole statement back on every
+              -- subsequent failure — the counter would be permanently dead,
+              -- and silently, since this function swallows its own errors.
+              -- Validating at the admin edge (above) does not cover a value
+              -- that arrived any other way, so the increment refuses to depend
+              -- on it: anything non-numeric restarts from zero rather than
+              -- taking the signal down with it.
+              THEN (CASE WHEN admin_config.value ~ '^[0-9]+$'
+                         THEN admin_config.value::bigint ELSE 0 END + 1)::text
             ELSE now()::text
-          END
+          END,
+          -- Self-healing: repairs the metadata on a row created by an earlier
+          -- build of this code, which ON CONFLICT would otherwise leave at its
+          -- original unvalidated data_type forever.
+          data_type = EXCLUDED.data_type,
+          min_value = EXCLUDED.min_value
       `);
     });
   } catch (err) {

@@ -507,7 +507,10 @@ async function generateAndStoreImage(
             { err, model, userId },
             "[aiMemePipeline] could not resolve an estimate for an exempt user's unpriced generation — skipping the ledger row",
           );
-          await noteLedgerWriteFailure();
+// Detached, not awaited: the pool checkout inside this call is
+          // unbounded and this is a user-facing path. See the call site in
+          // budgetGate.recordCost for the full reasoning.
+          void noteLedgerWriteFailure();
         }
       }
       if (estimate !== null) {
@@ -823,7 +826,10 @@ async function generateAndStoreImageFromReference(
             { err, model, userId },
             "[aiMemePipeline] could not resolve an estimate for an exempt user's unpriced generation — skipping the ledger row",
           );
-          await noteLedgerWriteFailure();
+// Detached, not awaited: the pool checkout inside this call is
+          // unbounded and this is a user-facing path. See the call site in
+          // budgetGate.recordCost for the full reasoning.
+          void noteLedgerWriteFailure();
         }
       }
       if (estimate !== null) {
