@@ -264,6 +264,14 @@ jobs:
       - name: Budget gate unconditional check
         run: pnpm run check:budget-gate
 
+      # The other half of the same defect: gating correctly and then declining
+      # to RECORD leaves the ceiling measured against a total that stops
+      # growing. Measured, not assumed — restoring the old `if (priced)`
+      # wrapper produced zero typecheck errors and a fully green test suite, so
+      # this guard is the only thing standing between that regression and main.
+      - name: Ledger write unconditional check
+        run: pnpm run check:record-cost
+
       - name: Build app
         run: pnpm run build
         env:

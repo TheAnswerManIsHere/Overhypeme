@@ -19,7 +19,8 @@
     "check:return-to-parity": "pnpm --filter @workspace/api-server exec tsx ../../scripts/check-return-to-parity.mjs",
     "check:permissions": "node scripts/check-permission-chokepoint.mjs",
     "check:permissions:frontend": "node scripts/check-permission-chokepoint-frontend.mjs",
-    "check:budget-gate": "node scripts/check-budget-gate-unconditional.mjs"
+    "check:budget-gate": "node scripts/check-budget-gate-unconditional.mjs",
+    "check:record-cost": "node scripts/check-record-cost-unconditional.mjs"
   },
   "private": true,
   "devDependencies": {

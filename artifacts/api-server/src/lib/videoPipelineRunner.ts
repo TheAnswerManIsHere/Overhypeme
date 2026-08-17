@@ -1492,7 +1492,10 @@ async function recordStage1Cost(job: JobState): Promise<void> {
       unitPriceAtCreation: cost,
       billingUnits: 1,
       computedCostUsd: cost,
+      // Always an estimate: the engine's configured per-call figure, or
+      // STAGE1_FALLBACK_COST when the engine row can't be read at all.
       pricingFetchedAt: new Date(),
+      isEstimated: true,
       jobReferenceId: `videoJob_${job.jobId}_stage1_${job.stage1Attempts}`,
     });
   } catch (err) {
@@ -1524,6 +1527,7 @@ async function recordStage2Cost(job: JobState): Promise<void> {
       billingUnits: (dims.width * dims.height * 24 * job.durationSec) / 1024,
       computedCostUsd: cost,
       pricingFetchedAt: price.fetchedAt,
+      isEstimated: false,
       jobReferenceId: `videoJob_${job.jobId}_stage2`,
     });
   } catch (err) {
@@ -1538,7 +1542,12 @@ async function recordStage2Cost(job: JobState): Promise<void> {
           unitPriceAtCreation: cost,
           billingUnits: 1,
           computedCostUsd: cost,
+          // The pricing lookup failed; this is the engine's per-second estimate
+          // times duration. Same job_reference_id as the priced branch above —
+          // billing_units is what tells them apart, which is why Release C's
+          // classifier keys on it rather than on the reference id.
           pricingFetchedAt: new Date(),
+          isEstimated: true,
           jobReferenceId: `videoJob_${job.jobId}_stage2`,
         });
       } catch (recErr) {
@@ -1587,7 +1596,9 @@ async function recordStage3Cost(job: JobState): Promise<void> {
       unitPriceAtCreation: cost,
       billingUnits: 1,
       computedCostUsd: cost,
+      // Always an estimate, same shape as stage 1.
       pricingFetchedAt: new Date(),
+      isEstimated: true,
       jobReferenceId: `videoJob_${job.jobId}_stage3`,
     });
   } catch (err) {

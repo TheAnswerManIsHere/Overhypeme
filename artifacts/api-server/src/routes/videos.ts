@@ -782,22 +782,56 @@ router.post("/videos/generate", async (req, res) => {
       });
 
     // Record cost AFTER successful job completion (spec: not before, to avoid phantom costs)
-    if (authenticatedUserId && cachedPriceForRecording && estimatedCostUsd > 0) {
-      const dims = resolveVideoDimensions(aspectRatio, resolution);
-      const { billingUnits } = computeVideoCost(
-        { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
-        cachedPriceForRecording,
-      );
-      await recordCost({
-        userId: authenticatedUserId,
-        jobType: "video",
-        endpointId,
-        unitPriceAtCreation: cachedPriceForRecording.unitPrice,
-        billingUnits,
-        computedCostUsd: estimatedCostUsd,
-        pricingFetchedAt: cachedPriceForRecording.fetchedAt,
-        jobReferenceId: result.requestId ?? updated?.id?.toString() ?? null,
-      });
+    //
+    // TWO guards removed here, both of which dropped real spend:
+    //   * `cachedPriceForRecording` — an unpriced generation was gated on the
+    //     engine estimate and then recorded nowhere.
+    //   * `estimatedCostUsd > 0` — a deliberate zero is a real price for a free
+    //     endpoint, and `> 0` is the wrong null guard (the same mistake already
+    //     recorded in .agents/memory/).
+    if (authenticatedUserId) {
+      const jobRef = result.requestId ?? updated?.id?.toString() ?? null;
+      if (cachedPriceForRecording) {
+        const dims = resolveVideoDimensions(aspectRatio, resolution);
+        const { billingUnits } = computeVideoCost(
+          { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
+          cachedPriceForRecording,
+        );
+        await recordCost({
+          userId: authenticatedUserId,
+          jobType: "video",
+          endpointId,
+          unitPriceAtCreation: cachedPriceForRecording.unitPrice,
+          billingUnits,
+          computedCostUsd: estimatedCostUsd,
+          pricingFetchedAt: cachedPriceForRecording.fetchedAt,
+          isEstimated: false,
+          jobReferenceId: jobRef,
+        });
+      } else {
+        // Unpriced. Unlike the image paths, this route computes its estimate
+        // EAGERLY from an already-loaded engine before calling checkBudget, so
+        // the figure is in hand whether or not the gate consumed it — including
+        // for an exempt admin. No post-call lookup, and therefore no failure
+        // window that could lose a row we could already account for.
+        //
+        // Per-second estimate decomposition: unit_price is the per-second rate
+        // and billing_units the duration, so unit_price * billing_units =
+        // computed_cost holds. pricing_fetched_at is the write time; nothing
+        // was fetched, which is what is_estimated = true says.
+        const perSecond = durationSec > 0 ? estimatedCostUsd / durationSec : estimatedCostUsd;
+        await recordCost({
+          userId: authenticatedUserId,
+          jobType: "video",
+          endpointId,
+          unitPriceAtCreation: perSecond,
+          billingUnits: durationSec > 0 ? durationSec : 1,
+          computedCostUsd: estimatedCostUsd,
+          pricingFetchedAt: new Date(),
+          isEstimated: true,
+          jobReferenceId: jobRef,
+        });
+      }
     }
 
     const responseBody = {

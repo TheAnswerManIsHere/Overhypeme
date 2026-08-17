@@ -29,6 +29,7 @@ import {
   BudgetExceededError,
   BudgetGateError,
   checkBudget,
+  noteLedgerWriteFailure,
   recordCost,
 } from "../lib/budgetGate.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
@@ -426,6 +427,7 @@ describe("recordCost", () => {
       computedCostUsd: 0.20,
       pricingFetchedAt: fetchedAt,
       jobReferenceId: "ref_abc",
+      isEstimated: false,
     });
     const rows = await db
       .select()
@@ -451,6 +453,7 @@ describe("recordCost", () => {
       billingUnits: 100,
       computedCostUsd: 0.50,
       pricingFetchedAt: new Date(),
+      isEstimated: false,
     });
     const [row] = await db
       .select()
@@ -470,6 +473,7 @@ describe("recordCost", () => {
       billingUnits: 9,
       computedCostUsd: 0.45,
       pricingFetchedAt: new Date(),
+      isEstimated: false,
     });
     const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, false);
@@ -615,3 +619,136 @@ describe("checkBudget — a config-READ failure also fails closed (#409 round 1)
     }
   });
 });
+
+// ── Release B: cost provenance and the accounting-health signal ────────────────
+//
+// The plan's guarantee is that a generation reaching the recording point leaves
+// a row *with its provenance*. These cover the ledger side of that; the
+// call-site side (the removed `if (priced)` guards) is exercised by the
+// pipeline suites.
+
+describe("recordCost — provenance", () => {
+  it("persists is_estimated=false for a provider-resolved rate", async () => {
+    const userId = await createTestUser();
+    await recordCost({
+      userId,
+      jobType: "image",
+      endpointId: "fal-ai/probe",
+      unitPriceAtCreation: 0.04,
+      billingUnits: 1,
+      computedCostUsd: 0.04,
+      pricingFetchedAt: new Date(),
+      isEstimated: false,
+      jobReferenceId: "probe-priced",
+    });
+    const [row] = await db
+      .select({ isEstimated: userGenerationCostsTable.isEstimated })
+      .from(userGenerationCostsTable)
+      .where(eq(userGenerationCostsTable.userId, userId));
+    assert.equal(row?.isEstimated, false);
+  });
+
+  it("persists is_estimated=true for an operator-configured estimate", async () => {
+    const userId = await createTestUser();
+    await recordCost({
+      userId,
+      jobType: "video",
+      endpointId: "fal-ai/probe-video",
+      unitPriceAtCreation: 0.05,
+      billingUnits: 6,
+      computedCostUsd: 0.3,
+      pricingFetchedAt: new Date(),
+      isEstimated: true,
+      jobReferenceId: "probe-estimated",
+    });
+    const [row] = await db
+      .select({ isEstimated: userGenerationCostsTable.isEstimated })
+      .from(userGenerationCostsTable)
+      .where(eq(userGenerationCostsTable.userId, userId));
+    assert.equal(row?.isEstimated, true);
+  });
+
+  it("keeps unit_price * billing_units = computed_cost on an estimated row", async () => {
+    // The decomposition invariant from the plan. It is what keeps Release C's
+    // classifier meaningful for rows written AFTER this change: R3 keys on
+    // billing_units = 1, which must be true because the writer chose it, not
+    // by accident.
+    const userId = await createTestUser();
+    await recordCost({
+      userId,
+      jobType: "video",
+      endpointId: "fal-ai/probe-video",
+      unitPriceAtCreation: 0.05,
+      billingUnits: 6,
+      computedCostUsd: 0.3,
+      pricingFetchedAt: new Date(),
+      isEstimated: true,
+      jobReferenceId: "probe-decomposition",
+    });
+    const [row] = await db
+      .select({
+        unitPrice: userGenerationCostsTable.unitPriceAtCreation,
+        units: userGenerationCostsTable.billingUnits,
+        total: userGenerationCostsTable.computedCostUsd,
+      })
+      .from(userGenerationCostsTable)
+      .where(eq(userGenerationCostsTable.userId, userId));
+    assert.ok(row);
+    const product = Number(row.unitPrice) * Number(row.units);
+    assert.ok(
+      Math.abs(product - Number(row.total)) < 1e-6,
+      `unit_price * billing_units (${product}) must equal computed_cost (${row.total})`,
+    );
+  });
+
+  it("counts estimated rows toward the enforcement ceiling", async () => {
+    // The Must-Not-Change invariant: excluding estimated rows from the SUM
+    // would reopen the fail-open PR #474 closed.
+    await setStandardLimits({ registeredUsd: 0.1 });
+    const userId = await createTestUser({ tier: "registered" });
+    await recordCost({
+      userId,
+      jobType: "image",
+      endpointId: "fal-ai/probe",
+      unitPriceAtCreation: 0.09,
+      billingUnits: 1,
+      computedCostUsd: 0.09,
+      pricingFetchedAt: new Date(),
+      isEstimated: true,
+      jobReferenceId: "probe-ceiling",
+    });
+    const status = await checkBudget(userId, 0.05);
+    assert.equal(status.allowed, false, "an estimated row must consume the ceiling");
+    assert.ok(status.currentSpend >= 0.09);
+  });
+});
+
+describe("noteLedgerWriteFailure", () => {
+  it("increments the counter and stamps the timestamp", async () => {
+    const before = await readCounter();
+    await noteLedgerWriteFailure();
+    const after = await readCounter();
+    assert.equal(after, before + 1, "the lost-write counter must advance");
+
+    const [stamp] = await db
+      .select({ value: adminConfigTable.value })
+      .from(adminConfigTable)
+      .where(eq(adminConfigTable.key, "ledger_write_failure_last_at"));
+    assert.ok(stamp?.value, "the most-recent-failure timestamp must be set");
+  });
+
+  it("is monotonic across repeated failures", async () => {
+    const before = await readCounter();
+    await noteLedgerWriteFailure();
+    await noteLedgerWriteFailure();
+    assert.equal(await readCounter(), before + 2);
+  });
+});
+
+async function readCounter(): Promise<number> {
+  const [row] = await db
+    .select({ value: adminConfigTable.value })
+    .from(adminConfigTable)
+    .where(eq(adminConfigTable.key, "ledger_write_failures"));
+  return Number(row?.value ?? "0");
+}

@@ -70,6 +70,16 @@ export interface RecordCostParams {
   computedCostUsd: number;
   pricingFetchedAt: Date;
   jobReferenceId?: string | null;
+  /**
+   * Cost provenance, REQUIRED — deliberately not optional and deliberately not
+   * defaulted. Every call site knows which branch produced its figure, and a
+   * default would silently record the wrong provenance for whichever site
+   * forgot to pass it. `false` = derived from fal's published rate; `true` =
+   * derived from an operator-configured estimate or a hard-coded fallback.
+   *
+   * NOT measured-vs-estimated: no row here holds an actual provider charge.
+   */
+  isEstimated: boolean;
 }
 
 /** Resolve the start-of-period date based on budget_period config. */
@@ -217,8 +227,15 @@ export async function checkBudget(
 
 /**
  * Record a completed generation job's cost into the ledger.
- * Call this AFTER successful fal.ai submission — not before.
- * Never throws.
+ * Call this AFTER a successful fal.ai call — not before.
+ * Never throws: it runs after the provider has already been paid, so failing
+ * the user's generation here would punish them for our bookkeeping.
+ *
+ * A swallowed failure is NOT harmless, and the plan is explicit that this is
+ * accepted rather than solved (David, 2026-08-17): the enforcement SUM stays
+ * permanently low, so the ceiling is measured against an understated total from
+ * that moment on. `noteLedgerWriteFailure` is what makes that visible instead
+ * of silent — it does not make it correct.
  */
 export async function recordCost(params: RecordCostParams): Promise<void> {
   try {
@@ -231,8 +248,60 @@ export async function recordCost(params: RecordCostParams): Promise<void> {
       computedCostUsd: String(params.computedCostUsd),
       pricingFetchedAt: params.pricingFetchedAt,
       jobReferenceId: params.jobReferenceId ?? null,
+      isEstimated: params.isEstimated,
     });
   } catch (err) {
-    logger.warn({ err }, "[budgetGate] recordCost failed (non-fatal)");
+    logger.warn(
+      { err, userId: params.userId, jobType: params.jobType, endpointId: params.endpointId },
+      "[budgetGate] recordCost failed (non-fatal) — this user's recorded spend is now permanently understated",
+    );
+    await noteLedgerWriteFailure();
+  }
+}
+
+/**
+ * Record that a ledger write was lost, so a human can see it without reading
+ * logs. Counter plus most-recent timestamp in `admin_config`; deliberately not
+ * a per-failure table, because an unbounded second write path on a database
+ * that is already failing makes things worse rather than better.
+ *
+ * ITS OWN FAILURE IS EXPECTED AND ACCEPTED. If `recordCost`'s insert failed
+ * because the database is unavailable, this write fails for the same reason —
+ * so the structured log line above is the floor and this counter is a
+ * best-effort improvement on it. Specifying a signal that survives its own
+ * dependency's outage would produce an implementation that quietly doesn't.
+ *
+ * What it does catch is the quiet case: a constraint violation, a
+ * serialization failure, one lost insert against an otherwise-healthy database
+ * — where nothing else is on fire and no other alarm would ever sound. A total
+ * outage is already loud through every failing request.
+ *
+ * Also incremented when an admin-path estimate lookup fails and the row is
+ * skipped (see aiMemePipeline), which is the other way a generation can end up
+ * unrecorded.
+ */
+export async function noteLedgerWriteFailure(): Promise<void> {
+  try {
+    await db.execute(sql`
+      INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+      VALUES ('ledger_write_failures', '1', 'number',
+              'Lost ledger writes',
+              'Count of generation-cost rows that could not be written. Each one permanently understates that user''s recorded spend, so the ceiling binds against a low total. Non-zero warrants investigation.',
+              false)
+      ON CONFLICT (key) DO UPDATE
+        SET value = (COALESCE(NULLIF(admin_config.value, ''), '0')::bigint + 1)::text
+    `);
+    await db.execute(sql`
+      INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+      VALUES ('ledger_write_failure_last_at', now()::text, 'string',
+              'Last lost ledger write',
+              'Timestamp of the most recent generation-cost row that could not be written.',
+              false)
+      ON CONFLICT (key) DO UPDATE SET value = now()::text
+    `);
+  } catch (err) {
+    // The floor. See the doc comment: this failing is an expected outcome of
+    // the failure it reports, not a defect to guard against.
+    logger.warn({ err }, "[budgetGate] could not record the ledger-write failure counter");
   }
 }
