@@ -1234,14 +1234,154 @@ const LOOKS_DESTRUCTIVE =
   /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push|(?:^|[\s;&|(])(?:[\w.\/-]*\/)?(?:curl|wget)\s/;
 
 /**
- * Matches one heredoc block: group 1 is the opener token plus anything
- * chained after it on the SAME line, group 2 the optional quote, group 3 the
- * delimiter word, group 4 the body (everything between the opener line and
- * the terminator line). Shared by `stripHeredocs` (which discards group 4)
- * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
- * sync by construction rather than by two hand-maintained copies.
+ * Read the delimiter word of a heredoc opener using Bash's own quoting rules,
+ * returning the LITERAL delimiter (what the terminator line must equal, after
+ * quote removal) and the index just past the word.
+ *
+ * This is a scanner rather than a regex because the delimiter is a quoted
+ * word, and a regex cannot both find the closing quote and honour escapes
+ * inside it. Three revisions of this PR tried: each widened a character class
+ * to whatever example had just been produced (`MSG-1`, then `.MSG`/`-MSG`,
+ * then `NOTE:1`), and the fourth example broke it again -- `cat <<"A\"B"`,
+ * where the escaped quote is not the closing one. Bash's delimiter is
+ * `A"B`; a `(['"]?)…\1` shape reads it as `A\` and then hunts for the wrong
+ * terminator, deleting real commands that sit between the two. So the word is
+ * parsed the way the shell parses it, and there is no character class left to
+ * discover.
+ *
+ * Returns null when the word is absent or its quoting is unterminated -- both
+ * mean "not a heredoc opener we can reason about", which leaves the text
+ * intact for the rules downstream rather than guessing at a body.
  */
-const HEREDOC_RE = /(<<-?(['"]?)([^\s'"<>|&;()\n]+)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
+function scanHeredocDelimiter(text, start) {
+  let literal = "";
+  let i = start;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === "\n" || /\s/.test(c) || "<>|&;()".includes(c)) break;
+    if (c === "'") {
+      const close = text.indexOf("'", i + 1);
+      if (close === -1) return null;
+      const span = text.slice(i + 1, close);
+      if (span.includes("\n")) return null;
+      literal += span;
+      i = close + 1;
+      continue;
+    }
+    if (c === '"') {
+      i += 1;
+      let closed = false;
+      while (i < text.length) {
+        const d = text[i];
+        if (d === "\n") return null;
+        if (d === '"') {
+          closed = true;
+          i += 1;
+          break;
+        }
+        if (d === "\\") {
+          const next = text[i + 1];
+          // Inside double quotes Bash only treats a backslash as an escape
+          // before these four; anywhere else it is a literal backslash.
+          if (next === "$" || next === "`" || next === '"' || next === "\\") {
+            literal += next;
+            i += 2;
+            continue;
+          }
+          literal += d;
+          i += 1;
+          continue;
+        }
+        literal += d;
+        i += 1;
+      }
+      if (!closed) return null;
+      continue;
+    }
+    if (c === "\\") {
+      const next = text[i + 1];
+      if (next === undefined || next === "\n") return null;
+      literal += next;
+      i += 2;
+      continue;
+    }
+    literal += c;
+    i += 1;
+  }
+  if (!literal) return null;
+  return { literal, end: i };
+}
+
+/**
+ * Find the terminator line for `literal`, searching forward from `from`.
+ * Compared as a string rather than built into a pattern, so a delimiter
+ * containing regex metacharacters cannot change what counts as the end of
+ * the body.
+ */
+function findHeredocTerminator(text, from, literal) {
+  let pos = from;
+  while (pos <= text.length) {
+    let lineEnd = text.indexOf("\n", pos);
+    if (lineEnd === -1) lineEnd = text.length;
+    if (text.slice(pos, lineEnd).replace(/^[ \t]+/, "").replace(/[ \t]+$/, "") === literal) {
+      return { start: pos, end: lineEnd };
+    }
+    if (lineEnd === text.length) return null;
+    pos = lineEnd + 1;
+  }
+  return null;
+}
+
+/**
+ * Locate every complete heredoc block in `text`, left to right, each as
+ * `{ index, tokenEnd, bodyStart, body, end }` -- `index` at the `<<`,
+ * `tokenEnd` just past the delimiter word, and `end` at the close of the
+ * terminator line. Shared by `stripHeredocs` (which discards each body) and
+ * `checkShellStdinHeredocs` below (which inspects it) so the two stay in
+ * sync by construction rather than as two hand-maintained copies.
+ *
+ * An opener with no terminator yields nothing, matching the previous
+ * behaviour: without a terminator there is no body to identify, and assuming
+ * one runs to end-of-input would hide every command after it.
+ */
+function findHeredocs(text) {
+  const blocks = [];
+  let i = 0;
+  while (i < text.length) {
+    const at = text.indexOf("<<", i);
+    if (at === -1) break;
+    if (text[at + 2] === "<") {
+      i = at + 3; // `<<<` is a herestring, not a heredoc.
+      continue;
+    }
+    let cursor = at + 2;
+    if (text[cursor] === "-") cursor += 1;
+    const delimiter = scanHeredocDelimiter(text, cursor);
+    if (!delimiter) {
+      i = at + 2;
+      continue;
+    }
+    const openerLineEnd = text.indexOf("\n", delimiter.end);
+    if (openerLineEnd === -1) {
+      i = delimiter.end;
+      continue;
+    }
+    const terminator = findHeredocTerminator(text, openerLineEnd + 1, delimiter.literal);
+    if (!terminator) {
+      i = delimiter.end;
+      continue;
+    }
+    blocks.push({
+      index: at,
+      tokenEnd: delimiter.end,
+      bodyStart: openerLineEnd + 1,
+      body: text.slice(openerLineEnd + 1, terminator.start),
+      end: terminator.end,
+    });
+    i = terminator.end;
+  }
+  return blocks;
+}
 
 /**
  * Remove heredoc BODIES before tokenising.
@@ -1263,8 +1403,41 @@ const HEREDOC_RE = /(<<-?(['"]?)([^\s'"<>|&;()\n]+)\2[^\n]*)\n([\s\S]*?)^[ \t]*\
  * (by-then-orphaned) `<<DELIM` token itself erased.
  */
 export function stripHeredocs(input) {
-  const withoutBodies = input.replace(HEREDOC_RE, "$1");
-  return withoutBodies.replace(/<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g, " ");
+  let withoutBodies = "";
+  let cursor = 0;
+  for (const block of findHeredocs(input)) {
+    // `bodyStart - 1` is the opener line's own newline: everything up to it
+    // (the `<<DELIM` token and any command chained after it) survives.
+    withoutBodies += input.slice(cursor, block.bodyStart - 1);
+    cursor = block.end;
+  }
+  withoutBodies += input.slice(cursor);
+
+  // Pass two: erase the now-orphaned opener tokens. Scanned with the same
+  // grammar rather than a narrower pattern, so a delimiter this module can
+  // read is also a delimiter it can remove.
+  let withoutOpeners = "";
+  let kept = 0;
+  let i = 0;
+  while (i < withoutBodies.length) {
+    const at = withoutBodies.indexOf("<<", i);
+    if (at === -1) break;
+    if (withoutBodies[at + 2] === "<") {
+      i = at + 3;
+      continue;
+    }
+    let start = at + 2;
+    if (withoutBodies[start] === "-") start += 1;
+    const delimiter = scanHeredocDelimiter(withoutBodies, start);
+    if (!delimiter) {
+      i = at + 2;
+      continue;
+    }
+    withoutOpeners += withoutBodies.slice(kept, at) + " ";
+    kept = delimiter.end;
+    i = delimiter.end;
+  }
+  return withoutOpeners + withoutBodies.slice(kept);
 }
 
 /**
@@ -1283,10 +1456,10 @@ export function stripHeredocs(input) {
  */
 function checkShellStdinHeredocs(text, depth) {
   if (depth >= MAX_NESTED_SHELL_DEPTH) return null;
-  for (const match of text.matchAll(HEREDOC_RE)) {
-    const lineStart = text.lastIndexOf("\n", match.index) + 1;
-    const prefix = text.slice(lineStart, match.index).trim();
-    const body = match[4];
+  for (const block of findHeredocs(text)) {
+    const lineStart = text.lastIndexOf("\n", block.index) + 1;
+    const prefix = text.slice(lineStart, block.index).trim();
+    const body = block.body;
 
     let tokens;
     try {

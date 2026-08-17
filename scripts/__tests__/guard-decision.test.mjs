@@ -178,6 +178,12 @@ const MUST_BLOCK = [
   ["round 9: and with a leading-dot delimiter", "/usr/bin/curl --help <<'.MSG'\nDavid's note\n.MSG"],
   ["round 10: and with a colon", "/usr/bin/curl --help <<'NOTE:1'\nDavid's note\nNOTE:1"],
   ["a shell stdin heredoc with a punctuated delimiter", "bash <<'RUN:1'\ngit push -f origin claude/x\nRUN:1"],
+  // Round 11: the delimiter is a QUOTED WORD, so finding its end needs the
+  // shell's escape rules, not a `(['"]?)…\1` pair. Bash's delimiter here is
+  // `A"B`; reading it as `A\` hunts for the wrong terminator and deletes the
+  // real push sitting between the two.
+  ['round 11: an escaped quote must not move the terminator', 'cat <<"A\\"B"\nA"B\ngit push -f origin main\nA\\'],
+  ["the same over-match from unquoted escaped whitespace", "cat <<A\\ B\nA B\ngit push -f origin main\nA\\"],
   // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
   // pipeline. A plausible diagnostic command, and one the deleted sweep had
   // been masking.
@@ -226,6 +232,12 @@ const MUST_ALLOW = [
   // Round 10: a colon is outside every punctuation allowlist I had written,
   // which is why the class is now negated rather than enumerated.
   ["a colon in the delimiter", "cat <<'NOTE:1'\nUse /usr/bin/curl for the probe; David's note\nNOTE:1"],
+  // Round 11: the same escaped-quote delimiter, read correctly, is an
+  // ordinary inert body.
+  ['an escaped quote inside a double-quoted delimiter', 'cat <<"A\\"B"\nUse /usr/bin/curl for the probe; David\'s note\nA"B'],
+  // The terminator is compared as a string, so a delimiter carrying regex
+  // metacharacters cannot make an unrelated line end the body early.
+  ["a delimiter containing regex metacharacters", "cat <<'A.B'\nAXB\ngit push -f origin main\nA.B"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
