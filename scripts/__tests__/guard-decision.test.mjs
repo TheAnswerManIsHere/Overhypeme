@@ -172,11 +172,15 @@ const MUST_BLOCK = [
   ["the attached spelling of the same", "env -Scurl https://api.github.com/x"],
   ["round 6: npx --call, the long spelling of -c", "npx --call 'curl https://api.github.com/x'"],
   ["npm exec --call likewise", "npm exec --call 'curl https://api.github.com/x'"],
-  // Round 6: a heredoc delimiter outside the identifier grammar makes
-  // tokenising throw, so only the conservative fallback sees this text.
-  ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
-  ["round 7: path-qualified on that same path", "/usr/bin/curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
-  ["round 9: and with a leading-dot delimiter", "/usr/bin/curl --help <<'.MSG'\nDavid's note\n.MSG"],
+  // The heredoc-delimiter work that rounds 8-15 produced is SPLIT OUT of this
+  // PR (David, 2026-08-17). Its rows travel with it. What remains here is the
+  // fetcher refusal, which is what this PR is about and which has been stable
+  // since round 6.
+  //
+  // The consequence is stated rather than hidden: with main's identifier-only
+  // delimiter grammar, a fetcher behind a punctuated heredoc delimiter reaches
+  // the untokenisable path, where `LOOKS_DESTRUCTIVE` -- known incomplete --
+  // decides. That is a pre-existing gap this PR neither widens nor closes.
   // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
   // pipeline. A plausible diagnostic command, and one the deleted sweep had
   // been masking.
@@ -213,15 +217,7 @@ const MUST_ALLOW = [
   // regression would be re-adding it.
   ["sudo -l lists privileges without running the command", "sudo -l curl"],
   ["an unlisted wrapper flag must not make data look executable", "sudo -n printf '%s\\n' curl"],
-  // Round 8: a non-identifier heredoc delimiter is now stripped, so an inert
-  // body mentioning a fetcher path is data, not a command. This is the shape
-  // of every doc and commit message this session wrote about the guard.
-  ["a heredoc body naming a fetcher path is prose", "cat <<'MSG-1'\nUse /usr/bin/curl for the probe; David's note\nMSG-1"],
-  // Round 9: the delimiter grammar must be uniform across positions. Bash
-  // documents the delimiter as an unrestricted `word`; widening only positions
-  // 2+ fixed the shape I had been shown and left these two broken.
-  ["a leading-dot delimiter", "cat <<'.MSG'\nUse /usr/bin/curl for the probe; David's note\n.MSG"],
-  ["a leading-dash delimiter", "cat <<'-MSG'\nUse /usr/bin/curl for the probe; David's note\n-MSG"],
+  ["an in-range octal escape still decodes", "cat <<$'\\101'\nUse /usr/bin/curl for the probe; David's note\nA"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
@@ -303,11 +299,21 @@ for (const [name, command] of MUST_ALLOW) {
 // ---------------------------------------------------------------------------
 
 test("unparseable input that looks destructive is blocked", () => {
-  // Unbalanced quote: tokenising throws, so the conservative scan decides.
+  // Unbalanced quote: tokenising throws.
   assert.equal(blocked("git push -f origin main 'unterminated"), true);
 });
 
 test("unparseable input that looks harmless is allowed", () => {
+  // This row asserts main's behaviour, unchanged by this PR: untokenisable
+  // text is allowed unless `LOOKS_DESTRUCTIVE` recognises it.
+  //
+  // That list is KNOWN INCOMPLETE -- Codex showed on #488 round 14 that
+  // `git push origin +main` is absent from it, so a force refspec behind an
+  // unreadable heredoc gets through. Refusing untokenisable text outright
+  // closes that, and reverses this row; it is split out with the heredoc
+  // scanner it depends on, because the pair was still converging after five
+  // rounds. Left here as main has it, so this PR's diff is the fetcher
+  // refusal and nothing else.
   assert.equal(blocked("echo 'unterminated"), false);
 });
 

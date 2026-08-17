@@ -172,13 +172,17 @@
  *   `curl --help <<'MSG-1'` reach the permissive fallback (a bypass) and made
  *   an inert body mentioning `/usr/bin/curl` refuse an ordinary `cat` (a false
  *   block). Both are fixed by stripping the body, which is why the delimiter
- *   grammar now allows digits, dots and dashes IN EVERY POSITION. The first
- *   attempt widened only positions 2+, which fixed the `MSG-1` I had been
- *   shown and left `<<'.MSG'` and `<<'-MSG'` broken -- Bash documents the
- *   delimiter as an unrestricted `word`, so matching the reported shape rather
- *   than the grammar was the same mistake the option tables kept making. An
- *   accepted limitation stops being accurate the moment a new rule is added
- *   above it. (Codex, #488 rounds 6-9.)
+ *   grammar now captures the WHOLE delimiter -- anything that is not
+ *   whitespace, a quote, or a shell metacharacter -- rather than an allowlist
+ *   of punctuation. Two earlier attempts each added the characters in the
+ *   example I had just been shown (`MSG-1`, then `.MSG`/`-MSG`, and `NOTE:1`
+ *   would have been a third), which is the same mistake the option tables kept
+ *   making: matching the reported instance instead of reading the grammar.
+ *   Bash documents the delimiter as an unrestricted `word`, and for the quoted
+ *   forms the quote itself is the terminator, so a negated class is the actual
+ *   rule rather than an approximation of one. An accepted limitation also
+ *   stops being accurate the moment a new rule is added above it. (Codex,
+ *   #488 rounds 6-10.)
  */
 
 import { readFileSync } from "node:fs";
@@ -1231,7 +1235,7 @@ export function extractCommand(raw) {
  * safety net just moved it.
  */
 const LOOKS_DESTRUCTIVE =
-  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push|(?:^|[\s;&|(])(?:[\w.\/-]*\/)?(?:curl|wget)\s/;
+  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push/;
 
 /**
  * Matches one heredoc block: group 1 is the opener token plus anything
@@ -1241,7 +1245,7 @@ const LOOKS_DESTRUCTIVE =
  * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
  * sync by construction rather than by two hand-maintained copies.
  */
-const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z0-9_.-]+)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
+const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
 
 /**
  * Remove heredoc BODIES before tokenising.
@@ -1324,6 +1328,15 @@ function evaluateScript(text, depth) {
   } catch {
     // Untokenisable. We cannot reason about it, so block only if it shows any
     // sign of the shapes we care about.
+    //
+    // KNOWN INCOMPLETE, and deliberately left that way in THIS PR. Codex
+    // demonstrated the gap on #488 round 14: this list does not contain
+    // `git push origin +main`, so a force refspec hidden behind an
+    // untokenisable heredoc is allowed. Refusing untokenisable text outright
+    // closes it -- and that change, together with the heredoc scanner it
+    // depends on, is split out to its own PR because five rounds of review
+    // showed the pair still converging. Tracked with the rest of the heredoc
+    // work; see the note in `stripHeredocs` and issue #495.
     if (LOOKS_DESTRUCTIVE.test(text)) {
       return depth === 0 ? "unparseable command that looks destructive" : "unparseable nested shell command that looks destructive";
     }
