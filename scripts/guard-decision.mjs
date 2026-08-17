@@ -1059,31 +1059,43 @@ const FETCHER_REFUSAL =
  *  - `/usr/bin/cu?l --version` -- Bash expands the glob before command lookup;
  *    this module compares the unexpanded word.
  *
- * ACCEPTED IN THE OTHER DIRECTION, round 17: ANY PROTECTED COMMAND NAMED IN AN
- * ARRAY LITERAL IS REFUSED, though Bash assigns strings and runs nothing. `(`
- * is an operator, so the literal's words are emitted as a command segment that
- * EVERY rule in this module then judges -- fetchers, `git push`, `git
- * update-ref` and its direct `git-update-ref` executable spelling, `rm -rf /`,
- * and `drizzle-kit push`, each enforced by a different branch of
- * `checkCommand`.
+ * ACCEPTED IN THE OTHER DIRECTION, round 17. THE RULE, stated by mechanism
+ * rather than by outcome: `(` is an operator, so an array literal's words are
+ * emitted as a command segment and judged as ORDINARY COMMAND ARGV. Nothing
+ * about arrays is special-cased; each rule then applies exactly as it would to
+ * a real command.
  *
- * THE ENUMERATION ABOVE IS ILLUSTRATIVE, NOT EXHAUSTIVE, and that wording is
- * load-bearing: this note has now been too narrow twice in consecutive rounds.
- * v1 named only `fetchers=(curl wget)` and called it the only over-blocking
- * gap (round 18). v2 named three rules and claimed the blast radius was
- * understated "by three rules" -- still missing `update-ref`, which is a
- * separate branch (round 19). The correct statement is structural: the
- * suppression is gone, so an array literal is judged by whatever rules exist,
- * and adding a rule to this module silently widens this gap.
+ * What that means in practice, which is NOT "every protected name is refused":
  *
- * That is the THIRD and FOURTH time in one session that a note here described
- * less than its code did, after the heredoc limitation and CLAUDE.md's receipt
- * claim. The standing lesson in the heredoc note -- a limitation stops being
- * accurate the moment a rule is added above it or removed beneath it -- needs
- * one addition: the person most likely to understate a change is the one who
- * just made it, describing it from the example that prompted it. Both times
- * here I documented a deletion by its motivating case rather than by what it
- * restored, and the second time I did it while fixing the first.
+ *  - Rules keyed on COMMAND POSITION bite when the protected program is the
+ *    literal's first word, and not otherwise. `ops=(git push -f origin main)`,
+ *    `cleanup=(rm -rf /)`, `fetchers=(curl wget)` and `ops=(git update-ref
+ *    refs/heads/main abc1234)` are all refused; `ops=(echo curl)` and
+ *    `ops=(echo git push -f origin main)` are ALLOWED, because argv[0] is
+ *    `echo`.
+ *  - Rules that scan ALL TOKENS bite wherever the name appears. The drizzle-kit
+ *    check is the one such rule here, so `ops=(echo drizzle-kit push)` is
+ *    refused where the `echo` prefix defuses every other rule.
+ *
+ * THIS NOTE HAS NOW BEEN WRONG THREE ROUNDS RUNNING, in both directions, and
+ * the sequence is the reason it is now written as a mechanism:
+ *
+ *  - v1 named only `fetchers=(curl wget)` and called it the only over-blocking
+ *    gap. Too narrow. (Round 18.)
+ *  - v2 named three rules and said the radius had been understated "by three",
+ *    still missing `update-ref`. Too narrow again. (Round 19.)
+ *  - v3 corrected that by asserting ANY protected command named in an array is
+ *    refused. FALSE -- `ops=(echo curl)` is allowed. Overcorrected into a claim
+ *    the code does not make, while calling itself structural. (Round 20.)
+ *
+ * The standing lesson in the heredoc note -- a limitation stops being accurate
+ * the moment a rule is added above it or removed beneath it -- needs two
+ * additions from this run. First, the person least able to describe a change's
+ * reach is the one who just made it, working from the example that prompted
+ * it. Second, and the one v3 missed: **fixing a too-narrow claim by widening
+ * the quantifier is not a fix.** "Some of these" and "all of these" are both
+ * outcome claims, and both go stale. Describing the mechanism, and letting the
+ * outcomes follow from it, is what survives the next rule being added.
  *
  * It is deliberate: the suppression written to allow these opened a fail-open
  * in each of its two versions (substitutions with no `$`, then integer-array
@@ -1138,10 +1150,23 @@ const FETCHER_REFUSAL =
  * patch the reported spelling, which is the move with a four-for-four failure
  * record here.
  *
- * The one change this rule does NOT bar is a DELETION. Removing machinery can
- * only turn allows into blocks, so it cannot open a hole -- which is why the
- * array suppression was deleted at round 17 rather than patched a third time,
- * and why that commit was the first in three rounds to survive review intact.
+ * THE ONE EXEMPTION, and it is narrower than the sentence that used to be
+ * here. That sentence read "removing machinery can only turn allows into
+ * blocks, so a deletion cannot open a hole." **That is false as a general
+ * claim about deletions**, and dangerous as guidance: deleting a PROTECTIVE
+ * branch -- `reachesFetcher`, a resolver, the push checks -- turns blocks into
+ * allows, which is the direction this module must never move in. A future
+ * session following it literally could have deleted exactly the wrong thing
+ * and cited this file for permission. (Codex, #488 round 20.)
+ *
+ * What was actually true of the round-17 change is narrower: it removed an
+ * ALLOW-PRODUCING suppression, so every verdict it could move went from allow
+ * to block. So the exemption is: **a removal is exempt when it deletes
+ * machinery whose only effect is to produce allows, and that has to be shown
+ * against the MUST_BLOCK/MUST_ALLOW table rather than asserted.** The array
+ * suppression qualified and was the first commit in three rounds to survive
+ * review intact. A deletion that cannot be shown to be monotonic in the
+ * restrictive direction gets no exemption and is an ordinary change.
  *
  * The rule this file follows now: the fetcher refusal is judged from the
  * RESOLVED PROGRAM and nothing else. Making the resolver perfect is a third

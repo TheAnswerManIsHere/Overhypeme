@@ -239,6 +239,12 @@ const MUST_BLOCK = [
   // own branch again.
   ["an update-ref in an array literal, a fourth distinct rule", "ops=(git update-ref refs/heads/main abc1234)"],
   ["the direct git-update-ref executable, same class", "ops=(/usr/lib/git-core/git-update-ref refs/heads/main abc1234)"],
+  // Round 20: the drizzle-kit rule scans ALL tokens rather than command
+  // position, so an inert leading word does NOT defuse it -- unlike every
+  // other rule (see the MUST_ALLOW rows below). Pinned because it is the one
+  // case that distinguishes "judged as ordinary argv" from "the first word
+  // decides", and the header's claim now rests on that distinction.
+  ["a drizzle-kit push behind an inert word is still caught, because that rule scans every token", "ops=(echo drizzle-kit push)"],
   ["an unclosed array paren is not suppressed", "arr=(curl wget"],
   ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
   ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
@@ -342,6 +348,15 @@ const MUST_ALLOW = [
   // operator, so an array literal was segmented into a command whose argv[0]
   // was `curl`, contradicting that boundary.
   ["an ordinary array is unaffected", "files=(a.txt b.txt)"],
+  // Round 20: the over-block is NOT "any protected name in an array". Array
+  // contents are judged as ordinary command argv, so a rule keyed on command
+  // position does not fire when an inert word comes first. These rows are the
+  // counter-examples that refuted the header's previous "ANY PROTECTED COMMAND
+  // NAMED ... IS REFUSED" claim, and they are pinned so a future widening of
+  // that claim fails the suite instead of shipping.
+  ["an inert leading word defuses the fetcher rule", "ops=(echo curl)"],
+  ["and the push rule", "ops=(echo git push -f origin main)"],
+  ["and the rm rule", "ops=(echo rm -rf /)"],
   // A dispatcher's `--` ends ITS options; `--call` past that boundary belongs
   // to the invoked package. Measured for the shell branch too: `bash -- -c
   // 'printf X'` reports `bash: -c: No such file or directory`, so bash reads
