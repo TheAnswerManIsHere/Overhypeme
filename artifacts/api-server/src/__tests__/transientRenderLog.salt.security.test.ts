@@ -206,18 +206,26 @@ describe("boot wiring: the assertion runs before the database graph loads", () =
     });
   });
 
+  // Both specifiers are compared EXACTLY, everywhere in this block. A substring
+  // or regex match is what lets a near-miss module satisfy an invariant it does
+  // not actually uphold — `./lib/preinstrument` matches /instrument/, and
+  // `./lib/bootChecksLater` contains "bootChecks", so either could sit in the
+  // pinned position while the real module loads too late. Names, not patterns.
+  const INSTRUMENT = "./instrument";
+  const BOOT_CHECKS = "./lib/bootChecks.js";
+
   describe("index.ts imports it before anything that can reach the database", () => {
     it("imports lib/bootChecks at all", () => {
       assert.ok(
-        importSpecifiers.some((m) => m.includes("bootChecks")),
-        "index.ts must import ./lib/bootChecks for its side effect",
+        importSpecifiers.includes(BOOT_CHECKS),
+        `index.ts must import "${BOOT_CHECKS}" for its side effect`,
       );
     });
 
     it("imports it as a bare side-effect import, with no bindings", () => {
       const decl = source.statements
         .filter(ts.isImportDeclaration)
-        .find((s) => ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text.includes("bootChecks"));
+        .find((s) => ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text === BOOT_CHECKS);
       assert.ok(decl);
       assert.equal(
         decl.importClause,
@@ -237,19 +245,21 @@ describe("boot wiring: the assertion runs before the database graph loads", () =
       //    @workspace/db, whose evaluation opens a pool and, in the bundle,
       //    runs migrations before any statement of index.ts executes.
       //
-      // Stated as two equalities rather than "bootChecks is at 0 or 1": that
-      // looser form silently accepts the swapped order, since nothing before
-      // index 0 remains to check.
+      // Stated as two exact equalities. Every looser form has a hole: a range
+      // ("index 0 or 1") accepts the swapped order, and a substring or regex
+      // accepts a near-miss name in the pinned slot while the real module
+      // loads later.
       assert.ok(importSpecifiers.length >= 2, "index.ts must have at least two imports");
-      assert.match(
-        importSpecifiers[0] ?? "",
-        /instrument/,
-        `./instrument must be import #0 in index.ts (found "${importSpecifiers[0]}") — ` +
+      assert.equal(
+        importSpecifiers[0],
+        INSTRUMENT,
+        `"${INSTRUMENT}" must be import #0 in index.ts (found "${importSpecifiers[0]}") — ` +
           "Sentry patches modules as they load, so anything ahead of it loads unpatched",
       );
-      assert.ok(
-        (importSpecifiers[1] ?? "").includes("bootChecks"),
-        `lib/bootChecks must be import #1 in index.ts (found "${importSpecifiers[1]}") — ` +
+      assert.equal(
+        importSpecifiers[1],
+        BOOT_CHECKS,
+        `"${BOOT_CHECKS}" must be import #1 in index.ts (found "${importSpecifiers[1]}") — ` +
           "any import evaluated before it can reach the database before the salt is checked",
       );
     });
