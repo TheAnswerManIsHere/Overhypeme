@@ -154,9 +154,22 @@ renders whichever it is pointed at.
   rather than creating a second derived source; nothing else may infer
   provenance from `pricing_fetched_at`, `billing_units`, or the reference id
   after this lands.
-- **The estimate value itself** — the persisted `engines` row
-  (`estimated_cost_usd_per_call` / `_per_second`), per PR #474's precedence
-  decision (persisted row over code seed). Unchanged.
+- **The estimate value itself** — *not* a single source, and the plan's first
+  draft said it was. `fallbackImageCostUsd` resolves through a precedence
+  chain: **persisted-exact** (the `engines` row for that model) → **catalogue-
+  exact** (the code seed for that model) → **max-across-persisted**, with a
+  model-specific figure always beating an aggregate, per PR #474's decision. The
+  video stages add a fourth tier: a **hard-coded constant** (`STAGE1_FALLBACK_
+  COST = 0.03`, and its stage-3 equivalent) used when the engine row cannot be
+  read at all.
+
+  The consequence for this plan is a requirement, not a caveat: **the value
+  recorded is the exact value the gate used**, carried from the gate to the
+  ledger rather than re-derived at the write site. Re-reading "the engine row"
+  at recording time would silently disagree with the gate whenever the chain
+  fell past its first tier — which is precisely the situation in which an
+  estimate is being recorded at all. `is_estimated = true` means "this figure
+  came from somewhere in that chain," not "this came from the engines row."
 - **Ceiling values** — `admin_config` plus the per-user override. Untouched.
 
 No new source of truth is created; one implicit fact becomes explicit.
@@ -181,27 +194,93 @@ rejected: it would assert "measured" for every historical row, including the
 site-6 rows we know are estimates and cannot always identify. Recording an
 unknown as a known false is exactly the failure this column exists to prevent.
 
-**Backfill, by reference-id pattern, most-certain first:**
+**Backfill — positive proof only, in a dry run first.**
 
-| Rows | Set | Certainty |
-|---|---|---|
-| `job_reference_id LIKE 'videoJob_%_stage1_%'` | `true` | certain — site 4 is the only writer of that pattern, and it is always an estimate |
-| `job_reference_id LIKE 'videoJob_%_stage3'` | `true` | certain — same argument for site 7 |
-| `job_reference_id LIKE 'videoJob_%_stage2'` AND `billing_units = 1` AND `unit_price_at_creation = computed_cost_usd` | `true` | high — site 6's signature, scoped so the megapixel collision cannot reach it |
-| `job_reference_id LIKE 'videoJob_%_stage2'` (remainder) | `false` | high — site 5 computes `billing_units` from pixels × fps × duration, which is ≫ 1 |
-| everything else | `false` | certain — sites 1-3 record only when a provider price resolved |
-| anything the above leaves unmatched | `NULL` | honest unknown |
+Two rules govern it, and both exist because the first draft of this plan broke
+them:
 
-The final row is not decoration: it is the reason the column is nullable. If the
-patterns fail to cover something, the migration must leave it unknown rather
-than sweep it into `false`.
+1. **Only positively-proven shapes are written.** An "everything else → false"
+   sweep is forbidden: it would consume every unmatched row and make the `NULL`
+   bucket unreachable, which contradicts the entire reason the column is
+   nullable. Any row that matches no rule is *left untouched*.
+2. **No `UPDATE` runs until a read-only preflight has been inspected.** The
+   migration ships as two steps: a dry run that reports the counts each rule
+   *would* affect plus the unmatched remainder, and the mutation, which runs
+   only after those counts are reviewed and is aborted by the guard below.
 
-**Idempotency.** Column add is `IF NOT EXISTS`; the backfill is a set of
-`UPDATE … WHERE is_estimated IS NULL AND <pattern>`, so re-running converges and
-never revisits a classified row. **Rollback** is `DROP COLUMN` — no data loss,
-since nothing else is modified. **Observability**: the migration reports counts
-per bucket, including the `NULL` remainder, and the remainder count is the
-number to look at.
+| Rule | Rows | Set | Basis |
+|---|---|---|---|
+| R1 | `job_reference_id LIKE 'videoJob_%_stage1_%'` | `true` | site 4 is the only writer of that pattern and is always an estimate |
+| R2 | `job_reference_id LIKE 'videoJob_%_stage3'` | `true` | same argument for site 7 |
+| R3 | `job_reference_id LIKE 'videoJob_%_stage2'` AND `billing_units = 1` | `true` | site 6's shape; site 5 computes `billing_units` from pixels x fps x duration, which is never 1 |
+| R4 | `job_reference_id LIKE 'videoJob_%_stage2'` AND `billing_units > 1` | `false` | site 5's shape, stated positively rather than as a remainder |
+| R5 | `job_reference_id NOT LIKE 'videoJob_%'` | `false` | sites 1-3 record only when a provider price resolved |
+| — | anything matching no rule | **left `NULL`** | provenance genuinely unrecoverable |
+
+**`unit_price_at_creation = computed_cost_usd` is NOT part of R3, and must not
+be reintroduced.** It looks like a natural discriminator — site 6 writes the
+same JS number into both columns — but the columns have different scales
+(`numeric(12,6)` and `numeric(10,4)`), so Postgres stores a cost of `0.61728`
+as `0.617280` and `0.6173`, which are not equal. Verified directly:
+
+```sql
+select (0.61728::numeric(12,6))::text, (0.61728::numeric(10,4))::text,
+       (0.61728::numeric(12,6) = 0.61728::numeric(10,4));
+--  0.617280 | 0.6173 | f
+```
+
+Any operator-configured rate with more than four decimal places would therefore
+fail the equality, fall through, and be labelled provider-resolved — silently
+mislabelling exactly the rows this column exists to identify. `billing_units = 1`
+alone carries the distinction, and is scale-independent.
+
+**Scoping every rule to a reference-id pattern is load-bearing**, per the
+Current Behavior analysis: `billing_units = 1` is also the signature of every
+single-image per-image-priced row, so an unscoped rule would mislabel a whole
+class of correctly-measured image rows.
+
+**Abort condition.** The mutation step refuses to run if the unmatched remainder
+exceeds a threshold agreed from the dry-run output, or if R3 and R4 do not
+partition the stage-2 rows exactly (their counts must sum to the total number of
+stage-2 rows — any row with `billing_units` neither `1` nor `> 1`, i.e. a value
+below 1, is unaccounted for and stops the migration). A surprising distribution
+must **prevent** the write, not be discovered in its output.
+
+**Idempotency.** Every rule is `UPDATE … WHERE is_estimated IS NULL AND <rule>`,
+so re-running converges and never revisits a classified row. Re-running the dry
+run is free.
+
+**Rollout ordering, and the window it closes.** Migrations run at server
+startup (`await runMigrations()` in `index.ts`), and autoscale can have several
+instances, so "add the column and backfill in one step" leaves a window: after
+the transaction commits, still-running old instances keep inserting rows with no
+flag, and because the migration is hash-recorded it never runs again — those
+rows stay `NULL` permanently and invisibly. The rollout is therefore three
+phases, in this order:
+
+1. **Expand.** Add the nullable column only. No backfill. Backward-compatible:
+   old instances keep inserting successfully, their rows simply carry `NULL`.
+2. **Deploy the writers.** Every ledger site now supplies the flag. Wait for the
+   old instances to drain.
+3. **Classify.** A *separate* later migration runs the dry run and then the
+   backfill, so any row written by an old binary during the window is classified
+   by the same rules as the historical rows.
+
+Phase 3 must not be folded into phase 1 as a convenience. The whole point is
+that it runs after the writers, not before them.
+
+**Rollback is app-first, and the column stays.** `DROP COLUMN` is not a lossless
+rollback once phase 2 has shipped — it discards provenance that only exists
+there — and dropping it while the new app is live breaks that app's inserts and
+spend queries. So: to roll back, revert the *application* and leave the column
+in place. It is nullable and unread by the old code, so it is inert. Dropping it
+is reserved for abandoning the work entirely, and is an explicit acceptance that
+provenance written since phase 2 is lost. Recovery after phase 2 is otherwise
+**forward-only**.
+
+**Observability.** The dry run reports per-rule counts and the unmatched
+remainder before anything is written; the mutation reports what it actually
+changed. The remainder is the number to look at.
 
 **Row-state matrix** (`old` = pre-migration rows, `new` = written after):
 
@@ -245,25 +324,76 @@ null-guard mistake already recorded in `.agents/memory/`.
 the gate already denies with `BudgetGateError`, so no generation happens and
 there is nothing to record. Unchanged.
 
-**`recordCost` write failure.** Still non-fatal, still WARN. What changes: the
-failure becomes *visible* rather than only logged, so a silently under-counting
-ledger is detectable. The minimum is a counter or health field that an admin
-surface can read, consistent with the async-status rule; the plan's requirement
-is that a lost ledger write is observable somewhere a human looks, not the
-specific surface. Retry is deliberately **out of scope**: a retry loop after a
-completed provider call is its own failure mode, and the observable-failure
-requirement is what closes the "silently stops binding" hole.
+**The admin path is the exception, and it needs stating explicitly.**
+`checkBudget` returns at its admin exemption *before* invoking the cost thunk —
+deliberately, since resolving a fallible read ahead of an exemption is the
+ordering bug PR #474 fixed. So for an admin's unpriced generation there is no
+gate-resolved figure to carry forward, and the invariant above ("record what the
+gate used") has no referent. Two things follow, and neither may be traded for
+the other:
+
+- **The gate must not resolve the estimate for admins.** Making `checkBudget`
+  evaluate the thunk before the exemption in order to give the recorder a value
+  would reintroduce exactly the fail-closed-before-exemption bug. Off the table.
+- **Recording resolves it after the provider call, inside the non-fatal
+  envelope.** The estimate lookup for an admin row happens at recording time,
+  wrapped so that a failure logs and skips the row rather than throwing
+  `BudgetGateError` into a generation that has already completed and already
+  cost money. A skip here is one of the lost-write cases the accounting-health
+  signal must surface.
+
+So an admin's unpriced generation is recorded on a best-effort basis, and its
+absence is visible rather than silent. That is weaker than the guarantee for
+non-admin rows, and deliberately so: admins are exempt from the ceiling, so
+their rows are cost telemetry rather than enforcement input.
+
+**`recordCost` write failure — and a correction to what this plan first claimed
+about it.** The first draft said observability "closes the silently-stops-binding
+hole." **It does not, and that sentence was wrong.** A swallowed insert leaves
+the SUM permanently low; a counter tells a human it happened, but the ceiling is
+still measured against an under-stated total from that moment on. Making a
+failure *visible* and making the ceiling *bind* are different properties, and
+only the first is delivered by observability.
+
+That leaves a genuine fork, and it is **David's to decide, not mine** — it trades
+a widened ceiling against either added machinery or refused generations. It is
+escalated in *Questions for David* below. Until it is answered, this plan
+specifies only the part that is not in dispute:
+
+- The failure is recorded in a durable accounting-health signal (not just a log
+  line), carrying at minimum the count of lost writes and the timestamp of the
+  most recent one, readable from an admin surface per the async-status rule.
+- The same signal covers the admin-path skip described above.
+
+**Retry is not the automatic answer.** A retry loop after a completed provider
+call is its own failure mode — it can double-count if the first insert actually
+succeeded and the acknowledgement was lost. Any retry design has to be
+idempotent on a key this table does not currently have, which is part of what
+makes the fork a real decision rather than an oversight.
 
 ## Admin/User UX Impact
 
-`SpendHistory.tsx` (both audiences) gains a marker on any period containing at
-least one estimated or unknown row: the figure carries a `~` and the period
-shows a short "includes estimated costs" note. Empty, loading and error states
-are unchanged. No new screen, no new route.
+**The admin half is straightforward.** `SpendHistory.tsx` gains a marker on any
+period containing at least one estimated or unknown row: the figure carries a
+`~` and the period shows a short "includes estimated costs" note. Empty, loading
+and error states are unchanged.
+
+**The user half cannot be delivered as scoped, and this plan does not pretend
+otherwise.** Product Intent #3 says users see their estimated periods marked.
+But `SpendHistory.tsx` has exactly **one** mount in the entire frontend —
+`SpendInline` in `pages/admin/users.tsx`, passed `isAdmin` — so
+`GET /api/users/me/spend` is a live, self-scoped endpoint with **no user-facing
+UI at all**. Marking a component that no user can reach satisfies nothing.
+
+This is a scope addition (a new user-facing screen or panel, and where it
+lives), so per the now/next/never rule it goes to David rather than being
+absorbed. Escalated below. The consequence for sequencing: **steps 1-7 are
+unaffected and remain shippable**; only the user-facing render waits on that
+answer.
 
 The manual's payments chapter already states that a spend history is a good
 estimate rather than a bill; this makes that visible per period instead of only
-in prose.
+in prose — for whichever audiences can actually see it.
 
 ## Security, Permissions, and Validation
 
@@ -291,9 +421,23 @@ Automated, `pnpm --filter @workspace/api-server test`:
 5. **The backfill classifier**, against seeded rows in every shape from the
    Current Behavior table — including the two stage-2 shapes, which must
    classify differently despite identical reference ids, and an unmatched shape
-   that must remain `NULL`.
-6. **Backfill idempotency**: running twice produces the same classification and
+   that must **remain `NULL`** rather than being swept into `false`.
+6. **A fallback cost with more than four decimal places** (e.g. `0.61728`)
+   classifies as an estimate. This is the regression test for the scale trap:
+   the rejected `unit_price = computed_cost` discriminator passes every test
+   with a 2-decimal cost and fails only here.
+7. **A stage-2 row with `billing_units` below 1** trips the abort condition
+   rather than being classified, since R3 and R4 must partition the stage-2
+   rows exactly.
+8. **Backfill idempotency**: running twice produces the same classification and
    the same counts.
+9. **The rolling-deploy window**: a row inserted with no flag *after* the expand
+   phase — an old binary's write — is classified by the phase-3 backfill, not
+   left `NULL` forever. The test models old-app/new-schema, not just
+   pre-migration and new-writer rows.
+10. **An unpriced generation by an admin** produces a row on the happy path, and
+    on a forced estimate-lookup failure produces no row, no thrown error into
+    the completed generation, and an incremented lost-write signal.
 7. **`recordCost` failure is observable**: with the insert forced to fail, the
    generation still succeeds and the failure is visible through the surface
    chosen.
@@ -316,10 +460,17 @@ confirm the spend view marks the second.
 7. Both spend endpoints: return a per-period `hasEstimates` flag.
 8. `SpendHistory.tsx`: render the marker.
 9. Docs: `security-model.md` (what the flag means, and the `pricing_fetched_at`
-   caveat), `deferred-work.md` (close the two folded entries).
+   caveat), `deferred-work.md` (close the folded entries that this plan actually
+   closes — see the note below).
 
-Steps 1-6 are shippable without 7-8; the display is the last increment, not the
-enabling one.
+**Phasing, restated after round 1.** Step 1 is the *expand* phase and ships
+alone; steps 3-6 are the writers; the backfill (step 2) is a **separate later
+migration** that runs after the writers have drained the old instances, per the
+rollout ordering above. Steps 1-7 are unaffected by either open question. Step 8
+(the user-facing render) is blocked on Q2, and the `recordCost` recovery
+mechanism beyond the health signal is blocked on Q1 — so `deferred-work.md`'s
+`recordCost` entry closes only if David picks option 1 or 3; under option 2 it
+is superseded rather than closed.
 
 ## Risks and Mitigations
 
@@ -341,8 +492,47 @@ enabling one.
 
 ## Questions for David
 
-None outstanding. The display question (include / label / exclude) was answered
-on 2026-08-17: include and label.
+The display question (include / label / exclude) was answered on 2026-08-17:
+include and label. Codex round 1 raised two further decisions that are genuinely
+product-owner calls, and both are held rather than guessed.
+
+### Q1 — What should happen when a ledger write is lost?
+
+Observability alone leaves the ceiling measured against an under-stated total
+(see Runtime Behavior). Three options, each with a real cost:
+
+1. **Accept the widened ceiling; make it visible.** Cheapest, ships now, and the
+   exposure is bounded by how often inserts actually fail (today: unmeasured,
+   which is itself the argument for the health signal). Ramification: a user who
+   hits a lost write can spend past their ceiling by that row's value, silently
+   for them and visibly for us.
+2. **Fail closed on unhealthy accounting.** If lost writes are detected, refuse
+   further generation for that user until reconciled. Ramification: the ceiling
+   holds absolutely, but a database hiccup becomes a user-facing outage — and
+   this is a *stricter* fail-closed posture than anything currently in the
+   system.
+3. **Durable reconciliation.** Persist the intent before the provider call and
+   reconcile after, so a lost insert is recoverable. Ramification: correct
+   without refusing anyone, but it is a second table and an idempotency key this
+   ledger does not have — comfortably its own plan, not a fold-in here.
+
+**My recommendation: 1 now, 3 as a follow-up plan**, with the health signal
+built now either way so the decision is informed by real numbers rather than
+speculation. Option 2 trades a rare accounting error for a visible outage, which
+is the wrong direction pre-launch.
+
+### Q2 — Where does a user's own spend history live?
+
+There is no user-facing spend surface today. Options: a section on the profile
+page; a panel in the meme-builder near where budget is consumed; or **next**,
+deferring the user-facing half entirely and shipping the admin marking now.
+
+**My recommendation: defer it (next).** The enforcement and provenance work is
+valuable on its own and unblocked; adding a user-facing screen is a design
+question about what users should see about their own spending, which deserves
+its own conversation rather than being decided inside a migration plan. If that
+is the call, Product Intent #3 narrows to the admin surface for this increment,
+and the user-facing view becomes its own plan.
 
 ## Definition of Done
 
