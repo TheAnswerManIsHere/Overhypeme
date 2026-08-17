@@ -13,6 +13,40 @@
 
 ---
 
+### 2026-08-17 · The bash guard refuses curl and wget outright, and ships with its gaps written down
+- **Decision:** `scripts/guard-decision.mjs` refuses the `curl` and `wget`
+  programs entirely, with **no exception for any argument shape** — not even
+  the agent proxy's own `__agentproxy/status` probe. It judges the *resolved
+  program* and nothing else. The PR shipped with six known under-blocking gaps
+  and one over-block **documented in the module header rather than closed**,
+  each with a measured reproduction and the fix it would need.
+- **Why:** the first four revisions tried to decide whether a given invocation
+  would actually reach `api.github.com`, so unrelated fetches stayed available.
+  That is not a converging problem — doing it correctly means reimplementing
+  curl's and wget's argument grammars, and review found real defects in the
+  judgement four rounds running, in five different sub-languages of those
+  tools. The single allowlisted exception fared no better: three findings
+  against it in one round, one of them a `.curlrc` reached via `$CURL_HOME`,
+  which adds requests that never appear in argv and so cannot be caught by
+  inspecting arguments at all. Refusing the whole program is the only version
+  complete by construction. **Shipping with gaps was David's explicit call**
+  after 17 rounds: the guard's real job is stopping an accidental silent
+  CI-wait loop, which it does; the residual gaps all require deliberately
+  unusual invocations, and there is no adversary in this container.
+- **What it costs:** ad-hoc one-off fetches, including the proxy probe. That
+  fails **loudly** with an explanatory message, which is the opposite of the
+  silent 403-inside-a-pipeline failure the rule exists to prevent. Scripts that
+  run curl internally are unaffected — the hook sees the command line typed at
+  it, not a script's contents.
+- **Reference:** PR #488 (merged `f8428770`), 22 review rounds. The module
+  header carries the gap register; the abandoned-enumeration pattern is in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#one-example-bug-fixes),
+  and the transport facts behind the rule are in
+  [`.agents/memory/github-rest-api-blocked-from-bash.md`](../../.agents/memory/github-rest-api-blocked-from-bash.md).
+- **Revisit if:** an ad-hoc fetch becomes routine rather than exceptional, or
+  the container's proxy stops intercepting `api.github.com` — the silent-403
+  failure is the entire premise, and without it the trade changes.
+
 ### 2026-08-16 · The eval dashboard gets its own manual chapter, not a section inside an existing one
 - **Decision:** The render-quality eval dashboard gets **Manual chapter 13**.
   Rejected: a section inside chapter 5 (visual pipeline), and expanding the
