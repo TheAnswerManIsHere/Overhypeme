@@ -377,8 +377,19 @@ export async function ensureSchema(): Promise<void> {
         computed_cost_usd       NUMERIC(10,4) NOT NULL,
         pricing_fetched_at      TIMESTAMPTZ NOT NULL,
         job_reference_id        TEXT,
+        is_estimated            BOOLEAN,
         created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
       )`,
+    },
+    {
+      // Belt-and-braces for databases where the table already existed before
+      // migration 0101. On a FRESH database the CREATE above already carries
+      // the column and this is a no-op; on an existing one 0101 adds it. Both
+      // entries are needed — see the note on 0101 for why the migration alone
+      // is not sufficient.
+      label: "user_generation_costs.is_estimated",
+      ddl: `ALTER TABLE user_generation_costs
+            ADD COLUMN IF NOT EXISTS is_estimated BOOLEAN`,
     },
     {
       label: "user_generation_costs.IDX_user_created",

@@ -35,6 +35,21 @@
 -- Backward-compatible: instances running the previous build keep inserting
 -- successfully and simply leave the column NULL.
 --
+-- THIS MIGRATION IS NOT SUFFICIENT ON ITS OWN, AND THAT IS NOT AN OVERSIGHT.
+-- `user_generation_costs` is created by `ensureSchema()` (api-server
+-- lib/seed.ts), not by any migration, and `index.ts` runs `runMigrations()`
+-- BEFORE `ensureSchema()`. On a fresh or partial database the table therefore
+-- does not exist when this runs, and the statement below raises 42P01
+-- (`undefined_table`) — note that `IF NOT EXISTS` guards the COLUMN, not the
+-- TABLE. The runner treats 42P01 as an idempotency success and records this
+-- migration's hash, so it never retries; `ensureSchema()` would then create the
+-- table and the column would be absent forever.
+--
+-- The column is therefore ALSO declared in `ensureSchema()`'s CREATE TABLE, and
+-- carries its own ADD COLUMN IF NOT EXISTS entry there. Fresh databases get it
+-- from the seed; existing ones get it from this migration. Both paths converge
+-- on the same schema. Removing either half reopens the gap.
+--
 -- Source of truth: lib/db/src/schema/falPricing.ts.
 
 ALTER TABLE "user_generation_costs"
