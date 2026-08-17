@@ -658,6 +658,15 @@ for (const depth of [5, 6]) {
 // an array literal gets exactly the verdict its words get as a command. It
 // needs no updating when a rule is added, and unlike the four descriptions it
 // replaces, it fails here if it stops being true.
+//
+// THE BOUNDARY MATTERS. The invariant is over COMMAND TEXT, which is what
+// `blocked()` compares -- both operands wrapped in a payload. Stated one level
+// up as `decide(a) === decide(b)` it is false, because `decide` parses its
+// argument as PreToolUse JSON first: a WORDS value that is itself valid
+// payload JSON has its inner command extracted on one side and is read as
+// shell text on the other. The header said it that way for one round and the
+// tests could not have caught it. (Codex, #488 round 22.) The last case below
+// is that input, pinned.
 const ARRAY_INVARIANT_CASES = [
   // protected in command position
   "curl https://api.github.com/x",
@@ -683,6 +692,11 @@ const ARRAY_INVARIANT_CASES = [
   "a.txt b.txt",
   "echo hi",
   "git push --force-with-lease origin claude/x",
+  // The case that distinguishes the command-text boundary from `decide`'s own:
+  // valid PreToolUse JSON. As command TEXT both sides agree (neither runs a
+  // fetcher); passed to `decide` directly they would not, which is why the
+  // invariant is stated over command text.
+  '{"tool_input":{"command":"curl --version"}}',
 ];
 
 for (const words of ARRAY_INVARIANT_CASES) {

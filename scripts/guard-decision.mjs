@@ -1065,14 +1065,32 @@ const FETCHER_REFUSAL =
  * about arrays is special-cased; each rule then applies exactly as it would to
  * a real command.
  *
- * THE WHOLE STATEMENT, and it is deliberately one sentence with no list:
+ * THE WHOLE STATEMENT, and it is deliberately one sentence with no list. For a
+ * COMMAND TEXT `W` containing no operator:
  *
- *     decide("arr=(WORDS)") === decide("WORDS")
+ *     verdict("arr=(" + W + ")") === verdict(W)
  *
- * for any WORDS containing no operator. An array literal gets exactly the
- * verdict the same words would get as a command -- no more, no less. Which
- * commands those are is not restated here; it is whatever `checkCommand` does,
- * and the worked cases live in the assertion table where they can be run.
+ * where `verdict(x)` is what this module decides for a PreToolUse payload
+ * carrying `x` as its command. An array literal gets exactly the verdict the
+ * same words would get as a command -- no more, no less. Which commands those
+ * are is not restated here; it is whatever `checkCommand` does, and the worked
+ * cases live in the assertion table where they can be run.
+ *
+ * THE BOUNDARY IN THAT SENTENCE IS LOAD-BEARING, and getting it wrong was the
+ * fifth version's own bug. It first read `decide("arr=(WORDS)") ===
+ * decide("WORDS")`, which is FALSE: `decide` parses its argument as PreToolUse
+ * JSON first, so a `W` that is itself valid payload JSON --
+ * `{"tool_input":{"command":"curl --version"}}` -- gets its inner command
+ * extracted and blocked on the right-hand side, while the left-hand side is
+ * plain shell text and is allowed. The tests did not catch it because their
+ * helper wraps BOTH operands in a payload, so they were checking command-text
+ * equivalence all along, which is the true statement. (Codex, #488 round 22.)
+ *
+ * So the invariant was right and I wrote it one level up from where it holds
+ * and from where it is executed. Worth keeping visible: replacing prose with a
+ * formula does not make the formula checked -- it has to be stated at the
+ * boundary the test actually exercises, or it is just prose with an equals
+ * sign in it.
  *
  * THIS IS THE FIFTH VERSION OF THIS NOTE, and the previous four were each
  * wrong in a different way. The sequence is why it is now an invariant rather
