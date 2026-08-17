@@ -183,6 +183,7 @@
 
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { staleReason } from "./pr-ready.mjs";
 
 const ALLOW = 0;
 const BLOCK = 2;
@@ -1337,16 +1338,6 @@ function evaluateScript(text, depth) {
   return null;
 }
 
-/**
- * How stale a readiness receipt may be before a merge has to re-verify.
- *
- * The bar is a statement about live PR state, and live PR state moves: a review
- * lands, CI re-runs, a thread re-opens. An hour is long enough to cover the
- * ordinary "verify, write the report, click" sequence and short enough that a
- * receipt can't survive a conversation turning to something else and back.
- */
-const RECEIPT_MAX_AGE_MS = 60 * 60 * 1000;
-
 const RECEIPT_HOWTO =
   "Capture pull_request_read (get_check_runs, get_reviews, get_comments, get_review_comments) into a " +
   "snapshot and run `node scripts/pr-ready.mjs --pr <N> --snapshot <file>`.";
@@ -1411,24 +1402,13 @@ export function checkMerge(toolInput, { now = Date.now(), readReceipt, resolveSh
     return `merge blocked: the receipt for PR #${pr} says NOT READY -- ${failing || "no item detail recorded"}.`;
   }
 
-  // Aged against when the EVIDENCE was read, not when the script ran. Re-running
-  // a saved snapshot resets `generatedAt` while the data behind it stays as old
-  // as it was, so ageing the run would accept a days-old picture of the PR --
-  // past a reopened thread or a re-run that went red. (Codex, #490.)
-  const stamp = receipt.evidenceAt ?? receipt.generatedAt;
-  const age = now - Date.parse(stamp ?? 0);
-  if (!receipt.evidenceAt) {
-    return (
-      `merge blocked: the receipt for PR #${pr} records no evidenceAt, so its age describes when the ` +
-      `check ran rather than when the PR was read. ${RECEIPT_HOWTO}`
-    );
-  }
-  if (!Number.isFinite(age) || age < 0 || age > RECEIPT_MAX_AGE_MS) {
-    return (
-      `merge blocked: the receipt for PR #${pr} rests on evidence read ${stamp ?? "at an unreadable time"} ` +
-      `and is no longer current. Re-verify against live state -- reviews land and CI re-runs. ${RECEIPT_HOWTO}`
-    );
-  }
+  // ONE staleness predicate, imported rather than reimplemented. The previous
+  // revision claimed this was shared with `--show` and only half was: this
+  // function kept its own window constant and its own timestamp arithmetic, so
+  // a later change to either would have made the manual READY surface and this
+  // guard disagree about the same receipt. (Codex, #490 round 4.)
+  const stale = staleReason(receipt, now);
+  if (stale) return `merge blocked: ${stale} ${RECEIPT_HOWTO}`;
 
   // Everything below is the SHA binding, and every branch of it denies. A
   // receipt that cannot be tied to the commit GitHub would merge is not weaker

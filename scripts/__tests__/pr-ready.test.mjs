@@ -85,15 +85,6 @@ test("CI: every classifier-dependent job is required, not just Test", () => {
   }
 });
 
-test("CI: a run with no started_at cannot date the head commit", () => {
-  // started_at is what separates review requests made for THIS commit from
-  // ones made for an earlier one. (Codex, #490 round 3.)
-  const undated = allRequired().map(({ started_at, ...rest }) => rest);
-  const res = checkCi(undated, HEAD);
-  assert.equal(res.pass, false);
-  assert.match(res.detail, /no parseable started_at/);
-});
-
 test("CI: no runs at all is not green -- it is CI that has not started", () => {
   // An empty array would otherwise satisfy `every()` and read as a pass.
   assert.equal(checkCi([]).pass, false);
@@ -223,6 +214,45 @@ test("Codex: two requests on one head need two passes -- the stall-and-retry sha
   );
   assert.equal(res.pass, false);
   assert.match(res.detail, /2 review requests on .* but only 1 completed pass/);
+});
+
+test("Codex: a request posted BEFORE CI starts still counts against this head", () => {
+  // The bound must not postdate the head's appearance. Deriving it from the
+  // earliest check run's `started_at` was too late: a request posted right
+  // after the push but before CI began fell outside it, so a retry plus one
+  // late pass read as complete while the excluded request was outstanding.
+  // The commit's committer date necessarily precedes the push. (Codex, #490
+  // round 4.)
+  const bornAt = Date.parse("2026-08-17T04:00:00Z"); // commit created
+  const res = checkCodex(
+    [
+      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:01:00Z"), // before CI started
+      comment("me", "@codex review\n\nRound 1, retry.", "2026-08-17T04:20:00Z"),
+    ],
+    [pass("2026-08-17T04:30:00Z", HEAD)],
+    HEAD,
+    bornAt,
+  );
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /2 review requests/);
+});
+
+test("Codex: the ordering boundary is the LATEST qualifying pass", () => {
+  // With two passes on one head, threads captured between them satisfied a
+  // boundary set at the first while missing the second pass's unresolved
+  // findings. (Codex, #490 round 4.)
+  const bornAt = Date.parse("2026-08-17T03:30:00Z");
+  const res = checkCodex(
+    [
+      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
+      comment("me", "@codex review\n\nRound 2.", "2026-08-17T04:05:00Z"),
+    ],
+    [pass("2026-08-17T04:10:00Z", HEAD), pass("2026-08-17T04:40:00Z", HEAD)],
+    HEAD,
+    bornAt,
+  );
+  assert.equal(res.pass, true);
+  assert.equal(res.acceptedAt, Date.parse("2026-08-17T04:40:00Z"));
 });
 
 test("Codex: a request from BEFORE this head does not demand a pass on it", () => {
@@ -432,7 +462,7 @@ const LATER = "2026-08-17T05:00:00Z";
 const NOW = Date.parse("2026-08-17T05:05:00Z");
 const goodSnapshot = () => ({
   repo: "TheAnswerManIsHere/Overhypeme",
-  pr: { number: 500, head: { sha: HEAD, ref: "claude/x" } },
+  pr: { number: 500, head: { sha: HEAD, ref: "claude/x", committedAt: "2026-08-17T03:30:00Z" } },
   capturedAt: { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER },
   checkRuns: allRequired(),
   reviewThreads: [],
@@ -475,6 +505,15 @@ test("snapshot: a missing or abbreviated head sha is rejected", () => {
   const short = goodSnapshot();
   short.pr.head.sha = "abc1234";
   assert.throws(() => assertSnapshot(short, 500), /full 40-character sha/);
+});
+
+test("snapshot: a missing head committedAt is rejected", () => {
+  // It is the only bound available that cannot postdate the head, and a bound
+  // that is too late silently drops review requests from the count.
+  // (Codex, #490 round 4.)
+  const snap = goodSnapshot();
+  delete snap.pr.head.committedAt;
+  assert.throws(() => assertSnapshot(snap, 500), /committedAt/);
 });
 
 test("snapshot: a missing head ref is rejected", () => {

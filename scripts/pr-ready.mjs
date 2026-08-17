@@ -43,6 +43,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -230,6 +231,15 @@ export function assertSnapshot(snapshot, prNumber) {
   if (typeof pr.head?.ref !== "string" || pr.head.ref.trim() === "") {
     throw fail('snapshot.pr.head.ref is required -- without it the merge gate cannot bind the receipt to a tip');
   }
+  // When the head commit came into existence. Required because it is the only
+  // bound available that cannot POSTDATE the head, and a bound that is too
+  // late silently drops review requests from the count. (Codex, #490.)
+  if (!Number.isFinite(Date.parse(pr.head?.committedAt ?? ""))) {
+    throw fail(
+      'snapshot.pr.head.committedAt must be the head commit\'s ISO committer date ' +
+        "(get_commits, the last commit's commit.committer.date) -- it bounds which review requests belong to this head",
+    );
+  }
 
   const complete = snapshot.complete ?? {};
   const capturedAt = snapshot.capturedAt ?? {};
@@ -297,16 +307,6 @@ export function checkCi(checkRuns, headSha = null) {
         detail:
           `${foreign.length} check run(s) belong to another commit (${[...new Set(foreign.map((r) => String(r.head_sha).slice(0, 7)))].join(", ")}), ` +
           `not ${headSha.slice(0, 7)} -- re-read get_check_runs after the push`,
-      };
-    }
-    const undated = checkRuns.filter((r) => !Number.isFinite(Date.parse(r.started_at ?? "")));
-    if (undated.length) {
-      return {
-        pass: false,
-        detail:
-          `${undated.length} check run(s) carry no parseable started_at. That timestamp is what dates the ` +
-          `head commit, and without it a review request made for an earlier commit cannot be told from one ` +
-          `made for this one -- capture started_at with each run`,
       };
     }
     const unbound = checkRuns.filter((r) => !r.head_sha);
@@ -410,7 +410,7 @@ export function checkCi(checkRuns, headSha = null) {
  * David, with that observation as the evidence. Fail-closed here costs one
  * blocked merge; fail-open costs the failure this file exists to prevent.
  */
-export function checkCodex(issueComments, reviews, headSha = null, headStartedAt = null) {
+export function checkCodex(issueComments, reviews, headSha = null, headBornAt = null) {
   const requests = issueComments
     .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
     .sort((a, b) => timeOf(a) - timeOf(b));
@@ -466,7 +466,7 @@ export function checkCodex(issueComments, reviews, headSha = null, headStartedAt
   // answers two requests with a single review, this blocks until the head
   // moves. That is escapable (any push restarts the count, and a new head
   // needs a fresh review anyway) and it is the over-blocking direction.
-  const onThisHead = headStartedAt ? requests.filter((r) => timeOf(r) >= headStartedAt) : requests;
+  const onThisHead = headBornAt ? requests.filter((r) => timeOf(r) >= headBornAt) : requests;
   if (qualifying.length && qualifying.length < onThisHead.length) {
     return {
       pass: false,
@@ -513,7 +513,13 @@ export function checkCodex(issueComments, reviews, headSha = null, headStartedAt
 
   // `acceptedAt` is what the capture-ordering check needs: the moment the
   // response being relied on appeared. Threads read before it prove nothing.
-  const acceptedAt = Math.min(...qualifying.map((p) => p.at));
+  //
+  // The LATEST qualifying pass, not the earliest. With two passes on one head,
+  // threads captured between them satisfied an ordering boundary set at the
+  // first while missing the second pass's unresolved findings entirely --
+  // which is the ordering check failing at exactly the moment it is load
+  // bearing. (Codex, #490 round 4.)
+  const acceptedAt = Math.max(...qualifying.map((p) => p.at));
   return {
     pass: true,
     detail: `${requests.length} round(s); pass on ${qualifying[0].sha.slice(0, 7)} returned after the latest request`,
@@ -599,16 +605,19 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
 /** The full verdict for a validated snapshot. */
 export function evaluate(snapshot, now = Date.now()) {
   const headSha = snapshot.pr.head.sha;
-  // When this commit came into existence, taken from the earliest check run on
-  // it. That is what separates review requests made for THIS head from ones
-  // made for an earlier commit -- without it, a round that stalled before a
-  // push would go on demanding a pass forever. Check runs are already required
-  // to be head-bound, so this needs no new evidence, only the field.
-  const startedAt = snapshot.checkRuns
-    .map((r) => Date.parse(r.started_at ?? ""))
-    .filter(Number.isFinite);
-  const headStartedAt = startedAt.length ? Math.min(...startedAt) : null;
-  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha, headStartedAt);
+  // A bound that CANNOT postdate the head's appearance, which is what
+  // separates review requests made for THIS commit from ones made for an
+  // earlier one.
+  //
+  // The first version used the earliest check run's `started_at`, and that is
+  // too LATE: a request posted right after a push but before CI starts falls
+  // outside it, so a retry plus one late pass reads as complete while the
+  // excluded request is still outstanding. The commit's own committer date is
+  // the right bound -- it necessarily precedes the push, and a backdated
+  // commit only moves it earlier, which retains more requests and over-blocks.
+  // (Codex, #490 round 4.)
+  const headBornAt = Date.parse(snapshot.pr.head.committedAt);
+  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha, headBornAt);
   const items = {
     ci: checkCi(snapshot.checkRuns, headSha),
     codex,
@@ -635,8 +644,13 @@ export function evaluate(snapshot, now = Date.now()) {
 /**
  * Why a stored receipt can no longer be shown as current, or null if it can.
  *
- * Deliberately the same window and the same field the merge hook ages
- * against, so the two paths cannot disagree about the same receipt.
+ * THE merge hook calls this too, rather than keeping its own copy. The
+ * previous revision claimed the predicate was shared and only half was:
+ * `checkMerge` still had its own constant and its own timestamp arithmetic,
+ * so a later change to the window or the field would have made the manual
+ * READY surface and the actual merge guard disagree about one receipt --
+ * which is exactly the drift the sharing was supposed to remove.
+ * (Codex, #490 round 4.)
  */
 export function staleReason(receipt, now = Date.now()) {
   if (!receipt?.evidenceAt) {
@@ -675,6 +689,23 @@ export function formatReceipt(receipt) {
   return lines.join("\n");
 }
 
+/**
+ * The branch's tip as the REMOTE reports it. `git rev-parse` would answer from
+ * this checkout, which cannot know what GitHub would merge.
+ */
+function remoteTip(branch) {
+  if (typeof branch !== "string" || branch.trim() === "") return null;
+  try {
+    const out = execFileSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], {
+      encoding: "utf8",
+      timeout: 15000,
+    });
+    return (/^([0-9a-f]{40})\s/m.exec(out) ?? [])[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function parseArgs(argv) {
   const args = { pr: null, snapshot: null, show: false };
   for (let i = 0; i < argv.length; i += 1) {
@@ -708,6 +739,24 @@ function main() {
     const stale = staleReason(receipt);
     if (stale) {
       process.stderr.write(`pr-ready: ${stale}\n`);
+      return 1;
+    }
+    // And the head, not only the age. A push inside the one-hour window leaves
+    // a receipt that is current but describes a commit that would no longer
+    // merge -- the hooked path rejects exactly that via its remote-tip
+    // comparison, and this path is the one where no hook is watching.
+    // (Codex, #490 round 4.)
+    const tip = remoteTip(receipt.branch);
+    if (!tip) {
+      process.stderr.write(
+        `pr-ready: could not resolve the current tip of ${receipt.branch}, so this receipt cannot be shown to describe the commit that would merge\n`,
+      );
+      return 1;
+    }
+    if (tip !== receipt.headSha) {
+      process.stderr.write(
+        `pr-ready: this receipt validated ${receipt.headSha.slice(0, 7)}, but ${receipt.branch} is now at ${tip.slice(0, 7)} -- re-run with a fresh snapshot\n`,
+      );
       return 1;
     }
     return receipt.verdict === "READY" ? 0 : 1;
