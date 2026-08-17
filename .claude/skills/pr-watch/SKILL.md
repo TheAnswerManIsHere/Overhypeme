@@ -117,19 +117,20 @@ the diff *is* the plan. While watching an implementation PR:
   mechanics stay in the PR thread. **Skip-on-clean:** a round with zero
   findings or only the unambiguous mechanical nits below needs no
   adjudication — fix silently, one status line. **Model mechanics:** the
-  adjudication runs in my main loop, which is **Opus** (David, 2026-08-15 —
-  the session tier is now a constant, so this no longer reads "usually
-  Sonnet"). That moots the two Opus triggers below as *escalations* — they
-  are already at that tier — but **not as procedure**: a decline still gets
-  argued against before it posts, and an unmechanizable finding still gets
-  the adversarial second pass, because their value is the independent
-  challenge, not the tier. Subagent dispatch stays **structural, not
-  self-assessed** — the three triggers in the sweep-protocol bullet below
-  (any decline, any unmechanizable finding, any recurrence of a swept
-  class), plus the
-  adversarial Fable subagent on the judgment moments, which now carries
-  the decision weight the retired check-in used to (see the
-  `model-routing` skill).
+  adjudication itself runs in my main loop, which is **Opus** (David,
+  2026-08-15 — the session tier is now a constant, so this no longer reads
+  "usually Sonnet"), but **every subagent it dispatches runs on Fable**
+  (David, 2026-08-17: *for judgements, I want the strongest possible
+  model*). So all four triggers are genuine escalations again, and each
+  dispatch carries the announce-don't-sneak line. Their value was never
+  only the tier — an independent challenge from a context that did not
+  produce the conclusion is the load-bearing half — but the tier is no
+  longer a reason to soften the framing. Subagent dispatch stays
+  **structural, not self-assessed**: the three triggers in the
+  sweep-protocol bullet below (any decline, any unmechanizable finding, any
+  recurrence of a swept class), plus the adversarial subagent on the
+  judgment moments, which now carries the decision weight the retired
+  check-in used to (see the `model-routing` skill).
 - **Every fix is class-level — the sweep protocol (David, 2026-08-08).** The
   shared contract is
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)'s
@@ -143,31 +144,32 @@ the diff *is* the plan. While watching an implementation PR:
   fact about the situation rather than my own sense of ambiguity (they
   supersede the older "when the triage feels ambiguous" call; full
   mechanics in the `model-routing` skill):
-  1. **Any decline**: before posting it, a one-shot announced **Opus
+  1. **Any decline**: before posting it, a one-shot announced **Fable
      subagent** gets the finding plus my refutation and argues the
      finding's side; the decline posts only if it survives. A wrong
      decline is the one verdict nothing downstream catches — Codex has
      already fired, David doesn't read diffs.
   2. **Any finding with no mechanical oracle** (step 2 of the shared
      protocol came up empty): a pure-judgment finding, so its triage
-     verdict comes from the Opus subagent.
+     verdict comes from the Fable subagent.
   3. **Any recurrence of a swept class** (the shared protocol's process
-     failure): the class re-naming goes to the Opus subagent, and the
+     failure): the class re-naming goes to the Fable subagent, and the
      recurrence is called out in that round's record.
-  **All three triggers stay live on an Opus main loop — corrected
+  **All three triggers stay live whatever the main loop's tier — corrected
   2026-08-15 (Codex, PR #458 round 1).** These lines used to call triggers
   1–2's dispatch "redundant" on an Opus loop, which was harmless when Opus
-  loops were the exception and is dangerous now that *every* loop is Opus:
+  loops were the exception and became dangerous once *every* loop was Opus:
   read literally it retires trigger 1 entirely, and trigger 1 protects the
   one verdict nothing downstream catches (a wrong decline resolves the
   thread and no one sees it again). **The trigger was never about reaching a
   stronger tier — it is about an independent challenge from a context that
   did not produce the conclusion**, which a same-tier subagent supplies just
-  as well. Only the framing changes: on an Opus loop the dispatch is a
-  second opinion, not an escalation, so it needs no "spending above the
-  session's rate" announcement. The sweep itself (name the class, write the
-  oracle, sweep to zero) and the recurrence round-record flag apply
-  throughout.
+  as well. Since 2026-08-17 the dispatch is *also* an escalation, because it
+  runs on Fable — so the announcement applies again — but the reasoning is
+  kept because the failure it guards against is a trigger quietly mooting
+  itself, which no tier arithmetic fixes. The sweep itself (name the class,
+  write the oracle, sweep to zero) and the recurrence round-record flag
+  apply throughout.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class

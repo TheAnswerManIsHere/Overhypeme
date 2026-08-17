@@ -191,9 +191,38 @@ Two facts that decide how we use it today:
   The advisor as a *mechanism* stays interesting if Fable ever becomes
   available as one; see the bullet above.
 
-### Review-loop triage: the structural Opus subagent triggers (David, 2026-08-08, superseding the 2026-08-07 discretionary trigger)
+### Every adjudication runs on Fable (David, 2026-08-17)
 
-The 2026-08-07 revision sanctioned a one-shot **Opus subagent** for triage
+**All adjudication subagents dispatch on Fable — no exceptions, no tier
+judgement at the dispatch site.** David's instruction: *for judgements, I
+want the strongest possible model.* This supersedes the Opus/Fable split
+that used to run through the two sections below, where triggers 1–3 went to
+Opus and the stopping-rule trigger went to Fable.
+
+**What made the old split wrong is not that Opus was too weak — it is that
+the split asked the wrong question.** It sorted triggers by how consequential
+they looked, which is a self-assessment of exactly the kind the structural
+triggers exist to eliminate. A decline that resolves a thread nothing
+downstream catches is not obviously cheaper than a stop decision, and
+deciding which deserves the stronger model is one more judgement made by the
+context that is already suspect. Routing every adjudication to one tier
+removes the question.
+
+The cost note that justified the split still holds and now argues the other
+way: judgement moments are perhaps 2% of a loop's tokens and carry all of its
+consequence, so paying 2× on 2% is cheap for the thing the whole apparatus
+exists to get right.
+
+**Two properties, not one.** The triggers were always about an *independent
+challenge from a context that did not produce the conclusion*, and that is
+still the load-bearing property — a same-tier subagent supplies it. Fable now
+adds the second: the strongest available reader. Neither substitutes for the
+other, so a dispatch that reuses my own reasoning is not rescued by being on
+Fable.
+
+### Review-loop triage: the structural adjudication triggers (David, 2026-08-08, superseding the 2026-08-07 discretionary trigger; on Fable since 2026-08-17)
+
+The 2026-08-07 revision sanctioned a one-shot subagent for triage
 calls the driving agent judged ambiguous. The weak link was the judging:
 the cheap tier had to notice its own depth was insufficient, which is
 exactly the assessment a cheap tier is worst at. With the class-and-sweep
@@ -201,7 +230,7 @@ protocol in place (`working-modes.md`'s *"A finding names an instance; the
 fix owes the class"*), the discretionary trigger is **superseded by three
 structural ones** — each a fact about the situation, not a self-assessment:
 
-1. **Any decline.** Before a decline posts, the Opus subagent gets the
+1. **Any decline.** Before a decline posts, the Fable subagent gets the
    finding plus my refutation and argues the finding's side; the decline
    posts only if it survives. Rationale: a wrong fix or a wrong escalation
    self-corrects downstream (Codex re-reviews, David tests the product); a
@@ -209,11 +238,11 @@ structural ones** — each a fact about the situation, not a self-assessment:
 2. **Any finding with no mechanical oracle.** If the sweep protocol's
    "write a grep/ls one-liner for the class" step comes up empty, the
    finding is pure judgment by construction, and its triage verdict comes
-   from the Opus subagent.
+   from the Fable subagent.
 3. **Any recurrence of a swept class.** A later round re-finding a class
-   that was already swept means the class was misnamed at the cheaper
-   tier — the re-naming goes to the Opus subagent, and the recurrence is
-   flagged in that round's record.
+   that was already swept means the class was misnamed — the re-naming goes
+   to the Fable subagent, and the recurrence is flagged in that round's
+   record.
 
 Unchanged from 2026-08-07: one-shot, no session switch, no action from
 David, and the announce-don't-sneak rule — a subagent spending above the
@@ -221,24 +250,24 @@ session's rate gets said out loud in the same breath as dispatching it.
 This is a sanctioned judgment escalation, not a verify-my-own-work
 subagent (which stays barred by CLAUDE.md's delegation caps).
 
-**All three triggers stay live on an Opus main loop — corrected 2026-08-15
-(Codex, PR #458 round 1).** This paragraph used to say triggers 1–2 were
-"moot" on loops already running at Opus. Under the old contract that was a
-harmless shorthand, because Opus loops were the exception; now that *every*
-loop is Opus it would silently retire the two triggers entirely — including
-trigger 1, which protects the one verdict nothing downstream catches. **The
-triggers were never about reaching a stronger tier; they are about an
-independent challenge from a context that did not produce the conclusion.**
-A same-tier subagent still supplies that, and a decline still gets argued
-against before it posts. What genuinely changes on an Opus loop is only the
-*framing* — a dispatch is a second opinion, not an escalation, so it carries
-no "spending above the session's rate" announcement.
+**All three triggers stay live regardless of the main loop's tier — corrected
+2026-08-15 (Codex, PR #458 round 1).** This paragraph used to say triggers
+1–2 were "moot" on loops already running at Opus. Under the old contract that
+was a harmless shorthand, because Opus loops were the exception; once *every*
+loop became Opus it would have silently retired the two triggers entirely —
+including trigger 1, which protects the one verdict nothing downstream
+catches. The 2026-08-17 move to Fable makes every dispatch an escalation
+again, so the announcement always applies; but the reasoning is recorded
+because it is the trigger-moots-itself failure that matters, not the tier
+arithmetic of any given month.
 
-### Stopping-rule decisions: the adversarial Fable subagent (David, 2026-08-13)
+### Stopping-rule decisions: the adversarial subagent (David, 2026-08-13)
 
-A fourth structural trigger, above the three, and the only one that reaches
-for **Fable rather than Opus** — because the failure it exists to catch has
-now beaten Opus twice in one session, and both times Fable reversed it.
+A fourth structural trigger, above the three. It reached for **Fable while
+the other three were on Opus** — because the failure it exists to catch had
+beaten Opus twice in one session, and both times Fable reversed it. Since
+2026-08-17 all four are on Fable, so this is no longer what distinguishes
+it; what still does is *when* it fires and that its prompt is adversarial.
 
 **Fires on the loop's judgment moments, never on its execution.** These are
 facts about the situation, not self-assessments:
@@ -266,16 +295,18 @@ report); the reserved escalations — product/design forks, scope additions,
 splits, disclosure — still go to David as 🛑 banners, with this subagent's
 output attached.
 
-**Why Fable, and why only here.** A planning loop is mostly execution-shaped —
-verifying findings against source, writing thread replies, editing markdown —
-and Opus does that well; Fable at 2× would buy nothing across it. But the
-judgment moments are perhaps 2% of a loop's tokens and carry all of its
-consequence, and the failure mode there is *specifically* the one Fable
-corrects: applying a rule correctly to a situation that was never read. On
-PR #422 the Opus-drafted recommendation to split contained its own refutation
-as an appended caveat; Fable, given the same facts, reversed it. Same session,
-one round earlier: eight findings recommended for fixing, seven of them
-toolchain-catchable, and the reversal again came on Fable.
+**Why Fable for judgement, and still not for the loop as a whole.** A planning
+loop is mostly execution-shaped — verifying findings against source, writing
+thread replies, editing markdown — and Opus does that well; Fable at 2× would
+buy nothing across it, which is why the 2026-08-17 change moved *adjudication*
+to Fable and left the main loop where it is. The judgment moments are perhaps
+2% of a loop's tokens and carry all of its consequence, and the failure mode
+there is *specifically* the one Fable corrects: applying a rule correctly to a
+situation that was never read. On PR #422 the Opus-drafted recommendation to
+split contained its own refutation as an appended caveat; Fable, given the
+same facts, reversed it. Same session, one round earlier: eight findings
+recommended for fixing, seven of them toolchain-catchable, and the reversal
+again came on Fable.
 
 **Subagent, not a session switch.** Only David can change the session model,
 and making him do it at every check-in puts the burden on the person this
@@ -284,7 +315,7 @@ announce-don't-sneak rule applies with force here — Fable spends at double
 Opus, so dispatching it is said out loud in the same breath.
 
 **This is a sanctioned judgment escalation, not verify-my-own-work** — the
-same carve-out the three Opus triggers hold against `CLAUDE.md`'s delegation
+same carve-out the other three triggers hold against `CLAUDE.md`'s delegation
 caps, and for the same reason: its value is a perspective my main loop
 provably cannot produce, which two reversals in one session establish rather
 than assume.
