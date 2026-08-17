@@ -66,6 +66,22 @@ hand is committing what the guard wrote. (Hand-tallying is correct in exactly
 one case — a loop followed by hand *before* this mechanism exists — and there
 the guard is not live to write it.)
 
+**A request that delivered no round can be reconciled away.** The tally counts
+review-request *posts*, but a round is a *completed reviewer pass* — and the
+two diverge when a request is posted and no review ever arrives (a connector
+stall, a usage limit, a dropped webhook). Observed on this mechanism's own PR:
+one stalled request cost a third of a 3-round budget.
+
+```
+node scripts/review-budget.mjs reconcile --pr <n> --mcp-snapshot <file>
+```
+
+It is driven by counted data (`reviewerPasses()` over an attested-complete
+snapshot), it **only ever removes** entries and can never raise a budget, it
+refuses an incomplete snapshot (which would understate delivered passes and
+trim too much), and every run appends to a `reconciliations` array in the
+receipt so the trail shows what was dropped and against which evidence.
+
 **An extension is dormant until the stage before it is spent.** A `continue`
 receipt written early does not raise the allowance early; it activates at the
 exact round its adjudication was about. Otherwise the loop sails past its cap

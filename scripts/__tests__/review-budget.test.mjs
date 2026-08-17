@@ -16,6 +16,7 @@ import {
   validateExtension,
   validateRounds,
   roundsSpent,
+  reconcileRounds,
   judgeReviewRequest,
   REPO_OWNER,
   REPO_NAME,
@@ -504,4 +505,48 @@ test("two receipts claiming one sequence refuse the loop", () => {
   const io = fakeIo({ [budgetPath(1)]: budget(1) });
   io.listReceipts = () => ["loop-extension-1-1.json", "loop-extension-1-1.json"];
   assert.match(loadLoop(1, io).detail, /claim sequence 1/);
+});
+
+// --- Reconciliation: a request that delivered no round must not be charged ---
+
+test("reconciliation drops requests that produced no reviewer pass", () => {
+  // Two requests posted, but only one produced a pass (plus the opening one).
+  const { kept, dropped } = reconcileRounds({
+    rounds: [{ at: "a" }, { at: "b" }],
+    autoOpeningReview: true,
+    deliveredPasses: 2,
+  });
+  assert.equal(dropped, 1);
+  assert.deepEqual(kept, [{ at: "a" }]);
+});
+
+test("reconciliation never grows the tally", () => {
+  // More passes delivered than requests posted (the opening pass, a manual
+  // re-review, whatever) must not manufacture headroom.
+  const { kept, dropped } = reconcileRounds({
+    rounds: [{ at: "a" }],
+    autoOpeningReview: false,
+    deliveredPasses: 9,
+  });
+  assert.equal(dropped, 0);
+  assert.equal(kept.length, 1, "the guard cannot hand itself rounds it never requested");
+});
+
+test("reconciliation floors at zero and counts the opening pass", () => {
+  assert.deepEqual(
+    reconcileRounds({ rounds: [{ at: "a" }], autoOpeningReview: true, deliveredPasses: 1 }),
+    { kept: [], dropped: 1 },
+    "one delivered pass IS the opening pass, so the request delivered nothing",
+  );
+  assert.deepEqual(
+    reconcileRounds({ rounds: [{ at: "a" }], autoOpeningReview: true, deliveredPasses: 0 }),
+    { kept: [], dropped: 1 },
+  );
+});
+
+test("reconciliation refuses a nonsense delivered count rather than guessing", () => {
+  assert.throws(
+    () => reconcileRounds({ rounds: [], autoOpeningReview: true, deliveredPasses: -1 }),
+    /non-negative integer/,
+  );
 });

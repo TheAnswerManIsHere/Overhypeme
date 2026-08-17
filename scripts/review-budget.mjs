@@ -636,6 +636,52 @@ export function recordRound(pr, state, { toolName, io }) {
   return rounds.length;
 }
 
+/**
+ * Reconcile the tally against the rounds GitHub says were actually DELIVERED.
+ *
+ * WHY THIS EXISTS (observed on this mechanism's own PR, 2026-08-17). The tally
+ * counts review-request POSTS, because a PreToolUse hook can only see the
+ * request. A round, though, is a **completed reviewer pass** -- that is the
+ * repo's definition and the whole point of counting the automatic opening
+ * review. The two diverge whenever a request is posted and no review ever
+ * arrives: a connector outage, a usage limit, a dropped webhook. The loop is
+ * then charged for a round it never received, and on a 3-round budget one
+ * stalled request costs a third of the loop.
+ *
+ * The module header already accepted over-counting "on failed posts" -- but
+ * that was written about a post that fails to SEND, which is rare and
+ * self-announcing. A post that sends and yields nothing is neither, and
+ * charging for it is not the safe direction, it is just wrong: it spends the
+ * one self-serve extension on an infrastructure fault rather than on the
+ * question the extension exists to answer.
+ *
+ * WHAT KEEPS THIS HONEST, since "give the loop its rounds back" is exactly the
+ * shape of an excuse:
+ *
+ *   - It is driven by COUNTED data, never by an assertion that a round was
+ *     missed: `reviewerPasses()` over a complete snapshot, the same function
+ *     the ledger and the mechanical record use.
+ *   - It only ever REMOVES entries, never adds headroom beyond what GitHub
+ *     confirms was delivered. It cannot raise a budget.
+ *   - It refuses to run on an incomplete snapshot, because a snapshot missing
+ *     pages understates delivered passes and would trim MORE than it should.
+ *   - Every reconciliation is appended to the receipt, so the trail shows what
+ *     was dropped and against which evidence.
+ */
+export function reconcileRounds({ rounds, autoOpeningReview, deliveredPasses }) {
+  if (!Number.isInteger(deliveredPasses) || deliveredPasses < 0) {
+    throw new Error(`deliveredPasses must be a non-negative integer, got ${JSON.stringify(deliveredPasses)}`);
+  }
+  // The opening pass is one of the delivered passes, so it is subtracted here
+  // to get the number of *requested* rounds that actually produced one.
+  const attributableToRequests = Math.max(0, deliveredPasses - (autoOpeningReview ? 1 : 0));
+  // Never grow the tally: if more requests were posted than passes delivered,
+  // trim; if fewer, leave it alone. Growing would be the guard inventing
+  // rounds against itself, which nothing here should be able to do.
+  const keep = Math.min(rounds.length, attributableToRequests);
+  return { kept: rounds.slice(0, keep), dropped: rounds.length - keep };
+}
+
 // ---------------------------------------------------------------------------
 // CLI -- declaration and inspection. The guard itself never writes a budget:
 // declaring one is an act with a tier judgement in it, so it is a command run
@@ -660,6 +706,7 @@ export function parseArgs(argv) {
 const USAGE = `usage:
   review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> --criticality <1-100> --artifact "<text>" [--draft true]
   review-budget.mjs status  --pr <n>
+  review-budget.mjs reconcile --pr <n> --mcp-snapshot <file>
 
 --draft true marks a PR that gets NO automatic opening review from Codex (a
 [PLAN REVIEW] draft). Omit it for an ordinary PR, whose opening pass counts as
@@ -719,6 +766,57 @@ function status(flags, io) {
   ].join("\n");
 }
 
+/**
+ * `reconcile --pr N --mcp-snapshot <file>`.
+ *
+ * The snapshot needs only the two collections `reviewerPasses` reads, both
+ * attested complete. A partial one understates delivered passes and would trim
+ * too much, so it is refused rather than tolerated.
+ */
+async function reconcile(flags, io) {
+  const pr = Number(flags.pr);
+  if (!Number.isInteger(pr) || pr <= 0) throw new Error("--pr must be a positive integer");
+  if (!flags["mcp-snapshot"]) throw new Error("--mcp-snapshot <file> is required");
+
+  const snapshot = JSON.parse(fs.readFileSync(flags["mcp-snapshot"], "utf8"));
+  for (const key of ["reviews", "issueComments"]) {
+    if (!Array.isArray(snapshot[key])) throw new Error(`snapshot "${key}" must be an array`);
+    if (snapshot.complete?.[key] !== true) {
+      throw new Error(
+        `snapshot must attest complete.${key} === true -- an unpaginated snapshot understates delivered ` +
+          "passes, and this command would then drop rounds that really happened",
+      );
+    }
+  }
+
+  const state = loadLoop(pr, io);
+  if (state.problem) throw new Error(`cannot reconcile: ${state.problem}${state.detail ? ` -- ${state.detail}` : ""}`);
+
+  const { reviewerPasses } = await import("./loop-metrics.mjs");
+  const delivered = reviewerPasses(snapshot.reviews, snapshot.issueComments).length;
+  const { kept, dropped } = reconcileRounds({
+    rounds: state.rounds,
+    autoOpeningReview: state.budget.autoOpeningReview,
+    deliveredPasses: delivered,
+  });
+
+  if (dropped === 0) {
+    return `PR #${pr}: nothing to reconcile -- ${delivered} reviewer passes delivered, tally already agrees.`;
+  }
+
+  const existing = readJson(io, roundsPath(pr));
+  const reconciliations = [
+    ...(existing.state === "ok" && Array.isArray(existing.value.reconciliations) ? existing.value.reconciliations : []),
+    { at: io.now(), from: state.rounds.length, to: kept.length, deliveredPasses: delivered },
+  ];
+  io.write(roundsPath(pr), `${JSON.stringify({ pr, rounds: kept, reconciliations }, null, 2)}\n`);
+  return (
+    `PR #${pr}: dropped ${dropped} request(s) that produced no reviewer pass ` +
+    `(${delivered} delivered, tally ${state.rounds.length} -> ${kept.length}). ` +
+    `Commit ${roundsPath(pr)}.`
+  );
+}
+
 async function main() {
   const io = nodeIo();
   let parsed;
@@ -731,6 +829,7 @@ async function main() {
   try {
     if (parsed.command === "declare") process.stdout.write(`${declare(parsed.flags, io)}\n`);
     else if (parsed.command === "status") process.stdout.write(`${status(parsed.flags, io)}\n`);
+    else if (parsed.command === "reconcile") process.stdout.write(`${await reconcile(parsed.flags, io)}\n`);
     else {
       process.stderr.write(USAGE);
       return 1;
