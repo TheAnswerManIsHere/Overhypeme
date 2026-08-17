@@ -314,6 +314,39 @@ break the SPA's inline scripts. Deliberate, env/route-aware choices:
   `directories` globs (`directory: "/"` alone misses every workspace manifest —
   see [`dependabot-pnpm-workspace-directories.md`](../../.agents/memory/dependabot-pnpm-workspace-directories.md)).
 
+### Boot-time configuration assertions
+
+Some configuration is required for a security control to *be* a security
+control, and the only loud moment to check it is boot. `IP_HASH_SALT` is the
+worked example: `transient_renders.ip_hash` exists so source-IP abuse queries
+work without retaining PII, and that only holds while the salt is secret — the
+dev fallback is a literal in this **public** repository, so hashing production
+IPs with it makes them reversible while the schema still presents them as a
+privacy control. Production now refuses to start without a >= 16-character
+`IP_HASH_SALT` (PR #484, closing a deferral first raised on PR #299).
+
+Two structural constraints, both learned the hard way and both load-bearing
+for anything similar added later:
+
+- **The check runs at boot, not at the point of use**, because
+  `logTransientRender` catches and swallows its own errors by design — the
+  audit insert must never fail a user's render — so a runtime throw would be
+  absorbed by that same catch and never surface.
+- **The check is a side-effecting IMPORT, not a statement in `index.ts`.** ES
+  imports are all evaluated before the importing module's first statement, so
+  a statement-form check runs *after* the database-backed graph has loaded and
+  (in the bundle) already opened a pool. `artifacts/api-server/src/lib/bootChecks.ts`
+  is imported second, after `./instrument` only, and its import graph is kept
+  minimal on purpose — `artifacts/api-server/src/lib/ipSalt.ts` and
+  `artifacts/api-server/src/lib/env.ts` deliberately never reach
+  `@workspace/db`. Adding a new boot assertion means adding it *there*, not in
+  the entrypoint body. See
+  [`known-failure-patterns.md`](./known-failure-patterns.md)'s boot-ordering
+  entry for the full mechanism.
+
+Non-production keeps the dev fallback: dev, test and Replit preview must boot
+with no secret configured.
+
 ## Admin surface (C9)
 
 Admin handlers sit behind `requireAdmin`, except 9 behind `requireAdminOrApiKey`
