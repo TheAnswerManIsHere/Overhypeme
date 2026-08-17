@@ -1219,302 +1219,29 @@ export function extractCommand(raw) {
 }
 
 /**
- * Read the delimiter word of a heredoc opener using Bash's own quoting rules,
- * returning the LITERAL delimiter (what the terminator line must equal, after
- * quote removal) and the index just past the word.
+ * Shapes worth refusing when the tokeniser could not read the command at all.
+ * Kept deliberately force-specific: broadening it to every `git push` would
+ * reject ordinary work like `echo "done $(date)" && git push -u origin ...`.
  *
- * This is a scanner rather than a regex because the delimiter is a quoted
- * word, and a regex cannot both find the closing quote and honour escapes
- * inside it. Three revisions of this PR tried: each widened a character class
- * to whatever example had just been produced (`MSG-1`, then `.MSG`/`-MSG`,
- * then `NOTE:1`), and the fourth example broke it again -- `cat <<"A\"B"`,
- * where the escaped quote is not the closing one. Bash's delimiter is
- * `A"B`; a `(['"]?)…\1` shape reads it as `A\` and then hunts for the wrong
- * terminator, deleting real commands that sit between the two. So the word is
- * parsed the way the shell parses it, and there is no character class left to
- * discover.
- *
- * Returns null when the word is absent or its quoting is unterminated -- both
- * mean "not a heredoc opener we can reason about", which leaves the text
- * intact for the rules downstream rather than guessing at a body.
+ * This is a LAST RESORT, reached only when tokenising throws. An earlier
+ * revision also used it as a pre-emptive backstop against substitutions hidden
+ * in double quotes, and that was wrong: it judged raw text, so it blocked this
+ * very commit for quoting force-push examples in its own message. Raw-text
+ * matching is the defect this module exists to remove -- reintroducing it as a
+ * safety net just moved it.
  */
-function scanHeredocDelimiter(text, start) {
-  let literal = "";
-  // Whether a WORD was consumed at all, tracked apart from whether its value
-  // is non-empty: `cat <<''` is a valid opener whose delimiter is the empty
-  // string (Bash terminates it on the next blank line). Reading "empty value"
-  // as "no word" rejected the opener and left an inert body to be judged as
-  // commands. (Codex, #488 round 12.)
-  let sawWord = false;
-  let i = start;
-  while (i < text.length) {
-    const c = text[i];
-    if (c === "\n" || /\s/.test(c) || "<>|&;()".includes(c)) break;
-
-    // `$'...'` is ANSI-C quoting and `$"..."` is locale translation -- both are
-    // single quoting FORMS, not a `$` composed with the quote that follows.
-    // Treating the `$` as an ordinary character made `<<$'EOF'` scan to
-    // `$EOF` while Bash's delimiter is `EOF`, so the terminator search ran
-    // past the real one and swallowed the commands in between. (Codex, #488
-    // round 12.)
-    if (c === "$" && (text[i + 1] === "'" || text[i + 1] === '"')) {
-      if (text[i + 1] === "'") {
-        const decoded = scanAnsiCQuoted(text, i + 2);
-        if (!decoded) return null;
-        literal += decoded.value;
-        sawWord = true;
-        i = decoded.end;
-        continue;
-      }
-      const quoted = scanDoubleQuoted(text, i + 2);
-      if (!quoted) return null;
-      literal += quoted.value;
-      sawWord = true;
-      i = quoted.end;
-      continue;
-    }
-
-    if (c === "'") {
-      const close = text.indexOf("'", i + 1);
-      if (close === -1) return null;
-      const span = text.slice(i + 1, close);
-      if (span.includes("\n")) return null;
-      literal += span;
-      sawWord = true;
-      i = close + 1;
-      continue;
-    }
-
-    if (c === '"') {
-      const quoted = scanDoubleQuoted(text, i + 1);
-      if (!quoted) return null;
-      literal += quoted.value;
-      sawWord = true;
-      i = quoted.end;
-      continue;
-    }
-
-    if (c === "\\") {
-      const next = text[i + 1];
-      if (next === undefined) return null;
-      // A backslash-newline is a line continuation: both characters are
-      // removed and the word carries on. Ending the scan here treated a
-      // legitimately continued delimiter as unreadable. (Codex, #488 round 12.)
-      if (next === "\n") {
-        sawWord = true;
-        i += 2;
-        continue;
-      }
-      literal += next;
-      sawWord = true;
-      i += 2;
-      continue;
-    }
-
-    literal += c;
-    sawWord = true;
-    i += 1;
-  }
-  if (!sawWord) return null;
-  return { literal, end: i };
-}
+const LOOKS_DESTRUCTIVE =
+  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push/;
 
 /**
- * Read a double-quoted span, starting just past the opening quote. Returns the
- * quote-removed value and the index past the closing quote, or null if the
- * quoting never closes.
+ * Matches one heredoc block: group 1 is the opener token plus anything
+ * chained after it on the SAME line, group 2 the optional quote, group 3 the
+ * delimiter word, group 4 the body (everything between the opener line and
+ * the terminator line). Shared by `stripHeredocs` (which discards group 4)
+ * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
+ * sync by construction rather than by two hand-maintained copies.
  */
-function scanDoubleQuoted(text, start) {
-  let value = "";
-  let i = start;
-  while (i < text.length) {
-    const c = text[i];
-    if (c === '"') return { value, end: i + 1 };
-    if (c === "\\") {
-      const next = text[i + 1];
-      if (next === undefined) return null;
-      // Inside double quotes Bash treats a backslash as an escape before
-      // exactly these, plus a newline (a line continuation, removed
-      // entirely); anywhere else it is a literal backslash.
-      if (next === "\n") {
-        i += 2;
-        continue;
-      }
-      if (next === "$" || next === "`" || next === '"' || next === "\\") {
-        value += next;
-        i += 2;
-        continue;
-      }
-      value += c;
-      i += 1;
-      continue;
-    }
-    // A newline inside double quotes is legal in Bash -- the quote simply
-    // spans lines -- but a delimiter containing one could never be matched by
-    // a single terminator line, so it is not a heredoc this module can read.
-    if (c === "\n") return null;
-    value += c;
-    i += 1;
-  }
-  return null;
-}
-
-/**
- * Read an ANSI-C quoted span (`$'...'`), starting just past the opening quote.
- *
- * Only the escapes whose decoding is unambiguous are handled. Anything else
- * returns null, which means "not a heredoc opener this module can read" and
- * leaves the text intact for the rules downstream -- the over-blocking
- * direction, never the fail-open one.
- */
-const ANSI_C_SIMPLE = { n: "\n", t: "\t", r: "\r", a: "\x07", b: "\b", f: "\f", v: "\v", e: "\x1b", E: "\x1b", "\\": "\\", "'": "'", '"': '"', "?": "?" };
-
-/**
- * A byte from a `\xHH` or `\NNN` escape, as a character this module can
- * compare against the command text -- or null, meaning "abstain".
- *
- * ASCII only, and that boundary is the point. Bash emits a RAW BYTE, while
- * this module compares JavaScript strings decoded from UTF-8: `$'\377'` is the
- * single byte FF, but the character `ÿ` in the same command text is the two
- * bytes C3 BF. Below 0x80 the byte and the code unit coincide under UTF-8, so
- * the comparison is sound; at or above it, they do not, and a match here would
- * be an artefact of the decoding rather than something Bash would agree with.
- * (Codex, #488 round 14 -- which caught a MUST_BLOCK row I had written on
- * exactly that wrong assumption.)
- *
- * NUL abstains too: Bash truncates the value there, and modelling that from
- * reading rather than measurement is how the claims in this PR went wrong.
- */
-function decodeByte(byte) {
-  if (byte === 0 || byte >= 0x80) return null;
-  return String.fromCharCode(byte);
-}
-
-function scanAnsiCQuoted(text, start) {
-  let value = "";
-  let i = start;
-  while (i < text.length) {
-    const c = text[i];
-    if (c === "'") return { value, end: i + 1 };
-    if (c === "\\") {
-      const next = text[i + 1];
-      if (next === undefined) return null;
-      if (next in ANSI_C_SIMPLE) {
-        value += ANSI_C_SIMPLE[next];
-        i += 2;
-        continue;
-      }
-      const hex = /^\\x([0-9a-f]{1,2})/i.exec(text.slice(i));
-      if (hex) {
-        const decoded = decodeByte(parseInt(hex[1], 16));
-        if (decoded === null) return null;
-        value += decoded;
-        i += hex[0].length;
-        continue;
-      }
-      const octal = /^\\([0-7]{1,3})/.exec(text.slice(i));
-      if (octal) {
-        // Bash emits a BYTE: `\400` and above wrap to 8 bits.
-        const decoded = decodeByte(parseInt(octal[1], 8) & 0xff);
-        if (decoded === null) return null;
-        value += decoded;
-        i += octal[0].length;
-        continue;
-      }
-      return null;
-    }
-    if (c === "\n") return null;
-    value += c;
-    i += 1;
-  }
-  return null;
-}
-
-/**
- * Find the terminator line for `literal`, searching forward from `from`.
- * Compared as a string rather than built into a pattern, so a delimiter
- * containing regex metacharacters cannot change what counts as the end of
- * the body.
- */
-function findHeredocTerminator(text, from, literal, stripTabs) {
-  let pos = from;
-  while (pos <= text.length) {
-    let lineEnd = text.indexOf("\n", pos);
-    if (lineEnd === -1) lineEnd = text.length;
-    const line = text.slice(pos, lineEnd);
-    // Bash's own comparison: the line must EQUAL the delimiter, with leading
-    // TABS removed only for `<<-` -- never spaces, and never for plain `<<`.
-    // Trimming both ends of every line was inherited from the regex this
-    // replaced, and an empty delimiter made it visible: a spaces-only line
-    // reduced to "" and ended the body early, leaving the rest of an inert
-    // body to be judged as commands. (Codex, #488 round 13.)
-    if ((stripTabs ? line.replace(/^\t+/, "") : line) === literal) {
-      return { start: pos, end: lineEnd };
-    }
-    if (lineEnd === text.length) return null;
-    pos = lineEnd + 1;
-  }
-  return null;
-}
-
-/**
- * Locate every complete heredoc block in `text`, left to right, each as
- * `{ index, tokenEnd, bodyStart, body, end }` -- `index` at the `<<`,
- * `tokenEnd` just past the delimiter word, and `end` at the close of the
- * terminator line. Shared by `stripHeredocs` (which discards each body) and
- * `checkShellStdinHeredocs` below (which inspects it) so the two stay in
- * sync by construction rather than as two hand-maintained copies.
- *
- * An opener with no terminator yields nothing, matching the previous
- * behaviour: without a terminator there is no body to identify, and assuming
- * one runs to end-of-input would hide every command after it.
- */
-function findHeredocs(text) {
-  const blocks = [];
-  let i = 0;
-  while (i < text.length) {
-    const at = text.indexOf("<<", i);
-    if (at === -1) break;
-    if (text[at + 2] === "<") {
-      i = at + 3; // `<<<` is a herestring, not a heredoc.
-      continue;
-    }
-    let cursor = at + 2;
-    const stripTabs = text[cursor] === "-";
-    if (stripTabs) cursor += 1;
-    const delimiter = scanHeredocDelimiter(text, cursor);
-    if (!delimiter) {
-      i = at + 2;
-      continue;
-    }
-    const openerLineEnd = text.indexOf("\n", delimiter.end);
-    if (openerLineEnd === -1) {
-      i = delimiter.end;
-      continue;
-    }
-    const terminator = findHeredocTerminator(text, openerLineEnd + 1, delimiter.literal, stripTabs);
-    if (!terminator) {
-      i = delimiter.end;
-      continue;
-    }
-    const raw = text.slice(openerLineEnd + 1, terminator.start);
-    blocks.push({
-      index: at,
-      tokenEnd: delimiter.end,
-      bodyStart: openerLineEnd + 1,
-      // `<<-` strips leading tabs from EVERY body line, not only the
-      // terminator, and the body is what a shell reading stdin then parses.
-      // Stripping only the terminator left `\tIN` inside a nested heredoc
-      // looking like data, so the nested body ran on to a later bare `IN` and
-      // swallowed a real command. (Codex, #488 round 14 -- refuting my own
-      // round-13 claim that body tabs could not change a verdict.)
-      body: stripTabs ? raw.replace(/^\t+/gm, "") : raw,
-      end: terminator.end,
-    });
-    i = terminator.end;
-  }
-  return blocks;
-}
+const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
 
 /**
  * Remove heredoc BODIES before tokenising.
@@ -1536,41 +1263,8 @@ function findHeredocs(text) {
  * (by-then-orphaned) `<<DELIM` token itself erased.
  */
 export function stripHeredocs(input) {
-  let withoutBodies = "";
-  let cursor = 0;
-  for (const block of findHeredocs(input)) {
-    // `bodyStart - 1` is the opener line's own newline: everything up to it
-    // (the `<<DELIM` token and any command chained after it) survives.
-    withoutBodies += input.slice(cursor, block.bodyStart - 1);
-    cursor = block.end;
-  }
-  withoutBodies += input.slice(cursor);
-
-  // Pass two: erase the now-orphaned opener tokens. Scanned with the same
-  // grammar rather than a narrower pattern, so a delimiter this module can
-  // read is also a delimiter it can remove.
-  let withoutOpeners = "";
-  let kept = 0;
-  let i = 0;
-  while (i < withoutBodies.length) {
-    const at = withoutBodies.indexOf("<<", i);
-    if (at === -1) break;
-    if (withoutBodies[at + 2] === "<") {
-      i = at + 3;
-      continue;
-    }
-    let start = at + 2;
-    if (withoutBodies[start] === "-") start += 1;
-    const delimiter = scanHeredocDelimiter(withoutBodies, start);
-    if (!delimiter) {
-      i = at + 2;
-      continue;
-    }
-    withoutOpeners += withoutBodies.slice(kept, at) + " ";
-    kept = delimiter.end;
-    i = delimiter.end;
-  }
-  return withoutOpeners + withoutBodies.slice(kept);
+  const withoutBodies = input.replace(HEREDOC_RE, "$1");
+  return withoutBodies.replace(/<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g, " ");
 }
 
 /**
@@ -1589,10 +1283,10 @@ export function stripHeredocs(input) {
  */
 function checkShellStdinHeredocs(text, depth) {
   if (depth >= MAX_NESTED_SHELL_DEPTH) return null;
-  for (const block of findHeredocs(text)) {
-    const lineStart = text.lastIndexOf("\n", block.index) + 1;
-    const prefix = text.slice(lineStart, block.index).trim();
-    const body = block.body;
+  for (const match of text.matchAll(HEREDOC_RE)) {
+    const lineStart = text.lastIndexOf("\n", match.index) + 1;
+    const prefix = text.slice(lineStart, match.index).trim();
+    const body = match[4];
 
     let tokens;
     try {
@@ -1628,30 +1322,21 @@ function evaluateScript(text, depth) {
   try {
     parsed = segments(tokenize(stripHeredocs(text)));
   } catch {
-    // Untokenisable text is REFUSED, not scanned for destructive shapes.
+    // Untokenisable. We cannot reason about it, so block only if it shows any
+    // sign of the shapes we care about.
     //
-    // This used to fall through to a `LOOKS_DESTRUCTIVE` regex -- an
-    // enumeration of the shapes worth refusing -- and that is the third
-    // enumeration this PR has had to abandon. Codex found the hole by
-    // construction: an unreadable heredoc delimiter left an inert body in
-    // place, prose apostrophes made tokenising throw, and the fallback did
-    // not list `git push origin +main`, so a force refspec was ALLOWED.
-    // (Codex, #488 round 14.)
-    //
-    // The deeper problem was that every "this abstains, which over-blocks"
-    // claim in this module depended on that fallback being complete, and it
-    // never was. Refusing here makes the claim true by construction: any
-    // input this module cannot read is refused, so a scanner that misreads
-    // something degrades to a false BLOCK rather than a silent pass.
-    //
-    // Cost: a genuinely unreadable command is refused with an explanation
-    // rather than run. Heredoc bodies are stripped before this point, so the
-    // prose-apostrophe case that motivated the old fallback does not reach
-    // it -- and when it does, the input really is one this guard cannot
-    // judge.
-    return depth === 0
-      ? "command could not be parsed, so it cannot be judged -- refusing rather than guessing. Simplify it, or put the awkward text in a heredoc body (which is treated as data)."
-      : "nested shell command could not be parsed, so it cannot be judged -- refusing rather than guessing.";
+    // KNOWN INCOMPLETE, and deliberately left that way in THIS PR. Codex
+    // demonstrated the gap on #488 round 14: this list does not contain
+    // `git push origin +main`, so a force refspec hidden behind an
+    // untokenisable heredoc is allowed. Refusing untokenisable text outright
+    // closes it -- and that change, together with the heredoc scanner it
+    // depends on, is split out to its own PR because five rounds of review
+    // showed the pair still converging. Tracked with the rest of the heredoc
+    // work; see the note in `stripHeredocs` and issue #495.
+    if (LOOKS_DESTRUCTIVE.test(text)) {
+      return depth === 0 ? "unparseable command that looks destructive" : "unparseable nested shell command that looks destructive";
+    }
+    return null;
   }
 
   for (const argv of parsed) {

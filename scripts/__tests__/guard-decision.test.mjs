@@ -171,48 +171,15 @@ const MUST_BLOCK = [
   ["the attached spelling of the same", "env -Scurl https://api.github.com/x"],
   ["round 6: npx --call, the long spelling of -c", "npx --call 'curl https://api.github.com/x'"],
   ["npm exec --call likewise", "npm exec --call 'curl https://api.github.com/x'"],
-  // Round 6: a heredoc delimiter outside the identifier grammar makes
-  // tokenising throw, so only the conservative fallback sees this text.
-  ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
-  ["round 7: path-qualified on that same path", "/usr/bin/curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
-  ["round 9: and with a leading-dot delimiter", "/usr/bin/curl --help <<'.MSG'\nDavid's note\n.MSG"],
-  ["round 10: and with a colon", "/usr/bin/curl --help <<'NOTE:1'\nDavid's note\nNOTE:1"],
-  ["a shell stdin heredoc with a punctuated delimiter", "bash <<'RUN:1'\ngit push -f origin claude/x\nRUN:1"],
-  // Round 11: the delimiter is a QUOTED WORD, so finding its end needs the
-  // shell's escape rules, not a `(['"]?)…\1` pair. Bash's delimiter here is
-  // `A"B`; reading it as `A\` hunts for the wrong terminator and deletes the
-  // real push sitting between the two.
-  ['round 11: an escaped quote must not move the terminator', 'cat <<"A\\"B"\nA"B\ngit push -f origin main\nA\\'],
-  ["the same over-match from unquoted escaped whitespace", "cat <<A\\ B\nA B\ngit push -f origin main\nA\\"],
-  // Round 12: `$'...'` is a quoting FORM, not a `$` composed with a quote.
-  // Bash's delimiter here is `EOF`; reading it as `$EOF` runs the terminator
-  // search past the real one and swallows the commands in between.
-  ["round 12: ANSI-C quoting must not shift the terminator", "cat <<$'EOF'\nEOF\ngit push -f origin main\n$EOF"],
-  // An empty delimiter is a real opener, so the body it introduces is still a
-  // script when the opener command is a shell reading stdin.
-  ["an empty delimiter still feeds a shell's stdin", "bash <<''\ngit push -f origin claude/x\n"],
-  // Round 13: Bash emits a BYTE for an octal escape, so `\777` wraps to 0xFF.
-  // Building the unbounded code unit (U+01FF) sent the terminator search past
-  // the real terminator and swallowed the command in between.
-  // Round 14 REPLACED round 13's version of this row, which asserted that
-  // `$'\777'` and a `ÿ` line name the same delimiter. They do not: Bash emits
-  // the raw byte FF while `ÿ` in UTF-8 command text is C3 BF, so Bash leaves
-  // the heredoc open and never runs the push. The row was wrong about Bash,
-  // not merely about the code. Any escape at or above 0x80 now abstains, so
-  // the body stays in the text and the push is judged on its own.
-  ["round 14: a non-ASCII escape abstains rather than inventing a delimiter", "cat <<$'\\777'\n\u00ff\ngit push -f origin main\n\u00ff"],
-  // Round 14: `<<-` strips leading tabs from every body line, and the body is
-  // what a shell reading stdin then parses. Stripping only the terminator left
-  // the nested `\tIN` looking like data, so the inner heredoc ran on to the
-  // later bare `IN` and swallowed the push.
-  ["round 14: <<- body tabs are stripped before a nested heredoc is parsed", "bash <<-OUT\n\tcat <<IN\n\tdata\n\tIN\n\tgit push -f origin main\nIN\nOUT"],
-  // Round 14: an unreadable delimiter leaves prose in place, tokenising throws,
-  // and the old fallback did not list a force refspec. Refusing untokenisable
-  // text closes that by construction rather than by a longer list.
-  ["round 14: an unreadable delimiter cannot hide a force refspec", "cat <<$'A\\0B'\nDavid's note\nA\ngit push origin +main"],
-  // An abstention must not hide anything: an undecodable escape means no
-  // heredoc is recognised, so the text is judged in full.
-  ["a NUL escape abstains rather than hiding a push", "cat <<$'A\\0B'\ngit push -f origin main\nA"],
+  // The heredoc-delimiter work that rounds 8-15 produced is SPLIT OUT of this
+  // PR (David, 2026-08-17). Its rows travel with it. What remains here is the
+  // fetcher refusal, which is what this PR is about and which has been stable
+  // since round 6.
+  //
+  // The consequence is stated rather than hidden: with main's identifier-only
+  // delimiter grammar, a fetcher behind a punctuated heredoc delimiter reaches
+  // the untokenisable path, where `LOOKS_DESTRUCTIVE` -- known incomplete --
+  // decides. That is a pre-existing gap this PR neither widens nor closes.
   // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
   // pipeline. A plausible diagnostic command, and one the deleted sweep had
   // been masking.
@@ -249,40 +216,6 @@ const MUST_ALLOW = [
   // regression would be re-adding it.
   ["sudo -l lists privileges without running the command", "sudo -l curl"],
   ["an unlisted wrapper flag must not make data look executable", "sudo -n printf '%s\\n' curl"],
-  // Round 8: a non-identifier heredoc delimiter is now stripped, so an inert
-  // body mentioning a fetcher path is data, not a command. This is the shape
-  // of every doc and commit message this session wrote about the guard.
-  ["a heredoc body naming a fetcher path is prose", "cat <<'MSG-1'\nUse /usr/bin/curl for the probe; David's note\nMSG-1"],
-  // Round 9: the delimiter grammar must be uniform across positions. Bash
-  // documents the delimiter as an unrestricted `word`; widening only positions
-  // 2+ fixed the shape I had been shown and left these two broken.
-  ["a leading-dot delimiter", "cat <<'.MSG'\nUse /usr/bin/curl for the probe; David's note\n.MSG"],
-  ["a leading-dash delimiter", "cat <<'-MSG'\nUse /usr/bin/curl for the probe; David's note\n-MSG"],
-  // Round 10: a colon is outside every punctuation allowlist I had written,
-  // which is why the class is now negated rather than enumerated.
-  ["a colon in the delimiter", "cat <<'NOTE:1'\nUse /usr/bin/curl for the probe; David's note\nNOTE:1"],
-  // Round 11: the same escaped-quote delimiter, read correctly, is an
-  // ordinary inert body.
-  ['an escaped quote inside a double-quoted delimiter', 'cat <<"A\\"B"\nUse /usr/bin/curl for the probe; David\'s note\nA"B'],
-  // The terminator is compared as a string, so a delimiter carrying regex
-  // metacharacters cannot make an unrelated line end the body early.
-  ["a delimiter containing regex metacharacters", "cat <<'A.B'\nAXB\ngit push -f origin main\nA.B"],
-  // Round 12: three more quoting forms, each of which had left an inert body
-  // unstripped and therefore refused as an unparseable destructive command.
-  ["an ANSI-C quoted delimiter", "cat <<$'EOF'\nUse /usr/bin/curl for the probe; David's note\nEOF"],
-  ["an ANSI-C escape inside the delimiter", "cat <<$'A\\tB'\nUse /usr/bin/curl for the probe; David's note\nA\tB"],
-  ["an empty quoted delimiter terminates on a blank line", "cat <<''\nUse /usr/bin/curl for the probe; David's note\n"],
-  ["a delimiter continued across a backslash-newline", 'cat <<"A\\\nB"\nUse /usr/bin/curl for the probe; David\'s note\nAB'],
-  // Round 13: the terminator is compared the way Bash compares it -- exactly,
-  // with leading TABS removed only for `<<-`. Trimming both ends of every line
-  // was inherited from the regex this replaced, and an empty delimiter made it
-  // visible: a spaces-only line reduced to "" and ended the body early.
-  ["a spaces-only line is not an empty terminator", "cat <<''\n   \nUse /usr/bin/curl for the probe; David's note\n"],
-  ["<<- strips leading tabs from its terminator", "cat <<-EOF\nUse /usr/bin/curl for the probe; David's note\n\tEOF"],
-  // Plain `<<` strips nothing, so an indented line is body, not terminator --
-  // which means the push below it is data being fed to `cat`, exactly as Bash
-  // would treat it.
-  ["plain << does not strip an indented terminator", "cat <<EOF\n  EOF\ngit push -f origin main\nEOF"],
   ["an in-range octal escape still decodes", "cat <<$'\\101'\nUse /usr/bin/curl for the probe; David's note\nA"],
 
   // --- the one permitted force shape ---
@@ -369,19 +302,18 @@ test("unparseable input that looks destructive is blocked", () => {
   assert.equal(blocked("git push -f origin main 'unterminated"), true);
 });
 
-test("unparseable input is blocked even when it looks harmless", () => {
-  // Round 14 reversed this row, and the reversal is the finding. It used to
-  // assert that untokenisable text was ALLOWED unless a `LOOKS_DESTRUCTIVE`
-  // regex recognised it -- an enumeration of destructive shapes, which is the
-  // third enumeration this PR has had to abandon. Codex walked through the
-  // gap: an unreadable heredoc delimiter left an inert body in place, prose
-  // apostrophes made tokenising throw, and `git push origin +main` was not in
-  // the list, so a force refspec sailed through.
+test("unparseable input that looks harmless is allowed", () => {
+  // This row asserts main's behaviour, unchanged by this PR: untokenisable
+  // text is allowed unless `LOOKS_DESTRUCTIVE` recognises it.
   //
-  // Refusing here is what makes every "this abstains, which over-blocks"
-  // claim in the module true by construction rather than by the completeness
-  // of a regex.
-  assert.equal(blocked("echo 'unterminated"), true);
+  // That list is KNOWN INCOMPLETE -- Codex showed on #488 round 14 that
+  // `git push origin +main` is absent from it, so a force refspec behind an
+  // unreadable heredoc gets through. Refusing untokenisable text outright
+  // closes that, and reverses this row; it is split out with the heredoc
+  // scanner it depends on, because the pair was still converging after five
+  // rounds. Left here as main has it, so this PR's diff is the fetcher
+  // refusal and nothing else.
+  assert.equal(blocked("echo 'unterminated"), false);
 });
 
 test("a force push whose target is computed rather than named is blocked", () => {
