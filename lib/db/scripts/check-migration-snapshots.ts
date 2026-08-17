@@ -379,6 +379,20 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // unexplained change.
   // Source of truth: lib/db/src/schema/membershipEntitlements.ts.
   "0100_membership_sequence_repair",
+
+  // Release A (expand) of the is_estimated cost-ledger plan: one nullable
+  // boolean on user_generation_costs, plus its column comment. Hand-authored
+  // idempotent DDL following 0094-0100's shape, for the same reason they give
+  // — drizzle-kit generate stays broken on the malformed 0063 snapshot
+  // (verified again here: it exits with "migrations/meta/0063_snapshot.json
+  // data is malformed").
+  //
+  // As with 0100, the missing snapshot is DEFERRED, not inexpressible: a
+  // nullable boolean column is exactly a snapshot-visible delta, and it is
+  // declared in the schema. When the chain is repaired this must be captured
+  // rather than treated as nothing to record.
+  // Source of truth: lib/db/src/schema/falPricing.ts.
+  "0101_user_generation_costs_is_estimated",
 ]);
 
 interface JournalEntry {

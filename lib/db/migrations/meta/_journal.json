@@ -708,6 +708,13 @@
       "when": 1783300000000,
       "tag": "0100_membership_sequence_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1783400000000,
+      "tag": "0101_user_generation_costs_is_estimated",
+      "breakpoints": true
     }
   ]
 }
