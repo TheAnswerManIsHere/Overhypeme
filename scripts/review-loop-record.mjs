@@ -396,10 +396,16 @@ export function assertAdjudicationSnapshot(pr, snapshot) {
 
 /** Next free adjudication-record path, so a second loop never overwrites a first. */
 export function nextRecordPath(pr, existing) {
+  // String slicing, not a regex built from `pr` -- CodeQL flagged the built
+  // pattern as regex injection, and dropping the dynamic pattern removes the
+  // question rather than arguing about whether the input is safe today.
+  const prefix = `${pr}-`;
+  const suffix = ".json";
   const used = existing
-    .map((name) => new RegExp(`^${pr}-(\\d+)\\.json$`).exec(name))
-    .filter(Boolean)
-    .map((m) => Number(m[1]));
+    .filter((name) => name.startsWith(prefix) && name.endsWith(suffix))
+    .map((name) => name.slice(prefix.length, name.length - suffix.length))
+    .filter((seq) => /^\d+$/.test(seq))
+    .map(Number);
   const seq = used.length ? Math.max(...used) + 1 : 1;
   return `${ADJUDICATIONS_DIR}/${pr}-${seq}.json`;
 }

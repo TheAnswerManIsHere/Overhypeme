@@ -180,7 +180,22 @@ export function targetsThisRepo(toolInput) {
 export const budgetPath = (pr) => `${RECEIPTS_DIR}/loop-budget-${pr}.json`;
 export const roundsPath = (pr) => `${RECEIPTS_DIR}/loop-rounds-${pr}.json`;
 export const extensionPath = (pr, seq) => `${RECEIPTS_DIR}/loop-extension-${pr}-${seq}.json`;
-const extensionRe = (pr) => new RegExp(`^loop-extension-${pr}-(\\d+)\\.json$`);
+
+/**
+ * The sequence in an extension filename for this PR, or null if the name is
+ * not one. String slicing rather than a built regex: CodeQL flagged the
+ * previous `new RegExp(...${pr}...)` as regex injection, and it was right in
+ * principle even though `pr` is an integer by the time it arrives here.
+ * Removing the dynamic pattern removes the question entirely, and the
+ * canonical-name check below is clearer as an explicit comparison anyway.
+ */
+function extensionSequence(pr, name) {
+  const prefix = `loop-extension-${pr}-`;
+  const suffix = ".json";
+  if (!name.startsWith(prefix) || !name.endsWith(suffix)) return null;
+  const seq = name.slice(prefix.length, name.length - suffix.length);
+  return /^\d+$/.test(seq) ? seq : null;
+}
 
 // ---------------------------------------------------------------------------
 // I/O adapter. Injectable so the whole decision matrix is testable without
@@ -400,15 +415,15 @@ export function loadLoop(pr, io) {
   // guard must not resolve in its own favour.
   const found = [];
   for (const name of io.listReceipts()) {
-    const match = extensionRe(pr).exec(name);
-    if (!match) continue;
-    if (String(Number(match[1])) !== match[1]) {
+    const seq = extensionSequence(pr, name);
+    if (seq === null) continue;
+    if (String(Number(seq)) !== seq) {
       return {
         problem: "bad-receipt",
-        detail: `${RECEIPTS_DIR}/${name} is not a canonical extension name (sequence "${match[1]}" is zero-padded or otherwise non-canonical)`,
+        detail: `${RECEIPTS_DIR}/${name} is not a canonical extension name (sequence "${seq}" is zero-padded or otherwise non-canonical)`,
       };
     }
-    found.push({ seq: Number(match[1]), name });
+    found.push({ seq: Number(seq), name });
   }
   found.sort((a, b) => a.seq - b.seq);
   for (let i = 1; i < found.length; i += 1) {
