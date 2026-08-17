@@ -194,7 +194,22 @@ const MUST_BLOCK = [
   // Round 13: Bash emits a BYTE for an octal escape, so `\777` wraps to 0xFF.
   // Building the unbounded code unit (U+01FF) sent the terminator search past
   // the real terminator and swallowed the command in between.
-  ["round 13: an octal escape above 0377 wraps to a byte", "cat <<$'\\777'\n\u00ff\ngit push -f origin main\n\u01ff"],
+  // Round 14 REPLACED round 13's version of this row, which asserted that
+  // `$'\777'` and a `ÿ` line name the same delimiter. They do not: Bash emits
+  // the raw byte FF while `ÿ` in UTF-8 command text is C3 BF, so Bash leaves
+  // the heredoc open and never runs the push. The row was wrong about Bash,
+  // not merely about the code. Any escape at or above 0x80 now abstains, so
+  // the body stays in the text and the push is judged on its own.
+  ["round 14: a non-ASCII escape abstains rather than inventing a delimiter", "cat <<$'\\777'\n\u00ff\ngit push -f origin main\n\u00ff"],
+  // Round 14: `<<-` strips leading tabs from every body line, and the body is
+  // what a shell reading stdin then parses. Stripping only the terminator left
+  // the nested `\tIN` looking like data, so the inner heredoc ran on to the
+  // later bare `IN` and swallowed the push.
+  ["round 14: <<- body tabs are stripped before a nested heredoc is parsed", "bash <<-OUT\n\tcat <<IN\n\tdata\n\tIN\n\tgit push -f origin main\nIN\nOUT"],
+  // Round 14: an unreadable delimiter leaves prose in place, tokenising throws,
+  // and the old fallback did not list a force refspec. Refusing untokenisable
+  // text closes that by construction rather than by a longer list.
+  ["round 14: an unreadable delimiter cannot hide a force refspec", "cat <<$'A\\0B'\nDavid's note\nA\ngit push origin +main"],
   // An abstention must not hide anything: an undecodable escape means no
   // heredoc is recognised, so the text is judged in full.
   ["a NUL escape abstains rather than hiding a push", "cat <<$'A\\0B'\ngit push -f origin main\nA"],
@@ -350,12 +365,23 @@ for (const [name, command] of MUST_ALLOW) {
 // ---------------------------------------------------------------------------
 
 test("unparseable input that looks destructive is blocked", () => {
-  // Unbalanced quote: tokenising throws, so the conservative scan decides.
+  // Unbalanced quote: tokenising throws.
   assert.equal(blocked("git push -f origin main 'unterminated"), true);
 });
 
-test("unparseable input that looks harmless is allowed", () => {
-  assert.equal(blocked("echo 'unterminated"), false);
+test("unparseable input is blocked even when it looks harmless", () => {
+  // Round 14 reversed this row, and the reversal is the finding. It used to
+  // assert that untokenisable text was ALLOWED unless a `LOOKS_DESTRUCTIVE`
+  // regex recognised it -- an enumeration of destructive shapes, which is the
+  // third enumeration this PR has had to abandon. Codex walked through the
+  // gap: an unreadable heredoc delimiter left an inert body in place, prose
+  // apostrophes made tokenising throw, and `git push origin +main` was not in
+  // the list, so a force refspec sailed through.
+  //
+  // Refusing here is what makes every "this abstains, which over-blocks"
+  // claim in the module true by construction rather than by the completeness
+  // of a regex.
+  assert.equal(blocked("echo 'unterminated"), true);
 });
 
 test("a force push whose target is computed rather than named is blocked", () => {

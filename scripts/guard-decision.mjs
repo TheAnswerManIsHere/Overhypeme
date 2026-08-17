@@ -1219,21 +1219,6 @@ export function extractCommand(raw) {
 }
 
 /**
- * Shapes worth refusing when the tokeniser could not read the command at all.
- * Kept deliberately force-specific: broadening it to every `git push` would
- * reject ordinary work like `echo "done $(date)" && git push -u origin ...`.
- *
- * This is a LAST RESORT, reached only when tokenising throws. An earlier
- * revision also used it as a pre-emptive backstop against substitutions hidden
- * in double quotes, and that was wrong: it judged raw text, so it blocked this
- * very commit for quoting force-push examples in its own message. Raw-text
- * matching is the defect this module exists to remove -- reintroducing it as a
- * safety net just moved it.
- */
-const LOOKS_DESTRUCTIVE =
-  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push|(?:^|[\s;&|(])(?:[\w.\/-]*\/)?(?:curl|wget)\s/;
-
-/**
  * Read the delimiter word of a heredoc opener using Bash's own quoting rules,
  * returning the LITERAL delimiter (what the terminator line must equal, after
  * quote removal) and the index just past the word.
@@ -1384,6 +1369,27 @@ function scanDoubleQuoted(text, start) {
  */
 const ANSI_C_SIMPLE = { n: "\n", t: "\t", r: "\r", a: "\x07", b: "\b", f: "\f", v: "\v", e: "\x1b", E: "\x1b", "\\": "\\", "'": "'", '"': '"', "?": "?" };
 
+/**
+ * A byte from a `\xHH` or `\NNN` escape, as a character this module can
+ * compare against the command text -- or null, meaning "abstain".
+ *
+ * ASCII only, and that boundary is the point. Bash emits a RAW BYTE, while
+ * this module compares JavaScript strings decoded from UTF-8: `$'\377'` is the
+ * single byte FF, but the character `ÿ` in the same command text is the two
+ * bytes C3 BF. Below 0x80 the byte and the code unit coincide under UTF-8, so
+ * the comparison is sound; at or above it, they do not, and a match here would
+ * be an artefact of the decoding rather than something Bash would agree with.
+ * (Codex, #488 round 14 -- which caught a MUST_BLOCK row I had written on
+ * exactly that wrong assumption.)
+ *
+ * NUL abstains too: Bash truncates the value there, and modelling that from
+ * reading rather than measurement is how the claims in this PR went wrong.
+ */
+function decodeByte(byte) {
+  if (byte === 0 || byte >= 0x80) return null;
+  return String.fromCharCode(byte);
+}
+
 function scanAnsiCQuoted(text, start) {
   let value = "";
   let i = start;
@@ -1400,24 +1406,18 @@ function scanAnsiCQuoted(text, start) {
       }
       const hex = /^\\x([0-9a-f]{1,2})/i.exec(text.slice(i));
       if (hex) {
-        const byte = parseInt(hex[1], 16);
-        // A NUL truncates the value in Bash rather than embedding a character,
-        // and reproducing that here would be inventing semantics from reading
-        // rather than measurement. Abstain instead. (Codex, #488 round 13.)
-        if (byte === 0) return null;
-        value += String.fromCharCode(byte);
+        const decoded = decodeByte(parseInt(hex[1], 16));
+        if (decoded === null) return null;
+        value += decoded;
         i += hex[0].length;
         continue;
       }
       const octal = /^\\([0-7]{1,3})/.exec(text.slice(i));
       if (octal) {
-        // Bash emits a BYTE: `\400` and above wrap to 8 bits. Building the
-        // unbounded code unit produced U+0100-U+01FF instead, so the scanner
-        // hunted for a plausible-but-wrong terminator further down the text
-        // and swallowed the real commands in between. (Codex, #488 round 13.)
-        const byte = parseInt(octal[1], 8) & 0xff;
-        if (byte === 0) return null;
-        value += String.fromCharCode(byte);
+        // Bash emits a BYTE: `\400` and above wrap to 8 bits.
+        const decoded = decodeByte(parseInt(octal[1], 8) & 0xff);
+        if (decoded === null) return null;
+        value += decoded;
         i += octal[0].length;
         continue;
       }
@@ -1497,11 +1497,18 @@ function findHeredocs(text) {
       i = delimiter.end;
       continue;
     }
+    const raw = text.slice(openerLineEnd + 1, terminator.start);
     blocks.push({
       index: at,
       tokenEnd: delimiter.end,
       bodyStart: openerLineEnd + 1,
-      body: text.slice(openerLineEnd + 1, terminator.start),
+      // `<<-` strips leading tabs from EVERY body line, not only the
+      // terminator, and the body is what a shell reading stdin then parses.
+      // Stripping only the terminator left `\tIN` inside a nested heredoc
+      // looking like data, so the nested body ran on to a later bare `IN` and
+      // swallowed a real command. (Codex, #488 round 14 -- refuting my own
+      // round-13 claim that body tabs could not change a verdict.)
+      body: stripTabs ? raw.replace(/^\t+/gm, "") : raw,
       end: terminator.end,
     });
     i = terminator.end;
@@ -1621,12 +1628,30 @@ function evaluateScript(text, depth) {
   try {
     parsed = segments(tokenize(stripHeredocs(text)));
   } catch {
-    // Untokenisable. We cannot reason about it, so block only if it shows any
-    // sign of the shapes we care about.
-    if (LOOKS_DESTRUCTIVE.test(text)) {
-      return depth === 0 ? "unparseable command that looks destructive" : "unparseable nested shell command that looks destructive";
-    }
-    return null;
+    // Untokenisable text is REFUSED, not scanned for destructive shapes.
+    //
+    // This used to fall through to a `LOOKS_DESTRUCTIVE` regex -- an
+    // enumeration of the shapes worth refusing -- and that is the third
+    // enumeration this PR has had to abandon. Codex found the hole by
+    // construction: an unreadable heredoc delimiter left an inert body in
+    // place, prose apostrophes made tokenising throw, and the fallback did
+    // not list `git push origin +main`, so a force refspec was ALLOWED.
+    // (Codex, #488 round 14.)
+    //
+    // The deeper problem was that every "this abstains, which over-blocks"
+    // claim in this module depended on that fallback being complete, and it
+    // never was. Refusing here makes the claim true by construction: any
+    // input this module cannot read is refused, so a scanner that misreads
+    // something degrades to a false BLOCK rather than a silent pass.
+    //
+    // Cost: a genuinely unreadable command is refused with an explanation
+    // rather than run. Heredoc bodies are stripped before this point, so the
+    // prose-apostrophe case that motivated the old fallback does not reach
+    // it -- and when it does, the input really is one this guard cannot
+    // judge.
+    return depth === 0
+      ? "command could not be parsed, so it cannot be judged -- refusing rather than guessing. Simplify it, or put the awkward text in a heredoc body (which is treated as data)."
+      : "nested shell command could not be parsed, so it cannot be judged -- refusing rather than guessing.";
   }
 
   for (const argv of parsed) {
