@@ -58,6 +58,14 @@ the on-disk tally differs from the one in `HEAD` — an uncommitted tally dies
 with the container and silently re-grants the rounds it recorded, which is the
 reset these receipts exist to prevent.
 
+**Never hand-write a round entry.** The guard appends one itself on every
+allowed post, so adding one by hand double-counts and trips the tripwire a
+round early. Observed on this mechanism's own PR: a hand-written entry made a
+legitimate round 3 read as round 4 and get refused. The only thing to do by
+hand is committing what the guard wrote. (Hand-tallying is correct in exactly
+one case — a loop followed by hand *before* this mechanism exists — and there
+the guard is not live to write it.)
+
 **An extension is dormant until the stage before it is spent.** A `continue`
 receipt written early does not raise the allowance early; it activates at the
 exact round its adjudication was about. Otherwise the loop sails past its cap
