@@ -538,9 +538,12 @@ Automated, `pnpm --filter @workspace/api-server test`:
 10. **An unpriced generation by an admin** produces a row on the happy path, and
     on a forced estimate-lookup failure produces no row, no thrown error into
     the completed generation, and an incremented lost-write signal.
-7. **`recordCost` failure is observable**: with the insert forced to fail, the
-   generation still succeeds and the failure is visible through the surface
-   chosen.
+11. **`recordCost` failure is observable**: with the insert forced to fail but
+    the database otherwise healthy, the generation still succeeds and the
+    counter moves.
+12. **The health signal's own failure**: with the counter write itself forced to
+    fail, the structured log line still carries the event — the floor the plan
+    admits to rather than claiming a signal that survives its own dependency.
 
 Frontend, `pnpm --filter @workspace/overhype-me test`: a period containing an
 estimated row renders marked; an all-confirmed period does not; a `NULL`-bearing
