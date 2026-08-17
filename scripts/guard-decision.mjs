@@ -15,12 +15,48 @@
  *      and catches spellings a local hook cannot be trusted to enumerate.
  *   3. This hook.
  *
- * So this hook does NOT try to be GitHub's ruleset. Its one job is to make the
- * LEASE MANDATORY on the branches this session owns. That matters more here
- * than on a normal machine: the container is ephemeral, so the local reflog
- * dies with it and an overwritten remote branch has no second copy to recover
- * from. `--force-with-lease` refuses when the remote moved since the last
- * fetch, which is exactly the "something I have not seen is up there" case.
+ * So this hook does NOT try to be GitHub's ruleset. It carries SEVERAL
+ * responsibilities, and the list below is NOT exhaustive -- `decide()` and the
+ * MUST_BLOCK/MUST_ALLOW table are the authority, this prose is a summary:
+ *
+ *   - THE LEASE, MANDATORY on the branches this session owns. The container is
+ *     ephemeral, so the local reflog dies with it and an overwritten remote
+ *     branch has no second copy. `--force-with-lease` refuses when the remote
+ *     moved since the last fetch -- exactly the "something I have not seen is
+ *     up there" case.
+ *   - REFUSING `curl` AND `wget` (2026-08-17), for a different reason: a
+ *     SILENT failure (api.github.com returns a 403 whose body a `grep` finds
+ *     nothing in, so a wait loop built on it sleeps forever without erroring)
+ *     rather than a destructive one.
+ *   - REFUSING root-shaped `rm -rf` and `drizzle-kit push`, in `checkCommand`,
+ *     which belong to neither of the above and predate both.
+ *
+ * NO ORDINALS, deliberately. This header has now been wrong three ways about
+ * its own scope: it said "one job" after the fetcher rule shipped; then
+ * "FIRST"/"SECOND", which reads as exhaustive and omits `checkCommand`'s
+ * standing destructive/schema refusals -- letting a maintainer conclude their
+ * command is outside the guard's contract when it is not. A count is a claim,
+ * and it is the claim that keeps going stale. (Codex, #499 rounds 2-4.)
+ *
+ * NONE of these is backstopped server-side; they differ in how they FAIL, not
+ * in what stands behind them. READ LAYER 2 CAREFULLY BEFORE RELYING ON IT: the
+ * ruleset targets `main`, and does NOT target `claude/*` or `plan-review/*` --
+ * the branches the lease rule actually governs -- so for THAT job this hook is
+ * the only line, not the third. "Third line of defence" is true of protecting
+ * `main` and false of the job this file mostly does. An earlier version also
+ * claimed the lease rule had a backstop the fetcher rule lacked, reading the
+ * ruleset's scope off its existence rather than off its target. See
+ * `docs/ai-context/decisions.md`, 2026-08-17, and the `FETCHER_REFUSAL` block
+ * below for the full reasoning and its gap register. (Codex, #499 round 3.)
+ *
+ * ALL of it is conditional on `node`. Without it `.claude/guard.sh` falls back
+ * to a regex scan whose coverage is MIXED -- looser on fetchers and on the
+ * direct `git-push` executable form, stricter on the permitted lease push.
+ * That file's header carries the measured matrix; do not paraphrase it as
+ * "weaker" or "stricter", because both were tried and both were false. Every
+ * "refuses curl and wget" claim in this repo is scoped to the node path.
+ * Measured, not assumed (#499 rounds 3-4); closing the looser rows is a
+ * behavioral change owed its own bugfix PR.
  *
  * POSTURE
  * -------
@@ -1123,8 +1159,17 @@ const FETCHER_REFUSAL =
  * ended it -- **an emergent behaviour should be stated as an invariant that
  * can be executed, not as a description that has to be maintained.** The four
  * failed versions were all descriptions of what eight independent rules
- * happen to do. The invariant above is one line, needs no updating when a rule
- * is added, and is pinned as a test that runs it against the bare command.
+ * happen to do. The invariant above is one line, stays TRUE as rules are
+ * added, and is pinned as a test that runs it against the bare command.
+ *
+ * ITS COVERAGE IS NOT SELF-UPDATING, THOUGH, and an earlier version of this
+ * sentence said it was -- which is the same false assurance this whole note is
+ * about. `ARRAY_INVARIANT_CASES` is a hand-curated list, so a new rule whose
+ * inputs are not represented in it can behave differently inside an array with
+ * every invariant test green. **Adding a rule means adding a representative
+ * case**, or deriving the list from the rule set instead of curating it. An
+ * invariant narrows what can drift from "a paragraph" to "the sample"; it does
+ * not eliminate drift. (Codex, #488 round 21 and #499 round 2.)
  *
  * It is deliberate: the suppression written to allow these opened a fail-open
  * in each of its two versions (substitutions with no `$`, then integer-array
@@ -1152,7 +1197,22 @@ const FETCHER_REFUSAL =
  *    recursive parse reads `--` as the program. Measured: `eval -- "printf X
  *    > file"` writes the file. Fix: strip a leading `--` before joining.
  *
- * WHY THOSE TWO ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
+ * A SEVENTH, #499 round 3 -- and it is NOT in this module, which is why five
+ * rounds of gap-hunting inside this file could never have found it. If `node`
+ * is unavailable, `.claude/guard.sh` never reaches this code at all: it falls
+ * back to a regex scan covering destructive git/rm/drizzle shapes and NOTHING
+ * ELSE, so a `curl` payload exits 0. Measured by hiding `node` from `PATH` and
+ * running the real hook. The fallback is stricter than this parser on force
+ * pushes and absent on fetchers -- degraded rather than uniformly weaker.
+ *
+ * Fix: add a fetcher alternative to that regex. Deferred here because it is a
+ * BEHAVIORAL change and the PR that found it is a documentation harvest; it is
+ * owed its own bugfix PR. What the harvest does instead is scope every
+ * "refuses curl and wget outright" claim in this repo to the node path, since
+ * an unqualified claim in a security-sensitive header is the exact false
+ * assurance this file's own notes are about.
+ *
+ * WHY THE FIFTH AND SIXTH ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
  *
  * Round 16 published a line here: a defect in a wrapper this module MODELS is
  * a correctness bug and gets fixed, while an unmodelled wrapper is the

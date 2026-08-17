@@ -13,6 +13,65 @@
 
 ---
 
+### 2026-08-17 · The bash guard refuses curl and wget outright, and ships with its gaps written down
+- **Supersedes in part:** the 2026-08-05 entry below, which narrowed the guard
+  to *"make the lease mandatory"* and called that its only real job. That
+  framing is no longer complete: the guard now has a **second** independent
+  responsibility, refusing fetchers, added for a different reason — a silent
+  failure mode, not a destructive one. Everything else in that entry stands,
+  including its reasoning about why the lease scope stayed narrow.
+- **Neither job has a server-side backstop, and an earlier version of this
+  entry claimed the lease rule did.** GitHub's ruleset protects **`main`**; it
+  does not target `claude/*` or `plan-review/*`, which is the scope the lease
+  mandate actually governs. So on the branches that rule is *for*, the hook is
+  the only line — not the third one. The correction matters because the false
+  version invited exactly the wrong inference: that the lease rule could afford
+  gaps the fetcher rule could not, when in fact both fail the same way and
+  differ only in *how* (recoverable-but-destructive versus silent). The
+  "third line of defence" framing is true of protecting `main` and false of the
+  job this hook mostly does. (Codex, #499 round 3.)
+- **Decision:** `scripts/guard-decision.mjs` refuses the `curl` and `wget`
+  programs entirely, with **no exception for any argument shape** — not even
+  the agent proxy's own `__agentproxy/status` probe. It judges the *resolved
+  program* and nothing else. The PR shipped with six known under-blocking gaps
+  and one over-block **documented in the module header rather than closed**,
+  each with a measured reproduction and the fix it would need.
+- **Scoped to the `node` path, which the title above does not say and should be
+  read as saying.** `.claude/guard.sh` runs `guard-decision.mjs` only when
+  `node` is present; without it the wrapper falls back to a regex scan with no
+  fetcher alternative, and a `curl` payload exits 0. Measured by hiding `node`
+  from `PATH` and running the real hook. Left open deliberately — closing it is
+  a behavioral change, and the PR that found it is a documentation harvest —
+  but recorded here and in both guard headers, because an unqualified
+  "refuses curl and wget outright" is the false assurance this decision is
+  otherwise about avoiding. (Codex, #499 round 3.)
+- **Why:** the first four revisions tried to decide whether a given invocation
+  would actually reach `api.github.com`, so unrelated fetches stayed available.
+  That is not a converging problem — doing it correctly means reimplementing
+  curl's and wget's argument grammars, and review found real defects in the
+  judgement four rounds running, in five different sub-languages of those
+  tools. The single allowlisted exception fared no better: three findings
+  against it in one round, one of them a `.curlrc` reached via `$CURL_HOME`,
+  which adds requests that never appear in argv and so cannot be caught by
+  inspecting arguments at all. Refusing the whole program is the only version
+  complete by construction. **Shipping with gaps was David's explicit call**
+  after 17 rounds: the guard's real job is stopping an accidental silent
+  CI-wait loop, which it does; the residual gaps all require deliberately
+  unusual invocations, and there is no adversary in this container.
+- **What it costs:** ad-hoc one-off fetches, including the proxy probe. That
+  fails **loudly** with an explanatory message, which is the opposite of the
+  silent 403-inside-a-pipeline failure the rule exists to prevent. Scripts that
+  run curl internally are unaffected — the hook sees the command line typed at
+  it, not a script's contents.
+- **Reference:** PR #488 (merged `f8428770`), 22 review rounds. The module
+  header carries the gap register; the abandoned-enumeration pattern is in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#one-example-bug-fixes),
+  and the transport facts behind the rule are in
+  [`.agents/memory/github-rest-api-blocked-from-bash.md`](../../.agents/memory/github-rest-api-blocked-from-bash.md).
+- **Revisit if:** an ad-hoc fetch becomes routine rather than exceptional, or
+  the container's proxy stops intercepting `api.github.com` — the silent-403
+  failure is the entire premise, and without it the trade changes.
+
 ### 2026-08-16 · The eval dashboard gets its own manual chapter, not a section inside an existing one
 - **Decision:** The render-quality eval dashboard gets **Manual chapter 13**.
   Rejected: a section inside chapter 5 (visual pipeline), and expanding the
@@ -1098,6 +1157,21 @@
 ---
 
 ### 2026-08-05 · The Bash guard is narrowed to "make the lease mandatory," then review-loop iteration stops after round 4 widened instead of narrowed
+> **Superseded in part by the 2026-08-17 fetcher-refusal entry above.** The
+> scope claim here — that making the lease mandatory is the guard's only real
+> job — was true when written and is no longer: the guard also refuses `curl`
+> and `wget`. The rest of this entry, including why the lease scope stayed
+> narrow, still stands.
+>
+> **One clarification rather than a supersession**, because this entry states
+> both halves correctly and they are easy to combine wrongly: the ruleset that
+> makes this hook the *third* line covers `main`, while the job described below
+> is scoped to `claude/*` and `plan-review/*`. Both facts are here; the
+> inference "therefore the lease requirement is server-backed" is not, and is
+> false. On the branches this rule governs, the hook is the only line — which
+> strengthens rather than weakens the narrowing argument below, since a lease
+> is cheap and the branches it protects have no other protection at all.
+> (Codex, #499 round 3.)
 - **Decision:** `.claude/guard.sh` (via `scripts/guard-decision.mjs`) was rewritten
   from a single inverted grep — it blocked `git push --force` while waving
   through the equivalent `git push -f` — into a token-level parser, then
