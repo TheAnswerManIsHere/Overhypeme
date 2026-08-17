@@ -58,10 +58,19 @@ is **state**, not difficulty:
   wrong and is the entry an agent would actually reach for when making this
   exact decision. The harvest's first source is the *build session's* own
   decisions and rejected alternatives, which a subagent does not inherit, so
-  a cold worker drops precisely what the ceremony exists to capture. Only the
-  **judgement** of whether to run a pass is bounded enough to route (and only
-  when the session is below Opus). See `CLAUDE.md`'s
-  *I proactively remind David to run `/document`*.
+  a cold worker drops precisely what the ceremony exists to capture. **The
+  harvest is a standing dispatch BAR** — pre-registered here and in
+  `CLAUDE.md`, not a call made at dispatch time — because its work is
+  enumeration from memory, and no dispatch package can carry what has not
+  been noticed yet.
+
+  The **judgement** of whether to run a pass is the opposite: a standing
+  dispatch **mandate**, and since 2026-08-17 it goes to **Fable, whatever
+  tier the session is on**. The old "(and only when the session is below
+  Opus)" condition is retired — it would have given a degraded session the
+  stronger judgement and an Opus session the weaker one. See `CLAUDE.md`'s
+  *I proactively remind David to run `/document`* and *Whether a judgement
+  dispatches is fixed in advance*.
 - **Not routable**: a review loop or any long-running stateful loop; anything
   whose judgment is mine under the 2026-08-15 adjudication rules; verification
   of my own work (barred by `CLAUDE.md`'s delegation caps).

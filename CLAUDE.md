@@ -467,30 +467,41 @@ seen running one.
 learnings are complete and freshest. A long area session that wraps without
 a merge is the other natural trigger.
 
-**The tier guard, and why it is load-bearing rather than ceremony (David,
-2026-08-15).** David's instruction was explicit: make this judgement on
-**Opus**, and if the session is on a lower tier, dispatch a subagent to make
-it instead. That is not belt-and-braces — two documented environments can
-put a session below Opus despite `settings.json` (an in-Repl session's
-`settings.local.json` override, and any session still running under the old
-`opusplan` value, since `model` is read once at session start; both are
-detailed under *Token / cost discipline*). So, mechanically:
+**The judgement always dispatches, and always on Fable (David, 2026-08-17:
+*for judgements, I want the strongest possible model*).** One step, no tier
+check: **dispatch a one-shot Fable subagent whose only job is the
+judgement** — hand it the merged diff, **the decisions taken, enumerated
+rather than summarized**, and the bar above; it returns run/don't-run plus
+what it judged harvestable. I announce the dispatch and act on its verdict.
 
-**The judgement always runs on Fable, whatever tier the session is (David,
-2026-08-17: *for judgements, I want the strongest possible model*).** So it
-is one step, not a tier check: **dispatch a one-shot Fable subagent whose
-only job is the judgement** — hand it the merged diff, the decisions taken,
-and the bar above; it returns run/don't-run plus what it judged harvestable.
-I announce the dispatch and act on its verdict.
+**Why the enumeration matters more than the tier here.**
+[`documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+makes the *build session's* decisions and rejected alternatives the harvest's
+richest source, and those live only in session history. So the dispatch
+package is doing the real work: if my enumeration is complete, the subagent
+is matching against the bar; if it is incomplete, the omitted decision is
+invisible to the judge and **no tier fixes that** — a false "don't run"
+silently loses the learning. This is the same limit stated in the
+`model-routing` skill: a dispatch that reuses my own reasoning is not rescued
+by being on Fable.
 
-This replaces a three-step guard that judged inline on Opus and dispatched
-only when the session was *below* Opus. That shape is incoherent under the
-new rule — it would give a degraded session the stronger judgement and an
-Opus session the weaker one — so the tier check is gone rather than
-retargeted. **The tier guard it belonged to still stands for everything
-else**, because Opus-reserved *execution* (a migration, a Tier B fix, a
-security review, dev-infra) is not satisfiable by routing a judgement; see
-*Token / cost discipline*.
+**What this replaced, and the argument I am NOT making for it (2026-08-17).**
+Until today a three-step guard judged inline on Opus and dispatched only when
+the session was *below* Opus. I first justified removing it by saying that
+shape gives a degraded session the stronger judgement and an Opus session the
+weaker one. **That argument is beatable and should not be relied on**:
+judgement quality is capability × context, and an unconditional dispatch
+trades context away even when the session had it, so inline-on-Opus versus
+Fable-subagent is not strictly ordered. What actually settles it is David's
+instruction, which is a decision rather than a derivation. Recorded this way
+because a rule defended by a refutable argument invites its own reversal by
+the next session that spots the hole.
+
+**The tier guard this used to belong to still stands for everything else**,
+because Opus-reserved *execution* (a migration, a Tier B fix, a security
+review, dev-infra) is not satisfiable by routing a judgement; see *Token /
+cost discipline*, which also documents the two environments that can put a
+session below Opus despite `settings.json`.
 
 **The harvest itself always runs in the context-bearing main loop, never in
 a subagent** — including when a subagent made the judgement.
@@ -1083,9 +1094,10 @@ verification — is post-merge for the same structural reason.
 5. **I make the `/document` judgement AND run the pass it calls for, both
    BEFORE writing the merge report (David, 2026-08-16 — the third and, I
    expect, final ordering of this step).** Judging and running are one
-   step, not two. The bar, the Opus tier guard, and the rule that the
-   harvest itself stays in my main loop are in *I proactively remind David
-   to run `/document`* above.
+   step, not two. The bar, the **always-Fable dispatch of the judgement**
+   (2026-08-17, replacing the tier guard that used to sit here), and the rule
+   that the harvest itself stays in my main loop are in *I proactively remind
+   David to run `/document`* above.
 
    **Why this keeps getting re-ordered, and why splitting it fails.** v1 put
    the judgement *after* the report while requiring its verdict *in* the
@@ -1937,7 +1949,7 @@ calls. Two concrete, durable changes:
     | Implementing features | **Sonnet-subagent routable**, stays in my Opus main loop for high-risk subsystems | Codex reviews the diff, so the net holds for most code — a mechanical build-out from an approved plan is a clean bounded handoff. Keep it in the main loop for migrations/data, the tokenizer/grammar, the visual pipeline, or when the build surfaces real complexity. |
     | Debugging new features | **My main loop** (Opus); route a bounded reproduction or search to a Sonnet subagent | Most bugs are shallow, but debugging is stateful — hypotheses accumulate. What's routable is a *self-contained* piece (reproduce X, find every caller of Y), not the diagnosis itself. |
     | **Ambiguous, root-cause, or bigger-than-one-sitting work** (an outage whose cause we can't name, a subsystem-wide architecture call, a debugging thread that already beat Opus) | **Fable 5**, via subagent | Fable's edge is investigating before acting and holding a long thread without losing it. It costs 2× Opus 5, so for *this* row it stays a deliberate escalation for work that has already resisted a cheaper tier — never a default. |
-    | **Any adjudication or bounded judgement** (a review-loop trigger, a stopping-rule call, the blind ledger pass, the `/document` run/don't-run verdict) | **Fable 5, always**, via subagent | David, 2026-08-17: *for judgements, I want the strongest possible model.* Unlike the row above, this one **is** a default and needs no prior failure to justify it — judgement moments are a tiny share of tokens and carry the consequence, so 2× on 2% is the cheap side of the trade. Deciding case-by-case which judgement deserves the stronger model would be one more self-assessment by the context already under suspicion. |
+    | **Any subagent dispatched to MAKE or CHALLENGE a decision about what happens next** — the four structural triggers, the stopping-rule pass, the blind ledger pass, the `/document` run/don't-run verdict, a decline of *any* reviewer's finding in *any* of our skills | **Fable 5, always**, via subagent | David, 2026-08-17: *for judgements, I want the strongest possible model.* Unlike the row above, this one **is** a default and needs no prior failure to justify it — judgement moments are a tiny share of tokens and carry the consequence, so 2× on 2% is the cheap side. **This row governs which model a dispatch uses, never whether to dispatch** (see below). Subagents that *produce* findings — reviewers, implementers, investigators — are not adjudicators and keep their own skills' model-scaling rules; adjudicating their findings is what this row covers. |
     | Devops / working-with-Claude-and-Codex meta | **Sonnet** | Workflow reasoning with checkable output, no uncatchable downside. |
     | Documentation | **Sonnet, always** | David reads the docs — drift is self-catching, and fixes are cheap. |
     | Optimization | **Opus-leaning** | A "faster" version that's subtly wrong on an edge case still looks like it works, so it can dodge both nets. Trivial/obvious cleanups can stay on Sonnet. |
@@ -1994,6 +2006,46 @@ session switch, **the rule that every adjudication and bounded judgement
 dispatches on Fable** (David, 2026-08-17), and **the advisor tool** — lives in
 the **`model-routing` skill**. I invoke it when a routing question is actually
 live. I stay vocal about every dispatch and why, in both directions.
+
+### Whether a judgement dispatches is fixed in advance, never decided in the moment
+
+The row above picks the **model**. It does not pick **whether to dispatch** —
+and keeping those separate is what stops the Fable rule from either swallowing
+its exceptions or being escaped at will.
+
+**Dispatch is settled by each judgement's own contract, in writing, ahead of
+time.** It is **mandated** where the contract says so (the four structural
+triggers, the stopping-rule pass, the blind ledger pass, the `/document`
+run/don't-run verdict). It is **barred** where the contract says so — today
+that is the **`/handoff` verdict** and the **`/document` harvest**, both
+pre-registered in their own skills. **Adding or removing a bar is a contract
+change that ships in a PR David merges, never a call I make mid-task.**
+
+**Why a pre-registered bar and not a test I apply at dispatch time.** My first
+draft said a judgement dispatches when it is "genuinely handoff-able" — which
+is a *self-assessment made at the dispatch site*, the exact move the structural
+triggers exist to eliminate. Worse, it would arguably have excluded the
+stopping-rule adjudication itself: that pass's subject matter *is* this
+session's running context — round history, tripwires, my own draft reasoning —
+so a "needs my context" test swallows the paradigm case the rule was built
+around. A rule whose plain reading excludes its own model case is a loophole,
+not a boundary. (Adversarial Fable subagent, #504.)
+
+**What actually distinguishes the two barred cases is function, not context
+dependence** — both are context-dependent. An adjudication packages a
+**drafted verdict plus its evidence** for independent challenge. The `/handoff`
+verdict and the `/document` harvest are **enumeration from memory**: you cannot
+package what you have not yet noticed, and noticing *is* the task. That
+distinction is checkable from the artifact — is there a dispatch package with a
+decision already in it? — rather than from a claim about what I felt I needed.
+
+**A corollary that bites, and is meant to.** Because the bar is functional
+rather than by-skill, a **controller declining a reviewer subagent's finding**
+is an adjudication and takes Fable — including inside vendored skills like
+`subagent-driven-development`, whose reviewer-model scaling stays untouched
+because reviewers *produce* findings rather than decide about them. Exempting a
+skill by provenance would have missed this; that skill already carries an
+Overhype-specific local-calibration block, so "not ours" was never true anyway.
 
 ### Subagent delegation is capped (Opus 5 delegates eagerly)
 
