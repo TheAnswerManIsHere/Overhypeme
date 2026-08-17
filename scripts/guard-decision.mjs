@@ -853,20 +853,112 @@ function isRecursiveAndForced(args) {
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 
 /**
- * True when a token is an http(s) URL whose host is GitHub's REST API.
+ * Options whose NEXT argument is a value, not a transfer URL.
  *
- * Parsed rather than substring-matched, so `--data '{"repo":"api.github.com"}'`
- * and a path like `./api.github.com.md` are not mistaken for a request to it.
- * Host comparison is case-insensitive and ignores a userinfo prefix, since
- * `https://user@API.GitHub.com/...` reaches the same place.
+ * Needed because the first version of this rule tested every argument, so
+ * `curl -d https://api.github.com/x https://example.com/hook` was blocked even
+ * though it only connects to example.com — a POST body that happens to be a
+ * URL is data. (Codex, PR #487.) Long forms may also arrive as `--data=...`,
+ * which is self-contained and never consumes the following token.
+ *
+ * `--url` is deliberately ABSENT: its value IS the transfer URL, so it must be
+ * checked rather than skipped.
  */
-function isGitHubApiUrl(token) {
-  if (!/^https?:\/\//i.test(token)) return false;
+const FETCHER_VALUE_FLAGS = new Set([
+  // curl
+  "-d", "--data", "--data-raw", "--data-binary", "--data-ascii", "--data-urlencode",
+  "-H", "--header", "--proxy-header", "-F", "--form", "--form-string",
+  "-o", "--output", "-T", "--upload-file", "-u", "--user", "-U", "--proxy-user",
+  "-A", "--user-agent", "-e", "--referer", "-X", "--request", "-b", "--cookie",
+  "-c", "--cookie-jar", "-w", "--write-out", "-x", "--proxy", "--preproxy",
+  "-E", "--cert", "--key", "--cacert", "--capath", "--resolve", "--connect-to",
+  "-m", "--max-time", "--connect-timeout", "--retry", "--retry-delay",
+  "--retry-max-time", "-K", "--config", "--interface", "--limit-rate", "-r", "--range",
+  // wget
+  "-O", "--output-document", "-P", "--directory-prefix", "--post-data",
+  "--post-file", "--body-data", "--body-file", "--user-agent", "--referer",
+  "--load-cookies", "--save-cookies", "--ca-certificate", "--certificate",
+  "--private-key", "-t", "--tries", "-T", "--timeout", "--bind-address",
+]);
+
+/**
+ * The single-letter forms above, as bare letters.
+ *
+ * Bundled short flags (`curl -sSd <body> <url>`) put the value-taking letter
+ * LAST in the bundle, so the bundle consumes the following token exactly as the
+ * unbundled form does. Derived rather than re-listed so the two can't drift.
+ */
+const SHORT_VALUE_FLAG_LETTERS = new Set(
+  [...FETCHER_VALUE_FLAGS].filter((f) => /^-[A-Za-z]$/.test(f)).map((f) => f.slice(1)),
+);
+
+/**
+ * The hostname a fetcher argument would actually connect to, or null.
+ *
+ * **Scheme-optional**, because curl guesses a missing scheme: bare
+ * `curl api.github.com/repos/o/r` fetches over HTTP and is an ordinary
+ * equivalent of every blocked command. Requiring `http(s)://` left that
+ * reachable. (Codex, PR #487.)
+ *
+ * Still PARSED rather than substring-matched, so `./api.github.com.md`, a
+ * flag, and a JSON body mentioning the host are not mistaken for a request.
+ * Host comparison is case-insensitive and ignores a userinfo prefix, since
+ * `https://user@API.GitHub.com/…` reaches the same place.
+ */
+function fetcherTargetHost(token) {
+  if (!token || token.startsWith("-")) return null;
+  // A path-ish token is a file operand, not a host: `./api.github.com.md`,
+  // `/tmp/x`, `~/y`. curl treats a leading `/` or `.` as a path, not a URL.
+  if (/^[./~]/.test(token)) return null;
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(token) ? token : `http://${token}`;
   try {
-    return new URL(token).hostname.toLowerCase() === "api.github.com";
+    const { protocol, hostname } = new URL(candidate);
+    if (protocol !== "http:" && protocol !== "https:") return null;
+    return hostname.toLowerCase();
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * True when a curl/wget invocation would actually connect to api.github.com.
+ *
+ * Walks the arguments so an option's VALUE is never mistaken for a target,
+ * and so a schemeless target is still recognised.
+ */
+function fetchesGitHubApi(rest) {
+  for (let i = 0; i < rest.length; i += 1) {
+    const arg = rest[i];
+    if (arg === "--") {
+      // Everything after `--` is an operand.
+      for (const operand of rest.slice(i + 1)) {
+        if (fetcherTargetHost(operand) === "api.github.com") return true;
+      }
+      return false;
+    }
+    if (arg === "--url") {
+      if (fetcherTargetHost(rest[i + 1]) === "api.github.com") return true;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--url=")) {
+      if (fetcherTargetHost(arg.slice(6)) === "api.github.com") return true;
+      continue;
+    }
+    // `--data=...` and friends are self-contained; they consume no next token.
+    if (arg.startsWith("--") && arg.includes("=")) continue;
+    if (FETCHER_VALUE_FLAGS.has(arg)) {
+      i += 1; // skip the value
+      continue;
+    }
+    if (/^-[A-Za-z]{2,}$/.test(arg) && SHORT_VALUE_FLAG_LETTERS.has(arg.slice(-1))) {
+      i += 1; // bundle ending in a value-taking letter, e.g. `-sSd <body>`
+      continue;
+    }
+    if (arg.startsWith("-")) continue; // bare flag, or a bundle like -sS
+    if (fetcherTargetHost(arg) === "api.github.com") return true;
+  }
+  return false;
 }
 
 function isDrizzleKitToken(token) {
@@ -982,7 +1074,7 @@ export function checkCommand(argv, depth = 0) {
   }
 
   if (HTTP_FETCHERS.has(program)) {
-    if (rest.some(isGitHubApiUrl)) {
+    if (fetchesGitHubApi(rest)) {
       return (
         "api.github.com is not reachable from bash in this container, and the failure is SILENT " +
         "inside a pipeline: curl is intercepted by the agent proxy (HTTP 403 \"GitHub access is not " +

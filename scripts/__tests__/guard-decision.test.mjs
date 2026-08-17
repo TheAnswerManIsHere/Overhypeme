@@ -128,6 +128,15 @@ const MUST_BLOCK = [
   ["hidden behind a wrapper", "env -i curl -sS https://api.github.com/x"],
   ["hidden in a compound command", "echo hi && curl -sS https://api.github.com/x"],
   ["hidden inside a nested shell", "bash -c 'curl -sS https://api.github.com/x'"],
+  // curl guesses a missing scheme and defaults to HTTP, so a schemeless target
+  // is an ordinary equivalent of every row above. (Codex, PR #487.)
+  ["a schemeless target", "curl api.github.com/repos/o/r"],
+  ["a schemeless target inside the CI-poll shape", "curl -sS api.github.com/repos/o/r/commits/abc/check-runs | grep -c in_progress"],
+  ["a schemeless target behind --url", "curl --url api.github.com/repos/o/r"],
+  ["--url with the value attached", "curl --url=https://api.github.com/repos/o/r"],
+  ["--url is a transfer URL, never a skipped value", "curl -sS --url https://api.github.com/x"],
+  ["a target after the end-of-options marker", "curl -sS -- https://api.github.com/x"],
+  ["a real target alongside an option value that names the host", "curl -H 'X-Note: https://api.github.com' https://api.github.com/x"],
 ];
 
 const MUST_ALLOW = [
@@ -141,6 +150,15 @@ const MUST_ALLOW = [
   ["loop-metrics, which uses Node fetch and fails loudly on its own", "node scripts/loop-metrics.mjs --pr 472"],
   ["curl to any other host", "curl -sS https://example.com/api.github.com/x"],
   ["the proxy status endpoint stays reachable", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+  // An option's VALUE is data, not a transfer target: each of these connects
+  // only to example.com. The first version of this rule tested every argument
+  // and blocked all of them. (Codex, PR #487.)
+  ["a POST body that is itself a URL", "curl -d https://api.github.com/x https://example.com/hook"],
+  ["the same body in the self-contained long form", "curl --data=https://api.github.com/x https://example.com/hook"],
+  ["a header value naming the host", "curl -H 'X-Note: https://api.github.com' https://example.com"],
+  ["an output filename equal to the host", "curl -o api.github.com https://example.com"],
+  ["a bundle whose last letter takes the value", "curl -sSd https://api.github.com/x https://example.com/hook"],
+  ["wget's output-document value", "wget -O api.github.com https://example.com"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
