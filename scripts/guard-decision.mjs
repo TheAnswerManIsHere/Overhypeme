@@ -326,12 +326,18 @@ function resolveRealCommand(argv) {
     if (TRANSPARENT_WRAPPERS.has(bare)) {
       const bareFlags = WRAPPER_BARE_FLAGS[bare] ?? new Set();
       const valueFlags = WRAPPER_VALUE_FLAGS[bare] ?? new Set();
-      const queryFlags = QUERY_ONLY_FLAGS[bare];
-      // A query mode names a command without running it, so the wrapper IS
-      // the command and nothing should be promoted out of it.
-      if (queryFlags && argv.slice(i + 1).some((t) => queryFlags.has(t))) break;
+      const queryFlags = QUERY_ONLY_FLAGS[bare] ?? new Set();
       let next = i + 1;
+      let isQuery = false;
       while (next < argv.length) {
+        // A query mode names a command without running it, so the wrapper IS
+        // the command. It only counts among the wrapper's OWN leading options:
+        // in `command curl -v <url>` the `-v` belongs to curl, and searching
+        // the whole argv for it exempted a real invocation. (Codex, #488 r7.)
+        if (queryFlags.has(argv[next])) {
+          isQuery = true;
+          break;
+        }
         if (bareFlags.has(argv[next])) {
           next += 1;
           continue;
@@ -342,6 +348,7 @@ function resolveRealCommand(argv) {
         }
         break;
       }
+      if (isQuery) break;
       if (argv[next] === "--") next += 1;
       // Skip the wrapper's own positional arguments (timeout's DURATION).
       next += WRAPPER_POSITIONALS[bare] ?? 0;
@@ -953,29 +960,48 @@ const FETCHER_REFUSAL =
   "See .agents/memory/github-rest-api-blocked-from-bash.md.";
 
 /**
- * True when this argv reaches a fetcher, INCLUDING through a wrapper that
- * `resolveRealCommand` could not see through.
+ * True when this argv runs a fetcher.
  *
- * `resolveRealCommand` gives up on a wrapper flag it does not know and returns
- * the wrapper itself, so `exec -a fetch /usr/bin/curl <url>` arrived here as
- * program `exec` and was allowed. (Codex, #488 round 5.) `-a` is now a known
- * `exec` value flag, but naming one flag is the fix that has failed four times
- * on this PR, so the general case fails CLOSED instead: when unwrapping stopped
- * ON a transparent wrapper, any fetcher named anywhere in the argv refuses.
+ * DELIBERATELY JUST THE RESOLVED PROGRAM. Round 5 added a fail-closed sweep
+ * here -- when unwrapping stopped on a transparent wrapper, any fetcher token
+ * anywhere in the argv refused -- to catch `exec -a fetch /usr/bin/curl <url>`
+ * without naming `-a`. It was removed in round 7, for two reasons:
  *
- * That sweep is deliberately not applied to ordinary commands -- judging raw
- * tokens is the defect this module exists to remove, and `git commit -m curl`
- * must not be blocked for saying the word.
+ *  1. It closed nothing the wrapper tables do not. `exec -a` is a known value
+ *     flag now, so that command resolves to `curl` and refuses on this line.
+ *  2. It cost three false blocks in two rounds -- `sudo -p curl true`,
+ *     `sudo -l curl`, `sudo -n printf '%s\n' curl` -- because sweeping every
+ *     token necessarily reads option values and data arguments as programs.
+ *     Each was patched by adding one more sudo flag to a table, which is the
+ *     enumeration this PR has already abandoned twice.
+ *
+ * What that gives up, stated plainly: `<wrapper> <flag-not-in-our-tables>
+ * curl <url>` is allowed. That needs an unlisted wrapper flag AND a fetcher in
+ * one command, which is not a shape anyone types by accident -- and there is
+ * no adversary in this container, only me. Accepted, and recorded here rather
+ * than left implicit.
+ *
+ * THREE MORE ACCEPTED GAPS, all found in round 7 and all in the same class --
+ * a spelling that reaches a fetcher without the resolver seeing it. Each is
+ * real; none is a shape typed by accident, and every attempt to close one in
+ * this layer has introduced a new defect elsewhere (round 7 returned SEVEN
+ * findings, SIX of them defects in the two preceding commits):
+ *
+ *  - `timeout --foreground 5 curl <url>` -- an unlisted bare option stops
+ *    option parsing, and the DURATION offset is then applied to the wrong
+ *    position.
+ *  - `env -S 'curl <url>' extra` -- trailing arguments make the generic env
+ *    unwrapping promote `extra` before the split-string dispatch is consulted.
+ *  - `/usr/bin/cu?l --version` -- Bash expands the glob before command lookup;
+ *    this module compares the unexpanded word.
+ *
+ * The rule this file follows now: the fetcher refusal is judged from the
+ * RESOLVED PROGRAM and nothing else. Making the resolver perfect is a third
+ * enumeration, after curl's option grammar and the probe allowlist, and the
+ * first two each ended in deletion.
  */
-function reachesFetcher(program, argv) {
-  if (HTTP_FETCHERS.has(program)) return true;
-  if (!TRANSPARENT_WRAPPERS.has(program)) return false;
-  // A query mode names a command without running it, so the sweep must not
-  // fire either -- otherwise `command -v curl` is refused by the fallback
-  // after the resolver correctly declined to promote it. (Codex, #488 round 6.)
-  const queryFlags = QUERY_ONLY_FLAGS[program];
-  if (queryFlags && argv.some((t) => queryFlags.has(t))) return false;
-  return argv.some((t) => HTTP_FETCHERS.has(t.split("/").pop()));
+function reachesFetcher(program) {
+  return HTTP_FETCHERS.has(program);
 }
 
 function isDrizzleKitToken(token) {
@@ -1103,7 +1129,7 @@ export function checkCommand(argv, depth = 0) {
     if (nested) return nested;
   }
 
-  if (reachesFetcher(program, argv)) return FETCHER_REFUSAL;
+  if (reachesFetcher(program)) return FETCHER_REFUSAL;
 
   if (program === "rm") {
     if (isRecursiveAndForced(rest) && rest.some((a) => !a.startsWith("-") && isRootShaped(a))) {
@@ -1186,7 +1212,7 @@ export function extractCommand(raw) {
  * safety net just moved it.
  */
 const LOOKS_DESTRUCTIVE =
-  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push|(?:^|[\s;&|(])(?:curl|wget)\s/;
+  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push|(?:^|[\s;&|(])(?:[\w.\/-]*\/)?(?:curl|wget)\s/;
 
 /**
  * Matches one heredoc block: group 1 is the opener token plus anything

@@ -174,6 +174,10 @@ const MUST_BLOCK = [
   // Round 6: a heredoc delimiter outside the identifier grammar makes
   // tokenising throw, so only the conservative fallback sees this text.
   ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
+  ["round 7: path-qualified on that same path", "/usr/bin/curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
+  // Round 7: the query exemption must cover only the WRAPPER's own leading
+  // options. Here `-v` belongs to curl, and curl really runs.
+  ["round 7: command's operand with its own -v", "command curl -v https://api.github.com/rate_limit"],
 ];
 
 const MUST_ALLOW = [
@@ -197,6 +201,11 @@ const MUST_ALLOW = [
   ["sudo -p's value is a prompt string, not a program", "sudo -p curl true"],
   ["timeout wrapping something that is not a fetcher", "timeout 90 bash -c 'pnpm test'"],
   ["sudo -u's value is a username", "sudo -u postgres psql"],
+  // Round 7: three false blocks the fail-closed sweep produced before it was
+  // deleted. They are pinned because deleting the sweep is the fix, and a
+  // regression would be re-adding it.
+  ["sudo -l lists privileges without running the command", "sudo -l curl"],
+  ["an unlisted wrapper flag must not make data look executable", "sudo -n printf '%s\\n' curl"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
