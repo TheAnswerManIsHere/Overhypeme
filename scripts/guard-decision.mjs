@@ -165,10 +165,16 @@
  *   flag alongside `-c`.
  * - `git send-pack --force`/`--mirror`, a fourth remote-ref-update surface
  *   alongside `push`, `update-ref`, and the direct `git-push` executable.
- * - One false-positive risk, not a bypass: heredoc delimiters that are valid
- *   in Bash but not identifier-shaped (`<<'MSG-1'`) are not recognized by
- *   the stripping regex, so an ordinary commit-message heredoc using one
- *   could be misclassified as a real command and over-blocked.
+ * - Heredoc delimiters that are valid in Bash but not identifier-shaped
+ *   (`<<'MSG-1'`) are now recognized by the stripping regex. This was
+ *   documented here as a false-POSITIVE risk only, and that was wrong twice
+ *   over: an unstripped body makes tokenising throw, which both let a real
+ *   `curl --help <<'MSG-1'` reach the permissive fallback (a bypass) and made
+ *   an inert body mentioning `/usr/bin/curl` refuse an ordinary `cat` (a false
+ *   block). Both are fixed by stripping the body, which is why the delimiter
+ *   grammar now allows digits, dots and dashes. An accepted limitation stops
+ *   being accurate the moment a new rule is added above it. (Codex, #488
+ *   rounds 6-8.)
  */
 
 const ALLOW = 0;
@@ -268,6 +274,11 @@ const WRAPPER_BARE_FLAGS = {
   command: new Set(["-p"]),
   // `help exec` documents `exec [-cl] [-a name] [command [argument ...]]`.
   exec: new Set(["-c", "-l", "-cl", "-lc"]),
+  // `help time` documents `time [-p] pipeline` and says it EXECUTES the
+  // pipeline. Without this, `time -p curl <url>` stopped resolution at `time`
+  // -- a plausible diagnostic command, not an obscure spelling, and one the
+  // deleted sweep had been masking. (Codex, #488 round 8.)
+  time: new Set(["-p"]),
 };
 
 /**
@@ -1222,7 +1233,7 @@ const LOOKS_DESTRUCTIVE =
  * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
  * sync by construction rather than by two hand-maintained copies.
  */
-const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
+const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z0-9_][A-Za-z0-9_.-]*)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
 
 /**
  * Remove heredoc BODIES before tokenising.

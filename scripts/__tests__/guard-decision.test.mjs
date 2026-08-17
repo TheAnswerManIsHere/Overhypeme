@@ -175,6 +175,11 @@ const MUST_BLOCK = [
   // tokenising throw, so only the conservative fallback sees this text.
   ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
   ["round 7: path-qualified on that same path", "/usr/bin/curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
+  // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
+  // pipeline. A plausible diagnostic command, and one the deleted sweep had
+  // been masking.
+  ["round 8: time -p runs its pipeline", "time -p curl https://api.github.com/rate_limit"],
+  ["the bare form too", "time curl https://api.github.com/x"],
   // Round 7: the query exemption must cover only the WRAPPER's own leading
   // options. Here `-v` belongs to curl, and curl really runs.
   ["round 7: command's operand with its own -v", "command curl -v https://api.github.com/rate_limit"],
@@ -206,6 +211,10 @@ const MUST_ALLOW = [
   // regression would be re-adding it.
   ["sudo -l lists privileges without running the command", "sudo -l curl"],
   ["an unlisted wrapper flag must not make data look executable", "sudo -n printf '%s\\n' curl"],
+  // Round 8: a non-identifier heredoc delimiter is now stripped, so an inert
+  // body mentioning a fetcher path is data, not a command. This is the shape
+  // of every doc and commit message this session wrote about the guard.
+  ["a heredoc body naming a fetcher path is prose", "cat <<'MSG-1'\nUse /usr/bin/curl for the probe; David's note\nMSG-1"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
