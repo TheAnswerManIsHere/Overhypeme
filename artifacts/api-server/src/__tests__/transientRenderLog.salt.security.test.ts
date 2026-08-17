@@ -145,6 +145,18 @@ describe("assertIpSaltConfigured", () => {
  * to a unit test here. Reading the entrypoint's AST answers the same question
  * the execution probe would: is the assertion a top-level statement, and does
  * it precede the first statement that can accept traffic or touch the database?
+ *
+ * **Why checking source is sufficient for what actually ships.** Production runs
+ * `dist/index.mjs`, not this file, so a source-order check is only meaningful if
+ * the bundler preserves that order. Verified against a real build: `build.mjs`
+ * runs esbuild with `bundle: true` and **no** `minify`, and a bare call whose
+ * result is unused is a side effect esbuild will not tree-shake, so
+ * `assertIpSaltConfigured()` survives at the head of the bundle, ahead of
+ * `runMigrations()`, `ensureSchema()`, `app.listen()` and
+ * `runAsyncJobsWorker()`. **Residual limit:** turning on `minify`, annotating
+ * the call as side-effect-free (esbuild's pure-call annotation), or moving
+ * production off this entrypoint would make the source and the shipped artifact
+ * diverge without failing this test.
  */
 describe("index.ts boot wiring for assertIpSaltConfigured", () => {
   const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "index.ts");
