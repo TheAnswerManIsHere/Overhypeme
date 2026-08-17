@@ -184,6 +184,13 @@ const MUST_BLOCK = [
   // real push sitting between the two.
   ['round 11: an escaped quote must not move the terminator', 'cat <<"A\\"B"\nA"B\ngit push -f origin main\nA\\'],
   ["the same over-match from unquoted escaped whitespace", "cat <<A\\ B\nA B\ngit push -f origin main\nA\\"],
+  // Round 12: `$'...'` is a quoting FORM, not a `$` composed with a quote.
+  // Bash's delimiter here is `EOF`; reading it as `$EOF` runs the terminator
+  // search past the real one and swallows the commands in between.
+  ["round 12: ANSI-C quoting must not shift the terminator", "cat <<$'EOF'\nEOF\ngit push -f origin main\n$EOF"],
+  // An empty delimiter is a real opener, so the body it introduces is still a
+  // script when the opener command is a shell reading stdin.
+  ["an empty delimiter still feeds a shell's stdin", "bash <<''\ngit push -f origin claude/x\n"],
   // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
   // pipeline. A plausible diagnostic command, and one the deleted sweep had
   // been masking.
@@ -238,6 +245,12 @@ const MUST_ALLOW = [
   // The terminator is compared as a string, so a delimiter carrying regex
   // metacharacters cannot make an unrelated line end the body early.
   ["a delimiter containing regex metacharacters", "cat <<'A.B'\nAXB\ngit push -f origin main\nA.B"],
+  // Round 12: three more quoting forms, each of which had left an inert body
+  // unstripped and therefore refused as an unparseable destructive command.
+  ["an ANSI-C quoted delimiter", "cat <<$'EOF'\nUse /usr/bin/curl for the probe; David's note\nEOF"],
+  ["an ANSI-C escape inside the delimiter", "cat <<$'A\\tB'\nUse /usr/bin/curl for the probe; David's note\nA\tB"],
+  ["an empty quoted delimiter terminates on a blank line", "cat <<''\nUse /usr/bin/curl for the probe; David's note\n"],
+  ["a delimiter continued across a backslash-newline", 'cat <<"A\\\nB"\nUse /usr/bin/curl for the probe; David\'s note\nAB'],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],

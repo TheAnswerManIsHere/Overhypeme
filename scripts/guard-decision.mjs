@@ -1255,61 +1255,168 @@ const LOOKS_DESTRUCTIVE =
  */
 function scanHeredocDelimiter(text, start) {
   let literal = "";
+  // Whether a WORD was consumed at all, tracked apart from whether its value
+  // is non-empty: `cat <<''` is a valid opener whose delimiter is the empty
+  // string (Bash terminates it on the next blank line). Reading "empty value"
+  // as "no word" rejected the opener and left an inert body to be judged as
+  // commands. (Codex, #488 round 12.)
+  let sawWord = false;
   let i = start;
   while (i < text.length) {
     const c = text[i];
     if (c === "\n" || /\s/.test(c) || "<>|&;()".includes(c)) break;
+
+    // `$'...'` is ANSI-C quoting and `$"..."` is locale translation -- both are
+    // single quoting FORMS, not a `$` composed with the quote that follows.
+    // Treating the `$` as an ordinary character made `<<$'EOF'` scan to
+    // `$EOF` while Bash's delimiter is `EOF`, so the terminator search ran
+    // past the real one and swallowed the commands in between. (Codex, #488
+    // round 12.)
+    if (c === "$" && (text[i + 1] === "'" || text[i + 1] === '"')) {
+      if (text[i + 1] === "'") {
+        const decoded = scanAnsiCQuoted(text, i + 2);
+        if (!decoded) return null;
+        literal += decoded.value;
+        sawWord = true;
+        i = decoded.end;
+        continue;
+      }
+      const quoted = scanDoubleQuoted(text, i + 2);
+      if (!quoted) return null;
+      literal += quoted.value;
+      sawWord = true;
+      i = quoted.end;
+      continue;
+    }
+
     if (c === "'") {
       const close = text.indexOf("'", i + 1);
       if (close === -1) return null;
       const span = text.slice(i + 1, close);
       if (span.includes("\n")) return null;
       literal += span;
+      sawWord = true;
       i = close + 1;
       continue;
     }
+
     if (c === '"') {
-      i += 1;
-      let closed = false;
-      while (i < text.length) {
-        const d = text[i];
-        if (d === "\n") return null;
-        if (d === '"') {
-          closed = true;
-          i += 1;
-          break;
-        }
-        if (d === "\\") {
-          const next = text[i + 1];
-          // Inside double quotes Bash only treats a backslash as an escape
-          // before these four; anywhere else it is a literal backslash.
-          if (next === "$" || next === "`" || next === '"' || next === "\\") {
-            literal += next;
-            i += 2;
-            continue;
-          }
-          literal += d;
-          i += 1;
-          continue;
-        }
-        literal += d;
-        i += 1;
-      }
-      if (!closed) return null;
+      const quoted = scanDoubleQuoted(text, i + 1);
+      if (!quoted) return null;
+      literal += quoted.value;
+      sawWord = true;
+      i = quoted.end;
       continue;
     }
+
     if (c === "\\") {
       const next = text[i + 1];
-      if (next === undefined || next === "\n") return null;
+      if (next === undefined) return null;
+      // A backslash-newline is a line continuation: both characters are
+      // removed and the word carries on. Ending the scan here treated a
+      // legitimately continued delimiter as unreadable. (Codex, #488 round 12.)
+      if (next === "\n") {
+        sawWord = true;
+        i += 2;
+        continue;
+      }
       literal += next;
+      sawWord = true;
       i += 2;
       continue;
     }
+
     literal += c;
+    sawWord = true;
     i += 1;
   }
-  if (!literal) return null;
+  if (!sawWord) return null;
   return { literal, end: i };
+}
+
+/**
+ * Read a double-quoted span, starting just past the opening quote. Returns the
+ * quote-removed value and the index past the closing quote, or null if the
+ * quoting never closes.
+ */
+function scanDoubleQuoted(text, start) {
+  let value = "";
+  let i = start;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '"') return { value, end: i + 1 };
+    if (c === "\\") {
+      const next = text[i + 1];
+      if (next === undefined) return null;
+      // Inside double quotes Bash treats a backslash as an escape before
+      // exactly these, plus a newline (a line continuation, removed
+      // entirely); anywhere else it is a literal backslash.
+      if (next === "\n") {
+        i += 2;
+        continue;
+      }
+      if (next === "$" || next === "`" || next === '"' || next === "\\") {
+        value += next;
+        i += 2;
+        continue;
+      }
+      value += c;
+      i += 1;
+      continue;
+    }
+    // A newline inside double quotes is legal in Bash -- the quote simply
+    // spans lines -- but a delimiter containing one could never be matched by
+    // a single terminator line, so it is not a heredoc this module can read.
+    if (c === "\n") return null;
+    value += c;
+    i += 1;
+  }
+  return null;
+}
+
+/**
+ * Read an ANSI-C quoted span (`$'...'`), starting just past the opening quote.
+ *
+ * Only the escapes whose decoding is unambiguous are handled. Anything else
+ * returns null, which means "not a heredoc opener this module can read" and
+ * leaves the text intact for the rules downstream -- the over-blocking
+ * direction, never the fail-open one.
+ */
+const ANSI_C_SIMPLE = { n: "\n", t: "\t", r: "\r", a: "\x07", b: "\b", f: "\f", v: "\v", e: "\x1b", E: "\x1b", "\\": "\\", "'": "'", '"': '"', "?": "?" };
+
+function scanAnsiCQuoted(text, start) {
+  let value = "";
+  let i = start;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === "'") return { value, end: i + 1 };
+    if (c === "\\") {
+      const next = text[i + 1];
+      if (next === undefined) return null;
+      if (next in ANSI_C_SIMPLE) {
+        value += ANSI_C_SIMPLE[next];
+        i += 2;
+        continue;
+      }
+      const hex = /^\\x([0-9a-f]{1,2})/i.exec(text.slice(i));
+      if (hex) {
+        value += String.fromCharCode(parseInt(hex[1], 16));
+        i += hex[0].length;
+        continue;
+      }
+      const octal = /^\\([0-7]{1,3})/.exec(text.slice(i));
+      if (octal) {
+        value += String.fromCharCode(parseInt(octal[1], 8));
+        i += octal[0].length;
+        continue;
+      }
+      return null;
+    }
+    if (c === "\n") return null;
+    value += c;
+    i += 1;
+  }
+  return null;
 }
 
 /**
