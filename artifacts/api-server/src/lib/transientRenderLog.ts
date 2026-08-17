@@ -8,37 +8,11 @@
  * audit-PII principle).
  */
 
-import crypto from "node:crypto";
 import type { Request } from "express";
 import { db } from "@workspace/db";
 import { transientRendersTable } from "@workspace/db/schema";
 import { logger } from "./logger";
-
-/**
- * Salt used when hashing IPs for storage. Must be a stable per-deployment
- * secret — rotating the salt invalidates historical lookup keys, which is the
- * correct behaviour: two requests from the same IP across a salt rotation
- * will produce two distinct ip_hash values.
- *
- * We deliberately fall back to a fixed nonsense string when the env var is
- * missing so dev / test environments do not crash on boot. The fallback is
- * logged at WARN once on first use — production deployments must set the env
- * var via Replit Secrets to avoid an effectively-unsalted hash.
- */
-const FALLBACK_SALT = "overhype-dev-transient-render-salt-v1";
-let warnedAboutMissingSalt = false;
-
-function getIpSalt(): string {
-  const salt = process.env.IP_HASH_SALT;
-  if (salt && salt.length >= 16) return salt;
-  if (!warnedAboutMissingSalt) {
-    warnedAboutMissingSalt = true;
-    logger.warn(
-      "[transientRenderLog] IP_HASH_SALT env var is missing or too short — falling back to a fixed dev salt. Set IP_HASH_SALT (>= 16 chars) in production.",
-    );
-  }
-  return FALLBACK_SALT;
-}
+import { hashIp } from "./ipSalt";
 
 /**
  * Extract the connecting IP from a request. Cloudflare sets
@@ -65,9 +39,10 @@ export function ipFromRequest(req: Request): string {
   return "unknown";
 }
 
-export function hashIp(ip: string): string {
-  return crypto.createHash("sha256").update(`${ip}|${getIpSalt()}`).digest("hex");
-}
+// Re-exported so existing callers keep importing the hash from the audit
+// module. The implementation lives in ./ipSalt, whose import graph is free of
+// `@workspace/db` so the boot assertion can run before the database loads.
+export { hashIp };
 
 export type TransientRenderEndpoint = "preview" | "download";
 export type TransientRenderResult = "success" | "rejected" | "error";

@@ -129,28 +129,16 @@ we've sequenced for later.
     correctly (including the `StripeSync` pool's connections). Should land
     before scaling autoscale usage materially.
 
-- **`IP_HASH_SALT` can silently fall back in production (found on PR #299's review, deferred by PR #308).**
-  - **What.** `hashIp` falls back to a repository-known string when the salt
-    env var is missing or under 16 characters, logged only as a WARN. PR
-    #308's own rate limiter doesn't hash IPs, but `transientRenderLog.ts`'s
-    existing usage still does, so this fallback remains live.
-  - **Why deferred now.** Pre-existing on `main`; same provenance as the
-    autoscale entry above.
-  - **Cost of waiting.** In production with a missing/weak salt, IP hashes in
-    `transientRenderLog` would use a value anyone with repo access can derive
-    — defeating the point of hashing — with only a WARN log as the signal.
-  - **Revisit trigger.** Next security-focused pass, or the quarterly security
-    review. Fix is a boot assertion on the canonical production predicate
-    (`REPLIT_DEPLOYMENT === "1" || NODE_ENV === "production"`), tested on
-    **both** branches of that `||`.
-  - **⚠️ TRIGGER FIRED, STILL OPEN — 2026-08-16.** The auth/entitlement/spend
-    security pass re-checked this and the fallback is unchanged and live:
-    `transientRenderLog.ts` still substitutes a repository-known salt when
-    `IP_HASH_SALT` is missing or under 16 characters, with a WARN as the only
-    signal, and the boot assertion has not landed. This is now a **fired**
-    revisit condition rather than a parked one — the next pass through here
-    should either implement the assertion or record a positive decision not
-    to, not silently re-defer it a third time.
+- **`IP_HASH_SALT` production fallback — SHIPPED, off this list.** Deferred
+  twice (found on PR #299's review, deferred by PR #308; trigger fired again on
+  the 2026-08-16 security pass) and closed by **PR #484**:
+  `assertIpSaltConfigured()` runs at boot from `index.ts` and refuses to start
+  a production process whose `IP_HASH_SALT` is missing or under 16 characters.
+  Recorded here rather than deleted because two other entries cite this one's
+  provenance, and because the *shape* of the fix is the reusable part: the WARN
+  could never have been upgraded to a runtime throw, since
+  `logTransientRender` swallows its own errors by design — boot was the only
+  loud moment available. Non-production keeps the dev fallback.
 
 - **`recordCost` swallows a ledger-write failure (found on the 2026-08-16 security pass).**
   - **What.** `budgetGate.recordCost` catches and logs at WARN, deliberately —

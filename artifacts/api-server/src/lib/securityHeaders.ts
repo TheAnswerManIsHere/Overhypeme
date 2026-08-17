@@ -40,11 +40,7 @@
  */
 import helmet from "helmet";
 import type { Request, RequestHandler } from "express";
-
-/** Canonical production predicate — mirrors lib/siteUrl.ts. */
-function isProductionEnv(): boolean {
-  return process.env.REPLIT_DEPLOYMENT === "1" || process.env.NODE_ENV === "production";
-}
+import { isProductionEnv } from "./env";
 
 // The OG shells are the only HTML documents this server emits; they carry an
 // <img> (same-origin render or a legacy R2/Cloudinary/GCS CDN URL) and NO
