@@ -853,232 +853,60 @@ function isRecursiveAndForced(args) {
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 
 /**
- * Per-program option knowledge, in two layers.
+ * The ONE argument shape curl/wget may still be used for.
  *
- * `value` is the complete ARITY: which options consume a value at all, derived
- * by parsing `curl --help all` and `wget --help` from the binaries in this
- * container (curl 8.5.0, wget 1.21.4) rather than written from memory. That
- * provenance is the point -- the hand-written first version had three defects
- * in one review round, all from recalling an arity instead of reading it.
- *
- * `target` is the subset whose value is a HOST THE CLIENT CONNECTS TO rather
- * than data. Its values are inspected, not skipped.
- *
- * WHY TWO LAYERS RATHER THAN ONE. The previous revision tried to express
- * "target" by deleting the option from the arity set, so its value would fall
- * through to the generic inspect-this-operand path. That silently broke short
- * parsing: with `i` deleted, `wget -ihttps://api.github.com/x` no longer found
- * a value-taking letter at index 1, so the scan ran on into the VALUE and hit
- * `t` (`-t, --tries`), decided the token carried an attached data value, and
- * skipped it. Arity and purpose are different facts and conflating them
- * corrupts the parse. (Codex, #488 rounds 2 and 3.)
- *
- * SEPARATE PER PROGRAM, because the two clients disagree on the same letters
- * and one shared table imports each one's arity into the other. `-O` takes a
- * filename for wget and is a boolean for curl, so a shared table made
- * `curl -O <url>` skip its own target; `-r` is a range for curl and a boolean
- * for wget, so `wget -r <url>` did the same. Both were fail-OPEN.
- *
- * `value` IS NOT EXHAUSTIVE, AND IS SAFE THAT WAY. An option missing from it
- * is not skipped, so its value is inspected -- the fail-CLOSED direction,
- * matching this module's stated posture that a gap over-blocks rather than
- * under-blocks. Version drift can therefore only make the guard stricter.
- * Wrongly ADDING an entry is the one way to open a hole, which is why nothing
- * goes in unmeasured -- and `--input-file` is the worked example: it belongs in
- * `value` (it takes one) and in `target` (wget fetches it), and listing it in
- * `value` alone allowed `wget -i https://api.github.com/rate_limit`.
+ * `$HTTPS_PROXY/__agentproxy/status` is the agent proxy's own diagnostic
+ * endpoint -- the thing /root/.ccr/README.md tells you to hit when a tool gets
+ * a 403 or a TLS failure. It is not a GitHub route and it is the only ad-hoc
+ * fetch this container has ever legitimately needed.
  */
-const FETCHER_OPTIONS = {
-  curl: {
-    // `curl --help all | grep -oE '^ +-[A-Za-z], --[a-z0-9.-]+ +<'`
-    value: {
-      short: new Set("ACDEFHKPQTUXYbcdehmortuwxyz"),
-      long: new Set([
-        "abstract-unix-socket", "alt-svc", "aws-sigv4", "cacert", "capath", "cert",
-        "cert-type", "ciphers", "config", "connect-timeout", "connect-to",
-        "continue-at", "cookie", "cookie-jar", "create-file-mode", "crlfile",
-        "curves", "data", "data-ascii", "data-binary", "data-raw", "data-urlencode",
-        "delegation", "dns-interface", "dns-ipv4-addr", "dns-ipv6-addr",
-        "dns-servers", "doh-url", "dump-header", "egd-file", "engine",
-        "etag-compare", "etag-save", "expect100-timeout", "form", "form-string",
-        "ftp-account", "ftp-alternative-to-user", "ftp-method", "ftp-port",
-        "ftp-ssl-ccc-mode", "happy-eyeballs-timeout-ms", "header", "help",
-        "hostpubmd5", "hostpubsha256", "hsts", "interface", "ipfs-gateway", "json",
-        "keepalive-time", "key", "key-type", "krb", "libcurl", "limit-rate",
-        "local-port", "login-options", "mail-auth", "mail-from", "mail-rcpt",
-        "max-filesize", "max-redirs", "max-time", "netrc-file", "noproxy",
-        "oauth2-bearer", "output", "output-dir", "parallel-max", "pass",
-        "pinnedpubkey", "preproxy", "proto", "proto-default", "proto-redir", "proxy",
-        "proxy-cacert", "proxy-capath", "proxy-cert", "proxy-cert-type",
-        "proxy-ciphers", "proxy-crlfile", "proxy-header", "proxy-key",
-        "proxy-key-type", "proxy-pass", "proxy-pinnedpubkey", "proxy-service-name",
-        "proxy-tls13-ciphers", "proxy-tlsauthtype", "proxy-tlspassword",
-        "proxy-tlsuser", "proxy-user", "proxy1.0", "pubkey", "quote", "random-file",
-        "range", "rate", "referer", "request", "request-target", "resolve", "retry",
-        "retry-delay", "retry-max-time", "sasl-authzid", "service-name", "socks4",
-        "socks4a", "socks5", "socks5-gssapi-service", "socks5-hostname",
-        "speed-limit", "speed-time", "stderr", "telnet-option", "tftp-blksize",
-        "time-cond", "tls-max", "tls13-ciphers", "tlsauthtype", "tlspassword",
-        "tlsuser", "trace", "trace-ascii", "trace-config", "unix-socket",
-        "upload-file", "url", "url-query", "user", "user-agent", "variable",
-        "write-out",
-      ]),
-    },
-    // `--url` is the transfer URL by definition. Codex ran verbose curl with
-    // `--doh-url` and `--ipfs-gateway` pointed at this host and got
-    // `CONNECT api.github.com:443` from both -- against my written conclusion
-    // that neither routed to the API, which is why that conclusion is now a
-    // measurement. Proxies are here for the same reason: curl connects to them.
-    target: {
-      short: new Set("x"),
-      long: new Set([
-        "url", "doh-url", "ipfs-gateway", "proxy", "preproxy", "proxy1.0",
-        "socks4", "socks4a", "socks5", "socks5-hostname",
-      ]),
-    },
-  },
-  wget: {
-    // `wget --help | grep -oE '^ +-[A-Za-z], +--[a-z0-9.-]+='`
-    value: {
-      short: new Set("ABDIOPQRTUXaeilotw"),
-      long: new Set([
-        "accept", "accept-regex", "append-output", "backups", "base",
-        "bind-address", "body-data", "body-file", "ca-certificate", "ca-directory",
-        "certificate", "certificate-type", "ciphers", "compression", "config",
-        "connect-timeout", "crl-file", "cut-dirs", "default-page",
-        "directory-prefix", "dns-timeout", "domains", "exclude-directories",
-        "exclude-domains", "execute", "follow-tags", "ftp-password", "ftp-user",
-        "header", "http-password", "http-user", "ignore-tags",
-        "include-directories", "input-file", "level", "limit-rate", "load-cookies",
-        "local-encoding", "method", "output-document", "output-file", "password",
-        "pinnedpubkey", "post-data", "post-file", "prefer-family", "private-key",
-        "private-key-type", "progress", "proxy-password", "proxy-user", "quota",
-        "random-file", "read-timeout", "referer", "regex-type", "reject",
-        "reject-regex", "rejected-log", "remote-encoding", "report-speed",
-        "restrict-file-names", "retry-on-http-error", "save-cookies",
-        "secure-protocol", "start-pos", "timeout", "tries", "use-askpass", "user",
-        "user-agent", "wait", "waitretry", "warc-dedup", "warc-file", "warc-header",
-        "warc-max-size", "warc-tempdir",
-      ]),
-    },
-    // `--input-file` reads URLs from a "local or external FILE" -- wget fetches
-    // the external form itself. `--base` resolves the relative links inside an
-    // HTML input file, so it determines the host they land on. Codex confirmed
-    // both with spider runs emitting `CONNECT api.github.com:443`.
-    target: { short: new Set("iB"), long: new Set(["input-file", "base"]) },
-  },
-};
+const AGENT_PROXY_PROBE = /(^|[/$])__agentproxy\//;
 
 /**
- * The hostname a fetcher argument would actually connect to, or null.
+ * Why this is a blanket refusal rather than a parser (David, 2026-08-17).
  *
- * **Scheme-optional**, because curl guesses a missing scheme: bare
- * `curl api.github.com/repos/o/r` fetches over HTTP and is an ordinary
- * equivalent of every blocked command. Requiring `http(s)://` left that
- * reachable. (Codex, PR #487.)
+ * The previous four revisions tried to decide whether a given curl/wget
+ * invocation *would actually connect to* api.github.com, so that unrelated
+ * fetches stayed available. Codex found real defects in that judgement in four
+ * consecutive rounds -- 3, 1, 3, then 7 -- and round 4's new findings were in
+ * five different sub-languages of these tools: wgetrc directives via
+ * `-e base=...`, composite `--connect-to HOST1:P1:HOST2:P2` values, brace URL
+ * globbing, unique-prefix long-option abbreviation, and `--variable` /
+ * `--expand-url` interpolation. Behind those sit `-K` config files, `.netrc`,
+ * environment proxies, and whatever the next round would have found.
  *
- * Still PARSED rather than substring-matched, so `./api.github.com.md`, a
- * flag, and a JSON body mentioning the host are not mistaken for a request.
- * Host comparison is case-insensitive and ignores a userinfo prefix, since
- * `https://user@API.GitHub.com/...` reaches the same place.
+ * That is not a converging series. Deciding it correctly means reimplementing
+ * two very large command-line parsers, and the reviewer can RUN them while this
+ * module can only reason about them -- which is how the same class of mistake
+ * appeared four rounds running, twice as a conclusion I had written down as
+ * checked and Codex refuted by execution.
+ *
+ * So the rule stops trying. Refusing every curl/wget outright is ONE rule,
+ * complete by construction, and it ends the class permanently.
+ *
+ * The cost is genuinely small. This hook inspects the command line typed at it,
+ * not the contents of a script, so `bash scripts/phase5-og-smoke.sh` and CI's
+ * own readiness loop are untouched -- they were the only real uses in the repo.
+ * What is lost is the ad-hoc one-off fetch, and losing it fails LOUDLY with the
+ * message below, which is the opposite of the silent failure this rule exists
+ * to prevent.
  */
-function fetcherTargetHost(token) {
-  if (!token || token.startsWith("-")) return null;
-  // A path-ish token is a file operand, not a host: `./api.github.com.md`,
-  // `/tmp/x`, `~/y`. curl treats a leading `/` or `.` as a path, not a URL.
-  if (/^[./~]/.test(token)) return null;
-  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(token) ? token : `http://${token}`;
-  try {
-    const { protocol, hostname } = new URL(candidate);
-    if (protocol !== "http:" && protocol !== "https:") return null;
-    return hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Where a short-option token's value lives, and whether it is a target.
- *
- * Short options bundle (`-sSd`), and a value-taking letter owns **the rest of
- * its own token** when there is any: curl documents `-X, --request <method>`
- * and accepts the attached spelling, so in `curl -XGET <url>` the value is
- * `GET` and the URL that follows is a real target. Treating the last character
- * of a bundle as the value-taking one instead made that trailing `T` look like
- * `-T, --upload-file`, skipped the URL, and allowed the fetch. (Codex, #488.)
- *
- * The scan stops at the FIRST value-taking letter, which is also what keeps it
- * from wandering into the value: in `wget -ihttps://...` it stops at `i` rather
- * than running on and finding the `t` of `https`.
- */
-function shortOption(token, options) {
-  for (let i = 1; i < token.length; i += 1) {
-    const letter = token[i];
-    if (!options.value.short.has(letter)) continue;
-    const attached = i < token.length - 1 ? token.slice(i + 1) : null;
-    return { letter, attached, isTarget: options.target.short.has(letter) };
-  }
-  return null;
-}
-
-/**
- * True when a curl/wget invocation would actually connect to api.github.com.
- *
- * Walks the arguments so a known option's VALUE is not mistaken for a target,
- * and so a schemeless target is still recognised. Anything the walk does not
- * recognise is inspected rather than skipped.
- */
-function fetchesGitHubApi(program, rest) {
-  const options = FETCHER_OPTIONS[program];
-  if (!options) return rest.some((t) => fetcherTargetHost(t) === "api.github.com");
-
-  const hits = (token) => fetcherTargetHost(token) === "api.github.com";
-
-  for (let i = 0; i < rest.length; i += 1) {
-    const arg = rest[i];
-
-    if (arg === "--") {
-      // Everything after `--` is an operand.
-      return rest.slice(i + 1).some(hits);
-    }
-
-    if (arg.startsWith("--")) {
-      const eq = arg.indexOf("=");
-      const name = (eq === -1 ? arg.slice(2) : arg.slice(2, eq)).toLowerCase();
-      const isTarget = options.target.long.has(name);
-      const takesValue = options.value.long.has(name);
-      if (eq !== -1) {
-        // `--data=x` is self-contained. A known DATA option's payload is
-        // skipped; a target's value, and an UNKNOWN option's value, are
-        // inspected -- the latter being what keeps a gap fail-closed.
-        if (!takesValue || isTarget) {
-          if (hits(arg.slice(eq + 1))) return true;
-        }
-        continue;
-      }
-      if (isTarget) {
-        if (hits(rest[i + 1])) return true;
-        i += 1;
-      } else if (takesValue) {
-        i += 1; // data
-      }
-      // Unknown: consume nothing, so the next token is inspected as an operand.
-      continue;
-    }
-
-    if (arg.length > 1 && arg.startsWith("-")) {
-      const short = shortOption(arg, options);
-      if (!short) continue; // a bundle of booleans
-      const value = short.attached ?? rest[i + 1];
-      if (short.isTarget && hits(value)) return true;
-      if (short.attached === null) i += 1;
-      continue;
-    }
-
-    // A lone `-` is stdin, never a host; fetcherTargetHost rejects it anyway.
-    if (hits(arg)) return true;
-  }
-  return false;
+function refuseFetcher(rest) {
+  const operands = rest.filter((t) => !t.startsWith("-"));
+  if (operands.length > 0 && operands.every((t) => AGENT_PROXY_PROBE.test(t))) return null;
+  return (
+    "curl and wget are refused in this container. The reason the rule exists is api.github.com, " +
+    "which is intercepted by the agent proxy and returns HTTP 403 \"GitHub access is not enabled for " +
+    "this session\" -- a failure that is SILENT inside a pipeline, because a `grep` over the 403 body " +
+    "finds nothing and reads as \"no results\" rather than as an error. Every CI-wait loop built that " +
+    "way on 2026-08-16 was a pure sleep. This refuses the whole program rather than trying to work out " +
+    "which invocations reach that host: four review rounds showed that judgement cannot be made " +
+    "reliably without reimplementing curl's and wget's own argument parsing. " +
+    "Use mcp__github__* for GitHub state -- pull_request_read (get_check_runs) for CI, get_reviews for " +
+    "a review landing, get for merge state, issue_read for labels -- and WebFetch for web content. " +
+    "A script that runs curl internally is unaffected. If an ad-hoc fetch is genuinely needed, ask " +
+    "David rather than routing around this. See .agents/memory/github-rest-api-blocked-from-bash.md."
+  );
 }
 
 function isDrizzleKitToken(token) {
@@ -1194,17 +1022,8 @@ export function checkCommand(argv, depth = 0) {
   }
 
   if (HTTP_FETCHERS.has(program)) {
-    if (fetchesGitHubApi(program, rest)) {
-      return (
-        "api.github.com is not reachable from bash in this container, and the failure is SILENT " +
-        "inside a pipeline: curl is intercepted by the agent proxy (HTTP 403 \"GitHub access is not " +
-        "enabled for this session\"), so a `grep` over the response body finds nothing and reads as " +
-        "\"no results\" rather than as an error. Every CI-wait loop built this way on 2026-08-16 was a " +
-        "pure sleep. Use the mcp__github__* tools instead -- pull_request_read (get_check_runs) for CI, " +
-        "get_reviews for a review landing, get for merge state, issue_read for labels. " +
-        "See .agents/memory/github-rest-api-blocked-from-bash.md."
-      );
-    }
+    const reason = refuseFetcher(rest);
+    if (reason) return reason;
   }
 
   if (program === "rm") {
