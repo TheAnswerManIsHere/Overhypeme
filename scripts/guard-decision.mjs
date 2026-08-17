@@ -724,67 +724,49 @@ export function tokenize(input) {
 }
 
 /**
- * A word that opens a Bash ARRAY assignment when the very next token is `(`:
- * `fetchers=(curl wget)` or `fetchers+=(curl)`. The tokenizer emits the name
- * and the `=` as one word with nothing after it, so the empty right-hand side
- * is the signal. A `NAME=value` word (`a=1 curl x`) is a scalar assignment and
- * never matches, because something follows the `=`.
- */
-const ARRAY_ASSIGNMENT_OPENER = /^[A-Za-z_][A-Za-z0-9_]*\+?=$/;
-
-/**
  * Group tokens into individual commands, splitting on shell operators.
  *
- * ARRAY ASSIGNMENTS ARE DATA, NOT A COMMAND. `(` is an operator here, so
- * `fetchers=(curl wget)` split into a segment whose argv[0] was `curl` and the
- * blanket fetcher refusal blocked it -- even though Bash assigns two strings
- * and executes neither program. That contradicted this module's own stated
- * boundary, that naming a fetcher stays allowed and only running one is
- * refused. (Codex, #488 round 16.)
+ * THE ARRAY-ASSIGNMENT SUPPRESSION THAT WAS HERE IS DELETED, and the false
+ * block it fixed is accepted instead. It is worth reading why, because the
+ * arithmetic is the same one that ended four earlier enumerations on this PR.
  *
- * The suppression requires every token in the region to be a PLAIN WORD --
- * nothing that is an operator, and no `$`. Anything else leaves the old
- * behaviour unchanged: the words are segmented and judged, which over-blocks
- * an array literal that interpolates something. That is the acceptable side
- * of the trade and consistent with every other gap here.
+ * It existed for one purpose: `(` is an operator, so `fetchers=(curl wget)`
+ * split into a segment whose argv[0] was `curl` and the blanket fetcher
+ * refusal blocked it, even though Bash assigns two strings and runs neither.
+ * (Codex, #488 round 16.) A cosmetic false block on a shape nobody types.
  *
- * THE WHITELIST IS THE POINT, and it is the second version of this rule. The
- * first tested only for `$`, because `arr=( $(git push -f origin main) )` was
- * the substitution form I checked -- and `$` is not what makes a substitution
- * executable. `arr=( \`curl --version\` )` tokenizes to a `;`-delimited region
- * and `arr=( <(curl --version) )` to `<` `(`, so neither contains a `$` and
- * both were suppressed ENTIRELY: `segments()` returned an empty array and a
- * real fetcher vanished. A fail-open introduced by a fix for a false block,
- * which is exactly what checking one example and generalising from it
- * produces. (Codex, #488 round 17.)
+ * In two rounds it produced two fail-opens, both in code written to close the
+ * previous one:
  *
- * Requiring plain words instead of excluding known-bad ones is what makes the
- * failure direction structural rather than a matter of my having thought of
- * every substitution syntax: an unfamiliar construct tokenizes to something
- * that is not a plain word, so it is not suppressed, so it is judged.
+ *  - v1 suppressed any region without a `$`. `arr=( \`curl --version\` )` and
+ *    `arr=( <(curl --version) )` contain no `$`, so both were erased whole --
+ *    `segments()` returned `[]` and a real fetcher disappeared. (Round 17.)
+ *  - v2 required every token to be a plain word, which looked structural
+ *    because a whitelist cannot be surprised by unfamiliar syntax. It can:
+ *    `declare -ia` gives an array the integer attribute, and `help declare`
+ *    says integer variables undergo ARITHMETIC EVALUATION on assignment. So
+ *    `curl='a[$(/usr/bin/curl --version)0]'; declare -ia arr=(curl)` runs
+ *    curl from an initializer whose only token is the plain word `curl`.
+ *    Measured. (Round 17, second pass.)
+ *
+ * The lesson is not that v3 needs to handle `declare -ia`. It is that "these
+ * tokens are inert" cannot be decided from the tokens: Bash's evaluation rules
+ * depend on attributes set elsewhere in the command, and any suppression is a
+ * standing invitation to find the next one. A rule whose upside is cosmetic
+ * and whose downside is a silent pass has the wrong shape at any level of
+ * refinement.
+ *
+ * ACCEPTED CONSEQUENCE: an array literal naming a fetcher -- `fetchers=(curl
+ * wget)` -- is refused, though Bash runs nothing. It joins the accepted gaps
+ * in the module header. Its failure mode is a blocked command with an
+ * explanatory message; the suppression's failure mode was a fetcher running
+ * unseen. Pinned as a MUST_BLOCK row named for the over-block so nobody
+ * "fixes" it back without reading this.
  */
 export function segments(tokens) {
   const out = [];
   let current = [];
-  for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-
-    if (
-      tokens[i + 1] === "(" &&
-      ARRAY_ASSIGNMENT_OPENER.test(token) &&
-      !OPERATORS.has(token)
-    ) {
-      const close = tokens.indexOf(")", i + 2);
-      const body = close === -1 ? tokens.slice(i + 2) : tokens.slice(i + 2, close);
-      const allPlainWords = body.every((t) => !OPERATORS.has(t) && !t.includes("$"));
-      if (close !== -1 && allPlainWords) {
-        if (current.length) out.push(current);
-        current = [];
-        i = close;
-        continue;
-      }
-    }
-
+  for (const token of tokens) {
     if (OPERATORS.has(token)) {
       if (current.length) out.push(current);
       current = [];
@@ -1076,6 +1058,16 @@ const FETCHER_REFUSAL =
  *    unwrapping promote `extra` before the split-string dispatch is consulted.
  *  - `/usr/bin/cu?l --version` -- Bash expands the glob before command lookup;
  *    this module compares the unexpanded word.
+ *
+ * ACCEPTED IN THE OTHER DIRECTION, round 17: `fetchers=(curl wget)` is
+ * REFUSED, though Bash assigns two strings and runs neither program. This is
+ * the only accepted gap here that over-blocks rather than under-blocks, and it
+ * is deliberate: the suppression written to allow it opened a fail-open in
+ * each of its two versions (substitutions with no `$`, then integer-array
+ * arithmetic evaluation), because whether an array's tokens are inert depends
+ * on attributes set elsewhere in the command rather than on the tokens. The
+ * full reasoning is above `segments()`. A blocked command with an explanatory
+ * message is the failure this module is willing to have.
  *
  * A FOURTH, round 16: `printf '%s\n' <url> | xargs curl -sS`. `xargs` runs its
  * COMMAND operand, so the fetcher is reached while the resolved program stays

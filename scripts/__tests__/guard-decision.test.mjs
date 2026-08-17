@@ -208,6 +208,22 @@ const MUST_BLOCK = [
   // created by a fix for a false block, from checking one example.
   ["round 17: backticks in an array literal still execute", "arr=( `curl --version` )"],
   ["round 17: process substitution in an array literal still executes", "arr=( <(curl --version) )"],
+  // Round 17, second pass: `help declare` says integer variables undergo
+  // ARITHMETIC EVALUATION on assignment, so an integer array's initializer
+  // expands a plain identifier -- and a variable whose value carries a
+  // substitution then runs. Measured: the equivalent probe wrote its marker
+  // file. This is what killed the "every token is a plain word" whitelist:
+  // whether tokens are inert depends on attributes set elsewhere in the
+  // command, not on the tokens.
+  ["round 17: an integer array's initializer is arithmetic, not data", "curl='a[$(/usr/bin/curl --version)0]'; declare -ia arr=(curl)"],
+  ["the bare form of the same", "declare -ia arr=(curl)"],
+  // ACCEPTED OVER-BLOCK, pinned deliberately. Bash assigns two strings here
+  // and runs neither, so this refusal is wrong -- and it is the cost of
+  // deleting the suppression that tried to allow it, which opened a
+  // fail-open in each of its two versions. Do not "fix" this row without
+  // reading the note above `segments()`.
+  ["an array literal naming fetchers is over-blocked, and that is the accepted trade", "fetchers=(curl wget)"],
+  ["the append spelling, same accepted trade", "fetchers+=(curl)"],
   ["an unclosed array paren is not suppressed", "arr=(curl wget"],
   ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
   ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
@@ -310,8 +326,6 @@ const MUST_ALLOW = [
   // Naming a fetcher stays allowed; only running one is refused. `(` is an
   // operator, so an array literal was segmented into a command whose argv[0]
   // was `curl`, contradicting that boundary.
-  ["an array literal holding fetcher names is data", "fetchers=(curl wget)"],
-  ["the append spelling too", "fetchers+=(curl)"],
   ["an ordinary array is unaffected", "files=(a.txt b.txt)"],
   // A dispatcher's `--` ends ITS options; `--call` past that boundary belongs
   // to the invoked package. Measured for the shell branch too: `bash -- -c
