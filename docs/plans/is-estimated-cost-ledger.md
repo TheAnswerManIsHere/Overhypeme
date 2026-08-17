@@ -39,16 +39,50 @@ never silently stop applying.** Those three increments hardened the *gate*; this
 one hardens the *ledger the gate reads*.
 
 What this increment makes true that wasn't before: every synchronous generation
-that passes the gate leaves a ledger row, and every row states whether its cost
-was measured or estimated.
+that reaches the recording point leaves a ledger row, and every row states
+whether its cost came from a **provider-resolved rate** or an
+**operator-configured estimate**.
 
 ## Product Intent
 
 1. A generation that was gated on an estimate is **recorded**, at the estimate,
-   rather than omitted.
-2. Every ledger row says whether its cost is provider-confirmed or estimated.
-3. Spend views (the user's own history and the admin per-user panel) **include**
-   estimated rows in the total and **mark** any period that contains one.
+   rather than omitted — *at the point where recording happens today*. See the
+   scope boundary immediately below, which is narrower than it first appears.
+2. Every ledger row says whether its cost came from a **provider-resolved rate**
+   or an **operator-configured estimate**.
+3. Spend views **include** estimated rows in the total and **mark** any period
+   that contains one.
+
+**The binary is NOT measured-versus-estimated, and saying so would overclaim.**
+`deferred-work.md` records the canonical distinction and this plan is bound by
+it: *no* row holds an actual provider charge. `getCachedPrice` returns an
+hourly-refreshed unit rate and `costComputation.ts` derives a cost from
+dimensions, count and duration without ever reading a billing result. So
+`false` means "fal's published rate for that endpoint, applied to this
+request's parameters" and `true` means "our own configured guess." Both are
+computed. An unmarked period is *better sourced*, not *actual*, and the
+user-facing copy must not imply otherwise.
+
+### Scope boundary: this plan does not move the recording point
+
+**What "every generation leaves a row" actually means here, stated precisely
+because the looser version is false.** `recordCost` runs *after* post-processing
+— after moderation, after the image URL is read, after download, classification
+and storage; for synchronous video, after the job row is updated. A provider
+call that succeeds and then fails downstream has consumed real money and still
+records nothing, and **this plan does not change that.**
+
+Those paths are not the recording gap this plan closes (which is "priced
+correctly, gated correctly, then declined to record"). Moving accounting to the
+successful-provider-response boundary is a different and larger change: it needs
+failure metadata, an idempotency key so the later success path doesn't
+double-record, and — most importantly — a product decision about whether a
+user's budget is consumed by a generation they never received. That last part is
+not mine to decide, so it is **Q3** below rather than an assumption.
+
+Until it is answered, this increment's claim is the narrow one: *a generation
+that reaches the recording point is recorded, with its provenance*. The plan
+says so rather than implying the broader guarantee.
 
 ## Must Not Change
 
@@ -184,8 +218,8 @@ quietly wrong:
 
 | State | Meaning |
 |---|---|
-| `false` | cost came from a provider-resolved price |
-| `true` | cost came from an operator-configured estimate or a hard-coded fallback |
+| `false` | cost derived from fal's published rate for that endpoint |
+| `true` | cost derived from an operator-configured estimate or a hard-coded fallback |
 | `NULL` | provenance is genuinely unrecoverable for this historical row |
 
 So the column is **nullable, with no default**, and new writes always supply it
@@ -258,16 +292,28 @@ flag, and because the migration is hash-recorded it never runs again — those
 rows stay `NULL` permanently and invisibly. The rollout is therefore three
 phases, in this order:
 
-1. **Expand.** Add the nullable column only. No backfill. Backward-compatible:
-   old instances keep inserting successfully, their rows simply carry `NULL`.
-2. **Deploy the writers.** Every ledger site now supplies the flag. Wait for the
-   old instances to drain.
-3. **Classify.** A *separate* later migration runs the dry run and then the
-   backfill, so any row written by an old binary during the window is classified
-   by the same rules as the historical rows.
+1. **Release A — expand.** Add the nullable column only. No backfill.
+   Backward-compatible: old instances keep inserting successfully, their rows
+   simply carry `NULL`.
+2. **Release B — writers.** Every ledger site supplies the flag. Then wait for
+   the old instances to drain, and *verify* the drain rather than assuming it.
+3. **Operator-run preflight.** The read-only dry run, executed and inspected by
+   a human. Not a migration.
+4. **Release C — classify.** The mutating backfill, shipped only after step 3's
+   counts have been approved.
 
-Phase 3 must not be folded into phase 1 as a convenience. The whole point is
-that it runs after the writers, not before them.
+**A later migration *file* is not a later *phase*, and this is the correction
+that matters.** `index.ts` runs every pending migration at startup before the
+instance listens, with no pause for anyone to look at anything — so two
+migration files in the same release execute back-to-back on the same boot, in
+the same window, with no drain between them and no opportunity to inspect a dry
+run. The phases must therefore be **separate deploys**, and the preflight must
+sit *outside* the migration runner entirely (a script an operator runs against
+the database, not a migration the server executes for them).
+
+This is the single most collapsible part of the plan: shipping A, B and C
+together is one merge away, and it silently reintroduces both the old-binary
+window and the un-inspected mutation.
 
 **Rollback is app-first, and the column stays.** `DROP COLUMN` is not a lossless
 rollback once phase 2 has shipped — it discards provenance that only exists
@@ -320,6 +366,24 @@ Site 3 additionally drops its `estimatedCostUsd > 0` condition. A deliberate
 zero is a real price for a free endpoint, and discarding it is the same `> 0`
 null-guard mistake already recorded in `.agents/memory/`.
 
+**Every column of an estimated row is specified, not left to the implementer.**
+`recordCost` requires `unit_price_at_creation`, `billing_units`,
+`computed_cost_usd` and `pricing_fetched_at`, and the fallback helpers produce
+only a scalar. Guessing the decomposition is how the component fields end up
+disagreeing with the total:
+
+| Column | Per-call estimate (images, stages 1/3) | Per-second estimate (video) |
+|---|---|---|
+| `computed_cost_usd` | the scalar the gate used | the scalar the gate used |
+| `unit_price_at_creation` | the same scalar | the per-second rate |
+| `billing_units` | `1` | the duration in seconds |
+| `pricing_fetched_at` | write time — see the caveat below | write time |
+
+The invariant to assert in the recording tests is
+`unit_price_at_creation * billing_units = computed_cost_usd` for every estimated
+row. That also keeps the backfill's R3 (`billing_units = 1`) meaningful for rows
+written after this change, rather than accidentally true.
+
 **When the estimate itself cannot be resolved** — the engines row is unreadable —
 the gate already denies with `BudgetGateError`, so no generation happens and
 there is nothing to record. Unchanged.
@@ -336,11 +400,17 @@ the other:
   evaluate the thunk before the exemption in order to give the recorder a value
   would reintroduce exactly the fail-closed-before-exemption bug. Off the table.
 - **Recording resolves it after the provider call, inside the non-fatal
-  envelope.** The estimate lookup for an admin row happens at recording time,
-  wrapped so that a failure logs and skips the row rather than throwing
-  `BudgetGateError` into a generation that has already completed and already
-  cost money. A skip here is one of the lost-write cases the accounting-health
-  signal must surface.
+  envelope — but only where it must.** This applies to the **image** paths
+  (sites 1-2), which pass a thunk the gate never invokes for an admin. It does
+  **not** apply to synchronous video (site 3): that route computes its estimate
+  eagerly from an already-loaded engine *before* calling `checkBudget`, so the
+  exact figure is in memory whether or not the gate consumed it. Site 3 carries
+  that precomputed value forward; re-resolving it post-call would manufacture a
+  failure window in which an engines-table outage loses a row that was never at
+  risk. Where a post-call lookup is genuinely needed, it is wrapped so a failure
+  logs and skips the row rather than throwing `BudgetGateError` into a
+  generation that has already completed and already cost money. A skip is one of
+  the lost-write cases the accounting-health signal must surface.
 
 So an admin's unpriced generation is recorded on a best-effort basis, and its
 absence is visible rather than silent. That is weaker than the guarantee for
@@ -360,10 +430,36 @@ a widened ceiling against either added machinery or refused generations. It is
 escalated in *Questions for David* below. Until it is answered, this plan
 specifies only the part that is not in dispute:
 
-- The failure is recorded in a durable accounting-health signal (not just a log
-  line), carrying at minimum the count of lost writes and the timestamp of the
-  most recent one, readable from an admin surface per the async-status rule.
+- **Storage:** a single-row `admin_config`-style counter (`ledger_write_failures`
+  total, plus `ledger_write_failure_last_at`), incremented in its own statement.
+  Not a per-failure table: the point is a health indicator, not a forensic log,
+  and a second unbounded write path on a failing database makes things worse.
+- **Its own failure semantics, which are the interesting case.** If
+  `recordCost`'s insert failed *because the database is unavailable*, the health
+  write fails for the same reason. That is acknowledged rather than papered
+  over: **the structured log line is the floor**, and the counter is a
+  best-effort improvement on it. A signal that claims to survive its own
+  dependency's outage would be a lie, and specifying one would produce an
+  implementation that quietly doesn't.
+- **What that means for detection:** a *total* database outage is already loud
+  through other means (every request fails). The failure this counter exists to
+  catch is the quiet one — a constraint violation, a serialization failure, a
+  single lost insert against an otherwise-healthy database — where the write
+  does succeed and nothing else is on fire.
+- **Presentation:** surfaced in the existing admin health area, reachable
+  without a new screen. Per the async-status rule, an operator must be able to
+  see it without reading logs.
+- **Tests:** force an insert failure with the database otherwise healthy and
+  assert the counter moves and the generation still succeeds; and force a
+  failure of the counter write itself and assert the log line still carries the
+  event.
 - The same signal covers the admin-path skip described above.
+
+**If David picks option 2 in Q1** (fail closed on unhealthy accounting), this
+counter is insufficient by construction — blocking a *specific user* needs
+per-user attribution, which a global counter does not have. That is part of
+option 2's cost, and is stated in the question rather than discovered during
+implementation.
 
 **Retry is not the automatic answer.** A retry loop after a completed provider
 call is its own failure mode — it can double-count if the first insert actually
@@ -429,8 +525,12 @@ Automated, `pnpm --filter @workspace/api-server test`:
 7. **A stage-2 row with `billing_units` below 1** trips the abort condition
    rather than being classified, since R3 and R4 must partition the stage-2
    rows exactly.
-8. **Backfill idempotency**: running twice produces the same classification and
-   the same counts.
+8. **Backfill idempotency**, stated so a correct implementation can pass it:
+   the second run must report **zero changed rows** while the **final bucket
+   totals stay identical**. The earlier wording ("the same counts") conflated
+   those two numbers and was unsatisfiable — every rule is guarded by
+   `is_estimated IS NULL`, so a correct second run changes nothing by
+   construction.
 9. **The rolling-deploy window**: a row inserted with no flag *after* the expand
    phase — an old binary's write — is classified by the phase-3 backfill, not
    left `NULL` forever. The test models old-app/new-schema, not just
@@ -520,6 +620,32 @@ Observability alone leaves the ceiling measured against an under-stated total
 built now either way so the decision is informed by real numbers rather than
 speculation. Option 2 trades a rare accounting error for a visible outage, which
 is the wrong direction pre-launch.
+
+### Q3 — Is a user's budget consumed by a generation they never received?
+
+Surfaced in round 2. A fal call that succeeds and then fails downstream —
+moderation rejection, missing image URL, a download or storage failure — has
+cost real money and is recorded nowhere, because recording sits after
+post-processing. Options:
+
+1. **Leave it (narrow the claim).** Recording stays where it is; the plan's
+   guarantee is scoped to generations that reach the recording point, as written
+   above. Ramification: real provider spend stays invisible to the ceiling, in a
+   failure mode nobody currently measures. It is the status quo, not a
+   regression.
+2. **Record at the provider-response boundary.** Every successful fal call is
+   accounted for. Ramification: correct on cost, but a user whose generation was
+   rejected by moderation still loses budget — which may be right (the compute
+   happened) or may feel punitive, and that is a product judgement. Needs an
+   idempotency key so the success path doesn't double-record.
+3. **Record at the boundary, but refund on downstream failure.** Ramification:
+   most accurate and most machinery — a compensating write, and a decision about
+   what happens if *that* write fails.
+
+**My recommendation: 1 now, and open 2 as its own plan** with the moderation
+question asked explicitly. The gap is real but it is pre-existing and unmeasured;
+folding a recording-point move into a migration that is already three releases
+deep would be the scope accretion the stopping rule warns about.
 
 ### Q2 — Where does a user's own spend history live?
 
