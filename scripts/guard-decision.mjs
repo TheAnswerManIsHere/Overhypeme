@@ -250,6 +250,8 @@ const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const WRAPPER_BARE_FLAGS = {
   env: new Set(["-i", "-0", "--ignore-environment", "--null"]),
   command: new Set(["-p", "-v", "-V"]),
+  // `help exec` documents `exec [-cl] [-a name] [command [argument ...]]`.
+  exec: new Set(["-c", "-l", "-cl", "-lc"]),
 };
 
 /**
@@ -261,6 +263,8 @@ const WRAPPER_BARE_FLAGS = {
  */
 const WRAPPER_VALUE_FLAGS = {
   env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+  // `exec -a name command` substitutes argv0 and then runs `command`.
+  exec: new Set(["-a"]),
 };
 
 /**
@@ -853,26 +857,16 @@ function isRecursiveAndForced(args) {
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 
 /**
- * The ONE argument shape curl/wget may still be used for.
- *
- * `$HTTPS_PROXY/__agentproxy/status` is the agent proxy's own diagnostic
- * endpoint -- the thing /root/.ccr/README.md tells you to hit when a tool gets
- * a 403 or a TLS failure. It is not a GitHub route and it is the only ad-hoc
- * fetch this container has ever legitimately needed.
- */
-const AGENT_PROXY_PROBE = /(^|[/$])__agentproxy\//;
-
-/**
  * Why this is a blanket refusal rather than a parser (David, 2026-08-17).
  *
- * The previous four revisions tried to decide whether a given curl/wget
+ * The first four revisions tried to decide whether a given curl/wget
  * invocation *would actually connect to* api.github.com, so that unrelated
  * fetches stayed available. Codex found real defects in that judgement in four
  * consecutive rounds -- 3, 1, 3, then 7 -- and round 4's new findings were in
  * five different sub-languages of these tools: wgetrc directives via
  * `-e base=...`, composite `--connect-to HOST1:P1:HOST2:P2` values, brace URL
  * globbing, unique-prefix long-option abbreviation, and `--variable` /
- * `--expand-url` interpolation. Behind those sit `-K` config files, `.netrc`,
+ * `--expand-url` interpolation. Behind those sat `-K` config files, `.netrc`,
  * environment proxies, and whatever the next round would have found.
  *
  * That is not a converging series. Deciding it correctly means reimplementing
@@ -881,32 +875,63 @@ const AGENT_PROXY_PROBE = /(^|[/$])__agentproxy\//;
  * appeared four rounds running, twice as a conclusion I had written down as
  * checked and Codex refuted by execution.
  *
- * So the rule stops trying. Refusing every curl/wget outright is ONE rule,
- * complete by construction, and it ends the class permanently.
+ * WHY THERE IS NO LONGER AN EXCEPTION EITHER. The first version of this rule
+ * kept one: the agent proxy's own `__agentproxy/status` diagnostic, on the
+ * reasoning that it is not a GitHub route and is the only ad-hoc fetch this
+ * container has ever needed. Round 5 produced three findings against that
+ * single exception in one pass -- the fragment matched on ANY origin, so
+ * `curl https://api.github.com/__agentproxy/status` was allowed; an attached
+ * `-K/tmp/api.conf` smuggled a config file past the flag filter; and a
+ * `.curlrc` reached via `$CURL_HOME` adds transfers that never appear in argv
+ * at all. The last of those cannot be fixed by inspecting arguments, because
+ * the extra request is not IN the arguments.
+ *
+ * The lesson was the same one level down: an exception is a thing to attack,
+ * and this one had exactly the same unbounded surface as the parser did. So
+ * there is no exception. Refusing every curl and wget is the whole rule, and it
+ * is the only version of it that is complete by construction.
  *
  * The cost is genuinely small. This hook inspects the command line typed at it,
  * not the contents of a script, so `bash scripts/phase5-og-smoke.sh` and CI's
  * own readiness loop are untouched -- they were the only real uses in the repo.
- * What is lost is the ad-hoc one-off fetch, and losing it fails LOUDLY with the
- * message below, which is the opposite of the silent failure this rule exists
- * to prevent.
+ * What is lost is the ad-hoc one-off fetch, including the proxy probe, and
+ * losing it fails LOUDLY with the message below, which is the opposite of the
+ * silent failure this rule exists to prevent.
  */
-function refuseFetcher(rest) {
-  const operands = rest.filter((t) => !t.startsWith("-"));
-  if (operands.length > 0 && operands.every((t) => AGENT_PROXY_PROBE.test(t))) return null;
-  return (
-    "curl and wget are refused in this container. The reason the rule exists is api.github.com, " +
-    "which is intercepted by the agent proxy and returns HTTP 403 \"GitHub access is not enabled for " +
-    "this session\" -- a failure that is SILENT inside a pipeline, because a `grep` over the 403 body " +
-    "finds nothing and reads as \"no results\" rather than as an error. Every CI-wait loop built that " +
-    "way on 2026-08-16 was a pure sleep. This refuses the whole program rather than trying to work out " +
-    "which invocations reach that host: four review rounds showed that judgement cannot be made " +
-    "reliably without reimplementing curl's and wget's own argument parsing. " +
-    "Use mcp__github__* for GitHub state -- pull_request_read (get_check_runs) for CI, get_reviews for " +
-    "a review landing, get for merge state, issue_read for labels -- and WebFetch for web content. " +
-    "A script that runs curl internally is unaffected. If an ad-hoc fetch is genuinely needed, ask " +
-    "David rather than routing around this. See .agents/memory/github-rest-api-blocked-from-bash.md."
-  );
+const FETCHER_REFUSAL =
+  "curl and wget are refused in this container. The reason the rule exists is api.github.com, " +
+  "which is intercepted by the agent proxy and returns HTTP 403 \"GitHub access is not enabled for " +
+  "this session\" -- a failure that is SILENT inside a pipeline, because a `grep` over the 403 body " +
+  "finds nothing and reads as \"no results\" rather than as an error. Every CI-wait loop built that " +
+  "way on 2026-08-16 was a pure sleep. This refuses the whole program, with no exception for any " +
+  "argument shape: four review rounds showed which invocations reach that host cannot be judged " +
+  "without reimplementing curl's and wget's own argument parsing, and a fifth showed the same of the " +
+  "one allowlisted probe. " +
+  "Use mcp__github__* for GitHub state -- pull_request_read (get_check_runs) for CI, get_reviews for " +
+  "a review landing, get for merge state, issue_read for labels -- and WebFetch for web content. " +
+  "A script that runs curl internally is unaffected. If an ad-hoc fetch is genuinely needed, " +
+  "including the agent proxy's own status probe, ask David rather than routing around this. " +
+  "See .agents/memory/github-rest-api-blocked-from-bash.md.";
+
+/**
+ * True when this argv reaches a fetcher, INCLUDING through a wrapper that
+ * `resolveRealCommand` could not see through.
+ *
+ * `resolveRealCommand` gives up on a wrapper flag it does not know and returns
+ * the wrapper itself, so `exec -a fetch /usr/bin/curl <url>` arrived here as
+ * program `exec` and was allowed. (Codex, #488 round 5.) `-a` is now a known
+ * `exec` value flag, but naming one flag is the fix that has failed four times
+ * on this PR, so the general case fails CLOSED instead: when unwrapping stopped
+ * ON a transparent wrapper, any fetcher named anywhere in the argv refuses.
+ *
+ * That sweep is deliberately not applied to ordinary commands -- judging raw
+ * tokens is the defect this module exists to remove, and `git commit -m curl`
+ * must not be blocked for saying the word.
+ */
+function reachesFetcher(program, argv) {
+  if (HTTP_FETCHERS.has(program)) return true;
+  if (!TRANSPARENT_WRAPPERS.has(program)) return false;
+  return argv.some((t) => HTTP_FETCHERS.has(t.split("/").pop()));
 }
 
 function isDrizzleKitToken(token) {
@@ -1021,10 +1046,7 @@ export function checkCommand(argv, depth = 0) {
     if (nested) return nested;
   }
 
-  if (HTTP_FETCHERS.has(program)) {
-    const reason = refuseFetcher(rest);
-    if (reason) return reason;
-  }
+  if (reachesFetcher(program, argv)) return FETCHER_REFUSAL;
 
   if (program === "rm") {
     if (isRecursiveAndForced(rest) && rest.some((a) => !a.startsWith("-") && isRootShaped(a))) {

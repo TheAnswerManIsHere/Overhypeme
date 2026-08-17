@@ -145,6 +145,22 @@ const MUST_BLOCK = [
   ["round 4: URL brace globbing", "curl 'https://api.github.{com,org}/rate_limit'"],
   ["round 4: a SOCKS-scheme proxy endpoint", "curl --proxy socks5h://api.github.com https://example.com/"],
   ["round 4: variable interpolation into --expand-url", "curl --variable h=api.github.com --expand-url 'https://{{h}}/rate_limit'"],
+
+  // Round 5 attacked the ONE exception the rule used to carry -- the agent
+  // proxy's own status probe -- and found three ways through it in a single
+  // pass. The exception is gone rather than tightened: the third of these
+  // cannot be fixed by inspecting arguments at all, because the extra request
+  // is not in the arguments.
+  ["round 5: the probe path on ANY origin, including the blocked one", "curl https://api.github.com/__agentproxy/status"],
+  ["round 5: an attached -K config file alongside the probe", "curl -K/tmp/api.conf \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["round 5: a .curlrc reached via CURL_HOME adds transfers argv never shows", "CURL_HOME=/tmp/profile curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["the probe itself, now that there is no exception", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+
+  // Round 5 also found the one remaining fail-OPEN: an unrecognised wrapper
+  // flag made resolveRealCommand give up and return the wrapper, so the
+  // membership test never saw the fetcher.
+  ["round 5: exec -a substitutes argv0 and still runs curl", "exec -a fetch /usr/bin/curl https://api.github.com/rate_limit"],
+  ["the same wrapper without the flag", "exec /usr/bin/curl https://api.github.com/rate_limit"],
 ];
 
 const MUST_ALLOW = [
@@ -160,11 +176,6 @@ const MUST_ALLOW = [
   // script that runs curl internally is untouched. That is what keeps the
   // blanket refusal cheap: these were the only real curl uses in the repo.
   ["a script that runs curl internally", "bash scripts/phase5-og-smoke.sh"],
-
-  // The one allowlisted fetch: the agent proxy's own diagnostic endpoint, which
-  // /root/.ccr/README.md tells you to hit when a tool gets a 403.
-  ["the proxy status endpoint stays reachable", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
-  ["unquoted, the same probe", "curl -sS $HTTPS_PROXY/__agentproxy/status"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
