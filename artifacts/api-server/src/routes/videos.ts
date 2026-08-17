@@ -636,8 +636,20 @@ router.post("/videos/generate", async (req, res) => {
     try {
       // Deliberately outside the catch above (#409): a gate failure is not
       // a pricing failure, and must propagate rather than be swallowed.
+      // Assigned OUTSIDE the thunk, deliberately. This route resolves its
+      // estimate eagerly and non-fallibly — the pricing miss is already caught
+      // above and the fallback is arithmetic on an engine row loaded earlier —
+      // so there is nothing here that could deny an exempt admin. Putting the
+      // assignment inside the thunk would instead BREAK the admin path: the
+      // thunk never runs for an exempt user, so the recording branch below
+      // would find null and record zero, which is the bug round 1 fixed.
       gateResolvedCostUsd = gateCostUsd;
-      const budget = await checkBudget(authenticatedUserId, gateCostUsd);
+      // The thunk is still required, and this is the shape the guard's own
+      // header calls its residual limit: closing over an already-resolved
+      // value. It is safe *here* only because that value cannot fail. The rule
+      // is bright-line because proving that per call site is what nobody
+      // reliably does — see scripts/check-budget-gate-thunk.mjs.
+      const budget = await checkBudget(authenticatedUserId, async () => gateCostUsd);
       if (!budget.allowed) {
         budgetGateRefusal = true;
         res.status(429).json({
@@ -876,7 +888,15 @@ router.post("/videos/generate", async (req, res) => {
       status: "completed",
       record: updated ?? null,
     };
-    governanceActualCostUsd = estimatedCostUsd;
+    // The priced figure when we have one, otherwise the figure the gate used.
+    // NOT bare `estimatedCostUsd`, which is assigned only on the priced branch
+    // and stays 0 through a pricing outage — the same defect this PR fixed one
+    // block above for the ledger, and missed here. Resource governance is an
+    // INDEPENDENT enforcement layer (its own daily/monthly caps and the admin
+    // top-spender view), so a zero here makes unpriced videos invisible to it
+    // even once the ledger records them correctly. Two enforcement layers, the
+    // same figure, or the second one quietly stops binding too.
+    governanceActualCostUsd = cachedPriceForRecording ? estimatedCostUsd : (gateResolvedCostUsd ?? 0);
     res.json(responseBody);
   } catch (err) {
     await db

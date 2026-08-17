@@ -167,10 +167,14 @@ export interface JobState {
    * Map and `resumeFromStage2` resumes from it, so a process restart loses the
    * running job entirely. There is no path where a job outlives this field.
    *
-   * `stage1EstimateUsd` is null for a non-stylize job, which never runs stage 1.
+   * Either is null when the figure is genuinely unknown: `stage1EstimateUsd`
+   * for a non-stylize job, which never runs stage 1, and both for an exempt
+   * admin whose post-gate resolution failed. A writer that finds null records
+   * the loss on `ledger_write_failures` rather than substituting a constant —
+   * a fabricated figure is the fail-open this release exists to close.
    */
   stage1EstimateUsd: number | null;
-  stage3EstimateUsd: number;
+  stage3EstimateUsd: number | null;
 
   stage1Attempts: number;
 
@@ -590,17 +594,28 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
   }
 
   // ── Pre-flight budget gate ───────────────────────────────────────
-  // `estimateTotalCost` is INSIDE the try on purpose. It can now throw
-  // BudgetGateError itself when an engines row is unreadable (see
-  // resolveStageCostUsd), and "the gate could not determine what to check" is
-  // the same outcome for the caller as "the gate could not answer" — both are
-  // the server's fault and both must deny with a retry-able 503. Left outside,
-  // that throw would escape as an unmapped 500.
-  let estimated: PreflightEstimate;
+  // The estimate is resolved INSIDE a thunk, not before the call.
+  //
+  // `estimateTotalCost` can throw BudgetGateError when an engines row is
+  // unreadable (see resolveStageCostUsd), and `checkBudget` returns the ADMIN
+  // EXEMPTION before it resolves the proposed cost. Passing a resolved value
+  // throws that ordering away, because arguments evaluate before the call — so
+  // the eager form denies an exempt admin on a failure the exemption would have
+  // made irrelevant. That is the defect PR #474 round 4 introduced the thunk
+  // overload to fix, and that round 2 of this PR reintroduced here.
+  // `scripts/check-budget-gate-thunk.mjs` now makes the eager form a CI failure
+  // rather than something to remember.
+  //
+  // For a NON-exempt user the throw propagates out of checkBudget and lands in
+  // the catch below as a 503, which is the required deny.
+  let estimated: PreflightEstimate | null = null;
   let budget: Awaited<ReturnType<typeof checkBudget>>;
   try {
-    estimated = await estimateTotalCost(engine, input);
-    budget = await checkBudget(input.userId, estimated.total);
+    budget = await checkBudget(input.userId, async () => {
+      const resolved = await estimateTotalCost(engine, input);
+      estimated = resolved;
+      return resolved.total;
+    });
   } catch (err) {
     if (err instanceof BudgetGateError) {
       // Deny, but as a retry-able service error — not a 429, which would tell
@@ -621,6 +636,28 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
       remainingBudget: budget.remainingBudget,
     });
   }
+
+  // An exempt admin never ran the thunk, so there are no figures to carry yet.
+  // Resolve them now, for RECORDING ONLY — and note the asymmetry, which is the
+  // whole point of doing it here rather than above: a failure must NOT deny.
+  // The exemption has already decided this job is allowed, and re-deciding that
+  // on a bookkeeping lookup is exactly the bug the thunk exists to prevent.
+  //
+  // So a failure leaves the figures null and the writers record the loss on the
+  // counter rather than inventing a constant. Same shape as aiMemePipeline's
+  // admin path, which skips the ledger row rather than fabricating one.
+  if (estimated === null) {
+    try {
+      estimated = await estimateTotalCost(engine, input);
+    } catch (err) {
+      logger.warn(
+        { err, userId: input.userId },
+        "[videoPipeline] could not resolve stage estimates for an exempt user — this job's stage 1/3 spend will go unrecorded",
+      );
+      void noteLedgerWriteFailure();
+    }
+  }
+  const preflight: PreflightEstimate | null = estimated;
 
   // ── Resolve what authorizes this job, once, now ──────────────────
   // Both the video gate and the meme gates this job will need at completion
@@ -712,8 +749,9 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
     pronouns: input.pronouns ?? null,
     renderedFactText: input.renderedFactText ?? null,
     // The figures the gate above decided on, carried to the writers verbatim.
-    stage1EstimateUsd: estimated.stage1,
-    stage3EstimateUsd: estimated.stage3,
+    // Null when an exempt admin's post-gate resolution failed — see above.
+    stage1EstimateUsd: preflight?.stage1 ?? null,
+    stage3EstimateUsd: preflight?.stage3 ?? null,
     stage1Attempts: 0,
     videoJobRowId,
     _authorizationSnapshot: authorizationSnapshot,
@@ -1579,6 +1617,9 @@ async function recordStage1Cost(job: JobState): Promise<void> {
   }
   const cost = job.stage1EstimateUsd ?? STAGE1_FALLBACK_COST;
   job.stage1CostUsd = (job.stage1CostUsd ?? 0) + cost;
+  // NOTE: this function does NOT write a ledger row. See the block at the end
+  // of it for why — `generateAiMemeBackgroundFromReference` already wrote one
+  // for the same PuLID call.
   if (job.videoJobRowId) {
     try {
       await db
@@ -1589,23 +1630,31 @@ async function recordStage1Cost(job: JobState): Promise<void> {
       logger.warn({ err }, "[videoPipeline] failed to persist stage1 cost on row");
     }
   }
-  try {
-    await recordCost({
-      userId: job.userId,
-      jobType: "image",
-      endpointId: "fal-ai/flux-pulid",
-      unitPriceAtCreation: cost,
-      billingUnits: 1,
-      computedCostUsd: cost,
-      // Always an estimate: the engine's configured per-call figure, or
-      // STAGE1_FALLBACK_COST when the engine row can't be read at all.
-      pricingFetchedAt: new Date(),
-      isEstimated: true,
-      jobReferenceId: `videoJob_${job.jobId}_stage1_${job.stage1Attempts}`,
-    });
-  } catch (err) {
-    logger.warn({ err, jobId: job.jobId }, "[videoPipeline] recordStage1Cost ledger failed");
-  }
+  // NO LEDGER WRITE HERE — and the absence is the fix, not an omission.
+  //
+  // Stage 1 *is* a call to `generateAiMemeBackgroundFromReference`, and that
+  // helper writes its own `user_generation_costs` row for the same PuLID
+  // invocation, keyed on the stored image path. This function used to write a
+  // second row keyed `videoJob_<id>_stage1_<attempt>`. Two rows, two different
+  // reference ids, nothing deduplicating them: every stylize-then-video job
+  // charged the user twice for one PuLID call, inflating the enforcement SUM
+  // and denying their next generation earlier than it should.
+  //
+  // THIS PREDATES THE PR. On `main` the helper's *priced* branch already
+  // recorded alongside this one, so the double charge has been live for
+  // priced PuLID calls all along; Release B's removal of that branch's price
+  // guard merely extended it to unpriced ones too. Codex round 3 reported the
+  // unpriced half — verified with `git show origin/main`, the priced half was
+  // already there.
+  //
+  // The HELPER owns the charge, not this function, for two reasons: it is the
+  // only writer on the standalone meme-wizard path (so it must record there
+  // regardless), and it sits closest to the provider call, where a real
+  // resolved price is available — this function only ever had an estimate.
+  //
+  // What stays here is the bookkeeping above: `job.stage1CostUsd` and the
+  // `video_jobs.stage1_cost_usd` column, which are per-job reporting and are
+  // not duplicated anywhere.
 }
 
 /**
@@ -1688,8 +1737,16 @@ async function recordStage2Cost(job: JobState): Promise<void> {
 
 async function recordStage3Cost(job: JobState): Promise<void> {
   // The gate's own figure, carried on the job — see resolveStageCostUsd.
-  // Non-nullable: every job is gated for stage 3, which always runs.
-  const cost = job.stage3EstimateUsd;
+  // Null only when an exempt admin's post-gate resolution failed; record the
+  // loss rather than inventing the constant, same as stage 1.
+  if (job.stage3EstimateUsd === null) {
+    logger.error(
+      { jobId: job.jobId },
+      "[videoPipeline] stage 3 has no gated estimate — recorded spend will understate",
+    );
+    void noteLedgerWriteFailure();
+  }
+  const cost = job.stage3EstimateUsd ?? STAGE3_FALLBACK_COST;
   job.stage3CostUsd = cost;
   if (job.videoJobRowId) {
     try {

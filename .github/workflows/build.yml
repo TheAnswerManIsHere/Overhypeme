@@ -272,6 +272,15 @@ jobs:
       - name: Ledger write unconditional check
         run: pnpm run check:record-cost
 
+      # Third in the same family, and the one that had been missing. checkBudget
+      # returns the ADMIN EXEMPTION before resolving the proposed cost, which is
+      # worth nothing if the caller resolves it eagerly — arguments evaluate
+      # before the call, so a failing cost lookup denies an admin who never
+      # needed it. PR #474 round 4 found this and added the thunk overload;
+      # PR #498 round 3 found it reintroduced. Twice is a machine, not a note.
+      - name: Budget gate thunk check
+        run: pnpm run check:budget-gate-thunk
+
       - name: Build app
         run: pnpm run build
         env:

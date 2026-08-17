@@ -20,7 +20,8 @@
     "check:permissions": "node scripts/check-permission-chokepoint.mjs",
     "check:permissions:frontend": "node scripts/check-permission-chokepoint-frontend.mjs",
     "check:budget-gate": "node scripts/check-budget-gate-unconditional.mjs",
-    "check:record-cost": "node scripts/check-record-cost-unconditional.mjs"
+    "check:record-cost": "node scripts/check-record-cost-unconditional.mjs",
+    "check:budget-gate-thunk": "node scripts/check-budget-gate-thunk.mjs"
   },
   "private": true,
   "devDependencies": {
