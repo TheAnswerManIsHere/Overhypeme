@@ -411,6 +411,50 @@ still concluded the review was unavailable. See
 [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)'s
 *Reading a scoped limit message as a blanket outage*.
 
+## A comparative claim has two directions, and only one gets tested
+
+**Applies when writing a finding, a reply, or a header comment** — not to the
+code under review. A claim of the form *X is stricter/earlier/safer than Y*
+asserts **both** directions. The usual failure is to check the direction that
+prompted the claim, find it holds, and ship the comparison.
+
+**Three instances in one session (2026-08-17), across three PRs:**
+
+| Claim | Direction checked | Direction that was false |
+| --- | --- | --- |
+| The node-less guard fallback is "stricter on force pushes" | It blocks the permitted lease push | It *allows* `git-push -f`, which the parser blocks |
+| `committedAt` "necessarily precedes the push"; backdating "only over-blocks" | Backdating moves the bound earlier | `GIT_COMMITTER_DATE` is arbitrary, so it can be set *forward* |
+| The lease rule "sits behind GitHub's ruleset," unlike the fetcher rule | The ruleset exists and blocks force pushes | It targets `main`, not the `claude/*` branches the lease rule governs |
+
+**Why it survives review of the code itself.** These claims live in prose, and
+prose is not executed — nothing fails, and the half that *is* true makes the
+sentence read as verified. The fallback claim had already survived one review
+round, because that round only challenged the word "weaker" — and "stricter"
+is equally one-directional.
+
+**Avoid:** construct the counter-example for the opposite direction *before*
+shipping the sentence, and prefer a **measured matrix to a comparative
+adjective** whenever the behaviour has more than one axis. `.claude/guard.sh`
+now carries a six-row block/allow table precisely because two successive
+adjectives were tried and both were false; a table has no direction to get
+backwards.
+
+**The cheap test that would have caught all three:** ask *what would make the
+opposite true, and can I run it?* Each was falsifiable in under a minute —
+hiding `node` from `PATH`, reading `git commit --date`, checking the ruleset's
+target. None was hard to check; all three were simply never checked.
+
+**A near miss that does NOT belong here**, recorded because it was in this
+list for one review round: a `Math.min` over a widened set, described with the
+wrong causal mechanism. That has no opposite direction — "the reduction was
+wrong" and "its consumer is the ordering check" are unrelated predicates, not
+two halves of a comparison, and the counter-example test above would not have
+caught it. Its actual lesson is *trace a value through its consumers*, and it
+lives in
+[`reduction-over-a-set-that-changed-size.md`](../../.agents/memory/reduction-over-a-set-that-changed-size.md).
+Padding a pattern with an adjacent-looking case makes its mechanism claim
+false, which is the same defect as the pattern itself. (Codex, #506 round 1.)
+
 ## Review output format
 
 **Two delivery surfaces exist; they don't support the same shape** — same split
