@@ -34,6 +34,14 @@ if command -v node >/dev/null 2>&1; then
   exit $?
 fi
 
+# Node is what reads the readiness receipt, so without it a merge cannot be
+# verified at all. Refuse rather than wave it through -- the degraded path is
+# allowed to be inconvenient, never weaker.
+if printf '%s' "$payload" | grep -q 'mcp__github__merge_pull_request'; then
+  echo "Guard: blocked a merge (node unavailable -- the readiness receipt could not be read)" >&2
+  exit 2
+fi
+
 if printf '%s' "$payload" | grep -Eq 'drizzle-kit[[:space:]]+push|rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+/|git[[:space:]]+.*push[[:space:]].*(--force|--mirror|-[a-zA-Z]*f[a-zA-Z]*)|git[[:space:]]+update-ref'; then
   echo "Guard: blocked a destructive command (node unavailable -- conservative fallback)" >&2
   exit 2

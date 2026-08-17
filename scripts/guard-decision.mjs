@@ -191,6 +191,10 @@
  *   direction announces itself. (Codex, #488 rounds 6-10 and round 16.)
  */
 
+import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { staleReason, remoteTip } from "./pr-ready.mjs";
+
 const ALLOW = 0;
 const BLOCK = 2;
 
@@ -1552,8 +1556,140 @@ function evaluateScript(text, depth) {
   return null;
 }
 
+const RECEIPT_HOWTO =
+  "Capture pull_request_read (get_check_runs, get_reviews, get_comments, get_review_comments) into a " +
+  "snapshot and run `node scripts/pr-ready.mjs --pr <N> --snapshot <file>`.";
+
+/**
+ * Refuse a merge that isn't backed by a current, passing readiness receipt.
+ *
+ * CLAUDE.md's merge bar is CI green + Codex converged + every thread resolved,
+ * and it has been broken twice in the same way -- one item checked, three
+ * reported (PR #458, then PR #487). The standing rule is that a discipline
+ * broken twice becomes a check, so the merge tool now requires the artifact
+ * `scripts/pr-ready.mjs` produces rather than my assurance that I looked.
+ *
+ * `resolveSha` is injected so the decision stays pure and testable; in
+ * production it is a local `git rev-parse` of the PR's head branch. It closes
+ * the one gap the age cap cannot: a receipt that was accurate when written and
+ * was then invalidated by my own push a minute later.
+ *
+ * This covers merges I perform. It cannot cover a PR David merges on my
+ * word -- no hook sees his click -- which is why the receipt is also what
+ * CLAUDE.md now requires a readiness claim to quote.
+ */
+export function checkMerge(toolInput, { now = Date.now(), readReceipt, resolveSha } = {}) {
+  const pr = toolInput?.pullNumber;
+  if (!Number.isInteger(pr)) {
+    return `merge blocked: no pullNumber in the tool input, so no readiness receipt could be checked. ${RECEIPT_HOWTO}`;
+  }
+
+  const receipt = readReceipt(pr);
+  if (!receipt) {
+    return (
+      `merge blocked: no readiness receipt for PR #${pr}. The merge bar is CI green + Codex returned + ` +
+      `every review thread resolved, and it has been reported from a single item twice (#458, #487). ` +
+      RECEIPT_HOWTO
+    );
+  }
+  // The receipt is found by filename, so a mismatched body means a hand-edited
+  // or misfiled receipt -- exactly the artifact whose word should not be taken.
+  if (receipt.pr !== pr) {
+    return `merge blocked: the receipt filed for PR #${pr} says it is for PR #${receipt.pr}. ${RECEIPT_HOWTO}`;
+  }
+  // A number is not an identity. Receipts are keyed by PR number and shas are
+  // resolved against THIS checkout's origin, so a merge aimed at a different
+  // repository whose PR number happened to match would find a locally valid
+  // receipt and a locally matching tip, and pass every remaining check.
+  // (Codex, #490.)
+  const target = `${toolInput?.owner ?? ""}/${toolInput?.repo ?? ""}`;
+  if (!toolInput?.owner || !toolInput?.repo) {
+    return `merge blocked: the merge tool input names no owner/repo, so the receipt for PR #${pr} cannot be tied to a repository. ${RECEIPT_HOWTO}`;
+  }
+  if (typeof receipt.repo !== "string" || receipt.repo.toLowerCase() !== target.toLowerCase()) {
+    return (
+      `merge blocked: the receipt for PR #${pr} was minted for ${receipt.repo ?? "an unrecorded repository"}, ` +
+      `but the merge targets ${target}. ${RECEIPT_HOWTO}`
+    );
+  }
+  if (receipt.verdict !== "READY") {
+    const failing = Object.entries(receipt.items ?? {})
+      .filter(([, item]) => !item.pass)
+      .map(([key, item]) => `${key}: ${item.detail}`)
+      .join("; ");
+    return `merge blocked: the receipt for PR #${pr} says NOT READY -- ${failing || "no item detail recorded"}.`;
+  }
+
+  // ONE staleness predicate, imported rather than reimplemented. The previous
+  // revision claimed this was shared with `--show` and only half was: this
+  // function kept its own window constant and its own timestamp arithmetic, so
+  // a later change to either would have made the manual READY surface and this
+  // guard disagree about the same receipt. (Codex, #490 round 4.)
+  const stale = staleReason(receipt, now);
+  if (stale) return `merge blocked: ${stale} ${RECEIPT_HOWTO}`;
+
+  // Everything below is the SHA binding, and every branch of it denies. A
+  // receipt that cannot be tied to the commit GitHub would merge is not weaker
+  // evidence than one that can -- it is no evidence at all for the only
+  // question being asked here.
+  if (typeof receipt.headSha !== "string" || !/^[0-9a-f]{40}$/i.test(receipt.headSha)) {
+    return `merge blocked: the receipt for PR #${pr} carries no full head sha to bind against. ${RECEIPT_HOWTO}`;
+  }
+  if (typeof receipt.branch !== "string" || receipt.branch.trim() === "") {
+    return `merge blocked: the receipt for PR #${pr} names no branch, so its head sha cannot be checked against the tip. ${RECEIPT_HOWTO}`;
+  }
+
+  const tip = resolveSha(receipt.branch);
+  if (!tip) {
+    // Previously this abstained, on the reasoning that a branch this container
+    // never fetched is not evidence of a problem. That was the wrong default
+    // for a guard: the abstention is indistinguishable from the case it was
+    // meant to catch. (Codex, #490.)
+    return (
+      `merge blocked: could not resolve the current tip of ${receipt.branch} on the remote, so the receipt ` +
+      `for PR #${pr} cannot be tied to the commit that would merge. ${RECEIPT_HOWTO}`
+    );
+  }
+  if (tip !== receipt.headSha) {
+    return (
+      `merge blocked: the receipt for PR #${pr} validated ${receipt.headSha.slice(0, 7)}, but ` +
+      `${receipt.branch} is now at ${tip.slice(0, 7)}. The commit that was verified is not the commit ` +
+      `that would merge. ${RECEIPT_HOWTO}`
+    );
+  }
+
+  return null;
+}
+
+function readReceiptFromDisk(pr) {
+  try {
+    const path = new URL(`../.agents/receipts/pr-${pr}.json`, import.meta.url);
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+const MERGE_TOOL = "mcp__github__merge_pull_request";
+
 /** Full decision for a raw payload. Returns { blocked, reason }. */
-export function decide(raw) {
+export function decide(raw, options = {}) {
+  let payload = null;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    // Not JSON; only the Bash path below can make sense of it.
+  }
+
+  if (payload?.tool_name === MERGE_TOOL) {
+    const reason = checkMerge(payload.tool_input, {
+      readReceipt: readReceiptFromDisk,
+      resolveSha: remoteTip,
+      ...options,
+    });
+    return reason ? { blocked: true, reason } : { blocked: false, reason: null };
+  }
+
   const command = extractCommand(raw);
   const reason = evaluateScript(command, 0);
   return reason ? { blocked: true, reason } : { blocked: false, reason: null };
