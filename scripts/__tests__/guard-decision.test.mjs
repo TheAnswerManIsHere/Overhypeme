@@ -118,29 +118,168 @@ const MUST_BLOCK = [
   ["npm exec -c is the same interface npx uses", "npm exec -c 'drizzle-kit push'"],
   ["parent-directory traversal climbs back out of an apparently scoped path", "rm -rf /tmp/../*"],
 
-  // --- api.github.com from bash: unreachable, and silent inside a pipeline ---
+  // --- curl/wget: refused outright (David, 2026-08-17) ---
+  // The rule exists because api.github.com fails SILENTLY inside a pipeline.
+  // It refuses the whole program rather than deciding which invocations reach
+  // that host, because four review rounds showed that judgement cannot be made
+  // without reimplementing curl's and wget's own argument parsing.
   ["curl to the GitHub API", "curl -sS https://api.github.com/repos/o/r/pulls/1"],
   ["the CI-poll shape that stalled on 2026-08-16", "curl -sS https://api.github.com/repos/o/r/commits/abc/check-runs | grep -c in_progress"],
   ["wget too", "wget -qO- https://api.github.com/rate_limit"],
-  ["http as well as https", "curl http://api.github.com/x"],
-  ["host case is irrelevant", "curl https://API.GitHub.COM/repos/o/r"],
-  ["userinfo prefix reaches the same host", "curl https://user@api.github.com/repos/o/r"],
   ["hidden behind a wrapper", "env -i curl -sS https://api.github.com/x"],
   ["hidden in a compound command", "echo hi && curl -sS https://api.github.com/x"],
   ["hidden inside a nested shell", "bash -c 'curl -sS https://api.github.com/x'"],
+
+  // Any other host, deliberately. Precision was the whole cost centre, and an
+  // ad-hoc fetch is rare enough to ask about.
+  ["curl to an unrelated host is refused too", "curl -sS https://example.com/thing"],
+  ["so is wget to one", "wget -O out.html https://example.com"],
+  ["and a fetch with no URL-shaped argument at all", "curl --help"],
+
+  // The routes that ended the parser. Each was a live bypass found by Codex on
+  // #488 across four rounds, in a different sub-language of these tools; all of
+  // them are now blocked by the same single rule rather than five mechanisms.
+  ["round 3: an attached short value (wget -i)", "wget -ihttps://api.github.com/rate_limit"],
+  ["round 4: a wgetrc directive via --execute", "wget -e base=https://api.github.com/ -F -i local.html"],
+  ["round 4: --connect-to's second host", "curl --connect-to example.com:443:api.github.com:443 https://example.com/"],
+  ["round 4: URL brace globbing", "curl 'https://api.github.{com,org}/rate_limit'"],
+  ["round 4: a SOCKS-scheme proxy endpoint", "curl --proxy socks5h://api.github.com https://example.com/"],
+  ["round 4: variable interpolation into --expand-url", "curl --variable h=api.github.com --expand-url 'https://{{h}}/rate_limit'"],
+
+  // Round 5 attacked the ONE exception the rule used to carry -- the agent
+  // proxy's own status probe -- and found three ways through it in a single
+  // pass. The exception is gone rather than tightened: the third of these
+  // cannot be fixed by inspecting arguments at all, because the extra request
+  // is not in the arguments.
+  ["round 5: the probe path on ANY origin, including the blocked one", "curl https://api.github.com/__agentproxy/status"],
+  ["round 5: an attached -K config file alongside the probe", "curl -K/tmp/api.conf \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["round 5: a .curlrc reached via CURL_HOME adds transfers argv never shows", "CURL_HOME=/tmp/profile curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["the probe itself, now that there is no exception", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+
+  // Round 5 also found the one remaining fail-OPEN: an unrecognised wrapper
+  // flag made resolveRealCommand give up and return the wrapper, so the
+  // membership test never saw the fetcher.
+  ["round 5: exec -a substitutes argv0 and still runs curl", "exec -a fetch /usr/bin/curl https://api.github.com/rate_limit"],
+  ["the same wrapper without the flag", "exec /usr/bin/curl https://api.github.com/rate_limit"],
+
+  // Round 6: programs that DISPATCH to a fetcher. `timeout` is the one of
+  // these I might plausibly have typed by accident -- it is the natural
+  // spelling of a CI wait, which is the mistake this whole rule exists for.
+  ["round 6: timeout starts COMMAND after its DURATION", "timeout 30 curl https://api.github.com/rate_limit"],
+  ["with an option before the duration", "timeout -k 5 30 curl https://api.github.com/x"],
+  ["round 6: env -S splits its value into a command line", "env -S 'curl https://api.github.com/rate_limit'"],
+  ["the attached spelling of the same", "env -Scurl https://api.github.com/x"],
+  ["round 6: npx --call, the long spelling of -c", "npx --call 'curl https://api.github.com/x'"],
+  ["npm exec --call likewise", "npm exec --call 'curl https://api.github.com/x'"],
+  // The heredoc-delimiter work that rounds 8-15 produced is SPLIT OUT of this
+  // PR (David, 2026-08-17). Its rows travel with it. What remains here is the
+  // fetcher refusal, which is what this PR is about and which has been stable
+  // since round 6.
+  //
+  // The consequence is stated rather than hidden: with main's identifier-only
+  // delimiter grammar, a fetcher behind a punctuated heredoc delimiter reaches
+  // the untokenisable path, where `LOOKS_DESTRUCTIVE` -- known incomplete --
+  // decides. That is a pre-existing gap this PR neither widens nor closes.
+  // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
+  // pipeline. A plausible diagnostic command, and one the deleted sweep had
+  // been masking.
+  ["round 8: time -p runs its pipeline", "time -p curl https://api.github.com/rate_limit"],
+  ["the bare form too", "time curl https://api.github.com/x"],
+  // Round 7: the query exemption must cover only the WRAPPER's own leading
+  // options. Here `-v` belongs to curl, and curl really runs.
+  ["round 7: command's operand with its own -v", "command curl -v https://api.github.com/rate_limit"],
+  // Round 16: `npm exec --help` documents `x` as the alias, verified against
+  // this container's npm. Same dispatcher, second spelling.
+  ["round 16: npm x is npm exec", "npm x --call 'curl --version'"],
+  ["the -c spelling of the same alias", "npm x -c 'wget --help'"],
+  // Round 16: measured -- `env -S '-i printf ...'` runs printf, so the split
+  // words go into ENV's argv, not straight to the child. Judging the first
+  // word as the program let an option prefix hide the fetcher behind it.
+  ["round 16: an option prefix inside env -S", "env -S '-i curl --version'"],
+  ["a value-taking option prefix inside env -S", "env -S '-u HOME wget --help'"],
+  ["an end-of-options marker inside env -S", "env -S '-- curl --version'"],
+  ["the attached spelling of the same", "env -S'-i curl --version'"],
+  // Round 16: the array-assignment suppression must not swallow a command
+  // substitution sitting inside the parentheses.
+  ["round 16: a substitution inside an array literal is still a command", "arr=( $(git push -f origin main) )"],
+  // Round 17: `$` is not what makes a substitution executable. Round 16's
+  // suppression tested only for `$`, so both of these were erased whole --
+  // `segments()` returned an empty array and the fetcher vanished. A fail-open
+  // created by a fix for a false block, from checking one example.
+  ["round 17: backticks in an array literal still execute", "arr=( `curl --version` )"],
+  ["round 17: process substitution in an array literal still executes", "arr=( <(curl --version) )"],
+  // Round 17, second pass: `help declare` says integer variables undergo
+  // ARITHMETIC EVALUATION on assignment, so an integer array's initializer
+  // expands a plain identifier -- and a variable whose value carries a
+  // substitution then runs. Measured: the equivalent probe wrote its marker
+  // file. This is what killed the "every token is a plain word" whitelist:
+  // whether tokens are inert depends on attributes set elsewhere in the
+  // command, not on the tokens.
+  ["round 17: an integer array's initializer is arithmetic, not data", "curl='a[$(/usr/bin/curl --version)0]'; declare -ia arr=(curl)"],
+  ["the bare form of the same", "declare -ia arr=(curl)"],
+  // ACCEPTED OVER-BLOCK, pinned deliberately. Bash assigns two strings here
+  // and runs neither, so this refusal is wrong -- and it is the cost of
+  // deleting the suppression that tried to allow it, which opened a
+  // fail-open in each of its two versions. Do not "fix" this row without
+  // reading the note above `segments()`.
+  ["an array literal naming fetchers is over-blocked, and that is the accepted trade", "fetchers=(curl wget)"],
+  ["the append spelling, same accepted trade", "fetchers+=(curl)"],
+  // Round 18: the over-block is NOT fetcher-only. Deleting the suppression
+  // restored it for every rule in the module, because the literal's words are
+  // emitted as a command segment that all of them judge. Pinned across three
+  // different rules so the class is what is asserted, not one example -- the
+  // first version of this note named only the fetcher case and understated
+  // the deletion's blast radius by three rules.
+  ["a push in an array literal is over-blocked too", "ops=(git push -f origin main)"],
+  ["an rm in an array literal, same class", "cleanup=(rm -rf /)"],
+  ["a drizzle-kit push in an array literal, same class", "migration=(drizzle-kit push)"],
+  // Round 19: update-ref is a SEPARATE branch of checkCommand from push, so
+  // naming push did not cover it -- the second consecutive round in which this
+  // note was too narrow. Both spellings, since the direct executable is its
+  // own branch again.
+  ["an update-ref in an array literal, a fourth distinct rule", "ops=(git update-ref refs/heads/main abc1234)"],
+  ["the direct git-update-ref executable, same class", "ops=(/usr/lib/git-core/git-update-ref refs/heads/main abc1234)"],
+  // Round 20: the drizzle-kit rule scans ALL tokens rather than command
+  // position, so an inert leading word does NOT defuse it -- unlike every
+  // other rule (see the MUST_ALLOW rows below). Pinned because it is the one
+  // case that distinguishes "judged as ordinary argv" from "the first word
+  // decides", and the header's claim now rests on that distinction.
+  ["a drizzle-kit push behind an inert word is still caught, because that rule scans every token", "ops=(echo drizzle-kit push)"],
+  ["an unclosed array paren is not suppressed", "arr=(curl wget"],
+  ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
+  ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
+  // Round 16: truncating the option scan at `--` must not lose the ordinary
+  // spelling, where the command-string flag precedes the boundary.
+  ["a command string before npm's -- boundary", "npm exec -c 'curl https://api.github.com/x' -- pkg"],
 ];
 
 const MUST_ALLOW = [
-  // --- api.github.com may be MENTIONED freely; only a request is blocked ---
-  // A substring rule would have blocked all four of these, and the third and
-  // fourth are things this repo does constantly.
+  // --- the host may be MENTIONED freely; only running a fetcher is refused ---
+  // A substring rule would have blocked all of these, and the last three are
+  // things this repo does constantly.
   ["a path that merely looks like the host", "cat ./api.github.com.md"],
-  ["the host inside a JSON body to somewhere else", "curl -sS -d '{\"h\":\"api.github.com\"}' https://example.com/hook"],
   ["a commit message naming it", "git commit -m 'note that api.github.com is blocked from bash'"],
   ["a doc write naming it", "echo 'api.github.com returns 403 here' > notes.md"],
   ["loop-metrics, which uses Node fetch and fails loudly on its own", "node scripts/loop-metrics.mjs --pr 472"],
-  ["curl to any other host", "curl -sS https://example.com/api.github.com/x"],
-  ["the proxy status endpoint stays reachable", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+
+  // The hook reads the command line typed at it, not a script's contents, so a
+  // script that runs curl internally is untouched. That is what keeps the
+  // blanket refusal cheap: these were the only real curl uses in the repo.
+  ["a script that runs curl internally", "bash scripts/phase5-og-smoke.sh"],
+
+  // Round 6 also found two FALSE BLOCKS that the refusal and its wrapper
+  // sweep had introduced. Both are pinned, because a guard that refuses
+  // ordinary work gets worked around rather than obeyed.
+  ["command -v names a program without running it", "command -v curl"],
+  ["sudo -p's value is a prompt string, not a program", "sudo -p curl true"],
+  ["timeout wrapping something that is not a fetcher", "timeout 90 bash -c 'pnpm test'"],
+  ["sudo -u's value is a username", "sudo -u postgres psql"],
+  // Round 7: three false blocks the fail-closed sweep produced before it was
+  // deleted. They are pinned because deleting the sweep is the fix, and a
+  // regression would be re-adding it.
+  ["sudo -l lists privileges without running the command", "sudo -l curl"],
+  ["an unlisted wrapper flag must not make data look executable", "sudo -n printf '%s\\n' curl"],
+  ["an in-range octal escape still decodes", "cat <<$'\\101'\nUse /usr/bin/curl for the probe; David's note\nA"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
@@ -203,6 +342,34 @@ const MUST_ALLOW = [
   ["a heredoc feeding a shell that HAS -c is genuinely inert data", "bash -c 'echo hi' <<'EOF'\ngit push -f origin claude/x\nEOF"],
   ["npx -c running something harmless", "npx -c 'echo hi'"],
   ["parent traversal that still lands on a real scoped name", "rm -rf /tmp/sub/../scratch-xyz"],
+
+  // --- round 16: false blocks the blanket fetcher refusal introduced ---
+  // Naming a fetcher stays allowed; only running one is refused. `(` is an
+  // operator, so an array literal was segmented into a command whose argv[0]
+  // was `curl`, contradicting that boundary.
+  ["an ordinary array is unaffected", "files=(a.txt b.txt)"],
+  // Round 20: the over-block is NOT "any protected name in an array". Array
+  // contents are judged as ordinary command argv, so a rule keyed on the
+  // RESOLVED program does not fire when an inert word comes first.
+  //
+  // These rows pin runtime verdicts and nothing more. An earlier version of
+  // this comment claimed they made "a future widening of that claim fail the
+  // suite" -- false, since no assertion here reads the header's prose, and the
+  // branch shipped 236 green tests beside a header statement that was already
+  // refuted. (Codex, #488 round 21.) The coupling that comment wanted now
+  // exists as the array-literal invariant at the end of this file.
+  ["an inert leading word defuses the fetcher rule", "ops=(echo curl)"],
+  ["and the push rule", "ops=(echo git push -f origin main)"],
+  ["and the rm rule", "ops=(echo rm -rf /)"],
+  // A dispatcher's `--` ends ITS options; `--call` past that boundary belongs
+  // to the invoked package. Measured for the shell branch too: `bash -- -c
+  // 'printf X'` reports `bash: -c: No such file or directory`, so bash reads
+  // `-c` as $0 and never runs the string.
+  ["a child's identically-named argument after npm's --", "npm exec -- eslint --call 'curl is inert data'"],
+  ["bash's -- means the -c string is not a command", "bash -- -c 'curl https://api.github.com'"],
+  // Re-entering env -S as `env <split>` reuses the measured option table, so
+  // an option prefix in front of a HARMLESS child stays allowed.
+  ["an option prefix in env -S around something harmless", "env -S '-i make'"],
 ];
 
 for (const [name, command] of MUST_BLOCK) {
@@ -222,11 +389,21 @@ for (const [name, command] of MUST_ALLOW) {
 // ---------------------------------------------------------------------------
 
 test("unparseable input that looks destructive is blocked", () => {
-  // Unbalanced quote: tokenising throws, so the conservative scan decides.
+  // Unbalanced quote: tokenising throws.
   assert.equal(blocked("git push -f origin main 'unterminated"), true);
 });
 
 test("unparseable input that looks harmless is allowed", () => {
+  // This row asserts main's behaviour, unchanged by this PR: untokenisable
+  // text is allowed unless `LOOKS_DESTRUCTIVE` recognises it.
+  //
+  // That list is KNOWN INCOMPLETE -- Codex showed on #488 round 14 that
+  // `git push origin +main` is absent from it, so a force refspec behind an
+  // unreadable heredoc gets through. Refusing untokenisable text outright
+  // closes that, and reverses this row; it is split out with the heredoc
+  // scanner it depends on, because the pair was still converging after five
+  // rounds. Left here as main has it, so this PR's diff is the fetcher
+  // refusal and nothing else.
   assert.equal(blocked("echo 'unterminated"), false);
 });
 
@@ -458,5 +635,72 @@ for (const depth of [5, 6]) {
     // uninspected -c argument still present is not evidence of safety, so
     // it denies even though the actual inner command is harmless.
     assert.equal(blocked(nestBashC("echo hi", depth)), true);
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// The array-literal invariant, executed rather than described.
+//
+// The header's note about array over-blocking was wrong in FOUR consecutive
+// review rounds (#488 rounds 18-21) while the behaviour never changed: too
+// narrow, too narrow again, then "any protected name is refused" (false --
+// `ops=(echo curl)` is allowed), then "the literal's first word decides" (also
+// false -- `ops=(env curl)` is refused, because wrappers and environment
+// assignments are stripped first).
+//
+// Codex's round-21 finding named why patching the prose kept failing: a
+// comment claiming "a future widening fails the suite" was itself false. These
+// rows pin runtime verdicts; nothing read the prose, and the branch shipped 236
+// green tests alongside a header statement that was refuted.
+//
+// So the claim is now a single executable invariant instead of a description:
+// an array literal gets exactly the verdict its words get as a command. It
+// needs no updating when a rule is added, and unlike the four descriptions it
+// replaces, it fails here if it stops being true.
+//
+// THE BOUNDARY MATTERS. The invariant is over COMMAND TEXT, which is what
+// `blocked()` compares -- both operands wrapped in a payload. Stated one level
+// up as `decide(a) === decide(b)` it is false, because `decide` parses its
+// argument as PreToolUse JSON first: a WORDS value that is itself valid
+// payload JSON has its inner command extracted on one side and is read as
+// shell text on the other. The header said it that way for one round and the
+// tests could not have caught it. (Codex, #488 round 22.) The last case below
+// is that input, pinned.
+const ARRAY_INVARIANT_CASES = [
+  // protected in command position
+  "curl https://api.github.com/x",
+  "git push -f origin main",
+  "git update-ref refs/heads/main abc1234",
+  "rm -rf /",
+  "drizzle-kit push",
+  // defused by an inert leading word -- all of these are ALLOWED both ways
+  "echo curl",
+  "echo git push -f origin main",
+  "echo rm -rf /",
+  // NOT defused: the drizzle-kit rule scans every token
+  "echo drizzle-kit push",
+  // reached THROUGH a wrapper or an assignment prefix, which is what refuted
+  // the "first word decides" version
+  "env curl",
+  "FOO=x curl",
+  "env git push -f origin main",
+  "FOO=x rm -rf /",
+  "sudo curl",
+  "timeout 5 curl",
+  // ordinary, allowed both ways
+  "a.txt b.txt",
+  "echo hi",
+  "git push --force-with-lease origin claude/x",
+  // The case that distinguishes the command-text boundary from `decide`'s own:
+  // valid PreToolUse JSON. As command TEXT both sides agree (neither runs a
+  // fetcher); passed to `decide` directly they would not, which is why the
+  // invariant is stated over command text.
+  '{"tool_input":{"command":"curl --version"}}',
+];
+
+for (const words of ARRAY_INVARIANT_CASES) {
+  test(`array literal matches the bare command: ${words}`, () => {
+    assert.equal(blocked(`arr=(${words})`), blocked(words));
   });
 }

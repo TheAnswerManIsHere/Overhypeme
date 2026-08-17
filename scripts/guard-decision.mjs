@@ -165,10 +165,30 @@
  *   flag alongside `-c`.
  * - `git send-pack --force`/`--mirror`, a fourth remote-ref-update surface
  *   alongside `push`, `update-ref`, and the direct `git-push` executable.
- * - One false-positive risk, not a bypass: heredoc delimiters that are valid
- *   in Bash but not identifier-shaped (`<<'MSG-1'`) are not recognized by
- *   the stripping regex, so an ordinary commit-message heredoc using one
- *   could be misclassified as a real command and over-blocked.
+ * - Heredoc delimiters that are valid in Bash but not identifier-shaped
+ *   (`<<'MSG-1'`) are NOT recognized by the stripping regex, so their bodies
+ *   are left in the text. That is worse than the false-POSITIVE risk this note
+ *   originally claimed, in both directions: an unstripped body makes tokenising
+ *   throw, which lets a real `curl --help <<'MSG-1'` reach the permissive
+ *   fallback (a bypass) AND makes an inert body mentioning `/usr/bin/curl`
+ *   refuse an ordinary `cat` (a false block).
+ *
+ *   DEFERRED, NOT FIXED. Rounds 11-15 replaced the regex with a delimiter
+ *   scanner that closed both directions, and round 15 then showed the scanner
+ *   still had a silent-pass route through it, so David split that work out of
+ *   this PR rather than keep patching it. It lives on
+ *   `claude/heredoc-scanner`, preserved at `2345380c` with both of round 15's
+ *   findings; four further pre-existing holes in the same functions are issue
+ *   #495. This module is back to main's behaviour here, unchanged by this PR.
+ *
+ *   This note is where the generalisable lesson goes, because it has now been
+ *   wrong TWICE for opposite reasons. First it described a limitation that a
+ *   later rule had quietly made worse; then, after the split reverted the fix,
+ *   it described a fix that no longer existed -- a security-sensitive header
+ *   asserting the inverse of its own code, which is a false assurance a future
+ *   session would rely on. An accepted limitation stops being accurate the
+ *   moment a rule is added ABOVE it or removed BENEATH it, and neither
+ *   direction announces itself. (Codex, #488 rounds 6-10 and round 16.)
  */
 
 const ALLOW = 0;
@@ -233,7 +253,20 @@ const MAX_NESTED_SHELL_DEPTH = 4;
  */
 const TRANSPARENT_WRAPPERS = new Set([
   "command", "env", "exec", "sudo", "nice", "nohup", "stdbuf", "ionice", "time",
+  // `timeout --help`: `timeout [OPTION] DURATION COMMAND [ARG]...`. It starts
+  // COMMAND, so it is as transparent as `nice`. It was missing, and
+  // `timeout 30 curl <url>` is the ONE shape in round 6 I might plausibly have
+  // typed by accident -- it is the natural spelling of a CI wait. (Codex, #488.)
+  "timeout",
 ]);
+
+/**
+ * Positional arguments a wrapper consumes before the command it runs.
+ *
+ * `timeout` is the only one so far: its DURATION is not flag-shaped, so
+ * without this the resolver reads `30` as the program name.
+ */
+const WRAPPER_POSITIONALS = { timeout: 1 };
 
 /** A leading `NAME=value` word is an environment assignment, not a program. */
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -249,7 +282,17 @@ const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
  */
 const WRAPPER_BARE_FLAGS = {
   env: new Set(["-i", "-0", "--ignore-environment", "--null"]),
-  command: new Set(["-p", "-v", "-V"]),
+  // `-v`/`-V` are NOT here: `help command` documents them as printing a
+  // description rather than running anything, so `command -v curl` is a query
+  // and must not be judged as an invocation. See QUERY_ONLY_FLAGS.
+  command: new Set(["-p"]),
+  // `help exec` documents `exec [-cl] [-a name] [command [argument ...]]`.
+  exec: new Set(["-c", "-l", "-cl", "-lc"]),
+  // `help time` documents `time [-p] pipeline` and says it EXECUTES the
+  // pipeline. Without this, `time -p curl <url>` stopped resolution at `time`
+  // -- a plausible diagnostic command, not an obscure spelling, and one the
+  // deleted sweep had been masking. (Codex, #488 round 8.)
+  time: new Set(["-p"]),
 };
 
 /**
@@ -261,7 +304,26 @@ const WRAPPER_BARE_FLAGS = {
  */
 const WRAPPER_VALUE_FLAGS = {
   env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+  // `exec -a name command` substitutes argv0 and then runs `command`.
+  exec: new Set(["-a"]),
+  // `sudo --help` documents these as taking a value. Without them the
+  // fail-closed sweep read `sudo -p curl true`'s prompt STRING as a program
+  // and refused a command that runs `true`. (Codex, #488 round 6.)
+  sudo: new Set([
+    "-p", "--prompt", "-u", "--user", "-g", "--group", "-C", "--close-from",
+    "-h", "--host", "-r", "--role", "-t", "--type", "-U", "--other-user",
+  ]),
+  timeout: new Set(["-s", "--signal", "-k", "--kill-after"]),
 };
+
+/**
+ * Wrapper flags that make the wrapper REPORT on a command instead of running
+ * it. `help command` documents `-v`/`-V` as printing a description, and a
+ * `command -v curl` run prints `/usr/bin/curl` without executing it -- so
+ * promoting `curl` to `program` and refusing was a false block introduced by
+ * the blanket rule. (Codex, #488 round 6.)
+ */
+const QUERY_ONLY_FLAGS = { command: new Set(["-v", "-V"]) };
 
 /**
  * Peel off constructs Bash resolves before dispatching to a program: leading
@@ -289,8 +351,18 @@ function resolveRealCommand(argv) {
     if (TRANSPARENT_WRAPPERS.has(bare)) {
       const bareFlags = WRAPPER_BARE_FLAGS[bare] ?? new Set();
       const valueFlags = WRAPPER_VALUE_FLAGS[bare] ?? new Set();
+      const queryFlags = QUERY_ONLY_FLAGS[bare] ?? new Set();
       let next = i + 1;
+      let isQuery = false;
       while (next < argv.length) {
+        // A query mode names a command without running it, so the wrapper IS
+        // the command. It only counts among the wrapper's OWN leading options:
+        // in `command curl -v <url>` the `-v` belongs to curl, and searching
+        // the whole argv for it exempted a real invocation. (Codex, #488 r7.)
+        if (queryFlags.has(argv[next])) {
+          isQuery = true;
+          break;
+        }
         if (bareFlags.has(argv[next])) {
           next += 1;
           continue;
@@ -301,7 +373,10 @@ function resolveRealCommand(argv) {
         }
         break;
       }
+      if (isQuery) break;
       if (argv[next] === "--") next += 1;
+      // Skip the wrapper's own positional arguments (timeout's DURATION).
+      next += WRAPPER_POSITIONALS[bare] ?? 0;
       if (next < argv.length && !argv[next].startsWith("-")) {
         i = next;
         continue;
@@ -648,7 +723,46 @@ export function tokenize(input) {
   return tokens.flatMap(expandBraces);
 }
 
-/** Group tokens into individual commands, splitting on shell operators. */
+/**
+ * Group tokens into individual commands, splitting on shell operators.
+ *
+ * THE ARRAY-ASSIGNMENT SUPPRESSION THAT WAS HERE IS DELETED, and the false
+ * block it fixed is accepted instead. It is worth reading why, because the
+ * arithmetic is the same one that ended four earlier enumerations on this PR.
+ *
+ * It existed for one purpose: `(` is an operator, so `fetchers=(curl wget)`
+ * split into a segment whose argv[0] was `curl` and the blanket fetcher
+ * refusal blocked it, even though Bash assigns two strings and runs neither.
+ * (Codex, #488 round 16.) A cosmetic false block on a shape nobody types.
+ *
+ * In two rounds it produced two fail-opens, both in code written to close the
+ * previous one:
+ *
+ *  - v1 suppressed any region without a `$`. `arr=( \`curl --version\` )` and
+ *    `arr=( <(curl --version) )` contain no `$`, so both were erased whole --
+ *    `segments()` returned `[]` and a real fetcher disappeared. (Round 17.)
+ *  - v2 required every token to be a plain word, which looked structural
+ *    because a whitelist cannot be surprised by unfamiliar syntax. It can:
+ *    `declare -ia` gives an array the integer attribute, and `help declare`
+ *    says integer variables undergo ARITHMETIC EVALUATION on assignment. So
+ *    `curl='a[$(/usr/bin/curl --version)0]'; declare -ia arr=(curl)` runs
+ *    curl from an initializer whose only token is the plain word `curl`.
+ *    Measured. (Round 17, second pass.)
+ *
+ * The lesson is not that v3 needs to handle `declare -ia`. It is that "these
+ * tokens are inert" cannot be decided from the tokens: Bash's evaluation rules
+ * depend on attributes set elsewhere in the command, and any suppression is a
+ * standing invitation to find the next one. A rule whose upside is cosmetic
+ * and whose downside is a silent pass has the wrong shape at any level of
+ * refinement.
+ *
+ * ACCEPTED CONSEQUENCE: an array literal naming a fetcher -- `fetchers=(curl
+ * wget)` -- is refused, though Bash runs nothing. It joins the accepted gaps
+ * in the module header. Its failure mode is a blocked command with an
+ * explanatory message; the suppression's failure mode was a fetcher running
+ * unseen. Pinned as a MUST_BLOCK row named for the over-block so nobody
+ * "fixes" it back without reading this.
+ */
 export function segments(tokens) {
   const out = [];
   let current = [];
@@ -853,20 +967,239 @@ function isRecursiveAndForced(args) {
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 
 /**
- * True when a token is an http(s) URL whose host is GitHub's REST API.
+ * Why this is a blanket refusal rather than a parser (David, 2026-08-17).
  *
- * Parsed rather than substring-matched, so `--data '{"repo":"api.github.com"}'`
- * and a path like `./api.github.com.md` are not mistaken for a request to it.
- * Host comparison is case-insensitive and ignores a userinfo prefix, since
- * `https://user@API.GitHub.com/...` reaches the same place.
+ * The first four revisions tried to decide whether a given curl/wget
+ * invocation *would actually connect to* api.github.com, so that unrelated
+ * fetches stayed available. Codex found real defects in that judgement in four
+ * consecutive rounds -- 3, 1, 3, then 7 -- and round 4's new findings were in
+ * five different sub-languages of these tools: wgetrc directives via
+ * `-e base=...`, composite `--connect-to HOST1:P1:HOST2:P2` values, brace URL
+ * globbing, unique-prefix long-option abbreviation, and `--variable` /
+ * `--expand-url` interpolation. Behind those sat `-K` config files, `.netrc`,
+ * environment proxies, and whatever the next round would have found.
+ *
+ * That is not a converging series. Deciding it correctly means reimplementing
+ * two very large command-line parsers, and the reviewer can RUN them while this
+ * module can only reason about them -- which is how the same class of mistake
+ * appeared four rounds running, twice as a conclusion I had written down as
+ * checked and Codex refuted by execution.
+ *
+ * WHY THERE IS NO LONGER AN EXCEPTION EITHER. The first version of this rule
+ * kept one: the agent proxy's own `__agentproxy/status` diagnostic, on the
+ * reasoning that it is not a GitHub route and is the only ad-hoc fetch this
+ * container has ever needed. Round 5 produced three findings against that
+ * single exception in one pass -- the fragment matched on ANY origin, so
+ * `curl https://api.github.com/__agentproxy/status` was allowed; an attached
+ * `-K/tmp/api.conf` smuggled a config file past the flag filter; and a
+ * `.curlrc` reached via `$CURL_HOME` adds transfers that never appear in argv
+ * at all. The last of those cannot be fixed by inspecting arguments, because
+ * the extra request is not IN the arguments.
+ *
+ * The lesson was the same one level down: an exception is a thing to attack,
+ * and this one had exactly the same unbounded surface as the parser did. So
+ * there is no exception. Refusing every curl and wget is the whole rule, and it
+ * is the only version of it that is complete by construction.
+ *
+ * The cost is genuinely small. This hook inspects the command line typed at it,
+ * not the contents of a script, so `bash scripts/phase5-og-smoke.sh` and CI's
+ * own readiness loop are untouched -- they were the only real uses in the repo.
+ * What is lost is the ad-hoc one-off fetch, including the proxy probe, and
+ * losing it fails LOUDLY with the message below, which is the opposite of the
+ * silent failure this rule exists to prevent.
  */
-function isGitHubApiUrl(token) {
-  if (!/^https?:\/\//i.test(token)) return false;
-  try {
-    return new URL(token).hostname.toLowerCase() === "api.github.com";
-  } catch {
-    return false;
-  }
+const FETCHER_REFUSAL =
+  "curl and wget are refused in this container. The reason the rule exists is api.github.com, " +
+  "which is intercepted by the agent proxy and returns HTTP 403 \"GitHub access is not enabled for " +
+  "this session\" -- a failure that is SILENT inside a pipeline, because a `grep` over the 403 body " +
+  "finds nothing and reads as \"no results\" rather than as an error. Every CI-wait loop built that " +
+  "way on 2026-08-16 was a pure sleep. This refuses the whole program, with no exception for any " +
+  "argument shape: four review rounds showed which invocations reach that host cannot be judged " +
+  "without reimplementing curl's and wget's own argument parsing, and a fifth showed the same of the " +
+  "one allowlisted probe. " +
+  "Use mcp__github__* for GitHub state -- pull_request_read (get_check_runs) for CI, get_reviews for " +
+  "a review landing, get for merge state, issue_read for labels -- and WebFetch for web content. " +
+  "A script that runs curl internally is unaffected. If an ad-hoc fetch is genuinely needed, " +
+  "including the agent proxy's own status probe, ask David rather than routing around this. " +
+  "See .agents/memory/github-rest-api-blocked-from-bash.md.";
+
+/**
+ * True when this argv runs a fetcher.
+ *
+ * DELIBERATELY JUST THE RESOLVED PROGRAM. Round 5 added a fail-closed sweep
+ * here -- when unwrapping stopped on a transparent wrapper, any fetcher token
+ * anywhere in the argv refused -- to catch `exec -a fetch /usr/bin/curl <url>`
+ * without naming `-a`. It was removed in round 7, for two reasons:
+ *
+ *  1. It closed nothing the wrapper tables do not. `exec -a` is a known value
+ *     flag now, so that command resolves to `curl` and refuses on this line.
+ *  2. It cost three false blocks in two rounds -- `sudo -p curl true`,
+ *     `sudo -l curl`, `sudo -n printf '%s\n' curl` -- because sweeping every
+ *     token necessarily reads option values and data arguments as programs.
+ *     Each was patched by adding one more sudo flag to a table, which is the
+ *     enumeration this PR has already abandoned twice.
+ *
+ * What that gives up, stated plainly: `<wrapper> <flag-not-in-our-tables>
+ * curl <url>` is allowed. That needs an unlisted wrapper flag AND a fetcher in
+ * one command, which is not a shape anyone types by accident -- and there is
+ * no adversary in this container, only me. Accepted, and recorded here rather
+ * than left implicit.
+ *
+ * THREE MORE ACCEPTED GAPS, all found in round 7 and all in the same class --
+ * a spelling that reaches a fetcher without the resolver seeing it. Each is
+ * real; none is a shape typed by accident, and every attempt to close one in
+ * this layer has introduced a new defect elsewhere (round 7 returned SEVEN
+ * findings, SIX of them defects in the two preceding commits):
+ *
+ *  - `timeout --foreground 5 curl <url>` -- an unlisted bare option stops
+ *    option parsing, and the DURATION offset is then applied to the wrong
+ *    position.
+ *  - `env -S 'curl <url>' extra` -- trailing arguments make the generic env
+ *    unwrapping promote `extra` before the split-string dispatch is consulted.
+ *  - `/usr/bin/cu?l --version` -- Bash expands the glob before command lookup;
+ *    this module compares the unexpanded word.
+ *
+ * ACCEPTED IN THE OTHER DIRECTION, round 17. THE RULE, stated by mechanism
+ * rather than by outcome: `(` is an operator, so an array literal's words are
+ * emitted as a command segment and judged as ORDINARY COMMAND ARGV. Nothing
+ * about arrays is special-cased; each rule then applies exactly as it would to
+ * a real command.
+ *
+ * THE WHOLE STATEMENT, and it is deliberately one sentence with no list. For a
+ * COMMAND TEXT `W` containing no operator:
+ *
+ *     verdict("arr=(" + W + ")") === verdict(W)
+ *
+ * where `verdict(x)` is what this module decides for a PreToolUse payload
+ * carrying `x` as its command. An array literal gets exactly the verdict the
+ * same words would get as a command -- no more, no less. Which commands those
+ * are is not restated here; it is whatever `checkCommand` does, and the worked
+ * cases live in the assertion table where they can be run.
+ *
+ * THE BOUNDARY IN THAT SENTENCE IS LOAD-BEARING, and getting it wrong was the
+ * fifth version's own bug. It first read `decide("arr=(WORDS)") ===
+ * decide("WORDS")`, which is FALSE: `decide` parses its argument as PreToolUse
+ * JSON first, so a `W` that is itself valid payload JSON --
+ * `{"tool_input":{"command":"curl --version"}}` -- gets its inner command
+ * extracted and blocked on the right-hand side, while the left-hand side is
+ * plain shell text and is allowed. The tests did not catch it because their
+ * helper wraps BOTH operands in a payload, so they were checking command-text
+ * equivalence all along, which is the true statement. (Codex, #488 round 22.)
+ *
+ * So the invariant was right and I wrote it one level up from where it holds
+ * and from where it is executed. Worth keeping visible: replacing prose with a
+ * formula does not make the formula checked -- it has to be stated at the
+ * boundary the test actually exercises, or it is just prose with an equals
+ * sign in it.
+ *
+ * THIS IS THE FIFTH VERSION OF THIS NOTE, and the previous four were each
+ * wrong in a different way. The sequence is why it is now an invariant rather
+ * than a description:
+ *
+ *  - v1 named `fetchers=(curl wget)` and called it the only over-blocking gap.
+ *    Too narrow. (Round 18.)
+ *  - v2 named three rules and said the radius had been understated "by three",
+ *    still missing `update-ref`. Too narrow again. (Round 19.)
+ *  - v3 asserted ANY protected command named in an array is refused. FALSE:
+ *    `ops=(echo curl)` is allowed. Overcorrected, while calling itself
+ *    structural. (Round 20.)
+ *  - v4 said rules key on "the literal's FIRST WORD, and not otherwise". Still
+ *    wrong: `ops=(env curl)` and `ops=(FOO=x curl)` are refused, because
+ *    `resolveRealCommand` strips transparent wrappers and environment
+ *    assignments first. It is the RESOLVED program, and v4 had just been
+ *    written to fix v3's over-generalisation. (Round 21.)
+ *
+ * Four rounds, four wrong descriptions of one paragraph's worth of behaviour,
+ * while the behaviour itself never changed. The lessons, in the order I had to
+ * learn them: a limitation goes stale when a rule is added above it or removed
+ * beneath it (the heredoc note); the person least able to describe a change's
+ * reach is the one who just made it, working from the example that prompted
+ * it; widening a too-narrow claim's quantifier is not a fix, because "some"
+ * and "all" are both outcome claims; and finally -- the one that actually
+ * ended it -- **an emergent behaviour should be stated as an invariant that
+ * can be executed, not as a description that has to be maintained.** The four
+ * failed versions were all descriptions of what eight independent rules
+ * happen to do. The invariant above is one line, needs no updating when a rule
+ * is added, and is pinned as a test that runs it against the bare command.
+ *
+ * It is deliberate: the suppression written to allow these opened a fail-open
+ * in each of its two versions (substitutions with no `$`, then integer-array
+ * arithmetic evaluation), because whether an array's tokens are inert depends
+ * on attributes set elsewhere in the command rather than on the tokens. The
+ * full reasoning is above `segments()`. A blocked command with an explanatory
+ * message is the failure this module is willing to have.
+ *
+ * A FOURTH, round 16: `printf '%s\n' <url> | xargs curl -sS`. `xargs` runs its
+ * COMMAND operand, so the fetcher is reached while the resolved program stays
+ * `xargs`. Confirmed by running it. `xargs` is one of the dispatchers named in
+ * round 7's accepted list (`parallel`, `watch`, `flock`, `setsid`, `runuser`,
+ * `script -c`, `strace`, `unbuffer`, `chpst` are the others), and adding it
+ * would start the enumeration that list exists to decline.
+ *
+ * A FIFTH AND SIXTH, round 18, both confirmed by running them:
+ *
+ *  - `npm exec -c='curl --version'`, `npm x -c='...'` and `npx -c='...'` --
+ *    the attached value is modelled for `--call=` but not for `-c=`. ALL THREE
+ *    spellings, because the branch treats `x` as `exec`; naming only two
+ *    understated it. (Codex, #488 round 19.) Measured: `npm x -c='printf X'`
+ *    runs the string. Fix: accept `FLAG=value` alongside `FLAG value` for both
+ *    modelled command-string flags.
+ *  - `eval -- 'curl --version'` -- `eval` joins its arguments verbatim, so the
+ *    recursive parse reads `--` as the program. Measured: `eval -- "printf X
+ *    > file"` writes the file. Fix: strip a leading `--` before joining.
+ *
+ * WHY THOSE TWO ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
+ *
+ * Round 16 published a line here: a defect in a wrapper this module MODELS is
+ * a correctness bug and gets fixed, while an unmodelled wrapper is the
+ * accepted class -- with a flip condition naming a modelled-wrapper defect
+ * that needs a new table entry. **That line is RETIRED, and reading it as
+ * still operative is what makes the two entries above look contradictory.**
+ * (Codex, #488 round 19, which caught the header asserting both.)
+ *
+ * It was retired by measurement, not by preference. Round 16 fixed four
+ * defects under it -- `npm x`, `env -S`, the `--` truncation, the array
+ * suppression -- and ALL FOUR produced a new defect in round 17, two of them
+ * fail-opens. The line was true as stated and still selected the wrong action,
+ * because the thing that made those fixes fail was not which wrapper they
+ * touched: it was that each generalised from the one spelling in the report.
+ * Its flip condition could never have fired, since it was watching for a
+ * table entry rather than for that.
+ *
+ * WHAT IS OPERATIVE INSTEAD, and it is deliberately narrower in scope: no
+ * further ADDITION to dispatch parsing lands in this PR, modelled or not.
+ * That is a fact about this review loop's history, not an architectural
+ * boundary -- `npm exec -c=` and `eval --` are both worth fixing, both have
+ * their fix written above, and a session picking them up outside this loop
+ * should fix them. What that session must not do is take a round's finding and
+ * patch the reported spelling, which is the move with a four-for-four failure
+ * record here.
+ *
+ * THE ONE EXEMPTION, and it is narrower than the sentence that used to be
+ * here. That sentence read "removing machinery can only turn allows into
+ * blocks, so a deletion cannot open a hole." **That is false as a general
+ * claim about deletions**, and dangerous as guidance: deleting a PROTECTIVE
+ * branch -- `reachesFetcher`, a resolver, the push checks -- turns blocks into
+ * allows, which is the direction this module must never move in. A future
+ * session following it literally could have deleted exactly the wrong thing
+ * and cited this file for permission. (Codex, #488 round 20.)
+ *
+ * What was actually true of the round-17 change is narrower: it removed an
+ * ALLOW-PRODUCING suppression, so every verdict it could move went from allow
+ * to block. So the exemption is: **a removal is exempt when it deletes
+ * machinery whose only effect is to produce allows, and that has to be shown
+ * against the MUST_BLOCK/MUST_ALLOW table rather than asserted.** The array
+ * suppression qualified and was the first commit in three rounds to survive
+ * review intact. A deletion that cannot be shown to be monotonic in the
+ * restrictive direction gets no exemption and is an ordinary change.
+ *
+ * The rule this file follows now: the fetcher refusal is judged from the
+ * RESOLVED PROGRAM and nothing else. Making the resolver perfect is a third
+ * enumeration, after curl's option grammar and the probe allowlist, and the
+ * first two each ended in deletion.
+ */
+function reachesFetcher(program) {
+  return HTTP_FETCHERS.has(program);
 }
 
 function isDrizzleKitToken(token) {
@@ -896,16 +1229,55 @@ const isShortFlagBundleContaining = (letter) => (t) => /^-[A-Za-z]+$/.test(t) &&
  * Returns null when `program`/`rest` shows none of these shapes.
  */
 function findCommandStringDispatch(program, rest) {
+  // Only the dispatcher's OWN options can be a command-string flag. A bare
+  // `--` ends option processing, so anything past it belongs to the child.
+  // Searching the whole array reinterpreted a child's identically-named
+  // argument: `npm exec -- eslint --call 'curl is inert data'` invokes eslint
+  // and was refused for the inert text. Measured for the shell branch too --
+  // `bash -- -c 'printf X'` reports `bash: -c: No such file or directory`,
+  // i.e. bash reads `-c` as $0 and takes the script from stdin, so re-entering
+  // that string would judge a command bash never runs. (Codex, #488 round 16.)
+  const own = rest.indexOf("--") === -1 ? rest : rest.slice(0, rest.indexOf("--"));
+
   if (SHELL_INTERPRETERS.has(program)) {
-    const cIndex = rest.findIndex(isShortFlagBundleContaining("c"));
-    return cIndex !== -1 && typeof rest[cIndex + 1] === "string" ? rest[cIndex + 1] : null;
+    const cIndex = own.findIndex(isShortFlagBundleContaining("c"));
+    return cIndex !== -1 && typeof own[cIndex + 1] === "string" ? own[cIndex + 1] : null;
   }
   if (program === "eval") {
     return rest.length ? rest.join(" ") : null;
   }
-  if (program === "npx" || (program === "npm" && rest[0] === "exec")) {
-    const cIndex = rest.indexOf("-c");
-    return cIndex !== -1 && typeof rest[cIndex + 1] === "string" ? rest[cIndex + 1] : null;
+  // `npm exec --help` documents `x` as the alias of `exec`, verified against
+  // this container's npm; `npm x --call 'curl --version'` dispatched unseen
+  // because only the long spelling was recognised. (Codex, #488 round 16.)
+  if (program === "npx" || (program === "npm" && (rest[0] === "exec" || rest[0] === "x"))) {
+    // `npm exec --help` lists `[-c|--call <call>]`; only `-c` was recognised,
+    // so `npx --call 'curl ...'` dispatched unseen. (Codex, #488 round 6.)
+    const cIndex = own.findIndex((t) => t === "-c" || t === "--call");
+    if (cIndex !== -1 && typeof own[cIndex + 1] === "string") return own[cIndex + 1];
+    const attached = own.find((t) => t.startsWith("--call="));
+    return attached ? attached.slice("--call=".length) : null;
+  }
+  // `env --help`: `-S, --split-string=S` "process and split S into separate
+  // arguments". Its value is a command line, not inert option data, so it is
+  // re-entered like any other command string. (Codex, #488 round 6.)
+  //
+  // The split words go back into ENV'S OWN argument list, not straight to the
+  // child -- measured: `env -S '-i printf env-S-option-ran'` runs printf. So
+  // the value is re-entered as `env <split>` rather than as a bare command
+  // line, which makes the existing, `env --help`-derived option tables do the
+  // work: `-i` is skipped as bare, `-u HOME` as a value flag, `--` as the end
+  // of options, and the real child is found underneath. Judging the first word
+  // as the program instead allowed `env -S '-i curl --version'`, because `-i`
+  // is not a fetcher. Reusing the measured table is the point: modelling env's
+  // options a second time here would be the enumeration this PR has abandoned
+  // three times. (Codex, #488 round 16.)
+  if (program === "env") {
+    const sIndex = rest.findIndex((t) => t === "-S" || t === "--split-string");
+    if (sIndex !== -1 && typeof rest[sIndex + 1] === "string") return `env ${rest[sIndex + 1]}`;
+    const attached = rest.find((t) => t.startsWith("--split-string=") || /^-S./.test(t));
+    if (attached) {
+      return `env ${attached.startsWith("--") ? attached.slice("--split-string=".length) : attached.slice(2)}`;
+    }
   }
   return null;
 }
@@ -981,19 +1353,7 @@ export function checkCommand(argv, depth = 0) {
     if (nested) return nested;
   }
 
-  if (HTTP_FETCHERS.has(program)) {
-    if (rest.some(isGitHubApiUrl)) {
-      return (
-        "api.github.com is not reachable from bash in this container, and the failure is SILENT " +
-        "inside a pipeline: curl is intercepted by the agent proxy (HTTP 403 \"GitHub access is not " +
-        "enabled for this session\"), so a `grep` over the response body finds nothing and reads as " +
-        "\"no results\" rather than as an error. Every CI-wait loop built this way on 2026-08-16 was a " +
-        "pure sleep. Use the mcp__github__* tools instead -- pull_request_read (get_check_runs) for CI, " +
-        "get_reviews for a review landing, get for merge state, issue_read for labels. " +
-        "See .agents/memory/github-rest-api-blocked-from-bash.md."
-      );
-    }
-  }
+  if (reachesFetcher(program)) return FETCHER_REFUSAL;
 
   if (program === "rm") {
     if (isRecursiveAndForced(rest) && rest.some((a) => !a.startsWith("-") && isRootShaped(a))) {
@@ -1169,6 +1529,15 @@ function evaluateScript(text, depth) {
   } catch {
     // Untokenisable. We cannot reason about it, so block only if it shows any
     // sign of the shapes we care about.
+    //
+    // KNOWN INCOMPLETE, and deliberately left that way in THIS PR. Codex
+    // demonstrated the gap on #488 round 14: this list does not contain
+    // `git push origin +main`, so a force refspec hidden behind an
+    // untokenisable heredoc is allowed. Refusing untokenisable text outright
+    // closes it -- and that change, together with the heredoc scanner it
+    // depends on, is split out to its own PR because five rounds of review
+    // showed the pair still converging. Tracked with the rest of the heredoc
+    // work; see the note in `stripHeredocs` and issue #495.
     if (LOOKS_DESTRUCTIVE.test(text)) {
       return depth === 0 ? "unparseable command that looks destructive" : "unparseable nested shell command that looks destructive";
     }
