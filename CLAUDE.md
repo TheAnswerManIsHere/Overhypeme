@@ -1638,7 +1638,23 @@ become one. It exists to make *my* reading of the web better.
   environment settings at claude.ai**, which only David can edit — the key is
   never committed, because this repo is public. Cloud sessions load
   project-scoped MCP servers without an approval prompt, so the committed file
-  is sufficient config on its own.
+  is sufficient config on its own. **There is no direct URL for that
+  setting**: it lives behind the cloud icon in the row above the message box
+  at [claude.ai/code](https://claude.ai/code), and the docs say plainly that
+  no settings page or link reaches it.
+- **The environment variable is NOT a secrets store, and the key is chosen
+  with that in mind.** Anthropic's
+  [cloud-environments docs](https://code.claude.com/docs/en/cloud-environments)
+  say cloud environments have no dedicated secrets store, that anyone using
+  the environment can read the values, and to avoid putting API keys there —
+  then acknowledge that a session needing a credential should "add it with
+  that visibility in mind." That is the situation here: the env var is the
+  only mechanism available, so the mitigation is the **choice of
+  credential**, not the storage. Keep this a **free-tier Firecrawl key and
+  nothing else** — it buys 1,000 page-credits a month and reaches no
+  customer data, no payment path, and no other system. Never put a
+  credential with real blast radius (Stripe, OpenAI, the database, GitHub)
+  in this env block on the strength of this precedent.
 - **A missing key degrades, it does not break.** Claude Code still loads a
   `.mcp.json` whose variable is unset; it warns and passes the literal
   `${FIRECRAWL_API_KEY}` through, so the server simply fails to connect. If the
