@@ -132,12 +132,23 @@ export function assertSnapshot(snapshot, prNumber) {
   if (pr.number !== prNumber) {
     throw fail(`snapshot is for PR #${pr.number}, but --pr said #${prNumber}`);
   }
-  const sha = pr.head?.sha;
-  if (typeof sha !== "string" || sha.length < 7) {
-    throw fail('snapshot.pr.head.sha is required -- the receipt is bound to the commit it validated');
+  // A FULL sha, not merely a plausible one. The merge gate compares the
+  // receipt's sha against the branch tip by exact equality, so an abbreviated
+  // value would never match and the binding would be dead weight that still
+  // looked present.
+  if (typeof pr.head?.sha !== "string" || !/^[0-9a-f]{40}$/i.test(pr.head.sha)) {
+    throw fail('snapshot.pr.head.sha must be a full 40-character sha -- the receipt is bound to it');
+  }
+  // The branch is what the merge gate resolves to get the current tip. Without
+  // it the receipt emitted `branch: null`, checkMerge skipped the comparison
+  // entirely, and a push could change the head under a still-fresh receipt.
+  // (Codex, #490.)
+  if (typeof pr.head?.ref !== "string" || pr.head.ref.trim() === "") {
+    throw fail('snapshot.pr.head.ref is required -- without it the merge gate cannot bind the receipt to a tip');
   }
 
   const complete = snapshot.complete ?? {};
+  const capturedAt = snapshot.capturedAt ?? {};
   for (const key of Object.keys(MCP_METHOD_FOR)) {
     if (!Array.isArray(snapshot[key])) {
       throw fail(`snapshot.${key} must be an array (pull_request_read method:"${MCP_METHOD_FOR[key]}")`);
@@ -149,6 +160,17 @@ export function assertSnapshot(snapshot, prNumber) {
           `concatenate every page, then set complete.${key} = true.`,
       );
     }
+    // WHEN each collection was read, because the four come from four separate
+    // calls and nothing else establishes an order between them. Threads read
+    // BEFORE a review landed would show zero unresolved while that review's
+    // findings sat open -- a receipt for a state that never existed. (Codex, #490.)
+    if (!Number.isFinite(Date.parse(capturedAt[key] ?? ""))) {
+      throw fail(
+        `snapshot.capturedAt.${key} must be an ISO timestamp saying when that call was made. ` +
+          `Capture order matters: read reviewThreads and checkRuns LAST, after the Codex response you ` +
+          `intend to accept.`,
+      );
+    }
   }
 
   // A thread with no resolution flag would fall through an `!== false` test and
@@ -158,9 +180,14 @@ export function assertSnapshot(snapshot, prNumber) {
       throw fail(`snapshot.reviewThreads[${i}] has no boolean isResolved`);
     }
   });
+  // Parseable, not merely present. `timeOf` maps an unparseable date to epoch
+  // zero, which would silently sort an outstanding request as the oldest event
+  // in the snapshot and let a stale response appear to answer it. (Codex, #490.)
   for (const [key, field] of [["issueComments", "created_at"], ["reviews", "submitted_at"]]) {
     snapshot[key].forEach((c, i) => {
-      if (!c?.[field]) throw fail(`snapshot.${key}[${i}] has no ${field}`);
+      if (!Number.isFinite(Date.parse(c?.[field] ?? ""))) {
+        throw fail(`snapshot.${key}[${i}].${field} is missing or unparseable`);
+      }
     });
   }
 }
@@ -169,10 +196,38 @@ const authorOf = (c) => c?.user?.login ?? c?.author?.login ?? c?.author ?? "";
 const bodyOf = (c) => c?.body ?? "";
 const timeOf = (c) => Date.parse(c?.created_at ?? c?.submitted_at ?? 0) || 0;
 
-/** Item 1: every check run finished, and none of them failed. */
-export function checkCi(checkRuns) {
+/**
+ * Item 1: every check run finished on THIS commit, and none of them failed.
+ *
+ * The head-sha binding is not decoration. The four collections are captured by
+ * four separate calls, so green checks read before a push, with the PR metadata
+ * read after it, would produce a receipt bound to the new commit whose CI item
+ * described the old one -- and the branch-tip comparison would then agree,
+ * because it too is looking at the new commit. (Codex, #490.)
+ */
+export function checkCi(checkRuns, headSha = null) {
   if (checkRuns.length === 0) {
     return { pass: false, detail: "no check runs reported for the head commit -- CI has not started" };
+  }
+  if (headSha) {
+    const foreign = checkRuns.filter((r) => r.head_sha && !sameCommit(r.head_sha, headSha));
+    if (foreign.length) {
+      return {
+        pass: false,
+        detail:
+          `${foreign.length} check run(s) belong to another commit (${[...new Set(foreign.map((r) => String(r.head_sha).slice(0, 7)))].join(", ")}), ` +
+          `not ${headSha.slice(0, 7)} -- re-read get_check_runs after the push`,
+      };
+    }
+    const unbound = checkRuns.filter((r) => !r.head_sha);
+    if (unbound.length) {
+      return {
+        pass: false,
+        detail:
+          `${unbound.length} check run(s) carry no head_sha, so they cannot be tied to ${headSha.slice(0, 7)} ` +
+          `-- capture head_sha with each run`,
+      };
+    }
   }
   const pending = checkRuns.filter((r) => r.status !== "completed");
   const failed = checkRuns.filter(
@@ -190,7 +245,7 @@ export function checkCi(checkRuns) {
       detail: `${pending.length} still running: ${pending.map((r) => `${r.name} (${r.status})`).join(", ")}`,
     };
   }
-  return { pass: true, detail: `${checkRuns.length} checks, all passing` };
+  return { pass: true, detail: `${checkRuns.length} checks on ${headSha ? headSha.slice(0, 7) : "head"}, all passing` };
 }
 
 /**
@@ -262,13 +317,14 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   }
 
   const latestAnnouncement = announcements.length ? Math.max(...announcements.map((a) => a.at)) : 0;
-  if (!thumbsUp && timeOf(latestRequest) > latestAnnouncement) {
+  if (!thumbsUp && timeOf(latestRequest) >= latestAnnouncement) {
     return {
       pass: false,
       detail:
         `round ${requests.length} requested at ${new Date(timeOf(latestRequest)).toISOString()} has not ` +
         `come back (latest completed pass ${new Date(latestAnnouncement).toISOString()}) -- ` +
-        "a requested-but-not-received round is not convergence",
+        "a requested-but-not-received round is not convergence. GitHub timestamps have second " +
+        "resolution, so an exact tie is treated as unanswered rather than answered.",
     };
   }
 
@@ -287,7 +343,10 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   }
 
   const how = thumbsUp ? "👍 on the latest request" : `pass on ${headSha ? headSha.slice(0, 7) : "head"}`;
-  return { pass: true, detail: `${requests.length} round(s); returned (${how})` };
+  // `acceptedAt` is what the capture-ordering check needs: the moment the
+  // response being relied on appeared. Threads read before it prove nothing.
+  const acceptedAt = thumbsUp ? timeOf(latestRequest) : latestAnnouncement;
+  return { pass: true, detail: `${requests.length} round(s); returned (${how})`, acceptedAt };
 }
 
 /** Item 3: no review thread left open. */
@@ -302,19 +361,53 @@ export function checkThreads(reviewThreads) {
   return { pass: true, detail: `${reviewThreads.length} thread(s), all resolved` };
 }
 
-/** The full three-item verdict for a validated snapshot. */
+/**
+ * Item 4: the evidence was read AFTER the response it is supposed to reflect.
+ *
+ * The other three items each read a different collection through a different
+ * call, and nothing in the data says which call came first. Threads read at
+ * 10:00, a review with findings submitted at 10:01, reviews read at 10:02:
+ * every item passes, and the receipt describes a state the PR was never in.
+ * (Codex, #490.)
+ *
+ * So the capture times are attested and checked. There is no way for this
+ * process to observe them independently -- as with the snapshot itself, the
+ * point is that the ordering must be stated and must hold, not that it can be
+ * proved from outside.
+ */
+export function checkCapture(capturedAt, acceptedAt) {
+  if (!acceptedAt) return { pass: true, detail: "no accepted response to order against" };
+  const stale = ["reviewThreads", "checkRuns"].filter(
+    (key) => Date.parse(capturedAt?.[key] ?? "") < acceptedAt,
+  );
+  if (stale.length) {
+    return {
+      pass: false,
+      detail:
+        `${stale.join(" and ")} ${stale.length > 1 ? "were" : "was"} read before the Codex response at ` +
+        `${new Date(acceptedAt).toISOString()}, so ${stale.length > 1 ? "they describe" : "it describes"} ` +
+        "a state that predates it -- re-read after the response lands",
+    };
+  }
+  return { pass: true, detail: "read after the accepted response" };
+}
+
+/** The full verdict for a validated snapshot. */
 export function evaluate(snapshot, now = Date.now()) {
+  const headSha = snapshot.pr.head.sha;
+  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha);
   const items = {
-    ci: checkCi(snapshot.checkRuns),
-    codex: checkCodex(snapshot.issueComments, snapshot.reviews, snapshot.pr.head.sha),
+    ci: checkCi(snapshot.checkRuns, headSha),
+    codex,
     threads: checkThreads(snapshot.reviewThreads),
+    capture: checkCapture(snapshot.capturedAt, codex.acceptedAt),
   };
   const ready = Object.values(items).every((i) => i.pass);
   return {
     verdict: ready ? "READY" : "NOT READY",
     pr: snapshot.pr.number,
-    headSha: snapshot.pr.head.sha,
-    branch: snapshot.pr.head.ref ?? null,
+    headSha,
+    branch: snapshot.pr.head.ref,
     generatedAt: new Date(now).toISOString(),
     items,
   };
@@ -324,7 +417,12 @@ export function receiptPath(prNumber) {
   return join(RECEIPT_DIR, `pr-${prNumber}.json`);
 }
 
-const LABEL = { ci: "CI green", codex: "Codex converged", threads: "Threads resolved" };
+const LABEL = {
+  ci: "CI green",
+  codex: "Codex returned",
+  threads: "Threads resolved",
+  capture: "Evidence ordering",
+};
 
 export function formatReceipt(receipt) {
   const lines = [

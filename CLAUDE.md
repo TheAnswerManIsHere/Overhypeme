@@ -1035,13 +1035,17 @@ verification — is post-merge for the same structural reason.
    unlimited, so the response is to **ask for the code review** — the
    canonical fact and evidence are in
    [`code-review.md`](docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage),
-   not restated here. The genuine-outage exception below survives only for a request
-   that yields **no code review** — judged only on whether the code review
-   arrived, since a security bounce is independent noise that could
-   otherwise mask a real outage indefinitely: for a docs-only or
-   low-criticality artifact, "Codex converged" is then satisfied by
-   *ran-to-completion-or-confirmed-unavailable*, said plainly in the merge
-   report. For anything higher-stakes I wait rather than self-merge.
+   not restated here. **The genuine-outage exception is RETIRED (David,
+   2026-08-17).** It used to say that on a request yielding no code review,
+   a docs-only or low-criticality artifact could treat "Codex converged" as
+   satisfied by *ran-to-completion-or-confirmed-unavailable*. David's rule
+   leaves no room for it: *"EVERY PR is going to get a Codex review… We
+   NEVER merge until that happens."* A review that never arrived is not a
+   review, whatever the artifact's tier, so an outage now means **wait**,
+   not merge with a note. Codex flagged the contradiction on #490 from the
+   other end — the gate had no way to express the exception, which made
+   those PRs unmergeable while the contract said they were fine; retiring
+   the carve-out is what makes the contract and the check agree.
    **And a review round I have requested but not yet received is not
    convergence either** — if I have posted `@codex review`, the bar is not
    met until that round lands and is triaged. Asking David to merge with a

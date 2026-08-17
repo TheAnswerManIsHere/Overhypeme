@@ -60,7 +60,7 @@
           {
             "type": "command",
             "command": "bash .claude/guard.sh",
-            "timeout": 5
+            "timeout": 20
           }
         ]
       }

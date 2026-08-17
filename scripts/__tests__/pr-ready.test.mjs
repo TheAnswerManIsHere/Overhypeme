@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { assertSnapshot, checkCi, checkCodex, checkThreads, evaluate, CODEX_BOT } from "../pr-ready.mjs";
+import {
+  assertSnapshot,
+  checkCapture,
+  checkCi,
+  checkCodex,
+  checkThreads,
+  evaluate,
+  CODEX_BOT,
+} from "../pr-ready.mjs";
 
 // ---------------------------------------------------------------------------
 // Item 1: CI.
@@ -12,7 +20,8 @@ import { assertSnapshot, checkCi, checkCodex, checkThreads, evaluate, CODEX_BOT 
 // mid-run.
 // ---------------------------------------------------------------------------
 
-const run = (name, status, conclusion) => ({ name, status, conclusion });
+const HEAD = "a".repeat(40);
+const run = (name, status, conclusion, head_sha = HEAD) => ({ name, status, conclusion, head_sha });
 
 test("CI: all completed and successful passes", () => {
   assert.equal(checkCi([run("build", "completed", "success")]).pass, true);
@@ -47,6 +56,26 @@ test("CI: no runs at all is not green -- it is CI that has not started", () => {
   assert.equal(checkCi([]).pass, false);
 });
 
+test("CI: green checks from ANOTHER commit do not count", () => {
+  // Four collections, four calls, no ordering between them: checks read before
+  // a push with the PR metadata read after it would bind a receipt to the new
+  // commit while its CI item described the old one -- and the branch-tip
+  // comparison would agree, because it too sees the new commit. (Codex, #490.)
+  const res = checkCi([run("build", "completed", "success", "b".repeat(40))], HEAD);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /belong to another commit/);
+});
+
+test("CI: a run with no head_sha cannot be tied to the head", () => {
+  const res = checkCi([{ name: "build", status: "completed", conclusion: "success" }], HEAD);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no head_sha/);
+});
+
+test("CI: runs on the head commit pass the binding", () => {
+  assert.equal(checkCi([run("build", "completed", "success")], HEAD).pass, true);
+});
+
 // ---------------------------------------------------------------------------
 // Item 2: Codex convergence. Both live failures live here.
 // ---------------------------------------------------------------------------
@@ -59,7 +88,6 @@ const pass = (at, sha) => ({
   body: `### Codex Review\n\n**Reviewed commit:** \`${sha}\``,
   submitted_at: at,
 });
-const HEAD = "a".repeat(40);
 
 test("Codex: a request answered by a pass on the head commit converges", () => {
   const res = checkCodex(
@@ -210,8 +238,10 @@ test("threads: an unresolved thread fails and is named", () => {
 // produce a credible-looking pass from absent data.
 // ---------------------------------------------------------------------------
 
+const LATER = "2026-08-17T05:00:00Z";
 const goodSnapshot = () => ({
   pr: { number: 500, head: { sha: HEAD, ref: "claude/x" } },
+  capturedAt: { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER },
   checkRuns: [run("build", "completed", "success")],
   reviewThreads: [],
   issueComments: [comment("me", "@codex review", "2026-08-17T04:00:00Z")],
@@ -233,10 +263,28 @@ test("snapshot: a PR number mismatch is rejected", () => {
   assert.throws(() => assertSnapshot(goodSnapshot(), 501), /snapshot is for PR #500/);
 });
 
-test("snapshot: a missing head sha is rejected", () => {
+test("snapshot: a missing or abbreviated head sha is rejected", () => {
   const snap = goodSnapshot();
   delete snap.pr.head.sha;
-  assert.throws(() => assertSnapshot(snap, 500), /head\.sha is required/);
+  assert.throws(() => assertSnapshot(snap, 500), /full 40-character sha/);
+  const short = goodSnapshot();
+  short.pr.head.sha = "abc1234";
+  assert.throws(() => assertSnapshot(short, 500), /full 40-character sha/);
+});
+
+test("snapshot: a missing head ref is rejected", () => {
+  // Without it the receipt emitted `branch: null` and the merge gate skipped
+  // the tip comparison entirely, so a push could move the head under a
+  // still-fresh receipt. (Codex, #490.)
+  const snap = goodSnapshot();
+  delete snap.pr.head.ref;
+  assert.throws(() => assertSnapshot(snap, 500), /head\.ref is required/);
+});
+
+test("snapshot: a missing capture time is rejected", () => {
+  const snap = goodSnapshot();
+  delete snap.capturedAt.reviewThreads;
+  assert.throws(() => assertSnapshot(snap, 500), /capturedAt\.reviewThreads/);
 });
 
 test("snapshot: an unattested collection is rejected", () => {
@@ -264,7 +312,35 @@ test("snapshot: a comment with no timestamp is rejected", () => {
   // silently sort as the epoch and could make an outstanding round look old.
   const snap = goodSnapshot();
   snap.issueComments = [{ user: { login: "me" }, body: "@codex review" }];
-  assert.throws(() => assertSnapshot(snap, 500), /has no created_at/);
+  assert.throws(() => assertSnapshot(snap, 500), /missing or unparseable/);
+});
+
+test("snapshot: a non-empty but UNPARSEABLE timestamp is rejected", () => {
+  // A truthiness check passed this, after which timeOf maps it to epoch zero
+  // and any older valid response appears to answer it. (Codex, #490.)
+  const snap = goodSnapshot();
+  snap.issueComments[0].created_at = "sometime tuesday";
+  assert.throws(() => assertSnapshot(snap, 500), /missing or unparseable/);
+});
+
+test("capture ordering: threads read BEFORE the accepted response fail", () => {
+  // Threads at 10:00, a review with findings at 10:01, reviews read at 10:02:
+  // every other item passes and the receipt describes a state that never
+  // existed. (Codex, #490.)
+  const snap = goodSnapshot();
+  snap.capturedAt.reviewThreads = "2026-08-17T04:00:00Z"; // before the 04:10 pass
+  const receipt = evaluate(snap);
+  assert.equal(receipt.verdict, "NOT READY");
+  assert.equal(receipt.items.threads.pass, true);
+  assert.match(receipt.items.capture.detail, /read before the Codex response/);
+});
+
+test("Codex: an exact timestamp tie reads as unanswered, not answered", () => {
+  // GitHub timestamps have second resolution. (Codex, #490.)
+  const at = "2026-08-17T04:10:00Z";
+  const res = checkCodex([comment("me", "@codex review", at)], [pass(at, HEAD)], HEAD);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /has not come back/);
 });
 
 test("evaluate: one failing item is enough for NOT READY", () => {

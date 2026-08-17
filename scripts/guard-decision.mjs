@@ -1405,10 +1405,15 @@ export function checkMerge(toolInput, { now = Date.now(), readReceipt, resolveSh
   const receipt = readReceipt(pr);
   if (!receipt) {
     return (
-      `merge blocked: no readiness receipt for PR #${pr}. The merge bar is CI green + Codex converged + ` +
+      `merge blocked: no readiness receipt for PR #${pr}. The merge bar is CI green + Codex returned + ` +
       `every review thread resolved, and it has been reported from a single item twice (#458, #487). ` +
       RECEIPT_HOWTO
     );
+  }
+  // The receipt is found by filename, so a mismatched body means a hand-edited
+  // or misfiled receipt -- exactly the artifact whose word should not be taken.
+  if (receipt.pr !== pr) {
+    return `merge blocked: the receipt filed for PR #${pr} says it is for PR #${receipt.pr}. ${RECEIPT_HOWTO}`;
   }
   if (receipt.verdict !== "READY") {
     const failing = Object.entries(receipt.items ?? {})
@@ -1426,15 +1431,34 @@ export function checkMerge(toolInput, { now = Date.now(), readReceipt, resolveSh
     );
   }
 
-  if (receipt.branch) {
-    const tip = resolveSha(receipt.branch);
-    if (tip && tip !== receipt.headSha) {
-      return (
-        `merge blocked: the receipt for PR #${pr} validated ${String(receipt.headSha).slice(0, 7)}, but ` +
-        `${receipt.branch} is now at ${tip.slice(0, 7)}. The commit that was verified is not the commit ` +
-        `that would merge. ${RECEIPT_HOWTO}`
-      );
-    }
+  // Everything below is the SHA binding, and every branch of it denies. A
+  // receipt that cannot be tied to the commit GitHub would merge is not weaker
+  // evidence than one that can -- it is no evidence at all for the only
+  // question being asked here.
+  if (typeof receipt.headSha !== "string" || !/^[0-9a-f]{40}$/i.test(receipt.headSha)) {
+    return `merge blocked: the receipt for PR #${pr} carries no full head sha to bind against. ${RECEIPT_HOWTO}`;
+  }
+  if (typeof receipt.branch !== "string" || receipt.branch.trim() === "") {
+    return `merge blocked: the receipt for PR #${pr} names no branch, so its head sha cannot be checked against the tip. ${RECEIPT_HOWTO}`;
+  }
+
+  const tip = resolveSha(receipt.branch);
+  if (!tip) {
+    // Previously this abstained, on the reasoning that a branch this container
+    // never fetched is not evidence of a problem. That was the wrong default
+    // for a guard: the abstention is indistinguishable from the case it was
+    // meant to catch. (Codex, #490.)
+    return (
+      `merge blocked: could not resolve the current tip of ${receipt.branch} on the remote, so the receipt ` +
+      `for PR #${pr} cannot be tied to the commit that would merge. ${RECEIPT_HOWTO}`
+    );
+  }
+  if (tip !== receipt.headSha) {
+    return (
+      `merge blocked: the receipt for PR #${pr} validated ${receipt.headSha.slice(0, 7)}, but ` +
+      `${receipt.branch} is now at ${tip.slice(0, 7)}. The commit that was verified is not the commit ` +
+      `that would merge. ${RECEIPT_HOWTO}`
+    );
   }
 
   return null;
@@ -1449,16 +1473,31 @@ function readReceiptFromDisk(pr) {
   }
 }
 
+/**
+ * The branch's tip ON THE REMOTE, or null.
+ *
+ * `git rev-parse` was the first version of this and it reads a local or
+ * locally-cached ref without contacting GitHub, so a push from another session
+ * left the cached ref equal to the receipt's sha while the PR head had moved --
+ * the check passed and the merge took an unreviewed commit. (Codex, #490.)
+ * `ls-remote` asks the server, which is the only party that knows what would
+ * merge.
+ *
+ * It cannot close the window entirely: something could push between this call
+ * and the merge itself, and the merge tool exposes no expected-head parameter
+ * to make the check atomic. What it does remove is the far likelier case of a
+ * check that was never looking at the remote at all.
+ */
 function resolveShaFromGit(branch) {
   try {
-    return execFileSync("git", ["rev-parse", "--verify", `${branch}^{commit}`], {
+    const out = execFileSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], {
       encoding: "utf8",
-      timeout: 2000,
+      timeout: 8000,
       stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    });
+    return (out.match(/^([0-9a-f]{40})\s/) ?? [])[1] ?? null;
   } catch {
-    // Not a local branch (a fork, or a branch this container never fetched).
-    // The receipt's own age cap still applies; this check simply abstains.
+    // Network failure, or no such branch. Both deny, per checkMerge.
     return null;
   }
 }

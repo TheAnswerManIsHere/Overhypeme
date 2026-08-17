@@ -521,7 +521,7 @@ const READY = {
   items: { ci: { pass: true }, codex: { pass: true }, threads: { pass: true } },
 };
 
-const mergeReason = (receipt, { tip = null, input = { pullNumber: 500 } } = {}) =>
+const mergeReason = (receipt, { tip = READY.headSha, input = { pullNumber: 500 } } = {}) =>
   checkMerge(input, { readReceipt: () => receipt, resolveSha: () => tip });
 
 test("merge gate: a current, passing receipt allows the merge", () => {
@@ -570,10 +570,29 @@ test("merge gate: a push after validation invalidates the receipt", () => {
   assert.match(reason, /is not the commit that would merge/);
 });
 
-test("merge gate: an unresolvable branch abstains rather than blocking", () => {
-  // A fork, or a branch this ephemeral container never fetched. The age cap
-  // still applies; the SHA check simply has nothing to compare.
-  assert.equal(mergeReason(READY, { tip: null }), null);
+test("merge gate: an unresolvable branch BLOCKS rather than abstaining", () => {
+  // This abstained in the first cut, on the reasoning that a branch the remote
+  // lookup cannot resolve is not evidence of a problem. Wrong default for a
+  // guard: the abstention is indistinguishable from the case it exists to
+  // catch. (Codex, #490.)
+  assert.match(mergeReason(READY, { tip: null }), /could not resolve the current tip/);
+});
+
+test("merge gate: a receipt whose body names a different PR blocks", () => {
+  // Found by filename, so a mismatched body means a hand-edited or misfiled
+  // receipt -- the artifact whose word should least be taken.
+  assert.match(mergeReason({ ...READY, pr: 501 }), /says it is for PR #501/);
+});
+
+test("merge gate: a receipt with no branch blocks", () => {
+  const noBranch = { ...READY, branch: null };
+  assert.match(mergeReason(noBranch), /names no branch/);
+});
+
+test("merge gate: an abbreviated head sha blocks", () => {
+  // The tip comparison is exact equality, so a short sha would never match and
+  // the binding would be dead weight that still looked present.
+  assert.match(mergeReason({ ...READY, headSha: "abc1234" }), /no full head sha/);
 });
 
 test("merge gate: a missing pullNumber blocks", () => {
