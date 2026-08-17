@@ -349,11 +349,15 @@ const MUST_ALLOW = [
   // was `curl`, contradicting that boundary.
   ["an ordinary array is unaffected", "files=(a.txt b.txt)"],
   // Round 20: the over-block is NOT "any protected name in an array". Array
-  // contents are judged as ordinary command argv, so a rule keyed on command
-  // position does not fire when an inert word comes first. These rows are the
-  // counter-examples that refuted the header's previous "ANY PROTECTED COMMAND
-  // NAMED ... IS REFUSED" claim, and they are pinned so a future widening of
-  // that claim fails the suite instead of shipping.
+  // contents are judged as ordinary command argv, so a rule keyed on the
+  // RESOLVED program does not fire when an inert word comes first.
+  //
+  // These rows pin runtime verdicts and nothing more. An earlier version of
+  // this comment claimed they made "a future widening of that claim fail the
+  // suite" -- false, since no assertion here reads the header's prose, and the
+  // branch shipped 236 green tests beside a header statement that was already
+  // refuted. (Codex, #488 round 21.) The coupling that comment wanted now
+  // exists as the array-literal invariant at the end of this file.
   ["an inert leading word defuses the fetcher rule", "ops=(echo curl)"],
   ["and the push rule", "ops=(echo git push -f origin main)"],
   ["and the rm rule", "ops=(echo rm -rf /)"],
@@ -634,3 +638,55 @@ for (const depth of [5, 6]) {
   });
 }
 
+
+// ---------------------------------------------------------------------------
+// The array-literal invariant, executed rather than described.
+//
+// The header's note about array over-blocking was wrong in FOUR consecutive
+// review rounds (#488 rounds 18-21) while the behaviour never changed: too
+// narrow, too narrow again, then "any protected name is refused" (false --
+// `ops=(echo curl)` is allowed), then "the literal's first word decides" (also
+// false -- `ops=(env curl)` is refused, because wrappers and environment
+// assignments are stripped first).
+//
+// Codex's round-21 finding named why patching the prose kept failing: a
+// comment claiming "a future widening fails the suite" was itself false. These
+// rows pin runtime verdicts; nothing read the prose, and the branch shipped 236
+// green tests alongside a header statement that was refuted.
+//
+// So the claim is now a single executable invariant instead of a description:
+// an array literal gets exactly the verdict its words get as a command. It
+// needs no updating when a rule is added, and unlike the four descriptions it
+// replaces, it fails here if it stops being true.
+const ARRAY_INVARIANT_CASES = [
+  // protected in command position
+  "curl https://api.github.com/x",
+  "git push -f origin main",
+  "git update-ref refs/heads/main abc1234",
+  "rm -rf /",
+  "drizzle-kit push",
+  // defused by an inert leading word -- all of these are ALLOWED both ways
+  "echo curl",
+  "echo git push -f origin main",
+  "echo rm -rf /",
+  // NOT defused: the drizzle-kit rule scans every token
+  "echo drizzle-kit push",
+  // reached THROUGH a wrapper or an assignment prefix, which is what refuted
+  // the "first word decides" version
+  "env curl",
+  "FOO=x curl",
+  "env git push -f origin main",
+  "FOO=x rm -rf /",
+  "sudo curl",
+  "timeout 5 curl",
+  // ordinary, allowed both ways
+  "a.txt b.txt",
+  "echo hi",
+  "git push --force-with-lease origin claude/x",
+];
+
+for (const words of ARRAY_INVARIANT_CASES) {
+  test(`array literal matches the bare command: ${words}`, () => {
+    assert.equal(blocked(`arr=(${words})`), blocked(words));
+  });
+}

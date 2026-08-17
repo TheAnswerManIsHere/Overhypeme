@@ -1065,37 +1065,44 @@ const FETCHER_REFUSAL =
  * about arrays is special-cased; each rule then applies exactly as it would to
  * a real command.
  *
- * What that means in practice, which is NOT "every protected name is refused":
+ * THE WHOLE STATEMENT, and it is deliberately one sentence with no list:
  *
- *  - Rules keyed on COMMAND POSITION bite when the protected program is the
- *    literal's first word, and not otherwise. `ops=(git push -f origin main)`,
- *    `cleanup=(rm -rf /)`, `fetchers=(curl wget)` and `ops=(git update-ref
- *    refs/heads/main abc1234)` are all refused; `ops=(echo curl)` and
- *    `ops=(echo git push -f origin main)` are ALLOWED, because argv[0] is
- *    `echo`.
- *  - Rules that scan ALL TOKENS bite wherever the name appears. The drizzle-kit
- *    check is the one such rule here, so `ops=(echo drizzle-kit push)` is
- *    refused where the `echo` prefix defuses every other rule.
+ *     decide("arr=(WORDS)") === decide("WORDS")
  *
- * THIS NOTE HAS NOW BEEN WRONG THREE ROUNDS RUNNING, in both directions, and
- * the sequence is the reason it is now written as a mechanism:
+ * for any WORDS containing no operator. An array literal gets exactly the
+ * verdict the same words would get as a command -- no more, no less. Which
+ * commands those are is not restated here; it is whatever `checkCommand` does,
+ * and the worked cases live in the assertion table where they can be run.
  *
- *  - v1 named only `fetchers=(curl wget)` and called it the only over-blocking
- *    gap. Too narrow. (Round 18.)
+ * THIS IS THE FIFTH VERSION OF THIS NOTE, and the previous four were each
+ * wrong in a different way. The sequence is why it is now an invariant rather
+ * than a description:
+ *
+ *  - v1 named `fetchers=(curl wget)` and called it the only over-blocking gap.
+ *    Too narrow. (Round 18.)
  *  - v2 named three rules and said the radius had been understated "by three",
  *    still missing `update-ref`. Too narrow again. (Round 19.)
- *  - v3 corrected that by asserting ANY protected command named in an array is
- *    refused. FALSE -- `ops=(echo curl)` is allowed. Overcorrected into a claim
- *    the code does not make, while calling itself structural. (Round 20.)
+ *  - v3 asserted ANY protected command named in an array is refused. FALSE:
+ *    `ops=(echo curl)` is allowed. Overcorrected, while calling itself
+ *    structural. (Round 20.)
+ *  - v4 said rules key on "the literal's FIRST WORD, and not otherwise". Still
+ *    wrong: `ops=(env curl)` and `ops=(FOO=x curl)` are refused, because
+ *    `resolveRealCommand` strips transparent wrappers and environment
+ *    assignments first. It is the RESOLVED program, and v4 had just been
+ *    written to fix v3's over-generalisation. (Round 21.)
  *
- * The standing lesson in the heredoc note -- a limitation stops being accurate
- * the moment a rule is added above it or removed beneath it -- needs two
- * additions from this run. First, the person least able to describe a change's
+ * Four rounds, four wrong descriptions of one paragraph's worth of behaviour,
+ * while the behaviour itself never changed. The lessons, in the order I had to
+ * learn them: a limitation goes stale when a rule is added above it or removed
+ * beneath it (the heredoc note); the person least able to describe a change's
  * reach is the one who just made it, working from the example that prompted
- * it. Second, and the one v3 missed: **fixing a too-narrow claim by widening
- * the quantifier is not a fix.** "Some of these" and "all of these" are both
- * outcome claims, and both go stale. Describing the mechanism, and letting the
- * outcomes follow from it, is what survives the next rule being added.
+ * it; widening a too-narrow claim's quantifier is not a fix, because "some"
+ * and "all" are both outcome claims; and finally -- the one that actually
+ * ended it -- **an emergent behaviour should be stated as an invariant that
+ * can be executed, not as a description that has to be maintained.** The four
+ * failed versions were all descriptions of what eight independent rules
+ * happen to do. The invariant above is one line, needs no updating when a rule
+ * is added, and is pinned as a test that runs it against the bare command.
  *
  * It is deliberate: the suppression written to allow these opened a fail-open
  * in each of its two versions (substitutions with no `$`, then integer-array
