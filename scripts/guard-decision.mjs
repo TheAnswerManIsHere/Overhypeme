@@ -841,6 +841,34 @@ function isRecursiveAndForced(args) {
 }
 
 /** True for any token naming (a versioned spec of) the drizzle-kit binary. */
+/**
+ * HTTP clients whose ARGUMENTS are URLs, so a host check over tokens is
+ * meaningful. Deliberately not `node`/`python`: their URLs live inside a
+ * script string, which is payload text, and judging payload text is the exact
+ * defect this module was built to remove (a commit message may legitimately
+ * mention a blocked URL). `node scripts/loop-metrics.mjs --pr N` is therefore
+ * untouched -- correctly, since that script's own Node `fetch` reaches the
+ * real API and fails loudly with 401 "Bad credentials" rather than silently.
+ */
+const HTTP_FETCHERS = new Set(["curl", "wget"]);
+
+/**
+ * True when a token is an http(s) URL whose host is GitHub's REST API.
+ *
+ * Parsed rather than substring-matched, so `--data '{"repo":"api.github.com"}'`
+ * and a path like `./api.github.com.md` are not mistaken for a request to it.
+ * Host comparison is case-insensitive and ignores a userinfo prefix, since
+ * `https://user@API.GitHub.com/...` reaches the same place.
+ */
+function isGitHubApiUrl(token) {
+  if (!/^https?:\/\//i.test(token)) return false;
+  try {
+    return new URL(token).hostname.toLowerCase() === "api.github.com";
+  } catch {
+    return false;
+  }
+}
+
 function isDrizzleKitToken(token) {
   const base = token.split("/").pop();
   return base === "drizzle-kit" || base.startsWith("drizzle-kit@") || base.includes("drizzle-kit");
@@ -951,6 +979,20 @@ export function checkCommand(argv, depth = 0) {
     }
     const nested = evaluateScript(dispatchText, depth + 1);
     if (nested) return nested;
+  }
+
+  if (HTTP_FETCHERS.has(program)) {
+    if (rest.some(isGitHubApiUrl)) {
+      return (
+        "api.github.com is not reachable from bash in this container, and the failure is SILENT " +
+        "inside a pipeline: curl is intercepted by the agent proxy (HTTP 403 \"GitHub access is not " +
+        "enabled for this session\"), so a `grep` over the response body finds nothing and reads as " +
+        "\"no results\" rather than as an error. Every CI-wait loop built this way on 2026-08-16 was a " +
+        "pure sleep. Use the mcp__github__* tools instead -- pull_request_read (get_check_runs) for CI, " +
+        "get_reviews for a review landing, get for merge state, issue_read for labels. " +
+        "See .agents/memory/github-rest-api-blocked-from-bash.md."
+      );
+    }
   }
 
   if (program === "rm") {
