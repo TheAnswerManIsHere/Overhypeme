@@ -9,9 +9,9 @@ import {
   tokenize,
   segments,
   checkCommand,
+  checkMerge,
   extractCommand,
   stripHeredocs,
-  checkMerge,
 } from "../guard-decision.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -705,3 +705,151 @@ for (const words of ARRAY_INVARIANT_CASES) {
     assert.equal(blocked(`arr=(${words})`), blocked(words));
   });
 }
+
+// ---------------------------------------------------------------------------
+// The merge gate.
+//
+// CLAUDE.md's merge bar is CI green + Codex converged + every review thread
+// resolved. It was reported from a single checked item twice -- PR #458 (merged
+// with a round outstanding; seven findings landed 47 seconds later) and PR #487
+// (reported green having run get_check_runs and nothing else, on a PR where no
+// review had ever been requested). The standing rule is that a discipline
+// broken twice becomes a check, so the merge tool now requires the receipt
+// scripts/pr-ready.mjs produces.
+//
+// `checkMerge` takes its receipt reader and SHA resolver as parameters so this
+// table asserts the decision rather than the filesystem.
+// ---------------------------------------------------------------------------
+
+const READY = {
+  verdict: "READY",
+  pr: 500,
+  repo: "TheAnswerManIsHere/Overhypeme",
+  headSha: "a".repeat(40),
+  branch: "claude/x",
+  generatedAt: new Date(Date.now() - 60_000).toISOString(),
+  // When the PR was READ, which is what the gate ages against. `generatedAt`
+  // only records when the check ran, and re-running a saved snapshot resets it
+  // while the data behind it stays as old as it was. (Codex, #490.)
+  evidenceAt: new Date(Date.now() - 60_000).toISOString(),
+  items: { ci: { pass: true }, codex: { pass: true }, threads: { pass: true } },
+};
+
+const MERGE_INPUT = { pullNumber: 500, owner: "TheAnswerManIsHere", repo: "Overhypeme" };
+
+const mergeReason = (receipt, { tip = READY.headSha, input = MERGE_INPUT } = {}) =>
+  checkMerge(input, { readReceipt: () => receipt, resolveSha: () => tip });
+
+test("merge gate: a current, passing receipt allows the merge", () => {
+  assert.equal(mergeReason(READY), null);
+});
+
+test("merge gate: no receipt at all blocks -- the PR #487 shape", () => {
+  assert.match(mergeReason(null), /no readiness receipt/);
+});
+
+test("merge gate: a NOT READY receipt blocks and names the failing item", () => {
+  const receipt = {
+    ...READY,
+    verdict: "NOT READY",
+    items: {
+      ci: { pass: true, detail: "9 checks, all passing" },
+      codex: { pass: false, detail: "no `@codex review` request found" },
+      threads: { pass: true, detail: "0 threads" },
+    },
+  };
+  const reason = mergeReason(receipt);
+  assert.match(reason, /NOT READY/);
+  // The whole failure being fixed is a green CI reading standing in for the
+  // bar, so the message must name the item that actually failed.
+  assert.match(reason, /codex: no `@codex review` request found/);
+});
+
+test("merge gate: a receipt older than the age cap blocks", () => {
+  const stale = { ...READY, evidenceAt: new Date(Date.now() - 90 * 60_000).toISOString() };
+  assert.match(mergeReason(stale), /no longer current/);
+});
+
+test("merge gate: an unparseable timestamp blocks rather than reading as age zero", () => {
+  assert.match(mergeReason({ ...READY, evidenceAt: "whenever" }), /no longer current/);
+});
+
+test("merge gate: a receipt from the future blocks", () => {
+  const future = { ...READY, evidenceAt: new Date(Date.now() + 10 * 60_000).toISOString() };
+  assert.match(mergeReason(future), /no longer current/);
+});
+
+test("merge gate: a push after validation invalidates the receipt", () => {
+  // The age cap alone cannot catch this: the receipt was accurate when written
+  // and my own next commit made it describe a commit that will not merge.
+  const reason = mergeReason(READY, { tip: "b".repeat(40) });
+  assert.match(reason, /is not the commit that would merge/);
+});
+
+test("merge gate: an unresolvable branch BLOCKS rather than abstaining", () => {
+  // This abstained in the first cut, on the reasoning that a branch the remote
+  // lookup cannot resolve is not evidence of a problem. Wrong default for a
+  // guard: the abstention is indistinguishable from the case it exists to
+  // catch. (Codex, #490.)
+  assert.match(mergeReason(READY, { tip: null }), /could not resolve the current tip/);
+});
+
+test("merge gate: a receipt minted for ANOTHER repository blocks", () => {
+  // Receipts are keyed by PR number and shas resolve against this checkout's
+  // origin, so a merge aimed elsewhere would find a locally valid receipt and a
+  // locally matching tip and pass every remaining check. (Codex, #490.)
+  const reason = mergeReason(READY, {
+    input: { pullNumber: 500, owner: "someone-else", repo: "Overhypeme" },
+  });
+  assert.match(reason, /minted for TheAnswerManIsHere\/Overhypeme/);
+});
+
+test("merge gate: a merge input naming no repository blocks", () => {
+  assert.match(mergeReason(READY, { input: { pullNumber: 500 } }), /names no owner\/repo/);
+});
+
+test("merge gate: a receipt recording no repository blocks", () => {
+  const { repo, ...noRepo } = READY;
+  assert.match(mergeReason(noRepo), /an unrecorded repository/);
+});
+
+test("merge gate: a receipt with no evidenceAt blocks", () => {
+  // Its age would otherwise describe when the check RAN rather than when the
+  // PR was read -- the gap a saved snapshot walks through. (Codex, #490.)
+  const { evidenceAt, ...noEvidence } = READY;
+  assert.match(mergeReason(noEvidence), /records no evidenceAt/);
+});
+
+test("merge gate: a receipt whose body names a different PR blocks", () => {
+  // Found by filename, so a mismatched body means a hand-edited or misfiled
+  // receipt -- the artifact whose word should least be taken.
+  assert.match(mergeReason({ ...READY, pr: 501 }), /says it is for PR #501/);
+});
+
+test("merge gate: a receipt with no branch blocks", () => {
+  const noBranch = { ...READY, branch: null };
+  assert.match(mergeReason(noBranch), /names no branch/);
+});
+
+test("merge gate: an abbreviated head sha blocks", () => {
+  // The tip comparison is exact equality, so a short sha would never match and
+  // the binding would be dead weight that still looked present.
+  assert.match(mergeReason({ ...READY, headSha: "abc1234" }), /no full head sha/);
+});
+
+test("merge gate: a missing pullNumber blocks", () => {
+  assert.match(mergeReason(READY, { input: {} }), /no pullNumber/);
+});
+
+test("merge gate: the merge tool routes to the gate, not the Bash parser", () => {
+  const raw = JSON.stringify({
+    tool_name: "mcp__github__merge_pull_request",
+    tool_input: { owner: "o", repo: "r", pullNumber: 500 },
+  });
+  const { blocked: isBlocked, reason } = decide(raw, {
+    readReceipt: () => null,
+    resolveSha: () => null,
+  });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no readiness receipt/);
+});
