@@ -187,7 +187,7 @@
 
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { staleReason } from "./pr-ready.mjs";
+import { staleReason, remoteTip } from "./pr-ready.mjs";
 
 const ALLOW = 0;
 const BLOCK = 2;
@@ -1480,19 +1480,7 @@ function readReceiptFromDisk(pr) {
  * to make the check atomic. What it does remove is the far likelier case of a
  * check that was never looking at the remote at all.
  */
-function resolveShaFromGit(branch) {
-  try {
-    const out = execFileSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], {
-      encoding: "utf8",
-      timeout: 8000,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return (out.match(/^([0-9a-f]{40})\s/) ?? [])[1] ?? null;
-  } catch {
-    // Network failure, or no such branch. Both deny, per checkMerge.
-    return null;
-  }
-}
+
 
 const MERGE_TOOL = "mcp__github__merge_pull_request";
 
@@ -1508,7 +1496,7 @@ export function decide(raw, options = {}) {
   if (payload?.tool_name === MERGE_TOOL) {
     const reason = checkMerge(payload.tool_input, {
       readReceipt: readReceiptFromDisk,
-      resolveSha: resolveShaFromGit,
+      resolveSha: remoteTip,
       ...options,
     });
     return reason ? { blocked: true, reason } : { blocked: false, reason: null };

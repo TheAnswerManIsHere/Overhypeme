@@ -565,8 +565,15 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
   // pass was requested, and the one-pass-per-request rule then counts a set it
   // never saw. An early read of the request set is exactly as dangerous as an
   // early read of the threads. (Codex, #490 round 3.)
+  //
+  // The boundary is the END of the response's reported second, not the second
+  // itself. The two operands have different precision: GitHub reports events
+  // to the second, while a capture time carries milliseconds. A review
+  // actually submitted at 04:10:00.900 is reported as 04:10:00.000, so a
+  // collection captured at 04:10:00.500 -- genuinely BEFORE it -- compared
+  // greater and passed. (Codex, #490 round 5.)
   const stale = ["reviewThreads", "checkRuns", "issueComments"].filter(
-    (key) => Date.parse(capturedAt?.[key] ?? "") <= acceptedAt,
+    (key) => Date.parse(capturedAt?.[key] ?? "") <= acceptedAt + 999,
   );
   if (stale.length) {
     return {
@@ -656,18 +663,30 @@ export function formatReceipt(receipt) {
 }
 
 /**
+ * How long to wait for the remote to answer. ONE deadline, because there is
+ * one resolver: `--show` and the merge hook previously had their own copies
+ * with 15s and 8s, so a `ls-remote` taking 12s let the display path print
+ * READY for a receipt the hook would refuse as unresolvable. Two paths
+ * disagreeing about the same authority is the drift the shared predicate was
+ * meant to end. (Codex, #490 round 5.)
+ */
+const REMOTE_TIP_TIMEOUT_MS = 8000;
+
+/**
  * The branch's tip as the REMOTE reports it. `git rev-parse` would answer from
  * this checkout, which cannot know what GitHub would merge.
  */
-function remoteTip(branch) {
+export function remoteTip(branch) {
   if (typeof branch !== "string" || branch.trim() === "") return null;
   try {
     const out = execFileSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], {
       encoding: "utf8",
-      timeout: 15000,
+      timeout: REMOTE_TIP_TIMEOUT_MS,
+      stdio: ["ignore", "pipe", "ignore"],
     });
     return (/^([0-9a-f]{40})\s/m.exec(out) ?? [])[1] ?? null;
   } catch {
+    // Network failure, or no such branch. Both deny, per checkMerge.
     return null;
   }
 }

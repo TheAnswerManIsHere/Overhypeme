@@ -521,6 +521,18 @@ test("capture ordering: threads read BEFORE the accepted response fail", () => {
   assert.match(receipt.items.capture.detail, /read before the Codex response/);
 });
 
+test("capture ordering: a read inside the response's reported second is stale", () => {
+  // The two operands have different precision. A review submitted at
+  // 04:10:00.900 is REPORTED as 04:10:00.000, so a capture at 04:10:00.500 --
+  // genuinely earlier -- compared greater and passed. The boundary has to be
+  // the end of the reported second. (Codex, #490 round 5.)
+  const snap = goodSnapshot();
+  snap.capturedAt.reviewThreads = "2026-08-17T04:10:00.500Z";
+  const receipt = evaluate(snap, NOW);
+  assert.equal(receipt.verdict, "NOT READY");
+  assert.match(receipt.items.capture.detail, /read before the Codex response/);
+});
+
 test("capture ordering: a SAME-SECOND read is stale, not fresh", () => {
   // GitHub event timestamps have second resolution, so a collection read in
   // the same second as the response cannot be shown to postdate it -- and this
