@@ -1239,7 +1239,16 @@ looking for a better token — there isn't one. Full table:
 
 **So the shape of a wait is fixed:**
 
-1. `sleep N` in bash — the **delay, and nothing else**.
+1. The **delay, and nothing else** — but **a bare `sleep N` no longer runs**
+   (measured 2026-08-17). The harness blocks both `sleep 120` on its own and
+   `sleep 120; echo …`, and its refusal names the two sanctioned forms:
+   `Monitor` with an until-loop, or **`run_in_background: true` on the sleep**,
+   which returns a task ID and re-invokes me when it elapses. **For a GitHub
+   wait, the background sleep is the one to reach for** — `Monitor`'s
+   until-loop wants a shell condition to poll, and the whole point of the
+   paragraph above is that no bash transport can observe GitHub state, so
+   there is no condition to write. Chaining shorter sleeps to dodge the block
+   is called out in the refusal text and is not an option.
 2. **The `mcp__github__*` method that observes the condition I actually named.**
    `pull_request_read` / `get_check_runs` for **CI**; `get_reviews` or
    `get_review_comments` for a review landing; `get` for merge state,
