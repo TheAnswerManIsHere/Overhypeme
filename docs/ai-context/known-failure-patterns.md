@@ -225,10 +225,21 @@ decides" — wrapper and env-assignment prefixes are stripped first).
 
 **Avoid:** when behaviour is emergent, state an **invariant that can be
 executed** rather than a description that must be maintained, and state it at
-the boundary the test actually exercises. #488's note is now one line —
-an array literal gets exactly the verdict its words get as a command — pinned
-against 19 inputs. It needs no editing when a rule is added, which is precisely
-what all four descriptions needed and never got.
+the boundary the test actually exercises. #488's note is now one line — an
+array literal gets exactly the verdict its words get as a command — pinned
+against 19 inputs.
+
+**What that buys, stated exactly, because overstating it would be this very
+pattern again:** the *claim* stays true as rules are added, where all four
+prose descriptions went false. The *coverage* does not — the 19 cases are a
+hand-curated list, so a new rule whose inputs aren't represented in it can
+behave differently inside an array with every invariant test still green.
+**Adding a rule therefore still requires adding a representative case**, or
+deriving the list from the rule set rather than maintaining it by hand. An
+invariant narrows what can drift from "a paragraph" to "the sample"; it does
+not eliminate drift, and saying otherwise recreates the false assurance this
+section is about. (Codex caught exactly that overstatement in the first draft
+of this entry.)
 
 **Also avoid:** claiming in a test file that its rows protect a *prose* claim.
 They do not — assertions check runtime verdicts, and the branch shipped 236
@@ -370,12 +381,21 @@ mis-wraps non-person subjects ("Sharks have …"), plus idempotency tests. See
 The advice above assumes a general mechanism exists to fix. Sometimes the
 "general rule" is another program's entire command-line grammar, and then
 fixing the mechanism and matching the instance are the same move wearing a
-better argument. **PR #488 is the worked example: five enumerations were
-started and all five ended in deletion** — curl's option grammar, an
-allowlisted probe exception, a `LOOKS_DESTRUCTIVE` regex, a heredoc delimiter
-character class, and an array-assignment suppression. Each was locally
-reasonable, each closed the reported case, and each produced the next round's
-finding.
+better argument. **PR #488 is the worked example: five attempts to enumerate
+were started and all five were abandoned** — curl's option grammar, an
+allowlisted probe exception, a widened `LOOKS_DESTRUCTIVE`, a replacement
+heredoc delimiter scanner, and an array-assignment suppression. Each was
+locally reasonable, each closed the reported case, and each produced the next
+round's finding.
+
+**Abandoned means the *expansion* was reverted, not that the mechanism is
+gone** — a distinction worth keeping, because the merged file still defines and
+uses both `LOOKS_DESTRUCTIVE` and an identifier-shaped `HEREDOC_RE`. What was
+deleted in those two cases is the attempt to make them general: widening the
+regex to cover fetchers, and replacing the delimiter class with a full scanner.
+Both survive in their original, deliberately incomplete form, with their gaps
+recorded. Only the probe exception and the array suppression were removed
+outright.
 
 **Three signals that you are in this situation rather than the ordinary one:**
 

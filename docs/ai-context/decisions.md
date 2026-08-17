@@ -14,6 +14,14 @@
 ---
 
 ### 2026-08-17 · The bash guard refuses curl and wget outright, and ships with its gaps written down
+- **Supersedes in part:** the 2026-08-05 entry below, which narrowed the guard
+  to *"make the lease mandatory"* and called that its only real job. That
+  framing is no longer complete: the guard now has a **second** independent
+  responsibility, refusing fetchers, added for a different reason (a silent
+  failure mode, not a destructive one) and backstopped by nothing — unlike the
+  lease rule, which sits behind GitHub's server-side ruleset. Everything else
+  in that entry stands, including its reasoning about why the lease scope
+  stayed narrow.
 - **Decision:** `scripts/guard-decision.mjs` refuses the `curl` and `wget`
   programs entirely, with **no exception for any argument shape** — not even
   the agent proxy's own `__agentproxy/status` probe. It judges the *resolved
@@ -1132,6 +1140,11 @@
 ---
 
 ### 2026-08-05 · The Bash guard is narrowed to "make the lease mandatory," then review-loop iteration stops after round 4 widened instead of narrowed
+> **Superseded in part by the 2026-08-17 fetcher-refusal entry above.** The
+> scope claim here — that making the lease mandatory is the guard's only real
+> job — was true when written and is no longer: the guard also refuses `curl`
+> and `wget`. The rest of this entry, including why the lease scope stayed
+> narrow, still stands.
 - **Decision:** `.claude/guard.sh` (via `scripts/guard-decision.mjs`) was rewritten
   from a single inverted grep — it blocked `git push --force` while waving
   through the equivalent `git push -f` — into a token-level parser, then
