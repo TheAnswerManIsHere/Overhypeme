@@ -1,6 +1,7 @@
 -- Release A (expand) of the `is_estimated` cost-ledger plan
--- (docs/plans/is-estimated-cost-ledger.md, plan reviewed on PR #491,
--- workstream #473).
+-- Approved-plan source: plan-review PR #491, final plan commit
+-- df26461ea0a7108e70aaeed3cd31a5f9475124a5, approved by David on 2026-08-17.
+-- Workstream #473.
 --
 -- ADDITIVE, AND NOTHING ELSE. This migration deliberately does NOT backfill.
 --

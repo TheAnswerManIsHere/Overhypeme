@@ -392,6 +392,17 @@ export async function ensureSchema(): Promise<void> {
             ADD COLUMN IF NOT EXISTS is_estimated BOOLEAN`,
     },
     {
+      // The comment is part of the schema the two paths must converge on, not
+      // decoration: it is where the flag's semantics live for anyone reading
+      // the database directly. Migration 0101 applies it on existing
+      // databases; on a fresh one 0101 no-ops entirely (42P01), so without
+      // this entry the column would exist with no explanation of what its
+      // three states mean. COMMENT ON is idempotent — it overwrites.
+      label: "user_generation_costs.is_estimated comment",
+      ddl: `COMMENT ON COLUMN user_generation_costs.is_estimated IS
+            'Cost provenance. false = derived from fal''s published rate for the endpoint; true = derived from an operator-configured estimate or hard-coded fallback; NULL = unrecoverable for this historical row, or written by a build predating the flag. NOT measured-vs-estimated: no row holds an actual provider charge. When true, pricing_fetched_at is the write time, not a fetch time.'`,
+    },
+    {
       label: "user_generation_costs.IDX_user_created",
       ddl: `CREATE INDEX IF NOT EXISTS "user_gen_costs_user_created_idx"
             ON user_generation_costs (user_id, created_at)`,
