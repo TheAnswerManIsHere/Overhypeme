@@ -1808,3 +1808,56 @@ resolving the fallback eagerly in `checkBudget`'s argument list put a fallible
 `engines` read ahead of the admin exemption, refusing admins a check they are
 exempt from. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop;
 see also [`security-model.md`](./security-model.md)'s generation-spend section.
+
+## A boot-time check written as a statement runs after every import, not before
+
+**Looks like:** adding a configuration assertion — "refuse to start without
+this secret / this env var / this credential" — as a call near the top of the
+entrypoint, right beside the other early checks, and treating "it's the first
+thing in the file" as "it's the first thing that runs." **Dangerous:** ES
+module imports are *all* evaluated before the importing module's first
+statement executes, so the assertion runs after every module the entrypoint
+imports has finished its own top-level work. If any of them opens a database
+pool, reads a file, or starts a worker at module scope, the process has
+already done the thing the assertion was supposed to prevent. The check still
+throws, so it looks like it works — it just throws too late, and every unit
+test of the assertion function passes regardless because none of them involve
+the entrypoint.
+
+**Bundling makes it worse in a way that is invisible in source.** A module
+whose bottom carries the standard `if (process.argv[1] ===
+fileURLToPath(import.meta.url))` CLI guard is inert when imported as a
+library — but esbuild folds it into the output bundle, where both sides of
+that comparison resolve to the *bundle's* path. The guard becomes true, and
+whatever it was guarding (a CLI's pool, its migrations, its `process.exit`)
+now runs during module evaluation of the production server.
+
+**Avoid:** if a check must precede the module graph, it has to *be* a module
+in that graph, imported for its side effect ahead of everything else — not a
+statement in the file that imports them (this repo's is
+`artifacts/api-server/src/lib/bootChecks.ts`). Keep that module's own imports
+minimal for the same reason; anything it reaches is pulled forward with it.
+Then verify against the **built artifact**, not the source: run the bundle in
+the failing configuration and confirm the error you expect is the error you
+get.
+
+**The verification trap this hides behind is checking the wrong quantity.**
+It is possible to check the bundle carefully, find the assertion positioned
+ahead of every database call, and conclude the ordering holds — because
+*statement order* was preserved and that is what got measured. Statement order
+was never the binding constraint; module evaluation order was. This is the
+same shape as the assert-from-the-artifact pattern above, one level up: a real
+check, correctly executed, reported as verifying something it does not
+address. The tell is that the check and the claim use different nouns.
+
+**Overhype:** the `IP_HASH_SALT` production assertion (PR #484). First version
+called `assertIpSaltConfigured()` at the top of `index.ts`; because
+`transientRenderLog.ts` imports `@workspace/db`, and `lib/db/src/migrate.ts`'s
+CLI guard is true inside `dist/index.mjs`, a production boot with no salt and
+an unreachable database exited on `ECONNREFUSED` from `migrate.ts` and never
+emitted the salt error at all. Fixed by moving the assertion into
+`artifacts/api-server/src/lib/bootChecks.ts` (imported second, after
+`./instrument` only) and splitting the salt logic into
+`artifacts/api-server/src/lib/ipSalt.ts`, which never reaches the database. The
+folded-CLI-guard half is a live pre-existing bug in its own right —
+production runs migrations twice at every boot — tracked separately as #486.

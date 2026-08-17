@@ -189,6 +189,69 @@ const MUST_BLOCK = [
   // Round 7: the query exemption must cover only the WRAPPER's own leading
   // options. Here `-v` belongs to curl, and curl really runs.
   ["round 7: command's operand with its own -v", "command curl -v https://api.github.com/rate_limit"],
+  // Round 16: `npm exec --help` documents `x` as the alias, verified against
+  // this container's npm. Same dispatcher, second spelling.
+  ["round 16: npm x is npm exec", "npm x --call 'curl --version'"],
+  ["the -c spelling of the same alias", "npm x -c 'wget --help'"],
+  // Round 16: measured -- `env -S '-i printf ...'` runs printf, so the split
+  // words go into ENV's argv, not straight to the child. Judging the first
+  // word as the program let an option prefix hide the fetcher behind it.
+  ["round 16: an option prefix inside env -S", "env -S '-i curl --version'"],
+  ["a value-taking option prefix inside env -S", "env -S '-u HOME wget --help'"],
+  ["an end-of-options marker inside env -S", "env -S '-- curl --version'"],
+  ["the attached spelling of the same", "env -S'-i curl --version'"],
+  // Round 16: the array-assignment suppression must not swallow a command
+  // substitution sitting inside the parentheses.
+  ["round 16: a substitution inside an array literal is still a command", "arr=( $(git push -f origin main) )"],
+  // Round 17: `$` is not what makes a substitution executable. Round 16's
+  // suppression tested only for `$`, so both of these were erased whole --
+  // `segments()` returned an empty array and the fetcher vanished. A fail-open
+  // created by a fix for a false block, from checking one example.
+  ["round 17: backticks in an array literal still execute", "arr=( `curl --version` )"],
+  ["round 17: process substitution in an array literal still executes", "arr=( <(curl --version) )"],
+  // Round 17, second pass: `help declare` says integer variables undergo
+  // ARITHMETIC EVALUATION on assignment, so an integer array's initializer
+  // expands a plain identifier -- and a variable whose value carries a
+  // substitution then runs. Measured: the equivalent probe wrote its marker
+  // file. This is what killed the "every token is a plain word" whitelist:
+  // whether tokens are inert depends on attributes set elsewhere in the
+  // command, not on the tokens.
+  ["round 17: an integer array's initializer is arithmetic, not data", "curl='a[$(/usr/bin/curl --version)0]'; declare -ia arr=(curl)"],
+  ["the bare form of the same", "declare -ia arr=(curl)"],
+  // ACCEPTED OVER-BLOCK, pinned deliberately. Bash assigns two strings here
+  // and runs neither, so this refusal is wrong -- and it is the cost of
+  // deleting the suppression that tried to allow it, which opened a
+  // fail-open in each of its two versions. Do not "fix" this row without
+  // reading the note above `segments()`.
+  ["an array literal naming fetchers is over-blocked, and that is the accepted trade", "fetchers=(curl wget)"],
+  ["the append spelling, same accepted trade", "fetchers+=(curl)"],
+  // Round 18: the over-block is NOT fetcher-only. Deleting the suppression
+  // restored it for every rule in the module, because the literal's words are
+  // emitted as a command segment that all of them judge. Pinned across three
+  // different rules so the class is what is asserted, not one example -- the
+  // first version of this note named only the fetcher case and understated
+  // the deletion's blast radius by three rules.
+  ["a push in an array literal is over-blocked too", "ops=(git push -f origin main)"],
+  ["an rm in an array literal, same class", "cleanup=(rm -rf /)"],
+  ["a drizzle-kit push in an array literal, same class", "migration=(drizzle-kit push)"],
+  // Round 19: update-ref is a SEPARATE branch of checkCommand from push, so
+  // naming push did not cover it -- the second consecutive round in which this
+  // note was too narrow. Both spellings, since the direct executable is its
+  // own branch again.
+  ["an update-ref in an array literal, a fourth distinct rule", "ops=(git update-ref refs/heads/main abc1234)"],
+  ["the direct git-update-ref executable, same class", "ops=(/usr/lib/git-core/git-update-ref refs/heads/main abc1234)"],
+  // Round 20: the drizzle-kit rule scans ALL tokens rather than command
+  // position, so an inert leading word does NOT defuse it -- unlike every
+  // other rule (see the MUST_ALLOW rows below). Pinned because it is the one
+  // case that distinguishes "judged as ordinary argv" from "the first word
+  // decides", and the header's claim now rests on that distinction.
+  ["a drizzle-kit push behind an inert word is still caught, because that rule scans every token", "ops=(echo drizzle-kit push)"],
+  ["an unclosed array paren is not suppressed", "arr=(curl wget"],
+  ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
+  ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
+  // Round 16: truncating the option scan at `--` must not lose the ordinary
+  // spelling, where the command-string flag precedes the boundary.
+  ["a command string before npm's -- boundary", "npm exec -c 'curl https://api.github.com/x' -- pkg"],
 ];
 
 const MUST_ALLOW = [
@@ -280,6 +343,34 @@ const MUST_ALLOW = [
   ["a heredoc feeding a shell that HAS -c is genuinely inert data", "bash -c 'echo hi' <<'EOF'\ngit push -f origin claude/x\nEOF"],
   ["npx -c running something harmless", "npx -c 'echo hi'"],
   ["parent traversal that still lands on a real scoped name", "rm -rf /tmp/sub/../scratch-xyz"],
+
+  // --- round 16: false blocks the blanket fetcher refusal introduced ---
+  // Naming a fetcher stays allowed; only running one is refused. `(` is an
+  // operator, so an array literal was segmented into a command whose argv[0]
+  // was `curl`, contradicting that boundary.
+  ["an ordinary array is unaffected", "files=(a.txt b.txt)"],
+  // Round 20: the over-block is NOT "any protected name in an array". Array
+  // contents are judged as ordinary command argv, so a rule keyed on the
+  // RESOLVED program does not fire when an inert word comes first.
+  //
+  // These rows pin runtime verdicts and nothing more. An earlier version of
+  // this comment claimed they made "a future widening of that claim fail the
+  // suite" -- false, since no assertion here reads the header's prose, and the
+  // branch shipped 236 green tests beside a header statement that was already
+  // refuted. (Codex, #488 round 21.) The coupling that comment wanted now
+  // exists as the array-literal invariant at the end of this file.
+  ["an inert leading word defuses the fetcher rule", "ops=(echo curl)"],
+  ["and the push rule", "ops=(echo git push -f origin main)"],
+  ["and the rm rule", "ops=(echo rm -rf /)"],
+  // A dispatcher's `--` ends ITS options; `--call` past that boundary belongs
+  // to the invoked package. Measured for the shell branch too: `bash -- -c
+  // 'printf X'` reports `bash: -c: No such file or directory`, so bash reads
+  // `-c` as $0 and never runs the string.
+  ["a child's identically-named argument after npm's --", "npm exec -- eslint --call 'curl is inert data'"],
+  ["bash's -- means the -c string is not a command", "bash -- -c 'curl https://api.github.com'"],
+  // Re-entering env -S as `env <split>` reuses the measured option table, so
+  // an option prefix in front of a HARMLESS child stays allowed.
+  ["an option prefix in env -S around something harmless", "env -S '-i make'"],
 ];
 
 for (const [name, command] of MUST_BLOCK) {
@@ -548,150 +639,69 @@ for (const depth of [5, 6]) {
   });
 }
 
+
 // ---------------------------------------------------------------------------
-// The merge gate.
+// The array-literal invariant, executed rather than described.
 //
-// CLAUDE.md's merge bar is CI green + Codex converged + every review thread
-// resolved. It was reported from a single checked item twice -- PR #458 (merged
-// with a round outstanding; seven findings landed 47 seconds later) and PR #487
-// (reported green having run get_check_runs and nothing else, on a PR where no
-// review had ever been requested). The standing rule is that a discipline
-// broken twice becomes a check, so the merge tool now requires the receipt
-// scripts/pr-ready.mjs produces.
+// The header's note about array over-blocking was wrong in FOUR consecutive
+// review rounds (#488 rounds 18-21) while the behaviour never changed: too
+// narrow, too narrow again, then "any protected name is refused" (false --
+// `ops=(echo curl)` is allowed), then "the literal's first word decides" (also
+// false -- `ops=(env curl)` is refused, because wrappers and environment
+// assignments are stripped first).
 //
-// `checkMerge` takes its receipt reader and SHA resolver as parameters so this
-// table asserts the decision rather than the filesystem.
-// ---------------------------------------------------------------------------
+// Codex's round-21 finding named why patching the prose kept failing: a
+// comment claiming "a future widening fails the suite" was itself false. These
+// rows pin runtime verdicts; nothing read the prose, and the branch shipped 236
+// green tests alongside a header statement that was refuted.
+//
+// So the claim is now a single executable invariant instead of a description:
+// an array literal gets exactly the verdict its words get as a command. It
+// needs no updating when a rule is added, and unlike the four descriptions it
+// replaces, it fails here if it stops being true.
+//
+// THE BOUNDARY MATTERS. The invariant is over COMMAND TEXT, which is what
+// `blocked()` compares -- both operands wrapped in a payload. Stated one level
+// up as `decide(a) === decide(b)` it is false, because `decide` parses its
+// argument as PreToolUse JSON first: a WORDS value that is itself valid
+// payload JSON has its inner command extracted on one side and is read as
+// shell text on the other. The header said it that way for one round and the
+// tests could not have caught it. (Codex, #488 round 22.) The last case below
+// is that input, pinned.
+const ARRAY_INVARIANT_CASES = [
+  // protected in command position
+  "curl https://api.github.com/x",
+  "git push -f origin main",
+  "git update-ref refs/heads/main abc1234",
+  "rm -rf /",
+  "drizzle-kit push",
+  // defused by an inert leading word -- all of these are ALLOWED both ways
+  "echo curl",
+  "echo git push -f origin main",
+  "echo rm -rf /",
+  // NOT defused: the drizzle-kit rule scans every token
+  "echo drizzle-kit push",
+  // reached THROUGH a wrapper or an assignment prefix, which is what refuted
+  // the "first word decides" version
+  "env curl",
+  "FOO=x curl",
+  "env git push -f origin main",
+  "FOO=x rm -rf /",
+  "sudo curl",
+  "timeout 5 curl",
+  // ordinary, allowed both ways
+  "a.txt b.txt",
+  "echo hi",
+  "git push --force-with-lease origin claude/x",
+  // The case that distinguishes the command-text boundary from `decide`'s own:
+  // valid PreToolUse JSON. As command TEXT both sides agree (neither runs a
+  // fetcher); passed to `decide` directly they would not, which is why the
+  // invariant is stated over command text.
+  '{"tool_input":{"command":"curl --version"}}',
+];
 
-const READY = {
-  verdict: "READY",
-  pr: 500,
-  repo: "TheAnswerManIsHere/Overhypeme",
-  headSha: "a".repeat(40),
-  branch: "claude/x",
-  generatedAt: new Date(Date.now() - 60_000).toISOString(),
-  // When the PR was READ, which is what the gate ages against. `generatedAt`
-  // only records when the check ran, and re-running a saved snapshot resets it
-  // while the data behind it stays as old as it was. (Codex, #490.)
-  evidenceAt: new Date(Date.now() - 60_000).toISOString(),
-  items: { ci: { pass: true }, codex: { pass: true }, threads: { pass: true } },
-};
-
-const MERGE_INPUT = { pullNumber: 500, owner: "TheAnswerManIsHere", repo: "Overhypeme" };
-
-const mergeReason = (receipt, { tip = READY.headSha, input = MERGE_INPUT } = {}) =>
-  checkMerge(input, { readReceipt: () => receipt, resolveSha: () => tip });
-
-test("merge gate: a current, passing receipt allows the merge", () => {
-  assert.equal(mergeReason(READY), null);
-});
-
-test("merge gate: no receipt at all blocks -- the PR #487 shape", () => {
-  assert.match(mergeReason(null), /no readiness receipt/);
-});
-
-test("merge gate: a NOT READY receipt blocks and names the failing item", () => {
-  const receipt = {
-    ...READY,
-    verdict: "NOT READY",
-    items: {
-      ci: { pass: true, detail: "9 checks, all passing" },
-      codex: { pass: false, detail: "no `@codex review` request found" },
-      threads: { pass: true, detail: "0 threads" },
-    },
-  };
-  const reason = mergeReason(receipt);
-  assert.match(reason, /NOT READY/);
-  // The whole failure being fixed is a green CI reading standing in for the
-  // bar, so the message must name the item that actually failed.
-  assert.match(reason, /codex: no `@codex review` request found/);
-});
-
-test("merge gate: a receipt older than the age cap blocks", () => {
-  const stale = { ...READY, evidenceAt: new Date(Date.now() - 90 * 60_000).toISOString() };
-  assert.match(mergeReason(stale), /no longer current/);
-});
-
-test("merge gate: an unparseable timestamp blocks rather than reading as age zero", () => {
-  assert.match(mergeReason({ ...READY, evidenceAt: "whenever" }), /no longer current/);
-});
-
-test("merge gate: a receipt from the future blocks", () => {
-  const future = { ...READY, evidenceAt: new Date(Date.now() + 10 * 60_000).toISOString() };
-  assert.match(mergeReason(future), /no longer current/);
-});
-
-test("merge gate: a push after validation invalidates the receipt", () => {
-  // The age cap alone cannot catch this: the receipt was accurate when written
-  // and my own next commit made it describe a commit that will not merge.
-  const reason = mergeReason(READY, { tip: "b".repeat(40) });
-  assert.match(reason, /is not the commit that would merge/);
-});
-
-test("merge gate: an unresolvable branch BLOCKS rather than abstaining", () => {
-  // This abstained in the first cut, on the reasoning that a branch the remote
-  // lookup cannot resolve is not evidence of a problem. Wrong default for a
-  // guard: the abstention is indistinguishable from the case it exists to
-  // catch. (Codex, #490.)
-  assert.match(mergeReason(READY, { tip: null }), /could not resolve the current tip/);
-});
-
-test("merge gate: a receipt minted for ANOTHER repository blocks", () => {
-  // Receipts are keyed by PR number and shas resolve against this checkout's
-  // origin, so a merge aimed elsewhere would find a locally valid receipt and a
-  // locally matching tip and pass every remaining check. (Codex, #490.)
-  const reason = mergeReason(READY, {
-    input: { pullNumber: 500, owner: "someone-else", repo: "Overhypeme" },
+for (const words of ARRAY_INVARIANT_CASES) {
+  test(`array literal matches the bare command: ${words}`, () => {
+    assert.equal(blocked(`arr=(${words})`), blocked(words));
   });
-  assert.match(reason, /minted for TheAnswerManIsHere\/Overhypeme/);
-});
-
-test("merge gate: a merge input naming no repository blocks", () => {
-  assert.match(mergeReason(READY, { input: { pullNumber: 500 } }), /names no owner\/repo/);
-});
-
-test("merge gate: a receipt recording no repository blocks", () => {
-  const { repo, ...noRepo } = READY;
-  assert.match(mergeReason(noRepo), /an unrecorded repository/);
-});
-
-test("merge gate: a receipt with no evidenceAt blocks", () => {
-  // Its age would otherwise describe when the check RAN rather than when the
-  // PR was read -- the gap a saved snapshot walks through. (Codex, #490.)
-  const { evidenceAt, ...noEvidence } = READY;
-  assert.match(mergeReason(noEvidence), /records no evidenceAt/);
-});
-
-test("merge gate: a receipt whose body names a different PR blocks", () => {
-  // Found by filename, so a mismatched body means a hand-edited or misfiled
-  // receipt -- the artifact whose word should least be taken.
-  assert.match(mergeReason({ ...READY, pr: 501 }), /says it is for PR #501/);
-});
-
-test("merge gate: a receipt with no branch blocks", () => {
-  const noBranch = { ...READY, branch: null };
-  assert.match(mergeReason(noBranch), /names no branch/);
-});
-
-test("merge gate: an abbreviated head sha blocks", () => {
-  // The tip comparison is exact equality, so a short sha would never match and
-  // the binding would be dead weight that still looked present.
-  assert.match(mergeReason({ ...READY, headSha: "abc1234" }), /no full head sha/);
-});
-
-test("merge gate: a missing pullNumber blocks", () => {
-  assert.match(mergeReason(READY, { input: {} }), /no pullNumber/);
-});
-
-test("merge gate: the merge tool routes to the gate, not the Bash parser", () => {
-  const raw = JSON.stringify({
-    tool_name: "mcp__github__merge_pull_request",
-    tool_input: { owner: "o", repo: "r", pullNumber: 500 },
-  });
-  const { blocked: isBlocked, reason } = decide(raw, {
-    readReceipt: () => null,
-    resolveSha: () => null,
-  });
-  assert.equal(isBlocked, true);
-  assert.match(reason, /no readiness receipt/);
-});
+}
