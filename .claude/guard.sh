@@ -9,10 +9,14 @@
 # on 2026-08-05. That ruleset is the real control: server-side, applied to every
 # actor, and not dependent on a local regex enumerating every spelling.
 #
-# So this hook does not try to reimplement it. Its one job is to make the LEASE
+# So this hook does not try to reimplement it. Its FIRST job is to make the LEASE
 # MANDATORY on the branches this session owns, because the container is
 # ephemeral: the local reflog dies with it, so an overwritten remote branch has
 # no second copy to recover from.
+#
+# Its SECOND, independent job as of 2026-08-17 is refusing `curl` and `wget`
+# outright -- a different failure mode (silent, not destructive) with no
+# server-side backstop behind it. See docs/ai-context/decisions.md, 2026-08-17.
 #
 # The decision logic lives in scripts/guard-decision.mjs -- next to the repo's
 # other guards, unit-tested in scripts/__tests__/guard-decision.test.mjs, and

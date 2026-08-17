@@ -388,14 +388,22 @@ heredoc delimiter scanner, and an array-assignment suppression. Each was
 locally reasonable, each closed the reported case, and each produced the next
 round's finding.
 
-**Abandoned means the *expansion* was reverted, not that the mechanism is
-gone** — a distinction worth keeping, because the merged file still defines and
-uses both `LOOKS_DESTRUCTIVE` and an identifier-shaped `HEREDOC_RE`. What was
-deleted in those two cases is the attempt to make them general: widening the
+**Abandoned does not uniformly mean deleted, and the split is 3 / 2.** Three
+were removed outright: curl's option grammar (`isGitHubApiUrl` and the whole
+`rest.some(...)` argument-inspection branch, gone from the merged file — zero
+occurrences remain), the probe exception, and the array suppression. Two
+survive in their original, deliberately incomplete form with their gaps
+recorded — `LOOKS_DESTRUCTIVE` and an identifier-shaped `HEREDOC_RE` — and what
+was abandoned there is only the attempt to make them *general*: widening the
 regex to cover fetchers, and replacing the delimiter class with a full scanner.
-Both survive in their original, deliberately incomplete form, with their gaps
-recorded. Only the probe exception and the array suppression were removed
-outright.
+
+That distinction is worth the sentence because it cuts both ways for a
+maintainer. "All five were deleted" sends them looking for code that is plainly
+still there; "none were deleted" implies the enumerations were merely paused.
+And the direction matters for a guard specifically: **refusing the class means
+stop trying to complete a mechanism, not delete every mechanism that partially
+works** — the second reading is a licence to remove protective code, which is
+the one direction this module must never move in.
 
 **Three signals that you are in this situation rather than the ordinary one:**
 

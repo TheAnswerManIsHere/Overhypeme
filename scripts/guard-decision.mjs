@@ -15,12 +15,23 @@
  *      and catches spellings a local hook cannot be trusted to enumerate.
  *   3. This hook.
  *
- * So this hook does NOT try to be GitHub's ruleset. Its one job is to make the
- * LEASE MANDATORY on the branches this session owns. That matters more here
+ * So this hook does NOT try to be GitHub's ruleset. Its FIRST job is to make
+ * the LEASE MANDATORY on the branches this session owns. That matters more here
  * than on a normal machine: the container is ephemeral, so the local reflog
  * dies with it and an overwritten remote branch has no second copy to recover
  * from. `--force-with-lease` refuses when the remote moved since the last
  * fetch, which is exactly the "something I have not seen is up there" case.
+ *
+ * IT HAS A SECOND, INDEPENDENT JOB AS OF 2026-08-17: refusing `curl` and
+ * `wget` outright. That one exists for a different reason — a SILENT failure
+ * (api.github.com returns a 403 whose body a `grep` finds nothing in, so a
+ * wait loop built on it sleeps forever without erroring) rather than a
+ * destructive one — and, unlike the lease rule, it is backstopped by nothing.
+ * This header said "one job" for a while after that shipped, which is the
+ * source-of-truth contradiction the decision log's supersession exists to
+ * resolve. See `docs/ai-context/decisions.md`, 2026-08-17, and the
+ * `FETCHER_REFUSAL` block below for the full reasoning and its gap register.
+ * (Codex, #499 round 2.)
  *
  * POSTURE
  * -------
@@ -1119,8 +1130,17 @@ const FETCHER_REFUSAL =
  * ended it -- **an emergent behaviour should be stated as an invariant that
  * can be executed, not as a description that has to be maintained.** The four
  * failed versions were all descriptions of what eight independent rules
- * happen to do. The invariant above is one line, needs no updating when a rule
- * is added, and is pinned as a test that runs it against the bare command.
+ * happen to do. The invariant above is one line, stays TRUE as rules are
+ * added, and is pinned as a test that runs it against the bare command.
+ *
+ * ITS COVERAGE IS NOT SELF-UPDATING, THOUGH, and an earlier version of this
+ * sentence said it was -- which is the same false assurance this whole note is
+ * about. `ARRAY_INVARIANT_CASES` is a hand-curated list, so a new rule whose
+ * inputs are not represented in it can behave differently inside an array with
+ * every invariant test green. **Adding a rule means adding a representative
+ * case**, or deriving the list from the rule set instead of curating it. An
+ * invariant narrows what can drift from "a paragraph" to "the sample"; it does
+ * not eliminate drift. (Codex, #488 round 21 and #499 round 2.)
  *
  * It is deliberate: the suppression written to allow these opened a fail-open
  * in each of its two versions (substitutions with no `$`, then integer-array

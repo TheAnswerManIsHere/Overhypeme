@@ -655,9 +655,17 @@ for (const depth of [5, 6]) {
 // green tests alongside a header statement that was refuted.
 //
 // So the claim is now a single executable invariant instead of a description:
-// an array literal gets exactly the verdict its words get as a command. It
-// needs no updating when a rule is added, and unlike the four descriptions it
-// replaces, it fails here if it stops being true.
+// an array literal gets exactly the verdict its words get as a command. Unlike
+// the four descriptions it replaces, it fails here if it stops being true.
+//
+// BUT THE CASE LIST BELOW IS HAND-CURATED, so the coverage does NOT update
+// itself. A new rule whose inputs aren't represented here can behave
+// differently inside an array with every one of these green. **If you add a
+// rule to guard-decision.mjs, add a case here** -- or derive this list from the
+// rule set instead of maintaining it by hand. An earlier version of this
+// comment claimed the invariant "needs no updating when a rule is added,"
+// which was the same false assurance the block above warns about, two
+// paragraphs after warning about it. (Codex, #499 round 2.)
 //
 // THE BOUNDARY MATTERS. The invariant is over COMMAND TEXT, which is what
 // `blocked()` compares -- both operands wrapped in a payload. Stated one level
