@@ -2017,9 +2017,33 @@ its exceptions or being escaped at will.
 time.** It is **mandated** where the contract says so (the four structural
 triggers, the stopping-rule pass, the blind ledger pass, the `/document`
 run/don't-run verdict). It is **barred** where the contract says so — today
-that is the **`/handoff` verdict** and the **`/document` harvest**, both
-pre-registered in their own skills. **Adding or removing a bar is a contract
-change that ships in a PR David merges, never a call I make mid-task.**
+the **`/handoff` verdict**, the **`/document` harvest**, and **`/fp-check`'s
+Impact Assessment, Devil's Advocate and Gate Review**, each pre-registered in
+its own skill. **Adding or removing a bar is a contract change that ships in a
+PR David merges, never a call I make mid-task.**
+
+**THE LIST ABOVE IS NOT EXHAUSTIVE, AND MUST NOT BE READ AS IF IT WERE.** The
+first version of this section presented it as a complete registry; Codex found
+a missing bar (`/fp-check`), an unclassified surface (`/maintenance`'s triage
+judgements) and a stale sibling in `AGENTS.md` **within the same review round**.
+That is this repo's oldest lesson arriving in my own contract: an enumeration
+over an open set — every judgement surface in every skill, present and future —
+cannot be completed, and claiming completeness is what makes the gaps
+dangerous rather than merely present.
+
+**So the completeness claim is replaced by a DEFAULT**, which is what makes
+the rule total without lying:
+
+> **An unclassified judgement does not dispatch.** It runs in my main loop, and
+> encountering one is a signal to classify it in a PR — not to decide its
+> classification in the moment.
+
+That fails in the safe direction: a surface nobody has written a bar for
+(as `/fp-check`'s was, for months) can never be dispatched by default, so an
+unwritten bar cannot be broken by a rule that never knew about it. **It costs
+nothing against David's instruction**, because the always-Fable rule governs
+*which model a dispatch uses*, never *whether one happens* — every dispatch
+that does occur is still Fable.
 
 **Why a pre-registered bar and not a test I apply at dispatch time.** My first
 draft said a judgement dispatches when it is "genuinely handoff-able" — which
@@ -2031,13 +2055,26 @@ so a "needs my context" test swallows the paradigm case the rule was built
 around. A rule whose plain reading excludes its own model case is a loophole,
 not a boundary. (Adversarial Fable subagent, #504.)
 
-**What actually distinguishes the two barred cases is function, not context
-dependence** — both are context-dependent. An adjudication packages a
-**drafted verdict plus its evidence** for independent challenge. The `/handoff`
-verdict and the `/document` harvest are **enumeration from memory**: you cannot
-package what you have not yet noticed, and noticing *is* the task. That
-distinction is checkable from the artifact — is there a dispatch package with a
-decision already in it? — rather than from a claim about what I felt I needed.
+**What actually distinguishes a barred case is function, not context
+dependence** — barred and mandated cases alike are context-dependent. An
+adjudication **renders a verdict on material that can be packaged**, in one of
+two shapes: *challenging a drafted verdict* (the structural triggers, the
+stopping-rule pass) or *classifying material de novo* (the blind ledger pass).
+The bars are **enumeration from memory**: you cannot package what you have not
+yet noticed, and noticing *is* the task.
+
+**The "de novo" half is load-bearing and was missing from the first draft.** I
+wrote that an adjudication packages "a drafted verdict plus its evidence" —
+which excludes the **blind ledger pass**, whose entire value is that my
+classifications are *withheld* from it. Under that wording the mandated blind
+pass was either disqualified or pressured toward leaking the classifications
+into its package, destroying the blindness it exists for. (Codex, #504 round
+2.) The test is *can the material be packaged*, not *does the package contain
+my conclusion*.
+
+That is still checkable from the artifact rather than from a claim about what I
+felt I needed — the question is whether a package can be assembled at all,
+which for an enumeration-from-memory task it cannot.
 
 **A corollary that bites, and is meant to.** Because the bar is functional
 rather than by-skill, a **controller declining a reviewer subagent's finding**

@@ -12,6 +12,17 @@ are retired in both directions; see `CLAUDE.md`'s *Token / cost discipline*).
 Bounded, stateless pieces of the pass — a research sweep, a self-contained
 lookup — are eligible for a Sonnet subagent; the triage judgements are not.
 
+**The triage judgements are explicitly UNCLASSIFIED for dispatch, which under
+`CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* means they
+run in the main loop** — the default for anything neither mandated nor barred.
+This line previously excluded them from *Sonnet* delegation without saying
+anything about Fable, leaving them undefined once the always-Fable rule landed
+(Codex, #504 round 2). Stated rather than left implicit: if a maintenance
+triage judgement should dispatch, that is a contract change and ships in a PR.
+**The blind loop-ledger adjudication run during this pass is different** — it
+is a standing mandate and dispatches to Fable, per `CLAUDE.md`'s loop-ledger
+section.
+
 The deliverable is one concise report at the end covering the seven areas
 below. If an area has nothing to report, one line ("no open dependency
 PRs") — the discipline stays visible, the report stays short.

@@ -148,9 +148,10 @@ immediate targeted persistence):
   the pass **without asking**. This trigger has to be named here because this
   file is the always-loaded entrypoint: a grant that exists only in the
   workflow doc never fires, since nothing routes an agent there absent a
-  request. Enactment detail — the tier guard on the judgement, and the rule
-  that the harvest itself never runs in a subagent — is each agent's own
-  (Claude Code's is in `CLAUDE.md`).
+  request. Enactment detail — how the judgement is made, and the rule that the
+  harvest itself never runs in a subagent — is each agent's own (Claude Code's
+  is in `CLAUDE.md`; as of 2026-08-17 the judgement dispatches unconditionally
+  to Fable and the tier guard that used to sit here is retired).
 
 **Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
 has a GitHub issue as its spine, tracked on a private Project board and kept
