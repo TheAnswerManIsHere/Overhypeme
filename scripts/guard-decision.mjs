@@ -233,7 +233,20 @@ const MAX_NESTED_SHELL_DEPTH = 4;
  */
 const TRANSPARENT_WRAPPERS = new Set([
   "command", "env", "exec", "sudo", "nice", "nohup", "stdbuf", "ionice", "time",
+  // `timeout --help`: `timeout [OPTION] DURATION COMMAND [ARG]...`. It starts
+  // COMMAND, so it is as transparent as `nice`. It was missing, and
+  // `timeout 30 curl <url>` is the ONE shape in round 6 I might plausibly have
+  // typed by accident -- it is the natural spelling of a CI wait. (Codex, #488.)
+  "timeout",
 ]);
+
+/**
+ * Positional arguments a wrapper consumes before the command it runs.
+ *
+ * `timeout` is the only one so far: its DURATION is not flag-shaped, so
+ * without this the resolver reads `30` as the program name.
+ */
+const WRAPPER_POSITIONALS = { timeout: 1 };
 
 /** A leading `NAME=value` word is an environment assignment, not a program. */
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -249,7 +262,10 @@ const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
  */
 const WRAPPER_BARE_FLAGS = {
   env: new Set(["-i", "-0", "--ignore-environment", "--null"]),
-  command: new Set(["-p", "-v", "-V"]),
+  // `-v`/`-V` are NOT here: `help command` documents them as printing a
+  // description rather than running anything, so `command -v curl` is a query
+  // and must not be judged as an invocation. See QUERY_ONLY_FLAGS.
+  command: new Set(["-p"]),
   // `help exec` documents `exec [-cl] [-a name] [command [argument ...]]`.
   exec: new Set(["-c", "-l", "-cl", "-lc"]),
 };
@@ -265,7 +281,24 @@ const WRAPPER_VALUE_FLAGS = {
   env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
   // `exec -a name command` substitutes argv0 and then runs `command`.
   exec: new Set(["-a"]),
+  // `sudo --help` documents these as taking a value. Without them the
+  // fail-closed sweep read `sudo -p curl true`'s prompt STRING as a program
+  // and refused a command that runs `true`. (Codex, #488 round 6.)
+  sudo: new Set([
+    "-p", "--prompt", "-u", "--user", "-g", "--group", "-C", "--close-from",
+    "-h", "--host", "-r", "--role", "-t", "--type", "-U", "--other-user",
+  ]),
+  timeout: new Set(["-s", "--signal", "-k", "--kill-after"]),
 };
+
+/**
+ * Wrapper flags that make the wrapper REPORT on a command instead of running
+ * it. `help command` documents `-v`/`-V` as printing a description, and a
+ * `command -v curl` run prints `/usr/bin/curl` without executing it -- so
+ * promoting `curl` to `program` and refusing was a false block introduced by
+ * the blanket rule. (Codex, #488 round 6.)
+ */
+const QUERY_ONLY_FLAGS = { command: new Set(["-v", "-V"]) };
 
 /**
  * Peel off constructs Bash resolves before dispatching to a program: leading
@@ -293,6 +326,10 @@ function resolveRealCommand(argv) {
     if (TRANSPARENT_WRAPPERS.has(bare)) {
       const bareFlags = WRAPPER_BARE_FLAGS[bare] ?? new Set();
       const valueFlags = WRAPPER_VALUE_FLAGS[bare] ?? new Set();
+      const queryFlags = QUERY_ONLY_FLAGS[bare];
+      // A query mode names a command without running it, so the wrapper IS
+      // the command and nothing should be promoted out of it.
+      if (queryFlags && argv.slice(i + 1).some((t) => queryFlags.has(t))) break;
       let next = i + 1;
       while (next < argv.length) {
         if (bareFlags.has(argv[next])) {
@@ -306,6 +343,8 @@ function resolveRealCommand(argv) {
         break;
       }
       if (argv[next] === "--") next += 1;
+      // Skip the wrapper's own positional arguments (timeout's DURATION).
+      next += WRAPPER_POSITIONALS[bare] ?? 0;
       if (next < argv.length && !argv[next].startsWith("-")) {
         i = next;
         continue;
@@ -931,6 +970,11 @@ const FETCHER_REFUSAL =
 function reachesFetcher(program, argv) {
   if (HTTP_FETCHERS.has(program)) return true;
   if (!TRANSPARENT_WRAPPERS.has(program)) return false;
+  // A query mode names a command without running it, so the sweep must not
+  // fire either -- otherwise `command -v curl` is refused by the fallback
+  // after the resolver correctly declined to promote it. (Codex, #488 round 6.)
+  const queryFlags = QUERY_ONLY_FLAGS[program];
+  if (queryFlags && argv.some((t) => queryFlags.has(t))) return false;
   return argv.some((t) => HTTP_FETCHERS.has(t.split("/").pop()));
 }
 
@@ -969,8 +1013,21 @@ function findCommandStringDispatch(program, rest) {
     return rest.length ? rest.join(" ") : null;
   }
   if (program === "npx" || (program === "npm" && rest[0] === "exec")) {
-    const cIndex = rest.indexOf("-c");
-    return cIndex !== -1 && typeof rest[cIndex + 1] === "string" ? rest[cIndex + 1] : null;
+    // `npm exec --help` lists `[-c|--call <call>]`; only `-c` was recognised,
+    // so `npx --call 'curl ...'` dispatched unseen. (Codex, #488 round 6.)
+    const cIndex = rest.findIndex((t) => t === "-c" || t === "--call");
+    if (cIndex !== -1 && typeof rest[cIndex + 1] === "string") return rest[cIndex + 1];
+    const attached = rest.find((t) => t.startsWith("--call="));
+    return attached ? attached.slice("--call=".length) : null;
+  }
+  // `env --help`: `-S, --split-string=S` "process and split S into separate
+  // arguments". Its value is a command line, not inert option data, so it is
+  // re-entered like any other command string. (Codex, #488 round 6.)
+  if (program === "env") {
+    const sIndex = rest.findIndex((t) => t === "-S" || t === "--split-string");
+    if (sIndex !== -1 && typeof rest[sIndex + 1] === "string") return rest[sIndex + 1];
+    const attached = rest.find((t) => t.startsWith("--split-string=") || /^-S./.test(t));
+    if (attached) return attached.startsWith("--") ? attached.slice("--split-string=".length) : attached.slice(2);
   }
   return null;
 }
@@ -1129,7 +1186,7 @@ export function extractCommand(raw) {
  * safety net just moved it.
  */
 const LOOKS_DESTRUCTIVE =
-  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push/;
+  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push|(?:^|[\s;&|(])(?:curl|wget)\s/;
 
 /**
  * Matches one heredoc block: group 1 is the opener token plus anything

@@ -161,6 +161,19 @@ const MUST_BLOCK = [
   // membership test never saw the fetcher.
   ["round 5: exec -a substitutes argv0 and still runs curl", "exec -a fetch /usr/bin/curl https://api.github.com/rate_limit"],
   ["the same wrapper without the flag", "exec /usr/bin/curl https://api.github.com/rate_limit"],
+
+  // Round 6: programs that DISPATCH to a fetcher. `timeout` is the one of
+  // these I might plausibly have typed by accident -- it is the natural
+  // spelling of a CI wait, which is the mistake this whole rule exists for.
+  ["round 6: timeout starts COMMAND after its DURATION", "timeout 30 curl https://api.github.com/rate_limit"],
+  ["with an option before the duration", "timeout -k 5 30 curl https://api.github.com/x"],
+  ["round 6: env -S splits its value into a command line", "env -S 'curl https://api.github.com/rate_limit'"],
+  ["the attached spelling of the same", "env -Scurl https://api.github.com/x"],
+  ["round 6: npx --call, the long spelling of -c", "npx --call 'curl https://api.github.com/x'"],
+  ["npm exec --call likewise", "npm exec --call 'curl https://api.github.com/x'"],
+  // Round 6: a heredoc delimiter outside the identifier grammar makes
+  // tokenising throw, so only the conservative fallback sees this text.
+  ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
 ];
 
 const MUST_ALLOW = [
@@ -176,6 +189,14 @@ const MUST_ALLOW = [
   // script that runs curl internally is untouched. That is what keeps the
   // blanket refusal cheap: these were the only real curl uses in the repo.
   ["a script that runs curl internally", "bash scripts/phase5-og-smoke.sh"],
+
+  // Round 6 also found two FALSE BLOCKS that the refusal and its wrapper
+  // sweep had introduced. Both are pinned, because a guard that refuses
+  // ordinary work gets worked around rather than obeyed.
+  ["command -v names a program without running it", "command -v curl"],
+  ["sudo -p's value is a prompt string, not a program", "sudo -p curl true"],
+  ["timeout wrapping something that is not a fetcher", "timeout 90 bash -c 'pnpm test'"],
+  ["sudo -u's value is a username", "sudo -u postgres psql"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
