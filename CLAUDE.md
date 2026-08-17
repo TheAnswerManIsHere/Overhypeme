@@ -1126,11 +1126,26 @@ verification — is post-merge for the same structural reason.
    goes to David** — it does not go back to accepting the inference.
 
    `pr-ready.mjs` computes all of this: it requires a request, requires a
-   completed pass carrying the announcement, requires that pass to cover
-   the head commit, and requires **one pass per request made since that
-   commit appeared** — because nothing in GitHub's data ties a review to
-   the request that triggered it, so two requests on one head (a stalled
-   round plus its retry) cannot be told apart by their answers.
+   completed pass carrying the announcement, and requires that pass to
+   cover the head commit.
+
+   **What it does NOT enforce, stated here because I would otherwise quote
+   the receipt as a guarantee it does not make (Codex, #490 round 6).** An
+   earlier version of this paragraph said the script also requires *one
+   pass per request made since that commit appeared*. That rule was written
+   and then **split out** of the PR, so the claim outlived the code by one
+   commit. The gap it was closing is real and still open: `pr-watch` permits
+   one retry when a round produces no review, and that retry needs no push,
+   so two requests can name the same commit and a single pass answering the
+   first satisfies the check for both. Nothing in GitHub's data ties a
+   review to the request that triggered it, which is why counting is the
+   only way to tell those apart — and why the rule is hard enough to get
+   right that it went three review rounds without converging. It lives on
+   `claude/receipt-request-counting`, and `checkCodex` carries the same
+   disclosure at the point where it used to sit. **So a receipt proves a
+   review came back for this commit; it does not prove every requested
+   round did.** When I have retried a stalled round, that is mine to check
+   by eye.
 
    **Why this is a check and not another undertaking:** the bar has been
    reported from a single checked item **twice**. PR #458 merged with a

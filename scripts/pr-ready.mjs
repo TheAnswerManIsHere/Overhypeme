@@ -231,6 +231,33 @@ export function assertSnapshot(snapshot, prNumber) {
   if (typeof pr.head?.ref !== "string" || pr.head.ref.trim() === "") {
     throw fail('snapshot.pr.head.ref is required -- without it the merge gate cannot bind the receipt to a tip');
   }
+  // WHICH repository the head branch lives in. `remoteTip` resolves it through
+  // `origin`, which is the BASE repo, so a fork PR's head is somewhere origin
+  // cannot see. Two ways that goes wrong and neither announces itself: the
+  // lookup usually returns null and blocks a ready PR permanently, and a fork
+  // branch sharing a name with one of ours resolves an unrelated tip. So a fork
+  // head is refused HERE, at capture, with a message that says what happened.
+  // (Codex, #490 round 6.)
+  //
+  // Refusing rather than resolving is a scope decision, not a limitation I
+  // failed to notice: supporting forks means resolving against an arbitrary
+  // remote URL, and this gate exists to stop ME merging my own PRs without the
+  // bar. Every PR in this repo is a same-repo `claude/*` branch. If that ever
+  // changes, this message is where the work starts.
+  if (typeof pr.head?.repo !== "string" || !/^[^/\s]+\/[^/\s]+$/.test(pr.head.repo)) {
+    throw fail(
+      'snapshot.pr.head.repo must be "owner/name" (pull_request_read method:"get", head.repo.full_name) ' +
+        "-- it is what distinguishes a same-repo head from a fork's",
+    );
+  }
+  if (pr.head.repo.toLowerCase() !== snapshot.repo.toLowerCase()) {
+    throw fail(
+      `this PR's head is in ${pr.head.repo}, not ${snapshot.repo}. The merge gate resolves the branch ` +
+        "tip through `origin`, which is the base repository, so a fork head cannot be bound to a receipt " +
+        "and must not be waved through by one. Fork PRs are outside this gate's scope -- merge one by hand " +
+        "after checking the bar, or extend remoteTip to resolve against the head repository.",
+    );
+  }
   const complete = snapshot.complete ?? {};
   const capturedAt = snapshot.capturedAt ?? {};
   for (const key of Object.keys(MCP_METHOD_FOR)) {
@@ -675,6 +702,16 @@ const REMOTE_TIP_TIMEOUT_MS = 8000;
 /**
  * The branch's tip as the REMOTE reports it. `git rev-parse` would answer from
  * this checkout, which cannot know what GitHub would merge.
+ *
+ * `origin` IS THE AUTHORITY ONLY FOR SAME-REPO HEADS, which is why the receipt
+ * refuses to be minted for a fork PR rather than resolving one here. `git
+ * ls-remote`'s positional is a repository, so a fork's head branch lives
+ * somewhere `origin` cannot see: the lookup normally returns null and blocks an
+ * otherwise-ready PR forever, and a fork branch that happens to share a name
+ * with one of ours (`main` is the common case) resolves an unrelated tip
+ * instead. (Codex, #490 round 6.) The refusal is in `assertSnapshot`, at
+ * capture time, so the failure is one explicit message rather than a confusing
+ * unresolvable-tip denial an hour later.
  */
 export function remoteTip(branch) {
   if (typeof branch !== "string" || branch.trim() === "") return null;

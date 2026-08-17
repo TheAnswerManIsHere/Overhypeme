@@ -413,7 +413,10 @@ const LATER = "2026-08-17T05:00:00Z";
 const NOW = Date.parse("2026-08-17T05:05:00Z");
 const goodSnapshot = () => ({
   repo: "TheAnswerManIsHere/Overhypeme",
-  pr: { number: 500, head: { sha: HEAD, ref: "claude/x", committedAt: "2026-08-17T03:30:00Z" } },
+  pr: {
+    number: 500,
+    head: { sha: HEAD, ref: "claude/x", repo: "TheAnswerManIsHere/Overhypeme" },
+  },
   capturedAt: { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER },
   checkRuns: allRequired(),
   reviewThreads: [],
@@ -431,6 +434,34 @@ test("snapshot: a well-formed snapshot validates and evaluates READY", () => {
   assert.equal(receipt.branch, "claude/x");
   assert.equal(receipt.repo, "TheAnswerManIsHere/Overhypeme");
   assert.equal(Date.parse(receipt.evidenceAt), Date.parse(LATER));
+});
+
+test("snapshot: a fork head is refused rather than resolved through origin", () => {
+  // `remoteTip` resolves through `origin`, which is the BASE repo. A fork
+  // head lives elsewhere, so the lookup either finds nothing (blocking a ready
+  // PR forever) or -- when the fork's branch shares a name with one of ours --
+  // resolves an unrelated tip. Refused at capture, with a message that says
+  // so, rather than surfacing as an unresolvable tip an hour later.
+  // (Codex, #490 round 6.)
+  const snap = goodSnapshot();
+  snap.pr.head.repo = "someone-else/Overhypeme";
+  assert.throws(() => assertSnapshot(snap, 500), /head is in someone-else\/Overhypeme/);
+});
+
+test("snapshot: a missing head repo is rejected, not assumed to be ours", () => {
+  // Assuming would make the fork check pass by absence -- the shape of failure
+  // this whole file exists to stop.
+  const snap = goodSnapshot();
+  delete snap.pr.head.repo;
+  assert.throws(() => assertSnapshot(snap, 500), /head\.repo/);
+});
+
+test("snapshot: the head repo comparison ignores case", () => {
+  // GitHub treats owner and repo names case-insensitively, so a capture that
+  // differs only in case is the same repository, not a fork.
+  const snap = goodSnapshot();
+  snap.pr.head.repo = "theanswermanishere/overhypeme";
+  assert.doesNotThrow(() => assertSnapshot(snap, 500));
 });
 
 test("snapshot: a missing or malformed repo is rejected", () => {
