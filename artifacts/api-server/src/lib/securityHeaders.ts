@@ -40,20 +40,7 @@
  */
 import helmet from "helmet";
 import type { Request, RequestHandler } from "express";
-
-/**
- * Canonical production predicate — mirrors lib/siteUrl.ts.
- *
- * Exported so boot-time assertions can gate on the SAME expression rather than
- * writing a fourth copy of it. `lib/siteUrl.ts` and `lib/devAdminLogin.ts` still
- * carry their own inline copies; consolidating those is tracked separately in
- * `docs/engineering/deferred-work.md` rather than done here, since rewriting the
- * predicate in two security-critical modules is a bigger change than the
- * assertion that needed it.
- */
-export function isProductionEnv(): boolean {
-  return process.env.REPLIT_DEPLOYMENT === "1" || process.env.NODE_ENV === "production";
-}
+import { isProductionEnv } from "./env";
 
 // The OG shells are the only HTML documents this server emits; they carry an
 // <img> (same-origin render or a legacy R2/Cloudinary/GCS CDN URL) and NO

@@ -25,7 +25,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-import { assertIpSaltConfigured } from "../lib/transientRenderLog.js";
+import { assertIpSaltConfigured } from "../lib/ipSalt.js";
 
 const ENV_KEYS = ["IP_HASH_SALT", "REPLIT_DEPLOYMENT", "NODE_ENV"] as const;
 
@@ -131,34 +131,32 @@ describe("assertIpSaltConfigured", () => {
   });
 });
 
+
 /**
  * The wiring, not the helper.
  *
  * Every case above calls `assertIpSaltConfigured()` directly, so all of them
- * still pass if the call in `index.ts` is deleted or moved below `listen()` —
- * which is precisely the regression that matters: the helper exists, the suite
- * is green, and production boots with the public fallback salt anyway.
+ * still pass if the entrypoint never invokes it — the regression where the
+ * helper exists, the suite is green, and production boots with the public
+ * fallback salt anyway.
  *
- * This is a static check rather than an execution probe because importing
- * `index.ts` boots the real server — it runs migrations, binds a port, and
- * starts the async-jobs worker — so "exercise the entrypoint" is not available
- * to a unit test here. Reading the entrypoint's AST answers the same question
- * the execution probe would: is the assertion a top-level statement, and does
- * it precede the first statement that can accept traffic or touch the database?
+ * **Why the wiring is an IMPORT and not a call.** ES module imports are all
+ * evaluated before the importing module's first statement runs, so a call at
+ * the top of `index.ts` executes *after* every module it imports. That is not
+ * theoretical here: in the production bundle `lib/db/src/migrate.ts` is folded
+ * into `dist/index.mjs`, where its `process.argv[1] === fileURLToPath(
+ * import.meta.url)` CLI guard is TRUE, so it opens a pool during module
+ * evaluation. Running the built bundle with an unreachable database proved it —
+ * the process died on ECONNREFUSED from `migrate.ts` and never reached a
+ * statement-form assertion. So the check lives in `lib/bootChecks.ts`, imported
+ * for its side effect ahead of the database-backed graph.
  *
- * **Why checking source is sufficient for what actually ships.** Production runs
- * `dist/index.mjs`, not this file, so a source-order check is only meaningful if
- * the bundler preserves that order. Verified against a real build: `build.mjs`
- * runs esbuild with `bundle: true` and **no** `minify`, and a bare call whose
- * result is unused is a side effect esbuild will not tree-shake, so
- * `assertIpSaltConfigured()` survives at the head of the bundle, ahead of
- * `runMigrations()`, `ensureSchema()`, `app.listen()` and
- * `runAsyncJobsWorker()`. **Residual limit:** turning on `minify`, annotating
- * the call as side-effect-free (esbuild's pure-call annotation), or moving
- * production off this entrypoint would make the source and the shipped artifact
- * diverge without failing this test.
+ * These cases pin that arrangement from two directions: the module really does
+ * throw at import time (executed), and `index.ts` really does import it early
+ * enough (static). Neither alone is sufficient — the first can't see the
+ * entrypoint, and the second can't see evaluation semantics.
  */
-describe("index.ts boot wiring for assertIpSaltConfigured", () => {
+describe("boot wiring: the assertion runs before the database graph loads", () => {
   const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "index.ts");
   const source = ts.createSourceFile(
     indexPath,
@@ -167,80 +165,88 @@ describe("index.ts boot wiring for assertIpSaltConfigured", () => {
     true,
   );
 
-  /** True when `node` (or anything under it) calls the named function. */
-  function callsFunction(node: ts.Node, name: string): boolean {
-    let found = false;
-    const visit = (n: ts.Node): void => {
-      if (found) return;
-      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name) {
-        found = true;
-        return;
-      }
-      ts.forEachChild(n, visit);
-    };
-    visit(node);
-    return found;
-  }
+  /** Module specifiers of `index.ts`'s imports, in declaration order. */
+  const importSpecifiers: string[] = source.statements
+    .filter(ts.isImportDeclaration)
+    .map((s) => (ts.isStringLiteral(s.moduleSpecifier) ? s.moduleSpecifier.text : ""));
 
-  /** Index of the first top-level statement matching `pred`, or -1. */
-  function topLevelIndex(pred: (s: ts.Statement) => boolean): number {
-    return source.statements.findIndex(pred);
-  }
+  describe("bootChecks throws at import time, not at call time", () => {
+    let saved: Record<string, string | undefined>;
 
-  it("imports the assertion from lib/transientRenderLog", () => {
-    const imported = source.statements.some((s) => {
-      if (!ts.isImportDeclaration(s) || !ts.isStringLiteral(s.moduleSpecifier)) return false;
-      if (!s.moduleSpecifier.text.includes("transientRenderLog")) return false;
-      const bindings = s.importClause?.namedBindings;
-      if (!bindings || !ts.isNamedImports(bindings)) return false;
-      return bindings.elements.some((e) => e.name.text === "assertIpSaltConfigured");
+    beforeEach(() => {
+      saved = {};
+      for (const k of ENV_KEYS) saved[k] = process.env[k];
     });
-    assert.equal(imported, true, "index.ts must import assertIpSaltConfigured");
-  });
 
-  it("calls it as a top-level statement, not inside a function or a conditional", () => {
-    const idx = topLevelIndex(
-      (s) =>
-        ts.isExpressionStatement(s) &&
-        ts.isCallExpression(s.expression) &&
-        ts.isIdentifier(s.expression.expression) &&
-        s.expression.expression.text === "assertIpSaltConfigured",
-    );
-    assert.notEqual(
-      idx,
-      -1,
-      "assertIpSaltConfigured() must be a bare top-level call in index.ts — " +
-        "wrapping it in a function or an `if` means it may never run at boot",
-    );
-  });
+    afterEach(() => {
+      for (const k of ENV_KEYS) {
+        const v = saved[k];
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
 
-  it("calls it before migrations, before listen(), and before the jobs worker", () => {
-    const assertionIdx = topLevelIndex(
-      (s) =>
-        ts.isExpressionStatement(s) &&
-        ts.isCallExpression(s.expression) &&
-        ts.isIdentifier(s.expression.expression) &&
-        s.expression.expression.text === "assertIpSaltConfigured",
-    );
-    assert.notEqual(assertionIdx, -1);
-
-    // Each of these is a point of no return: after it the process has touched
-    // the database, accepted a request, or started hashing IPs for real.
-    const gates: Array<[string, (s: ts.Statement) => boolean]> = [
-      ["runMigrations()", (s) => callsFunction(s, "runMigrations")],
-      ["ensureSchema()", (s) => callsFunction(s, "ensureSchema")],
-      ["app.listen()", (s) => /\.listen\s*\(/.test(s.getText(source))],
-      ["runAsyncJobsWorker()", (s) => callsFunction(s, "runAsyncJobsWorker")],
-    ];
-
-    for (const [label, pred] of gates) {
-      const idx = topLevelIndex(pred);
-      assert.notEqual(idx, -1, `expected to find the ${label} boot step in index.ts`);
-      assert.ok(
-        assertionIdx < idx,
-        `assertIpSaltConfigured() must run before ${label} (found at statement ` +
-          `${assertionIdx}, ${label} at ${idx})`,
+    it("rejects the import in production with no salt", async () => {
+      setEnv({ REPLIT_DEPLOYMENT: "1", NODE_ENV: undefined, IP_HASH_SALT: undefined });
+      // Cache-busting query so each case gets a fresh module evaluation.
+      await assert.rejects(
+        () => import(`../lib/bootChecks.js?case=missing-${Date.now()}`),
+        /IP_HASH_SALT is required in production/,
       );
-    }
+    });
+
+    it("resolves the import in production with a usable salt", async () => {
+      setEnv({ REPLIT_DEPLOYMENT: "1", NODE_ENV: undefined, IP_HASH_SALT: GOOD_SALT });
+      await assert.doesNotReject(() => import(`../lib/bootChecks.js?case=ok-${Date.now()}`));
+    });
+
+    it("resolves the import outside production with no salt", async () => {
+      setEnv({ REPLIT_DEPLOYMENT: "0", NODE_ENV: "development", IP_HASH_SALT: undefined });
+      await assert.doesNotReject(() => import(`../lib/bootChecks.js?case=dev-${Date.now()}`));
+    });
+  });
+
+  describe("index.ts imports it before anything that can reach the database", () => {
+    it("imports lib/bootChecks at all", () => {
+      assert.ok(
+        importSpecifiers.some((m) => m.includes("bootChecks")),
+        "index.ts must import ./lib/bootChecks for its side effect",
+      );
+    });
+
+    it("imports it as a bare side-effect import, with no bindings", () => {
+      const decl = source.statements
+        .filter(ts.isImportDeclaration)
+        .find((s) => ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text.includes("bootChecks"));
+      assert.ok(decl);
+      assert.equal(
+        decl.importClause,
+        undefined,
+        "bootChecks must be imported for its side effect (`import \"./lib/bootChecks.js\"`) — " +
+          "importing a binding from it invites someone to 'tidy up' the unused import",
+      );
+    });
+
+    it("imports it second, after ./instrument only", () => {
+      // ./instrument must stay first so Sentry patches modules as they load.
+      // Everything else must come after bootChecks, because any of them can
+      // pull in @workspace/db — whose evaluation opens a pool and, in the
+      // bundle, runs migrations.
+      const idx = importSpecifiers.findIndex((m) => m.includes("bootChecks"));
+      assert.notEqual(idx, -1);
+      assert.ok(
+        idx <= 1,
+        `bootChecks must be import #0 or #1 in index.ts (found at #${idx}, after: ` +
+          `${importSpecifiers.slice(0, idx).join(", ")}). Any import evaluated before it ` +
+          "can reach the database before the salt is checked.",
+      );
+      for (const spec of importSpecifiers.slice(0, idx)) {
+        assert.match(
+          spec,
+          /instrument/,
+          `only ./instrument may be imported before bootChecks, found "${spec}"`,
+        );
+      }
+    });
   });
 });

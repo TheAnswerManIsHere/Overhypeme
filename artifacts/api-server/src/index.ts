@@ -3,6 +3,11 @@
 // via the module loader — but setupExpressErrorHandler in app.ts captures all
 // unhandled errors, which is all we need.
 import "./instrument";
+// MUST stay here, second only to ./instrument: this module asserts required
+// production configuration at IMPORT time, so it has to be evaluated before
+// the imports below pull in the database-backed module graph. See
+// lib/bootChecks.ts for why a call in the body of this file is too late.
+import "./lib/bootChecks.js";
 import * as Sentry from "@sentry/node";
 import { createApp } from "./app";
 import { logger } from "./lib/logger";
@@ -26,7 +31,6 @@ import { registerVisualConceptJobHandlers } from "./lib/visualConceptJobs.js";
 import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
 import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
 import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
-import { assertIpSaltConfigured } from "./lib/transientRenderLog.js";
 
 const rawPort = process.env["PORT"];
 
@@ -39,12 +43,6 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
-
-// Fatal in production, no-op everywhere else. Grouped with PORT rather than
-// with the Stripe warnings below because this one must stop the boot: the
-// audit logger swallows its own runtime errors by design, so a missing salt
-// has no other moment at which it can be noticed.
-assertIpSaltConfigured();
 
 // Boot-time visibility for the per-mode Stripe env vars. Both mode-specific
 // secret keys and webhook signing secrets are required so that flipping the
