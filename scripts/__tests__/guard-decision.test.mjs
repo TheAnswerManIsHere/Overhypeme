@@ -144,6 +144,13 @@ const MUST_BLOCK = [
   ["wget's -r is boolean, whatever curl's -r does", "wget -r https://api.github.com/x"],
   ["an unknown option's value is inspected, not skipped", "curl --frobnicate api.github.com/x"],
   ["an unknown attached long value is inspected too", "curl --frobnicate=https://api.github.com/x"],
+  // wget FETCHES its input file: `wget --help` calls the argument a "local or
+  // external FILE", and a spider run emits CONNECT api.github.com:443. Its
+  // value is a target, not data. (Codex, #488 round 2.)
+  ["wget -i fetches its input file over the network", "wget -i https://api.github.com/rate_limit"],
+  ["the attached long form of the same", "wget --input-file=https://api.github.com/x"],
+  ["the separate long form of the same", "wget --input-file https://api.github.com/x"],
+  ["-i inside a bundle is still a fetch target", "wget -qi https://api.github.com/x"],
 ];
 
 const MUST_ALLOW = [
