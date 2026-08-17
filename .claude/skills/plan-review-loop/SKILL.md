@@ -245,9 +245,13 @@ the disclosure check passes:
    repeated) — and before each push I re-run every prior round's oracle so a
    later revision can't reintroduce an earlier class. A finding with no
    mechanical oracle, or a recurrence of a swept class, escalates per the
-   `model-routing` skill's structural triggers (on this loop's Opus tier the
-   escalation is usually moot, but the recurrence flag still goes in the
-   check-in).
+   `model-routing` skill's structural triggers — **a one-shot Fable subagent,
+   whatever tier this loop is running at** (David, 2026-08-17), announced on
+   dispatch, with the recurrence flag still going in the check-in. This line
+   used to say the escalation was "usually moot" on an Opus loop; that is the
+   trigger-moots-itself failure Codex caught in `pr-watch` and `model-routing`
+   on PR #458, and it survived there because it never used the words those
+   fixes swept for.
    Codex is the independent technical reviewer. **Every substantive finding
    must be fixed, rebutted with repository evidence, or escalated to David —
    none may be silently ignored.** Codex does not settle architecture or
