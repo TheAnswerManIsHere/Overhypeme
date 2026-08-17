@@ -195,47 +195,14 @@ test("Codex: ordering and coverage must hold of the SAME pass", () => {
   assert.equal(res.pass, false);
 });
 
-test("Codex: two requests on one head need two passes -- the stall-and-retry shape", () => {
-  // `pr-watch` permits one retry when a round produces no review, and that
-  // retry needs no push, so both requests name the same commit. A late
-  // response to the FIRST then postdates the retry AND matches the head, and
-  // nothing in GitHub's data tells the two apart. This fails closed rather
-  // than guess — it is the PR #458 failure arriving through a new door.
-  // (Codex, #490 round 3.)
-  const headStarted = Date.parse("2026-08-17T03:30:00Z");
-  const res = checkCodex(
-    [
-      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
-      comment("me", "@codex review\n\nRound 1, retry.", "2026-08-17T04:20:00Z"),
-    ],
-    [pass("2026-08-17T04:30:00Z", HEAD)],
-    HEAD,
-    headStarted,
-  );
-  assert.equal(res.pass, false);
-  assert.match(res.detail, /2 review requests on .* but only 1 completed pass/);
-});
-
-test("Codex: a request posted BEFORE CI starts still counts against this head", () => {
-  // The bound must not postdate the head's appearance. Deriving it from the
-  // earliest check run's `started_at` was too late: a request posted right
-  // after the push but before CI began fell outside it, so a retry plus one
-  // late pass read as complete while the excluded request was outstanding.
-  // The commit's committer date necessarily precedes the push. (Codex, #490
-  // round 4.)
-  const bornAt = Date.parse("2026-08-17T04:00:00Z"); // commit created
-  const res = checkCodex(
-    [
-      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:01:00Z"), // before CI started
-      comment("me", "@codex review\n\nRound 1, retry.", "2026-08-17T04:20:00Z"),
-    ],
-    [pass("2026-08-17T04:30:00Z", HEAD)],
-    HEAD,
-    bornAt,
-  );
-  assert.equal(res.pass, false);
-  assert.match(res.detail, /2 review requests/);
-});
+// The one-pass-per-request rule and its head bound are SPLIT OUT of this PR
+// (David, 2026-08-17) after three rounds without converging. Their tests
+// travel with them, on `claude/receipt-request-counting`.
+//
+// What the residual is, stated rather than left implicit: two review requests
+// on one commit (a stalled round plus `pr-watch`'s permitted retry) cannot be
+// told apart by their answers, so a late response to the first can read as an
+// answer to the second. Narrower than either failure this file was built for.
 
 test("Codex: the ordering boundary is the LATEST qualifying pass", () => {
   // With two passes on one head, threads captured between them satisfied a
@@ -255,22 +222,6 @@ test("Codex: the ordering boundary is the LATEST qualifying pass", () => {
   assert.equal(res.acceptedAt, Date.parse("2026-08-17T04:40:00Z"));
 });
 
-test("Codex: a request from BEFORE this head does not demand a pass on it", () => {
-  // The mirror. A round that stalled, then a push, then one request answered
-  // by one pass, is convergence — counting the pre-push request would leave
-  // the PR permanently unmergeable.
-  const headStarted = Date.parse("2026-08-17T04:10:00Z");
-  const res = checkCodex(
-    [
-      comment("me", "@codex review\n\nRound 1 (stalled, older commit).", "2026-08-17T04:00:00Z"),
-      comment("me", "@codex review\n\nRound 2.", "2026-08-17T04:20:00Z"),
-    ],
-    [pass("2026-08-17T04:30:00Z", HEAD)],
-    HEAD,
-    headStarted,
-  );
-  assert.equal(res.pass, true);
-});
 
 test("outage: a same-second limit notice is not attributed to the retry", () => {
   // Second resolution makes the order unknowable, and mis-attributing the
@@ -505,15 +456,6 @@ test("snapshot: a missing or abbreviated head sha is rejected", () => {
   const short = goodSnapshot();
   short.pr.head.sha = "abc1234";
   assert.throws(() => assertSnapshot(short, 500), /full 40-character sha/);
-});
-
-test("snapshot: a missing head committedAt is rejected", () => {
-  // It is the only bound available that cannot postdate the head, and a bound
-  // that is too late silently drops review requests from the count.
-  // (Codex, #490 round 4.)
-  const snap = goodSnapshot();
-  delete snap.pr.head.committedAt;
-  assert.throws(() => assertSnapshot(snap, 500), /committedAt/);
 });
 
 test("snapshot: a missing head ref is rejected", () => {

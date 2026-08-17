@@ -231,16 +231,6 @@ export function assertSnapshot(snapshot, prNumber) {
   if (typeof pr.head?.ref !== "string" || pr.head.ref.trim() === "") {
     throw fail('snapshot.pr.head.ref is required -- without it the merge gate cannot bind the receipt to a tip');
   }
-  // When the head commit came into existence. Required because it is the only
-  // bound available that cannot POSTDATE the head, and a bound that is too
-  // late silently drops review requests from the count. (Codex, #490.)
-  if (!Number.isFinite(Date.parse(pr.head?.committedAt ?? ""))) {
-    throw fail(
-      'snapshot.pr.head.committedAt must be the head commit\'s ISO committer date ' +
-        "(get_commits, the last commit's commit.committer.date) -- it bounds which review requests belong to this head",
-    );
-  }
-
   const complete = snapshot.complete ?? {};
   const capturedAt = snapshot.capturedAt ?? {};
   for (const key of Object.keys(MCP_METHOD_FOR)) {
@@ -410,7 +400,7 @@ export function checkCi(checkRuns, headSha = null) {
  * David, with that observation as the evidence. Fail-closed here costs one
  * blocked merge; fail-open costs the failure this file exists to prevent.
  */
-export function checkCodex(issueComments, reviews, headSha = null, headBornAt = null) {
+export function checkCodex(issueComments, reviews, headSha = null) {
   const requests = issueComments
     .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
     .sort((a, b) => timeOf(a) - timeOf(b));
@@ -447,37 +437,25 @@ export function checkCodex(issueComments, reviews, headSha = null, headBornAt = 
     (p) => p.at > requestedAt && (!headSha || sameCommit(p.sha, headSha)),
   );
 
-  // ONE PASS PER REQUEST ON THIS HEAD, not one pass for the latest request.
+  // KNOWN GAP, SPLIT OUT RATHER THAN FIXED HERE (David, 2026-08-17).
   //
-  // The stall-and-retry shape defeats the single-element rule on its own:
   // `pr-watch` permits one retry when a round produces no review, and that
-  // retry needs no push, so both requests name the same commit. A late
-  // response to the FIRST request then postdates the retry and matches the
-  // head -- indistinguishable, in the data, from a response to the retry. It
-  // would mint READY with a round still outstanding, which is exactly the
-  // PR #458 failure arriving through a different door. (Codex, #490 round 3.)
+  // retry needs no push -- so two requests can name the same commit, and a
+  // late response to the FIRST postdates the retry and matches the head.
+  // Nothing GitHub exposes ties a review to the request that triggered it, so
+  // this check cannot tell them apart, and it can mint READY with a round
+  // still outstanding.
   //
-  // GitHub exposes nothing that ties a review to the request that triggered
-  // it, so this ambiguity is IRREDUCIBLE -- and the response is to stop trying
-  // to resolve it and take the safe side: every request made since this commit
-  // appeared must be answered by its own pass.
+  // A one-pass-per-request rule was written for it and went three review
+  // rounds without converging -- the bound on which requests belong to the
+  // head was wrong twice, the branch ordering hid the outage stop, and it
+  // false-blocked requests that WERE answered in order. That work is on
+  // `claude/receipt-request-counting` with its open findings.
   //
-  // The accepted cost, stated rather than discovered later: if Codex ever
-  // answers two requests with a single review, this blocks until the head
-  // moves. That is escapable (any push restarts the count, and a new head
-  // needs a fresh review anyway) and it is the over-blocking direction.
-  const onThisHead = headBornAt ? requests.filter((r) => timeOf(r) >= headBornAt) : requests;
-  if (qualifying.length && qualifying.length < onThisHead.length) {
-    return {
-      pass: false,
-      detail:
-        `${onThisHead.length} review requests on ${headSha ? headSha.slice(0, 7) : "this head"} but only ` +
-        `${qualifying.length} completed pass(es). Nothing in GitHub's data ties a review to the request ` +
-        `that triggered it, so a late response to an earlier request cannot be told apart from a response ` +
-        `to the latest one -- this fails closed rather than guess. Wait for the outstanding round; if Codex ` +
-        `answered both requests with one review, push and take a fresh pass on the new head.`,
-    };
-  }
+  // What ships here is the narrower check that did converge, and it still
+  // catches both failures this file was built for: PR #487 (no request at
+  // all) and PR #458 (a round requested and not returned). The residual is
+  // strictly narrower than either.
 
   if (qualifying.length === 0) {
     // An outage is not "still waiting". CLAUDE.md requires a full stop and a
@@ -605,19 +583,7 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
 /** The full verdict for a validated snapshot. */
 export function evaluate(snapshot, now = Date.now()) {
   const headSha = snapshot.pr.head.sha;
-  // A bound that CANNOT postdate the head's appearance, which is what
-  // separates review requests made for THIS commit from ones made for an
-  // earlier one.
-  //
-  // The first version used the earliest check run's `started_at`, and that is
-  // too LATE: a request posted right after a push but before CI starts falls
-  // outside it, so a retry plus one late pass reads as complete while the
-  // excluded request is still outstanding. The commit's own committer date is
-  // the right bound -- it necessarily precedes the push, and a backdated
-  // commit only moves it earlier, which retains more requests and over-blocks.
-  // (Codex, #490 round 4.)
-  const headBornAt = Date.parse(snapshot.pr.head.committedAt);
-  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha, headBornAt);
+  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha);
   const items = {
     ci: checkCi(snapshot.checkRuns, headSha),
     codex,
