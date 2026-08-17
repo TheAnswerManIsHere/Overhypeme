@@ -165,10 +165,20 @@
  *   flag alongside `-c`.
  * - `git send-pack --force`/`--mirror`, a fourth remote-ref-update surface
  *   alongside `push`, `update-ref`, and the direct `git-push` executable.
- * - One false-positive risk, not a bypass: heredoc delimiters that are valid
- *   in Bash but not identifier-shaped (`<<'MSG-1'`) are not recognized by
- *   the stripping regex, so an ordinary commit-message heredoc using one
- *   could be misclassified as a real command and over-blocked.
+ * - Heredoc delimiters that are valid in Bash but not identifier-shaped
+ *   (`<<'MSG-1'`) are now recognized by the stripping regex. This was
+ *   documented here as a false-POSITIVE risk only, and that was wrong twice
+ *   over: an unstripped body makes tokenising throw, which both let a real
+ *   `curl --help <<'MSG-1'` reach the permissive fallback (a bypass) and made
+ *   an inert body mentioning `/usr/bin/curl` refuse an ordinary `cat` (a false
+ *   block). Both are fixed by stripping the body, which is why the delimiter
+ *   grammar now allows digits, dots and dashes IN EVERY POSITION. The first
+ *   attempt widened only positions 2+, which fixed the `MSG-1` I had been
+ *   shown and left `<<'.MSG'` and `<<'-MSG'` broken -- Bash documents the
+ *   delimiter as an unrestricted `word`, so matching the reported shape rather
+ *   than the grammar was the same mistake the option tables kept making. An
+ *   accepted limitation stops being accurate the moment a new rule is added
+ *   above it. (Codex, #488 rounds 6-9.)
  */
 
 import { readFileSync } from "node:fs";
@@ -236,7 +246,20 @@ const MAX_NESTED_SHELL_DEPTH = 4;
  */
 const TRANSPARENT_WRAPPERS = new Set([
   "command", "env", "exec", "sudo", "nice", "nohup", "stdbuf", "ionice", "time",
+  // `timeout --help`: `timeout [OPTION] DURATION COMMAND [ARG]...`. It starts
+  // COMMAND, so it is as transparent as `nice`. It was missing, and
+  // `timeout 30 curl <url>` is the ONE shape in round 6 I might plausibly have
+  // typed by accident -- it is the natural spelling of a CI wait. (Codex, #488.)
+  "timeout",
 ]);
+
+/**
+ * Positional arguments a wrapper consumes before the command it runs.
+ *
+ * `timeout` is the only one so far: its DURATION is not flag-shaped, so
+ * without this the resolver reads `30` as the program name.
+ */
+const WRAPPER_POSITIONALS = { timeout: 1 };
 
 /** A leading `NAME=value` word is an environment assignment, not a program. */
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -252,7 +275,17 @@ const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
  */
 const WRAPPER_BARE_FLAGS = {
   env: new Set(["-i", "-0", "--ignore-environment", "--null"]),
-  command: new Set(["-p", "-v", "-V"]),
+  // `-v`/`-V` are NOT here: `help command` documents them as printing a
+  // description rather than running anything, so `command -v curl` is a query
+  // and must not be judged as an invocation. See QUERY_ONLY_FLAGS.
+  command: new Set(["-p"]),
+  // `help exec` documents `exec [-cl] [-a name] [command [argument ...]]`.
+  exec: new Set(["-c", "-l", "-cl", "-lc"]),
+  // `help time` documents `time [-p] pipeline` and says it EXECUTES the
+  // pipeline. Without this, `time -p curl <url>` stopped resolution at `time`
+  // -- a plausible diagnostic command, not an obscure spelling, and one the
+  // deleted sweep had been masking. (Codex, #488 round 8.)
+  time: new Set(["-p"]),
 };
 
 /**
@@ -264,7 +297,26 @@ const WRAPPER_BARE_FLAGS = {
  */
 const WRAPPER_VALUE_FLAGS = {
   env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+  // `exec -a name command` substitutes argv0 and then runs `command`.
+  exec: new Set(["-a"]),
+  // `sudo --help` documents these as taking a value. Without them the
+  // fail-closed sweep read `sudo -p curl true`'s prompt STRING as a program
+  // and refused a command that runs `true`. (Codex, #488 round 6.)
+  sudo: new Set([
+    "-p", "--prompt", "-u", "--user", "-g", "--group", "-C", "--close-from",
+    "-h", "--host", "-r", "--role", "-t", "--type", "-U", "--other-user",
+  ]),
+  timeout: new Set(["-s", "--signal", "-k", "--kill-after"]),
 };
+
+/**
+ * Wrapper flags that make the wrapper REPORT on a command instead of running
+ * it. `help command` documents `-v`/`-V` as printing a description, and a
+ * `command -v curl` run prints `/usr/bin/curl` without executing it -- so
+ * promoting `curl` to `program` and refusing was a false block introduced by
+ * the blanket rule. (Codex, #488 round 6.)
+ */
+const QUERY_ONLY_FLAGS = { command: new Set(["-v", "-V"]) };
 
 /**
  * Peel off constructs Bash resolves before dispatching to a program: leading
@@ -292,8 +344,18 @@ function resolveRealCommand(argv) {
     if (TRANSPARENT_WRAPPERS.has(bare)) {
       const bareFlags = WRAPPER_BARE_FLAGS[bare] ?? new Set();
       const valueFlags = WRAPPER_VALUE_FLAGS[bare] ?? new Set();
+      const queryFlags = QUERY_ONLY_FLAGS[bare] ?? new Set();
       let next = i + 1;
+      let isQuery = false;
       while (next < argv.length) {
+        // A query mode names a command without running it, so the wrapper IS
+        // the command. It only counts among the wrapper's OWN leading options:
+        // in `command curl -v <url>` the `-v` belongs to curl, and searching
+        // the whole argv for it exempted a real invocation. (Codex, #488 r7.)
+        if (queryFlags.has(argv[next])) {
+          isQuery = true;
+          break;
+        }
         if (bareFlags.has(argv[next])) {
           next += 1;
           continue;
@@ -304,7 +366,10 @@ function resolveRealCommand(argv) {
         }
         break;
       }
+      if (isQuery) break;
       if (argv[next] === "--") next += 1;
+      // Skip the wrapper's own positional arguments (timeout's DURATION).
+      next += WRAPPER_POSITIONALS[bare] ?? 0;
       if (next < argv.length && !argv[next].startsWith("-")) {
         i = next;
         continue;
@@ -856,198 +921,105 @@ function isRecursiveAndForced(args) {
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 
 /**
- * Which options consume the FOLLOWING token as a value, per program.
+ * Why this is a blanket refusal rather than a parser (David, 2026-08-17).
  *
- * Derived by parsing `curl --help all` and `wget --help` from the binaries in
- * this container (curl 8.5.0, wget 1.21.4) rather than written from memory.
- * That provenance is the point: the hand-written version of this table had
- * three defects Codex found in one round, and all three came from recalling an
- * option's arity instead of reading it.
+ * The first four revisions tried to decide whether a given curl/wget
+ * invocation *would actually connect to* api.github.com, so that unrelated
+ * fetches stayed available. Codex found real defects in that judgement in four
+ * consecutive rounds -- 3, 1, 3, then 7 -- and round 4's new findings were in
+ * five different sub-languages of these tools: wgetrc directives via
+ * `-e base=...`, composite `--connect-to HOST1:P1:HOST2:P2` values, brace URL
+ * globbing, unique-prefix long-option abbreviation, and `--variable` /
+ * `--expand-url` interpolation. Behind those sat `-K` config files, `.netrc`,
+ * environment proxies, and whatever the next round would have found.
  *
- * SEPARATE PER PROGRAM, because the two clients disagree on the same letters
- * and sharing one table imports each one's arity into the other. `-O` takes a
- * filename for wget and is a boolean for curl, so a shared table made
- * `curl -O <url>` skip its own target; `-r` is a range for curl and a boolean
- * for wget, so `wget -r <url>` did the same. Both were fail-OPEN. (Codex, #488.)
+ * That is not a converging series. Deciding it correctly means reimplementing
+ * two very large command-line parsers, and the reviewer can RUN them while this
+ * module can only reason about them -- which is how the same class of mistake
+ * appeared four rounds running, twice as a conclusion I had written down as
+ * checked and Codex refuted by execution.
  *
- * NOT EXHAUSTIVE, AND SAFE THAT WAY. An option missing from these tables is
- * simply not skipped, so its value is inspected as a possible target -- the
- * fail-CLOSED direction, matching this module's stated posture that a gap
- * over-blocks rather than under-blocks. Version drift can therefore only make
- * the guard stricter. Adding an entry is a precision improvement, never a
- * correctness dependency; wrongly adding one is the only way to open a hole,
- * which is why nothing goes in here unmeasured.
+ * WHY THERE IS NO LONGER AN EXCEPTION EITHER. The first version of this rule
+ * kept one: the agent proxy's own `__agentproxy/status` diagnostic, on the
+ * reasoning that it is not a GitHub route and is the only ad-hoc fetch this
+ * container has ever needed. Round 5 produced three findings against that
+ * single exception in one pass -- the fragment matched on ANY origin, so
+ * `curl https://api.github.com/__agentproxy/status` was allowed; an attached
+ * `-K/tmp/api.conf` smuggled a config file past the flag filter; and a
+ * `.curlrc` reached via `$CURL_HOME` adds transfers that never appear in argv
+ * at all. The last of those cannot be fixed by inspecting arguments, because
+ * the extra request is not IN the arguments.
  *
- * `--url` is deliberately ABSENT from curl's long set: its value IS the
- * transfer URL. Under the fail-closed default that needs no special case --
- * an unlisted option's value is checked, which is exactly right for `--url`.
+ * The lesson was the same one level down: an exception is a thing to attack,
+ * and this one had exactly the same unbounded surface as the parser did. So
+ * there is no exception. Refusing every curl and wget is the whole rule, and it
+ * is the only version of it that is complete by construction.
+ *
+ * The cost is genuinely small. This hook inspects the command line typed at it,
+ * not the contents of a script, so `bash scripts/phase5-og-smoke.sh` and CI's
+ * own readiness loop are untouched -- they were the only real uses in the repo.
+ * What is lost is the ad-hoc one-off fetch, including the proxy probe, and
+ * losing it fails LOUDLY with the message below, which is the opposite of the
+ * silent failure this rule exists to prevent.
  */
-const FETCHER_OPTIONS = {
-  curl: {
-    // `curl --help all | grep -oE '^ +-[A-Za-z], --[a-z0-9.-]+ +<'`
-    short: new Set("ACDEFHKPQTUXYbcdehmortuwyz"),
-    long: new Set([
-      "abstract-unix-socket", "alt-svc", "aws-sigv4", "cacert", "capath", "cert",
-      "cert-type", "ciphers", "config", "connect-timeout", "connect-to",
-      "continue-at", "cookie", "cookie-jar", "create-file-mode", "crlfile",
-      "curves", "data", "data-ascii", "data-binary", "data-raw", "data-urlencode",
-      "delegation", "dns-interface", "dns-ipv4-addr", "dns-ipv6-addr",
-      "dns-servers", "doh-url", "dump-header", "egd-file", "engine",
-      "etag-compare", "etag-save", "expect100-timeout", "form", "form-string",
-      "ftp-account", "ftp-alternative-to-user", "ftp-method", "ftp-port",
-      "ftp-ssl-ccc-mode", "happy-eyeballs-timeout-ms", "header", "help",
-      "hostpubmd5", "hostpubsha256", "hsts", "interface", "ipfs-gateway", "json",
-      "keepalive-time", "key", "key-type", "krb", "libcurl", "limit-rate",
-      "local-port", "login-options", "mail-auth", "mail-from", "mail-rcpt",
-      "max-filesize", "max-redirs", "max-time", "netrc-file", "noproxy",
-      "oauth2-bearer", "output", "output-dir", "parallel-max", "pass",
-      "pinnedpubkey", "proto", "proto-default", "proto-redir", "proxy-cacert",
-      "proxy-capath", "proxy-cert", "proxy-cert-type", "proxy-ciphers",
-      "proxy-crlfile", "proxy-header", "proxy-key", "proxy-key-type",
-      "proxy-pass", "proxy-pinnedpubkey", "proxy-service-name",
-      "proxy-tls13-ciphers", "proxy-tlsauthtype", "proxy-tlspassword",
-      "proxy-tlsuser", "proxy-user", "proxy1.0", "pubkey", "quote", "random-file",
-      "range", "rate", "referer", "request", "request-target", "resolve", "retry",
-      "retry-delay", "retry-max-time", "sasl-authzid", "service-name", "socks4",
-      "socks4a", "socks5", "socks5-gssapi-service", "socks5-hostname",
-      "speed-limit", "speed-time", "stderr", "telnet-option", "tftp-blksize",
-      "time-cond", "tls-max", "tls13-ciphers", "tlsauthtype", "tlspassword",
-      "tlsuser", "trace", "trace-ascii", "trace-config", "unix-socket",
-      "upload-file", "url-query", "user", "user-agent", "variable", "write-out",
-      // `--proxy` and `--preproxy` take values but are spelled `-x, --proxy <url>`
-      // and `--preproxy [protocol://]host[:port]`, which the `<`-anchored sweep
-      // above misses; both are value-taking and measured by hand from the same
-      // help output.
-      "proxy", "preproxy",
-    ]),
-  },
-  wget: {
-    // `wget --help | grep -oE '^ +-[A-Za-z], +--[a-z0-9.-]+='`, minus `i`.
-    //
-    // `-i, --input-file` is EXCLUDED even though it takes a value, for the same
-    // reason curl's `--url` is: wget's help calls its argument a "local or
-    // external FILE", and Codex confirmed with a spider run that
-    // `wget -i https://api.github.com/...` emits `CONNECT api.github.com:443`.
-    // Its value is a fetch target, not data, so skipping it opened a hole --
-    // the exact failure mode this table's own note warns about, where the only
-    // way to reopen one is to wrongly ADD an entry. (Codex, #488 round 2.)
-    short: new Set("ABDOPQRTUXaelotw"),
-    long: new Set([
-      "accept", "accept-regex", "append-output", "backups", "base",
-      "bind-address", "body-data", "body-file", "ca-certificate", "ca-directory",
-      "certificate", "certificate-type", "ciphers", "compression", "config",
-      "connect-timeout", "crl-file", "cut-dirs", "default-page",
-      "directory-prefix", "dns-timeout", "domains", "exclude-directories",
-      "exclude-domains", "execute", "follow-tags", "ftp-password", "ftp-user",
-      "header", "http-password", "http-user", "ignore-tags",
-      "include-directories", "level", "limit-rate", "load-cookies",
-      "local-encoding", "method", "output-document", "output-file", "password",
-      "pinnedpubkey", "post-data", "post-file", "prefer-family", "private-key",
-      "private-key-type", "progress", "proxy-password", "proxy-user", "quota",
-      "random-file", "read-timeout", "referer", "regex-type", "reject",
-      "reject-regex", "rejected-log", "remote-encoding", "report-speed",
-      "restrict-file-names", "retry-on-http-error", "save-cookies",
-      "secure-protocol", "start-pos", "timeout", "tries", "use-askpass", "user",
-      "user-agent", "wait", "waitretry", "warc-dedup", "warc-file", "warc-header",
-      "warc-max-size", "warc-tempdir",
-    ]),
-  },
-};
+const FETCHER_REFUSAL =
+  "curl and wget are refused in this container. The reason the rule exists is api.github.com, " +
+  "which is intercepted by the agent proxy and returns HTTP 403 \"GitHub access is not enabled for " +
+  "this session\" -- a failure that is SILENT inside a pipeline, because a `grep` over the 403 body " +
+  "finds nothing and reads as \"no results\" rather than as an error. Every CI-wait loop built that " +
+  "way on 2026-08-16 was a pure sleep. This refuses the whole program, with no exception for any " +
+  "argument shape: four review rounds showed which invocations reach that host cannot be judged " +
+  "without reimplementing curl's and wget's own argument parsing, and a fifth showed the same of the " +
+  "one allowlisted probe. " +
+  "Use mcp__github__* for GitHub state -- pull_request_read (get_check_runs) for CI, get_reviews for " +
+  "a review landing, get for merge state, issue_read for labels -- and WebFetch for web content. " +
+  "A script that runs curl internally is unaffected. If an ad-hoc fetch is genuinely needed, " +
+  "including the agent proxy's own status probe, ask David rather than routing around this. " +
+  "See .agents/memory/github-rest-api-blocked-from-bash.md.";
 
 /**
- * The hostname a fetcher argument would actually connect to, or null.
+ * True when this argv runs a fetcher.
  *
- * **Scheme-optional**, because curl guesses a missing scheme: bare
- * `curl api.github.com/repos/o/r` fetches over HTTP and is an ordinary
- * equivalent of every blocked command. Requiring `http(s)://` left that
- * reachable. (Codex, PR #487.)
+ * DELIBERATELY JUST THE RESOLVED PROGRAM. Round 5 added a fail-closed sweep
+ * here -- when unwrapping stopped on a transparent wrapper, any fetcher token
+ * anywhere in the argv refused -- to catch `exec -a fetch /usr/bin/curl <url>`
+ * without naming `-a`. It was removed in round 7, for two reasons:
  *
- * Still PARSED rather than substring-matched, so `./api.github.com.md`, a
- * flag, and a JSON body mentioning the host are not mistaken for a request.
- * Host comparison is case-insensitive and ignores a userinfo prefix, since
- * `https://user@API.GitHub.com/...` reaches the same place.
+ *  1. It closed nothing the wrapper tables do not. `exec -a` is a known value
+ *     flag now, so that command resolves to `curl` and refuses on this line.
+ *  2. It cost three false blocks in two rounds -- `sudo -p curl true`,
+ *     `sudo -l curl`, `sudo -n printf '%s\n' curl` -- because sweeping every
+ *     token necessarily reads option values and data arguments as programs.
+ *     Each was patched by adding one more sudo flag to a table, which is the
+ *     enumeration this PR has already abandoned twice.
+ *
+ * What that gives up, stated plainly: `<wrapper> <flag-not-in-our-tables>
+ * curl <url>` is allowed. That needs an unlisted wrapper flag AND a fetcher in
+ * one command, which is not a shape anyone types by accident -- and there is
+ * no adversary in this container, only me. Accepted, and recorded here rather
+ * than left implicit.
+ *
+ * THREE MORE ACCEPTED GAPS, all found in round 7 and all in the same class --
+ * a spelling that reaches a fetcher without the resolver seeing it. Each is
+ * real; none is a shape typed by accident, and every attempt to close one in
+ * this layer has introduced a new defect elsewhere (round 7 returned SEVEN
+ * findings, SIX of them defects in the two preceding commits):
+ *
+ *  - `timeout --foreground 5 curl <url>` -- an unlisted bare option stops
+ *    option parsing, and the DURATION offset is then applied to the wrong
+ *    position.
+ *  - `env -S 'curl <url>' extra` -- trailing arguments make the generic env
+ *    unwrapping promote `extra` before the split-string dispatch is consulted.
+ *  - `/usr/bin/cu?l --version` -- Bash expands the glob before command lookup;
+ *    this module compares the unexpanded word.
+ *
+ * The rule this file follows now: the fetcher refusal is judged from the
+ * RESOLVED PROGRAM and nothing else. Making the resolver perfect is a third
+ * enumeration, after curl's option grammar and the probe allowlist, and the
+ * first two each ended in deletion.
  */
-function fetcherTargetHost(token) {
-  if (!token || token.startsWith("-")) return null;
-  // A path-ish token is a file operand, not a host: `./api.github.com.md`,
-  // `/tmp/x`, `~/y`. curl treats a leading `/` or `.` as a path, not a URL.
-  if (/^[./~]/.test(token)) return null;
-  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(token) ? token : `http://${token}`;
-  try {
-    const { protocol, hostname } = new URL(candidate);
-    if (protocol !== "http:" && protocol !== "https:") return null;
-    return hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Whether a short-option token consumes the NEXT token as its value.
- *
- * Short options bundle (`-sSd`), and a value-taking letter owns **the rest of
- * its own token** when there is any: curl documents `-X, --request <method>`
- * and accepts the attached spelling, so in `curl -XGET <url>` the value is
- * `GET` and the URL that follows is a real target. Treating the last character
- * of a bundle as the value-taking one instead made that trailing `T` look like
- * `-T, --upload-file`, skipped the URL, and allowed the fetch -- fail-open.
- * (Codex, #488.)
- *
- * So: walk left to right, stop at the FIRST value-taking letter, and consume
- * the next token only if that letter ends the bundle.
- */
-function shortOptionTakesNextToken(token, shortSet) {
-  for (let i = 1; i < token.length; i += 1) {
-    if (shortSet.has(token[i])) return i === token.length - 1;
-  }
-  return false;
-}
-
-/**
- * True when a curl/wget invocation would actually connect to api.github.com.
- *
- * Walks the arguments so a known option's VALUE is not mistaken for a target,
- * and so a schemeless target is still recognised. Anything the walk does not
- * recognise is inspected rather than skipped.
- */
-function fetchesGitHubApi(program, rest) {
-  const options = FETCHER_OPTIONS[program];
-  if (!options) return rest.some((t) => fetcherTargetHost(t) === "api.github.com");
-
-  const hits = (token) => fetcherTargetHost(token) === "api.github.com";
-
-  for (let i = 0; i < rest.length; i += 1) {
-    const arg = rest[i];
-
-    if (arg === "--") {
-      // Everything after `--` is an operand.
-      return rest.slice(i + 1).some(hits);
-    }
-
-    if (arg.startsWith("--")) {
-      const eq = arg.indexOf("=");
-      const name = (eq === -1 ? arg.slice(2) : arg.slice(2, eq)).toLowerCase();
-      const known = options.long.has(name);
-      if (eq !== -1) {
-        // `--data=x` is self-contained. A KNOWN value option's payload is data;
-        // an unknown one's is inspected, which is what keeps `--url=<target>`
-        // caught without a special case for it.
-        if (!known && hits(arg.slice(eq + 1))) return true;
-        continue;
-      }
-      if (known) i += 1; // skip the value
-      continue;
-    }
-
-    if (arg.length > 1 && arg.startsWith("-")) {
-      if (shortOptionTakesNextToken(arg, options.short)) i += 1;
-      continue;
-    }
-
-    // A lone `-` is stdin, never a host; fetcherTargetHost rejects it anyway.
-    if (hits(arg)) return true;
-  }
-  return false;
+function reachesFetcher(program) {
+  return HTTP_FETCHERS.has(program);
 }
 
 function isDrizzleKitToken(token) {
@@ -1085,8 +1057,21 @@ function findCommandStringDispatch(program, rest) {
     return rest.length ? rest.join(" ") : null;
   }
   if (program === "npx" || (program === "npm" && rest[0] === "exec")) {
-    const cIndex = rest.indexOf("-c");
-    return cIndex !== -1 && typeof rest[cIndex + 1] === "string" ? rest[cIndex + 1] : null;
+    // `npm exec --help` lists `[-c|--call <call>]`; only `-c` was recognised,
+    // so `npx --call 'curl ...'` dispatched unseen. (Codex, #488 round 6.)
+    const cIndex = rest.findIndex((t) => t === "-c" || t === "--call");
+    if (cIndex !== -1 && typeof rest[cIndex + 1] === "string") return rest[cIndex + 1];
+    const attached = rest.find((t) => t.startsWith("--call="));
+    return attached ? attached.slice("--call=".length) : null;
+  }
+  // `env --help`: `-S, --split-string=S` "process and split S into separate
+  // arguments". Its value is a command line, not inert option data, so it is
+  // re-entered like any other command string. (Codex, #488 round 6.)
+  if (program === "env") {
+    const sIndex = rest.findIndex((t) => t === "-S" || t === "--split-string");
+    if (sIndex !== -1 && typeof rest[sIndex + 1] === "string") return rest[sIndex + 1];
+    const attached = rest.find((t) => t.startsWith("--split-string=") || /^-S./.test(t));
+    if (attached) return attached.startsWith("--") ? attached.slice("--split-string=".length) : attached.slice(2);
   }
   return null;
 }
@@ -1162,19 +1147,7 @@ export function checkCommand(argv, depth = 0) {
     if (nested) return nested;
   }
 
-  if (HTTP_FETCHERS.has(program)) {
-    if (fetchesGitHubApi(program, rest)) {
-      return (
-        "api.github.com is not reachable from bash in this container, and the failure is SILENT " +
-        "inside a pipeline: curl is intercepted by the agent proxy (HTTP 403 \"GitHub access is not " +
-        "enabled for this session\"), so a `grep` over the response body finds nothing and reads as " +
-        "\"no results\" rather than as an error. Every CI-wait loop built this way on 2026-08-16 was a " +
-        "pure sleep. Use the mcp__github__* tools instead -- pull_request_read (get_check_runs) for CI, " +
-        "get_reviews for a review landing, get for merge state, issue_read for labels. " +
-        "See .agents/memory/github-rest-api-blocked-from-bash.md."
-      );
-    }
-  }
+  if (reachesFetcher(program)) return FETCHER_REFUSAL;
 
   if (program === "rm") {
     if (isRecursiveAndForced(rest) && rest.some((a) => !a.startsWith("-") && isRootShaped(a))) {
@@ -1257,7 +1230,7 @@ export function extractCommand(raw) {
  * safety net just moved it.
  */
 const LOOKS_DESTRUCTIVE =
-  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push/;
+  /git\s[^\n]*\bpush\b[^\n]*(?:--force|--mirror|\s-f\b)|git\s[^\n]*\bupdate-ref\b|rm\s+-[rfR]{1,2}\s+\/|drizzle-kit\s+push|(?:^|[\s;&|(])(?:[\w.\/-]*\/)?(?:curl|wget)\s/;
 
 /**
  * Matches one heredoc block: group 1 is the opener token plus anything
@@ -1267,7 +1240,7 @@ const LOOKS_DESTRUCTIVE =
  * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
  * sync by construction rather than by two hand-maintained copies.
  */
-const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
+const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z0-9_.-]+)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
 
 /**
  * Remove heredoc BODIES before tokenising.

@@ -119,64 +119,109 @@ const MUST_BLOCK = [
   ["npm exec -c is the same interface npx uses", "npm exec -c 'drizzle-kit push'"],
   ["parent-directory traversal climbs back out of an apparently scoped path", "rm -rf /tmp/../*"],
 
-  // --- api.github.com from bash: unreachable, and silent inside a pipeline ---
+  // --- curl/wget: refused outright (David, 2026-08-17) ---
+  // The rule exists because api.github.com fails SILENTLY inside a pipeline.
+  // It refuses the whole program rather than deciding which invocations reach
+  // that host, because four review rounds showed that judgement cannot be made
+  // without reimplementing curl's and wget's own argument parsing.
   ["curl to the GitHub API", "curl -sS https://api.github.com/repos/o/r/pulls/1"],
   ["the CI-poll shape that stalled on 2026-08-16", "curl -sS https://api.github.com/repos/o/r/commits/abc/check-runs | grep -c in_progress"],
   ["wget too", "wget -qO- https://api.github.com/rate_limit"],
-  ["http as well as https", "curl http://api.github.com/x"],
-  ["host case is irrelevant", "curl https://API.GitHub.COM/repos/o/r"],
-  ["userinfo prefix reaches the same host", "curl https://user@api.github.com/repos/o/r"],
   ["hidden behind a wrapper", "env -i curl -sS https://api.github.com/x"],
   ["hidden in a compound command", "echo hi && curl -sS https://api.github.com/x"],
   ["hidden inside a nested shell", "bash -c 'curl -sS https://api.github.com/x'"],
-  // curl guesses a missing scheme and defaults to HTTP, so a schemeless target
-  // is an ordinary equivalent of every row above. (Codex, PR #487.)
-  ["a schemeless target", "curl api.github.com/repos/o/r"],
-  ["a schemeless target inside the CI-poll shape", "curl -sS api.github.com/repos/o/r/commits/abc/check-runs | grep -c in_progress"],
-  ["a schemeless target behind --url", "curl --url api.github.com/repos/o/r"],
-  ["--url with the value attached", "curl --url=https://api.github.com/repos/o/r"],
-  ["--url is a transfer URL, never a skipped value", "curl -sS --url https://api.github.com/x"],
-  ["a target after the end-of-options marker", "curl -sS -- https://api.github.com/x"],
-  ["a real target alongside an option value that names the host", "curl -H 'X-Note: https://api.github.com' https://api.github.com/x"],
-  // Three fail-OPEN holes from treating option arity as shared and bundles as
-  // ending in their value letter. (Codex, #488.)
-  ["an attached short value does not swallow the target", "curl -XGET https://api.github.com/x"],
-  ["curl's -O is boolean, whatever wget's -O does", "curl -O https://api.github.com/rate_limit"],
-  ["wget's -r is boolean, whatever curl's -r does", "wget -r https://api.github.com/x"],
-  ["an unknown option's value is inspected, not skipped", "curl --frobnicate api.github.com/x"],
-  ["an unknown attached long value is inspected too", "curl --frobnicate=https://api.github.com/x"],
-  // wget FETCHES its input file: `wget --help` calls the argument a "local or
-  // external FILE", and a spider run emits CONNECT api.github.com:443. Its
-  // value is a target, not data. (Codex, #488 round 2.)
-  ["wget -i fetches its input file over the network", "wget -i https://api.github.com/rate_limit"],
-  ["the attached long form of the same", "wget --input-file=https://api.github.com/x"],
-  ["the separate long form of the same", "wget --input-file https://api.github.com/x"],
-  ["-i inside a bundle is still a fetch target", "wget -qi https://api.github.com/x"],
+
+  // Any other host, deliberately. Precision was the whole cost centre, and an
+  // ad-hoc fetch is rare enough to ask about.
+  ["curl to an unrelated host is refused too", "curl -sS https://example.com/thing"],
+  ["so is wget to one", "wget -O out.html https://example.com"],
+  ["and a fetch with no URL-shaped argument at all", "curl --help"],
+
+  // The routes that ended the parser. Each was a live bypass found by Codex on
+  // #488 across four rounds, in a different sub-language of these tools; all of
+  // them are now blocked by the same single rule rather than five mechanisms.
+  ["round 3: an attached short value (wget -i)", "wget -ihttps://api.github.com/rate_limit"],
+  ["round 4: a wgetrc directive via --execute", "wget -e base=https://api.github.com/ -F -i local.html"],
+  ["round 4: --connect-to's second host", "curl --connect-to example.com:443:api.github.com:443 https://example.com/"],
+  ["round 4: URL brace globbing", "curl 'https://api.github.{com,org}/rate_limit'"],
+  ["round 4: a SOCKS-scheme proxy endpoint", "curl --proxy socks5h://api.github.com https://example.com/"],
+  ["round 4: variable interpolation into --expand-url", "curl --variable h=api.github.com --expand-url 'https://{{h}}/rate_limit'"],
+
+  // Round 5 attacked the ONE exception the rule used to carry -- the agent
+  // proxy's own status probe -- and found three ways through it in a single
+  // pass. The exception is gone rather than tightened: the third of these
+  // cannot be fixed by inspecting arguments at all, because the extra request
+  // is not in the arguments.
+  ["round 5: the probe path on ANY origin, including the blocked one", "curl https://api.github.com/__agentproxy/status"],
+  ["round 5: an attached -K config file alongside the probe", "curl -K/tmp/api.conf \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["round 5: a .curlrc reached via CURL_HOME adds transfers argv never shows", "CURL_HOME=/tmp/profile curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["the probe itself, now that there is no exception", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+
+  // Round 5 also found the one remaining fail-OPEN: an unrecognised wrapper
+  // flag made resolveRealCommand give up and return the wrapper, so the
+  // membership test never saw the fetcher.
+  ["round 5: exec -a substitutes argv0 and still runs curl", "exec -a fetch /usr/bin/curl https://api.github.com/rate_limit"],
+  ["the same wrapper without the flag", "exec /usr/bin/curl https://api.github.com/rate_limit"],
+
+  // Round 6: programs that DISPATCH to a fetcher. `timeout` is the one of
+  // these I might plausibly have typed by accident -- it is the natural
+  // spelling of a CI wait, which is the mistake this whole rule exists for.
+  ["round 6: timeout starts COMMAND after its DURATION", "timeout 30 curl https://api.github.com/rate_limit"],
+  ["with an option before the duration", "timeout -k 5 30 curl https://api.github.com/x"],
+  ["round 6: env -S splits its value into a command line", "env -S 'curl https://api.github.com/rate_limit'"],
+  ["the attached spelling of the same", "env -Scurl https://api.github.com/x"],
+  ["round 6: npx --call, the long spelling of -c", "npx --call 'curl https://api.github.com/x'"],
+  ["npm exec --call likewise", "npm exec --call 'curl https://api.github.com/x'"],
+  // Round 6: a heredoc delimiter outside the identifier grammar makes
+  // tokenising throw, so only the conservative fallback sees this text.
+  ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
+  ["round 7: path-qualified on that same path", "/usr/bin/curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
+  ["round 9: and with a leading-dot delimiter", "/usr/bin/curl --help <<'.MSG'\nDavid's note\n.MSG"],
+  // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
+  // pipeline. A plausible diagnostic command, and one the deleted sweep had
+  // been masking.
+  ["round 8: time -p runs its pipeline", "time -p curl https://api.github.com/rate_limit"],
+  ["the bare form too", "time curl https://api.github.com/x"],
+  // Round 7: the query exemption must cover only the WRAPPER's own leading
+  // options. Here `-v` belongs to curl, and curl really runs.
+  ["round 7: command's operand with its own -v", "command curl -v https://api.github.com/rate_limit"],
 ];
 
 const MUST_ALLOW = [
-  // --- api.github.com may be MENTIONED freely; only a request is blocked ---
-  // A substring rule would have blocked all four of these, and the third and
-  // fourth are things this repo does constantly.
+  // --- the host may be MENTIONED freely; only running a fetcher is refused ---
+  // A substring rule would have blocked all of these, and the last three are
+  // things this repo does constantly.
   ["a path that merely looks like the host", "cat ./api.github.com.md"],
-  ["the host inside a JSON body to somewhere else", "curl -sS -d '{\"h\":\"api.github.com\"}' https://example.com/hook"],
   ["a commit message naming it", "git commit -m 'note that api.github.com is blocked from bash'"],
   ["a doc write naming it", "echo 'api.github.com returns 403 here' > notes.md"],
   ["loop-metrics, which uses Node fetch and fails loudly on its own", "node scripts/loop-metrics.mjs --pr 472"],
-  ["curl to any other host", "curl -sS https://example.com/api.github.com/x"],
-  ["the proxy status endpoint stays reachable", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
-  // An option's VALUE is data, not a transfer target: each of these connects
-  // only to example.com. The first version of this rule tested every argument
-  // and blocked all of them. (Codex, PR #487.)
-  ["a POST body that is itself a URL", "curl -d https://api.github.com/x https://example.com/hook"],
-  ["the same body in the self-contained long form", "curl --data=https://api.github.com/x https://example.com/hook"],
-  ["a header value naming the host", "curl -H 'X-Note: https://api.github.com' https://example.com"],
-  ["an output filename equal to the host", "curl -o api.github.com https://example.com"],
-  ["a bundle whose last letter takes the value", "curl -sSd https://api.github.com/x https://example.com/hook"],
-  ["wget's output-document value", "wget -O api.github.com https://example.com"],
-  ["a value option measured from curl's own help, not recalled", "curl --noproxy api.github.com https://example.com"],
-  ["curl's -r is a byte range, so its value is data", "curl -r 0-99 https://example.com"],
-  ["wget's -T is a timeout, so its value is data", "wget -T 30 https://example.com"],
+
+  // The hook reads the command line typed at it, not a script's contents, so a
+  // script that runs curl internally is untouched. That is what keeps the
+  // blanket refusal cheap: these were the only real curl uses in the repo.
+  ["a script that runs curl internally", "bash scripts/phase5-og-smoke.sh"],
+
+  // Round 6 also found two FALSE BLOCKS that the refusal and its wrapper
+  // sweep had introduced. Both are pinned, because a guard that refuses
+  // ordinary work gets worked around rather than obeyed.
+  ["command -v names a program without running it", "command -v curl"],
+  ["sudo -p's value is a prompt string, not a program", "sudo -p curl true"],
+  ["timeout wrapping something that is not a fetcher", "timeout 90 bash -c 'pnpm test'"],
+  ["sudo -u's value is a username", "sudo -u postgres psql"],
+  // Round 7: three false blocks the fail-closed sweep produced before it was
+  // deleted. They are pinned because deleting the sweep is the fix, and a
+  // regression would be re-adding it.
+  ["sudo -l lists privileges without running the command", "sudo -l curl"],
+  ["an unlisted wrapper flag must not make data look executable", "sudo -n printf '%s\\n' curl"],
+  // Round 8: a non-identifier heredoc delimiter is now stripped, so an inert
+  // body mentioning a fetcher path is data, not a command. This is the shape
+  // of every doc and commit message this session wrote about the guard.
+  ["a heredoc body naming a fetcher path is prose", "cat <<'MSG-1'\nUse /usr/bin/curl for the probe; David's note\nMSG-1"],
+  // Round 9: the delimiter grammar must be uniform across positions. Bash
+  // documents the delimiter as an unrestricted `word`; widening only positions
+  // 2+ fixed the shape I had been shown and left these two broken.
+  ["a leading-dot delimiter", "cat <<'.MSG'\nUse /usr/bin/curl for the probe; David's note\n.MSG"],
+  ["a leading-dash delimiter", "cat <<'-MSG'\nUse /usr/bin/curl for the probe; David's note\n-MSG"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
