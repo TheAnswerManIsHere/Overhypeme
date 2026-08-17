@@ -117,9 +117,31 @@ const MUST_BLOCK = [
   ["npx -c joins its command string the same way a shell's -c does", "npx -c 'drizzle-kit push'"],
   ["npm exec -c is the same interface npx uses", "npm exec -c 'drizzle-kit push'"],
   ["parent-directory traversal climbs back out of an apparently scoped path", "rm -rf /tmp/../*"],
+
+  // --- api.github.com from bash: unreachable, and silent inside a pipeline ---
+  ["curl to the GitHub API", "curl -sS https://api.github.com/repos/o/r/pulls/1"],
+  ["the CI-poll shape that stalled on 2026-08-16", "curl -sS https://api.github.com/repos/o/r/commits/abc/check-runs | grep -c in_progress"],
+  ["wget too", "wget -qO- https://api.github.com/rate_limit"],
+  ["http as well as https", "curl http://api.github.com/x"],
+  ["host case is irrelevant", "curl https://API.GitHub.COM/repos/o/r"],
+  ["userinfo prefix reaches the same host", "curl https://user@api.github.com/repos/o/r"],
+  ["hidden behind a wrapper", "env -i curl -sS https://api.github.com/x"],
+  ["hidden in a compound command", "echo hi && curl -sS https://api.github.com/x"],
+  ["hidden inside a nested shell", "bash -c 'curl -sS https://api.github.com/x'"],
 ];
 
 const MUST_ALLOW = [
+  // --- api.github.com may be MENTIONED freely; only a request is blocked ---
+  // A substring rule would have blocked all four of these, and the third and
+  // fourth are things this repo does constantly.
+  ["a path that merely looks like the host", "cat ./api.github.com.md"],
+  ["the host inside a JSON body to somewhere else", "curl -sS -d '{\"h\":\"api.github.com\"}' https://example.com/hook"],
+  ["a commit message naming it", "git commit -m 'note that api.github.com is blocked from bash'"],
+  ["a doc write naming it", "echo 'api.github.com returns 403 here' > notes.md"],
+  ["loop-metrics, which uses Node fetch and fails loudly on its own", "node scripts/loop-metrics.mjs --pr 472"],
+  ["curl to any other host", "curl -sS https://example.com/api.github.com/x"],
+  ["the proxy status endpoint stays reachable", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
   ["lease onto a plan-review branch", "git push --force-with-lease origin plan-review/evidence-retention"],
