@@ -227,26 +227,31 @@ describe("boot wiring: the assertion runs before the database graph loads", () =
       );
     });
 
-    it("imports it second, after ./instrument only", () => {
-      // ./instrument must stay first so Sentry patches modules as they load.
-      // Everything else must come after bootChecks, because any of them can
-      // pull in @workspace/db — whose evaluation opens a pool and, in the
-      // bundle, runs migrations.
-      const idx = importSpecifiers.findIndex((m) => m.includes("bootChecks"));
-      assert.notEqual(idx, -1);
-      assert.ok(
-        idx <= 1,
-        `bootChecks must be import #0 or #1 in index.ts (found at #${idx}, after: ` +
-          `${importSpecifiers.slice(0, idx).join(", ")}). Any import evaluated before it ` +
-          "can reach the database before the salt is checked.",
+    it("imports it at exactly index 1, with ./instrument at index 0", () => {
+      // Both positions are pinned exactly, and neither is interchangeable:
+      //
+      //  - index 0 MUST be ./instrument. Sentry has to register its hooks
+      //    before any other module loads, and bootChecks is not exempt —
+      //    it reaches the logger, so Pino's graph would load unpatched.
+      //  - index 1 MUST be bootChecks. Everything after it can reach
+      //    @workspace/db, whose evaluation opens a pool and, in the bundle,
+      //    runs migrations before any statement of index.ts executes.
+      //
+      // Stated as two equalities rather than "bootChecks is at 0 or 1": that
+      // looser form silently accepts the swapped order, since nothing before
+      // index 0 remains to check.
+      assert.ok(importSpecifiers.length >= 2, "index.ts must have at least two imports");
+      assert.match(
+        importSpecifiers[0] ?? "",
+        /instrument/,
+        `./instrument must be import #0 in index.ts (found "${importSpecifiers[0]}") — ` +
+          "Sentry patches modules as they load, so anything ahead of it loads unpatched",
       );
-      for (const spec of importSpecifiers.slice(0, idx)) {
-        assert.match(
-          spec,
-          /instrument/,
-          `only ./instrument may be imported before bootChecks, found "${spec}"`,
-        );
-      }
+      assert.ok(
+        (importSpecifiers[1] ?? "").includes("bootChecks"),
+        `lib/bootChecks must be import #1 in index.ts (found "${importSpecifiers[1]}") — ` +
+          "any import evaluated before it can reach the database before the salt is checked",
+      );
     });
   });
 });
