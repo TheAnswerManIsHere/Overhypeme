@@ -307,7 +307,28 @@ the diff *is* the plan. While watching an implementation PR:
      before the round proceeds.
 
   The round count itself is no longer mine to track: the guard tallies it and
-  refuses past the budget. **The re-request says what to reconcile.** A bare `@codex review` on a fix round invites a
+  refuses past the budget.
+
+  **Name the branch head, never a specific SHA, in a review request (David,
+  2026-08-17).** The durability rule above guarantees a receipt commit lands
+  *immediately after* every request — the guard writes the tally at post time,
+  so committing it can only happen afterwards. A SHA named in the request is
+  therefore **structurally stale by one commit, every single time**, and
+  Codex reviews the head at the moment it runs rather than the SHA it was
+  told. Observed twice in one loop before it was noticed. The delta is always
+  a `record`-class receipt file, so nothing material is lost — but a request
+  that names a commit the reviewer will not review is a request that lies
+  about its own target, and the `Reviewed commit:` line is what the ledger
+  and the mechanical record key on. Say "the branch head" and let the
+  cumulative-diff instruction carry the scope.
+
+  **Verify CI on the SHA that is actually HEAD, not the one you last
+  looked at.** Same root cause, worse consequence: after a push, the previous
+  SHA's green checks say nothing about the current one, and `get_check_runs`
+  returning `total_count: 0` means *checks have not reported yet* — which is
+  not green and must never be reported as green.
+
+  **The re-request says what to reconcile.** A bare `@codex review` on a fix round invites a
   review of just the new commits, so I state in the comment which findings the
   round was meant to close and ask Codex to confirm each is actually resolved
   in the code — not merely responded to. **The reviewer's side of this is the
