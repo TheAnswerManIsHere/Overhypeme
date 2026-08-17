@@ -282,23 +282,48 @@ export async function recordCost(params: RecordCostParams): Promise<void> {
  */
 export async function noteLedgerWriteFailure(): Promise<void> {
   try {
-    await db.execute(sql`
-      INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-      VALUES ('ledger_write_failures', '1', 'number',
-              'Lost ledger writes',
-              'Count of generation-cost rows that could not be written. Each one permanently understates that user''s recorded spend, so the ceiling binds against a low total. Non-zero warrants investigation.',
-              false)
-      ON CONFLICT (key) DO UPDATE
-        SET value = (COALESCE(NULLIF(admin_config.value, ''), '0')::bigint + 1)::text
-    `);
-    await db.execute(sql`
-      INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-      VALUES ('ledger_write_failure_last_at', now()::text, 'string',
-              'Last lost ledger write',
-              'Timestamp of the most recent generation-cost row that could not be written.',
-              false)
-      ON CONFLICT (key) DO UPDATE SET value = now()::text
-    `);
+    // ONE statement, in ONE transaction, under a hard database-side time bound.
+    //
+    // Both keys are single rows that every concurrent failure contends for, and
+    // this runs on the synchronous path of a request whose provider has already
+    // been paid. Two things follow, and neither is optional:
+    //
+    //  * The two upserts are one multi-row statement rather than two round
+    //    trips. Concurrent callers therefore lock the two rows in the same
+    //    order (VALUES order), so a burst serialises instead of deadlocking,
+    //    and a failure costs one round trip rather than two.
+    //  * `lock_timeout` / `statement_timeout` bound the wait *in Postgres*.
+    //    A JS-side race would not help: it abandons the promise while the
+    //    connection stays blocked, so the pool — the resource actually under
+    //    pressure — is still consumed. `SET LOCAL` reverts at commit, so
+    //    neither setting leaks onto the pooled connection.
+    //
+    // The bound is short on purpose. This counter is a diagnostic; a user's
+    // response must not wait seconds on it while the database is already
+    // struggling. Timing out here lands in the catch below, which is the
+    // documented expected outcome, not a new failure mode.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL lock_timeout = '500ms'`);
+      await tx.execute(sql`SET LOCAL statement_timeout = '2s'`);
+      await tx.execute(sql`
+        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES
+          ('ledger_write_failures', '1', 'number',
+           'Lost ledger writes',
+           'Count of generation-cost rows that could not be written. Each one permanently understates that user''s recorded spend, so the ceiling binds against a low total. Non-zero warrants investigation.',
+           false),
+          ('ledger_write_failure_last_at', now()::text, 'string',
+           'Last lost ledger write',
+           'Timestamp of the most recent generation-cost row that could not be written.',
+           false)
+        ON CONFLICT (key) DO UPDATE
+          SET value = CASE admin_config.key
+            WHEN 'ledger_write_failures'
+              THEN (COALESCE(NULLIF(admin_config.value, ''), '0')::bigint + 1)::text
+            ELSE now()::text
+          END
+      `);
+    });
   } catch (err) {
     // The floor. See the doc comment: this failing is an expected outcome of
     // the failure it reports, not a defect to guard against.

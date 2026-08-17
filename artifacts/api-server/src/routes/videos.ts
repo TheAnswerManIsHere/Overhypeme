@@ -10,6 +10,7 @@ import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation
 import {
   BudgetGateError,
   checkBudget,
+  noteLedgerWriteFailure,
   recordCost,
 } from "../lib/budgetGate.js";
 import { buildAuthorizationSnapshot, can, principalFromRequest } from "../lib/featureAccess.js";
@@ -588,6 +589,16 @@ router.post("/videos/generate", async (req, res) => {
     : null;
   let estimatedCostUsd = 0;
   let cachedPriceForRecording: CachedPrice | null = null;
+  /**
+   * The figure `checkBudget` was actually given, priced or not.
+   *
+   * Distinct from `estimatedCostUsd`, which is assigned ONLY on the priced
+   * branch and therefore stays 0 through a pricing outage. Recording that zero
+   * would produce a ledger row that exists and contributes nothing — the
+   * ceiling would still stop growing while looking fixed, which is worse than
+   * the original bug because it hides itself.
+   */
+  let gateResolvedCostUsd: number | null = null;
 
   if (authenticatedUserId) {
     let priced: { price: CachedPrice; costUsd: number } | null = null;
@@ -625,6 +636,7 @@ router.post("/videos/generate", async (req, res) => {
     try {
       // Deliberately outside the catch above (#409): a gate failure is not
       // a pricing failure, and must propagate rather than be swallowed.
+      gateResolvedCostUsd = gateCostUsd;
       const budget = await checkBudget(authenticatedUserId, gateCostUsd);
       if (!budget.allowed) {
         budgetGateRefusal = true;
@@ -815,18 +827,39 @@ router.post("/videos/generate", async (req, res) => {
         // for an exempt admin. No post-call lookup, and therefore no failure
         // window that could lose a row we could already account for.
         //
-        // Per-second estimate decomposition: unit_price is the per-second rate
-        // and billing_units the duration, so unit_price * billing_units =
+        // Record the figure the GATE used — `gateResolvedCostUsd`, not
+        // `estimatedCostUsd`. The latter is assigned only on the priced branch,
+        // so on a pricing miss it is still 0 and this row would record nothing.
+        //
+        // Per-second decomposition: unit_price is the per-second rate and
+        // billing_units the duration, so unit_price * billing_units =
         // computed_cost holds. pricing_fetched_at is the write time; nothing
         // was fetched, which is what is_estimated = true says.
-        const perSecond = durationSec > 0 ? estimatedCostUsd / durationSec : estimatedCostUsd;
+        if (gateResolvedCostUsd === null) {
+          // Structurally unreachable: the assignment and this site sit under
+          // the same `authenticatedUserId` guard, and the assignment is the
+          // first statement of the gate's try block. TypeScript cannot narrow
+          // across that distance, so the null has to be handled — and the one
+          // thing it must NOT do is fall through to a silent zero. A zero row
+          // is worse than a missing one because it exists, so nothing looks
+          // wrong while the ceiling stops growing. This makes the impossible
+          // case land on the same counter operators already watch, and still
+          // writes the row, so every path through here records something.
+          logger.error(
+            { endpointId, jobRef },
+            "[videos/generate] gate figure unavailable at recording time — recording zero; recorded spend for this user is now understated",
+          );
+          await noteLedgerWriteFailure();
+        }
+        const total = gateResolvedCostUsd ?? 0;
+        const perSecond = durationSec > 0 ? total / durationSec : total;
         await recordCost({
           userId: authenticatedUserId,
           jobType: "video",
           endpointId,
           unitPriceAtCreation: perSecond,
           billingUnits: durationSec > 0 ? durationSec : 1,
-          computedCostUsd: estimatedCostUsd,
+          computedCostUsd: total,
           pricingFetchedAt: new Date(),
           isEstimated: true,
           jobReferenceId: jobRef,

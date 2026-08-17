@@ -403,6 +403,45 @@ function engineNumeric(v: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Per-call cost for stages 1 and 3, from the operator-configured engine row.
+ *
+ * **These exist so the gate and the ledger cannot disagree.** The pre-flight
+ * gate used to price these two stages at the hardcoded constants above while
+ * the writers below reloaded the engine rows and recorded whatever the operator
+ * had configured — so raising a per-call cost in the admin UI silently made
+ * every gate decision optimistic by the difference, in the fail-open direction,
+ * with nothing to notice it. Sharing the resolver makes that divergence
+ * impossible by construction rather than by remembering to update two places.
+ *
+ * `loadEngine` is cached, so the gate pays a memory read on the common path.
+ *
+ * One residual, deliberate: gate and writer call these at different *times*
+ * (submission vs. stage completion), so an operator editing an engine row
+ * mid-job still moves the recorded figure away from the gated one. That is a
+ * property of an async pipeline, not a defect — the ledger records the truth at
+ * the moment of spend, which is the figure the next gate decision needs.
+ */
+async function resolveStage1CostUsd(): Promise<number> {
+  try {
+    const engine = await loadEngine(PULID_IMAGE_ENGINE_ID);
+    if (engine) return engineNumeric(engine.estimatedCostUsdPerCall, STAGE1_FALLBACK_COST);
+  } catch (err) {
+    logger.warn({ err }, "[videoPipeline] failed to load PuLID engine for stage 1 cost");
+  }
+  return STAGE1_FALLBACK_COST;
+}
+
+async function resolveStage3CostUsd(): Promise<number> {
+  try {
+    const engine = await loadEngine(SUBTITLE_ENGINE_ID);
+    if (engine) return engineNumeric(engine.estimatedCostUsdPerCall, STAGE3_FALLBACK_COST);
+  } catch (err) {
+    logger.warn({ err }, "[videoPipeline] failed to load subtitle engine for stage 3 cost");
+  }
+  return STAGE3_FALLBACK_COST;
+}
+
 async function estimateStage2Cost(
   engine: Engine,
   durationSec: number,
@@ -424,9 +463,9 @@ async function estimateStage2Cost(
 }
 
 async function estimateTotalCost(engine: Engine, input: StartJobInput): Promise<number> {
-  const stage1 = input.sourceMode === "stylize-then-video" ? STAGE1_FALLBACK_COST : 0;
+  const stage1 = input.sourceMode === "stylize-then-video" ? await resolveStage1CostUsd() : 0;
   const stage2 = await estimateStage2Cost(engine, input.durationSec, input.aspectRatio, input.resolution);
-  const stage3 = STAGE3_FALLBACK_COST;
+  const stage3 = await resolveStage3CostUsd();
   return stage1 + stage2 + stage3;
 }
 
@@ -1464,15 +1503,9 @@ async function uploadFinal(captionedUrl: string, jobId: string): Promise<string>
 // ─── Cost recording / persistence ────────────────────────────────────────────
 
 async function recordStage1Cost(job: JobState): Promise<void> {
-  let cost = STAGE1_FALLBACK_COST;
-  try {
-    const engine = await loadEngine(PULID_IMAGE_ENGINE_ID);
-    if (engine) {
-      cost = engineNumeric(engine.estimatedCostUsdPerCall, STAGE1_FALLBACK_COST);
-    }
-  } catch (err) {
-    logger.warn({ err }, "[videoPipeline] failed to load PuLID engine for stage 1 cost");
-  }
+  // Same resolver the pre-flight gate used, so the gated and recorded figures
+  // are the same number rather than two independently-maintained ones.
+  const cost = await resolveStage1CostUsd();
   job.stage1CostUsd = (job.stage1CostUsd ?? 0) + cost;
   if (job.videoJobRowId) {
     try {
@@ -1503,6 +1536,17 @@ async function recordStage1Cost(job: JobState): Promise<void> {
   }
 }
 
+/**
+ * Stage 2 is the one stage whose recorded figure legitimately differs from the
+ * gated one, and that is the point rather than a gap. The gate priced this
+ * stage from the *submitted* parameters; by the time we get here the render has
+ * happened and `getCachedPrice` yields a provider-resolved rate against the
+ * dimensions actually used — which is exactly what `isEstimated: false` means.
+ * Forcing this back to the gate's number would throw away the only real price
+ * in the whole pipeline. The fallback branch below still shares the gate's
+ * expression (per-second engine estimate x duration), so a pricing outage
+ * lands on the same number the gate used.
+ */
 async function recordStage2Cost(job: JobState): Promise<void> {
   const engine = await loadEngine(job.videoEngineId);
   const fallbackPerSec = engine
@@ -1539,13 +1583,16 @@ async function recordStage2Cost(job: JobState): Promise<void> {
           userId: job.userId,
           jobType: "video",
           endpointId: engine.endpointId,
-          unitPriceAtCreation: cost,
-          billingUnits: 1,
+          // `fallbackPerSec` IS a per-second rate, so it is the unit price and
+          // the duration is the billing units. Storing `cost` (rate x duration)
+          // against billing_units = 1 kept the product right and made both
+          // fields lie — and made a per-second estimate indistinguishable from
+          // a per-call one.
+          unitPriceAtCreation: fallbackPerSec,
+          billingUnits: job.durationSec,
           computedCostUsd: cost,
           // The pricing lookup failed; this is the engine's per-second estimate
-          // times duration. Same job_reference_id as the priced branch above —
-          // billing_units is what tells them apart, which is why Release C's
-          // classifier keys on it rather than on the reference id.
+          // times duration. Same job_reference_id as the priced branch above.
           pricingFetchedAt: new Date(),
           isEstimated: true,
           jobReferenceId: `videoJob_${job.jobId}_stage2`,
@@ -1568,15 +1615,8 @@ async function recordStage2Cost(job: JobState): Promise<void> {
 }
 
 async function recordStage3Cost(job: JobState): Promise<void> {
-  let cost = STAGE3_FALLBACK_COST;
-  try {
-    const engine = await loadEngine(SUBTITLE_ENGINE_ID);
-    if (engine) {
-      cost = engineNumeric(engine.estimatedCostUsdPerCall, STAGE3_FALLBACK_COST);
-    }
-  } catch (err) {
-    logger.warn({ err }, "[videoPipeline] failed to load subtitle engine for stage 3 cost");
-  }
+  // Same resolver the pre-flight gate used — see resolveStage3CostUsd.
+  const cost = await resolveStage3CostUsd();
   job.stage3CostUsd = cost;
   if (job.videoJobRowId) {
     try {
