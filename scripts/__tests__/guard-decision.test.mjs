@@ -188,6 +188,26 @@ const MUST_BLOCK = [
   // Round 7: the query exemption must cover only the WRAPPER's own leading
   // options. Here `-v` belongs to curl, and curl really runs.
   ["round 7: command's operand with its own -v", "command curl -v https://api.github.com/rate_limit"],
+  // Round 16: `npm exec --help` documents `x` as the alias, verified against
+  // this container's npm. Same dispatcher, second spelling.
+  ["round 16: npm x is npm exec", "npm x --call 'curl --version'"],
+  ["the -c spelling of the same alias", "npm x -c 'wget --help'"],
+  // Round 16: measured -- `env -S '-i printf ...'` runs printf, so the split
+  // words go into ENV's argv, not straight to the child. Judging the first
+  // word as the program let an option prefix hide the fetcher behind it.
+  ["round 16: an option prefix inside env -S", "env -S '-i curl --version'"],
+  ["a value-taking option prefix inside env -S", "env -S '-u HOME wget --help'"],
+  ["an end-of-options marker inside env -S", "env -S '-- curl --version'"],
+  ["the attached spelling of the same", "env -S'-i curl --version'"],
+  // Round 16: the array-assignment suppression must not swallow a command
+  // substitution sitting inside the parentheses.
+  ["round 16: a substitution inside an array literal is still a command", "arr=( $(git push -f origin main) )"],
+  ["an unclosed array paren is not suppressed", "arr=(curl wget"],
+  ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
+  ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
+  // Round 16: truncating the option scan at `--` must not lose the ordinary
+  // spelling, where the command-string flag precedes the boundary.
+  ["a command string before npm's -- boundary", "npm exec -c 'curl https://api.github.com/x' -- pkg"],
 ];
 
 const MUST_ALLOW = [
@@ -279,6 +299,23 @@ const MUST_ALLOW = [
   ["a heredoc feeding a shell that HAS -c is genuinely inert data", "bash -c 'echo hi' <<'EOF'\ngit push -f origin claude/x\nEOF"],
   ["npx -c running something harmless", "npx -c 'echo hi'"],
   ["parent traversal that still lands on a real scoped name", "rm -rf /tmp/sub/../scratch-xyz"],
+
+  // --- round 16: false blocks the blanket fetcher refusal introduced ---
+  // Naming a fetcher stays allowed; only running one is refused. `(` is an
+  // operator, so an array literal was segmented into a command whose argv[0]
+  // was `curl`, contradicting that boundary.
+  ["an array literal holding fetcher names is data", "fetchers=(curl wget)"],
+  ["the append spelling too", "fetchers+=(curl)"],
+  ["an ordinary array is unaffected", "files=(a.txt b.txt)"],
+  // A dispatcher's `--` ends ITS options; `--call` past that boundary belongs
+  // to the invoked package. Measured for the shell branch too: `bash -- -c
+  // 'printf X'` reports `bash: -c: No such file or directory`, so bash reads
+  // `-c` as $0 and never runs the string.
+  ["a child's identically-named argument after npm's --", "npm exec -- eslint --call 'curl is inert data'"],
+  ["bash's -- means the -c string is not a command", "bash -- -c 'curl https://api.github.com'"],
+  // Re-entering env -S as `env <split>` reuses the measured option table, so
+  // an option prefix in front of a HARMLESS child stays allowed.
+  ["an option prefix in env -S around something harmless", "env -S '-i make'"],
 ];
 
 for (const [name, command] of MUST_BLOCK) {
