@@ -191,6 +191,13 @@ const MUST_BLOCK = [
   // An empty delimiter is a real opener, so the body it introduces is still a
   // script when the opener command is a shell reading stdin.
   ["an empty delimiter still feeds a shell's stdin", "bash <<''\ngit push -f origin claude/x\n"],
+  // Round 13: Bash emits a BYTE for an octal escape, so `\777` wraps to 0xFF.
+  // Building the unbounded code unit (U+01FF) sent the terminator search past
+  // the real terminator and swallowed the command in between.
+  ["round 13: an octal escape above 0377 wraps to a byte", "cat <<$'\\777'\n\u00ff\ngit push -f origin main\n\u01ff"],
+  // An abstention must not hide anything: an undecodable escape means no
+  // heredoc is recognised, so the text is judged in full.
+  ["a NUL escape abstains rather than hiding a push", "cat <<$'A\\0B'\ngit push -f origin main\nA"],
   // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
   // pipeline. A plausible diagnostic command, and one the deleted sweep had
   // been masking.
@@ -251,6 +258,17 @@ const MUST_ALLOW = [
   ["an ANSI-C escape inside the delimiter", "cat <<$'A\\tB'\nUse /usr/bin/curl for the probe; David's note\nA\tB"],
   ["an empty quoted delimiter terminates on a blank line", "cat <<''\nUse /usr/bin/curl for the probe; David's note\n"],
   ["a delimiter continued across a backslash-newline", 'cat <<"A\\\nB"\nUse /usr/bin/curl for the probe; David\'s note\nAB'],
+  // Round 13: the terminator is compared the way Bash compares it -- exactly,
+  // with leading TABS removed only for `<<-`. Trimming both ends of every line
+  // was inherited from the regex this replaced, and an empty delimiter made it
+  // visible: a spaces-only line reduced to "" and ended the body early.
+  ["a spaces-only line is not an empty terminator", "cat <<''\n   \nUse /usr/bin/curl for the probe; David's note\n"],
+  ["<<- strips leading tabs from its terminator", "cat <<-EOF\nUse /usr/bin/curl for the probe; David's note\n\tEOF"],
+  // Plain `<<` strips nothing, so an indented line is body, not terminator --
+  // which means the push below it is data being fed to `cat`, exactly as Bash
+  // would treat it.
+  ["plain << does not strip an indented terminator", "cat <<EOF\n  EOF\ngit push -f origin main\nEOF"],
+  ["an in-range octal escape still decodes", "cat <<$'\\101'\nUse /usr/bin/curl for the probe; David's note\nA"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],

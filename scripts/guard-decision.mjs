@@ -1400,13 +1400,24 @@ function scanAnsiCQuoted(text, start) {
       }
       const hex = /^\\x([0-9a-f]{1,2})/i.exec(text.slice(i));
       if (hex) {
-        value += String.fromCharCode(parseInt(hex[1], 16));
+        const byte = parseInt(hex[1], 16);
+        // A NUL truncates the value in Bash rather than embedding a character,
+        // and reproducing that here would be inventing semantics from reading
+        // rather than measurement. Abstain instead. (Codex, #488 round 13.)
+        if (byte === 0) return null;
+        value += String.fromCharCode(byte);
         i += hex[0].length;
         continue;
       }
       const octal = /^\\([0-7]{1,3})/.exec(text.slice(i));
       if (octal) {
-        value += String.fromCharCode(parseInt(octal[1], 8));
+        // Bash emits a BYTE: `\400` and above wrap to 8 bits. Building the
+        // unbounded code unit produced U+0100-U+01FF instead, so the scanner
+        // hunted for a plausible-but-wrong terminator further down the text
+        // and swallowed the real commands in between. (Codex, #488 round 13.)
+        const byte = parseInt(octal[1], 8) & 0xff;
+        if (byte === 0) return null;
+        value += String.fromCharCode(byte);
         i += octal[0].length;
         continue;
       }
@@ -1425,12 +1436,19 @@ function scanAnsiCQuoted(text, start) {
  * containing regex metacharacters cannot change what counts as the end of
  * the body.
  */
-function findHeredocTerminator(text, from, literal) {
+function findHeredocTerminator(text, from, literal, stripTabs) {
   let pos = from;
   while (pos <= text.length) {
     let lineEnd = text.indexOf("\n", pos);
     if (lineEnd === -1) lineEnd = text.length;
-    if (text.slice(pos, lineEnd).replace(/^[ \t]+/, "").replace(/[ \t]+$/, "") === literal) {
+    const line = text.slice(pos, lineEnd);
+    // Bash's own comparison: the line must EQUAL the delimiter, with leading
+    // TABS removed only for `<<-` -- never spaces, and never for plain `<<`.
+    // Trimming both ends of every line was inherited from the regex this
+    // replaced, and an empty delimiter made it visible: a spaces-only line
+    // reduced to "" and ended the body early, leaving the rest of an inert
+    // body to be judged as commands. (Codex, #488 round 13.)
+    if ((stripTabs ? line.replace(/^\t+/, "") : line) === literal) {
       return { start: pos, end: lineEnd };
     }
     if (lineEnd === text.length) return null;
@@ -1462,7 +1480,8 @@ function findHeredocs(text) {
       continue;
     }
     let cursor = at + 2;
-    if (text[cursor] === "-") cursor += 1;
+    const stripTabs = text[cursor] === "-";
+    if (stripTabs) cursor += 1;
     const delimiter = scanHeredocDelimiter(text, cursor);
     if (!delimiter) {
       i = at + 2;
@@ -1473,7 +1492,7 @@ function findHeredocs(text) {
       i = delimiter.end;
       continue;
     }
-    const terminator = findHeredocTerminator(text, openerLineEnd + 1, delimiter.literal);
+    const terminator = findHeredocTerminator(text, openerLineEnd + 1, delimiter.literal, stripTabs);
     if (!terminator) {
       i = delimiter.end;
       continue;
