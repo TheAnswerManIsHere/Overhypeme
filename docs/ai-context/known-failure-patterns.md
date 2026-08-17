@@ -245,6 +245,46 @@ of this entry.)
 They do not — assertions check runtime verdicts, and the branch shipped 236
 green tests beside a header statement that was already refuted.
 
+## A comparative claim has two directions, and only one gets tested
+
+**Looks like:** a claim of the form *X is stricter/earlier/safer than Y* —
+"the fallback is stricter," "the committer date necessarily precedes the
+push," "this rule is backstopped and that one isn't." **Dangerous:** you check
+the direction that prompted the claim, find it holds, and ship the comparison.
+The other direction was never examined, and a comparison asserts both.
+
+**Four instances in one session (2026-08-17), across three PRs:**
+
+| Claim | Direction checked | Direction that was false |
+| --- | --- | --- |
+| The node-less guard fallback is "stricter on force pushes" | It blocks the permitted lease push | It *allows* `git-push -f`, which the parser blocks |
+| `committedAt` "necessarily precedes the push"; backdating "only over-blocks" | Backdating moves the bound earlier | `GIT_COMMITTER_DATE` is arbitrary, so it can be set *forward* |
+| The lease rule "sits behind GitHub's ruleset," unlike the fetcher rule | The ruleset exists and blocks force pushes | It targets `main`, not the `claude/*` branches the lease rule governs |
+| `Math.min` over qualifying passes picked "a stale response for a live request" | The reduction was wrong | Its consumer is the *ordering* check — a different defect entirely |
+
+The last one is the same failure wearing different clothes: a claim about what
+a value *does*, inferred from its name rather than read from its call sites.
+
+**Why it survives review of the code itself.** Each claim lives in prose, and
+prose is not executed — so nothing fails, and the half that is true makes the
+sentence read as verified. The first version of the fallback claim had already
+survived one review round, because *that* round only challenged the word
+"weaker," and "stricter" is equally one-directional.
+
+**Avoid:** when writing a comparison, **construct the counter-example for the
+opposite direction before shipping the sentence** — and prefer a measured
+matrix to a comparative adjective whenever the underlying behaviour has more
+than one axis. The guard's fallback now carries a six-row block/allow table
+precisely because two successive adjectives were tried and both were false;
+a table has no direction to get backwards.
+
+**The cheap test that would have caught all four:** ask *what would make the
+opposite true, and can I run it?* Every one of these was falsifiable in under a
+minute — hiding `node` from `PATH`, reading `git commit --date` docs, checking
+the ruleset's target, grepping for the variable's consumers. None of the four
+was hard to check; all four were simply never checked. (Codex, #488 round 5,
+#499 rounds 3-4, #505 round 1.)
+
 ## A verification step placed where it cannot physically run
 
 **Looks like:** writing a workflow that gates step N on evidence only
