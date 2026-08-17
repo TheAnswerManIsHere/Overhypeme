@@ -50,8 +50,9 @@ whether its cost came from a **provider-resolved rate** or an
    scope boundary immediately below, which is narrower than it first appears.
 2. Every ledger row says whether its cost came from a **provider-resolved rate**
    or an **operator-configured estimate**.
-3. Spend views **include** estimated rows in the total and **mark** any period
-   that contains one.
+3. **The admin per-user spend panel** includes estimated rows in the total and
+   **marks** any period that contains one. The user-facing half is deferred —
+   see Settled Decision 5.
 
 **The binary is NOT measured-versus-estimated, and saying so would overclaim.**
 `deferred-work.md` records the canonical distinction and this plan is bound by
@@ -72,17 +73,20 @@ and storage; for synchronous video, after the job row is updated. A provider
 call that succeeds and then fails downstream has consumed real money and still
 records nothing, and **this plan does not change that.**
 
-Those paths are not the recording gap this plan closes (which is "priced
-correctly, gated correctly, then declined to record"). Moving accounting to the
-successful-provider-response boundary is a different and larger change: it needs
-failure metadata, an idempotency key so the later success path doesn't
-double-record, and — most importantly — a product decision about whether a
-user's budget is consumed by a generation they never received. That last part is
-not mine to decide, so it is **Q3** below rather than an assumption.
+**This is now settled policy rather than an open gap (David, 2026-08-17):
+we charge a user's budget only for what was actually delivered.** If a
+generation fails after the provider call — moderation, a missing URL, a storage
+failure — that cost is ours, not theirs. So the recording point stays exactly
+where it is, and the paths above are *correct behaviour*, not a defect to fix
+later.
 
-Until it is answered, this increment's claim is the narrow one: *a generation
-that reaches the recording point is recorded, with its provenance*. The plan
-says so rather than implying the broader guarantee.
+The consequence for this plan's claim is unchanged, but its reason is different:
+this increment guarantees *a generation that is delivered is recorded, with its
+provenance*. That is the whole intended guarantee, not a narrowed one.
+
+**What remains genuinely open is an operator question, not a user one**, and it
+is deliberately not folded in here — see the follow-up note at the end of
+Settled Decisions.
 
 ## Must Not Change
 
@@ -116,6 +120,43 @@ says so rather than implying the broader guarantee.
    `deferred-work.md`'s sequencing note — both changes touch the same function,
    and doing them separately means the second partly reverts the first's
    assumptions.
+4. **A lost ledger write is accepted and measured, not recovered** (David,
+   2026-08-17, answering Q1). The accounting-health counter ships now; the
+   widened-ceiling exposure it reveals is knowingly accepted while we find out
+   how often it actually happens. Rejected: **fail closed on unhealthy
+   accounting** (turns a rare accounting error into a user-facing outage
+   pre-launch, and needs per-user attribution a global counter doesn't have);
+   **durable reconciliation** (correct, but a second table and an idempotency
+   key — its own plan, opened once the counter gives us real numbers).
+5. **The user-facing spend view is deferred** (David, 2026-08-17, answering Q2).
+   This increment marks estimated periods in the **admin** panel only. Recorded
+   because it changes what a later plan should build, not just when: David's
+   view is that we are unlikely to *ever* show a user a dollar spend history,
+   and that the user-facing surface should look more like the way Claude
+   displays token usage — an abstracted allowance, not an itemised cost ledger.
+   So the deferred work is not "mount `SpendHistory.tsx` somewhere for users";
+   it is a different surface with a different information model, and
+   `/api/users/me/spend` may never be the endpoint behind it.
+6. **We charge only for what was delivered** (David, 2026-08-17, answering Q3).
+   A generation that fails after the provider call costs us, not the user. The
+   recording point stays after successful delivery. Rejected: moving accounting
+   to the provider-response boundary, and record-and-refund.
+
+**One follow-up this leaves open, stated so it isn't mistaken for settled.**
+Decision 6 answers the *user-charging* question completely. It leaves an
+*operator-visibility* question untouched: money we spend on generations that
+fail after the provider call is currently invisible in every surface we have.
+That is not an argument to charge users — it is an argument that the user ledger
+may be the wrong place to look for our true provider spend. Whether that needs
+its own mechanism is a separate question worth asking once the accounting-health
+counter from decision 4 has produced real numbers, since both are about
+operator visibility rather than enforcement. **Not in this plan.**
+
+A secondary consideration for the same follow-up: a generation that repeatedly
+fails downstream consumes real provider compute without touching the ceiling.
+The existing per-day request and concurrency limits in `resourceGovernance.ts`
+already bound that, so it is not urgent and — importantly — charging users would
+be the wrong tool for it under decision 6 anyway.
 
 ## Repo Context Inspected
 
@@ -425,10 +466,10 @@ still measured against an under-stated total from that moment on. Making a
 failure *visible* and making the ceiling *bind* are different properties, and
 only the first is delivered by observability.
 
-That leaves a genuine fork, and it is **David's to decide, not mine** — it trades
-a widened ceiling against either added machinery or refused generations. It is
-escalated in *Questions for David* below. Until it is answered, this plan
-specifies only the part that is not in dispute:
+**David's answer (2026-08-17): accept and measure.** The widened ceiling is
+knowingly retained while the counter tells us how often a write is actually
+lost; recovery becomes its own plan if the numbers justify it. So what this plan
+specifies is the measurement, not a fix:
 
 - **Storage:** a single-row `admin_config`-style counter (`ledger_write_failures`
   total, plus `ledger_write_failure_last_at`), incremented in its own statement.
@@ -455,11 +496,11 @@ specifies only the part that is not in dispute:
   event.
 - The same signal covers the admin-path skip described above.
 
-**If David picks option 2 in Q1** (fail closed on unhealthy accounting), this
-counter is insufficient by construction — blocking a *specific user* needs
-per-user attribution, which a global counter does not have. That is part of
-option 2's cost, and is stated in the question rather than discovered during
-implementation.
+**The global counter is sufficient for the decision taken, and would not have
+been for the alternative.** Fail-closed-per-user would need attribution this
+counter does not carry — which was part of why that option was rejected rather
+than something to discover during implementation. If a future plan revisits it,
+the counter is the wrong starting point and a per-user record is needed.
 
 **Retry is not the automatic answer.** A retry loop after a completed provider
 call is its own failure mode — it can double-count if the first insert actually
@@ -481,11 +522,15 @@ But `SpendHistory.tsx` has exactly **one** mount in the entire frontend —
 `GET /api/users/me/spend` is a live, self-scoped endpoint with **no user-facing
 UI at all**. Marking a component that no user can reach satisfies nothing.
 
-This is a scope addition (a new user-facing screen or panel, and where it
-lives), so per the now/next/never rule it goes to David rather than being
-absorbed. Escalated below. The consequence for sequencing: **steps 1-7 are
-unaffected and remain shippable**; only the user-facing render waits on that
-answer.
+**Deferred (David, 2026-08-17)** — and the deferral is more than a scheduling
+call. His view is that we are unlikely to ever show a user a dollar spend
+history at all; the user-facing surface should resemble how Claude presents
+token usage — an abstracted allowance rather than an itemised ledger. So the
+later work is a *different surface*, not this component mounted somewhere new,
+and `/api/users/me/spend` may not be its backend.
+
+The consequence for sequencing: **every step of this plan is unaffected and
+shippable**; nothing here waits on that surface existing.
 
 The manual's payments chapter already states that a spend history is a good
 estimate rather than a bill; this makes that visible per period instead of only
@@ -561,7 +606,8 @@ confirm the spend view marks the second.
 5. Sites 1, 2: record on the estimate path; pass the flag.
 6. Site 3: same, and drop the `> 0` condition.
 7. Both spend endpoints: return a per-period `hasEstimates` flag.
-8. `SpendHistory.tsx`: render the marker.
+8. `SpendHistory.tsx`: render the marker **in the admin panel**. No user-facing
+   mount — see decision 5.
 9. Docs: `security-model.md` (what the flag means, and the `pricing_fetched_at`
    caveat), `deferred-work.md` (close the folded entries that this plan actually
    closes — see the note below).
@@ -569,11 +615,15 @@ confirm the spend view marks the second.
 **Phasing, restated after round 1.** Step 1 is the *expand* phase and ships
 alone; steps 3-6 are the writers; the backfill (step 2) is a **separate later
 migration** that runs after the writers have drained the old instances, per the
-rollout ordering above. Steps 1-7 are unaffected by either open question. Step 8
-(the user-facing render) is blocked on Q2, and the `recordCost` recovery
-mechanism beyond the health signal is blocked on Q1 — so `deferred-work.md`'s
-`recordCost` entry closes only if David picks option 1 or 3; under option 2 it
-is superseded rather than closed.
+rollout ordering above.
+
+**Nothing in this plan is blocked.** With decisions 4-6 taken, step 8 narrows to
+the **admin** render only (the user-facing surface is deferred and will be a
+different surface entirely), and the `recordCost` work is the health counter —
+recovery is explicitly not in scope. `deferred-work.md`'s `recordCost` entry
+therefore closes as *accepted and measured* rather than as *fixed*, which is the
+honest closure: the exposure is retained deliberately, with a counter pointed at
+it.
 
 ## Risks and Mitigations
 
@@ -595,73 +645,12 @@ is superseded rather than closed.
 
 ## Questions for David
 
-The display question (include / label / exclude) was answered on 2026-08-17:
-include and label. Codex round 1 raised two further decisions that are genuinely
-product-owner calls, and both are held rather than guessed.
+**All three answered on 2026-08-17** and moved into *Settled Decisions* above
+(4, 5 and 6). The display question — include and label — was answered on
+2026-08-17 as well and is decision 2.
 
-### Q1 — What should happen when a ledger write is lost?
-
-Observability alone leaves the ceiling measured against an under-stated total
-(see Runtime Behavior). Three options, each with a real cost:
-
-1. **Accept the widened ceiling; make it visible.** Cheapest, ships now, and the
-   exposure is bounded by how often inserts actually fail (today: unmeasured,
-   which is itself the argument for the health signal). Ramification: a user who
-   hits a lost write can spend past their ceiling by that row's value, silently
-   for them and visibly for us.
-2. **Fail closed on unhealthy accounting.** If lost writes are detected, refuse
-   further generation for that user until reconciled. Ramification: the ceiling
-   holds absolutely, but a database hiccup becomes a user-facing outage — and
-   this is a *stricter* fail-closed posture than anything currently in the
-   system.
-3. **Durable reconciliation.** Persist the intent before the provider call and
-   reconcile after, so a lost insert is recoverable. Ramification: correct
-   without refusing anyone, but it is a second table and an idempotency key this
-   ledger does not have — comfortably its own plan, not a fold-in here.
-
-**My recommendation: 1 now, 3 as a follow-up plan**, with the health signal
-built now either way so the decision is informed by real numbers rather than
-speculation. Option 2 trades a rare accounting error for a visible outage, which
-is the wrong direction pre-launch.
-
-### Q3 — Is a user's budget consumed by a generation they never received?
-
-Surfaced in round 2. A fal call that succeeds and then fails downstream —
-moderation rejection, missing image URL, a download or storage failure — has
-cost real money and is recorded nowhere, because recording sits after
-post-processing. Options:
-
-1. **Leave it (narrow the claim).** Recording stays where it is; the plan's
-   guarantee is scoped to generations that reach the recording point, as written
-   above. Ramification: real provider spend stays invisible to the ceiling, in a
-   failure mode nobody currently measures. It is the status quo, not a
-   regression.
-2. **Record at the provider-response boundary.** Every successful fal call is
-   accounted for. Ramification: correct on cost, but a user whose generation was
-   rejected by moderation still loses budget — which may be right (the compute
-   happened) or may feel punitive, and that is a product judgement. Needs an
-   idempotency key so the success path doesn't double-record.
-3. **Record at the boundary, but refund on downstream failure.** Ramification:
-   most accurate and most machinery — a compensating write, and a decision about
-   what happens if *that* write fails.
-
-**My recommendation: 1 now, and open 2 as its own plan** with the moderation
-question asked explicitly. The gap is real but it is pre-existing and unmeasured;
-folding a recording-point move into a migration that is already three releases
-deep would be the scope accretion the stopping rule warns about.
-
-### Q2 — Where does a user's own spend history live?
-
-There is no user-facing spend surface today. Options: a section on the profile
-page; a panel in the meme-builder near where budget is consumed; or **next**,
-deferring the user-facing half entirely and shipping the admin marking now.
-
-**My recommendation: defer it (next).** The enforcement and provenance work is
-valuable on its own and unblocked; adding a user-facing screen is a design
-question about what users should see about their own spending, which deserves
-its own conversation rather than being decided inside a migration plan. If that
-is the call, Product Intent #3 narrows to the admin surface for this increment,
-and the user-facing view becomes its own plan.
+Nothing is outstanding except approval of this plan itself, which is David's
+alone.
 
 ## Definition of Done
 
@@ -669,5 +658,5 @@ and the user-facing view becomes its own plan.
 - [ ] Every synchronous writer records an unpriced generation, at the same figure the gate used.
 - [ ] Enforcement sums estimated rows; the ceiling binds on them.
 - [ ] A failed ledger write is visible to a human, not only in a log line.
-- [ ] Both spend views mark periods containing estimated or unknown rows, and their totals are unchanged by the migration.
-- [ ] The behaviour can be exercised in the product: generate with pricing unavailable, then see the marked period in the spend view (UAT doc).
+- [ ] The **admin** spend panel marks periods containing estimated or unknown rows, and its totals are unchanged by the migration.
+- [ ] The behaviour can be exercised in the product: generate with pricing unavailable, then see the marked period in the admin spend panel for that user (UAT doc).
