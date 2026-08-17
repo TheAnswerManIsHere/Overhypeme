@@ -1060,21 +1060,30 @@ const FETCHER_REFUSAL =
  *    this module compares the unexpanded word.
  *
  * ACCEPTED IN THE OTHER DIRECTION, round 17: ANY PROTECTED COMMAND NAMED IN AN
- * ARRAY LITERAL IS REFUSED, though Bash assigns strings and runs nothing. Not
- * just fetchers -- `ops=(git push -f origin main)`, `cleanup=(rm -rf /)` and
- * `migration=(drizzle-kit push)` are all blocked too, because `(` is an
- * operator and the literal's words are emitted as a command segment that every
- * rule in this module then judges.
+ * ARRAY LITERAL IS REFUSED, though Bash assigns strings and runs nothing. `(`
+ * is an operator, so the literal's words are emitted as a command segment that
+ * EVERY rule in this module then judges -- fetchers, `git push`, `git
+ * update-ref` and its direct `git-update-ref` executable spelling, `rm -rf /`,
+ * and `drizzle-kit push`, each enforced by a different branch of
+ * `checkCommand`.
  *
- * The class is stated that way because the first version of this note said
- * "`fetchers=(curl wget)`" and called it the only over-blocking gap, which
- * understated the deletion's blast radius by three rules. (Codex, #488 round
- * 18 -- the THIRD time in one session that a note here described less than its
- * code did, after the heredoc limitation and CLAUDE.md's receipt claim. The
- * standing lesson is in the heredoc note: a limitation stops being accurate
- * the moment a rule is added above it or removed beneath it. Deleting
- * `segments()`'s suppression was a removal, and I documented it by the example
- * in front of me instead of by what the deletion restored.)
+ * THE ENUMERATION ABOVE IS ILLUSTRATIVE, NOT EXHAUSTIVE, and that wording is
+ * load-bearing: this note has now been too narrow twice in consecutive rounds.
+ * v1 named only `fetchers=(curl wget)` and called it the only over-blocking
+ * gap (round 18). v2 named three rules and claimed the blast radius was
+ * understated "by three rules" -- still missing `update-ref`, which is a
+ * separate branch (round 19). The correct statement is structural: the
+ * suppression is gone, so an array literal is judged by whatever rules exist,
+ * and adding a rule to this module silently widens this gap.
+ *
+ * That is the THIRD and FOURTH time in one session that a note here described
+ * less than its code did, after the heredoc limitation and CLAUDE.md's receipt
+ * claim. The standing lesson in the heredoc note -- a limitation stops being
+ * accurate the moment a rule is added above it or removed beneath it -- needs
+ * one addition: the person most likely to understate a change is the one who
+ * just made it, describing it from the example that prompted it. Both times
+ * here I documented a deletion by its motivating case rather than by what it
+ * restored, and the second time I did it while fixing the first.
  *
  * It is deliberate: the suppression written to allow these opened a fail-open
  * in each of its two versions (substitutions with no `$`, then integer-array
@@ -1083,42 +1092,56 @@ const FETCHER_REFUSAL =
  * full reasoning is above `segments()`. A blocked command with an explanatory
  * message is the failure this module is willing to have.
  *
- * A FIFTH AND SIXTH under-blocking gap, round 18, both confirmed by running
- * them and both the same dispatch-spelling class as the four below:
- *
- *  - `npm exec -c='curl --version'` / `npx -c='...'` -- the attached value is
- *    modelled for `--call=` but not for `-c=`. Measured: `npm exec
- *    -c='printf X'` runs the string.
- *  - `eval -- 'curl --version'` -- `eval` joins its arguments verbatim, so the
- *    recursive parse reads `--` as the program. Measured: `eval -- "printf X
- *    > file"` writes the file.
- *
- * A FOURTH, round 16: `printf '%s\n' <url> | xargs curl -sS`.
  * A FOURTH, round 16: `printf '%s\n' <url> | xargs curl -sS`. `xargs` runs its
  * COMMAND operand, so the fetcher is reached while the resolved program stays
- * `xargs`. Confirmed by running it. Accepted for the same reason and by the
- * same rule as the three above: `xargs` is one of the dispatchers named in
+ * `xargs`. Confirmed by running it. `xargs` is one of the dispatchers named in
  * round 7's accepted list (`parallel`, `watch`, `flock`, `setsid`, `runuser`,
  * `script -c`, `strace`, `unbuffer`, `chpst` are the others), and adding it
  * would start the enumeration that list exists to decline.
  *
- * WHERE THE LINE ACTUALLY FALLS, because round 16 is the round that forced it
- * to be stated precisely. Round 16 returned three fail-opens in this class and
- * only ONE was declined. The difference is not how obscure the spelling is --
- * it is whether the wrapper is MODELLED here:
+ * A FIFTH AND SIXTH, round 18, both confirmed by running them:
  *
- *  - A defect in a wrapper this module already models is a correctness bug and
- *    gets fixed. `npm x` was `npm exec` under its documented alias; `env -S`
- *    was mis-read as a bare command line when env's own option table -- already
- *    present, already derived from `env --help` -- was the thing that could
- *    parse it. Neither fix added a table entry.
- *  - A wrapper this module does not model at all is the accepted class. Adding
- *    `xargs` means a new entry, then `parallel`, then the next one shown.
+ *  - `npm exec -c='curl --version'`, `npm x -c='...'` and `npx -c='...'` --
+ *    the attached value is modelled for `--call=` but not for `-c=`. ALL THREE
+ *    spellings, because the branch treats `x` as `exec`; naming only two
+ *    understated it. (Codex, #488 round 19.) Measured: `npm x -c='printf X'`
+ *    runs the string. Fix: accept `FLAG=value` alongside `FLAG value` for both
+ *    modelled command-string flags.
+ *  - `eval -- 'curl --version'` -- `eval` joins its arguments verbatim, so the
+ *    recursive parse reads `--` as the program. Measured: `eval -- "printf X
+ *    > file"` writes the file. Fix: strip a leading `--` before joining.
  *
- * FLIP CONDITION: if a later round finds a defect in a MODELLED wrapper that
- * cannot be fixed without adding a new table entry, then this line is not the
- * real boundary and the answer is to take that to David rather than add the
- * entry.
+ * WHY THOSE TWO ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
+ *
+ * Round 16 published a line here: a defect in a wrapper this module MODELS is
+ * a correctness bug and gets fixed, while an unmodelled wrapper is the
+ * accepted class -- with a flip condition naming a modelled-wrapper defect
+ * that needs a new table entry. **That line is RETIRED, and reading it as
+ * still operative is what makes the two entries above look contradictory.**
+ * (Codex, #488 round 19, which caught the header asserting both.)
+ *
+ * It was retired by measurement, not by preference. Round 16 fixed four
+ * defects under it -- `npm x`, `env -S`, the `--` truncation, the array
+ * suppression -- and ALL FOUR produced a new defect in round 17, two of them
+ * fail-opens. The line was true as stated and still selected the wrong action,
+ * because the thing that made those fixes fail was not which wrapper they
+ * touched: it was that each generalised from the one spelling in the report.
+ * Its flip condition could never have fired, since it was watching for a
+ * table entry rather than for that.
+ *
+ * WHAT IS OPERATIVE INSTEAD, and it is deliberately narrower in scope: no
+ * further ADDITION to dispatch parsing lands in this PR, modelled or not.
+ * That is a fact about this review loop's history, not an architectural
+ * boundary -- `npm exec -c=` and `eval --` are both worth fixing, both have
+ * their fix written above, and a session picking them up outside this loop
+ * should fix them. What that session must not do is take a round's finding and
+ * patch the reported spelling, which is the move with a four-for-four failure
+ * record here.
+ *
+ * The one change this rule does NOT bar is a DELETION. Removing machinery can
+ * only turn allows into blocks, so it cannot open a hole -- which is why the
+ * array suppression was deleted at round 17 rather than patched a third time,
+ * and why that commit was the first in three rounds to survive review intact.
  *
  * The rule this file follows now: the fetcher refusal is judged from the
  * RESOLVED PROGRAM and nothing else. Making the resolver perfect is a third

@@ -233,6 +233,12 @@ const MUST_BLOCK = [
   ["a push in an array literal is over-blocked too", "ops=(git push -f origin main)"],
   ["an rm in an array literal, same class", "cleanup=(rm -rf /)"],
   ["a drizzle-kit push in an array literal, same class", "migration=(drizzle-kit push)"],
+  // Round 19: update-ref is a SEPARATE branch of checkCommand from push, so
+  // naming push did not cover it -- the second consecutive round in which this
+  // note was too narrow. Both spellings, since the direct executable is its
+  // own branch again.
+  ["an update-ref in an array literal, a fourth distinct rule", "ops=(git update-ref refs/heads/main abc1234)"],
+  ["the direct git-update-ref executable, same class", "ops=(/usr/lib/git-core/git-update-ref refs/heads/main abc1234)"],
   ["an unclosed array paren is not suppressed", "arr=(curl wget"],
   ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
   ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
