@@ -922,8 +922,16 @@ const FETCHER_OPTIONS = {
     ]),
   },
   wget: {
-    // `wget --help | grep -oE '^ +-[A-Za-z], +--[a-z0-9.-]+='`
-    short: new Set("ABDIOPQRTUXaeilotw"),
+    // `wget --help | grep -oE '^ +-[A-Za-z], +--[a-z0-9.-]+='`, minus `i`.
+    //
+    // `-i, --input-file` is EXCLUDED even though it takes a value, for the same
+    // reason curl's `--url` is: wget's help calls its argument a "local or
+    // external FILE", and Codex confirmed with a spider run that
+    // `wget -i https://api.github.com/...` emits `CONNECT api.github.com:443`.
+    // Its value is a fetch target, not data, so skipping it opened a hole --
+    // the exact failure mode this table's own note warns about, where the only
+    // way to reopen one is to wrongly ADD an entry. (Codex, #488 round 2.)
+    short: new Set("ABDOPQRTUXaelotw"),
     long: new Set([
       "accept", "accept-regex", "append-output", "backups", "base",
       "bind-address", "body-data", "body-file", "ca-certificate", "ca-directory",
@@ -932,7 +940,7 @@ const FETCHER_OPTIONS = {
       "directory-prefix", "dns-timeout", "domains", "exclude-directories",
       "exclude-domains", "execute", "follow-tags", "ftp-password", "ftp-user",
       "header", "http-password", "http-user", "ignore-tags",
-      "include-directories", "input-file", "level", "limit-rate", "load-cookies",
+      "include-directories", "level", "limit-rate", "load-cookies",
       "local-encoding", "method", "output-document", "output-file", "password",
       "pinnedpubkey", "post-data", "post-file", "prefer-family", "private-key",
       "private-key-type", "progress", "proxy-password", "proxy-user", "quota",
