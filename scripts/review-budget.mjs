@@ -529,8 +529,11 @@ function refusal(pr, state) {
       `TRIPWIRE 1 (self-serve). Do NOT re-evaluate this in the loop's own context -- that is the ` +
       `criticality gate again, and it has never stopped a loop. Instead:\n` +
       `  1. node scripts/review-loop-record.mjs --pr ${pr} --mcp-snapshot <file> --write\n` +
-      `  2. Dispatch ONE fresh-context adjudicator subagent (.claude/agents/review-loop-adjudicator.md), ` +
-      `giving it the generated record and nothing else from this session.\n` +
+      `  2. Dispatch ONE fresh-context adjudicator subagent ON FABLE -- agent type ` +
+      `"review-loop-adjudicator", and pass model: "fable" explicitly on the call rather than relying on ` +
+      `its frontmatter, since a per-invocation model outranks frontmatter in the resolution order. ` +
+      `Give it the generated record and NOTHING else from this session. Fable spends at double Opus, so ` +
+      `say out loud that you are dispatching it (the announce-don't-sneak rule in the model-routing skill).\n` +
       `  3. Write its verdict to ${extensionPath(pr, extensions.length + 1)} ` +
       `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate).\n` +
       `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard, and only once.`

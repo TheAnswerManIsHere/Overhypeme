@@ -1038,10 +1038,17 @@ never had. Pointer, not fork: the buckets are not restated here.
    only to the guard. The receipts under `.agents/receipts/` are **committed**:
    the container is ephemeral, and an uncommitted tally resets the count.
 
-2. **Tripwire 1 — self-serve, and it must run in FRESH CONTEXT.** At the
-   budget, the guard refuses. To proceed I dispatch **one** adjudicator
-   subagent (`.claude/agents/review-loop-adjudicator.md`) whose only input is a
-   **script-generated mechanical record**
+2. **Tripwire 1 — self-serve, and it must run in FRESH CONTEXT, on FABLE.** At
+   the budget, the guard refuses. To proceed I dispatch **one** adjudicator
+   subagent (`.claude/agents/review-loop-adjudicator.md`) **on Fable** — the
+   same tier and the same reasoning as the adversarial subagent in the
+   `model-routing` skill, because this is the identical failure mode one step
+   further out: applying a rule correctly to a situation nobody read. Fable
+   reversed exactly that twice in one session where Opus did not. **I pass
+   `model: "fable"` explicitly on the dispatch** rather than relying on the
+   agent's frontmatter, since a per-invocation model outranks frontmatter in
+   the resolution order — and I **announce the dispatch**, because Fable spends
+   at double Opus. Its only input is a **script-generated mechanical record**
    (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file> --write`)
    — never the loop's own prose, and never a case for continuing written by
    me. Counted, not recalled: recalled numbers in this repo have been wrong 3

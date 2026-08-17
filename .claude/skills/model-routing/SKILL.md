@@ -250,6 +250,19 @@ facts about the situation, not self-assessments:
 - any recommendation where a **flip condition cannot be named**, or where the
   named flip condition is **already true** (`working-modes.md`'s post-round
   adjudication)
+- **a round-budget tripwire-1 refusal** (David, 2026-08-17) — the guard in
+  `scripts/review-budget.mjs` blocking an `@codex review` post past its
+  declared budget. This one differs from the four above in *two* ways, and
+  both matter: it is fired by a **guard rather than by my own reading of the
+  round**, and it is dispatched as a **named agent type**
+  (`review-loop-adjudicator`) with a **script-generated record as its only
+  input** — no drafted decision of mine to argue against, because at this
+  tripwire there is deliberately nothing of mine for it to read. Same tier,
+  same reasoning, stricter isolation: the loop's own account of itself is the
+  thing that failed, so the adjudicator is given none of it. **Pass
+  `model: "fable"` on the dispatch** rather than relying on the agent's
+  frontmatter — per-invocation outranks frontmatter in the resolution order
+  above — and announce it like any Fable dispatch.
 
 **What gets dispatched:** my drafted decision *and* my reasoning — including
 every counter-argument in my own draft, verbatim — with the subagent
