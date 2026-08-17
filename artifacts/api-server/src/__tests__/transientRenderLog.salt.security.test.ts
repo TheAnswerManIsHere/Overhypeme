@@ -155,6 +155,17 @@ describe("assertIpSaltConfigured", () => {
  * throw at import time (executed), and `index.ts` really does import it early
  * enough (static). Neither alone is sufficient — the first can't see the
  * entrypoint, and the second can't see evaluation semantics.
+ *
+ * **What is NOT guarded here, stated so nobody reads this block as complete.**
+ * These cases pin the *direct* imports of `index.ts` by exact name and
+ * position. They say nothing about the graphs beneath them, so the invariant
+ * breaks silently if a database reach is ever added inside `./instrument`'s
+ * graph, or inside `bootChecks`'s own (`ipSalt` → `node:crypto`, `./env`,
+ * `./logger`) — the assertion would still run second and still be too late.
+ * Closing that needs a transitive import-graph walk, which is a bigger guard
+ * than this fix warranted; the end-to-end bundle run (production env, no salt,
+ * unreachable DB → the salt error rather than ECONNREFUSED) is what verifies
+ * the graph as it stands today, and it is a manual check, not a test.
  */
 describe("boot wiring: the assertion runs before the database graph loads", () => {
   const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "index.ts");
