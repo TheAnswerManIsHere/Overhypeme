@@ -1051,9 +1051,34 @@ verification — is post-merge for the same structural reason.
    — for those, the old ritual holds unchanged: a 🛑 NEED YOU banner with a
    push notification when the PR is ready, and only an explicit yes counts.
    If I'm unsure whether a PR falls under a carve-out, it does.
-3. **I re-verify live PR state immediately before merging** — a fresh
+3. **The bar is established by a receipt, not by recollection (David,
+   2026-08-17 — after the second occurrence).** `node scripts/pr-ready.mjs
+   --pr <N> --snapshot <file>` takes a captured `pull_request_read` snapshot
+   (`get_check_runs`, `get_reviews`, `get_comments`,
+   `get_review_comments`) and computes all three items, and its output is
+   what I quote. Two consequences, and the second is the one that was
+   missing:
+   - **The merge tool is hooked.** `mcp__github__merge_pull_request` is
+     blocked unless a receipt for that PR exists, says READY, is under an
+     hour old, and names the commit that is still the branch tip. That
+     covers merges I perform.
+   - **A readiness claim to David quotes the receipt block verbatim.** No
+     hook sees his click, so for a carve-out PR the receipt is the whole
+     control. "Ready for your merge" is unsayable without one, because
+     there would be nothing to paste — which is exactly what would have
+     stopped #487, where item 2 had never even been requested.
+
+   **Why this is a check and not another undertaking:** the bar has been
+   reported from a single checked item **twice**. PR #458 merged with a
+   review round outstanding and took 7 findings on `main` 47 seconds later;
+   PR #487 I called green having run `get_check_runs` and nothing else, on a
+   PR where I had never posted `@codex review` at all. The repo's standing
+   rule is that a discipline broken twice becomes a check.
+
+4. **I re-verify live PR state immediately before merging** — a fresh
    `pull_request_read`, not the cached green from when the bar was last
-   checked. If anything moved (a new commit, a re-opened thread, CI
+   checked. This is what the receipt is generated from; the receipt's age cap
+   and SHA binding exist so a stale one cannot stand in for it. If anything moved (a new commit, a re-opened thread, CI
    flipped), I stop and re-work the bar rather than merging on a stale
    picture. **If this PR is the parent of a stacked dependent bugfix** (the
    working-modes.md *Dependent bugs* shape — a child branched from this
@@ -1061,7 +1086,7 @@ verification — is post-merge for the same structural reason.
    been retargeted to `main` before merging: this repo auto-deletes the
    parent branch on merge, with no reliable window afterward to retarget,
    so this check has to happen *before* the click, not after.
-4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
+5. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
    checked-out SHA matches the new `main` commit *and* that its worktree is
    clean → execute the PR's Post-merge verification section** through the
    connector (the two-call sequence below; read-only scoping stated), when
@@ -1070,7 +1095,7 @@ verification — is post-merge for the same structural reason.
    (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
    a sync that silently didn't land looks exactly like one that did, and a
    leftover local edit rides along invisibly behind a correct SHA.
-5. **I make the `/document` judgement AND run the pass it calls for, both
+6. **I make the `/document` judgement AND run the pass it calls for, both
    BEFORE writing the merge report (David, 2026-08-16 — the third and, I
    expect, final ordering of this step).** Judging and running are one
    step, not two. The bar, the Opus tier guard, and the rule that the
@@ -1081,7 +1106,7 @@ verification — is post-merge for the same structural reason.
    the judgement *after* the report while requiring its verdict *in* the
    report — unsatisfiable. v2 (2026-08-15) fixed that by moving the
    judgement before the report and leaving the pass after it. That looked
-   correct and was still a trap, because **step 6 is a hand-the-turn-back
+   correct and was still a trap, because **step 7 is a hand-the-turn-back
    message**: it ends by telling David to go run his UAT. Writing "and I'm
    about to do more work" inside a handoff is structurally self-defeating —
    the message's form says stop, its content says continue, and the form
@@ -1091,9 +1116,9 @@ verification — is post-merge for the same structural reason.
 
    **So the gap is closed rather than guarded.** No verdict is ever recorded
    before the work it describes exists. The consequence is a mechanical
-   one — see the promise ban in step 6 — and it is what makes this
+   one — see the promise ban in step 7 — and it is what makes this
    unbreakable-by-forgetting rather than merely discouraged.
-6. **I report the outcome with both SHAs, the verification section's
+7. **I report the outcome with both SHAs, the verification section's
    results, the `/document` outcome, and hand off to UAT** — naming what he
    should go click, since the sync is the moment his testing becomes
    possible. A "no pass needed" verdict is stated in one line, not left
@@ -1127,14 +1152,14 @@ verification — is post-merge for the same structural reason.
    the sync fails or the checks don't match, I say so plainly and stop — no
    blind retries, never papering over a partial sync, and I don't invite him
    to test something that isn't actually there.
-7. **Nothing follows the merge report.** It is the last step of close-out by
+8. **Nothing follows the merge report.** It is the last step of close-out by
    construction, because it is the message that hands the turn back. Any
    future step I'm tempted to sequence after it belongs *before* it — the
-   `/document` pass was the one that tried, and step 5 is where it now
-   lives. (The old step 7 — "then I run the `/document` pass" — is gone for
+   `/document` pass was the one that tried, and step 6 is where it now
+   lives. (The old step 8 — "then I run the `/document` pass" — is gone for
    that reason, not because the pass stopped being required. It is required;
    it just happens earlier, and no ask, per David 2026-08-15.)
-8. **A failed UAT is a follow-up PR, not a crisis.** The merge already
+9. **A failed UAT is a follow-up PR, not a crisis.** The merge already
    happened; that's the design, not a mistake to undo. I fix forward on a
    fresh branch through the normal pipeline. A revert is only for a `main`
    that's actually broken (the Repl won't run, something's badly wrong), not

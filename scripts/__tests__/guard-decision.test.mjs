@@ -11,6 +11,7 @@ import {
   checkCommand,
   extractCommand,
   stripHeredocs,
+  checkMerge,
 } from "../guard-decision.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -489,3 +490,98 @@ for (const depth of [5, 6]) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// The merge gate.
+//
+// CLAUDE.md's merge bar is CI green + Codex converged + every review thread
+// resolved. It was reported from a single checked item twice -- PR #458 (merged
+// with a round outstanding; seven findings landed 47 seconds later) and PR #487
+// (reported green having run get_check_runs and nothing else, on a PR where no
+// review had ever been requested). The standing rule is that a discipline
+// broken twice becomes a check, so the merge tool now requires the receipt
+// scripts/pr-ready.mjs produces.
+//
+// `checkMerge` takes its receipt reader and SHA resolver as parameters so this
+// table asserts the decision rather than the filesystem.
+// ---------------------------------------------------------------------------
+
+const READY = {
+  verdict: "READY",
+  pr: 500,
+  headSha: "a".repeat(40),
+  branch: "claude/x",
+  generatedAt: new Date(Date.now() - 60_000).toISOString(),
+  items: { ci: { pass: true }, codex: { pass: true }, threads: { pass: true } },
+};
+
+const mergeReason = (receipt, { tip = null, input = { pullNumber: 500 } } = {}) =>
+  checkMerge(input, { readReceipt: () => receipt, resolveSha: () => tip });
+
+test("merge gate: a current, passing receipt allows the merge", () => {
+  assert.equal(mergeReason(READY), null);
+});
+
+test("merge gate: no receipt at all blocks -- the PR #487 shape", () => {
+  assert.match(mergeReason(null), /no readiness receipt/);
+});
+
+test("merge gate: a NOT READY receipt blocks and names the failing item", () => {
+  const receipt = {
+    ...READY,
+    verdict: "NOT READY",
+    items: {
+      ci: { pass: true, detail: "9 checks, all passing" },
+      codex: { pass: false, detail: "no `@codex review` request found" },
+      threads: { pass: true, detail: "0 threads" },
+    },
+  };
+  const reason = mergeReason(receipt);
+  assert.match(reason, /NOT READY/);
+  // The whole failure being fixed is a green CI reading standing in for the
+  // bar, so the message must name the item that actually failed.
+  assert.match(reason, /codex: no `@codex review` request found/);
+});
+
+test("merge gate: a receipt older than the age cap blocks", () => {
+  const stale = { ...READY, generatedAt: new Date(Date.now() - 90 * 60_000).toISOString() };
+  assert.match(mergeReason(stale), /no longer current/);
+});
+
+test("merge gate: an unparseable timestamp blocks rather than reading as age zero", () => {
+  assert.match(mergeReason({ ...READY, generatedAt: "whenever" }), /no longer current/);
+});
+
+test("merge gate: a receipt from the future blocks", () => {
+  const future = { ...READY, generatedAt: new Date(Date.now() + 10 * 60_000).toISOString() };
+  assert.match(mergeReason(future), /no longer current/);
+});
+
+test("merge gate: a push after validation invalidates the receipt", () => {
+  // The age cap alone cannot catch this: the receipt was accurate when written
+  // and my own next commit made it describe a commit that will not merge.
+  const reason = mergeReason(READY, { tip: "b".repeat(40) });
+  assert.match(reason, /is not the commit that would merge/);
+});
+
+test("merge gate: an unresolvable branch abstains rather than blocking", () => {
+  // A fork, or a branch this ephemeral container never fetched. The age cap
+  // still applies; the SHA check simply has nothing to compare.
+  assert.equal(mergeReason(READY, { tip: null }), null);
+});
+
+test("merge gate: a missing pullNumber blocks", () => {
+  assert.match(mergeReason(READY, { input: {} }), /no pullNumber/);
+});
+
+test("merge gate: the merge tool routes to the gate, not the Bash parser", () => {
+  const raw = JSON.stringify({
+    tool_name: "mcp__github__merge_pull_request",
+    tool_input: { owner: "o", repo: "r", pullNumber: 500 },
+  });
+  const { blocked: isBlocked, reason } = decide(raw, {
+    readReceipt: () => null,
+    resolveSha: () => null,
+  });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no readiness receipt/);
+});

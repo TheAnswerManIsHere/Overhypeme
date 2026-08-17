@@ -53,6 +53,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "mcp__github__merge_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/guard.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
