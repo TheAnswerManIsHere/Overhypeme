@@ -126,12 +126,19 @@ approach that looks reasonable:
   priced and estimated — write the **same** reference id
   (`videoJob_<id>_stage2`). An earlier framing of this work assumed the suffix
   was sufficient; it is sufficient for stages 1 and 3 and ambiguous for stage 2.
-- **The obvious composite is unsafe in general.** Estimate rows have
-  `billing_units = 1` and `unit_price_at_creation = computed_cost_usd`. That
-  identifies site 6 *within stage-2 rows*, but a legitimately-priced image can
-  also land on `billing_units ≈ 1` (megapixel billing on a ~1MP image), so the
-  composite must be applied **scoped to a reference-id pattern**, never
-  repo-wide.
+- **The obvious composite is unsafe in general — and worse than "approximately
+  unsafe."** Estimate rows have `billing_units = 1` and
+  `unit_price_at_creation = computed_cost_usd`. Read
+  `computeImageCost` (`costComputation.ts:104`): its **default** branch is
+  per-image pricing, which returns `billingUnits = count` and
+  `costUsd = count * unitPrice`. For a single image that is *exactly*
+  `billing_units = 1` and `unit_price_at_creation = computed_cost_usd` — the
+  estimate signature, matched precisely, by a fully provider-priced row. (The
+  megapixel branch gets there too for a ~1MP image: 1000x1000 is exactly 1.0.)
+  So the composite does not merely risk collision; every single-image
+  per-image-priced row in the table satisfies it. Scoping it to a reference-id
+  pattern is therefore **load-bearing, not caution** — applied repo-wide it
+  would mislabel a whole class of correctly-measured image rows as estimates.
 
 The display path: `GET /api/users/me/spend` groups by year/month and returns
 `SUM(computed_cost_usd)`; the admin endpoint mirrors it; `SpendHistory.tsx`
