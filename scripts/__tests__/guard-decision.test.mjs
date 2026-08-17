@@ -560,13 +560,20 @@ for (const depth of [5, 6]) {
 const READY = {
   verdict: "READY",
   pr: 500,
+  repo: "TheAnswerManIsHere/Overhypeme",
   headSha: "a".repeat(40),
   branch: "claude/x",
   generatedAt: new Date(Date.now() - 60_000).toISOString(),
+  // When the PR was READ, which is what the gate ages against. `generatedAt`
+  // only records when the check ran, and re-running a saved snapshot resets it
+  // while the data behind it stays as old as it was. (Codex, #490.)
+  evidenceAt: new Date(Date.now() - 60_000).toISOString(),
   items: { ci: { pass: true }, codex: { pass: true }, threads: { pass: true } },
 };
 
-const mergeReason = (receipt, { tip = READY.headSha, input = { pullNumber: 500 } } = {}) =>
+const MERGE_INPUT = { pullNumber: 500, owner: "TheAnswerManIsHere", repo: "Overhypeme" };
+
+const mergeReason = (receipt, { tip = READY.headSha, input = MERGE_INPUT } = {}) =>
   checkMerge(input, { readReceipt: () => receipt, resolveSha: () => tip });
 
 test("merge gate: a current, passing receipt allows the merge", () => {
@@ -595,16 +602,16 @@ test("merge gate: a NOT READY receipt blocks and names the failing item", () => 
 });
 
 test("merge gate: a receipt older than the age cap blocks", () => {
-  const stale = { ...READY, generatedAt: new Date(Date.now() - 90 * 60_000).toISOString() };
+  const stale = { ...READY, evidenceAt: new Date(Date.now() - 90 * 60_000).toISOString() };
   assert.match(mergeReason(stale), /no longer current/);
 });
 
 test("merge gate: an unparseable timestamp blocks rather than reading as age zero", () => {
-  assert.match(mergeReason({ ...READY, generatedAt: "whenever" }), /no longer current/);
+  assert.match(mergeReason({ ...READY, evidenceAt: "whenever" }), /no longer current/);
 });
 
 test("merge gate: a receipt from the future blocks", () => {
-  const future = { ...READY, generatedAt: new Date(Date.now() + 10 * 60_000).toISOString() };
+  const future = { ...READY, evidenceAt: new Date(Date.now() + 10 * 60_000).toISOString() };
   assert.match(mergeReason(future), /no longer current/);
 });
 
@@ -621,6 +628,32 @@ test("merge gate: an unresolvable branch BLOCKS rather than abstaining", () => {
   // guard: the abstention is indistinguishable from the case it exists to
   // catch. (Codex, #490.)
   assert.match(mergeReason(READY, { tip: null }), /could not resolve the current tip/);
+});
+
+test("merge gate: a receipt minted for ANOTHER repository blocks", () => {
+  // Receipts are keyed by PR number and shas resolve against this checkout's
+  // origin, so a merge aimed elsewhere would find a locally valid receipt and a
+  // locally matching tip and pass every remaining check. (Codex, #490.)
+  const reason = mergeReason(READY, {
+    input: { pullNumber: 500, owner: "someone-else", repo: "Overhypeme" },
+  });
+  assert.match(reason, /minted for TheAnswerManIsHere\/Overhypeme/);
+});
+
+test("merge gate: a merge input naming no repository blocks", () => {
+  assert.match(mergeReason(READY, { input: { pullNumber: 500 } }), /names no owner\/repo/);
+});
+
+test("merge gate: a receipt recording no repository blocks", () => {
+  const { repo, ...noRepo } = READY;
+  assert.match(mergeReason(noRepo), /an unrecorded repository/);
+});
+
+test("merge gate: a receipt with no evidenceAt blocks", () => {
+  // Its age would otherwise describe when the check RAN rather than when the
+  // PR was read -- the gap a saved snapshot walks through. (Codex, #490.)
+  const { evidenceAt, ...noEvidence } = READY;
+  assert.match(mergeReason(noEvidence), /records no evidenceAt/);
 });
 
 test("merge gate: a receipt whose body names a different PR blocks", () => {

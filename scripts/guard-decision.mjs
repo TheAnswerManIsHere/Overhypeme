@@ -1388,6 +1388,21 @@ export function checkMerge(toolInput, { now = Date.now(), readReceipt, resolveSh
   if (receipt.pr !== pr) {
     return `merge blocked: the receipt filed for PR #${pr} says it is for PR #${receipt.pr}. ${RECEIPT_HOWTO}`;
   }
+  // A number is not an identity. Receipts are keyed by PR number and shas are
+  // resolved against THIS checkout's origin, so a merge aimed at a different
+  // repository whose PR number happened to match would find a locally valid
+  // receipt and a locally matching tip, and pass every remaining check.
+  // (Codex, #490.)
+  const target = `${toolInput?.owner ?? ""}/${toolInput?.repo ?? ""}`;
+  if (!toolInput?.owner || !toolInput?.repo) {
+    return `merge blocked: the merge tool input names no owner/repo, so the receipt for PR #${pr} cannot be tied to a repository. ${RECEIPT_HOWTO}`;
+  }
+  if (typeof receipt.repo !== "string" || receipt.repo.toLowerCase() !== target.toLowerCase()) {
+    return (
+      `merge blocked: the receipt for PR #${pr} was minted for ${receipt.repo ?? "an unrecorded repository"}, ` +
+      `but the merge targets ${target}. ${RECEIPT_HOWTO}`
+    );
+  }
   if (receipt.verdict !== "READY") {
     const failing = Object.entries(receipt.items ?? {})
       .filter(([, item]) => !item.pass)
@@ -1396,10 +1411,21 @@ export function checkMerge(toolInput, { now = Date.now(), readReceipt, resolveSh
     return `merge blocked: the receipt for PR #${pr} says NOT READY -- ${failing || "no item detail recorded"}.`;
   }
 
-  const age = now - Date.parse(receipt.generatedAt ?? 0);
+  // Aged against when the EVIDENCE was read, not when the script ran. Re-running
+  // a saved snapshot resets `generatedAt` while the data behind it stays as old
+  // as it was, so ageing the run would accept a days-old picture of the PR --
+  // past a reopened thread or a re-run that went red. (Codex, #490.)
+  const stamp = receipt.evidenceAt ?? receipt.generatedAt;
+  const age = now - Date.parse(stamp ?? 0);
+  if (!receipt.evidenceAt) {
+    return (
+      `merge blocked: the receipt for PR #${pr} records no evidenceAt, so its age describes when the ` +
+      `check ran rather than when the PR was read. ${RECEIPT_HOWTO}`
+    );
+  }
   if (!Number.isFinite(age) || age < 0 || age > RECEIPT_MAX_AGE_MS) {
     return (
-      `merge blocked: the receipt for PR #${pr} was written ${receipt.generatedAt ?? "at an unreadable time"} ` +
+      `merge blocked: the receipt for PR #${pr} rests on evidence read ${stamp ?? "at an unreadable time"} ` +
       `and is no longer current. Re-verify against live state -- reviews land and CI re-runs. ${RECEIPT_HOWTO}`
     );
   }

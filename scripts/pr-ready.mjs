@@ -61,6 +61,32 @@ export const CODEX_BOT = "chatgpt-codex-connector[bot]";
  */
 const PASSING_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
+/**
+ * The jobs that must be PRESENT, not merely the ones that must pass.
+ *
+ * "Some checks exist and none failed" is not the bar. `Test` depends on
+ * `Classify changed paths`, so a snapshot taken after an early job succeeds but
+ * before the dependent job is created reports a complete green set and mints a
+ * receipt that stays usable for an hour. (Codex, #490.)
+ *
+ * These are the `jobs.*.name` values in .github/workflows/build.yml. Renaming a
+ * job there without updating this list blocks every merge until someone
+ * notices -- the fail-closed direction, and loud rather than silent.
+ */
+const REQUIRED_CHECKS = ["Classify changed paths", "Build", "Test"];
+
+/**
+ * How stale the underlying evidence may be when a receipt is minted.
+ *
+ * `generatedAt` is set when the script runs, so it says nothing about when the
+ * data was READ: a snapshot saved days ago could be re-run to mint a
+ * fresh-looking receipt, and the merge gate would accept it as long as the
+ * branch tip had not moved -- past a reopened thread or a re-run that went red.
+ * (Codex, #490.) Matches the merge gate's own receipt window, since the two
+ * are answering the same question about the same evidence.
+ */
+const MAX_EVIDENCE_AGE_MS = 60 * 60 * 1000;
+
 const authorOf = (c) => c?.user?.login ?? c?.author?.login ?? c?.author ?? "";
 const bodyOf = (c) => c?.body ?? "";
 const timeOf = (c) => Date.parse(c?.created_at ?? c?.submitted_at ?? 0) || 0;
@@ -93,11 +119,23 @@ const timeOf = (c) => Date.parse(c?.created_at ?? c?.submitted_at ?? 0) || 0;
 const SECURITY_BOUNCE = /usage limits for security reviews/i;
 const CODEX_USAGE_LIMIT = /usage limits?|rate limit|quota/i;
 
-/** A Codex comment reporting a limit that is NOT the security-review one. */
-export function codeReviewOutage(issueComments, reviews) {
+/**
+ * A Codex comment reporting a limit that is NOT the security-review one.
+ *
+ * `since` scopes the search to the round being waited on. Without it, the
+ * outage was only ever reported on a PR that had never had a completed pass:
+ * once round 1 announced, a round-2 usage-limit bounce fell past the
+ * `announcements.length === 0` branch and came back as a generic "not ready",
+ * so `evaluate` emitted NOT READY where David's rule requires a full stop.
+ * (Codex, #490.) An outage always postdates the request it is answering, so
+ * scoping by the latest request is what makes it visible on every round rather
+ * than only the first.
+ */
+export function codeReviewOutage(issueComments, reviews, since = 0) {
   const hit = [...issueComments, ...reviews].find(
     (c) =>
       authorOf(c) === CODEX_BOT &&
+      timeOf(c) >= since &&
       CODEX_USAGE_LIMIT.test(bodyOf(c)) &&
       !SECURITY_BOUNCE.test(bodyOf(c)),
   );
@@ -156,6 +194,15 @@ const MCP_METHOD_FOR = {
 
 export function assertSnapshot(snapshot, prNumber) {
   if (!snapshot || typeof snapshot !== "object") throw fail("snapshot is not an object");
+
+  // A PR number alone does not name a pull request -- every repository has a
+  // #490. The merge gate keys receipts by number and resolves shas against
+  // THIS checkout's origin, so without the repository recorded, a merge aimed
+  // at another repo whose PR number happened to match would be waved through
+  // by a locally valid receipt. (Codex, #490.)
+  if (typeof snapshot.repo !== "string" || !/^[^/\s]+\/[^/\s]+$/.test(snapshot.repo)) {
+    throw fail('snapshot.repo must be "owner/name" -- the receipt is bound to a repository, not just a number');
+  }
 
   const pr = snapshot.pr;
   if (!pr || typeof pr !== "object") throw fail('snapshot is missing "pr"');
@@ -255,6 +302,19 @@ export function checkCi(checkRuns, headSha = null) {
       };
     }
   }
+  const names = new Set(checkRuns.map((r) => r.name));
+  const missing = REQUIRED_CHECKS.filter((n) => !names.has(n));
+  if (missing.length) {
+    return {
+      pass: false,
+      detail:
+        `${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} absent from the check runs. ` +
+        `A nonempty set of passing checks is not the bar -- ${names.size} check(s) can all be green ` +
+        `while a mandatory job has not been created yet (Test depends on Classify changed paths, so it ` +
+        `appears late). Re-read get_check_runs once the workflow has fanned out.`,
+    };
+  }
+
   const pending = checkRuns.filter((r) => r.status !== "completed");
   const failed = checkRuns.filter(
     (r) => r.status === "completed" && !PASSING_CONCLUSIONS.has(r.conclusion),
@@ -298,20 +358,42 @@ export function checkCi(checkRuns, headSha = null) {
  *     after a review needs a new round -- which is already the cumulative-diff
  *     discipline, now enforced rather than remembered.
  *
- * A CLEAN pass counts exactly like a finding-bearing one. It arrives in one of
- * two shapes and both are accepted: a `**Reviewed commit:**` announcement
- * posted as a plain issue comment (the measured signal -- see the marker's own
- * note), or a thumbs-up reaction on the request comment.
+ * ONE OBJECT HAS TO SATISFY ALL THREE. This is the whole shape of the check,
+ * and it is what four separate #490 findings were each an instance of. The
+ * previous version computed the predicates independently -- some announcement
+ * postdated the request, some announcement matched the head -- so with
+ * overlapping rounds an OLD pass covering the current head could satisfy
+ * coverage while a LATER pass for a different commit satisfied ordering, and
+ * neither was a pass on this diff. Two other findings (a `commit_id` fallback
+ * that admitted unmarked review objects, and a thumbs-up path that skipped
+ * head correlation entirely) were extra success paths around the same
+ * predicate. Requiring a single qualifying element removes the class rather
+ * than the instances: there is nothing left to combine across.
  *
- * The reaction path can only be a COUNT, not an identity: GitHub's comment
- * payload carries reaction totals, not who left them. On a `@codex review`
- * comment in this repo a `+1` is the connector, so it is accepted -- and it
- * satisfies currency (3) because it sits on the *latest* request, which by the
- * cumulative-diff discipline is posted after the latest push. That inference is
- * the one soft edge here, and it is stated rather than buried.
+ * WHY THE THUMBS-UP PATH IS GONE (deliberate narrowing, #490 round 2). The
+ * connector's own footer says a clean pass "will react with 👍", so accepting
+ * it looked obligatory. But a reaction is delivered as a COUNT: GitHub's
+ * comment payload carries totals, not who reacted or when. That makes it
+ * impossible to establish either half of what this item asserts -- that the
+ * pass came from Codex, and that it covers *this* commit rather than the one
+ * the request was originally posted for. The previous version inferred both,
+ * and the inference is exactly what a push between request and reaction
+ * breaks.
+ *
+ * The narrowing is affordable because a clean pass also announces: the
+ * `**Reviewed commit:**` marker appears in the plain issue comment Codex posts
+ * when it finds nothing ("Codex Review: Didn't find any major issues"), which
+ * is the measured signal behind the marker's own note. So the announcement
+ * path is expected to cover clean passes too, and a 👍 is treated as a hint in
+ * the failure message rather than as proof.
+ *
+ * FLIP CONDITION, stated so it is checkable rather than assumed: if a clean
+ * pass ever arrives as a reaction with NO marker comment, this gate blocks a
+ * mergeable PR and the fix is not to re-admit the inference -- it is to ask
+ * David, with that observation as the evidence. Fail-closed here costs one
+ * blocked merge; fail-open costs the failure this file exists to prevent.
  */
 export function checkCodex(issueComments, reviews, headSha = null) {
-  const outage = codeReviewOutage(issueComments, reviews);
   const requests = issueComments
     .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
     .sort((a, b) => timeOf(a) - timeOf(b));
@@ -323,16 +405,27 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   }
 
   const latestRequest = requests[requests.length - 1];
+  const requestedAt = timeOf(latestRequest);
+  // Scoped to the round being waited on, so a limit hit on round 2 is a STOP
+  // even though round 1 completed normally. (Codex, #490.)
+  const outage = codeReviewOutage(issueComments, reviews, requestedAt);
 
-  // A completed pass, whichever collection it landed in.
-  const announcements = [...reviews, ...issueComments]
-    .filter((r) => authorOf(r) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(r)))
-    .map((r) => ({ at: timeOf(r), sha: (bodyOf(r).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? r.commit_id ?? null }))
-    .filter((a) => a.sha);
+  // A completed pass: connector-authored, carrying the marker, with the sha it
+  // reviewed. No `commit_id` fallback -- GitHub sets that field on every review
+  // object, including status and error ones, so it promoted non-passes into
+  // this set. (Codex, #490.)
+  const passes = [...reviews, ...issueComments]
+    .filter((c) => authorOf(c) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(c)))
+    .map((c) => ({ at: timeOf(c), sha: (bodyOf(c).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? null }))
+    .filter((p) => p.sha);
 
-  const thumbsUp = (latestRequest.reactions?.["+1"] ?? 0) > 0;
+  // The single element that must exist. Strict `>` on the ordering: GitHub
+  // timestamps have second resolution, so a tie is treated as unanswered.
+  const qualifying = passes.filter(
+    (p) => p.at > requestedAt && (!headSha || sameCommit(p.sha, headSha)),
+  );
 
-  if (announcements.length === 0 && !thumbsUp) {
+  if (qualifying.length === 0) {
     // An outage is not "still waiting". CLAUDE.md requires a full stop and a
     // 🛑 banner to David, so the receipt has to make the two distinguishable
     // at a glance rather than leaving me to notice. (David, 2026-08-17.)
@@ -346,47 +439,32 @@ export function checkCodex(issueComments, reviews, headSha = null) {
           `raise this with David rather than waiting or working around it.`,
       };
     }
+
+    const thumbsUp = (latestRequest.reactions?.["+1"] ?? 0) > 0;
+    const reviewed = [...new Set(passes.map((p) => p.sha.slice(0, 7)))].join(", ") || "none";
     return {
       pass: false,
       detail:
-        `${requests.length} review request(s), no completed Codex pass yet. A pass announces ` +
-        "`**Reviewed commit:**` (in a review when it found something, in a plain issue comment when it " +
-        "didn't) or reacts 👍 on the request. A security-review usage bounce is neither -- it is metered " +
-        "separately from code review. If a 👍 is present, capture `reactions` on the issue comments.",
+        `round ${requests.length} was requested at ${new Date(requestedAt).toISOString()} and no completed ` +
+        `pass both postdates it and covers ${headSha ? headSha.slice(0, 7) : "the head"} ` +
+        `(passes seen: ${reviewed}). A pass announces \`**Reviewed commit:**\` -- in a review when it found ` +
+        `something, in a plain issue comment when it didn't.` +
+        (thumbsUp
+          ? " There IS a 👍 on the latest request, which is not accepted on its own: a reaction carries " +
+            "neither identity nor time, so it cannot show the pass came from Codex or that it covers this " +
+            "commit. Find the marker comment for this round, or request a fresh round on the current head."
+          : " A security-review usage bounce is neither -- it is metered separately from code review."),
     };
   }
 
-  const latestAnnouncement = announcements.length ? Math.max(...announcements.map((a) => a.at)) : 0;
-  if (!thumbsUp && timeOf(latestRequest) >= latestAnnouncement) {
-    return {
-      pass: false,
-      detail:
-        `round ${requests.length} requested at ${new Date(timeOf(latestRequest)).toISOString()} has not ` +
-        `come back (latest completed pass ${new Date(latestAnnouncement).toISOString()}) -- ` +
-        "a requested-but-not-received round is not convergence. GitHub timestamps have second " +
-        "resolution, so an exact tie is treated as unanswered rather than answered.",
-    };
-  }
-
-  if (headSha && !thumbsUp) {
-    const covering = announcements.filter((a) => sameCommit(a.sha, headSha));
-    if (covering.length === 0) {
-      const reviewed = [...new Set(announcements.map((a) => a.sha.slice(0, 7)))].join(", ");
-      return {
-        pass: false,
-        detail:
-          `the latest pass reviewed ${reviewed}, but the head commit is ${headSha.slice(0, 7)}. ` +
-          "A pass on an earlier commit is not a pass on the diff that would merge -- request a round on " +
-          "the current head.",
-      };
-    }
-  }
-
-  const how = thumbsUp ? "👍 on the latest request" : `pass on ${headSha ? headSha.slice(0, 7) : "head"}`;
   // `acceptedAt` is what the capture-ordering check needs: the moment the
   // response being relied on appeared. Threads read before it prove nothing.
-  const acceptedAt = thumbsUp ? timeOf(latestRequest) : latestAnnouncement;
-  return { pass: true, detail: `${requests.length} round(s); returned (${how})`, acceptedAt };
+  const acceptedAt = Math.min(...qualifying.map((p) => p.at));
+  return {
+    pass: true,
+    detail: `${requests.length} round(s); pass on ${qualifying[0].sha.slice(0, 7)} returned after the latest request`,
+    acceptedAt,
+  };
 }
 
 /** Item 3: no review thread left open. */
@@ -415,10 +493,27 @@ export function checkThreads(reviewThreads) {
  * point is that the ordering must be stated and must hold, not that it can be
  * proved from outside.
  */
-export function checkCapture(capturedAt, acceptedAt) {
+export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
+  // Age first: an ordering that holds among four stale reads still describes a
+  // state that may have moved on. (Codex, #490.)
+  const times = Object.values(capturedAt ?? {}).map((v) => Date.parse(v ?? ""));
+  const oldest = times.length ? Math.min(...times) : NaN;
+  if (!Number.isFinite(oldest) || now - oldest > MAX_EVIDENCE_AGE_MS || oldest > now) {
+    return {
+      pass: false,
+      detail:
+        `the evidence was captured ${Number.isFinite(oldest) ? new Date(oldest).toISOString() : "at an unreadable time"}, ` +
+        `outside the ${MAX_EVIDENCE_AGE_MS / 60000}-minute window ending now. Re-reading a saved snapshot ` +
+        "resets generatedAt but not the data -- capture the pages again.",
+    };
+  }
   if (!acceptedAt) return { pass: true, detail: "no accepted response to order against" };
+  // `<=`, not `<`: GitHub timestamps have second resolution, so a collection
+  // read in the same second as the response cannot be shown to postdate it --
+  // and this file already treats an exact request/response tie as unanswered
+  // for that reason. (Codex, #490.)
   const stale = ["reviewThreads", "checkRuns"].filter(
-    (key) => Date.parse(capturedAt?.[key] ?? "") < acceptedAt,
+    (key) => Date.parse(capturedAt?.[key] ?? "") <= acceptedAt,
   );
   if (stale.length) {
     return {
@@ -440,15 +535,21 @@ export function evaluate(snapshot, now = Date.now()) {
     ci: checkCi(snapshot.checkRuns, headSha),
     codex,
     threads: checkThreads(snapshot.reviewThreads),
-    capture: checkCapture(snapshot.capturedAt, codex.acceptedAt),
+    capture: checkCapture(snapshot.capturedAt, codex.acceptedAt, now),
   };
   const ready = Object.values(items).every((i) => i.pass);
+  const captureTimes = Object.values(snapshot.capturedAt ?? {}).map((v) => Date.parse(v ?? ""));
+  const oldest = captureTimes.filter(Number.isFinite);
   return {
     verdict: ready ? "READY" : items.codex.outage ? "BLOCKED -- CODEX UNAVAILABLE" : "NOT READY",
     pr: snapshot.pr.number,
+    repo: snapshot.repo,
     headSha,
     branch: snapshot.pr.head.ref,
     generatedAt: new Date(now).toISOString(),
+    // When the EVIDENCE was read, which is what the merge gate ages against.
+    // `generatedAt` only says when this process ran. (Codex, #490.)
+    evidenceAt: oldest.length ? new Date(Math.min(...oldest)).toISOString() : null,
     items,
   };
 }

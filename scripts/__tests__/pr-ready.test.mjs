@@ -24,32 +24,50 @@ import {
 const HEAD = "a".repeat(40);
 const run = (name, status, conclusion, head_sha = HEAD) => ({ name, status, conclusion, head_sha });
 
+/**
+ * The repo's mandatory jobs. Present-ness is its own check: `Test` depends on
+ * `Classify changed paths`, so a snapshot can hold a complete green set while a
+ * required job has not been created yet. (Codex, #490.)
+ */
+const REQUIRED = ["Classify changed paths", "Build", "Test"];
+const allRequired = (status = "completed", conclusion = "success", head_sha = HEAD) =>
+  REQUIRED.map((n) => run(n, status, conclusion, head_sha));
+
 test("CI: all completed and successful passes", () => {
-  assert.equal(checkCi([run("build", "completed", "success")]).pass, true);
+  assert.equal(checkCi(allRequired()).pass, true);
 });
 
 test("CI: skipped and neutral are passes, not failures", () => {
   // This repo's CI classifier skips whole jobs for inert paths by design.
   // Treating a skip as a failure would make every docs-only PR un-mergeable.
-  const res = checkCi([run("build", "completed", "skipped"), run("e2e", "completed", "neutral")]);
+  const res = checkCi([...allRequired("completed", "skipped"), run("e2e", "completed", "neutral")]);
   assert.equal(res.pass, true);
 });
 
 test("CI: a queued or in-progress run is not green", () => {
-  const res = checkCi([run("build", "completed", "success"), run("e2e", "in_progress", null)]);
+  const res = checkCi([...allRequired(), run("e2e", "in_progress", null)]);
   assert.equal(res.pass, false);
   assert.match(res.detail, /still running/);
 });
 
 test("CI: a failure is named, not just counted", () => {
-  const res = checkCi([run("build", "completed", "failure")]);
+  const res = checkCi([...allRequired(), run("e2e", "completed", "failure")]);
   assert.equal(res.pass, false);
-  assert.match(res.detail, /build \(failure\)/);
+  assert.match(res.detail, /e2e \(failure\)/);
 });
 
 test("CI: cancelled and timed_out are failures, not neutral outcomes", () => {
-  assert.equal(checkCi([run("build", "completed", "cancelled")]).pass, false);
-  assert.equal(checkCi([run("build", "completed", "timed_out")]).pass, false);
+  assert.equal(checkCi([...allRequired(), run("e2e", "completed", "cancelled")]).pass, false);
+  assert.equal(checkCi([...allRequired(), run("e2e", "completed", "timed_out")]).pass, false);
+});
+
+test("CI: a green set missing a MANDATORY job is not green", () => {
+  // The bar is not "some checks exist and none failed". A snapshot taken after
+  // Classify succeeds but before Test is created reports exactly that, and the
+  // receipt it mints stays usable for an hour. (Codex, #490.)
+  const res = checkCi([run("Classify changed paths", "completed", "success"), run("Build", "completed", "success")], HEAD);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /Test is absent/);
 });
 
 test("CI: no runs at all is not green -- it is CI that has not started", () => {
@@ -74,7 +92,7 @@ test("CI: a run with no head_sha cannot be tied to the head", () => {
 });
 
 test("CI: runs on the head commit pass the binding", () => {
-  assert.equal(checkCi([run("build", "completed", "success")], HEAD).pass, true);
+  assert.equal(checkCi(allRequired(), HEAD).pass, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -114,16 +132,20 @@ test("Codex: a clean pass posted as a plain issue comment counts", () => {
   assert.equal(res.pass, true);
 });
 
-test("Codex: a thumbs-up on the latest request is a clean pass", () => {
-  // David, 2026-08-17: no findings means a 👍 rather than a comment. Treating
-  // only comments as responses would block every genuinely clean PR forever.
+test("Codex: a thumbs-up alone is NOT proof the review returned", () => {
+  // Deliberately narrowed in #490 round 2. A reaction is delivered as a count:
+  // no identity, no timestamp. So it can show neither that the pass came from
+  // Codex nor that it covers this commit rather than the one the request was
+  // originally posted for -- and a push between request and reaction is
+  // exactly what breaks the second. The detail has to say so, because the
+  // failure otherwise looks like Codex simply being slow.
   const res = checkCodex(
     [comment("me", "@codex review", "2026-08-17T04:00:00Z", { "+1": 1 })],
     [],
     HEAD,
   );
-  assert.equal(res.pass, true);
-  assert.match(res.detail, /👍/);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /reaction carries\s+neither identity nor time/);
 });
 
 test("Codex: a pass on an EARLIER commit does not cover the head", () => {
@@ -135,7 +157,39 @@ test("Codex: a pass on an EARLIER commit does not cover the head", () => {
     HEAD,
   );
   assert.equal(res.pass, false);
-  assert.match(res.detail, /is not a pass on the diff that would merge/);
+  assert.match(res.detail, /no completed\s+pass both postdates it and covers/);
+});
+
+test("Codex: ordering and coverage must hold of the SAME pass", () => {
+  // The finding this rewrite came from. With overlapping rounds, an OLD pass
+  // covering the current head satisfied coverage while a LATER pass for a
+  // different commit satisfied ordering -- and neither was a pass on this
+  // diff. Requiring one qualifying element makes the combination impossible.
+  // (Codex, #490.)
+  const res = checkCodex(
+    [
+      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
+      comment("me", "@codex review\n\nRound 2.", "2026-08-17T05:00:00Z"),
+    ],
+    [
+      pass("2026-08-17T04:10:00Z", HEAD), // covers head, predates round 2
+      pass("2026-08-17T05:10:00Z", "b".repeat(40)), // postdates round 2, wrong commit
+    ],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+});
+
+test("Codex: a review object with a commit_id but no marker is not a pass", () => {
+  // GitHub sets commit_id on every review object, including status and error
+  // ones, so using it as a fallback for the announcement promoted non-passes
+  // into the accepted set. (Codex, #490.)
+  const res = checkCodex(
+    [comment("me", "@codex review", "2026-08-17T04:00:00Z")],
+    [{ user: { login: CODEX_BOT }, body: "Reviewing...", submitted_at: "2026-08-17T04:10:00Z", commit_id: HEAD }],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
 });
 
 test("Codex: an abbreviated announced sha still matches the full head", () => {
@@ -160,7 +214,7 @@ test("Codex: a bot comment with no announcement is not a completed pass", () => 
     HEAD,
   );
   assert.equal(res.pass, false);
-  assert.match(res.detail, /no completed Codex pass yet/);
+  assert.match(res.detail, /no completed\s+pass both postdates it/);
 });
 
 test("Codex: no request at all fails -- the PR #487 shape", () => {
@@ -184,7 +238,7 @@ test("Codex: a request newer than the last response fails -- the PR #458 shape",
     HEAD,
   );
   assert.equal(res.pass, false);
-  assert.match(res.detail, /has not come back/);
+  assert.match(res.detail, /no completed\s+pass both postdates it/);
 });
 
 test("Codex: a security-review usage bounce is not a response", () => {
@@ -257,7 +311,7 @@ test("outage: the receipt verdict names it, not a generic NOT READY", () => {
     comment("me", "@codex review", "2026-08-17T04:00:00Z"),
     comment(CODEX_BOT, "You have reached your Codex usage limits for code reviews.", "2026-08-17T04:01:00Z"),
   ];
-  assert.equal(evaluate(snap).verdict, "BLOCKED -- CODEX UNAVAILABLE");
+  assert.equal(evaluate(snap, NOW).verdict, "BLOCKED -- CODEX UNAVAILABLE");
 });
 
 test("Codex: the bot's own comments never count as review requests", () => {
@@ -294,10 +348,13 @@ test("threads: an unresolved thread fails and is named", () => {
 // ---------------------------------------------------------------------------
 
 const LATER = "2026-08-17T05:00:00Z";
+/** Evaluation time. Fixed, because the evidence window is measured against it. */
+const NOW = Date.parse("2026-08-17T05:05:00Z");
 const goodSnapshot = () => ({
+  repo: "TheAnswerManIsHere/Overhypeme",
   pr: { number: 500, head: { sha: HEAD, ref: "claude/x" } },
   capturedAt: { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER },
-  checkRuns: [run("build", "completed", "success")],
+  checkRuns: allRequired(),
   reviewThreads: [],
   issueComments: [comment("me", "@codex review", "2026-08-17T04:00:00Z")],
   reviews: [pass("2026-08-17T04:10:00Z", HEAD)],
@@ -307,10 +364,23 @@ const goodSnapshot = () => ({
 test("snapshot: a well-formed snapshot validates and evaluates READY", () => {
   const snap = goodSnapshot();
   assertSnapshot(snap, 500);
-  const receipt = evaluate(snap);
+  const receipt = evaluate(snap, NOW);
   assert.equal(receipt.verdict, "READY");
   assert.equal(receipt.headSha, HEAD);
   assert.equal(receipt.branch, "claude/x");
+  assert.equal(receipt.repo, "TheAnswerManIsHere/Overhypeme");
+  assert.equal(Date.parse(receipt.evidenceAt), Date.parse(LATER));
+});
+
+test("snapshot: a missing or malformed repo is rejected", () => {
+  // A PR number is not an identity -- every repository has a #490, and the
+  // merge gate keys receipts by number. (Codex, #490.)
+  const snap = goodSnapshot();
+  delete snap.repo;
+  assert.throws(() => assertSnapshot(snap, 500), /snapshot\.repo must be "owner\/name"/);
+  const bare = goodSnapshot();
+  bare.repo = "Overhypeme";
+  assert.throws(() => assertSnapshot(bare, 500), /snapshot\.repo must be "owner\/name"/);
 });
 
 test("snapshot: a PR number mismatch is rejected", () => {
@@ -383,11 +453,66 @@ test("capture ordering: threads read BEFORE the accepted response fail", () => {
   // every other item passes and the receipt describes a state that never
   // existed. (Codex, #490.)
   const snap = goodSnapshot();
-  snap.capturedAt.reviewThreads = "2026-08-17T04:00:00Z"; // before the 04:10 pass
-  const receipt = evaluate(snap);
+  snap.capturedAt.reviewThreads = "2026-08-17T04:09:00Z"; // before the 04:10 pass
+  const receipt = evaluate(snap, NOW);
   assert.equal(receipt.verdict, "NOT READY");
   assert.equal(receipt.items.threads.pass, true);
   assert.match(receipt.items.capture.detail, /read before the Codex response/);
+});
+
+test("capture ordering: a SAME-SECOND read is stale, not fresh", () => {
+  // GitHub event timestamps have second resolution, so a collection read in
+  // the same second as the response cannot be shown to postdate it -- and this
+  // file already treats an exact request/response tie as unanswered for that
+  // reason. (Codex, #490.)
+  const snap = goodSnapshot();
+  snap.capturedAt.reviewThreads = "2026-08-17T04:10:00Z"; // exactly the pass time
+  const receipt = evaluate(snap, NOW);
+  assert.equal(receipt.verdict, "NOT READY");
+  assert.match(receipt.items.capture.detail, /read before the Codex response/);
+});
+
+test("capture recency: a saved snapshot cannot mint a fresh receipt", () => {
+  // `generatedAt` is reset every run, so re-running a days-old snapshot
+  // produced a receipt that looked current; the merge gate then accepted it
+  // for an hour as long as the branch tip had not moved -- past a reopened
+  // thread or a re-run that went red. (Codex, #490.)
+  const snap = goodSnapshot();
+  const receipt = evaluate(snap, NOW + 3 * 60 * 60 * 1000);
+  assert.equal(receipt.verdict, "NOT READY");
+  assert.match(receipt.items.capture.detail, /outside the 60-minute window/);
+});
+
+test("outage: a limit on a LATER round is still a STOP", () => {
+  // Round 1 announced, round 2 hit the limit: the outage branch used to be
+  // skipped because some announcement existed, so the verdict came back as a
+  // generic NOT READY where David's rule requires a full stop. (Codex, #490.)
+  const snap = goodSnapshot();
+  snap.issueComments = [
+    comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
+    comment("me", "@codex review\n\nRound 2.", "2026-08-17T04:20:00Z"),
+    comment(CODEX_BOT, "You have reached your Codex usage limits for code reviews.", "2026-08-17T04:21:00Z"),
+  ];
+  const receipt = evaluate(snap, NOW);
+  assert.equal(receipt.verdict, "BLOCKED -- CODEX UNAVAILABLE");
+  assert.match(receipt.items.codex.detail, /^STOP --/);
+});
+
+test("outage: a limit BEFORE the round being waited on is not this round's", () => {
+  // The mirror of the case above. Scoping to the latest request is what makes
+  // the outage visible on every round; without a bound in the other direction
+  // an old notice would halt development after Codex had recovered.
+  const res = checkCodex(
+    [
+      comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
+      comment(CODEX_BOT, "You have reached your Codex usage limits for code reviews.", "2026-08-17T04:01:00Z"),
+      comment("me", "@codex review\n\nRound 2.", "2026-08-17T05:00:00Z"),
+    ],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+  assert.equal(res.outage, undefined);
 });
 
 test("Codex: an exact timestamp tie reads as unanswered, not answered", () => {
@@ -395,13 +520,13 @@ test("Codex: an exact timestamp tie reads as unanswered, not answered", () => {
   const at = "2026-08-17T04:10:00Z";
   const res = checkCodex([comment("me", "@codex review", at)], [pass(at, HEAD)], HEAD);
   assert.equal(res.pass, false);
-  assert.match(res.detail, /has not come back/);
+  assert.match(res.detail, /no completed\s+pass both postdates it/);
 });
 
 test("evaluate: one failing item is enough for NOT READY", () => {
   const snap = goodSnapshot();
   snap.reviewThreads = [{ id: "t1", isResolved: false }];
-  const receipt = evaluate(snap);
+  const receipt = evaluate(snap, NOW);
   assert.equal(receipt.verdict, "NOT READY");
   assert.equal(receipt.items.ci.pass, true);
   assert.equal(receipt.items.threads.pass, false);

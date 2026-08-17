@@ -393,10 +393,17 @@ same picture: that quota is the code-review pool, which stayed full while the
 **no code review**. Judge that on the absence of the code review alone: the
 two limits are independent, so a security bounce can fire *during* a real
 code-review outage, and testing for "no review **and** no bounce" would let
-that unrelated comment mask the outage indefinitely. That case still exists, and the retry limit and
-stakes-split in the implementing agent's ceremony (for Claude Code,
-`.claude/skills/pr-watch/SKILL.md`) govern it. A security-limit bounce does
-not qualify as one, and must not be reported as one.
+that unrelated comment mask the outage indefinitely. That case still exists,
+and since 2026-08-17 it is a **development stop**, not a stakes-graded
+proceed: **every PR gets a code review, and nothing merges until it returns.**
+A PR's criticality governs how many rounds are worth requesting; it never
+governs whether the first one has to come back. So an agent that cannot get a
+code review stops and says so loudly to David rather than proceeding on a
+docs-only or low-criticality exemption — that exemption is retired. The retry
+limit in the implementing agent's ceremony (for Claude Code,
+`.claude/skills/pr-watch/SKILL.md`) governs how many times to re-ask before
+escalating. A security-limit bounce does not qualify as an outage, and must
+not be reported as one.
 
 **The failure mode this exists to prevent is a reading error, not a tooling
 gap** — the prior rule quoted the "for security reviews" wording verbatim and
