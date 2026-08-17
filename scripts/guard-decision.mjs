@@ -742,14 +742,26 @@ const ARRAY_ASSIGNMENT_OPENER = /^[A-Za-z_][A-Za-z0-9_]*\+?=$/;
  * boundary, that naming a fetcher stays allowed and only running one is
  * refused. (Codex, #488 round 16.)
  *
- * The suppression is deliberately narrow: it applies only when the region
- * between the parentheses contains no `$`. `arr=( $(git push -f origin main) )`
- * tokenizes with the substitution INSIDE that region, so suppressing it
- * wholesale would delete a real command -- a fail-open, and the one direction
- * this module must never move in. A `$` anywhere in the region means the old
- * behaviour applies unchanged: the words are segmented and judged. That
- * over-blocks an array literal that merely interpolates something, which is
- * the acceptable side of the trade and consistent with every other gap here.
+ * The suppression requires every token in the region to be a PLAIN WORD --
+ * nothing that is an operator, and no `$`. Anything else leaves the old
+ * behaviour unchanged: the words are segmented and judged, which over-blocks
+ * an array literal that interpolates something. That is the acceptable side
+ * of the trade and consistent with every other gap here.
+ *
+ * THE WHITELIST IS THE POINT, and it is the second version of this rule. The
+ * first tested only for `$`, because `arr=( $(git push -f origin main) )` was
+ * the substitution form I checked -- and `$` is not what makes a substitution
+ * executable. `arr=( \`curl --version\` )` tokenizes to a `;`-delimited region
+ * and `arr=( <(curl --version) )` to `<` `(`, so neither contains a `$` and
+ * both were suppressed ENTIRELY: `segments()` returned an empty array and a
+ * real fetcher vanished. A fail-open introduced by a fix for a false block,
+ * which is exactly what checking one example and generalising from it
+ * produces. (Codex, #488 round 17.)
+ *
+ * Requiring plain words instead of excluding known-bad ones is what makes the
+ * failure direction structural rather than a matter of my having thought of
+ * every substitution syntax: an unfamiliar construct tokenizes to something
+ * that is not a plain word, so it is not suppressed, so it is judged.
  */
 export function segments(tokens) {
   const out = [];
@@ -764,7 +776,8 @@ export function segments(tokens) {
     ) {
       const close = tokens.indexOf(")", i + 2);
       const body = close === -1 ? tokens.slice(i + 2) : tokens.slice(i + 2, close);
-      if (close !== -1 && !body.includes("$")) {
+      const allPlainWords = body.every((t) => !OPERATORS.has(t) && !t.includes("$"));
+      if (close !== -1 && allPlainWords) {
         if (current.length) out.push(current);
         current = [];
         i = close;

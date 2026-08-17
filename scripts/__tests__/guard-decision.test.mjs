@@ -202,6 +202,12 @@ const MUST_BLOCK = [
   // Round 16: the array-assignment suppression must not swallow a command
   // substitution sitting inside the parentheses.
   ["round 16: a substitution inside an array literal is still a command", "arr=( $(git push -f origin main) )"],
+  // Round 17: `$` is not what makes a substitution executable. Round 16's
+  // suppression tested only for `$`, so both of these were erased whole --
+  // `segments()` returned an empty array and the fetcher vanished. A fail-open
+  // created by a fix for a false block, from checking one example.
+  ["round 17: backticks in an array literal still execute", "arr=( `curl --version` )"],
+  ["round 17: process substitution in an array literal still executes", "arr=( <(curl --version) )"],
   ["an unclosed array paren is not suppressed", "arr=(curl wget"],
   ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
   ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
