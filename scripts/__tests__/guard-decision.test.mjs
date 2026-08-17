@@ -176,6 +176,8 @@ const MUST_BLOCK = [
   ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
   ["round 7: path-qualified on that same path", "/usr/bin/curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
   ["round 9: and with a leading-dot delimiter", "/usr/bin/curl --help <<'.MSG'\nDavid's note\n.MSG"],
+  ["round 10: and with a colon", "/usr/bin/curl --help <<'NOTE:1'\nDavid's note\nNOTE:1"],
+  ["a shell stdin heredoc with a punctuated delimiter", "bash <<'RUN:1'\ngit push -f origin claude/x\nRUN:1"],
   // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
   // pipeline. A plausible diagnostic command, and one the deleted sweep had
   // been masking.
@@ -221,6 +223,9 @@ const MUST_ALLOW = [
   // 2+ fixed the shape I had been shown and left these two broken.
   ["a leading-dot delimiter", "cat <<'.MSG'\nUse /usr/bin/curl for the probe; David's note\n.MSG"],
   ["a leading-dash delimiter", "cat <<'-MSG'\nUse /usr/bin/curl for the probe; David's note\n-MSG"],
+  // Round 10: a colon is outside every punctuation allowlist I had written,
+  // which is why the class is now negated rather than enumerated.
+  ["a colon in the delimiter", "cat <<'NOTE:1'\nUse /usr/bin/curl for the probe; David's note\nNOTE:1"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],

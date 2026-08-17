@@ -172,13 +172,17 @@
  *   `curl --help <<'MSG-1'` reach the permissive fallback (a bypass) and made
  *   an inert body mentioning `/usr/bin/curl` refuse an ordinary `cat` (a false
  *   block). Both are fixed by stripping the body, which is why the delimiter
- *   grammar now allows digits, dots and dashes IN EVERY POSITION. The first
- *   attempt widened only positions 2+, which fixed the `MSG-1` I had been
- *   shown and left `<<'.MSG'` and `<<'-MSG'` broken -- Bash documents the
- *   delimiter as an unrestricted `word`, so matching the reported shape rather
- *   than the grammar was the same mistake the option tables kept making. An
- *   accepted limitation stops being accurate the moment a new rule is added
- *   above it. (Codex, #488 rounds 6-9.)
+ *   grammar now captures the WHOLE delimiter -- anything that is not
+ *   whitespace, a quote, or a shell metacharacter -- rather than an allowlist
+ *   of punctuation. Two earlier attempts each added the characters in the
+ *   example I had just been shown (`MSG-1`, then `.MSG`/`-MSG`, and `NOTE:1`
+ *   would have been a third), which is the same mistake the option tables kept
+ *   making: matching the reported instance instead of reading the grammar.
+ *   Bash documents the delimiter as an unrestricted `word`, and for the quoted
+ *   forms the quote itself is the terminator, so a negated class is the actual
+ *   rule rather than an approximation of one. An accepted limitation also
+ *   stops being accurate the moment a new rule is added above it. (Codex,
+ *   #488 rounds 6-10.)
  */
 
 const ALLOW = 0;
@@ -1237,7 +1241,7 @@ const LOOKS_DESTRUCTIVE =
  * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
  * sync by construction rather than by two hand-maintained copies.
  */
-const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z0-9_.-]+)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
+const HEREDOC_RE = /(<<-?(['"]?)([^\s'"<>|&;()\n]+)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
 
 /**
  * Remove heredoc BODIES before tokenising.
