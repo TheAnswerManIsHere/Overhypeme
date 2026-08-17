@@ -175,6 +175,7 @@ const MUST_BLOCK = [
   // tokenising throw, so only the conservative fallback sees this text.
   ["round 6: a fetcher surviving on the untokenisable path", "curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
   ["round 7: path-qualified on that same path", "/usr/bin/curl --help <<'MSG-1'\nDavid's note\nMSG-1"],
+  ["round 9: and with a leading-dot delimiter", "/usr/bin/curl --help <<'.MSG'\nDavid's note\n.MSG"],
   // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
   // pipeline. A plausible diagnostic command, and one the deleted sweep had
   // been masking.
@@ -215,6 +216,11 @@ const MUST_ALLOW = [
   // body mentioning a fetcher path is data, not a command. This is the shape
   // of every doc and commit message this session wrote about the guard.
   ["a heredoc body naming a fetcher path is prose", "cat <<'MSG-1'\nUse /usr/bin/curl for the probe; David's note\nMSG-1"],
+  // Round 9: the delimiter grammar must be uniform across positions. Bash
+  // documents the delimiter as an unrestricted `word`; widening only positions
+  // 2+ fixed the shape I had been shown and left these two broken.
+  ["a leading-dot delimiter", "cat <<'.MSG'\nUse /usr/bin/curl for the probe; David's note\n.MSG"],
+  ["a leading-dash delimiter", "cat <<'-MSG'\nUse /usr/bin/curl for the probe; David's note\n-MSG"],
 
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],

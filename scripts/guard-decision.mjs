@@ -172,9 +172,13 @@
  *   `curl --help <<'MSG-1'` reach the permissive fallback (a bypass) and made
  *   an inert body mentioning `/usr/bin/curl` refuse an ordinary `cat` (a false
  *   block). Both are fixed by stripping the body, which is why the delimiter
- *   grammar now allows digits, dots and dashes. An accepted limitation stops
- *   being accurate the moment a new rule is added above it. (Codex, #488
- *   rounds 6-8.)
+ *   grammar now allows digits, dots and dashes IN EVERY POSITION. The first
+ *   attempt widened only positions 2+, which fixed the `MSG-1` I had been
+ *   shown and left `<<'.MSG'` and `<<'-MSG'` broken -- Bash documents the
+ *   delimiter as an unrestricted `word`, so matching the reported shape rather
+ *   than the grammar was the same mistake the option tables kept making. An
+ *   accepted limitation stops being accurate the moment a new rule is added
+ *   above it. (Codex, #488 rounds 6-9.)
  */
 
 const ALLOW = 0;
@@ -1233,7 +1237,7 @@ const LOOKS_DESTRUCTIVE =
  * and `checkShellStdinHeredocs` below (which inspects it) so the two stay in
  * sync by construction rather than by two hand-maintained copies.
  */
-const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z0-9_][A-Za-z0-9_.-]*)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
+const HEREDOC_RE = /(<<-?(['"]?)([A-Za-z0-9_.-]+)\2[^\n]*)\n([\s\S]*?)^[ \t]*\3[ \t]*$/gm;
 
 /**
  * Remove heredoc BODIES before tokenising.
