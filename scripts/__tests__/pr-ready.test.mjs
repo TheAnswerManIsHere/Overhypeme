@@ -51,15 +51,87 @@ test("CI: no runs at all is not green -- it is CI that has not started", () => {
 // Item 2: Codex convergence. Both live failures live here.
 // ---------------------------------------------------------------------------
 
-const comment = (login, body, at) => ({ user: { login }, body, created_at: at });
-const review = (login, at) => ({ user: { login }, state: "COMMENTED", submitted_at: at });
+const comment = (login, body, at, reactions) => ({ user: { login }, body, created_at: at, reactions });
+/** A completed pass announces the commit it reviewed -- the measured signal. */
+const pass = (at, sha) => ({
+  user: { login: CODEX_BOT },
+  state: "COMMENTED",
+  body: `### Codex Review\n\n**Reviewed commit:** \`${sha}\``,
+  submitted_at: at,
+});
+const HEAD = "a".repeat(40);
 
-test("Codex: a request answered by a later review converges", () => {
+test("Codex: a request answered by a pass on the head commit converges", () => {
   const res = checkCodex(
     [comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z")],
-    [review(CODEX_BOT, "2026-08-17T04:10:00Z")],
+    [pass("2026-08-17T04:10:00Z", HEAD)],
+    HEAD,
   );
   assert.equal(res.pass, true);
+});
+
+test("Codex: a clean pass posted as a plain issue comment counts", () => {
+  // #288 lost two rounds to this shape: a pass that finds nothing does not
+  // always submit a review record at all -- it posts the announcement as an
+  // ordinary issue comment, invisible to anything reading only `reviews`.
+  const res = checkCodex(
+    [
+      comment("me", "@codex review", "2026-08-17T04:00:00Z"),
+      comment(CODEX_BOT, "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `" + HEAD + "`", "2026-08-17T04:10:00Z"),
+    ],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, true);
+});
+
+test("Codex: a thumbs-up on the latest request is a clean pass", () => {
+  // David, 2026-08-17: no findings means a 👍 rather than a comment. Treating
+  // only comments as responses would block every genuinely clean PR forever.
+  const res = checkCodex(
+    [comment("me", "@codex review", "2026-08-17T04:00:00Z", { "+1": 1 })],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /👍/);
+});
+
+test("Codex: a pass on an EARLIER commit does not cover the head", () => {
+  // "We never merge until that review is returned" means returned for the diff
+  // that would merge. A push after the review needs a new round.
+  const res = checkCodex(
+    [comment("me", "@codex review", "2026-08-17T04:00:00Z")],
+    [pass("2026-08-17T04:10:00Z", "b".repeat(40))],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /is not a pass on the diff that would merge/);
+});
+
+test("Codex: an abbreviated announced sha still matches the full head", () => {
+  // The connector announces a 10-character prefix.
+  const res = checkCodex(
+    [comment("me", "@codex review", "2026-08-17T04:00:00Z")],
+    [pass("2026-08-17T04:10:00Z", HEAD.slice(0, 10))],
+    HEAD,
+  );
+  assert.equal(res.pass, true);
+});
+
+test("Codex: a bot comment with no announcement is not a completed pass", () => {
+  // Chatter -- an "About Codex" footer, an acknowledgement -- is not a review
+  // coming back. Only the announcement (or a 👍) is.
+  const res = checkCodex(
+    [
+      comment("me", "@codex review", "2026-08-17T04:00:00Z"),
+      comment(CODEX_BOT, "Working on it.", "2026-08-17T04:05:00Z"),
+    ],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no completed Codex pass yet/);
 });
 
 test("Codex: no request at all fails -- the PR #487 shape", () => {
@@ -79,10 +151,11 @@ test("Codex: a request newer than the last response fails -- the PR #458 shape",
       comment("me", "@codex review\n\nRound 1.", "2026-08-17T04:00:00Z"),
       comment("me", "@codex review\n\nRound 2.", "2026-08-17T05:00:00Z"),
     ],
-    [review(CODEX_BOT, "2026-08-17T04:30:00Z")],
+    [pass("2026-08-17T04:30:00Z", HEAD)],
+    HEAD,
   );
   assert.equal(res.pass, false);
-  assert.match(res.detail, /has not been answered/);
+  assert.match(res.detail, /has not come back/);
 });
 
 test("Codex: a security-review usage bounce is not a response", () => {
@@ -104,17 +177,6 @@ test("Codex: a security-review usage bounce is not a response", () => {
   assert.match(withBounce.detail, /metered separately/);
 });
 
-test("Codex: a genuine bot comment (not the bounce) does count as a response", () => {
-  const res = checkCodex(
-    [
-      comment("me", "@codex review", "2026-08-17T04:00:00Z"),
-      comment(CODEX_BOT, "Codex Review: no findings.", "2026-08-17T04:05:00Z"),
-    ],
-    [],
-  );
-  assert.equal(res.pass, true);
-});
-
 test("Codex: the bot's own comments never count as review requests", () => {
   // Codex quotes the trigger phrase in its own "About Codex" footer, which
   // would otherwise register as a request nobody answered.
@@ -123,7 +185,8 @@ test("Codex: the bot's own comments never count as review requests", () => {
       comment("me", "@codex review", "2026-08-17T04:00:00Z"),
       comment(CODEX_BOT, 'Reviews are triggered when you comment "@codex review".', "2026-08-17T04:05:00Z"),
     ],
-    [review(CODEX_BOT, "2026-08-17T04:05:00Z")],
+    [pass("2026-08-17T04:05:00Z", HEAD)],
+    HEAD,
   );
   assert.equal(res.pass, true);
 });
@@ -148,11 +211,11 @@ test("threads: an unresolved thread fails and is named", () => {
 // ---------------------------------------------------------------------------
 
 const goodSnapshot = () => ({
-  pr: { number: 500, head: { sha: "a".repeat(40), ref: "claude/x" } },
+  pr: { number: 500, head: { sha: HEAD, ref: "claude/x" } },
   checkRuns: [run("build", "completed", "success")],
   reviewThreads: [],
   issueComments: [comment("me", "@codex review", "2026-08-17T04:00:00Z")],
-  reviews: [review(CODEX_BOT, "2026-08-17T04:10:00Z")],
+  reviews: [pass("2026-08-17T04:10:00Z", HEAD)],
   complete: { checkRuns: true, reviewThreads: true, issueComments: true, reviews: true },
 });
 
@@ -161,7 +224,7 @@ test("snapshot: a well-formed snapshot validates and evaluates READY", () => {
   assertSnapshot(snap, 500);
   const receipt = evaluate(snap);
   assert.equal(receipt.verdict, "READY");
-  assert.equal(receipt.headSha, "a".repeat(40));
+  assert.equal(receipt.headSha, HEAD);
   assert.equal(receipt.branch, "claude/x");
 });
 

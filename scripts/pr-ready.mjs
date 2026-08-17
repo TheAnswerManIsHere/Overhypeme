@@ -77,6 +77,31 @@ const SECURITY_BOUNCE = /usage limits for security reviews/i;
 /** A comment that requests a review round. */
 const REVIEW_REQUEST = /@codex\s+review/i;
 
+/**
+ * The one thing the connector emits exactly ONCE per completed pass.
+ *
+ * Measured, not assumed: `loop-metrics.mjs` established this against #286,
+ * #288 and #290 -- three PRs whose rounds a human had independently narrated
+ * -- and it is the only signal that agreed with all three. A pass that finds
+ * something puts the marker in a `pull_request_review` body; a pass that finds
+ * nothing posts it as a plain ISSUE comment ("Codex Review: Didn't find any
+ * major issues"), which is invisible to anything reading only `reviews`. #288
+ * lost two rounds to exactly that blindness.
+ *
+ * Using it here is what makes "the review came back" mean a completed pass
+ * rather than merely some bot comment appearing.
+ */
+const REVIEWED_COMMIT_MARKER = /\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i;
+
+/** Whether two commit references name the same commit, one possibly abbreviated. */
+function sameCommit(a, b) {
+  if (!a || !b) return false;
+  const x = String(a).toLowerCase();
+  const y = String(b).toLowerCase();
+  const n = Math.min(x.length, y.length);
+  return n >= 7 && x.slice(0, n) === y.slice(0, n);
+}
+
 function fail(message) {
   const err = new Error(message);
   err.malformed = true;
@@ -169,17 +194,45 @@ export function checkCi(checkRuns) {
 }
 
 /**
- * Item 2: a review round was requested, and Codex has answered the LATEST one.
+ * Item 2: EVERY PR gets a Codex review, and we never merge before it returns.
  *
- * The ordering comparison is the whole point. "Codex has reviewed this PR at
- * some point" was true of #458 and would have passed a naive check while a
- * requested round was still outstanding; what has to be true is that no
- * request is newer than the newest response.
+ * David, 2026-08-17: *"EVERY PR is going to get a Codex review. It might not
+ * have any findings, but we can't merge the PR until that review is returned.
+ * If there are no findings, it gives a thumbs up emoji. If there are findings,
+ * you respond. We NEVER merge until that happens."*
+ *
+ * Three things have to hold, and each maps to a way this has actually gone
+ * wrong:
+ *
+ *  1. **A round was requested at all.** PR #487 was reported ready having never
+ *     had `@codex review` posted on it. Silence from a reviewer nobody asked is
+ *     indistinguishable from approval unless the absence of a request is itself
+ *     a failure.
+ *  2. **The latest request has come back.** An ordering comparison, not "has
+ *     Codex ever reviewed this" -- the latter was true of PR #458 while a round
+ *     was still outstanding, and seven findings landed 47 seconds after merge.
+ *  3. **What came back covers what would merge.** A pass on an earlier commit
+ *     is not a pass on the diff being merged. This is the strict reading of
+ *     "we never merge until that review is returned", and it is why every push
+ *     after a review needs a new round -- which is already the cumulative-diff
+ *     discipline, now enforced rather than remembered.
+ *
+ * A CLEAN pass counts exactly like a finding-bearing one. It arrives in one of
+ * two shapes and both are accepted: a `**Reviewed commit:**` announcement
+ * posted as a plain issue comment (the measured signal -- see the marker's own
+ * note), or a thumbs-up reaction on the request comment.
+ *
+ * The reaction path can only be a COUNT, not an identity: GitHub's comment
+ * payload carries reaction totals, not who left them. On a `@codex review`
+ * comment in this repo a `+1` is the connector, so it is accepted -- and it
+ * satisfies currency (3) because it sits on the *latest* request, which by the
+ * cumulative-diff discipline is posted after the latest push. That inference is
+ * the one soft edge here, and it is stated rather than buried.
  */
-export function checkCodex(issueComments, reviews) {
-  const requests = issueComments.filter(
-    (c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)),
-  );
+export function checkCodex(issueComments, reviews, headSha = null) {
+  const requests = issueComments
+    .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
+    .sort((a, b) => timeOf(a) - timeOf(b));
   if (requests.length === 0) {
     return {
       pass: false,
@@ -187,36 +240,54 @@ export function checkCodex(issueComments, reviews) {
     };
   }
 
-  const responses = [
-    ...reviews.filter((r) => authorOf(r) === CODEX_BOT),
-    ...issueComments.filter(
-      (c) => authorOf(c) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(c)),
-    ),
-  ];
-  if (responses.length === 0) {
+  const latestRequest = requests[requests.length - 1];
+
+  // A completed pass, whichever collection it landed in.
+  const announcements = [...reviews, ...issueComments]
+    .filter((r) => authorOf(r) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(r)))
+    .map((r) => ({ at: timeOf(r), sha: (bodyOf(r).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? r.commit_id ?? null }))
+    .filter((a) => a.sha);
+
+  const thumbsUp = (latestRequest.reactions?.["+1"] ?? 0) > 0;
+
+  if (announcements.length === 0 && !thumbsUp) {
     return {
       pass: false,
       detail:
-        `${requests.length} review request(s), no Codex response yet ` +
-        "(a security-review usage bounce does not count -- it is metered separately from code review)",
+        `${requests.length} review request(s), no completed Codex pass yet. A pass announces ` +
+        "`**Reviewed commit:**` (in a review when it found something, in a plain issue comment when it " +
+        "didn't) or reacts 👍 on the request. A security-review usage bounce is neither -- it is metered " +
+        "separately from code review. If a 👍 is present, capture `reactions` on the issue comments.",
     };
   }
 
-  const latestRequest = Math.max(...requests.map(timeOf));
-  const latestResponse = Math.max(...responses.map(timeOf));
-  if (latestRequest > latestResponse) {
+  const latestAnnouncement = announcements.length ? Math.max(...announcements.map((a) => a.at)) : 0;
+  if (!thumbsUp && timeOf(latestRequest) > latestAnnouncement) {
     return {
       pass: false,
       detail:
-        `round ${requests.length} requested at ${new Date(latestRequest).toISOString()} has not been ` +
-        `answered (latest Codex response ${new Date(latestResponse).toISOString()}) -- ` +
+        `round ${requests.length} requested at ${new Date(timeOf(latestRequest)).toISOString()} has not ` +
+        `come back (latest completed pass ${new Date(latestAnnouncement).toISOString()}) -- ` +
         "a requested-but-not-received round is not convergence",
     };
   }
-  return {
-    pass: true,
-    detail: `${requests.length} round(s); latest answered at ${new Date(latestResponse).toISOString()}`,
-  };
+
+  if (headSha && !thumbsUp) {
+    const covering = announcements.filter((a) => sameCommit(a.sha, headSha));
+    if (covering.length === 0) {
+      const reviewed = [...new Set(announcements.map((a) => a.sha.slice(0, 7)))].join(", ");
+      return {
+        pass: false,
+        detail:
+          `the latest pass reviewed ${reviewed}, but the head commit is ${headSha.slice(0, 7)}. ` +
+          "A pass on an earlier commit is not a pass on the diff that would merge -- request a round on " +
+          "the current head.",
+      };
+    }
+  }
+
+  const how = thumbsUp ? "👍 on the latest request" : `pass on ${headSha ? headSha.slice(0, 7) : "head"}`;
+  return { pass: true, detail: `${requests.length} round(s); returned (${how})` };
 }
 
 /** Item 3: no review thread left open. */
@@ -235,7 +306,7 @@ export function checkThreads(reviewThreads) {
 export function evaluate(snapshot, now = Date.now()) {
   const items = {
     ci: checkCi(snapshot.checkRuns),
-    codex: checkCodex(snapshot.issueComments, snapshot.reviews),
+    codex: checkCodex(snapshot.issueComments, snapshot.reviews, snapshot.pr.head.sha),
     threads: checkThreads(snapshot.reviewThreads),
   };
   const ready = Object.values(items).every((i) => i.pass);

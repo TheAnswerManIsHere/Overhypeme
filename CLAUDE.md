@@ -1068,6 +1068,20 @@ verification — is post-merge for the same structural reason.
      there would be nothing to paste — which is exactly what would have
      stopped #487, where item 2 had never even been requested.
 
+   **Every PR gets a Codex review, and no PR merges before it returns
+   (David, 2026-08-17).** Not "most PRs", not "PRs where I expect
+   findings" — every one. A clean pass is still a pass that has to *come
+   back*: no findings means a **👍 reaction**, findings mean a review I
+   respond to, and either way the merge waits for it. So "Codex converged"
+   is never satisfiable by my judgement that a PR looks fine, by a round
+   I requested but haven't received, or by a review of an *earlier* commit
+   — a pass on a commit I have since pushed past has not reviewed the diff
+   that would merge. `pr-ready.mjs` computes all of this: it requires a
+   request, requires a completed pass (the connector's `**Reviewed
+   commit:**` announcement — which arrives as a plain issue comment when
+   nothing was found — or a 👍 on the latest request), and requires that
+   pass to cover the head commit.
+
    **Why this is a check and not another undertaking:** the bar has been
    reported from a single checked item **twice**. PR #458 merged with a
    review round outstanding and took 7 findings on `main` 47 seconds later;
