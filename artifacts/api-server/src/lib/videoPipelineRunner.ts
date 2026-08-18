@@ -77,6 +77,7 @@ import { generateVideoDirection } from "./videoDirection";
 import { addCaptionsToVideo } from "./falAutoSubtitle";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
 import { BudgetGateError, checkBudget, noteLedgerWriteFailure, recordCost } from "./budgetGate";
+import { withBookkeepingTimeout } from "./bookkeepingTimeout";
 import { getCachedPrice } from "./falPricing";
 import { computeVideoCost, resolveVideoDimensions } from "./costComputation";
 import { createMemeRecord, resolveMemeDecisions } from "./createMemeRecord";
@@ -648,7 +649,27 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
   // admin path, which skips the ledger row rather than fabricating one.
   if (estimated === null) {
     try {
-      estimated = await estimateTotalCost(engine, input);
+      // NOT `estimateTotalCost`. That resolves stage 2 as well, via
+      // `getCachedPrice`, whose stale-cache path performs an un-aborted network
+      // fetch — and stage 2's figure is not wanted here at all, because its
+      // writer re-prices against a provider-resolved rate after the render.
+      // Re-running the whole estimate would put a network call on a
+      // user-facing submission purely to compute a number we then discard.
+      //
+      // Bounded as well as narrowed: what remains is two `loadEngine` reads,
+      // and a query still has to take a client from an unbounded pool. A
+      // timeout lands in the catch below, which is the same outcome as any
+      // other failed lookup here.
+      const [stage1, stage3] = await withBookkeepingTimeout(
+        Promise.all([
+          input.sourceMode === "stylize-then-video"
+            ? resolveStageCostUsd(PULID_IMAGE_ENGINE_ID, STAGE1_FALLBACK_COST)
+            : Promise.resolve(null),
+          resolveStageCostUsd(SUBTITLE_ENGINE_ID, STAGE3_FALLBACK_COST),
+        ]),
+        "exempt-user stage estimate lookup",
+      );
+      estimated = { total: (stage1 ?? 0) + stage3, stage1, stage3 };
     } catch (err) {
       logger.warn(
         { err, userId: input.userId },
@@ -1602,24 +1623,42 @@ async function uploadFinal(captionedUrl: string, jobId: string): Promise<string>
 // ─── Cost recording / persistence ────────────────────────────────────────────
 
 async function recordStage1Cost(job: JobState): Promise<void> {
-  // The gate's own figure, carried on the job. Not re-read: see
-  // resolveStageCostUsd. A null here would mean the pipeline ran stage 1 on a
-  // job whose gate never priced it — structurally impossible (only
-  // "stylize-then-video" reaches this), but if it ever happens the constant
-  // must not be substituted silently, because that is the fail-open this whole
-  // release exists to close. Record it on the counter operators already watch.
+  // THE LEDGER WRITE BELOW WAS REMOVED IN ROUND 3 AND IS DELIBERATELY BACK.
+  //
+  // Round 3 removed it to close a double charge: `generateAiMemeBackgroundFromReference`
+  // also records for the same PuLID call, under a different reference id, so a
+  // successful stylize-then-video stage 1 wrote two rows. That double charge is
+  // real, and it is PRE-EXISTING on `main` (verified with `git show`) — the
+  // helper's priced branch has been recording alongside this one all along.
+  //
+  // Removing it here was wrong, and round 4 found why. When PuLID cannot detect
+  // a face it throws, so the helper never reaches its own `recordCost`, while
+  // `runStage1` converts that throw into `{ stillObjectPath: null }` and this
+  // function is still called — deliberately, because costs stand on retries. So
+  // the removal turned a paid, failed attempt into one recorded by NOBODY, and
+  // a user can retry face detection indefinitely without the enforcement SUM
+  // moving. A double charge over-counts and denies too early; a missing charge
+  // under-counts and denies too late. Only one of those is a fail-open.
+  //
+  // David's call (2026-08-17): revert to `main`'s behaviour here, and fix the
+  // double charge in its own change where the no-face and retry paths get
+  // worked through properly rather than mid-review. Tracked separately — do
+  // not re-remove this write without handling the throw-before-record path.
   if (job.stage1EstimateUsd === null) {
+    // No gated figure. Do NOT substitute the constant: the contract on
+    // JobState.stage1EstimateUsd is that an unknown figure is recorded as lost
+    // rather than fabricated, and writing a made-up number while simultaneously
+    // incrementing the lost-write counter would have the ledger and the counter
+    // assert contradictory things about the same job.
     logger.error(
       { jobId: job.jobId },
-      "[videoPipeline] stage 1 ran on a job the gate never priced for it — recorded spend will understate",
+      "[videoPipeline] stage 1 has no gated estimate — skipping the cost row rather than inventing one",
     );
     void noteLedgerWriteFailure();
+    return;
   }
-  const cost = job.stage1EstimateUsd ?? STAGE1_FALLBACK_COST;
+  const cost = job.stage1EstimateUsd;
   job.stage1CostUsd = (job.stage1CostUsd ?? 0) + cost;
-  // NOTE: this function does NOT write a ledger row. See the block at the end
-  // of it for why — `generateAiMemeBackgroundFromReference` already wrote one
-  // for the same PuLID call.
   if (job.videoJobRowId) {
     try {
       await db
@@ -1630,44 +1669,25 @@ async function recordStage1Cost(job: JobState): Promise<void> {
       logger.warn({ err }, "[videoPipeline] failed to persist stage1 cost on row");
     }
   }
-  // NO LEDGER WRITE HERE — and the absence is the fix, not an omission.
-  //
-  // Stage 1 *is* a call to `generateAiMemeBackgroundFromReference`, and that
-  // helper writes its own `user_generation_costs` row for the same PuLID
-  // invocation, keyed on the stored image path. This function used to write a
-  // second row keyed `videoJob_<id>_stage1_<attempt>`. Two rows, two different
-  // reference ids, nothing deduplicating them: every stylize-then-video job
-  // charged the user twice for one PuLID call, inflating the enforcement SUM
-  // and denying their next generation earlier than it should.
-  //
-  // THIS PREDATES THE PR. On `main` the helper's *priced* branch already
-  // recorded alongside this one, so the double charge has been live for
-  // priced PuLID calls all along; Release B's removal of that branch's price
-  // guard merely extended it to unpriced ones too. Codex round 3 reported the
-  // unpriced half — verified with `git show origin/main`, the priced half was
-  // already there.
-  //
-  // The HELPER owns the charge, not this function, for two reasons: it is the
-  // only writer on the standalone meme-wizard path (so it must record there
-  // regardless), and it sits closest to the provider call, where a real
-  // resolved price is available — this function only ever had an estimate.
-  //
-  // What stays here is the bookkeeping above: `job.stage1CostUsd` and the
-  // `video_jobs.stage1_cost_usd` column, which are per-job reporting and are
-  // not duplicated anywhere.
+  try {
+    await recordCost({
+      userId: job.userId,
+      jobType: "image",
+      endpointId: "fal-ai/flux-pulid",
+      unitPriceAtCreation: cost,
+      billingUnits: 1,
+      computedCostUsd: cost,
+      // Always an estimate: the operator-configured per-call figure the gate
+      // used. Stage 1 has no provider-resolved rate at any point.
+      pricingFetchedAt: new Date(),
+      isEstimated: true,
+      jobReferenceId: `videoJob_${job.jobId}_stage1_${job.stage1Attempts}`,
+    });
+  } catch (err) {
+    logger.warn({ err, jobId: job.jobId }, "[videoPipeline] recordStage1Cost ledger failed");
+  }
 }
 
-/**
- * Stage 2 is the one stage whose recorded figure legitimately differs from the
- * gated one, and that is the point rather than a gap. The gate priced this
- * stage from the *submitted* parameters; by the time we get here the render has
- * happened and `getCachedPrice` yields a provider-resolved rate against the
- * dimensions actually used — which is exactly what `isEstimated: false` means.
- * Forcing this back to the gate's number would throw away the only real price
- * in the whole pipeline. The fallback branch below still shares the gate's
- * expression (per-second engine estimate x duration), so a pricing outage
- * lands on the same number the gate used.
- */
 async function recordStage2Cost(job: JobState): Promise<void> {
   const engine = await loadEngine(job.videoEngineId);
   const fallbackPerSec = engine
@@ -1740,13 +1760,19 @@ async function recordStage3Cost(job: JobState): Promise<void> {
   // Null only when an exempt admin's post-gate resolution failed; record the
   // loss rather than inventing the constant, same as stage 1.
   if (job.stage3EstimateUsd === null) {
+    // Skip the whole write rather than invent a figure — see the equivalent
+    // block in recordStage1Cost. Substituting the constant here while also
+    // incrementing the lost-write counter would put a fabricated number in
+    // `video_jobs.stage3_cost_usd` and admin cost reporting, at the same moment
+    // the counter says the figure was lost.
     logger.error(
       { jobId: job.jobId },
-      "[videoPipeline] stage 3 has no gated estimate — recorded spend will understate",
+      "[videoPipeline] stage 3 has no gated estimate — skipping the cost row rather than inventing one",
     );
     void noteLedgerWriteFailure();
+    return;
   }
-  const cost = job.stage3EstimateUsd ?? STAGE3_FALLBACK_COST;
+  const cost = job.stage3EstimateUsd;
   job.stage3CostUsd = cost;
   if (job.videoJobRowId) {
     try {

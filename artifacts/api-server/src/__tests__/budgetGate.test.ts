@@ -23,7 +23,7 @@ import {
   adminConfigTable,
   userGenerationCostsTable,
 } from "@workspace/db/schema";
-import { eq, like, sql } from "drizzle-orm";
+import { eq, like, sql, inArray } from "drizzle-orm";
 
 import {
   BudgetExceededError,
@@ -724,6 +724,26 @@ describe("recordCost — provenance", () => {
 });
 
 describe("noteLedgerWriteFailure", () => {
+  // These two keys are OPERATIONAL SIGNALS, not configuration, and this suite
+  // is the only thing that creates them in a test database. `ledger_write_failures`
+  // describes itself as warranting investigation when non-zero, so leaving a
+  // count behind manufactures exactly the alarm it exists to raise — and the
+  // per-DB runner caches and reuses its schema, so the residue accumulates
+  // while the relative assertions below (`before + 1`) keep passing forever.
+  //
+  // DELETED rather than snapshot-and-restored, unlike the budget-limit keys.
+  // Those are seeded configuration with a legitimate prior value; these exist
+  // only because something failed, so restoring a previous count would preserve
+  // an earlier run's residue instead of clearing it. Zero rows is the correct
+  // state for a database in which nothing was actually lost.
+  afterEach(async () => {
+    await db
+      .delete(adminConfigTable)
+      .where(
+        inArray(adminConfigTable.key, ["ledger_write_failures", "ledger_write_failure_last_at"]),
+      );
+  });
+
   it("increments the counter and stamps the timestamp", async () => {
     const before = await readCounter();
     await noteLedgerWriteFailure();

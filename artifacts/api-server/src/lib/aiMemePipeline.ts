@@ -31,6 +31,7 @@ import {
   recordCost,
 } from "./budgetGate";
 import { logger } from "./logger";
+import { withBookkeepingTimeout } from "./bookkeepingTimeout";
 import { applyFalSafetyTolerance, assertNoFalNsfwConcepts, FalSafetyTriggeredError } from "./moderation/falSafety";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
 import { quarantineImage } from "./moderation/quarantine";
@@ -107,41 +108,6 @@ const CATALOGUE_MAX_COST_USD = maxCost(ALL_ENGINES.map((e) => e.estimatedCostUsd
  * is never recovered.
  */
 const LAST_RESORT_COST_USD = 0.15;
-
-/**
- * Time bound for a post-provider bookkeeping lookup.
- *
- * `fallbackImageCostUsd` runs a query, and a query must first take a client
- * from the shared pool — which sets no `connectionTimeoutMillis`, so under
- * saturation that checkout queues with no deadline. On the exempt-admin
- * recording path this happens AFTER the provider has completed and been paid,
- * so an unbounded wait there stalls a generation that is already finished and
- * stored, purely to write a diagnostic-grade ledger row.
- *
- * Racing is the right instrument HERE and the wrong one inside
- * `noteLedgerWriteFailure` (see budgetGate, which detaches instead). The
- * difference is what is being abandoned: this is a complete drizzle query that
- * acquires and releases its own client, so dropping our `await` leaks nothing —
- * the query finishes and releases regardless. Abandoning a bare `pool.connect()`
- * would strand the client instead.
- *
- * Detaching is not available here: unlike the counter, this value is needed to
- * build the row. So the bound is a real deadline, and blowing it lands in the
- * caller's existing catch, which skips the row and increments the lost-write
- * counter — the outcome that path already documents for a failed lookup.
- */
-const BOOKKEEPING_LOOKUP_TIMEOUT_MS = 2_000;
-
-function withBookkeepingTimeout<T>(work: Promise<T>, label: string): Promise<T> {
-  let timer: NodeJS.Timeout;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} exceeded ${BOOKKEEPING_LOOKUP_TIMEOUT_MS}ms`)),
-      BOOKKEEPING_LOOKUP_TIMEOUT_MS,
-    );
-  });
-  return Promise.race([work, deadline]).finally(() => clearTimeout(timer)) as Promise<T>;
-}
 
 /**
  * Resolves the gating estimate for a model, preferring the persisted engine row
