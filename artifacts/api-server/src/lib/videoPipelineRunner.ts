@@ -512,7 +512,7 @@ async function estimateStage2Cost(
 interface PreflightEstimate {
   total: number;
   stage1: number | null;
-  stage3: number;
+  stage3: number | null;
 }
 
 async function estimateTotalCost(engine: Engine, input: StartJobInput): Promise<PreflightEstimate> {
@@ -660,8 +660,13 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
       // and a query still has to take a client from an unbounded pool. A
       // timeout lands in the catch below, which is the same outcome as any
       // other failed lookup here.
-      const [stage1, stage3] = await withBookkeepingTimeout(
-        Promise.all([
+      // allSettled, NOT all. `Promise.all` rejects as a unit, so one slow or
+      // failing lookup discarded the OTHER stage's perfectly good figure — and
+      // a null stage-1 figure means `recordStage1Cost` skips, which on the
+      // no-face path is the only ledger writer there is. One stage's failure
+      // must not silence the other.
+      const [s1, s3] = await withBookkeepingTimeout(
+        Promise.allSettled([
           input.sourceMode === "stylize-then-video"
             ? resolveStageCostUsd(PULID_IMAGE_ENGINE_ID, STAGE1_FALLBACK_COST)
             : Promise.resolve(null),
@@ -669,13 +674,30 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
         ]),
         "exempt-user stage estimate lookup",
       );
-      estimated = { total: (stage1 ?? 0) + stage3, stage1, stage3 };
+      if (s1.status === "rejected") {
+        logger.warn({ err: s1.reason, userId: input.userId }, "[videoPipeline] stage 1 estimate unresolved for an exempt user");
+      }
+      if (s3.status === "rejected") {
+        logger.warn({ err: s3.reason, userId: input.userId }, "[videoPipeline] stage 3 estimate unresolved for an exempt user");
+      }
+      const stage1 = s1.status === "fulfilled" ? s1.value : null;
+      const stage3 = s3.status === "fulfilled" ? s3.value : null;
+      estimated = { total: (stage1 ?? 0) + (stage3 ?? 0), stage1, stage3 };
     } catch (err) {
+      // Reached only on the outer TIMEOUT now — allSettled itself never
+      // rejects. Both figures stay null, which is honest: exceeding the bound
+      // means neither lookup finished.
+      //
+      // NO COUNTER INCREMENT HERE. `recordStage1Cost` and `recordStage3Cost`
+      // each increment when their own null estimate actually skips a row, so
+      // counting again here reported three losses for two skipped rows — and
+      // reported a loss at all for a job that then failed authorization or its
+      // row insert and never wrote anything. The writers count what they
+      // actually omit; this logs, and that is the whole job.
       logger.warn(
         { err, userId: input.userId },
         "[videoPipeline] could not resolve stage estimates for an exempt user — this job's stage 1/3 spend will go unrecorded",
       );
-      void noteLedgerWriteFailure();
     }
   }
   const preflight: PreflightEstimate | null = estimated;
