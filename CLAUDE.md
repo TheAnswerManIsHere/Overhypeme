@@ -2073,25 +2073,43 @@ stopping-rule pass "executes." Conceding it revealed I had been treating a
 dispositive verdict as advice. Stated here in the resident file, unmissably,
 because a rule I can talk myself out of mid-argument is not a rule.
 
-**And it is what separates a reviewer from an adjudicator** — the boundary four
-successive definitions failed to draw:
+**This does NOT double as a reviewer/adjudicator boundary, and an earlier
+version of this section tried to make it one.** Five attempts at that boundary
+have now failed — the fifth being "a reviewer's findings can be declined, an
+adjudicator's verdict cannot," which `subagent-driven-development` breaks
+outright: its workflow lists *"proceed with unfixed issues"* under **Never**,
+so that reviewer's findings cannot be declined either (Codex, #504). **No
+sixth attempt.** Nothing operative needs one: mandate/bar/default decides every
+case, and a surface nobody has classified simply does not dispatch and keeps
+whatever model policy its own skill sets.
 
-- **A reviewer's findings can be declined.** That is what a decline *is*, and
-  declining one is itself an adjudication (so it takes Fable).
-- **An adjudicator's verdict cannot.** Nothing downstream re-opens it.
+**The failed attempts are recorded rather than buried**, because the shape of
+the failure is the lesson:
 
-**The four failed attempts are recorded rather than buried**, because the shape
-of the failure is the lesson: "packages a drafted verdict" (too narrow — it
-excluded the blind ledger pass), "renders a verdict on packageable material"
-(too broad — it admitted `subagent-driven-development`'s task reviewer),
-"resolves versus feeds someone else's decision" (false in both directions).
-Four definitions, one paragraph, behaviour never changing underneath — exactly
+1. *"genuinely handoff-able"* — a self-assessment at the dispatch site, and it
+   excluded the stopping-rule pass, the case the rule was built around.
+2. *"packages a drafted verdict plus its evidence"* — too narrow; it excluded
+   the blind ledger pass, whose value is that my classifications are withheld.
+3. *"renders a verdict on packageable material"* — too broad; it admitted
+   `subagent-driven-development`'s task reviewer.
+4. *"resolves the matter versus feeds someone else's decision"* — false in both
+   directions at once.
+5. *"a reviewer's findings can be declined; an adjudicator's cannot"* — SDD
+   lists *"proceed with unfixed issues"* under **Never**, so that reviewer's
+   findings cannot be declined either.
+
+One paragraph, five definitions, behaviour never changing underneath — exactly
 the *hand-maintained note describing emergent behaviour* pattern in
 [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md),
-committed inside the contract that cites it. What broke the run was not a fifth
-definition but **a fact I did not have**: David's ruling on decision authority.
-When a boundary resists repeated definition, the missing piece is usually a
-decision nobody has made yet, not a sharper sentence.
+committed inside the contract that cites it.
+
+**Two things ended it, and neither was a better sentence.** First, a fact I did
+not have: David's ruling that a Fable verdict decides. Second, his instruction
+to stop defining the boundary at all — which I was told once, complied with,
+and then quietly undid by deriving attempt 5 from the new fact. **When a
+boundary resists repeated definition, the missing piece is usually a decision
+nobody has made yet — and once that decision exists, the temptation is to spend
+it on one more definition rather than on stopping.**
 
 **None of this decides *whether* to dispatch** — that is the mandate/bar/default
 rule above, unchanged. This decides what a dispatched verdict is worth, and the
