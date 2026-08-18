@@ -218,11 +218,20 @@ didn't find them at plan time, nothing will until production.
 oracle-backed, scaled to one bug's call graph instead of a repo-wide pattern.
 
 **If the inventory is expensive or the pattern's boundary is genuinely
-fuzzy, say so as a Settled Decision** ("inventoried via `grep -rn
-<pattern>`, N hits, list attached; M borderline cases excluded because
-<reason>") rather than skipping it silently — an inventory that ran and
-found nothing new is worth stating too, since a reviewer otherwise has no
-way to tell "there was nothing to find" from "this was never done."
+fuzzy, say so** — "inventoried via `grep -rn <pattern>`, N hits, list
+attached; M borderline cases excluded because <reason>" — rather than
+skipping it silently. An inventory that ran and found nothing new is worth
+stating too, since a reviewer otherwise has no way to tell "there was nothing
+to find" from "this was never done."
+
+**Where that statement goes differs by mode, and the field has to exist.** In
+feature mode it is a **Settled Decision** in the plan. In bugfix mode there is
+no plan and no Settled Decisions field, so it goes in the **Blast radius**
+field of the bugfix oracle (the PR body's *what else calls this / shares this
+path, and what you checked*) — which is the same sentence in the place bugfix
+mode actually has for it. Sending a bugfix at the plan's field would either
+leave the exception unrecordable or drag the fix into the feature ceremony
+bugfix mode exists to skip.
 
 ### A plan specifies invariants, not implementation (David, 2026-08-12)
 
