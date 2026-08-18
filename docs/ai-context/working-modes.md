@@ -187,8 +187,13 @@ a data-derivation rule, a naming convention, anything with plausible siblings
 — gets a mechanical inventory before the plan's scope is written down, using
 the same discipline the class-sweep protocol already requires at fix time
 (*"A finding names an instance; the fix owes the class"*, below): name the
-class, write the `grep`/`ls`/`find` oracle that finds every instance, run it,
-and scope the plan against the actual hit list — not a recalled one.
+class, write the `rg`/`ls`/`find` oracle that finds every instance, run it,
+and scope the plan against the actual hit list — not a recalled one. **Use
+`rg -n`, not `grep -rn`** — `grep -rn` from the repo root walks `.git`,
+`node_modules`, and generated output, so the hit count it reports includes
+non-source copies and scopes the plan wrong. Same reason
+[`prose-cross-refs-invisible-to-link-checker.md`](../../.agents/memory/prose-cross-refs-invisible-to-link-checker.md)
+already prescribes `rg`.
 
 **This is the same move, moved earlier.** The class-sweep protocol exists
 because a reviewer's cited instance is never guaranteed to be every instance.
@@ -217,21 +222,47 @@ didn't find them at plan time, nothing will until production.
 — per-bug step 5 (*Establish the blast radius*) below is this same inventory,
 oracle-backed, scaled to one bug's call graph instead of a repo-wide pattern.
 
-**If the inventory is expensive or the pattern's boundary is genuinely
-fuzzy, say so** — "inventoried via `grep -rn <pattern>`, N hits, list
-attached; M borderline cases excluded because <reason>" — rather than
-skipping it silently. An inventory that ran and found nothing new is worth
-stating too, since a reviewer otherwise has no way to tell "there was nothing
-to find" from "this was never done."
+**Some classes cannot be mechanized at all, and that is a recorded outcome
+rather than a dead end.** A semantic class with no searchable signature — a
+data-derivation rule is the obvious example, and it is one of this section's
+own triggers — has no oracle that finds every instance, however the regex is
+written. The class-sweep protocol below already handles exactly this at fix
+time (*"If the finding genuinely cannot be mechanized (a pure design/semantics
+finding), the reply says so — that inability is itself a signal, and it routes
+the finding to the driving agent's judgment-escalation triggers"*), and the
+same escape applies here: **record that the class cannot be mechanized, and
+route the scope call to judgment/escalation.** What is forbidden is the third
+option — running a nominal `rg` that does not actually find every instance and
+then claiming inventory-backed scope. That is worse than skipping the step,
+because it launders false completeness into the plan's scope, which is the
+precise failure this section exists to prevent.
 
-**Where that statement goes differs by mode, and the field has to exist.** In
-feature mode it is a **Settled Decision** in the plan. In bugfix mode there is
-no plan and no Settled Decisions field, so it goes in the **Blast radius**
-field of the bugfix oracle (the PR body's *what else calls this / shares this
-path, and what you checked*) — which is the same sentence in the place bugfix
-mode actually has for it. Sending a bugfix at the plan's field would either
-leave the exception unrecordable or drag the fix into the feature ceremony
-bugfix mode exists to skip.
+**If the inventory is expensive or the pattern's boundary is genuinely
+fuzzy, say so** — "inventoried via `rg -n <pattern>`, N hits, list attached;
+M borderline cases excluded because <reason>" — rather than skipping it
+silently. An inventory that ran and found nothing new is worth stating too,
+since a reviewer otherwise has no way to tell "there was nothing to find"
+from "this was never done."
+
+**Where that statement goes differs by mode, and the destination field has to
+exist in the mode being addressed** — checked, not assumed:
+
+| mode | field | where |
+|---|---|---|
+| feature | **Settled Decisions** | `.agents/PLANS.md`, and the PR body's feature block |
+| bugfix, Tier A/B | **Blast radius** | the bugfix oracle — *what else calls this / shares this path, and what you checked* |
+| bugfix, Tier C | **Why this is trivial** | the Tier C block, which deliberately carries none of the Tier A/B fields |
+
+Tier C lands there rather than getting a field of its own for a reason worth
+stating: a Tier C classification already asserts there is no pattern surface
+to inventory, so the inventory statement *is* part of the triviality argument.
+And it is self-checking — **an inventory that turns out expensive or fuzzy on
+a Tier C fix is evidence the tier is wrong**, not an exception to be recorded
+and moved past.
+
+Naming a field a mode does not have is not a wording slip: it leaves the
+exception unrecordable, or drags the fix into a ceremony that mode exists to
+skip. Both failures shipped in this section's first two drafts.
 
 ### A plan specifies invariants, not implementation (David, 2026-08-12)
 
