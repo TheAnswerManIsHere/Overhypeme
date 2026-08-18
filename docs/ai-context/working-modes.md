@@ -504,6 +504,22 @@ these rules, not a round cap:
 4. **The scope oracle and decline-by-default do the containment** (next
    subsection): with review's purpose stated in the PR body, a polish loop
    is starved of fuel regardless of how many rounds the rules would permit.
+5. **A stopping condition pre-registered before the round beats one
+   reasoned out after it** (2026-08-18, PR #509). The continue signal above
+   is a judgment made *while holding the round's findings*, which is exactly
+   when the next fix looks cheapest. So a loop working a **recurring class**
+   should also write, in the re-request itself, the condition under which it
+   **stops** — and then honour it against the finding. #509 pre-registered
+   *"another instance of this class → the loop stops and the residual is
+   filed with its oracle"*, round 5 returned exactly that, and the fix was
+   ten words. The reasoning that held the line, from the adjudication:
+   **cheapness is the class's constant, not a property distinguishing this
+   instance.** All nine of that loop's instances had trivial fixes, so
+   honouring the rule only when the next fix looks expensive is not
+   honouring it at all. The rejected alternative was recorded with it —
+   fix-and-take-one-more-pass — and rejected on the ground that the merge
+   bar needs a pass on the new head, and the loop's own evidence said that
+   pass surfaces instance ten and recreates the same choice.
 
 The floor tier stays stricter and is **criticality-based, not
 count-based**: transient process docs and loop-ledger records keep their
