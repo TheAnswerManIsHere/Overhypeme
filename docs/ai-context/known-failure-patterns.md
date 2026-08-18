@@ -1986,3 +1986,53 @@ emitted the salt error at all. Fixed by moving the assertion into
 `artifacts/api-server/src/lib/ipSalt.ts`, which never reaches the database. The
 folded-CLI-guard half is a live pre-existing bug in its own right —
 production runs migrations twice at every boot — tracked separately as #486.
+
+## A guard that encodes the shape that occurred, and calls it a class
+
+**The pattern.** A regression happens. You write a CI guard so it cannot happen
+again, and the guard's own header claims it makes a *class* of defect
+impossible. But what you actually encoded is the one **spelling** the defect
+wore when you met it. The next instance wears a different spelling, walks
+straight past, and the guard reports green — which is worse than no guard,
+because the green is now load-bearing in everyone's reasoning.
+
+**The worked example.** `scripts/check-record-cost-unconditional.mjs` was
+written after measuring that restoring the old `if (cachedPriceForRecording)`
+wrapper produced **zero typecheck errors and a fully green test suite** — a
+genuinely good reason for a source guard. Its first draft then walked
+`IfStatement` nodes and matched a hardcoded list of six variable names. Codex
+probed it with three shapes and all three exited 0:
+
+- `priced && await recordCost(...)` — short-circuit, not an `IfStatement`.
+- `priced ? recordCost(...) : undefined` — ternary, not an `IfStatement`.
+- `if (estimatedCostUsd > 0) { recordCost(...) }` — an `IfStatement`, but that
+  identifier was absent from the name list. **This one was not hypothetical: it
+  is a wrapper the very same PR had just removed.**
+
+**Two failure modes, and they compound.** *Syntactic narrowness* — checking one
+AST node kind when the invariant is about control flow, which has several
+spellings. And *enumerating instead of ruling* — a list of yesterday's variable
+names protects against yesterday's regression only. The fix for the second was
+to encode the naming **rule** (`/pric|cost/i`) rather than the names.
+
+**What to do instead.**
+
+1. **State the invariant before the implementation**, in one sentence, and
+   check the code against the sentence. Here it was *"every branch records"* —
+   which immediately makes the ternary and short-circuit cases obviously in
+   scope, and which also revealed the guard must NOT simply copy its sibling
+   (the gate guard's rule is "never inside a price conditional", and a price
+   conditional is the *correct* shape for recording, since the branches record
+   different provenance).
+2. **Probe it, both directions.** Write the bad shapes and confirm each is
+   flagged; write the correct shapes and confirm none is. Widening a matcher
+   makes false positives reachable — here, `if (priced) { record; return; }`
+   followed by a fall-through record is correct and had to be exempted.
+3. **Write the residual limits into the header**, so a pass is never read as
+   proof. Naming-based matching still misses a flag called `resolved`.
+
+**Related:** the sibling rule *"recurring failure patterns become CI guards"* is
+what produces these guards in the first place, and remains right — this pattern
+is about the guards being narrower than their own claims, not about writing
+fewer of them. `check-budget-gate-thunk.mjs` was designed against this entry
+from the start, which is why its rule is bright-line rather than a list.

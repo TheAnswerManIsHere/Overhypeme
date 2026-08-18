@@ -1254,6 +1254,38 @@ pinned to the ceiling that actually applied.
 
 ---
 
+### Provider-resolved rate / operator-configured estimate
+
+**Three** states, not two — the column is nullable:
+
+- **`false` — provider-resolved.** Computed from the provider's own published
+  rate, fetched by `getCachedPrice`, times the job's actual quantity.
+- **`true` — estimated.** No provider rate resolved, so the figure came from the
+  operator-configured `engines` row **or from a hard-coded fallback whenever no
+  usable configured estimate resolves** — which is broader than "no row exists":
+  an existing row whose `estimatedCostUsdPerSecond` is null or non-numeric falls
+  back too (`routes/videos.ts`'s `ENGINE_PER_SEC_FALLBACK`,
+  `videoPipelineRunner.ts`'s `engineNumeric`, both `0.05`). All of these are
+  estimates; the column does not distinguish them, and `budgetGate.ts`'s own
+  contract says so.
+- **`NULL` — unclassified.** Rows written before Release B, which
+  migration `0101` added the column to without classifying. Release C's backfill
+  narrows this; until it runs, **a query treating `NULL` as impossible is
+  wrong**.
+
+**Neither is a "measured" cost, and that word is retired here.** No ledger row
+holds an actual charge reconciled against the provider — even the
+provider-resolved side is a published rate multiplied by a quantity we computed.
+Calling it measured invites a reader to treat these rows as billing
+measurements, which is exactly the misreading a spend total should not encourage.
+
+The term keeps coming back because "measured vs estimated" is the natural
+English pairing and the correct pair is a mouthful — it was corrected out of
+the `is_estimated` plan during its review, then reintroduced in that same arc's
+documentation harvest and caught again in PR #509 round 2. If you find yourself
+writing "measured," this entry is why not.
+→ [decisions.md](./decisions.md), [deferred-work](../engineering/deferred-work.md)
+
 ## Ways of working
 
 ### Workstream

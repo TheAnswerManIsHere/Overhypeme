@@ -24,6 +24,31 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Cost-ledger provenance — `is_estimated`, Releases A and B** (2026-08-18,
+  PRs #497 and #498, workstream #473). The spend ceiling only binds on what the
+  ledger records, and a generation gated on an *estimate* used to be checked,
+  run, and then recorded nowhere — so through a fal pricing outage the
+  enforcement SUM stopped growing while spend continued. Release A added the
+  nullable column; Release B closed the pricing branches — a writer no longer
+  skips because a price was missing — and made each one record **provenance**:
+  a provider-resolved rate or an operator-configured estimate. (Not *every*
+  omission is closed: `recordStage2Cost` has a known uncounted failure path,
+  recorded with the 2026-08-18 skip-and-count decision and tracked in #511.)
+  Estimated rows count toward the ceiling exactly like provider-resolved ones —
+  excluding them would
+  have reopened the fail-open PR #474 closed. Two new CI guards join the
+  existing one (`check-record-cost-unconditional`, `check-budget-gate-thunk`);
+  the second exists because the eager-cost defect it catches occurred *twice*,
+  in #474 and again in #498's own review.
+  **Seven Codex rounds, 20 findings, all confirmed, none declined.** Read the
+  three 2026-08-18 entries in [`decisions.md`](./decisions.md) and
+  [`security-model.md`](./security-model.md)'s generation-spend section rather
+  than rederiving any of it.
+  **Next:** Release C — the operator-run preflight, then the classification
+  backfill for rows written before this — after B deploys and old instances
+  drain. **Also opened:** #507 (stage-1 PuLID double charge, pre-existing,
+  over-counts) and #508 (a timing-fragile `cliJobPoller` test).
+
 - **The generation spend gate now runs even when pricing can't be resolved**
   (2026-08-16, PR #474). Found by the auth/entitlement/spend security pass:
   three of four spend call sites wrapped `checkBudget` in `if (priced)`, so a
@@ -36,10 +61,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   Five Codex rounds, eight findings, all real. See
   [`security-model.md`](./security-model.md)'s generation-spend section and the
   two 2026-08-16 entries in [`decisions.md`](./decisions.md).
-  **Still owed from that pass:** the `is_estimated` ledger column (approved,
-  queued) and the `recordCost` swallow it folds in — both tracked in
-  [`deferred-work.md`](../engineering/deferred-work.md). The twice-deferred
-  `IP_HASH_SALT` boot assertion the pass also re-flagged is now done (PR #484).
+  **Owed from that pass, now delivered:** the `is_estimated` ledger column and
+  the `recordCost` swallow it folds in — Releases A and B below. The
+  twice-deferred `IP_HASH_SALT` boot assertion the pass also re-flagged is
+  likewise done (PR #484).
 
 - **The admin help system — the Manual, rendered in-console** (2026-08-16,
   PR #472, workstream #463). `docs/manual/` is now readable at `/admin/help`

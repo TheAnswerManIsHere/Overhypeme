@@ -229,6 +229,47 @@ per-process**, so like the global rate limiter it is a per-instance backstop
 rather than a fleet-wide guarantee — see the
 [decision record](./decisions.md) for that layer.
 
+**The ledger the gate reads is part of the control too.** PRs #474/#498
+hardened the gate; PR #498 hardened what it counts. The SUM is only an
+enforcement figure if every gated generation leaves a row — a generation that
+was checked, ran, and cost money but recorded nothing makes the ceiling
+progressively stop binding, silently, with nothing erroring. Three CI guards now
+hold the three halves of that, and each documents its own residual limits:
+
+| guard | what it actually checks |
+| --- | --- |
+| `check-budget-gate-unconditional.mjs` | of the `checkBudget` calls that **exist**, none sits inside a price-named conditional |
+| `check-record-cost-unconditional.mjs` | of the `recordCost` calls that **exist**, a price-named conditional does not write in one branch only |
+| `check-budget-gate-thunk.mjs` | every `checkBudget` call passes a thunk, never a value (see [`decisions.md`](./decisions.md)) |
+
+**Read that table narrowly — it is deliberately not phrased as "the gate is
+never skipped."** All three are conditional-shape tripwires over calls that are
+already present: a new spend path that never calls `checkBudget` at all passes
+every one of them, as does a conditional hidden behind a helper or a
+non-price-named flag like `resolved`. They stop a specific regression from
+returning; they do not establish that every paid-generation path is gated. A
+green CI is not that proof, and treating it as such is the failure mode
+[`known-failure-patterns.md`](./known-failure-patterns.md)'s *guard that
+encodes the shape that occurred* entry exists to describe.
+
+Two properties of the ledger follow from that, both settled in
+[`decisions.md`](./decisions.md): every row **written by the Release B writers
+onward** records **provenance** (`is_estimated` — a provider-resolved rate, or
+an operator-configured estimate), and estimated rows **count toward the
+ceiling** exactly like provider-resolved ones. **Never call the
+`is_estimated = false` side "measured"** — see the glossary: no ledger row holds
+an actual provider charge, so that word invites a reader to treat these rows as
+billing measurements when they are a published rate times a computed quantity. `is_estimated` is nullable and **rows
+predating Release B are `NULL`** until Release C's classification backfill
+runs — a query or review that treats `NULL` as impossible is wrong today. A writer that
+cannot obtain its figure skips the row and increments `ledger_write_failures`
+rather than substituting a constant; a fabricated figure, and especially a
+zero, is worse than an absent row because it exists and hides itself. **With one
+known live exception:** `recordStage2Cost` reads its engine *before* its own
+`try`, so a failure there omits a paid generation **and** skips the counter —
+see the 2026-08-18 skip-and-count entry in [`decisions.md`](./decisions.md) and
+#511. Do not read the counter as a complete census of omitted rows.
+
 `checkBudget`'s contract, established across #409 / PR #443 / PR #474:
 
 - **It denies when it cannot answer.** A config-read, tier-lookup, or ledger-sum
@@ -244,9 +285,11 @@ rather than a fleet-wide guarantee — see the
   defensible estimate and still gates, or denies. See the
   [precondition failure pattern](./known-failure-patterns.md) for the general
   shape. `scripts/check-budget-gate-unconditional.mjs` is a CI guard that walks
-  the TypeScript AST and fails the build if a `checkBudget` call is ever made
-  conditional on price resolution again; its known limits are documented in its
-  own header, and it is a backstop rather than the control.
+  the TypeScript AST and fails the build when an **existing** `checkBudget` call
+  sits inside a **price-named** conditional — the exact regression that occurred.
+  Read it with the narrowing above: it does not see a conditional behind a helper
+  or a non-price-named flag, and it cannot see a spend path that never calls
+  `checkBudget` at all. A backstop against one recurrence, not the control.
 - **The fallback estimate prefers the persisted `engines` row over the code
   catalogue, but does use the catalogue as a fallback.** Precedence is
   persisted-exact → catalogue-exact → the maximum across both sources.
@@ -267,16 +310,19 @@ rather than a fleet-wide guarantee — see the
   denied by, the *proposed-cost* lookup or the downstream config/ledger reads: a
   caller whose cost is itself fallible to determine passes a **thunk**, which
   `checkBudget` invokes only after the exemption.
-- **The ledger cannot tell you how a figure was arrived at.** Some rows are
-  computed from fal's published rate for that endpoint; others from an
-  operator-configured estimate. No column distinguishes them, and no row is a
-  reconciled provider charge. Consequences for this gate: an unpriced generation on either
-  synchronous path (image or video) is not recorded at all, so across a sustained
-  pricing outage its recorded spend stops growing and the ceiling is measured
-  against a stale total. Which writers produce which kind of figure is **not** stated here —
-  see [`deferred-work.md`](../engineering/deferred-work.md), and derive it from
-  the code rather than from either doc, because that breakdown was mis-stated
-  three times in one review.
+- **The ledger records how a figure was arrived at, from Release B onward.**
+  `is_estimated` distinguishes a provider-resolved rate (`false`) from an
+  estimate (`true`); **no row is a reconciled provider charge either way** — see
+  the glossary, and never call the `false` side "measured". Two live residuals,
+  both stated above rather than repeated here: rows predating Release B are
+  `NULL` until Release C's backfill, and the `recordStage2Cost` path can omit a
+  paid generation without incrementing the counter (#511). **What Release B
+  changed for this gate:** an unpriced generation on a synchronous path is now
+  recorded from a fallback estimate rather than skipped, so a sustained pricing
+  outage no longer freezes recorded spend while generations continue — the
+  failure this bullet used to describe as current. Which writers produce which
+  kind of figure is **not** enumerated here: derive it from the code rather than
+  from any doc, because that breakdown was mis-stated three times in one review.
 
 ## HTTP security headers (C5)
 
