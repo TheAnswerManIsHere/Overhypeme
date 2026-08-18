@@ -178,6 +178,136 @@ pre-plan-intent rule carries the exception directly: narrowing to increment A
 is not the failure it catches, provided B is named in the plan's cited
 direction rather than silently absent.
 
+### The affected-surface inventory (David, 2026-08-13)
+
+**Run this before Problem/Direction are drafted, not after — it's what tells
+you whether the increment you're about to cut is the right one.** Any change
+that touches a *pattern* rather than a single call site — a permission shape,
+a data-derivation rule, a naming convention, anything with plausible siblings
+— gets a mechanical inventory before the plan's scope is written down, using
+the same discipline the class-sweep protocol already requires at fix time
+(*"A finding names an instance; the fix owes the class"*, below): name the
+class, write a mechanical oracle that finds every instance, run it, and scope
+the plan against the actual hit list — not a recalled one.
+
+**The requirement is a property of the oracle, not a command: its corpus
+must be the tracked set.** The inventory asks *what does this repository
+contain*, and "the tracked set" is that question's definition — so any search
+whose corpus is narrower or wider answers a different question and reports a
+hit count the plan should not be scoped against. `git grep -n '<pattern>'` is
+the example that satisfies it. **Deliberately only one** — the previous
+version offered `git ls-files` "piped into whatever you like" as an
+equivalent, and that pipeline searches the *filename stream*, not file
+contents: `git ls-files | rg <pattern>` returns **no hits** for a pattern
+present in five tracked files. An example offered to illustrate the property
+must itself satisfy the property, and a second example is a second chance to
+get that wrong.
+
+**This is stated as a property because six successive rounds of stating it as
+a command failed** — each fix correcting the previous invocation's symptom and
+leaving the class untouched. What each alternative gets wrong, stated as the
+**difference from the tracked set** rather than as a hit count:
+
+| invocation | what it gets wrong |
+|---|---|
+| `grep -rn` from the root | **over**-counts — walks `.git`, `node_modules`, and generated output, so N includes non-source copies |
+| bare `rg -n` | **under**-counts — skips hidden directories, so a heading present only in `.agents/PLANS.md` is invisible to it, and `.agents/`/`.github/` are where this repo's process sources live |
+| `rg -n --hidden` | the `grep -rn` problem returns: `.git` is back in the corpus |
+| `rg -n --hidden --glob '!.git'` | **under**-counts — ripgrep honours VCS ignore rules, so it misses the tracked-but-gitignored `artifacts/overhype-me/.env.local` that `git grep -l` finds |
+| `git ls-files \| rg` | searches **filenames**, not contents — no hits for a pattern that exists only inside files |
+
+**No totals appear in that table, and that is the fix rather than a style
+choice.** Earlier versions quoted probe strings and stated counts like "returns
+zero files" — and each was **false at its own commit**, because writing the
+probe into this file made this file a hit. A count is a property of the tree at
+an instant; a *delta* ("misses this tracked file that `git grep` finds") and a
+*mechanism* ("honours ignore rules") stay true as the tree changes. Cite the
+delta and the mechanism; never the total.
+
+A filesystem walker (`ls`, `find`, `grep -r`, `rg`) answers a question about
+the *disk*; use one only when that is genuinely what you mean. An oracle that
+silently skips a tracked file is the false-completeness failure below,
+arriving through the tool rather than the prose.
+
+**This is the same move, moved earlier.** The class-sweep protocol exists
+because a reviewer's cited instance is never guaranteed to be every instance.
+Running that discovery step at *plan entry* instead of waiting for review to
+find the gaps one round at a time is strictly cheaper — the search costs
+seconds; a review round costs a full loop iteration. PR #425 is the origin
+case in both directions at once: the plan moved the tier-derived permission
+gates it *already knew about*, and the CI guard built mid-loop (round 1)
+would have produced the complete inventory in about two seconds if it had
+existed at plan-entry instead of being invented three review rounds in. Three
+rounds of findings were substantially the enumeration this section would have
+front-loaded.
+
+**What this is not**: an argument for enumerating call sites *inside the plan
+document* — the specification test right below still says the compiler
+should enumerate typed call sites, not the prose. The inventory here is a
+**discovery step that determines scope**, whose *initial* run comes before
+drafting and which is re-run whenever the class, oracle, or scope moves (see
+below); its
+output is "these N files match the pattern, so the plan covers all N" (or
+explicitly phases/defers some of them), not a list pasted into the plan for a
+reviewer to check off. A raw-SQL / untyped-writer surface — exactly the
+carve-out the specification test names below — is where this matters most:
+the compiler cannot enumerate those sites at review time, so if the inventory
+didn't find them at plan time, nothing will until production.
+
+**Bugfix mode gets the identical discipline at diagnosis, not planning**
+— per-bug step 5 (*Establish the blast radius*) below is this same inventory,
+oracle-backed, scaled to one bug's call graph instead of a repo-wide pattern.
+
+**Some classes cannot be mechanized at all, and that is a recorded outcome
+rather than a dead end.** A semantic class with no searchable signature — a
+data-derivation rule is the obvious example, and it is one of this section's
+own triggers — has no oracle that finds every instance, however the regex is
+written. The class-sweep protocol below already handles exactly this at fix
+time (*"If the finding genuinely cannot be mechanized (a pure design/semantics
+finding), the reply says so — that inability is itself a signal, and it routes
+the finding to the driving agent's judgment-escalation triggers"*), and the
+same escape applies here: **record that the class cannot be mechanized, and
+route the scope call to judgment/escalation.** What is forbidden is the third
+option — running a nominal search that does not actually find every instance and
+then claiming inventory-backed scope. That is worse than skipping the step,
+because it launders false completeness into the plan's scope, which is the
+precise failure this section exists to prevent.
+
+**Re-run the oracle whenever the class, the oracle, or the scope changes, and
+once against the final revision.** The inventory is a pre-drafting step, not a
+one-time one: if drafting or review refines the affected class or adds an
+in-scope mechanism, a hit list produced for the earlier, narrower class is a
+**recalled** inventory wearing a mechanical one's authority — which is the
+failure this whole section exists to prevent, arriving through staleness
+instead of through scope.
+
+**If the inventory is expensive or the pattern's boundary is genuinely
+fuzzy, say so** — "inventoried via `git grep -n <pattern>`, N hits, list attached;
+M borderline cases excluded because <reason>" — rather than skipping it
+silently. An inventory that ran and found nothing new is worth stating too,
+since a reviewer otherwise has no way to tell "there was nothing to find"
+from "this was never done."
+
+**Where that statement goes differs by mode, and the destination field has to
+exist in the mode being addressed** — checked, not assumed:
+
+| mode | field | where |
+|---|---|---|
+| feature | **Settled Decisions** | `.agents/PLANS.md`, and the PR body's feature block |
+| bugfix, Tier A/B | **Blast radius** | the bugfix oracle — *what else calls this / shares this path, and what you checked* |
+| bugfix, Tier C | **Why this is trivial** | the Tier C block, which deliberately carries none of the Tier A/B fields |
+
+Tier C lands there rather than getting a field of its own for a reason worth
+stating: a Tier C classification already asserts there is no pattern surface
+to inventory, so the inventory statement *is* part of the triviality argument.
+And it is self-checking — **an inventory that turns out expensive or fuzzy on
+a Tier C fix is evidence the tier is wrong**, not an exception to be recorded
+and moved past.
+
+Naming a field a mode does not have is not a wording slip: it leaves the
+exception unrecordable, or drags the fix into a ceremony that mode exists to
+skip. Both failures shipped in this section's first two drafts.
+
 ### A plan specifies invariants, not implementation (David, 2026-08-12)
 
 **The test, applied to any line you are about to write into a plan: if the
@@ -1066,10 +1196,15 @@ oracle and the Tier A/B bugfix oracle below.
    fixing it forever, and it must prove the **general invariant** with negative
    cases, not just the reported input (see *One-example bug fixes*).
 4. **Make the smallest correct fix** and confirm the new test passes.
-5. **Establish the blast radius.** What else calls this code, shares this path, or
-   depends on this behavior — and what you checked. Regression tests pin the fixed
-   behavior; they say nothing about the neighbors, which is exactly where a
-   small-looking fix does its damage.
+5. **Establish the blast radius — oracle-backed, not recalled.** What else
+   calls this code, shares this path, or depends on this behavior? This is
+   the affected-surface inventory (above) at bug scale: name the pattern
+   (the function, the table, the shape of derivation the bug lives in), write
+   the tracked-set/callers-search that finds every site matching it, and state
+   what it found — not a memory of "what calls this." Regression tests pin
+   the fixed behavior; they say nothing about the neighbors, which is exactly
+   where a small-looking fix does its damage, and "I checked the obvious
+   callers" is exactly the gap a mechanical search closes for free.
 6. **Verify — scoped by step 5, not by the diff (David, 2026-08-09).** The
    touched tests + typecheck (see
    [`../tests/TESTING.md`](../tests/TESTING.md)), **plus the
