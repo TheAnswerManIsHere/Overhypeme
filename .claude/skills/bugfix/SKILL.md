@@ -302,7 +302,7 @@ subagent, product English on anything that reaches David — skip-on-clean), the
 class-sweep protocol (name the class, cite the mechanical oracle, sweep to
 zero, re-run prior rounds' oracles before every push), the criticality gate
 before every re-request, the fix / accept-and-document / escalate / decline
-triage (a decline posts only after surviving the Opus-subagent challenge),
+triage (a decline posts only after surviving the Fable-subagent challenge),
 resolving each thread myself right after addressing it, per-round
 `@codex review` re-requests naming what the round closes, the
 cumulative-diff rule after 2+ fix rounds, breaking non-converging loops by

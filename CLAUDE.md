@@ -467,22 +467,41 @@ seen running one.
 learnings are complete and freshest. A long area session that wraps without
 a merge is the other natural trigger.
 
-**The tier guard, and why it is load-bearing rather than ceremony (David,
-2026-08-15).** David's instruction was explicit: make this judgement on
-**Opus**, and if the session is on a lower tier, dispatch a subagent to make
-it instead. That is not belt-and-braces — two documented environments can
-put a session below Opus despite `settings.json` (an in-Repl session's
-`settings.local.json` override, and any session still running under the old
-`opusplan` value, since `model` is read once at session start; both are
-detailed under *Token / cost discipline*). So, mechanically:
+**The judgement always dispatches, and always on Fable (David, 2026-08-17:
+*for judgements, I want the strongest possible model*).** One step, no tier
+check: **dispatch a one-shot Fable subagent whose only job is the
+judgement** — hand it the merged diff, **the decisions taken, enumerated
+rather than summarized**, and the bar above; it returns run/don't-run plus
+what it judged harvestable. I announce the dispatch and act on its verdict.
 
-1. **Check the tier actually in play** before judging — never assume it from
-   the settings file.
-2. **On Opus:** make the judgement in my main loop.
-3. **Not on Opus:** dispatch a **one-shot Opus subagent** whose only job is
-   the judgement — hand it the merged diff, the decisions taken, and the bar
-   above; it returns run/don't-run plus what it judged harvestable. I
-   announce the dispatch and act on its verdict.
+**Why the enumeration matters more than the tier here.**
+[`documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
+makes the *build session's* decisions and rejected alternatives the harvest's
+richest source, and those live only in session history. So the dispatch
+package is doing the real work: if my enumeration is complete, the subagent
+is matching against the bar; if it is incomplete, the omitted decision is
+invisible to the judge and **no tier fixes that** — a false "don't run"
+silently loses the learning. This is the same limit stated in the
+`model-routing` skill: a dispatch that reuses my own reasoning is not rescued
+by being on Fable.
+
+**What this replaced, and the argument I am NOT making for it (2026-08-17).**
+Until today a three-step guard judged inline on Opus and dispatched only when
+the session was *below* Opus. I first justified removing it by saying that
+shape gives a degraded session the stronger judgement and an Opus session the
+weaker one. **That argument is beatable and should not be relied on**:
+judgement quality is capability × context, and an unconditional dispatch
+trades context away even when the session had it, so inline-on-Opus versus
+Fable-subagent is not strictly ordered. What actually settles it is David's
+instruction, which is a decision rather than a derivation. Recorded this way
+because a rule defended by a refutable argument invites its own reversal by
+the next session that spots the hole.
+
+**The tier guard this used to belong to still stands for everything else**,
+because Opus-reserved *execution* (a migration, a Tier B fix, a security
+review, dev-infra) is not satisfiable by routing a judgement; see *Token /
+cost discipline*, which also documents the two environments that can put a
+session below Opus despite `settings.json`.
 
 **The harvest itself always runs in the context-bearing main loop, never in
 a subagent** — including when a subagent made the judgement.
@@ -983,13 +1002,15 @@ gets invoked at all, and one because it changes when David hears from me:
   recommendation it should have reversed. A caveat I cannot refute *is* the
   decision — and either flip-condition failure dispatches the adversarial
   subagent before anything executes.
-  The model mechanics (a one-shot, announced
-  Opus subagent fired on the structural triggers — any decline, any
-  unmechanizable finding, any recurrence of a swept class, per 2026-08-08;
-  and a one-shot **adversarial Fable subagent** on the loop's judgment
-  moments — a fired tripwire, a rising count, an oscillation signal, any
-  split/cap/stop call, or a missing-or-already-true flip condition, per
-  2026-08-13, now carrying the decision weight the retired check-in used to)
+  The model mechanics — **all of it on Fable since 2026-08-17**, per David's
+  *for judgements, I want the strongest possible model* (a one-shot,
+  announced **Fable subagent** fired on the structural triggers — any
+  decline, any unmechanizable finding, any recurrence of a swept class, per
+  2026-08-08; and a one-shot **adversarial Fable subagent** on the loop's
+  judgment moments — a fired tripwire, a rising count, an oscillation
+  signal, any split/cap/stop call, or a missing-or-already-true flip
+  condition, per 2026-08-13, now carrying the decision weight the retired
+  check-in used to)
   live in the `model-routing` skill — David never switches models mid-loop for
   this.
 - **I resolve each review thread myself once I've addressed it (David,
@@ -1187,9 +1208,10 @@ verification — is post-merge for the same structural reason.
 6. **I make the `/document` judgement AND run the pass it calls for, both
    BEFORE writing the merge report (David, 2026-08-16 — the third and, I
    expect, final ordering of this step).** Judging and running are one
-   step, not two. The bar, the Opus tier guard, and the rule that the
-   harvest itself stays in my main loop are in *I proactively remind David
-   to run `/document`* above.
+   step, not two. The bar, the **always-Fable dispatch of the judgement**
+   (2026-08-17, replacing the tier guard that used to sit here), and the rule
+   that the harvest itself stays in my main loop are in *I proactively remind
+   David to run `/document`* above.
 
    **Why this keeps getting re-ordered, and why splitting it fails.** v1 put
    the judgement *after* the report while requiring its verdict *in* the
@@ -1323,10 +1345,18 @@ enactment:
   against the flushed state — so a record the digest still names as missing
   after the flush is a real miss (a loop the flush skipped), and fixing it
   is part of that same maintenance pass, not a report line to carry forward.
-- **I dispatch the blind adjudication subagent** — this is a named exception to
-  the subagent-delegation rules below, for the same reason the fresh-context
-  preflight would be: its value is the *absence* of my context, which my main
-  loop cannot reproduce at any size.
+- **I dispatch the blind adjudication subagent, on Fable** (David, 2026-08-17
+  — it is an adjudication, so it takes the strongest model like every other
+  one). This is a named exception to the subagent-delegation rules below, for
+  the same reason the fresh-context preflight would be: its value is the
+  *absence* of my context, which my main loop cannot reproduce at any size.
+  The tier is the second half and does not replace the first — a blind pass
+  that leaked my classifications to it would not be rescued by running on
+  Fable. **The model lives here rather than in
+  [`working-modes.md`](docs/ai-context/working-modes.md)**, which defines the
+  adjudication itself and binds Codex too; subagent routing is my tool, so
+  the shared doc stays model-free per this file's single-source-of-truth
+  rule.
 
 ## Waiting inside a turn: bash sleeps, MCP tells the truth (David, 2026-08-16)
 
@@ -1943,9 +1973,11 @@ calls. Two concrete, durable changes:
     *execution* — conflating the two is how the first version of this guard
     under-delivered:
     - **A bounded judgement** — the `/document` harvest judgement is the
-      model case — **routes to a one-shot Opus subagent.** It has a clean
-      handoff and a self-contained verdict, so a subagent satisfies the
-      reservation completely.
+      model case — **routes to a one-shot Fable subagent** (Opus until
+      2026-08-17; every adjudication and bounded judgement is on Fable now).
+      It has a clean handoff and a self-contained verdict, so a subagent
+      satisfies the reservation completely — and over-satisfies it, since
+      Fable is above the reserved tier.
     - **Execution reserved to Opus** — a migration, a **Tier B fix** (which
       this contract requires me to *write myself*, so it is not routable by
       construction), a security review, dev-infra work — **cannot be
@@ -2032,7 +2064,8 @@ calls. Two concrete, durable changes:
     | Planning new features | **Opus, always** | A plan can match stated intent and still be architecturally wrong — David's product-testing only checks what got built, never the road not taken. |
     | Implementing features | **Sonnet-subagent routable**, stays in my Opus main loop for high-risk subsystems | Codex reviews the diff, so the net holds for most code — a mechanical build-out from an approved plan is a clean bounded handoff. Keep it in the main loop for migrations/data, the tokenizer/grammar, the visual pipeline, or when the build surfaces real complexity. |
     | Debugging new features | **My main loop** (Opus); route a bounded reproduction or search to a Sonnet subagent | Most bugs are shallow, but debugging is stateful — hypotheses accumulate. What's routable is a *self-contained* piece (reproduce X, find every caller of Y), not the diagnosis itself. |
-    | **Ambiguous, root-cause, or bigger-than-one-sitting work** (an outage whose cause we can't name, a subsystem-wide architecture call, a debugging thread that already beat Opus) | **Fable 5**, via subagent | Fable's edge is investigating before acting and holding a long thread without losing it. It costs 2× Opus 5, so it's a deliberate escalation for work that has *already* resisted a cheaper tier — never a default. |
+    | **Ambiguous, root-cause, or bigger-than-one-sitting work** (an outage whose cause we can't name, a subsystem-wide architecture call, a debugging thread that already beat Opus) | **Fable 5**, via subagent | Fable's edge is investigating before acting and holding a long thread without losing it. It costs 2× Opus 5, so for *this* row it stays a deliberate escalation for work that has already resisted a cheaper tier — never a default. |
+    | **Any subagent dispatched to MAKE or CHALLENGE a decision about what happens next** — the four structural triggers, the stopping-rule pass, the blind ledger pass, the `/document` run/don't-run verdict, a decline of *any* reviewer's finding in *any* of our skills | **Fable 5, always**, via subagent | David, 2026-08-17: *for judgements, I want the strongest possible model.* Unlike the row above, this one **is** a default and needs no prior failure to justify it — judgement moments are a tiny share of tokens and carry the consequence, so 2× on 2% is the cheap side. **This row governs which model a dispatch uses, never whether to dispatch** (see below). Subagents that *produce* findings — reviewers, implementers, investigators — are not adjudicators and keep their own skills' model-scaling rules; adjudicating their findings is what this row covers. |
     | Devops / working-with-Claude-and-Codex meta | **Sonnet** | Workflow reasoning with checkable output, no uncatchable downside. |
     | Documentation | **Sonnet, always** | David reads the docs — drift is self-catching, and fixes are cheap. |
     | Optimization | **Opus-leaning** | A "faster" version that's subtly wrong on an edge case still looks like it works, so it can dodge both nets. Trivial/obvious cleanups can stay on Sonnet. |
@@ -2042,16 +2075,18 @@ calls. Two concrete, durable changes:
     | Product direction / roadmap trade-offs | **Opus** | Pure judgment, uncatchable if wrong. |
     | Large structural refactors | **Opus** (touches invariants) vs. **Sonnet** (small tidy-ups) | Depends on whether it can perturb an invariant David can't see in a diff. |
     | "How does X work?" / codebase questions | **Sonnet** | Read-and-explain, low risk. |
-    | Triaging Codex review comments | **My main loop — explicitly NOT routable**, with structural adversarial-subagent triggers | A review loop is stateful and its adjudication is mine (see *Watching the PRs I open*), so this row is a named exception to the "a Sonnet row is subagent-routable" reading above — routing it would send stateful adjudication to a cold worker. The class-and-sweep protocol (`working-modes.md`) makes thoroughness mechanical. The independent-challenge subagent still fires on structure, never self-assessed ambiguity: any decline, any finding with no mechanical oracle, any recurrence of a swept class (see `model-routing`). |
+    | Triaging Codex review comments | **My main loop — explicitly NOT routable**, with structural adversarial-subagent triggers | A review loop is stateful and its adjudication is mine (see *Watching the PRs I open*), so this row is a named exception to the "a Sonnet row is subagent-routable" reading above — routing it would send stateful adjudication to a cold worker. The class-and-sweep protocol (`working-modes.md`) makes thoroughness mechanical. The independent-challenge subagent still fires on structure, never self-assessed ambiguity: any decline, any finding with no mechanical oracle, any recurrence of a swept class — **on Fable since 2026-08-17** (see `model-routing`). |
 
   - **I stay vocal about *routing*, not about the session tier — David
     expects to forget this, not track it.** The session tier is now a
     constant (Opus), so there is nothing there for him to track and no
     "mismatch" to flag. What I still say out loud: **every subagent
     dispatch and why**, in the same breath as making it. That covers both
-    directions — a Fable or Opus subagent spending above the session's rate,
-    and a Sonnet subagent spending below it on work I've judged routable.
-    Silent routing is the failure mode in either direction.
+    directions — a Fable subagent spending above the session's rate (which
+    since 2026-08-17 is *every* adjudication and bounded judgement, so the
+    announcement is routine rather than exceptional), and a Sonnet subagent
+    spending below it on work I've judged routable. Silent routing is the
+    failure mode in either direction.
   - `.claude/settings.json` sets **`opus`** as the default model for new
     sessions (David, 2026-08-15, replacing `opusplan`). **The `model` key is
     read once at session start**, so a change to it takes effect on the next
@@ -2083,9 +2118,118 @@ can move it, which is exactly why we stopped depending on him moving it),
 `.claude/settings.json`, needing no ask from David**; `max` is session-only,
 and per-subagent `effort` works independently), **reaching Fable 5 and Sonnet
 via subagent routing** without a
-session switch, and **the advisor tool** — lives in the **`model-routing`
-skill**. I invoke it when a routing question is actually live. I stay vocal
-about every dispatch and why, in both directions.
+session switch, **the rule that every adjudication and bounded judgement
+dispatches on Fable** (David, 2026-08-17), and **the advisor tool** — lives in
+the **`model-routing` skill**. I invoke it when a routing question is actually
+live. I stay vocal about every dispatch and why, in both directions.
+
+### Whether a judgement dispatches is fixed in advance, never decided in the moment
+
+The row above picks the **model**. It does not pick **whether to dispatch** —
+and keeping those separate is what stops the Fable rule from either swallowing
+its exceptions or being escaped at will.
+
+**Dispatch is settled by each judgement's own contract, in writing, ahead of
+time.** It is **mandated** where the contract says so (the four structural
+triggers, the stopping-rule pass, the blind ledger pass, the `/document`
+run/don't-run verdict). It is **barred** where the contract says so — today
+the **`/handoff` verdict**, the **`/document` harvest**, and **`/fp-check`'s
+Impact Assessment, Devil's Advocate and Gate Review**, each pre-registered in
+its own skill. **Adding or removing a bar is a contract change that ships in a
+PR David merges, never a call I make mid-task.**
+
+**THE LIST ABOVE IS NOT EXHAUSTIVE, AND MUST NOT BE READ AS IF IT WERE.** The
+first version of this section presented it as a complete registry; Codex found
+a missing bar (`/fp-check`), an unclassified surface (`/maintenance`'s triage
+judgements) and a stale sibling in `AGENTS.md` **within the same review round**.
+That is this repo's oldest lesson arriving in my own contract: an enumeration
+over an open set — every judgement surface in every skill, present and future —
+cannot be completed, and claiming completeness is what makes the gaps
+dangerous rather than merely present.
+
+**So the completeness claim is replaced by a DEFAULT**, which is what makes
+the rule total without lying:
+
+> **An unclassified judgement does not dispatch.** It runs in my main loop, and
+> encountering one is a signal to classify it in a PR — not to decide its
+> classification in the moment.
+
+That fails in the safe direction: a surface nobody has written a bar for
+(as `/fp-check`'s was, for months) can never be dispatched by default, so an
+unwritten bar cannot be broken by a rule that never knew about it. **It costs
+nothing against David's instruction**, because the always-Fable rule governs
+*which model a dispatch uses*, never *whether one happens* — every dispatch
+that does occur is still Fable.
+
+**Why a pre-registered bar and not a test I apply at dispatch time.** My first
+draft said a judgement dispatches when it is "genuinely handoff-able" — which
+is a *self-assessment made at the dispatch site*, the exact move the structural
+triggers exist to eliminate. Worse, it would arguably have excluded the
+stopping-rule adjudication itself: that pass's subject matter *is* this
+session's running context — round history, tripwires, my own draft reasoning —
+so a "needs my context" test swallows the paradigm case the rule was built
+around. A rule whose plain reading excludes its own model case is a loophole,
+not a boundary. (Adversarial Fable subagent, #504.)
+
+**A Fable adjudicator's verdict DECIDES. It is not a recommendation (David,
+2026-08-17).** The whole point of routing a judgement to the strongest model is
+to use its judgement, so what comes back governs: a decline posts only if the
+pass upholds it, a stop/continue call executes as the pass leaves it, a
+classification is recorded as the pass made it. **I do not weigh it, adopt the
+parts I like, or treat it as one input among several.** If I think it is wrong,
+that is a disagreement to take to David — not license to overrule it myself,
+which would make the dispatch ceremonial.
+
+**This needed saying because I got it backwards in the conversation that
+produced it.** Codex argued these passes were "input to a controller who acts
+next," and I **agreed** — writing that the Fable pass "returns an argument and I
+decide what to do with it." That is the opposite of the contract, which already
+said the decline "posts only if it survives" and that what survives the
+stopping-rule pass "executes." Conceding it revealed I had been treating a
+dispositive verdict as advice. Stated here in the resident file, unmissably,
+because a rule I can talk myself out of mid-argument is not a rule.
+
+**This does NOT double as a reviewer/adjudicator boundary, and an earlier
+version of this section tried to make it one.** Five attempts at that boundary
+have now failed — the fifth being "a reviewer's findings can be declined, an
+adjudicator's verdict cannot," which `subagent-driven-development` breaks
+outright: its workflow lists *"proceed with unfixed issues"* under **Never**,
+so that reviewer's findings cannot be declined either (Codex, #504). **No
+sixth attempt.** Nothing operative needs one: mandate/bar/default decides every
+case, and a surface nobody has classified simply does not dispatch and keeps
+whatever model policy its own skill sets.
+
+**The failed attempts are recorded rather than buried**, because the shape of
+the failure is the lesson:
+
+1. *"genuinely handoff-able"* — a self-assessment at the dispatch site, and it
+   excluded the stopping-rule pass, the case the rule was built around.
+2. *"packages a drafted verdict plus its evidence"* — too narrow; it excluded
+   the blind ledger pass, whose value is that my classifications are withheld.
+3. *"renders a verdict on packageable material"* — too broad; it admitted
+   `subagent-driven-development`'s task reviewer.
+4. *"resolves the matter versus feeds someone else's decision"* — false in both
+   directions at once.
+5. *"a reviewer's findings can be declined; an adjudicator's cannot"* — SDD
+   lists *"proceed with unfixed issues"* under **Never**, so that reviewer's
+   findings cannot be declined either.
+
+One paragraph, five definitions, behaviour never changing underneath — exactly
+the *hand-maintained note describing emergent behaviour* pattern in
+[`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md),
+committed inside the contract that cites it.
+
+**Two things ended it, and neither was a better sentence.** First, a fact I did
+not have: David's ruling that a Fable verdict decides. Second, his instruction
+to stop defining the boundary at all — which I was told once, complied with,
+and then quietly undid by deriving attempt 5 from the new fact. **When a
+boundary resists repeated definition, the missing piece is usually a decision
+nobody has made yet — and once that decision exists, the temptation is to spend
+it on one more definition rather than on stopping.**
+
+**None of this decides *whether* to dispatch** — that is the mandate/bar/default
+rule above, unchanged. This decides what a dispatched verdict is worth, and the
+answer is: everything.
 
 ### Subagent delegation is capped (Opus 5 delegates eagerly)
 

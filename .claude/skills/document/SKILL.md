@@ -20,6 +20,21 @@ chapter → Cross-check → Report & commit.** The contract holds the substance
 no-empty-chapter quality bar, proportionality, boundaries). I don't restate it
 here.
 
+**The harvest is a standing dispatch BAR; the run/don't-run judgement is a
+standing dispatch MANDATE.** Pre-registered here in writing, per `CLAUDE.md`'s
+*Whether a judgement dispatches is fixed in advance* — not decided at dispatch
+time, and not removable mid-task.
+
+- **The harvest never runs in a subagent.** Its richest source is the *build
+  session's* own decisions and rejected alternatives, which a cold worker does
+  not inherit; the work is enumeration from memory, and no dispatch package can
+  carry what has not been noticed yet.
+- **The judgement always dispatches, on Fable, whatever tier the session is**
+  (David, 2026-08-17). It is bounded: the merged diff, the decisions taken
+  **enumerated rather than summarized**, and the bar. The enumeration is the
+  part that matters — an omitted decision is invisible to the judge, and no
+  tier fixes that.
+
 ## Trigger check (don't run the ceremony for a "remember this")
 
 Decide by what "this" refers to (contract's trigger table):
