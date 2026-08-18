@@ -334,13 +334,22 @@ state-changing or destructive: a migration, a branch deletion, a force push,
 `publish_app`. **Running one merely to validate the documentation would cause
 the harm the surrounding guidance exists to prevent**, so:
 
-- **Safe to run in isolation** (a read-only search, a query against a scratch
-  database, a dry-run flag) → run it. Nothing else is as cheap or as
-  conclusive.
-- **Mutating, destructive, or production-facing** → verify **without**
-  executing: read the implementation or the tool's own contract, check each
-  flag against its documentation, or run the non-mutating variant. Record
-  which you did.
+The two branches are **ordered**, and the order is the safety property — a
+command can look like it satisfies both, and when it does the second wins:
+
+1. **Production-facing → never executed, even with a dry-run flag.** A
+   documented dry-run that still *talks to* a production service is not
+   isolation: it makes a real request, on real infrastructure, to validate a
+   document. This branch is checked first precisely because "but it's a
+   dry-run" is the argument that would otherwise route such a command into
+   branch 2.
+2. **Otherwise mutating or destructive** → verify **without** executing: read
+   the implementation or the tool's own contract, check each flag against its
+   documentation, or run the non-mutating variant. Record which you did.
+3. **Otherwise, and only where isolation and the absence of external effects
+   are *established* rather than assumed** (a read-only search of the working
+   tree, a query against a scratch database) → run it. Nothing else is as
+   cheap or as conclusive.
 
 **And treat a destructive example as a reason to reconsider including it.**
 It is simultaneously the case where a wrong example does the most damage and
