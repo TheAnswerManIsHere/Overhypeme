@@ -245,6 +245,90 @@ of this entry.)
 They do not — assertions check runtime verdicts, and the branch shipped 236
 green tests beside a header statement that was already refuted.
 
+### The second sustained example, and the repair move the entry was missing
+
+**PR #430 ran the same pattern over a *prescribed command* rather than a
+behaviour description, for eight review passes.** One line — how to run the
+plan-entry inventory — was corrected five times, each fix locally correct and
+each leaving the class alive:
+
+`grep -rn` over-counts (walks `.git`, `node_modules`, generated output) →
+`rg` under-counts (skips hidden directories, where this repo keeps its process
+sources) → `--hidden` puts `.git` back → `--glob '!.git'` still under-counts
+(ripgrep honours VCS ignore rules, so a tracked-but-gitignored file is
+invisible) → an offered alternative that searched *filenames* rather than
+contents.
+
+**The written counts went stale the same way, with a twist worth its own
+sentence: a count written into the tree it measures is false at its own
+commit.** Quoting a probe string in the explanation made the explanation a
+hit, so "returns zero files" was wrong the moment it was committed — three
+separate times, twice found by an adjudicator during verification rather than
+by any review round.
+
+**The repair move this entry did not previously name.** Point 3 above says
+widening a quantifier is not a fix. The general form is stronger: **when
+successive locally-correct corrections keep leaving the class intact, the
+defect is the claim's *shape*, and the fix is to remove the shape rather than
+correct the claim a further time.** Concretely, #430's terminal move was three
+deletions and one promotion:
+
+- **state the property, not the command** — the oracle's corpus must be the
+  tracked set; a command is one example that satisfies it, and the property
+  survives every tool change that broke five prescriptions;
+- **keep exactly one example**, because a second is a second chance to be
+  wrong — and it was;
+- **cite a delta and a mechanism, never a total** — "misses this tracked file
+  that `git grep` finds", "honours ignore rules". A count is a property of the
+  tree at an instant; a delta and a mechanism stay true as the tree changes.
+
+**How to recognise it in time:** the signal is not the finding count, which
+fell and rose and fell again across those eight passes. It is **the same
+claim being corrected a third time**. At three, stop fixing and ask what
+*kind* of sentence keeps being wrong. The section that came out of #430 is
+[`working-modes.md`](working-modes.md)'s affected-surface inventory; the
+residuals it shipped knowingly are #516 and #519.
+
+## An example is a prescription with deniability
+
+**Looks like:** a contract states a rule, then offers an example to illustrate
+it — and the example is wrong, incomplete, or doesn't actually satisfy the
+rule. It reads as harmless, because it is *only* an example: the normative
+content is the rule above it, and the example is just there to help.
+
+**Dangerous:** readers execute examples. An agent reading a process document
+does not weigh the illustrative status of a command before running it — it
+runs the command, because the command is the runnable part. So a defective
+example is a defective prescription with a layer of deniability wrapped
+around it, and the deniability is what stops it being fixed with the urgency
+it deserves.
+
+**The worked instance, and the ruling.** PR #430's inventory section stated a
+property (the oracle's corpus must be the tracked set) and then offered two
+examples of commands satisfying it. One of them didn't — it searched filenames
+rather than file contents, returning nothing for a pattern present in several
+tracked files. I argued this was distinguishable from "the section still
+prescribes a wrong command," because a stopping condition turned on that
+distinction. **A fresh-context adjudication called that rationalising**, and
+was right: the distinction has no operational content on the reader's side.
+
+**Two consequences worth keeping:**
+
+1. **An example inherits the full correctness obligation of the rule it
+   illustrates** — and if you are not willing to verify it to that standard,
+   remove it rather than caveat it. #430's fix was deletion, not correction:
+   one example, deliberately.
+2. **"It's only an example" is a rationalisation, not a defence**, and it is
+   most tempting exactly when a stopping rule or a decline turns on it. Treat
+   reaching for it as the signal to route the call somewhere that isn't you.
+
+**Avoid:** shipping an example you have not executed, in any document an agent
+will act on. The cheapest form of this check is that an example offered to
+illustrate a property must itself demonstrably satisfy that property — stated
+locally in
+[`working-modes.md`](working-modes.md)'s affected-surface inventory, and
+generalized here because the failure is not specific to search oracles.
+
 ## A verification step placed where it cannot physically run
 
 **Looks like:** writing a workflow that gates step N on evidence only
