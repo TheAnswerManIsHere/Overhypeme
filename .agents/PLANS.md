@@ -28,10 +28,17 @@ inventory** —
 [`working-modes.md`](../docs/ai-context/working-modes.md#the-affected-surface-inventory-david-2026-08-13)
 defines it. If this plan touches a *pattern* (a permission shape, a
 derivation rule, a naming convention) rather than one call site, name the
-class and write the mechanical oracle (`grep`/`ls`/`find`) that finds every
-instance before scoping the plan — the hit list is what the plan's scope is
-drawn from, not a recalled inventory. Note the oracle and its result as a
-Settled Decision even when it finds nothing new.
+class and write the mechanical oracle
+(`rg -n --hidden --glob '!.git'` / `ls` / `find`) that finds every instance
+before scoping the plan — the hit list is what the plan's scope is drawn
+from, not a recalled inventory. Note the oracle and its result as a Settled
+Decision even when it finds nothing new.
+
+**If the class genuinely cannot be mechanized** — a semantic pattern with no
+searchable signature — record *that* as the Settled Decision and route the
+scope call to judgment/escalation, exactly as the class-sweep protocol does
+at fix time. What is not acceptable is running a nominal search that does not
+find every instance and then claiming inventory-backed scope.
 
 **Then, for every line you write below, apply the specification test** —
 [`working-modes.md`](../docs/ai-context/working-modes.md#a-plan-specifies-invariants-not-implementation-david-2026-08-12):

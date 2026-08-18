@@ -188,12 +188,25 @@ a data-derivation rule, a naming convention, anything with plausible siblings
 the same discipline the class-sweep protocol already requires at fix time
 (*"A finding names an instance; the fix owes the class"*, below): name the
 class, write the `rg`/`ls`/`find` oracle that finds every instance, run it,
-and scope the plan against the actual hit list — not a recalled one. **Use
-`rg -n`, not `grep -rn`** — `grep -rn` from the repo root walks `.git`,
-`node_modules`, and generated output, so the hit count it reports includes
-non-source copies and scopes the plan wrong. Same reason
-[`prose-cross-refs-invisible-to-link-checker.md`](../../.agents/memory/prose-cross-refs-invisible-to-link-checker.md)
-already prescribes `rg`.
+and scope the plan against the actual hit list — not a recalled one.
+
+**The oracle's invocation is part of the oracle, and both obvious choices are
+wrong here.** `grep -rn` from the repo root walks `.git`, `node_modules` and
+generated output, inflating the count with non-source copies. But bare `rg -n`
+under-counts in the direction that actually matters in *this* repo: ripgrep
+skips hidden directories by default, and `.agents/` and `.github/` are where
+the process sources live — a default `rg -l "## Settled Decisions"` returns
+**zero files**, while `rg -l --hidden --glob '!.git'` finds
+`.agents/PLANS.md`. So the prescribed form is:
+
+```
+rg -n --hidden --glob '!.git' '<pattern>'
+```
+
+`--hidden` without the `.git` exclusion re-introduces the `grep -rn` problem
+from the other end. An oracle that silently skips a whole tracked tree is the
+false-completeness failure below, arriving through the tool rather than the
+prose.
 
 **This is the same move, moved earlier.** The class-sweep protocol exists
 because a reviewer's cited instance is never guaranteed to be every instance.
