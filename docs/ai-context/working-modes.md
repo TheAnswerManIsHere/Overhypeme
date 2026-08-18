@@ -244,7 +244,9 @@ front-loaded.
 **What this is not**: an argument for enumerating call sites *inside the plan
 document* — the specification test right below still says the compiler
 should enumerate typed call sites, not the prose. The inventory here is a
-**discovery step that determines scope**, run once before drafting; its
+**discovery step that determines scope**, whose *initial* run comes before
+drafting and which is re-run whenever the class, oracle, or scope moves (see
+below); its
 output is "these N files match the pattern, so the plan covers all N" (or
 explicitly phases/defers some of them), not a list pasted into the plan for a
 reviewer to check off. A raw-SQL / untyped-writer surface — exactly the
