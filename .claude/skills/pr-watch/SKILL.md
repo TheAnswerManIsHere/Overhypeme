@@ -78,6 +78,19 @@ through a thread reply or a review body: those land where the round count
 cannot see them, so a request in flight there would be invisible as a pending
 round. The refusal says so and names the surface to use.
 
+**Known gap: an automatic review can be in flight unseen.** Codex has three
+triggers and only one is a comment — opening a non-draft PR and marking a
+draft ready also start a review, through calls this hook never sees. Those
+passes are counted correctly once they land, but while one is in flight
+`pending` reads 0, so marking a PR ready and immediately requesting a round
+can land two passes against one. Bounded at one round, and it needs that exact
+sequence. Avoid it by letting the automatic pass land before requesting.
+
+**Re-capture the snapshot for every check.** A snapshot must be strictly newer
+than the evidence behind the current receipt; re-presenting one that has
+already authorized a post is refused. That is what makes "one check, one post"
+true sequentially as well as concurrently.
+
 **A retry of a stalled round is not a new round and costs nothing.** If a
 request produced no review, re-asking is allowed even at the cap — `pending`
 stays 1 until a pass lands, and the guard gates on delivered passes. The one

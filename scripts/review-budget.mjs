@@ -174,10 +174,23 @@ export const REVIEW_REQUEST_TOOLS = new Set([
  * Two ways to close that. Widen counting to every surface -- which means every
  * `check` must also capture review threads and review bodies, and a snapshot
  * missing any one of them silently under-counts. Or narrow POSTING to the one
- * surface counting can see, which is what this does. The narrow fix is exact
- * rather than approximate: with the trigger refused everywhere else,
- * `issueComments` is the complete pending surface BY CONSTRUCTION, and no
- * future snapshot shape can reopen the hole.
+ * surface counting can see, which is what this does: with the trigger refused
+ * everywhere else, no COMMENT can start a round the count cannot see.
+ *
+ * KNOWN GAP, stated because the first version of this comment claimed
+ * "complete by construction" and that claim was too strong (Codex, #503 round
+ * 5). Codex has three triggers, and only one of them is a comment: opening a
+ * non-draft PR and marking a draft ready-for-review both start a review
+ * through a lifecycle call this hook never sees. Those passes are COUNTED
+ * correctly once they land -- a pass is a pass -- but while one is in flight
+ * `pending` reads 0, so a loop that marks a PR ready and immediately requests
+ * a round can land two passes against one. The overshoot is bounded at one
+ * round and needs that specific sequence.
+ *
+ * Not closed here, deliberately. The honest fix is to guard the lifecycle
+ * tools, which would mean refusing to OPEN a PR until a budget exists -- a
+ * real behavioural change to every PR in the repo, not a last-round patch on
+ * this one. Filed as follow-up rather than smuggled in.
  *
  * It also costs nothing real. The contract's re-request has always been an
  * issue comment; a trigger inside a thread reply was never the sanctioned
@@ -585,7 +598,18 @@ export function countRounds({ reviewerPasses, issueComments }) {
   const delivered = reviewerPasses.length;
   const lastPassAt = delivered ? Date.parse(reviewerPasses[delivered - 1].at) : -Infinity;
   const pending = (issueComments ?? []).some(
-    (c) => mentionsReviewRequest(c.body) && Date.parse(c.created_at ?? "") > lastPassAt,
+    (c) =>
+      // A REVIEWER NEVER REQUESTS ITS OWN REVIEW. Codex's connector footer
+      // quotes the trigger verbatim ("Reviews are triggered when you ... comment
+      // \"@codex review\""), so a reviewer comment landing after the last pass
+      // read as a pending request. That is not a cosmetic miscount: `pending`
+      // now suppresses the tripwire, so a quoted trigger in a reviewer's own
+      // footer would skip the refusal entirely -- and re-skip it every time a
+      // later response carried a newer footer. `pr-ready.mjs` already filters
+      // reviewer logins for the same reason. (Codex, #503 round 5.)
+      !REVIEWER_LOGINS.has(normalizeLogin(c.user?.login)) &&
+      mentionsReviewRequest(c.body) &&
+      Date.parse(c.created_at ?? "") > lastPassAt,
   )
     ? 1
     : 0;
@@ -779,26 +803,42 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
     return { blocked: true, reason: refusal(pr, state, spent) };
   }
 
-  // Claim the receipt ATOMICALLY before allowing anything. `consumedAt` alone
-  // is a read-then-write and this runs once per tool call in its own process,
-  // so two posts issued together could both read it unconsumed and both be
-  // allowed. See claimPath().
-  if (!io.claimOnce(claimPath(pr))) {
+  // Claim the receipt ATOMICALLY before allowing anything, and CONSUME it --
+  // both inside one try, because an escaping exception here does not fail
+  // closed, it fails OPEN.
+  //
+  // `main()` is `main().then((code) => process.exit(code))`: a throw rejects
+  // that promise, `.then` never runs, node exits 1, and `guard.sh` forwards
+  // `exit $?`. The blocking code is 2, so exit 1 reads to the harness as a
+  // hook ERROR rather than a denial and the post proceeds. The precise
+  // filesystem faults these comments promise will fail closed -- EACCES on the
+  // claim, ENOSPC on the write -- were therefore the ones that let a request
+  // through. (Codex, #503 round 5.)
+  try {
+    if (!io.claimOnce(claimPath(pr))) {
+      return {
+        blocked: true,
+        reason:
+          `the round-check receipt for PR #${pr} has already been claimed by another post in flight -- one ` +
+          `check authorizes one request. ${CHECK_HOWTO(pr)}`,
+      };
+    }
+    // Consume the receipt: one check, one post. Written before the post goes
+    // out (a PreToolUse hook has no "after"), so a post that then fails costs a
+    // re-check, not a round -- the round count itself lives on GitHub.
+    io.write(
+      checkPath(pr),
+      `${JSON.stringify({ ...check.value, consumedAt: new Date(now).toISOString() }, null, 2)}\n`,
+    );
+  } catch (err) {
     return {
       blocked: true,
       reason:
-        `the round-check receipt for PR #${pr} has already been claimed by another post in flight -- one ` +
-        `check authorizes one request. ${CHECK_HOWTO(pr)}`,
+        `the round-check receipt for PR #${pr} could not be claimed or consumed (${err.message}), so this ` +
+        `post cannot be recorded as spending its round. Refusing rather than proceeding on an unrecorded ` +
+        `round. ${CHECK_HOWTO(pr)}`,
     };
   }
-
-  // Consume the receipt: one check, one post. Written before the post goes
-  // out (a PreToolUse hook has no "after"), so a post that then fails costs a
-  // re-check, not a round -- the round count itself lives on GitHub.
-  io.write(
-    checkPath(pr),
-    `${JSON.stringify({ ...check.value, consumedAt: new Date(now).toISOString() }, null, 2)}\n`,
-  );
   return { blocked: false, reason: null };
 }
 
@@ -878,6 +918,17 @@ function declare(flags, io) {
  * entries lack the fields the counter reads is undercounted, not rejected --
  * so the load-bearing fields are checked here.)
  */
+/**
+ * A usable record identity. `reviewerPasses` DEDUPLICATES by id, so two
+ * records sharing one is two records collapsing into one delivered pass --
+ * an undercount, which is the direction that hands the loop free rounds.
+ * `!== undefined` let `null` through, and every `null` is equal to every
+ * other. (Codex, #503 round 5.)
+ */
+const hasStableId = (record) =>
+  (typeof record?.id === "number" && Number.isFinite(record.id)) ||
+  (typeof record?.id === "string" && record.id.length > 0);
+
 export function assertCountingSnapshot(pr, snapshot, now = Date.now()) {
   if (!snapshot || typeof snapshot !== "object") throw new Error("snapshot is not an object");
   if (snapshot.pr?.number !== pr) {
@@ -931,9 +982,9 @@ export function assertCountingSnapshot(pr, snapshot, now = Date.now()) {
     }
   }
   snapshot.reviews.forEach((r, i) => {
-    if (r?.id === undefined || typeof r?.user?.login !== "string" || !Number.isFinite(Date.parse(r?.submitted_at ?? ""))) {
+    if (!hasStableId(r) || typeof r?.user?.login !== "string" || !Number.isFinite(Date.parse(r?.submitted_at ?? ""))) {
       throw new Error(
-        `snapshot reviews[${i}] is missing id, user.login, or a parseable submitted_at -- ` +
+        `snapshot reviews[${i}] is missing a stable id, user.login, or a parseable submitted_at -- ` +
           "reviewerPasses would silently undercount this shape rather than reject it",
       );
     }
@@ -952,9 +1003,9 @@ export function assertCountingSnapshot(pr, snapshot, now = Date.now()) {
     }
   });
   snapshot.issueComments.forEach((c, i) => {
-    if (c?.id === undefined || typeof c?.user?.login !== "string" || !Number.isFinite(Date.parse(c?.created_at ?? ""))) {
+    if (!hasStableId(c) || typeof c?.user?.login !== "string" || !Number.isFinite(Date.parse(c?.created_at ?? ""))) {
       throw new Error(
-        `snapshot issueComments[${i}] is missing id, user.login, or a parseable created_at -- ` +
+        `snapshot issueComments[${i}] is missing a stable id, user.login, or a parseable created_at -- ` +
           "pass and pending detection would silently miscount this shape rather than reject it",
       );
     }
@@ -979,6 +1030,31 @@ async function check(flags, io) {
   const state = loadLoop(pr, io);
   if (state.problem === "no-budget") throw new Error(`no budget declared for PR #${pr} -- declare first`);
   if (state.problem) throw new Error(`cannot check: ${state.detail}`);
+
+  // EACH CHECK NEEDS STRICTLY NEWER EVIDENCE THAN THE LAST ONE.
+  //
+  // Without this, the single-use contract was single-use in name only: after a
+  // post consumed a receipt, re-running `check` with the SAME still-fresh
+  // snapshot overwrote the consumed receipt and released the claim, and since
+  // that snapshot predates the post it still reports the lower count. One
+  // evidence state could authorize a request, be re-minted, and authorize the
+  // next -- repeatable for the whole hour. The claim closed the concurrent
+  // race and quietly opened the sequential one. (Codex, #503 round 5.)
+  //
+  // Monotonicity is the exact property wanted: a genuinely new observation of
+  // GitHub is always later than the one before it, and re-presenting an old
+  // observation is precisely what must not count as new evidence.
+  const previous = readJson(io, checkPath(pr));
+  if (previous.state === "ok") {
+    const before = Date.parse(previous.value?.capturedAt ?? "");
+    if (Number.isFinite(before) && Date.parse(snapshot.capturedAt) <= before) {
+      throw new Error(
+        `this snapshot was captured at ${snapshot.capturedAt}, which is not newer than the evidence behind ` +
+          `the current receipt (${previous.value.capturedAt}). Re-capture the snapshot: re-presenting an ` +
+          "observation that has already authorized a post is how one evidence state authorizes several.",
+      );
+    }
+  }
 
   const { reviewerPasses } = await import("./loop-metrics.mjs");
   const counted = countRounds({

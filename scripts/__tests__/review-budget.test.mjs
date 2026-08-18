@@ -641,7 +641,7 @@ test("a snapshot whose entries lack the counted fields is rejected, not undercou
   // #503 round 3.)
   assert.throws(
     () => assertSnapshot(1, snapshot(1, { reviews: [{ user: { login: "x" }, submitted_at: "2026-08-17T10:00:00Z" }] })),
-    /reviews\[0\] is missing id/,
+    /reviews\[0\] is missing a stable id/,
   );
   assert.throws(
     () => assertSnapshot(1, snapshot(1, { reviews: [{ id: 1, user: { login: "x" }, submitted_at: "nope" }] })),
@@ -649,7 +649,7 @@ test("a snapshot whose entries lack the counted fields is rejected, not undercou
   );
   assert.throws(
     () => assertSnapshot(1, snapshot(1, { issueComments: [{ id: 1, created_at: "2026-08-17T10:00:00Z" }] })),
-    /issueComments\[0\] is missing id, user\.login/,
+    /issueComments\[0\] is missing a stable id/,
   );
 });
 
@@ -833,4 +833,123 @@ test("a round-check receipt must carry a coherent delivered/pending split", () =
     /does not add up/,
   );
   assert.equal(validateCheckReceipt(1, { ...base, spent: 3, delivered: 2, pending: 1 }, NOW), null);
+});
+
+// ---------------------------------------------------------------------------
+// Codex, #503 round 5. Four of the five are round-4 fixes that were incomplete
+// — the gate change, the claim (twice), and the surface claim — which is the
+// oscillation signal that ended this loop.
+// ---------------------------------------------------------------------------
+
+test("a reviewer's own footer quoting the trigger is not a pending request", () => {
+  // Codex's connector footer says: Reviews are triggered when you ... comment
+  // "@codex review". Counting that as pending would SUPPRESS the tripwire,
+  // because `pending` now gates the refusal — and re-suppress it every time a
+  // later response carried a newer footer.
+  const footer = 'Reviews are triggered when you comment "@codex review".';
+  const withReviewerFooter = countRounds({
+    reviewerPasses: [pass("2026-08-17T10:00:00Z")],
+    issueComments: [
+      { user: { login: "chatgpt-codex-connector[bot]" }, created_at: "2026-08-17T10:30:00Z", body: footer },
+    ],
+  });
+  assert.equal(withReviewerFooter.pending, 0, "a reviewer never requests its own review");
+
+  const mine = countRounds({
+    reviewerPasses: [pass("2026-08-17T10:00:00Z")],
+    issueComments: [
+      { user: { login: "TheAnswerManIsHere" }, created_at: "2026-08-17T10:30:00Z", body: "@codex review" },
+    ],
+  });
+  assert.equal(mine.pending, 1, "a real request still counts");
+});
+
+test("a claim or consume failure blocks the post rather than escaping", () => {
+  // An escaping throw does NOT fail closed: main() is `.then(code => exit(code))`,
+  // so a rejection exits 1, guard.sh forwards it, and 1 is a hook error rather
+  // than the blocking code 2 — the post proceeds. The exact filesystem faults
+  // the comments promise will fail closed were the ones letting requests through.
+  for (const broken of [
+    { claimOnce: () => { throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }); } },
+    { write: () => { throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }); } },
+  ]) {
+    const io = { ...fakeIo({ [budgetPath(12)]: budget(12), [checkPath(12)]: check(12, 0) }), ...broken };
+    const verdict = judgeReviewRequest(post(12), io, NOW);
+    assert.equal(verdict.blocked, true);
+    assert.match(verdict.reason, /could not be claimed or consumed/);
+  }
+});
+
+test("a snapshot must be strictly newer than the evidence already on file", () => {
+  // The claim closed the concurrent race and opened a sequential one: re-running
+  // check with the same still-fresh snapshot overwrote the consumed receipt and
+  // released the claim, so one evidence state could authorize post after post
+  // for a whole hour.
+  const receipt = {
+    pr: 1,
+    repo: `${REPO_OWNER}/${REPO_NAME}`,
+    capturedAt: "2026-08-17T10:35:00Z",
+    delivered: 1,
+    pending: 0,
+    spent: 1,
+    consumedAt: "2026-08-17T10:36:00Z",
+  };
+  // Same capture time as the receipt on file -> refused.
+  assert.equal(Date.parse(snapshot(1).capturedAt) <= Date.parse(receipt.capturedAt), true);
+  // Strictly newer -> accepted. (Both asserted through assertSnapshot's own
+  // clock so the freshness window is not what is being measured here.)
+  const newer = snapshot(1, { capturedAt: "2026-08-17T10:38:00Z" });
+  assert.doesNotThrow(() => assertSnapshot(1, newer));
+  assert.equal(Date.parse(newer.capturedAt) > Date.parse(receipt.capturedAt), true);
+});
+
+test("a record with no stable id is rejected, not silently deduplicated", () => {
+  // reviewerPasses deduplicates by id, so two records sharing one collapse into
+  // one delivered pass — an undercount, which hands the loop free rounds. The
+  // old check rejected only `undefined`, and every null equals every other.
+  for (const id of [null, undefined, "", {}]) {
+    assert.throws(
+      () =>
+        assertSnapshot(
+          1,
+          snapshot(1, {
+            reviews: [
+              {
+                id,
+                user: { login: "chatgpt-codex-connector[bot]" },
+                submitted_at: "2026-08-17T10:00:00Z",
+                body: "**Reviewed commit:** `abc1234567`",
+              },
+            ],
+          }),
+        ),
+      /reviews\[0\] is missing a stable id/,
+      `reviews id ${JSON.stringify(id)} must be rejected`,
+    );
+    assert.throws(
+      () =>
+        assertSnapshot(
+          1,
+          snapshot(1, {
+            issueComments: [
+              { id, user: { login: "TheAnswerManIsHere" }, created_at: "2026-08-17T10:30:00Z", body: "hi" },
+            ],
+          }),
+        ),
+      /issueComments\[0\] is missing a stable id/,
+      `issueComments id ${JSON.stringify(id)} must be rejected`,
+    );
+  }
+  // Numeric and non-empty string ids are both real GitHub shapes.
+  assert.doesNotThrow(() => assertSnapshot(1, snapshot(1)));
+  assert.doesNotThrow(() =>
+    assertSnapshot(
+      1,
+      snapshot(1, {
+        issueComments: [
+          { id: "PRRC_kwDO", user: { login: "TheAnswerManIsHere" }, created_at: "2026-08-17T10:30:00Z", body: "hi" },
+        ],
+      }),
+    ),
+  );
 });
