@@ -248,9 +248,13 @@ green tests beside a header statement that was already refuted.
 ### The second sustained example, and the repair move the entry was missing
 
 **PR #430 ran the same pattern over a *prescribed command* rather than a
-behaviour description, for eight review passes.** One line — how to run the
-plan-entry inventory — was corrected five times, each fix locally correct and
-each leaving the class alive:
+behaviour description.** One line — how to run the plan-entry inventory — was
+corrected in round after round, each fix locally correct and each leaving the
+class alive. **The counts are deliberately not repeated here**: PR #430's own
+thread is the canonical account, and this entry had three different numbers in
+circulation against it before that was noticed — which is this section's
+durable-text rule failing inside the section that states it. The sequence is
+what generalizes, not its length:
 
 `grep -rn` over-counts (walks `.git`, `node_modules`, generated output) →
 `rg` under-counts (skips hidden directories, where this repo keeps its process
@@ -262,9 +266,9 @@ contents.
 **The written counts went stale the same way, with a twist worth its own
 sentence: a count written into the tree it measures is false at its own
 commit.** Quoting a probe string in the explanation made the explanation a
-hit, so "returns zero files" was wrong the moment it was committed — three
-separate times, twice found by an adjudicator during verification rather than
-by any review round.
+hit, so "returns zero files" was wrong the moment it was committed — repeatedly,
+and more often found by an adjudicator verifying the claim than by a review
+round reading it.
 
 **The repair move this entry did not previously name.** Point 3 above says
 widening a quantifier is not a fix. The general form is stronger: **when
@@ -288,8 +292,8 @@ deletions and one promotion:
   nothing to find" from "this was never done."
 
 **How to recognise it in time:** the signal is not the finding count, which
-fell and rose and fell again across those eight passes. It is **the same
-claim being corrected a third time**. At three, stop fixing and ask what
+rose and fell and rose again. It is **the same claim being corrected a third
+time**. At three, stop fixing and ask what
 *kind* of sentence keeps being wrong. The section that came out of #430 is
 [`working-modes.md`](working-modes.md)'s affected-surface inventory; the
 residuals it shipped knowingly are #516 and #519.
@@ -339,22 +343,27 @@ state-changing or destructive: a migration, a branch deletion, a force push,
 `publish_app`. **Running one merely to validate the documentation would cause
 the harm the surrounding guidance exists to prevent**, so:
 
-The two branches are **ordered**, and the order is the safety property — a
-command can look like it satisfies both, and when it does the second wins:
+**The default is: do not execute it. Verify by reading** — the implementation,
+the tool's own contract, each flag against its documentation. Record what you
+read.
 
-1. **Production-facing → never executed, even with a dry-run flag.** A
-   documented dry-run that still *talks to* a production service is not
-   isolation: it makes a real request, on real infrastructure, to validate a
-   document. This branch is checked first precisely because "but it's a
-   dry-run" is the argument that would otherwise route such a command into
-   branch 2.
-2. **Otherwise mutating or destructive** → verify **without** executing: read
-   the implementation or the tool's own contract, check each flag against its
-   documentation, or run the non-mutating variant. Record which you did.
-3. **Otherwise, and only where isolation and the absence of external effects
-   are *established* rather than assumed** (a read-only search of the working
-   tree, a query against a scratch database) → run it. Nothing else is as
-   cheap or as conclusive.
+**Executing is the exception, and it carries a burden of proof**: run the
+example only if you can state, in one sentence, why it has **no effect outside
+your own working tree** — no writes, no network, no external service, staging
+and third-party included. If you cannot write that sentence, you do not have
+the exception; you have a guess.
+
+**This replaced a three-branch taxonomy, and the replacement is the point.**
+The branch version was corrected in three consecutive review rounds and each
+round found a *different* gap: a dry-run flag that satisfied both a permissive
+and a restrictive branch; an overlap rule that said the wrong branch won; and
+a read-only call against a staging service that matched **no** branch at all.
+Each fix was locally correct and left the shape intact — which is precisely
+the failure the entry two sections above describes, so the repair is the one
+that entry prescribes: **remove the claim's shape.** A taxonomy of safe cases
+has a gap for every case nobody enumerated, and the gaps fail *open*. One
+default plus a burden of proof has no gaps, because anything unclassified
+lands on the default, and the default is the safe side.
 
 **And treat a destructive example as a reason to reconsider including it.**
 It is simultaneously the case where a wrong example does the most damage and
