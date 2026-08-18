@@ -322,12 +322,37 @@ was right: the distinction has no operational content on the reader's side.
    most tempting exactly when a stopping rule or a decline turns on it. Treat
    reaching for it as the signal to route the call somewhere that isn't you.
 
-**Avoid:** shipping an example you have not executed, in any document an agent
-will act on. The cheapest form of this check is that an example offered to
-illustrate a property must itself demonstrably satisfy that property — stated
-locally in
+**Avoid:** shipping an example you have not verified, in any document an agent
+will act on. The check is that an example offered to illustrate a property must
+itself demonstrably satisfy that property — stated locally in
 [`working-modes.md`](working-modes.md)'s affected-surface inventory, and
 generalized here because the failure is not specific to search oracles.
+
+**Verified, not necessarily executed — and the difference is a safety rule,
+not a hedge.** Plenty of examples in this repo's agent-facing docs are
+state-changing or destructive: a migration, a branch deletion, a force push,
+`publish_app`. **Running one merely to validate the documentation would cause
+the harm the surrounding guidance exists to prevent**, so:
+
+- **Safe to run in isolation** (a read-only search, a query against a scratch
+  database, a dry-run flag) → run it. Nothing else is as cheap or as
+  conclusive.
+- **Mutating, destructive, or production-facing** → verify **without**
+  executing: read the implementation or the tool's own contract, check each
+  flag against its documentation, or run the non-mutating variant. Record
+  which you did.
+
+**And treat a destructive example as a reason to reconsider including it.**
+It is simultaneously the case where a wrong example does the most damage and
+the case where the cheapest verification is unavailable — which usually means
+describing the operation and pointing at the runbook beats pasting a runnable
+command into a document an agent will act on.
+
+*(This exception was itself a review finding on this entry: the first draft
+said "execute every example," which is a universal claim that fails for a
+whole class — the entry two sections above, on exactly that. Recorded rather
+than quietly corrected, because the entry earning its own findings on its
+first round is the most useful thing about it.)*
 
 ## A verification step placed where it cannot physically run
 
