@@ -28,11 +28,19 @@ plan around this by reaching for the fetch anyway.
 2. **Otherwise ask David**, which is what the guard's own refusal text says to
    do when an ad-hoc fetch is genuinely needed.
 
-**Before concluding "unrelated flake":** check reachability rather than
-asserting it — `grep -c` the failing test file for the modules your diff
-touched. Zero references is evidence; "it looks unrelated" is not. And a test
-failing twice on different commits is not automatically your regression, but it
-does end the flake explanation until you can point at a mechanism (a thin
+**Before concluding "unrelated flake": trace imports, don't grep the file.**
+A zero direct-reference count proves nothing. Most integration tests here import
+`createApp` from `app.ts`, which pulls the `routes` barrel, whose top-level
+imports include `videos.ts` and `videoJobs.ts` — so a video-pipeline change is
+reachable from a test that never names it, and an import-time or shared-state
+regression would look "unrelated" by grep. Follow the actual import chain from
+the failing file until it either reaches a changed module or bottoms out in
+leaves. (Worked example: `cliJobPoller.test.ts` imports only
+`lib/cliJobPoller.js` plus db/schema/drizzle — genuinely shallow, no barrel, so
+that one *was* unrelated. Which the grep also said, but for no good reason.)
+
+A test failing twice on different commits is not automatically your regression,
+but it does end the flake explanation until you can point at a mechanism (a thin
 timing margin, a shared fixture) rather than a shrug.
 
 **Reproduce with the runner's real invocation** — `node --import tsx/esm`, per

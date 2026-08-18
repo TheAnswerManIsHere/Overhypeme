@@ -246,7 +246,10 @@ Two properties of the ledger follow from that, both settled in
 [`decisions.md`](./decisions.md): every row **written by the Release B writers
 onward** records **provenance** (`is_estimated` — a provider-resolved rate, or
 an operator-configured estimate), and estimated rows **count toward the
-ceiling** exactly like measured ones. `is_estimated` is nullable and **rows
+ceiling** exactly like provider-resolved ones. **Never call the
+`is_estimated = false` side "measured"** — see the glossary: no ledger row holds
+an actual provider charge, so that word invites a reader to treat these rows as
+billing measurements when they are a published rate times a computed quantity. `is_estimated` is nullable and **rows
 predating Release B are `NULL`** until Release C's classification backfill
 runs — a query or review that treats `NULL` as impossible is wrong today. A writer that
 cannot obtain its figure skips the row and increments `ledger_write_failures`

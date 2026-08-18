@@ -29,9 +29,13 @@ priorities (moderation speed, render/enrichment quality, video). See
   ledger records, and a generation gated on an *estimate* used to be checked,
   run, and then recorded nowhere — so through a fal pricing outage the
   enforcement SUM stopped growing while spend continued. Release A added the
-  nullable column; Release B made every writer record, and record **provenance**:
-  a provider-resolved rate or an operator-configured estimate. Estimated rows
-  count toward the ceiling exactly like measured ones — excluding them would
+  nullable column; Release B closed the pricing branches — a writer no longer
+  skips because a price was missing — and made each one record **provenance**:
+  a provider-resolved rate or an operator-configured estimate. (Not *every*
+  omission is closed: `recordStage2Cost` has a known uncounted failure path,
+  recorded with the 2026-08-18 skip-and-count decision and tracked in #511.)
+  Estimated rows count toward the ceiling exactly like provider-resolved ones —
+  excluding them would
   have reopened the fail-open PR #474 closed. Two new CI guards join the
   existing one (`check-record-cost-unconditional`, `check-budget-gate-thunk`);
   the second exists because the eager-cost defect it catches occurred *twice*,

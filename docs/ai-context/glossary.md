@@ -1254,6 +1254,27 @@ pinned to the ceiling that actually applied.
 
 ---
 
+### Provider-resolved rate / operator-configured estimate
+
+The two values `is_estimated` distinguishes on a `user_generation_costs` row.
+**Provider-resolved** (`false`) means the cost was computed from the provider's
+own published rate, fetched by `getCachedPrice`, times the job's actual
+quantity. **Operator-configured estimate** (`true`) means it came from the
+`engines` row's own figure, because no provider rate could be resolved.
+
+**Neither is a "measured" cost, and that word is retired here.** No ledger row
+holds an actual charge reconciled against the provider — even the
+provider-resolved side is a published rate multiplied by a quantity we computed.
+Calling it measured invites a reader to treat these rows as billing
+measurements, which is exactly the misreading a spend total should not encourage.
+
+The term keeps coming back because "measured vs estimated" is the natural
+English pairing and the correct pair is a mouthful — it was corrected out of
+the `is_estimated` plan during its review, then reintroduced in that same arc's
+documentation harvest and caught again in PR #509 round 2. If you find yourself
+writing "measured," this entry is why not.
+→ [decisions.md](./decisions.md), [deferred-work](../engineering/deferred-work.md)
+
 ## Ways of working
 
 ### Workstream
