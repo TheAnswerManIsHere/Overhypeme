@@ -13,6 +13,72 @@
 
 ---
 
+### 2026-08-18 · The proposed cost reaches `checkBudget` as a thunk, always
+- **Decision:** every `checkBudget` call passes its proposed cost as a function,
+  never a resolved value — enforced by `scripts/check-budget-gate-thunk.mjs` in
+  CI, not by care.
+- **Why:** `checkBudget` returns the admin exemption *before* it resolves the
+  proposed cost. JavaScript evaluates arguments before entering the function, so
+  a caller that resolves eagerly throws that ordering away: a failing cost lookup
+  denies an exempt admin who never needed it. **This defect occurred twice** —
+  PR #474 round 4 found it and introduced the thunk overload; PR #498 round 3
+  found it reintroduced, directly beneath the comment describing it. A rule
+  broken twice becomes a machine.
+- **Why the rule is bright-line rather than "no `await` in the argument":** the
+  second instance passed `estimated.total`, an innocuous property access on a
+  value resolved fallibly one line earlier. Telling a safe value from a fallible
+  one at the call site needs dataflow analysis; requiring the thunk
+  unconditionally needs none, and costs a genuinely-cheap caller one arrow. It is
+  also the stronger invariant — an exempt admin never pays for the lookup at all.
+- **Residual, stated in the guard's header:** a thunk that closes over an
+  already-resolved fallible value satisfies it. `videos.ts` is deliberately that
+  shape, safe only because its value cannot fail.
+- **Reference:** PR #498, `scripts/check-budget-gate-thunk.mjs`,
+  `artifacts/api-server/src/lib/budgetGate.ts`.
+- **Revisit if:** `checkBudget` stops resolving the exemption ahead of the cost,
+  which is the property the whole rule rests on.
+
+### 2026-08-18 · An unknown cost figure is skipped and counted, never fabricated
+- **Decision:** where a writer cannot obtain the figure a generation was gated
+  on, it writes **no** ledger row and increments `ledger_write_failures`. It does
+  not substitute a hardcoded constant.
+- **Why:** a fabricated figure and the lost-write counter assert contradictory
+  things about the same job — the ledger claims a cost that was invented while
+  the counter says the figure was lost — and an operator reading both gets a
+  number with no provenance. Silence plus a signal is honest; a plausible wrong
+  number is not. A row recording a **zero** is the worst of the three: it exists,
+  passes every guard, contributes nothing to the enforcement SUM, and therefore
+  hides itself.
+- **Also settled:** each counter increment corresponds to exactly one row
+  actually omitted or one insert that actually failed. Counting speculatively —
+  before the provider call, or in addition to the writer that will count it —
+  produces a false alarm on a key whose own description says non-zero warrants
+  investigation.
+- **Reference:** PR #498 (rounds 4–5), `videoPipelineRunner.recordStage1Cost` /
+  `recordStage3Cost`, `budgetGate.noteLedgerWriteFailure`.
+- **Revisit if:** a defensible floor becomes available for these stages — the
+  reasoning is the same as the unreadable-`engines` decision below.
+
+### 2026-08-18 · Over-counting spend is preferable to under-counting it
+- **Decision:** when a spend-accounting bug can only be resolved in one
+  direction under time pressure, prefer the one that over-counts. Applied
+  concretely: the stage-1 PuLID double charge (#507) was left in place rather
+  than removed mid-review.
+- **Why:** the two errors are not symmetric. Over-counting denies a user
+  **earlier** than they should be denied — visible, annoying, and safe.
+  Under-counting denies them **later**, which is the ceiling silently ceasing to
+  bind, and is the failure this whole workstream exists to close. Removing the
+  duplicate write looked like a clean fix and created exactly that: PuLID throws
+  before its own `recordCost` on a face-detection failure, so the writer being
+  removed was the *only* one covering that path, and repeated retries would have
+  spent real money against a total that never moved.
+- **Also settled:** a pre-existing defect discovered mid-review is not
+  automatically in scope for the release that found it. #507 carries the
+  constraint that makes it non-trivial so the next attempt starts informed.
+- **Reference:** PR #498 round 4, issue #507, David's call 2026-08-17.
+- **Revisit if:** a fix covers the failed-invocation path explicitly — that is
+  the whole difficulty, not the duplication itself.
+
 ### 2026-08-17 · The bash guard refuses curl and wget outright, and ships with its gaps written down
 - **Supersedes in part:** the 2026-08-05 entry below, which narrowed the guard
   to *"make the lease mandatory"* and called that its only real job. That

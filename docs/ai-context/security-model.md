@@ -229,6 +229,27 @@ per-process**, so like the global rate limiter it is a per-instance backstop
 rather than a fleet-wide guarantee — see the
 [decision record](./decisions.md) for that layer.
 
+**The ledger the gate reads is part of the control too.** PRs #474/#498
+hardened the gate; PR #498 hardened what it counts. The SUM is only an
+enforcement figure if every gated generation leaves a row — a generation that
+was checked, ran, and cost money but recorded nothing makes the ceiling
+progressively stop binding, silently, with nothing erroring. Three CI guards now
+hold the three halves of that, and each documents its own residual limits:
+
+| guard | invariant |
+| --- | --- |
+| `check-budget-gate-unconditional.mjs` | the gate is never skipped on a pricing miss |
+| `check-record-cost-unconditional.mjs` | **every branch records** — a price conditional may not write in one branch only |
+| `check-budget-gate-thunk.mjs` | the proposed cost reaches `checkBudget` as a **thunk**, never a value (see [`decisions.md`](./decisions.md)) |
+
+Two properties of the ledger follow from that, both settled in
+[`decisions.md`](./decisions.md): every row records **provenance** (`is_estimated`
+— a provider-resolved rate, or an operator-configured estimate), and estimated
+rows **count toward the ceiling** exactly like measured ones. A writer that
+cannot obtain its figure skips the row and increments `ledger_write_failures`
+rather than substituting a constant; a fabricated figure, and especially a
+zero, is worse than an absent row because it exists and hides itself.
+
 `checkBudget`'s contract, established across #409 / PR #443 / PR #474:
 
 - **It denies when it cannot answer.** A config-read, tier-lookup, or ledger-sum

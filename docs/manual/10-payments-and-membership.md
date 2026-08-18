@@ -166,30 +166,30 @@ a comp from a real sale.
 
 ## Boundaries & known limitations
 
-- **A long fal pricing outage can let generation spend drift past a member's
-  ceiling, even though every individual request is still checked.** Each
-  generation is priced before it runs, and that price is what gets checked
-  against the member's remaining budget. When the price genuinely can't be
-  looked up, the check still happens — against the engine's configured cost
-  estimate rather than a real price — and if even that can't be read, the
-  generation is refused rather than waved through. What is *not* yet handled
-  is the running total: for an image or a video generated on the spot, one priced from an estimate
-  isn't added to the member's spend record at all, because that record is only
-  written when a real price was available. So while an outage lasts, recorded
-  spend stops growing, and a member already under their limit can keep
-  generating against a total that no longer moves. Each request is capped; the
-  month isn't.
+- **Spend recorded during a past pricing outage is permanently missing, and
+  is not reconstructed.** This used to be a live gap: a generation priced from
+  our own cost estimate rather than a real provider rate was checked against
+  the member's budget and then not added to their spend record at all, so
+  during an outage the recorded total stopped growing while generating
+  continued. That is fixed — an estimated generation is now recorded at the
+  estimate, so the running total keeps moving whether or not a real price was
+  available. What cannot be fixed is the past: entries that were never written
+  are simply absent, and we deliberately do not go back and invent them, since
+  there is nothing to reconstruct them from. A member's historical total may
+  therefore sit below what they actually used, by however much went unrecorded
+  while the gap was open.
 - **A spend history is a good estimate, not a bill.** Nothing recorded is an
   actual charge reconciled against the provider. Most entries are worked out
   from the provider's published rate for that job's settings, which is close.
   But some steps of a video job — the optional stylise step, the subtitling
   step, and the main step when its rate couldn't be looked up — fall back to
   our own configured cost figure instead, and nothing on the record says which
-  kind an entry is — there is no provenance field on it. So a member's spend
-  total is approximately right, and the record itself won't tell them how
-  precise any individual entry was. Approved
-  and queued work adds that distinction, and closes the gap above at the same
-  time.
+  kind an entry is. Every entry written from now on carries that distinction —
+  it records whether its figure came from the provider's own rate or from our
+  configured estimate — but entries written before that change don't say, and
+  a later step works out what it can for the ones already on file. So a
+  member's spend total is approximately right, and for older entries the
+  record still won't tell them how precise any individual one was.
 - **The grace window's deadline can go unset, in one rare case — but only the
   first time.** If the system can't pin down exactly when a subscription's
   failed-payment run actually started — an incomplete Stripe invoice page, an

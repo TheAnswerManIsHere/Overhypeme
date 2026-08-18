@@ -354,6 +354,33 @@ reviewing:
    pass surface (see below). Don't manufacture a finding to prove the round
    ran.
 
+### The author's declines are where their error rate concentrates
+
+Observed across seven rounds on PR #498 (20 findings, all confirmed, none
+declined *as findings*): the author's error rate was not uniform across the
+diff. It concentrated in the replies that said **"confirmed, but I resolved it
+differently, and here is why."**
+
+Both round-1 substitutions in that PR were incomplete, and one rested on a
+factual premise the author had never checked — an objection about process
+restarts that turned out to be irrelevant, because the job state it worried
+about did not survive a restart either. The recommendation being declined was
+correct; the reasoning for declining it was not.
+
+**Two consequences, one for each side of the loop.**
+
+*As the reviewer:* when the author accepts a finding but substitutes their own
+remedy, re-review the substitution at least as hard as you reviewed the
+original defect — it is newly written, un-reviewed code justified by an
+argument you have not checked. "Agreed, fixed differently" is not convergence.
+
+*As the author:* a decline is the one reply where you are reasoning rather than
+reporting, so state the premise it rests on explicitly, and **verify that
+premise before posting** rather than after. If the premise is about how the
+code behaves, read the code; if it is about what a construct does, run a
+three-line probe. The cheapest tell that a decline is unsafe is that its
+justification contains a claim you have not executed.
+
 Who posts the re-review trigger, which findings it names, who replies on which
 thread, and the git mechanics around all of it are the implementing agent's
 ceremony — for Claude Code, `CLAUDE.md`'s *Watching the PRs I open*. This
