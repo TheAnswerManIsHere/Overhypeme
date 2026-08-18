@@ -278,9 +278,14 @@ deletions and one promotion:
   survives every tool change that broke five prescriptions;
 - **keep exactly one example**, because a second is a second chance to be
   wrong — and it was;
-- **cite a delta and a mechanism, never a total** — "misses this tracked file
-  that `git grep` finds", "honours ignore rules". A count is a property of the
-  tree at an instant; a delta and a mechanism stay true as the tree changes.
+- **cite a delta and a mechanism, never a total — *in durable text*.** "Misses
+  this tracked file that `git grep` finds", "honours ignore rules". A count
+  committed into the tree it measures is false at its own commit; a delta and a
+  mechanism stay true as the tree changes. **A per-run receipt is the opposite
+  case and keeps its count**: [`working-modes.md`](working-modes.md)'s
+  inventory statement ("N hits, list attached") records the instant it
+  measured, and that count is the evidence a reviewer needs to tell "there was
+  nothing to find" from "this was never done."
 
 **How to recognise it in time:** the signal is not the finding count, which
 fell and rose and fell again across those eight passes. It is **the same
