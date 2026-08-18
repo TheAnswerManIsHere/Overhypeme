@@ -19,9 +19,13 @@ that a merged task cleared the harvest bar below. David explicitly retired
 the ask for Claude Code; the agent now decides and starts the pass on its
 own. What did *not* change: the bar, the sources, the routing rules, and the
 fact that the pass's output still goes to David as a report and a PR.
-Enactment detail — including the tier guard on the judgement and the rule
-that the *harvest* never runs in a subagent — is each agent's own (Claude
-Code's is in `CLAUDE.md`).
+Enactment detail — **how** the judgement is made, and the rule that the
+*harvest* never runs in a subagent — is each agent's own (Claude Code's is in
+`CLAUDE.md`). This deliberately names no tier or model: it said "the tier
+guard on the judgement" until 2026-08-17, which went stale the moment Claude
+Code retired that guard, and a shared contract that characterizes another
+agent's routing will keep going stale that way. It states only that the
+enactment exists and where to find it.
 
 ## Relationship to the other two memory mechanisms
 

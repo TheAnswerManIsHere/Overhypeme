@@ -12,13 +12,23 @@ are retired in both directions; see `CLAUDE.md`'s *Token / cost discipline*).
 Bounded, stateless pieces of the pass — a research sweep, a self-contained
 lookup — are eligible for a Sonnet subagent; the triage judgements are not.
 
-**The triage judgements are explicitly UNCLASSIFIED for dispatch, which under
-`CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* means they
-run in the main loop** — the default for anything neither mandated nor barred.
-This line previously excluded them from *Sonnet* delegation without saying
-anything about Fable, leaving them undefined once the always-Fable rule landed
-(Codex, #504 round 2). Stated rather than left implicit: if a maintenance
-triage judgement should dispatch, that is a contract change and ships in a PR.
+**The triage judgements are a standing dispatch BAR** under `CLAUDE.md`'s
+*Whether a judgement dispatches is fixed in advance* — they run in my main
+loop, settled, not pending classification.
+
+Two earlier versions of this line were both wrong, and the second is the
+instructive one. It first excluded them from *Sonnet* delegation while saying
+nothing about Fable, leaving them undefined once the always-Fable rule landed.
+The fix then marked them "unclassified" — but that global default treats
+unclassified as **temporary**, a signal to go classify the surface in a PR, so
+every weekly run would have manufactured a standing follow-up obligation for a
+behaviour that is already settled. **A permanent intent must not be expressed
+in a state the contract defines as transitional.** (Codex, #504 rounds 2-3.)
+
+Why barred rather than mandated: these are continuous ops judgements over a
+queue the main loop is already holding — which bump to merge, which error
+matters, which trigger has fired — not a bounded verdict on packageable
+material. Removing this bar is a contract change that ships in a PR.
 **The blind loop-ledger adjudication run during this pass is different** — it
 is a standing mandate and dispatches to Fable, per `CLAUDE.md`'s loop-ledger
 section.

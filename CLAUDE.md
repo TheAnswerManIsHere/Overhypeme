@@ -2076,13 +2076,32 @@ That is still checkable from the artifact rather than from a claim about what I
 felt I needed — the question is whether a package can be assembled at all,
 which for an enumeration-from-memory task it cannot.
 
-**A corollary that bites, and is meant to.** Because the bar is functional
-rather than by-skill, a **controller declining a reviewer subagent's finding**
-is an adjudication and takes Fable — including inside vendored skills like
-`subagent-driven-development`, whose reviewer-model scaling stays untouched
-because reviewers *produce* findings rather than decide about them. Exempting a
-skill by provenance would have missed this; that skill already carries an
-Overhype-specific local-calibration block, so "not ours" was never true anyway.
+**Reviewers are NOT adjudicators, and "returns a verdict" does not settle it.**
+`subagent-driven-development`'s task reviewer returns a spec-compliance verdict
+and an `Approved | Needs fixes` judgement on a packageable diff, which fits the
+definition above word-for-word — so the definition alone cannot tell that
+reviewer apart from an adjudication, and the exemption below would contradict
+it. (Codex, #504 round 3.) The separating question is **what the verdict
+does**:
+
+- **An adjudication RESOLVES the matter.** The thread is resolved, the loop
+  stops, the pass runs or doesn't, the record is classified. Nothing
+  downstream re-examines it — which is exactly why it needs the strongest
+  reader.
+- **A review is INPUT to someone else's decision.** The controller reads
+  "needs fixes" and decides what to do. That decision is re-examined by
+  construction, because a human or a controller acts on it next.
+
+So SDD's reviewer keeps its own risk-scaled model policy — a small mechanical
+diff genuinely does not need the most capable model to *review* — while the
+**controller's decision to decline that reviewer's finding** is an
+adjudication and takes Fable, because a decline resolves the finding and
+nothing downstream catches it.
+
+**A corollary that bites, and is meant to.** That decline rule holds inside
+vendored skills too. Exempting a skill by provenance would have missed it —
+and `subagent-driven-development` already carries an Overhype-specific
+local-calibration block citing this file, so "not ours" was never true anyway.
 
 ### Subagent delegation is capped (Opus 5 delegates eagerly)
 
