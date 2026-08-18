@@ -323,6 +323,16 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
       unresolved: findings.filter((f) => f.resolved === false).length,
       resolved: findings.filter((f) => f.resolved === true).length,
       resolutionUnknown: findings.filter((f) => f.resolved === null).length,
+      // Said explicitly because the record's first live adjudication read
+      // `resolved: false` as "the code was never fixed" and reasoned from it.
+      // GitHub's flags describe THREAD STATE, not code state: a loop that has
+      // fixed a finding but not yet posted its reply shows exactly the same
+      // shape as one that ignored it, and `isOutdated` tracks whether the diff
+      // hunk moved, which a fix in a different place does not do.
+      note:
+        "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be " +
+        "fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat " +
+        "these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
       items: findings,
     },
     territory: {
@@ -335,6 +345,16 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
     sinceLastReview: {
       lastReviewedCommit: lastReviewedCommit(passes),
       ...changes,
+      // Also said explicitly after the first live adjudication mistook it: this
+      // is the branch's movement since the last pass, which after a merge from
+      // the base branch INCLUDES files that arrived with the merge and are
+      // already reviewed on main. It is not the PR's diff. `artifact` above is
+      // the diff (base...head) and is the right number for "how big is the
+      // thing under review".
+      note:
+        "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the " +
+        "base branch this includes files already reviewed and merged there. Use `artifact` for the " +
+        "size of what is actually under review here.",
     },
     provenance: {
       githubVia: "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
