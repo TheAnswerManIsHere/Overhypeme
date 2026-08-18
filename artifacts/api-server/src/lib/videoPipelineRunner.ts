@@ -644,61 +644,60 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
   // The exemption has already decided this job is allowed, and re-deciding that
   // on a bookkeeping lookup is exactly the bug the thunk exists to prevent.
   //
-  // So a failure leaves the figures null and the writers record the loss on the
-  // counter rather than inventing a constant. Same shape as aiMemePipeline's
-  // admin path, which skips the ledger row rather than fabricating one.
+  // NOT `estimateTotalCost`: that resolves stage 2 as well, via `getCachedPrice`,
+  // whose stale-cache path performs an un-aborted network fetch — and stage 2's
+  // figure is not wanted here at all, because its writer re-prices against a
+  // provider-resolved rate after the render.
+  //
+  // EACH LOOKUP IS INDEPENDENT, in both failure and time. That took three
+  // rounds of review to get right, so the two ways of getting it wrong are
+  // worth naming:
+  //
+  //   * `Promise.all` rejects as a unit, so one failing lookup discarded the
+  //     other stage's perfectly good figure.
+  //   * `allSettled` under ONE shared deadline has the same defect on the time
+  //     axis: allSettled stays pending until BOTH settle, so a cached PuLID
+  //     read that returned instantly was still thrown away when the subtitle
+  //     read sat waiting for a pool client.
+  //
+  // Both discard a figure we successfully obtained, and a null stage-1 figure
+  // makes `recordStage1Cost` skip — which on the no-face path is the only
+  // ledger writer there is. Hence: per-lookup deadline, then allSettled.
+  //
+  // There is deliberately no try/catch around this. `withBookkeepingTimeout`
+  // rejections are absorbed per-lookup by allSettled, and allSettled itself
+  // never rejects, so a catch here would be unreachable. Note also that NO
+  // counter increment belongs here: `recordStage1Cost` and `recordStage3Cost`
+  // each count when their own null estimate actually skips a row, and counting
+  // again here reported losses for rows that were never going to be written.
   if (estimated === null) {
-    try {
-      // NOT `estimateTotalCost`. That resolves stage 2 as well, via
-      // `getCachedPrice`, whose stale-cache path performs an un-aborted network
-      // fetch — and stage 2's figure is not wanted here at all, because its
-      // writer re-prices against a provider-resolved rate after the render.
-      // Re-running the whole estimate would put a network call on a
-      // user-facing submission purely to compute a number we then discard.
-      //
-      // Bounded as well as narrowed: what remains is two `loadEngine` reads,
-      // and a query still has to take a client from an unbounded pool. A
-      // timeout lands in the catch below, which is the same outcome as any
-      // other failed lookup here.
-      // allSettled, NOT all. `Promise.all` rejects as a unit, so one slow or
-      // failing lookup discarded the OTHER stage's perfectly good figure — and
-      // a null stage-1 figure means `recordStage1Cost` skips, which on the
-      // no-face path is the only ledger writer there is. One stage's failure
-      // must not silence the other.
-      const [s1, s3] = await withBookkeepingTimeout(
-        Promise.allSettled([
-          input.sourceMode === "stylize-then-video"
-            ? resolveStageCostUsd(PULID_IMAGE_ENGINE_ID, STAGE1_FALLBACK_COST)
-            : Promise.resolve(null),
-          resolveStageCostUsd(SUBTITLE_ENGINE_ID, STAGE3_FALLBACK_COST),
-        ]),
-        "exempt-user stage estimate lookup",
-      );
-      if (s1.status === "rejected") {
-        logger.warn({ err: s1.reason, userId: input.userId }, "[videoPipeline] stage 1 estimate unresolved for an exempt user");
-      }
-      if (s3.status === "rejected") {
-        logger.warn({ err: s3.reason, userId: input.userId }, "[videoPipeline] stage 3 estimate unresolved for an exempt user");
-      }
-      const stage1 = s1.status === "fulfilled" ? s1.value : null;
-      const stage3 = s3.status === "fulfilled" ? s3.value : null;
-      estimated = { total: (stage1 ?? 0) + (stage3 ?? 0), stage1, stage3 };
-    } catch (err) {
-      // Reached only on the outer TIMEOUT now — allSettled itself never
-      // rejects. Both figures stay null, which is honest: exceeding the bound
-      // means neither lookup finished.
-      //
-      // NO COUNTER INCREMENT HERE. `recordStage1Cost` and `recordStage3Cost`
-      // each increment when their own null estimate actually skips a row, so
-      // counting again here reported three losses for two skipped rows — and
-      // reported a loss at all for a job that then failed authorization or its
-      // row insert and never wrote anything. The writers count what they
-      // actually omit; this logs, and that is the whole job.
+    const [s1, s3] = await Promise.allSettled([
+      input.sourceMode === "stylize-then-video"
+        ? withBookkeepingTimeout(
+            resolveStageCostUsd(PULID_IMAGE_ENGINE_ID, STAGE1_FALLBACK_COST),
+            "stage 1 estimate lookup",
+          )
+        : Promise.resolve(null),
+      withBookkeepingTimeout(
+        resolveStageCostUsd(SUBTITLE_ENGINE_ID, STAGE3_FALLBACK_COST),
+        "stage 3 estimate lookup",
+      ),
+    ]);
+    if (s1.status === "rejected") {
       logger.warn(
-        { err, userId: input.userId },
-        "[videoPipeline] could not resolve stage estimates for an exempt user — this job's stage 1/3 spend will go unrecorded",
+        { err: s1.reason, userId: input.userId },
+        "[videoPipeline] stage 1 estimate unresolved for an exempt user — that row will be skipped, not fabricated",
       );
     }
+    if (s3.status === "rejected") {
+      logger.warn(
+        { err: s3.reason, userId: input.userId },
+        "[videoPipeline] stage 3 estimate unresolved for an exempt user — that row will be skipped, not fabricated",
+      );
+    }
+    const stage1 = s1.status === "fulfilled" ? s1.value : null;
+    const stage3 = s3.status === "fulfilled" ? s3.value : null;
+    estimated = { total: (stage1 ?? 0) + (stage3 ?? 0), stage1, stage3 };
   }
   const preflight: PreflightEstimate | null = estimated;
 
