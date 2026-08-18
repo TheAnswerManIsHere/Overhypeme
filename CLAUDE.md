@@ -1045,8 +1045,29 @@ never had. Pointer, not fork: the buckets are not restated here.
 
    The tier picks the number — it is not a field I fill in. I also **state the
    budget in the PR body**, so it is visible to David and to the reviewer, not
-   only to the guard. The receipts under `.agents/receipts/` are **committed**:
-   the container is ephemeral, and an uncommitted tally resets the count.
+   only to the guard. The budget and any extension receipts are **committed**;
+   they are decisions, and an ephemeral extension record would let a loop that
+   already spent its adjudication be offered the self-serve tripwire again.
+
+   **The round count itself is never stored — it is counted fresh, every
+   time.** Before each `@codex review` post I capture a snapshot and run
+
+   ```
+   node scripts/review-budget.mjs check --pr <n> --mcp-snapshot <file>
+   ```
+
+   which writes the ephemeral round-check receipt the guard demands (one
+   receipt, one post). A **round is a completed reviewer pass**, counted by
+   `loop-metrics.mjs`'s own `reviewerPasses()`, plus at most one pending
+   request. **The first design kept a committed tally and that is exactly what
+   failed** — a cache of state GitHub already holds, which in one evening of
+   dogfooding produced a double-count, a phantom round from a stalled request,
+   a repair command for the phantom, a durability check for the cache, and
+   then a review round where six of thirteen findings were against those
+   repairs rather than the design. Counting is not a nicety here: this repo has
+   measured recalled numbers wrong 3 times out of 3, and a tally is a recalled
+   number. The same evidence-not-recollection posture as `pr-ready.mjs`'s
+   merge gate, for the same reason.
 
 2. **Tripwire 1 — self-serve, and it must run in FRESH CONTEXT, on FABLE.** At
    the budget, the guard refuses. To proceed I dispatch **one** adjudicator

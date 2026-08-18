@@ -55,13 +55,27 @@ node scripts/review-budget.mjs declare --pr <n> --tier <internal|product|sensiti
 The tier picks the number; it is not a field to fill in. Commit the receipt and
 **state the budget in the PR body**.
 
+**Then, before every `@codex review` post, count the rounds fresh:**
+
+```
+node scripts/review-budget.mjs check --pr <n> --mcp-snapshot <file>
+```
+
+The snapshot is `pull_request_read` (`get`, `get_reviews`, `get_comments`),
+paginated and attested complete. It writes an ephemeral round-check receipt
+that authorizes exactly **one** post — the same evidence-at-decision-time
+pattern the merge gate uses, because the round count is evidence, not
+something to remember. There is no tally to maintain and nothing to reconcile
+if a request stalls.
+
 This is not optional and not a reminder: `.claude/guard.sh` refuses the
-**first** `@codex review` post until the receipt exists, and refuses again at
-the budget. The full contract — the two tripwires, the fresh-context
-adjudication, and the no-second-self-service-extension rule — is resident in
-`CLAUDE.md`'s *Every review loop declares a round budget*, because it has to
-hold whether or not this skill is loaded. What belongs here is only the timing:
-**declare at loop start**, alongside the subscribe.
+**first** `@codex review` post until the budget receipt exists, refuses any
+post without current counted evidence, and refuses again at the budget. The
+full contract — the two tripwires, the fresh-context Fable adjudication, and
+the no-second-self-service-extension rule — is resident in `CLAUDE.md`'s
+*Every review loop declares a round budget*, because it has to hold whether or
+not this skill is loaded. What belongs here is the timing: **declare at loop
+start**, alongside the subscribe, and **check before each request**.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
 webhook event arrives or David re-engages me. I may additionally schedule a
@@ -323,7 +337,9 @@ the diff *is* the plan. While watching an implementation PR:
 
   The round count itself is no longer mine to track or remember: the guard
   counts it from fresh GitHub evidence (a round-check receipt) and refuses
-  past the budget.
+  past the budget. Because a round is a *completed reviewer pass*, a request
+  that stalls and gets retried costs one round, not two — the count corrects
+  itself the moment the retry's pass lands, with nothing to reconcile.
 
   **Name the branch head, never a specific SHA, in a review request (David,
   2026-08-17).** Codex reviews the head at the moment it runs, not the SHA it

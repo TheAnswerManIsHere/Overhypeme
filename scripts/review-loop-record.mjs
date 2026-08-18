@@ -60,7 +60,7 @@ import {
   REVIEWER_LOGINS,
   normalizeLogin,
 } from "./loop-metrics.mjs";
-import { loadLoop, allowance, tierCap, nodeIo, TIERS } from "./review-budget.mjs";
+import { loadLoop, allowance, countRounds, tierCap, nodeIo, TIERS } from "./review-budget.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -183,10 +183,19 @@ export function changesSince(since, head, { runGit = git } = {}) {
  */
 export function reviewerFindings(reviewThreads) {
   const out = [];
+  // Deduplicated by the root comment's identity, matching `countFindings`'
+  // own semantics: two concatenated MCP pages that overlap repeat a thread,
+  // and without this the record could say totalFindings: 1 while listing two
+  // items -- an internal contradiction handed to the one reader told to trust
+  // the record. (Codex, #503 round 3.)
+  const seenRoots = new Set();
   for (const thread of reviewThreads ?? []) {
     const root = thread.comments?.[0];
     if (!root) continue;
     if (!REVIEWER_LOGINS.has(normalizeLogin(root.author ?? root.user?.login))) continue;
+    const rootId = /discussion_r(\d+)/.exec(root.html_url ?? "")?.[1] ?? `thread:${thread.id}`;
+    if (seenRoots.has(rootId)) continue;
+    seenRoots.add(rootId);
     out.push({
       threadId: thread.id ?? null,
       path: thread.path ?? root.path ?? null,
@@ -261,6 +270,14 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
 
   const findings = reviewerFindings(snapshot.reviewThreads);
 
+  // Rounds spent, counted from THIS snapshot -- the same fresh-evidence
+  // arithmetic the guard enforces, so the record and the runtime can never
+  // disagree about the allowance. The earlier version omitted the spent
+  // argument and took an Infinity default, activating every dormant extension
+  // and showing the adjudicator a larger allowance than the guard would
+  // actually grant. (Codex, #503 round 3.)
+  const counted = countRounds({ reviewerPasses: passes, issueComments: derived.issueComments });
+
   const budget = budgetState?.problem
     ? { problem: budgetState.problem, detail: budgetState.detail ?? null }
     : {
@@ -270,8 +287,9 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
         cap: tierCap(budgetState.tier),
         criticality: budgetState.budget.criticality,
         artifactDeclaredAtRoundZero: budgetState.budget.artifact,
-        roundsRequested: budgetState.rounds.length,
-        allowance: allowance(budgetState.tier, budgetState.extensions),
+        roundsSpent: counted.spent,
+        pendingRequest: counted.pending === 1,
+        allowance: allowance(budgetState.tier, budgetState.extensions, counted.spent),
         extensions: budgetState.extensions.map((e) => ({
           kind: e.kind,
           verdict: e.verdict ?? null,

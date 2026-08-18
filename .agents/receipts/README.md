@@ -1,88 +1,92 @@
-# Review-loop receipts
+# Receipts
 
-Machine-read state for the **review-round budget guard**
-(`scripts/review-budget.mjs`). `guard-decision.mjs` reads these files when a
-tool call would post an `@codex review` comment, and refuses the post when they
-say the loop is out of rounds.
+Machine-read state for the guards in `.claude/guard.sh`. Two families live
+here, and the difference between them is the organising idea:
 
-They are **committed deliberately**. The container is ephemeral, so an
-uncommitted tally dies with the session and the round count silently resets —
-which is the failure the guard exists to close. Committing them also makes the
-week's budget events readable by the `/maintenance` digest.
+**Evidence is ephemeral. Decisions are durable.**
 
-## The three files
+Evidence describes a PR at a moment — it is worthless once the moment passes
+and re-derivable at will, so it is gitignored and dies with the session. A
+decision is taken once and binds afterwards, so it is committed.
 
-| File | Written by | Holds |
+| File | Kind | Written by |
 |---|---|---|
-| `loop-budget-<pr>.json` | `review-budget.mjs declare`, before round 1 | tier, budget, criticality, artifact |
-| `loop-rounds-<pr>.json` | the guard, on every **allowed** review request | one entry per round requested |
-| `loop-extension-<pr>-<n>.json` | the session, after an adjudication or David's authorization | the verdict and what it grants |
+| `pr-<pr>.json` | evidence | `pr-ready.mjs` — merge readiness, checked by the merge hook |
+| `loop-round-check-<pr>.json` | evidence | `review-budget.mjs check` — rounds counted from a snapshot |
+| `loop-budget-<pr>.json` | **decision** | `review-budget.mjs declare`, before round 1 |
+| `loop-extension-<pr>-<n>.json` | **decision** | the session, after an adjudication or David's authorization |
+
+`.gitignore` ignores this directory and then un-ignores the two decision
+shapes. That is not a fudge of the readiness-receipt rule — it is its
+complement.
+
+## Why there is no round tally
+
+The first design of the round budget kept a committed tally that the guard
+incremented on every allowed post. In one evening of dogfooding on its own PR
+it produced, in order: a double-count (the guard and I both wrote to it), a
+phantom round (a request Codex never answered), a repair command for the
+phantom, a durability check to stop the cache dying with the container, and
+then a review round in which six of thirteen findings were against those
+repair mechanisms rather than against the design.
+
+Every one of those is a cache-coherence failure, because that is what the
+tally was: a cache of something GitHub already holds authoritatively. This
+repo's own measured lesson is that recalled numbers are wrong (3 out of 3)
+and counted ones are right (3 out of 3) — and a tally is a recalled number.
+
+So rounds are counted fresh, from evidence, at the moment of the decision:
+
+```
+node scripts/review-budget.mjs check --pr <n> --mcp-snapshot <file>
+```
+
+A **round is a completed reviewer pass** (`reviewerPasses()` from
+`loop-metrics.mjs`, the same function the ledger uses), plus at most **one**
+pending request — a trigger comment sitting after the last pass. At most one
+round can be in flight, so a stall and its retry are one pending round, not
+two, and a stalled request stops costing anything the moment its retry's pass
+lands. Nothing needs reconciling because nothing was written down.
+
+The automatic opening review needs no special handling under this model: it is
+simply one of the passes.
 
 ## Shapes
 
 ```jsonc
-// loop-budget-<pr>.json — tier decides the number; it is not a free field.
-// autoOpeningReview: true for a normal PR (Codex reviews it on open, with no
-// trigger comment, and that pass IS round 1); false only for a draft, which
-// gets no automatic pass.
-{ "pr": 502, "tier": "internal", "budget": 3, "criticality": 30,
-  "artifact": "review-round budget guard", "autoOpeningReview": true,
-  "declaredAt": "2026-08-17T21:00:00.000Z" }
+// loop-budget-<pr>.json — COMMITTED. Tier decides the number; not a free field.
+{ "pr": 503, "tier": "internal", "budget": 3, "criticality": 45,
+  "artifact": "review-round budget guard", "declaredAt": "…" }
 
-// loop-rounds-<pr>.json — appended before the post, so a failed post still counts.
-// Rounds spent = this array's length + the opening pass, so the cap matches the
-// repo's definition of a round rather than "comments the guard saw".
-{ "pr": 502, "rounds": [ { "at": "…", "tool": "mcp__github__add_issue_comment" } ] }
-
-// loop-extension-<pr>-1.json — tripwire 1, from the fresh-context adjudicator.
-{ "pr": 502, "kind": "adjudication", "verdict": "continue", "grant": 2,
+// loop-extension-<pr>-1.json — COMMITTED. Tripwire 1, from the Fable adjudicator.
+// recordPath must cite a mechanical record generated AT the cap, which is how
+// the guard knows the adjudication followed its tripwire rather than preceding it.
+{ "pr": 503, "kind": "adjudication", "verdict": "continue", "grant": 2,
   "risk": "<the named unaddressed behavioral risk>",
-  "recordPath": ".agents/adjudications/502-1.json", "createdAt": "…" }
+  "recordPath": ".agents/adjudications/503-1.json", "createdAt": "…" }
 
-// loop-extension-<pr>-2.json — tripwire 2, David only. Never a second adjudication.
-{ "pr": 502, "kind": "david", "grant": 3, "authorization": "<his words>", "createdAt": "…" }
+// loop-extension-<pr>-2.json — COMMITTED. Tripwire 2, David only. Never a second adjudication.
+{ "pr": 503, "kind": "david", "grant": 3, "authorization": "<his words>", "createdAt": "…" }
+
+// loop-round-check-<pr>.json — EPHEMERAL, gitignored, one post per receipt.
+{ "pr": 503, "repo": "TheAnswerManIsHere/Overhypeme", "capturedAt": "…",
+  "delivered": 2, "pending": 1, "spent": 3 }
 ```
 
 Tiers: `internal` = 3 rounds, `product` = 5, `sensitive` = uncapped with a
 mandatory 🛑 to David at 5 (and no self-serve extension at all).
 
-A receipt the guard cannot parse, or one that disagrees with its tier, refuses
-the post rather than being ignored — a guard that skips receipts it can't read
-is a guard that a syntax error switches off. The same posture covers a tally
-naming another PR, a non-canonical filename (`loop-extension-1-01.json`), two
-receipts claiming one sequence, and a `continue` verdict citing a record that
-does not exist.
+## Fail-closed, everywhere
 
-**Commit the tally with each round.** The guard refuses the next request while
-the on-disk tally differs from the one in `HEAD` — an uncommitted tally dies
-with the container and silently re-grants the rounds it recorded, which is the
-reset these receipts exist to prevent.
+A receipt the guard cannot parse, one that names another PR or repo, a
+non-canonical filename (`loop-extension-1-01.json`), two receipts claiming one
+sequence, an unlistable directory, a `continue` citing a record that does not
+exist or was generated below the cap, and a round-check receipt that is
+missing, stale, or already consumed — all **refuse the post** and name the
+file. A guard that ignores what it cannot read is a guard a syntax error
+switches off.
 
-**Never hand-write a round entry.** The guard appends one itself on every
-allowed post, so adding one by hand double-counts and trips the tripwire a
-round early. Observed on this mechanism's own PR: a hand-written entry made a
-legitimate round 3 read as round 4 and get refused. The only thing to do by
-hand is committing what the guard wrote. (Hand-tallying is correct in exactly
-one case — a loop followed by hand *before* this mechanism exists — and there
-the guard is not live to write it.)
-
-**A request that delivered no round can be reconciled away.** The tally counts
-review-request *posts*, but a round is a *completed reviewer pass* — and the
-two diverge when a request is posted and no review ever arrives (a connector
-stall, a usage limit, a dropped webhook). Observed on this mechanism's own PR:
-one stalled request cost a third of a 3-round budget.
-
-```
-node scripts/review-budget.mjs reconcile --pr <n> --mcp-snapshot <file>
-```
-
-It is driven by counted data (`reviewerPasses()` over an attested-complete
-snapshot), it **only ever removes** entries and can never raise a budget, it
-refuses an incomplete snapshot (which would understate delivered passes and
-trim too much), and every run appends to a `reconciliations` array in the
-receipt so the trail shows what was dropped and against which evidence.
-
-**An extension is dormant until the stage before it is spent.** A `continue`
-receipt written early does not raise the allowance early; it activates at the
-exact round its adjudication was about. Otherwise the loop sails past its cap
-and the tripwire never fires at all.
+**One check authorizes one post.** The receipt is marked `consumedAt` when the
+guard allows a request, so the same evidence cannot wave through a second
+round. Re-run `check` for each one — the count comes from GitHub, so this
+costs a snapshot, not a round.

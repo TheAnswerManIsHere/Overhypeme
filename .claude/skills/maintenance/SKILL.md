@@ -199,10 +199,12 @@ recollection. From `.agents/receipts/`, for loops that ran this week:
 - **Loops opened** — one line: how many budgets were declared, and their tier
   mix. `node scripts/review-budget.mjs status --pr <n>` prints one loop's
   state.
-- **Tripwires hit** — every loop where `rounds` reached its cap. This is the
-  number worth watching over time: a tier whose loops routinely trip is a tier
-  whose budget is wrong, and that is a David conversation, not a silent
-  adjustment.
+- **Tripwires hit** — every loop that reached its cap. Read this from the
+  **extension receipts**, not from any round count: an extension exists if and
+  only if a tripwire fired, and unlike the ephemeral round-check receipts they
+  are committed and still present at flush time. This is the number worth
+  watching over time — a tier whose loops routinely trip is a tier whose
+  budget is wrong, and that is a David conversation, not a silent adjustment.
 - **Adjudication verdicts** — the `loop-extension-*` receipts, by verdict.
   A run of `continue` verdicts means the adjudicator is being talked into
   extensions, which would be the mechanism failing in the way it was built to

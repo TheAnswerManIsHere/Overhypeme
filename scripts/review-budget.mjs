@@ -15,61 +15,74 @@
  * condition colliding with an event**, 2-for-2.
  *
  * Per the repo's standing rule -- a discipline broken twice becomes a check,
- * not another undertaking -- the fix is a guard on the action path. Not a
- * better reminder to notice: a refusal at the moment the next round would be
- * requested, which is the one moment the aggregate is unavoidable.
+ * not another undertaking -- the fix is a guard on the action path: a refusal
+ * at the moment the next round would be requested, which is the one moment
+ * the aggregate is unavoidable.
  *
- * WHAT IT ACTUALLY DOES
- * ---------------------
- * `guard-decision.mjs` routes any tool call that would POST an `@codex review`
- * comment here. This module answers one question -- may this round be
- * requested? -- from files on disk, never from the loop's own narration:
+ * WHY THERE IS NO TALLY (the first design, and how it died)
+ * ---------------------------------------------------------
+ * The first version of this module kept a persistent round tally the guard
+ * incremented at post time. It was a cache of state GitHub already holds
+ * authoritatively -- and in one evening of dogfooding on its own PR it
+ * produced a double-count (two writers), a phantom round (a request Codex
+ * never answered), a repair command for the phantom (`reconcile`), a
+ * durability check for the cache (commit-before-next-round), and then a
+ * review round in which six of thirteen findings were against the repair
+ * mechanisms rather than the design. That is this repo's measured lesson --
+ * recalled numbers wrong 3/3, counted numbers right 3/3 -- replayed inside
+ * the very guard built on it: a tally is a recalled number.
+ *
+ * So rounds are now COUNTED FRESH, the way `pr-ready.mjs` counts merge
+ * readiness: the session captures a snapshot of the PR's reviews and issue
+ * comments, `check` validates it (bound to this PR and repo, attested
+ * complete, recent) and counts rounds with `loop-metrics.mjs`'s own
+ * `reviewerPasses()` -- the same function the ledger uses -- plus at most one
+ * pending request visible in the comments themselves. The result is an
+ * EPHEMERAL round-check receipt the PreToolUse hook demands, one post per
+ * receipt. GitHub is the durable store; the receipt is evidence about a
+ * moment and dies with the session (gitignored, per the receipts README).
+ *
+ * Two things ARE durable, because they are decisions rather than evidence:
  *
  *   .agents/receipts/loop-budget-<pr>.json      the budget, declared before round 1
- *   .agents/receipts/loop-rounds-<pr>.json      the tally, appended on every allowed post
  *   .agents/receipts/loop-extension-<pr>-N.json an extension, from adjudication or David
  *
- * Three refusal shapes, in the order they bite:
+ * Both are committed: "no second self-service extension, ever" has to survive
+ * the container, or tripwire 2 never fires.
  *
- *   1. NO BUDGET. Refused until a budget exists. This is what forces the
- *      declaration to happen *before* round 1 rather than being remembered
- *      at round 12 -- there is no "declare it later" path, because the first
- *      request is already blocked.
+ * THE THREE REFUSAL SHAPES, in the order they bite:
+ *
+ *   1. NO BUDGET. Refused until a budget exists -- there is no
+ *      "declare it later" path, because the first request is already blocked.
  *   2. AT BUDGET (tier-1 tripwire). Refused until a one-shot FRESH-CONTEXT
- *      adjudicator has ruled. Fresh context is the whole point and is not
- *      negotiable: a same-context "pause and re-evaluate" is the criticality
- *      gate again, and the criticality gate is one of the devices that went
- *      0-for-15. The adjudicator's input is a script-generated mechanical
- *      record (`review-loop-record.mjs`), never this loop's prose.
+ *      adjudicator, running ON FABLE, has ruled. Its input is a
+ *      script-generated mechanical record (`review-loop-record.mjs`), never
+ *      this loop's prose -- a same-context "pause and re-evaluate" is the
+ *      criticality gate again, and the criticality gate went 0-for-15. A
+ *      `continue` verdict must cite a record generated AT the cap, so an
+ *      adjudication cannot precede the tripwire it answers.
  *   3. EXTENSION EXHAUSTED (tier-2 tripwire). Hard stop to David. There is
- *      **no second self-service extension, ever** -- an adjudicator that
- *      could extend twice is a loop that can extend itself indefinitely two
- *      rounds at a time, which is the failure this exists to close.
+ *      **no second self-service extension, ever.**
  *
  * WHAT IT DELIBERATELY DOES NOT DO
  * --------------------------------
  * It does not verify authorship. A David-authorization receipt is a file this
  * session writes, quoting his words, and nothing here can tell a quoted
  * authorization from an invented one. That is accepted rather than papered
- * over: fabricating a receipt is a *different failure class* from the one
- * being closed here (a loop that never notices its own length), and a guard
- * that pretends to defend against its own author is a false assurance. The
- * defense against fabrication is that the receipts are committed, reviewed,
- * and read back in the weekly maintenance digest.
+ * over -- fabrication is a different failure class from the one being closed
+ * (a loop that never notices its own length), and a guard that pretends to
+ * defend against its own author is a false assurance. The committed receipts
+ * and the weekly digest are the control.
  *
- * FAIL-CLOSED, in every direction it can be wrong:
- *   - Unreadable, malformed, or mismatched receipt -> refuse and name it.
- *     A budget guard that ignores a receipt it cannot parse is a budget guard
- *     that can be switched off with a syntax error.
- *   - Unknown PR number, missing body, unparseable payload -> refuse.
- *   - The tally is written BEFORE the post, so a post that then fails is
- *     counted anyway. Over-counting fails toward tripping earlier, which is
- *     the safe direction; under-counting is the failure mode being closed.
+ * FAIL-CLOSED, in every direction it can be wrong: an unreadable, malformed,
+ * or mismatched receipt refuses and names the file; a missing, stale,
+ * consumed, or foreign round-check receipt refuses; an unlistable receipts
+ * directory refuses. A budget guard that ignores what it cannot read is a
+ * budget guard a syntax error switches off.
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -77,6 +90,16 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 export const RECEIPTS_DIR = ".agents/receipts";
 export const REPO_OWNER = "TheAnswerManIsHere";
 export const REPO_NAME = "Overhypeme";
+
+/**
+ * How old a round-check receipt's evidence may be. Same figure as
+ * `pr-ready.mjs`'s MAX_EVIDENCE_AGE_MS, for the same reason: reviews land and
+ * requests get posted, and evidence past this age describes a loop that may
+ * have moved on. Kept as its own constant rather than imported because the
+ * two guards must be free to diverge deliberately -- but a change to either
+ * should look at the other.
+ */
+export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
 
 /**
  * Blast-radius tiers (David, 2026-08-17, issue #501).
@@ -140,12 +163,11 @@ export const REVIEW_REQUEST_TOOLS = new Set([
  * The trigger phrase, as Codex's connector actually reads it.
  *
  * KNOWN AND ACCEPTED FALSE POSITIVE: a comment that merely *quotes* the phrase
- * -- explaining this very mechanism in a PR thread, say -- is refused too.
- * That is the safe direction (it blocks a comment, never a merge), and the
- * workaround is to not write the literal trigger inside a comment about the
- * trigger. Loosening it to exclude quoted/code-fenced occurrences would mean
- * judging raw text structure, which is the exact defect `guard-decision.mjs`'s
- * header argues against.
+ * is refused too. That is the safe direction (it blocks a comment, never a
+ * merge), and the workaround is to not write the literal trigger inside a
+ * comment about the trigger. Loosening it to exclude quoted/code-fenced
+ * occurrences would mean judging raw text structure, which is the exact
+ * defect `guard-decision.mjs`'s header argues against.
  */
 export const REVIEW_REQUEST_RE = /@codex\s+review\b/i;
 
@@ -174,20 +196,19 @@ export function targetsThisRepo(toolInput) {
 }
 
 // ---------------------------------------------------------------------------
-// Receipt paths
+// Receipt paths. Budget and extensions are committed (decisions); the round
+// check is ephemeral (evidence) and covered by .gitignore.
 // ---------------------------------------------------------------------------
 
 export const budgetPath = (pr) => `${RECEIPTS_DIR}/loop-budget-${pr}.json`;
-export const roundsPath = (pr) => `${RECEIPTS_DIR}/loop-rounds-${pr}.json`;
 export const extensionPath = (pr, seq) => `${RECEIPTS_DIR}/loop-extension-${pr}-${seq}.json`;
+export const checkPath = (pr) => `${RECEIPTS_DIR}/loop-round-check-${pr}.json`;
 
 /**
  * The sequence in an extension filename for this PR, or null if the name is
- * not one. String slicing rather than a built regex: CodeQL flagged the
- * previous `new RegExp(...${pr}...)` as regex injection, and it was right in
- * principle even though `pr` is an integer by the time it arrives here.
- * Removing the dynamic pattern removes the question entirely, and the
- * canonical-name check below is clearer as an explicit comparison anyway.
+ * not one. String slicing rather than a built regex: CodeQL flagged a
+ * `new RegExp(...${pr}...)` here as regex injection, and removing the dynamic
+ * pattern removes the question entirely.
  */
 function extensionSequence(pr, name) {
   const prefix = `loop-extension-${pr}-`;
@@ -199,8 +220,7 @@ function extensionSequence(pr, name) {
 
 // ---------------------------------------------------------------------------
 // I/O adapter. Injectable so the whole decision matrix is testable without
-// touching the filesystem -- the same reason `guard-decision.mjs` keeps its
-// judgement pure and its transport thin.
+// touching the filesystem.
 // ---------------------------------------------------------------------------
 
 export function nodeIo(root = REPO_ROOT) {
@@ -210,9 +230,9 @@ export function nodeIo(root = REPO_ROOT) {
     /**
      * `null` means the file is ABSENT. Anything else -- a permissions error, a
      * transient I/O failure -- throws, and `readJson` turns that into a
-     * refusal. Collapsing the two (as this did until Codex round 1) makes an
-     * unreadable tally indistinguishable from zero rounds spent, which
-     * reopens an exhausted loop on an I/O error.
+     * refusal. Collapsing the two makes an unreadable receipt
+     * indistinguishable from an absent one, which reopens an exhausted loop
+     * on an I/O error. (Codex, #503 round 1.)
      */
     read(rel) {
       try {
@@ -223,32 +243,23 @@ export function nodeIo(root = REPO_ROOT) {
       }
     },
     exists: (rel) => fs.existsSync(abs(rel)),
+    /**
+     * Same ENOENT-only tolerance as `read`. A directory that exists but
+     * cannot be listed used to return [], which FORGOT every extension -- a
+     * loop that had spent its adjudication was shown tripwire 1 again
+     * instead of the hard stop. (Codex, #503 round 3.)
+     */
     listReceipts() {
       try {
         return fs.readdirSync(abs(RECEIPTS_DIR));
-      } catch {
-        return [];
+      } catch (err) {
+        if (err.code === "ENOENT") return [];
+        throw err;
       }
     },
     write(rel, text) {
       fs.mkdirSync(path.dirname(abs(rel)), { recursive: true });
       fs.writeFileSync(abs(rel), text);
-    },
-    /**
-     * The tally as `main`'s history has it, so the guard can tell a round that
-     * was recorded from a round that was recorded AND SURVIVES this container.
-     * Throws when git cannot answer; the caller refuses rather than guessing.
-     */
-    committedRounds(rel) {
-      let text;
-      try {
-        text = execFileSync("git", ["show", `HEAD:${rel}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      } catch {
-        return 0; // not in HEAD yet -- a loop whose first round has not landed
-      }
-      const parsed = JSON.parse(text);
-      if (!Array.isArray(parsed?.rounds)) throw new Error(`committed ${rel} has no rounds array`);
-      return parsed.rounds.length;
     },
   };
 }
@@ -294,42 +305,27 @@ export function validateBudget(pr, receipt) {
   if (typeof receipt.artifact !== "string" || !receipt.artifact.trim()) {
     return "budget receipt needs a non-empty `artifact` naming what is under review";
   }
-  // Codex auto-reviews every non-draft PR on open, with no trigger comment --
-  // and `loop-metrics.mjs` counts that pass as round 1, because a round is a
-  // completed reviewer PASS, not a trigger. A tally that counts only the posts
-  // this guard sees would therefore enforce "3" as one automatic pass plus
-  // three re-requests: four rounds by the repo's own definition, and the same
-  // off-by-one on every tier. (Codex, round 1.) So the declaration states
-  // whether this PR gets that opening pass, and it is counted.
-  if (typeof receipt.autoOpeningReview !== "boolean") {
-    return "budget receipt needs a boolean `autoOpeningReview` (true for a non-draft PR, which Codex reviews on open; false for a draft that gets no automatic pass)";
-  }
-  return null;
-}
-
-/** Whether the tally is a plausible round tally FOR THIS PR. */
-export function validateRounds(pr, receipt) {
-  if (!receipt || typeof receipt !== "object") return "rounds tally is not an object";
-  // Same rule the budget and extension receipts already had, and its absence
-  // here was a real hole: a tally copied or conflict-resolved from another PR
-  // silently resets a long loop to that PR's smaller count. (Codex, round 1.)
-  if (receipt.pr !== pr) return `rounds tally names PR ${receipt.pr}, not ${pr}`;
-  if (!Array.isArray(receipt.rounds)) return '"rounds" must be an array';
   return null;
 }
 
 /**
  * The mechanical record a `continue` verdict claims to have ruled on must
- * actually exist, actually be one of ours, and actually describe THIS PR.
+ * exist, be one of ours, describe THIS PR -- and show the loop AT ITS CAP
+ * when it was generated.
  *
- * Without this, any non-empty `recordPath` -- a typo, a stale path, another
- * loop's record -- reopens the guard for two more rounds with the
- * script-generated record never having existed. (Codex, round 1.) This is not
- * an anti-forgery check and cannot be one; it catches the accidental
- * malformation, which is a different and far likelier failure than the
- * fabrication this module's header already declines to defend against.
+ * The last check is what makes an adjudication provably FOLLOW its tripwire
+ * (Codex, #503 rounds 1 and 3): without it, a receipt written early -- before
+ * the cap was ever reached -- activates the moment the arithmetic crosses the
+ * boundary, and tripwire 1 never refuses or presents the aggregate at all.
+ * The record's pass count is counted from GitHub, so "the tripwire state
+ * existed when this was adjudicated" is evidence, not recollection.
+ *
+ * This is not an anti-forgery check and cannot be one; it catches accidental
+ * malformation and premature adjudication, which are different and far
+ * likelier failures than the fabrication this module's header declines to
+ * defend against.
  */
-function validateRecordReference(pr, recordPath, io) {
+function validateRecordReference(pr, tier, recordPath, io) {
   if (!io) return null; // pure-validation callers; the guard always passes io
   const parsed = readJson(io, recordPath);
   if (parsed.state === "absent") return `cited mechanical record ${recordPath} does not exist`;
@@ -338,6 +334,13 @@ function validateRecordReference(pr, recordPath, io) {
     return `${recordPath} was not produced by review-loop-record.mjs (generator: ${JSON.stringify(parsed.value?.generator)})`;
   }
   if (parsed.value?.pr !== pr) return `${recordPath} describes PR ${parsed.value?.pr}, not ${pr}`;
+  const passes = parsed.value?.rounds?.completedReviewerPasses;
+  if (!Number.isInteger(passes) || passes < tierCap(tier)) {
+    return (
+      `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below tier ` +
+      `"${tier}"'s cap of ${tierCap(tier)} -- an adjudication must follow its tripwire, not precede it`
+    );
+  }
   return null;
 }
 
@@ -368,7 +371,7 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
     if (typeof receipt.recordPath !== "string" || !receipt.recordPath.trim()) {
       return "adjudication receipt must cite the mechanical record it ruled on in `recordPath`";
     }
-    return validateRecordReference(pr, receipt.recordPath, io);
+    return validateRecordReference(pr, tier, receipt.recordPath, io);
   }
 
   if (receipt.kind === "david") {
@@ -386,12 +389,13 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
 }
 
 // ---------------------------------------------------------------------------
-// The decision
+// Loading a loop's durable state
 // ---------------------------------------------------------------------------
 
 /**
- * Load every receipt for one loop. Returns either a `problem` (fail closed,
- * with the reason already phrased for the refusal) or the loop's state.
+ * Load the budget and extensions for one loop. Returns either a `problem`
+ * (fail closed, with the reason already phrased for the refusal) or the
+ * loop's state.
  */
 export function loadLoop(pr, io) {
   const budget = readJson(io, budgetPath(pr));
@@ -404,17 +408,17 @@ export function loadLoop(pr, io) {
 
   const tier = budget.value.tier;
 
-  // Iterate the FILENAMES, never a number reconstructed from them.
-  //
-  // Normalizing `loop-extension-1-01.json` to sequence 1 and then rebuilding
-  // the path from that number reads the canonical `-1.json` twice and never
-  // opens the malformed file at all -- so a David receipt granting two rounds
-  // silently grants four, and the extra grant comes from a file nobody
-  // validated. (Codex, round 2.) A non-canonical name is refused outright
-  // rather than tolerated: an ambiguous receipt set is exactly the input this
-  // guard must not resolve in its own favour.
+  // Iterate the FILENAMES, never a number reconstructed from them: rebuilding
+  // the path from a normalized number read one receipt twice and never opened
+  // a zero-padded duplicate at all. (Codex, #503 round 2.)
+  let names;
+  try {
+    names = io.listReceipts();
+  } catch (err) {
+    return { problem: "bad-receipt", detail: `${RECEIPTS_DIR} could not be listed (${err.message})` };
+  }
   const found = [];
-  for (const name of io.listReceipts()) {
+  for (const name of names) {
     const seq = extensionSequence(pr, name);
     if (seq === null) continue;
     if (String(Number(seq)) !== seq) {
@@ -449,21 +453,13 @@ export function loadLoop(pr, io) {
     extensions.push({ seq, ...parsed.value });
   }
 
-  const rounds = readJson(io, roundsPath(pr));
-  if (rounds.state !== "ok" && rounds.state !== "absent") {
-    return { problem: "bad-receipt", detail: `${roundsPath(pr)} could not be read (${rounds.state}: ${rounds.error})` };
-  }
-  if (rounds.state === "ok") {
-    const error = validateRounds(pr, rounds.value);
-    if (error) return { problem: "bad-receipt", detail: `${roundsPath(pr)}: ${error}` };
-  }
+  // The next extension is written at max+1, NEVER at length+1: with a gap in
+  // the sequence (1 and 3 on disk), length+1 points at 3 and OVERWRITES a
+  // receipt -- destroying authorization history and possibly the active
+  // grant. (Codex, #503 round 3.)
+  const nextSeq = found.length ? found[found.length - 1].seq + 1 : 1;
 
-  return {
-    budget: budget.value,
-    tier,
-    extensions,
-    rounds: rounds.state === "ok" ? rounds.value.rounds : [],
-  };
+  return { budget: budget.value, tier, extensions, nextSeq };
 }
 
 /**
@@ -471,19 +467,20 @@ export function loadLoop(pr, io) {
  * how many rounds it has actually spent.
  *
  * EXTENSIONS ACTIVATE IN SEQUENCE, AND ONLY ONCE EVERYTHING BEFORE THEM IS
- * SPENT. That dependency on `roundsSpent` is the whole point and is why this
- * is not simply a sum. A `continue` receipt that raises the allowance the
- * moment it exists -- written early, or carried over by accident -- means the
- * loop sails past its cap and **tripwire 1 never fires**: no refusal, and the
- * aggregate never gets presented to anyone. That is precisely the failure this
- * module exists to prevent, arriving through the mechanism meant to prevent
- * it. (Codex, round 1.)
- *
- * So a dormant extension is not consumed and not counted; it activates at the
- * exact round the stage before it runs out, which is also the round the
- * adjudication was supposed to be about.
+ * SPENT. A `continue` receipt that raises the allowance the moment it exists
+ * -- written early, or carried over by accident -- would let the loop sail
+ * past its cap with **tripwire 1 never firing**: no refusal, and the
+ * aggregate never presented. So a dormant extension is not consumed and not
+ * counted; it activates at the exact round the stage before it runs out.
+ * (Codex, #503 round 1. The boundary-condition half -- proving the
+ * adjudication actually followed a fired tripwire -- lives in
+ * `validateRecordReference`, which requires the cited record to show the
+ * loop at its cap; round 3.)
  */
-export function allowance(tier, extensions, roundsSpent = Infinity) {
+export function allowance(tier, extensions, roundsSpent) {
+  if (!Number.isInteger(roundsSpent) || roundsSpent < 0) {
+    throw new Error(`allowance needs a non-negative integer roundsSpent, got ${JSON.stringify(roundsSpent)}`);
+  }
   let total = tierCap(tier);
   for (const ext of extensions) {
     if (roundsSpent < total) break; // this stage is not exhausted yet
@@ -497,31 +494,85 @@ export function allowance(tier, extensions, roundsSpent = Infinity) {
   return total;
 }
 
-/**
- * Rounds this loop has spent. The tally counts the trigger posts this guard
- * saw; the automatic opening pass has no trigger and is added here, so the cap
- * is enforced against the repo's definition of a round rather than against
- * "comments I posted".
- */
-export const roundsSpent = (state) => state.rounds.length + (state.budget.autoOpeningReview ? 1 : 0);
-
 /** Whether the loop has already spent its one self-serve extension. */
 const hasAdjudication = (extensions) => extensions.some((e) => e.kind === "adjudication");
+
+// ---------------------------------------------------------------------------
+// Counting rounds from evidence
+// ---------------------------------------------------------------------------
+
+/**
+ * Rounds spent, counted from a snapshot of the PR's reviews and issue
+ * comments -- never from a ledger this module maintains.
+ *
+ * `delivered` is `reviewerPasses().length`: completed reviewer passes, the
+ * repo's own definition of a round. The automatic opening review needs no
+ * special flag under this model -- it is simply one of the passes.
+ *
+ * `pending` is 0 or 1: whether any `@codex review` trigger comment sits AFTER
+ * the last completed pass. At most one round can be in flight, so multiple
+ * trigger comments with no pass between them -- a stall and its retry -- are
+ * ONE pending round, not several. This is what dissolves the first design's
+ * phantom-round problem: a stalled request stops costing anything the moment
+ * its retry's pass lands, with no reconciliation step, because nothing was
+ * ever written down to reconcile.
+ */
+export function countRounds({ reviewerPasses, issueComments }) {
+  const delivered = reviewerPasses.length;
+  const lastPassAt = delivered ? Date.parse(reviewerPasses[delivered - 1].at) : -Infinity;
+  const pending = (issueComments ?? []).some(
+    (c) => mentionsReviewRequest(c.body) && Date.parse(c.created_at ?? "") > lastPassAt,
+  )
+    ? 1
+    : 0;
+  return { delivered, pending, spent: delivered + pending };
+}
+
+/** What the round-check CLI writes and the guard demands. */
+export function validateCheckReceipt(pr, receipt, now) {
+  if (!receipt || typeof receipt !== "object") return "round-check receipt is not an object";
+  if (receipt.pr !== pr) return `round-check receipt names PR ${receipt.pr}, not ${pr}`;
+  const target = `${REPO_OWNER}/${REPO_NAME}`;
+  if (typeof receipt.repo !== "string" || receipt.repo.toLowerCase() !== target.toLowerCase()) {
+    return `round-check receipt was minted for ${receipt.repo ?? "an unrecorded repository"}, not ${target}`;
+  }
+  if (!Number.isInteger(receipt.spent) || receipt.spent < 0) {
+    return `round-check receipt carries no usable round count (spent: ${JSON.stringify(receipt.spent)})`;
+  }
+  // One receipt authorizes ONE post. Without this, a receipt minted before
+  // round N still says N-1 spent when round N+1 is requested, and freshness
+  // alone would let it authorize both.
+  if (receipt.consumedAt) return `round-check receipt was already consumed at ${receipt.consumedAt} -- run check again`;
+  const age = now - Date.parse(receipt.capturedAt ?? "");
+  if (!Number.isFinite(age) || age < 0 || age > MAX_CHECK_AGE_MS) {
+    return (
+      `round-check receipt rests on evidence read at ${receipt.capturedAt ?? "an unrecorded time"} and is no ` +
+      `longer current (older than ${MAX_CHECK_AGE_MS / 60000} minutes, or not in the past) -- run check again`
+    );
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// The decision
+// ---------------------------------------------------------------------------
+
+const CHECK_HOWTO = (pr) =>
+  `Capture pull_request_read (get, get_reviews, get_comments) into a snapshot and run ` +
+  `\`node scripts/review-budget.mjs check --pr ${pr} --mcp-snapshot <file>\`.`;
 
 /**
  * The refusal text. This is the product, not a side note: it is read by the
  * one agent that can act on it, at the one moment it can act, and it has to
  * carry the aggregate the loop could not see for itself.
  */
-function refusal(pr, state) {
-  const { budget, tier, extensions } = state;
-  const spent = roundsSpent(state);
+function refusal(pr, state, spent) {
+  const { budget, tier, extensions, nextSeq } = state;
   const cap = allowance(tier, extensions, spent);
-  const opening = budget.autoOpeningReview ? " (including Codex's automatic opening pass)" : "";
   const head =
     `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
-    `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent${opening}; ` +
-    `criticality ${budget.criticality}).`;
+    `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
+    `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).`;
 
   if (!hasAdjudication(extensions) && TIERS[tier].selfServe) {
     return (
@@ -534,8 +585,8 @@ function refusal(pr, state) {
       `its frontmatter, since a per-invocation model outranks frontmatter in the resolution order. ` +
       `Give it the generated record and NOTHING else from this session. Fable spends at double Opus, so ` +
       `say out loud that you are dispatching it (the announce-don't-sneak rule in the model-routing skill).\n` +
-      `  3. Write its verdict to ${extensionPath(pr, extensions.length + 1)} ` +
-      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate).\n` +
+      `  3. Write its verdict to ${extensionPath(pr, nextSeq)} ` +
+      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate), and commit it.\n` +
       `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard, and only once.`
     );
   }
@@ -544,8 +595,8 @@ function refusal(pr, state) {
     `${head}\n` +
     `TRIPWIRE 2 (hard stop). The one self-serve extension is spent, and there is never a second one. ` +
     `Take this to David as a 🛑 NEED YOU with the adjudication record pre-written as the options, and record ` +
-    `his answer in ${extensionPath(pr, extensions.length + 1)} as {"kind":"david","grant":<n|"uncapped">,` +
-    `"authorization":"<his words>"}.`
+    `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
+    `"authorization":"<his words>"}, committed.`
   );
 }
 
@@ -553,12 +604,15 @@ function refusal(pr, state) {
  * Judge one review-request tool call. `{ blocked, reason }`, matching
  * `decide()`'s contract in `guard-decision.mjs`.
  *
- * Records the round as a side effect when it allows. Recording BEFORE the post
- * rather than after is deliberate: a PreToolUse hook has no "after", and the
- * alternative -- trusting a later step to record -- is exactly the kind of
- * remembered discipline this guard replaces.
+ * The hook cannot reach GitHub, so it demands the evidence be brought to it:
+ * a fresh round-check receipt written by `check` from a validated snapshot.
+ * Missing, stale, consumed, or foreign receipts refuse -- the same posture as
+ * the merge gate's readiness receipt, because it is the same problem.
+ *
+ * On allow, the receipt is marked consumed, so one check authorizes exactly
+ * one post.
  */
-export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo()) {
+export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now = Date.now()) {
   if (!REVIEW_REQUEST_TOOLS.has(toolName)) return { blocked: false, reason: null };
   if (!mentionsReviewRequest(toolInput?.body)) return { blocked: false, reason: null };
   if (!targetsThisRepo(toolInput)) return { blocked: false, reason: null };
@@ -583,7 +637,7 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo()) {
         `  node scripts/review-budget.mjs declare --pr ${pr} --tier <internal|product|sensitive> ` +
         `--criticality <1-100> --artifact "<what is under review>"\n` +
         `Tiers: internal=3 rounds, product=5, sensitive=uncapped with a mandatory 🛑 at 5. ` +
-        `State the budget in the PR body too.`,
+        `Commit the receipt and state the budget in the PR body too.`,
     };
   }
   if (state.problem === "bad-receipt") {
@@ -593,97 +647,41 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo()) {
     };
   }
 
-  const spent = roundsSpent(state);
+  const check = readJson(io, checkPath(pr));
+  if (check.state === "absent") {
+    return {
+      blocked: true,
+      reason: `no round-check receipt for PR #${pr} -- the round count is evidence, not recollection. ${CHECK_HOWTO(pr)}`,
+    };
+  }
+  if (check.state !== "ok") {
+    return {
+      blocked: true,
+      reason: `round-check receipt for PR #${pr} could not be read (${check.state}: ${check.error}). ${CHECK_HOWTO(pr)}`,
+    };
+  }
+  const checkError = validateCheckReceipt(pr, check.value, now);
+  if (checkError) {
+    return { blocked: true, reason: `${checkError}. ${CHECK_HOWTO(pr)}` };
+  }
+
+  const spent = check.value.spent;
   if (spent >= allowance(state.tier, state.extensions, spent)) {
-    return { blocked: true, reason: refusal(pr, state) };
+    return { blocked: true, reason: refusal(pr, state, spent) };
   }
 
-  // The tally is only a stopping rule if it OUTLIVES the session that wrote
-  // it. This container is ephemeral: a round recorded and never committed
-  // vanishes with the container, and the next session reads the older
-  // committed tally and re-grants the round already spent -- the exact reset
-  // the receipt design claims to prevent. (Codex, round 1.) So durability is
-  // on the action path too: the previous round must be committed before the
-  // next one may be requested.
-  let committed;
-  try {
-    committed = io.committedRounds(roundsPath(pr));
-  } catch (err) {
-    return {
-      blocked: true,
-      reason:
-        `cannot read the committed round tally for PR #${pr} (${err.message}), so it cannot be verified as durable. ` +
-        `Refusing rather than assuming -- an unverifiable tally is how a spent round comes back.`,
-    };
-  }
-  if (committed !== state.rounds.length) {
-    return {
-      blocked: true,
-      reason:
-        `the round tally on disk (${state.rounds.length}) differs from the one in HEAD (${committed}). ` +
-        `Commit ${roundsPath(pr)} before requesting the next round: an uncommitted tally dies with this ` +
-        `container and silently re-grants the rounds it recorded.`,
-    };
-  }
-
-  recordRound(pr, state, { toolName, io });
+  // Consume the receipt: one check, one post. Written before the post goes
+  // out (a PreToolUse hook has no "after"), so a post that then fails costs a
+  // re-check, not a round -- the round count itself lives on GitHub.
+  io.write(
+    checkPath(pr),
+    `${JSON.stringify({ ...check.value, consumedAt: new Date(now).toISOString() }, null, 2)}\n`,
+  );
   return { blocked: false, reason: null };
 }
 
-export function recordRound(pr, state, { toolName, io }) {
-  const rounds = [...state.rounds, { at: io.now(), tool: toolName }];
-  io.write(roundsPath(pr), `${JSON.stringify({ pr, rounds }, null, 2)}\n`);
-  return rounds.length;
-}
-
-/**
- * Reconcile the tally against the rounds GitHub says were actually DELIVERED.
- *
- * WHY THIS EXISTS (observed on this mechanism's own PR, 2026-08-17). The tally
- * counts review-request POSTS, because a PreToolUse hook can only see the
- * request. A round, though, is a **completed reviewer pass** -- that is the
- * repo's definition and the whole point of counting the automatic opening
- * review. The two diverge whenever a request is posted and no review ever
- * arrives: a connector outage, a usage limit, a dropped webhook. The loop is
- * then charged for a round it never received, and on a 3-round budget one
- * stalled request costs a third of the loop.
- *
- * The module header already accepted over-counting "on failed posts" -- but
- * that was written about a post that fails to SEND, which is rare and
- * self-announcing. A post that sends and yields nothing is neither, and
- * charging for it is not the safe direction, it is just wrong: it spends the
- * one self-serve extension on an infrastructure fault rather than on the
- * question the extension exists to answer.
- *
- * WHAT KEEPS THIS HONEST, since "give the loop its rounds back" is exactly the
- * shape of an excuse:
- *
- *   - It is driven by COUNTED data, never by an assertion that a round was
- *     missed: `reviewerPasses()` over a complete snapshot, the same function
- *     the ledger and the mechanical record use.
- *   - It only ever REMOVES entries, never adds headroom beyond what GitHub
- *     confirms was delivered. It cannot raise a budget.
- *   - It refuses to run on an incomplete snapshot, because a snapshot missing
- *     pages understates delivered passes and would trim MORE than it should.
- *   - Every reconciliation is appended to the receipt, so the trail shows what
- *     was dropped and against which evidence.
- */
-export function reconcileRounds({ rounds, autoOpeningReview, deliveredPasses }) {
-  if (!Number.isInteger(deliveredPasses) || deliveredPasses < 0) {
-    throw new Error(`deliveredPasses must be a non-negative integer, got ${JSON.stringify(deliveredPasses)}`);
-  }
-  // The opening pass is one of the delivered passes, so it is subtracted here
-  // to get the number of *requested* rounds that actually produced one.
-  const attributableToRequests = Math.max(0, deliveredPasses - (autoOpeningReview ? 1 : 0));
-  // Never grow the tally: if more requests were posted than passes delivered,
-  // trim; if fewer, leave it alone. Growing would be the guard inventing
-  // rounds against itself, which nothing here should be able to do.
-  const keep = Math.min(rounds.length, attributableToRequests);
-  return { kept: rounds.slice(0, keep), dropped: rounds.length - keep };
-}
-
 // ---------------------------------------------------------------------------
-// CLI -- declaration and inspection. The guard itself never writes a budget:
+// CLI -- declare, check, status. The guard itself never writes a budget:
 // declaring one is an act with a tier judgement in it, so it is a command run
 // deliberately, not a file created as a side effect of being blocked.
 // ---------------------------------------------------------------------------
@@ -704,39 +702,39 @@ export function parseArgs(argv) {
 }
 
 const USAGE = `usage:
-  review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> --criticality <1-100> --artifact "<text>" [--draft true]
-  review-budget.mjs status  --pr <n>
-  review-budget.mjs reconcile --pr <n> --mcp-snapshot <file>
+  review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> --criticality <1-100> --artifact "<text>"
+  review-budget.mjs check   --pr <n> --mcp-snapshot <file>
+  review-budget.mjs status  --pr <n> [--mcp-snapshot <file>]
 
---draft true marks a PR that gets NO automatic opening review from Codex (a
-[PLAN REVIEW] draft). Omit it for an ordinary PR, whose opening pass counts as
-round 1.
+declare writes the committed budget receipt (refuses to overwrite one).
+check validates a fresh snapshot, counts rounds from it, and writes the
+ephemeral round-check receipt the guard demands before an @codex review post.
 `;
 
-function declare(flags, io) {
+const requirePr = (flags) => {
   const pr = Number(flags.pr);
   if (!Number.isInteger(pr) || pr <= 0) throw new Error("--pr must be a positive integer");
+  return pr;
+};
+
+function declare(flags, io) {
+  const pr = requirePr(flags);
   if (!Object.hasOwn(TIERS, flags.tier)) {
     throw new Error(`--tier must be one of: ${Object.keys(TIERS).join(", ")}`);
   }
   const criticality = Number(flags.criticality);
-  // Default true: nearly every loop is a non-draft PR, which Codex reviews on
-  // open. `--draft true` is for a `[PLAN REVIEW]` PR, which gets no automatic
-  // pass. Defaulting the other way would understate every loop by one round.
   const receipt = {
     pr,
     tier: flags.tier,
     budget: TIERS[flags.tier].budget,
     criticality,
     artifact: flags.artifact ?? "",
-    autoOpeningReview: flags.draft !== "true",
     declaredAt: io.now(),
   };
   const error = validateBudget(pr, receipt);
   if (error) throw new Error(error);
-  // Never silently replace a live budget: overwriting one mid-loop resets the
-  // cap without resetting the rounds already spent, which is the guard
-  // defeating itself.
+  // Never silently replace a live budget: overwriting one mid-loop could move
+  // the tier under a loop already in flight.
   if (io.exists(budgetPath(pr))) {
     throw new Error(`${budgetPath(pr)} already exists -- a declared budget is not re-declared mid-loop`);
   }
@@ -749,72 +747,100 @@ function declare(flags, io) {
   );
 }
 
-function status(flags, io) {
-  const pr = Number(flags.pr);
-  if (!Number.isInteger(pr) || pr <= 0) throw new Error("--pr must be a positive integer");
-  const state = loadLoop(pr, io);
-  if (state.problem === "no-budget") return `PR #${pr}: no budget declared.`;
-  if (state.problem === "bad-receipt") return `PR #${pr}: unusable receipt -- ${state.detail}`;
-  const spent = roundsSpent(state);
-  const cap = allowance(state.tier, state.extensions, spent);
-  return [
-    `PR #${pr}: tier "${state.tier}", criticality ${state.budget.criticality}`,
-    `rounds spent: ${spent} of ${cap === Infinity ? "uncapped" : cap}` +
-      ` (${state.rounds.length} requested` +
-      `${state.budget.autoOpeningReview ? " + 1 automatic opening pass" : ", no automatic opening pass"})`,
-    `extensions: ${state.extensions.length ? state.extensions.map((e) => `${e.kind}/${e.verdict ?? e.grant}`).join(", ") : "none"}`,
-  ].join("\n");
-}
-
 /**
- * `reconcile --pr N --mcp-snapshot <file>`.
- *
- * The snapshot needs only the two collections `reviewerPasses` reads, both
- * attested complete. A partial one understates delivered passes and would trim
- * too much, so it is refused rather than tolerated.
+ * Snapshot requirements for counting rounds. Mirrors the posture of
+ * `pr-ready.mjs`'s assertSnapshot and `loop-metrics.mjs`'s completeness
+ * assertions: bound to THIS pr, both collections present and attested
+ * complete, and shaped well enough that `reviewerPasses` cannot silently
+ * undercount. (Codex, #503 round 3: an attested-complete snapshot whose
+ * entries lack the fields the counter reads is undercounted, not rejected --
+ * so the load-bearing fields are checked here.)
  */
-async function reconcile(flags, io) {
-  const pr = Number(flags.pr);
-  if (!Number.isInteger(pr) || pr <= 0) throw new Error("--pr must be a positive integer");
-  if (!flags["mcp-snapshot"]) throw new Error("--mcp-snapshot <file> is required");
-
-  const snapshot = JSON.parse(fs.readFileSync(flags["mcp-snapshot"], "utf8"));
+export function assertCountingSnapshot(pr, snapshot) {
+  if (!snapshot || typeof snapshot !== "object") throw new Error("snapshot is not an object");
+  if (snapshot.pr?.number !== pr) {
+    throw new Error(`snapshot describes PR ${snapshot.pr?.number}, but --pr says ${pr}`);
+  }
   for (const key of ["reviews", "issueComments"]) {
     if (!Array.isArray(snapshot[key])) throw new Error(`snapshot "${key}" must be an array`);
     if (snapshot.complete?.[key] !== true) {
       throw new Error(
         `snapshot must attest complete.${key} === true -- an unpaginated snapshot understates delivered ` +
-          "passes, and this command would then drop rounds that really happened",
+          "passes, and the count would then be wrong in the guard's favour",
       );
     }
   }
+  snapshot.reviews.forEach((r, i) => {
+    if (r?.id === undefined || typeof r?.user?.login !== "string" || !Number.isFinite(Date.parse(r?.submitted_at ?? ""))) {
+      throw new Error(
+        `snapshot reviews[${i}] is missing id, user.login, or a parseable submitted_at -- ` +
+          "reviewerPasses would silently undercount this shape rather than reject it",
+      );
+    }
+  });
+  snapshot.issueComments.forEach((c, i) => {
+    if (c?.id === undefined || typeof c?.user?.login !== "string" || !Number.isFinite(Date.parse(c?.created_at ?? ""))) {
+      throw new Error(
+        `snapshot issueComments[${i}] is missing id, user.login, or a parseable created_at -- ` +
+          "pass and pending detection would silently miscount this shape rather than reject it",
+      );
+    }
+  });
+}
+
+async function check(flags, io) {
+  const pr = requirePr(flags);
+  if (!flags["mcp-snapshot"]) throw new Error(`--mcp-snapshot <file> is required. ${CHECK_HOWTO(pr)}`);
+  const snapshot = JSON.parse(fs.readFileSync(flags["mcp-snapshot"], "utf8"));
+  assertCountingSnapshot(pr, snapshot);
 
   const state = loadLoop(pr, io);
-  if (state.problem) throw new Error(`cannot reconcile: ${state.problem}${state.detail ? ` -- ${state.detail}` : ""}`);
+  if (state.problem === "no-budget") throw new Error(`no budget declared for PR #${pr} -- declare first`);
+  if (state.problem) throw new Error(`cannot check: ${state.detail}`);
 
   const { reviewerPasses } = await import("./loop-metrics.mjs");
-  const delivered = reviewerPasses(snapshot.reviews, snapshot.issueComments).length;
-  const { kept, dropped } = reconcileRounds({
-    rounds: state.rounds,
-    autoOpeningReview: state.budget.autoOpeningReview,
-    deliveredPasses: delivered,
+  const counted = countRounds({
+    reviewerPasses: reviewerPasses(snapshot.reviews, snapshot.issueComments),
+    issueComments: snapshot.issueComments,
   });
 
-  if (dropped === 0) {
-    return `PR #${pr}: nothing to reconcile -- ${delivered} reviewer passes delivered, tally already agrees.`;
-  }
+  const receipt = {
+    pr,
+    repo: `${REPO_OWNER}/${REPO_NAME}`,
+    capturedAt: io.now(),
+    ...counted,
+  };
+  io.write(checkPath(pr), `${JSON.stringify(receipt, null, 2)}\n`);
 
-  const existing = readJson(io, roundsPath(pr));
-  const reconciliations = [
-    ...(existing.state === "ok" && Array.isArray(existing.value.reconciliations) ? existing.value.reconciliations : []),
-    { at: io.now(), from: state.rounds.length, to: kept.length, deliveredPasses: delivered },
-  ];
-  io.write(roundsPath(pr), `${JSON.stringify({ pr, rounds: kept, reconciliations }, null, 2)}\n`);
+  const cap = allowance(state.tier, state.extensions, counted.spent);
+  const verdict = counted.spent >= cap ? "the NEXT request will be refused (tripwire)" : "the next request is inside budget";
   return (
-    `PR #${pr}: dropped ${dropped} request(s) that produced no reviewer pass ` +
-    `(${delivered} delivered, tally ${state.rounds.length} -> ${kept.length}). ` +
-    `Commit ${roundsPath(pr)}.`
+    `PR #${pr}: ${counted.delivered} completed reviewer pass(es)` +
+    `${counted.pending ? " + 1 pending request" : ""} = ${counted.spent} of ` +
+    `${cap === Infinity ? "uncapped" : cap} -- ${verdict}. Receipt written to ${checkPath(pr)} (ephemeral, one post).`
   );
+}
+
+async function status(flags, io) {
+  const pr = requirePr(flags);
+  const state = loadLoop(pr, io);
+  if (state.problem === "no-budget") return `PR #${pr}: no budget declared.`;
+  if (state.problem === "bad-receipt") return `PR #${pr}: unusable receipt -- ${state.detail}`;
+  const lines = [
+    `PR #${pr}: tier "${state.tier}", criticality ${state.budget.criticality}`,
+    `extensions: ${state.extensions.length ? state.extensions.map((e) => `${e.kind}/${e.verdict ?? e.grant}`).join(", ") : "none"}`,
+  ];
+  const check = readJson(io, checkPath(pr));
+  if (check.state === "ok") {
+    const cap = allowance(state.tier, state.extensions, check.value.spent ?? 0);
+    lines.push(
+      `last round check: ${check.value.spent} of ${cap === Infinity ? "uncapped" : cap} spent, ` +
+        `captured ${check.value.capturedAt}${check.value.consumedAt ? `, consumed ${check.value.consumedAt}` : ""}`,
+    );
+  } else {
+    lines.push("no current round-check receipt (rounds are counted fresh -- run check with a snapshot)");
+  }
+  return lines.join("\n");
 }
 
 async function main() {
@@ -828,8 +854,8 @@ async function main() {
   }
   try {
     if (parsed.command === "declare") process.stdout.write(`${declare(parsed.flags, io)}\n`);
-    else if (parsed.command === "status") process.stdout.write(`${status(parsed.flags, io)}\n`);
-    else if (parsed.command === "reconcile") process.stdout.write(`${await reconcile(parsed.flags, io)}\n`);
+    else if (parsed.command === "check") process.stdout.write(`${await check(parsed.flags, io)}\n`);
+    else if (parsed.command === "status") process.stdout.write(`${await status(parsed.flags, io)}\n`);
     else {
       process.stderr.write(USAGE);
       return 1;

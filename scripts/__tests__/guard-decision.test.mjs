@@ -718,14 +718,16 @@ for (const words of ARRAY_INVARIANT_CASES) {
 // The review-round budget, at the routing layer.
 //
 // `review-budget.test.mjs` owns the budget matrix itself. What is pinned HERE
-// is the thing only this file can break: that one hook carries two judgements
-// without either one leaking into the other. The Bash pipeline must never see
-// a comment payload (it would tokenise a JSON blob and judge prose), and the
-// budget must never see a Bash payload (it would refuse a commit message that
-// quotes the trigger phrase).
+// is the thing only this file can break: that ONE hook now carries THREE
+// judgements without any of them leaking into the others. The Bash pipeline
+// must never see a comment payload (it would tokenise a JSON blob and judge
+// prose); the budget must never see a Bash payload (it would refuse a commit
+// message quoting the trigger); and the merge gate must never see either.
 // ---------------------------------------------------------------------------
 
 const REVIEW_TOOL = "mcp__github__add_issue_comment";
+const NOW_ISO = "2026-08-17T12:00:00.000Z";
+const NOW_MS = Date.parse(NOW_ISO);
 
 const reviewPayload = (body, overrides = {}) =>
   JSON.stringify({
@@ -744,7 +746,7 @@ const memoryIo = (files = {}) => {
   const store = { ...files };
   return {
     store,
-    now: () => "2026-08-17T00:00:00.000Z",
+    now: () => NOW_ISO,
     read: (rel) => (rel in store ? store[rel] : null),
     exists: (rel) => rel in store,
     listReceipts: () =>
@@ -754,12 +756,9 @@ const memoryIo = (files = {}) => {
     write: (rel, text) => {
       store[rel] = text;
     },
-    committedRounds: (rel) => (rel in store ? JSON.parse(store[rel]).rounds.length : 0),
   };
 };
 
-// autoOpeningReview:false keeps the arithmetic here about the tally alone —
-// the opening-pass accounting is pinned in review-budget.test.mjs.
 const budgetFile = (pr, tier, cap) =>
   JSON.stringify({
     pr,
@@ -767,81 +766,72 @@ const budgetFile = (pr, tier, cap) =>
     budget: cap,
     criticality: 30,
     artifact: "x",
-    autoOpeningReview: false,
     declaredAt: "2026-08-17T00:00:00.000Z",
   });
-const roundsFile = (pr, n) =>
-  JSON.stringify({ pr, rounds: Array.from({ length: n }, () => ({ at: "2026-08-17T00:00:00.000Z", tool: REVIEW_TOOL })) });
+
+/** The fresh-evidence receipt the guard demands: rounds counted, not tallied. */
+const checkFile = (pr, spent) =>
+  JSON.stringify({
+    pr,
+    repo: "TheAnswerManIsHere/Overhypeme",
+    capturedAt: "2026-08-17T11:59:00.000Z",
+    delivered: spent,
+    pending: 0,
+    spent,
+  });
+
+const budgeted = (extra = {}) =>
+  memoryIo({ ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3), ...extra });
 
 test("an @codex review post with no declared budget is refused", () => {
-  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), memoryIo());
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io: memoryIo(), now: NOW_MS });
   assert.equal(isBlocked, true);
   assert.match(reason, /no round budget declared for PR #991/);
 });
 
-test("an @codex review post inside its budget is allowed", () => {
-  const io = memoryIo({
-    ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3),
-    ".agents/receipts/loop-rounds-991.json": roundsFile(991, 1),
-  });
-  assert.equal(decide(reviewPayload("@codex review"), io).blocked, false);
+test("an @codex review post with a budget but no counted evidence is refused", () => {
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io: budgeted(), now: NOW_MS });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no round-check receipt/);
+});
+
+test("an @codex review post inside its counted budget is allowed", () => {
+  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 1) });
+  assert.equal(decide(reviewPayload("@codex review"), { io, now: NOW_MS }).blocked, false);
 });
 
 test("an @codex review post past its budget is refused at tripwire 1", () => {
-  const io = memoryIo({
-    ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3),
-    ".agents/receipts/loop-rounds-991.json": roundsFile(991, 3),
-  });
-  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), io);
+  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 3) });
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io, now: NOW_MS });
   assert.equal(isBlocked, true);
   assert.match(reason, /TRIPWIRE 1/);
-});
-
-test("a valid extension receipt is honoured by the hook, and tripwire 2 is not", () => {
-  const base = {
-    ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3),
-    ".agents/receipts/loop-extension-991-1.json": JSON.stringify({
-      pr: 991,
-      kind: "adjudication",
-      verdict: "continue",
-      grant: 2,
-      risk: "the guard tallies a round it then refuses",
-      recordPath: ".agents/adjudications/991-1.json",
-    }),
-    ".agents/adjudications/991-1.json": JSON.stringify({
-      generator: "scripts/review-loop-record.mjs",
-      pr: 991,
-      generatedAt: "2026-08-17T00:00:00.000Z",
-    }),
-  };
-  assert.equal(
-    decide(reviewPayload("@codex review"), memoryIo({ ...base, ".agents/receipts/loop-rounds-991.json": roundsFile(991, 4) })).blocked,
-    false,
-    "round 5 sits inside 3 + 2",
-  );
-
-  const exhausted = decide(
-    reviewPayload("@codex review"),
-    memoryIo({ ...base, ".agents/receipts/loop-rounds-991.json": roundsFile(991, 5) }),
-  );
-  assert.equal(exhausted.blocked, true);
-  assert.match(exhausted.reason, /TRIPWIRE 2/);
+  assert.match(reason, /ON FABLE/);
 });
 
 test("an ordinary PR comment is unaffected by the budget", () => {
   const io = memoryIo();
-  assert.equal(decide(reviewPayload("Fixed in abc1234 — resolving this thread."), io).blocked, false);
-  assert.deepEqual(io.store, {}, "and nothing is tallied");
+  assert.equal(decide(reviewPayload("Fixed in abc1234 — resolving this thread."), { io, now: NOW_MS }).blocked, false);
+  assert.deepEqual(io.store, {}, "and nothing is written");
 });
 
-test("the two judgements do not leak into each other", () => {
+test("the three judgements do not leak into each other", () => {
   // A commit message quoting the trigger goes down the Bash path, where the
   // budget has no say -- otherwise writing about this mechanism would block
   // every commit that mentions it.
   assert.equal(blocked('git commit -m "post @codex review after the fix"'), false);
-  // And a comment payload never reaches the tokeniser: this body is a shell
+  // A comment payload never reaches the tokeniser: this body is a shell
   // string that WOULD be blocked as a command.
-  assert.equal(decide(reviewPayload("git push -f origin main"), memoryIo()).blocked, false);
+  assert.equal(decide(reviewPayload("git push -f origin main"), { io: memoryIo(), now: NOW_MS }).blocked, false);
+  // And a merge payload reaches the merge gate, not the budget: its refusal
+  // is about the readiness receipt, never about rounds.
+  const mergeCall = JSON.stringify({
+    tool_name: "mcp__github__merge_pull_request",
+    tool_input: { owner: "TheAnswerManIsHere", repo: "Overhypeme", pullNumber: 991 },
+  });
+  const mergeVerdict = decide(mergeCall, { readReceipt: () => null, resolveSha: () => null });
+  assert.equal(mergeVerdict.blocked, true);
+  assert.match(mergeVerdict.reason, /readiness receipt/);
+  assert.doesNotMatch(mergeVerdict.reason, /round budget/);
 });
 
 // ---------------------------------------------------------------------------
@@ -884,6 +874,9 @@ test("the fallback really is the fallback — node must be absent from that PATH
   // Without this the five cases above would silently be re-testing the node
   // path, and would keep passing even if the fallback routing were removed.
   assert.throws(() => execFileSync("node", ["--version"], { env: { PATH: "/usr/bin:/bin" }, stdio: "ignore" }));
+});
+
+// ---------------------------------------------------------------------------
 // The merge gate.
 //
 // CLAUDE.md's merge bar is CI green + Codex converged + every review thread
