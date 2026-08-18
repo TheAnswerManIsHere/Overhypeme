@@ -187,21 +187,22 @@ a data-derivation rule, a naming convention, anything with plausible siblings
 — gets a mechanical inventory before the plan's scope is written down, using
 the same discipline the class-sweep protocol already requires at fix time
 (*"A finding names an instance; the fix owes the class"*, below): name the
-class, write the `rg`/`ls`/`find` oracle that finds every instance, run it,
-and scope the plan against the actual hit list — not a recalled one.
+class, write a mechanical oracle that finds every instance, run it, and scope
+the plan against the actual hit list — not a recalled one.
 
-**The oracle's invocation is part of the oracle — and every general-purpose
-search tool has a different idea of the corpus.** The question the inventory
-asks is *what does this repository contain*, and the only search whose corpus
-is exactly that is one that asks git. So the prescribed form is:
+**The requirement is a property of the oracle, not a command: its corpus
+must be the tracked set.** The inventory asks *what does this repository
+contain*, and "the tracked set" is that question's definition — so any search
+whose corpus is narrower or wider answers a different question and reports a
+hit count the plan should not be scoped against. `git grep -n '<pattern>'` is
+the example that satisfies it today; `git ls-files` piped into whatever you
+like satisfies it equally.
 
-```
-git grep -n '<pattern>'
-```
-
-`git grep` searches the **tracked set**, which is the definition of the
-repository's contents. Every alternative gets the corpus wrong in a way that
-is silent at the point of use — measured in this tree, not reasoned about:
+**This is stated as a property because five successive rounds of stating it as
+a command failed.** Each fix corrected the previous invocation's symptom and
+left the class untouched, and the fifth reviewer finding was that the section
+had *already* been fixed in three places while a fourth still said `rg`.
+Measured in this tree, not reasoned about:
 
 | invocation | what it gets wrong |
 |---|---|
@@ -210,16 +211,15 @@ is silent at the point of use — measured in this tree, not reasoned about:
 | `rg -n --hidden` | re-introduces the `grep -rn` problem: `.git` comes back |
 | `rg -n --hidden --glob '!.git'` | still **under**-counts: ripgrep honours VCS ignore rules, so a tracked-but-ignored file is invisible — `rg -l --hidden --glob '!.git' VITE_MBFO_WIZARD` finds 3 files where `git grep -l` finds 4, missing the tracked `artifacts/overhype-me/.env.local` |
 
-Use `ls`/`find` only for questions about the filesystem rather than the
-repository. An oracle that silently skips a tracked file is the
-false-completeness failure below, arriving through the tool rather than the
-prose — and it took **four** successive corrections here to stop arriving,
-which is the real argument for asking git rather than reasoning about flags.
+A filesystem walker (`ls`, `find`, `grep -r`, `rg`) answers a question about
+the *disk*; use one only when that is genuinely what you mean. An oracle that
+silently skips a tracked file is the false-completeness failure below,
+arriving through the tool rather than the prose.
 
 **This is the same move, moved earlier.** The class-sweep protocol exists
 because a reviewer's cited instance is never guaranteed to be every instance.
 Running that discovery step at *plan entry* instead of waiting for review to
-find the gaps one round at a time is strictly cheaper — a `grep` costs
+find the gaps one round at a time is strictly cheaper — the search costs
 seconds; a review round costs a full loop iteration. PR #425 is the origin
 case in both directions at once: the plan moved the tier-derived permission
 gates it *already knew about*, and the CI guard built mid-loop (round 1)
@@ -253,13 +253,13 @@ finding), the reply says so — that inability is itself a signal, and it routes
 the finding to the driving agent's judgment-escalation triggers"*), and the
 same escape applies here: **record that the class cannot be mechanized, and
 route the scope call to judgment/escalation.** What is forbidden is the third
-option — running a nominal `rg` that does not actually find every instance and
+option — running a nominal search that does not actually find every instance and
 then claiming inventory-backed scope. That is worse than skipping the step,
 because it launders false completeness into the plan's scope, which is the
 precise failure this section exists to prevent.
 
 **If the inventory is expensive or the pattern's boundary is genuinely
-fuzzy, say so** — "inventoried via `rg -n <pattern>`, N hits, list attached;
+fuzzy, say so** — "inventoried via `git grep -n <pattern>`, N hits, list attached;
 M borderline cases excluded because <reason>" — rather than skipping it
 silently. An inventory that ran and found nothing new is worth stating too,
 since a reviewer otherwise has no way to tell "there was nothing to find"
@@ -1161,7 +1161,7 @@ oracle and the Tier A/B bugfix oracle below.
    calls this code, shares this path, or depends on this behavior? This is
    the affected-surface inventory (above) at bug scale: name the pattern
    (the function, the table, the shape of derivation the bug lives in), write
-   the `grep`/callers-search that finds every site matching it, and state
+   the tracked-set/callers-search that finds every site matching it, and state
    what it found — not a memory of "what calls this." Regression tests pin
    the fixed behavior; they say nothing about the neighbors, which is exactly
    where a small-looking fix does its damage, and "I checked the obvious
