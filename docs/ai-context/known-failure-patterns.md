@@ -245,6 +245,138 @@ of this entry.)
 They do not — assertions check runtime verdicts, and the branch shipped 236
 green tests beside a header statement that was already refuted.
 
+### The second sustained example, and the repair move the entry was missing
+
+**PR #430 ran the same pattern over a *prescribed command* rather than a
+behaviour description.** One line — how to run the plan-entry inventory — was
+corrected in round after round, each fix locally correct and each leaving the
+class alive. **The counts are deliberately not repeated here**: PR #430's own
+thread is the canonical account, and this entry had three different numbers in
+circulation against it before that was noticed — which is this section's
+durable-text rule failing inside the section that states it. The sequence is
+what generalizes, not its length:
+
+`grep -rn` over-counts (walks `.git`, `node_modules`, generated output) →
+`rg` under-counts (skips hidden directories, where this repo keeps its process
+sources) → `--hidden` puts `.git` back → `--glob '!.git'` still under-counts
+(ripgrep honours VCS ignore rules, so a tracked-but-gitignored file is
+invisible) → an offered alternative that searched *filenames* rather than
+contents.
+
+**The written counts went stale the same way, with a twist worth its own
+sentence: a count written into the tree it measures is false at its own
+commit.** Quoting a probe string in the explanation made the explanation a
+hit, so "returns zero files" was wrong the moment it was committed — repeatedly,
+and more often found by an adjudicator verifying the claim than by a review
+round reading it.
+
+**The repair move this entry did not previously name.** Point 3 above says
+widening a quantifier is not a fix. The general form is stronger: **when
+successive locally-correct corrections keep leaving the class intact, the
+defect is the claim's *shape*, and the fix is to remove the shape rather than
+correct the claim a further time.** Concretely, #430's terminal move was three
+deletions and one promotion:
+
+- **state the property, not the command** — the oracle's corpus must be the
+  tracked set; a command is one example that satisfies it, and the property
+  survives every tool change that broke five prescriptions;
+- **keep exactly one example**, because a second is a second chance to be
+  wrong — and it was;
+- **cite a delta and a mechanism, never a total — *in durable text*.** "Misses
+  this tracked file that `git grep` finds", "honours ignore rules". A count
+  committed into the tree it measures is false at its own commit; a delta and a
+  mechanism stay true as the tree changes. **A per-run receipt is the opposite
+  case and keeps its count**: [`working-modes.md`](working-modes.md)'s
+  inventory statement ("N hits, list attached") records the instant it
+  measured, and that count is the evidence a reviewer needs to tell "there was
+  nothing to find" from "this was never done."
+
+**How to recognise it in time:** the signal is not the finding count, which
+rose and fell and rose again. It is **the same claim being corrected a third
+time**. At three, stop fixing and ask what
+*kind* of sentence keeps being wrong. The section that came out of #430 is
+[`working-modes.md`](working-modes.md)'s affected-surface inventory; the
+residuals it shipped knowingly are #516 and #519.
+
+## An example is a prescription with deniability
+
+**Looks like:** a contract states a rule, then offers an example to illustrate
+it — and the example is wrong, incomplete, or doesn't actually satisfy the
+rule. It reads as harmless, because it is *only* an example: the normative
+content is the rule above it, and the example is just there to help.
+
+**Dangerous:** readers execute examples. An agent reading a process document
+does not weigh the illustrative status of a command before running it — it
+runs the command, because the command is the runnable part. So a defective
+example is a defective prescription with a layer of deniability wrapped
+around it, and the deniability is what stops it being fixed with the urgency
+it deserves.
+
+**The worked instance, and the ruling.** PR #430's inventory section stated a
+property (the oracle's corpus must be the tracked set) and then offered two
+examples of commands satisfying it. One of them didn't — it searched filenames
+rather than file contents, returning nothing for a pattern present in several
+tracked files. I argued this was distinguishable from "the section still
+prescribes a wrong command," because a stopping condition turned on that
+distinction. **A fresh-context adjudication called that rationalising**, and
+was right: the distinction has no operational content on the reader's side.
+
+**Two consequences worth keeping:**
+
+1. **An example inherits the full correctness obligation of the rule it
+   illustrates** — and if you are not willing to verify it to that standard,
+   remove it rather than caveat it. #430's fix was deletion, not correction:
+   one example, deliberately.
+2. **"It's only an example" is a rationalisation, not a defence**, and it is
+   most tempting exactly when a stopping rule or a decline turns on it. Treat
+   reaching for it as the signal to route the call somewhere that isn't you.
+
+**Avoid:** shipping an example you have not verified, in any document an agent
+will act on. The check is that an example offered to illustrate a property must
+itself demonstrably satisfy that property — stated locally in
+[`working-modes.md`](working-modes.md)'s affected-surface inventory, and
+generalized here because the failure is not specific to search oracles.
+
+**Verified, not necessarily executed — and the difference is a safety rule,
+not a hedge.** Plenty of examples in this repo's agent-facing docs are
+state-changing or destructive: a migration, a branch deletion, a force push,
+`publish_app`. **Running one merely to validate the documentation would cause
+the harm the surrounding guidance exists to prevent**, so:
+
+**The default is: do not execute it. Verify by reading** — the implementation,
+the tool's own contract, each flag against its documentation. Record what you
+read.
+
+**Executing is the exception, and it carries a burden of proof**: run the
+example only if you can state, in one sentence, why it has **no effect outside
+your own working tree** — no writes, no network, no external service, staging
+and third-party included. If you cannot write that sentence, you do not have
+the exception; you have a guess.
+
+**This replaced a three-branch taxonomy, and the replacement is the point.**
+The branch version was corrected in three consecutive review rounds and each
+round found a *different* gap: a dry-run flag that satisfied both a permissive
+and a restrictive branch; an overlap rule that said the wrong branch won; and
+a read-only call against a staging service that matched **no** branch at all.
+Each fix was locally correct and left the shape intact — which is precisely
+the failure the entry two sections above describes, so the repair is the one
+that entry prescribes: **remove the claim's shape.** A taxonomy of safe cases
+has a gap for every case nobody enumerated, and the gaps fail *open*. One
+default plus a burden of proof has no gaps, because anything unclassified
+lands on the default, and the default is the safe side.
+
+**And treat a destructive example as a reason to reconsider including it.**
+It is simultaneously the case where a wrong example does the most damage and
+the case where the cheapest verification is unavailable — which usually means
+describing the operation and pointing at the runbook beats pasting a runnable
+command into a document an agent will act on.
+
+*(This exception was itself a review finding on this entry: the first draft
+said "execute every example," which is a universal claim that fails for a
+whole class — the entry two sections above, on exactly that. Recorded rather
+than quietly corrected, because the entry earning its own findings on its
+first round is the most useful thing about it.)*
+
 ## A verification step placed where it cannot physically run
 
 **Looks like:** writing a workflow that gates step N on evidence only
