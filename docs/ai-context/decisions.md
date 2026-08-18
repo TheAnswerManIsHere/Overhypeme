@@ -54,6 +54,13 @@
   before the provider call, or in addition to the writer that will count it —
   produces a false alarm on a key whose own description says non-zero warrants
   investigation.
+- **Known exception, not yet closed (PR #509 round 1).** The converse does not
+  hold everywhere: `recordStage2Cost` calls `loadEngine` *before* its own `try`,
+  so a database failure there propagates to the outer pipeline catch and the
+  stage is marked failed having called neither `recordCost` nor
+  `noteLedgerWriteFailure`. A paid generation is omitted **and uncounted** on
+  that path. Read "every omitted row is counted" as the intended invariant with
+  one live gap, not as a description of current behavior.
 - **Reference:** PR #498 (rounds 4–5), `videoPipelineRunner.recordStage1Cost` /
   `recordStage3Cost`, `budgetGate.noteLedgerWriteFailure`.
 - **Revisit if:** a defensible floor becomes available for these stages — the

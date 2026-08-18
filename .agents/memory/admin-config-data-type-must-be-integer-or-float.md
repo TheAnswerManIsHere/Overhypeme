@@ -1,36 +1,43 @@
-# `admin_config.data_type` must be `integer` or `float` — anything else silently skips validation
+# `admin_config` numeric validation does NOT keep malformed text out — the consuming SQL is the only real defense
 
-The `/admin/config` PATCH route (`routes/admin.ts`) validates
-`existing.dataType === "integer"`, then `else if === "float"`, and has **no
-else branch**. So an unrecognized `data_type` does not fall back to strict
-handling — it skips validation *entirely* and the row accepts arbitrary text
-through the generic config UI. The column's own default is `'integer'`.
+Two separate weaknesses, and the second is the one that matters:
 
-Writing `data_type: 'number'` (not a recognized value) therefore produced a
-free-text field. One operator entering a decimal then broke the consuming SQL
-permanently:
+**1. An unrecognized `data_type` skips validation entirely.** The
+`/admin/config` PATCH route (`routes/admin.ts`) checks
+`existing.dataType === "integer"`, then `else if === "float"`, with **no else
+branch** — so any other value (e.g. a hand-written `'number'`) falls through
+and the row accepts arbitrary text. The column default is `'integer'`.
 
+**2. Even the recognized types don't store what they validated.** The route
+validates with `parseInt`/`parseFloat` and then persists **`rawValue`, the
+original string** (`newValue = rawValue`). So `3.5` on an `integer` key parses
+to `3`, passes, and is stored verbatim as `"3.5"`; `1oops` on a `float` parses
+to `1` and stores `"1oops"`. Setting the right `data_type` narrows the input
+but **does not guarantee the stored value is canonical numeric text**.
+
+> **Correction, PR #509 round 1.** An earlier version of this note prescribed
+> "use `integer`" as the fix that closes the UI route. It doesn't, per (2).
+> Anyone writing a new numeric config key needs to know that.
+
+**So: make the consuming SQL survive a bad value, always.** That is the only
+protection that holds regardless of how the value arrived — the admin UI, a
+direct edit, a migration, a future code path:
+
+```sql
+CASE WHEN value ~ '^[0-9]+$' THEN value::bigint ELSE 0 END + 1
 ```
-ERROR:  invalid input syntax for type bigint: "3.5"
-```
 
-— and because `noteLedgerWriteFailure` swallows its own errors by design, the
-counter would have been dead **and silent**, with the log line it exists to
-improve on being the only thing left.
+Without it, one malformed value permanently breaks the consumer. In the case
+that produced this note, `::bigint` on `"3.5"` errors, and because
+`noteLedgerWriteFailure` swallows its own errors by design the counter would
+have been dead **and silent**.
 
-**Three things, because the type alone only closes the UI route:**
+**Two supporting measures, neither sufficient alone:** use a recognized
+`data_type` with `min_value`/`max_value` so the UI at least rejects the obvious
+cases, and self-heal metadata on conflict (`data_type = EXCLUDED.data_type`) or
+a row created by an earlier build keeps its unvalidated type forever.
 
-1. Use `integer` (or `float`), plus `min_value` where a bound applies.
-2. **Make the consuming SQL survive a bad value however it arrived** — a direct
-   edit, a migration, a future code path. `CASE WHEN value ~ '^[0-9]+$' THEN
-   value::bigint ELSE 0 END + 1` restarts from zero rather than taking the
-   signal down with it. Validation at the edge does not cover the other doors.
-3. **Self-heal the metadata on conflict** — `data_type = EXCLUDED.data_type` —
-   or a row created by an earlier build keeps its unvalidated type forever,
-   since `ON CONFLICT` otherwise only touches `value`.
+**A proper fix for (2)** — storing the parsed value rather than `rawValue` — is
+a route change, not a caller's problem to work around. Not attempted here.
 
-Verified end to end in psql from the broken state (`value='3.5'`,
-`data_type='number'`): the old form errors, the new one recovers to `1` and
-repairs the type in the same statement.
-
-**Reference:** PR #498 round 2, `budgetGate.noteLedgerWriteFailure`.
+**Reference:** PR #498 round 2, PR #509 round 1, `routes/admin.ts`.

@@ -140,7 +140,12 @@ we've sequenced for later.
   `logTransientRender` swallows its own errors by design — boot was the only
   loud moment available. Non-production keeps the dev fallback.
 
-- **`recordCost` swallows a ledger-write failure (found on the 2026-08-16 security pass).**
+- **~~`recordCost` swallows a ledger-write failure~~ — SHIPPED, PR #498 (`6b3364d`).**
+  A lost write is now *accepted and measured*: `noteLedgerWriteFailure` records a
+  counter plus timestamp in `admin_config`. Not recovered — that was settled
+  decision #4, and reconciliation remains unbuilt. Original entry kept below for
+  the reasoning.
+
   - **What.** `budgetGate.recordCost` catches and logs at WARN, deliberately —
     it runs *after* a successful fal call, so throwing would fail a generation
     the user has already been charged compute for. The consequence is that a
@@ -161,7 +166,13 @@ we've sequenced for later.
     precondition for the fail-open. Nothing alerts on either case.
   - **Revisit trigger.** Fold into the `is_estimated` migration PR.
 
-- **The cost ledger records no provenance, and an unpriced synchronous generation — image OR video — is not recorded at all (approved fix, sequenced).**
+- **~~The cost ledger records no provenance, and an unpriced synchronous generation is not recorded at all~~ — SHIPPED, PRs #497 + #498 (`6b3364d`).**
+  Both writers record on every branch, and every row written from Release B
+  onward carries `is_estimated`. **Residual, still open:** rows written *before*
+  Release B remain `NULL` until Release C's classification backfill, and
+  `recordStage2Cost` has an uncounted failure path (see the note under the
+  2026-08-18 skip-and-count decision). Original entry kept below.
+
   - **What.** Two related gaps, and the second is the one that is easy to get
     wrong. **(a)** On **both** synchronous paths — `aiMemePipeline` and
     `POST /videos/generate` — `recordCost` is guarded on a provider-resolved

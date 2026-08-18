@@ -243,9 +243,12 @@ hold the three halves of that, and each documents its own residual limits:
 | `check-budget-gate-thunk.mjs` | the proposed cost reaches `checkBudget` as a **thunk**, never a value (see [`decisions.md`](./decisions.md)) |
 
 Two properties of the ledger follow from that, both settled in
-[`decisions.md`](./decisions.md): every row records **provenance** (`is_estimated`
-— a provider-resolved rate, or an operator-configured estimate), and estimated
-rows **count toward the ceiling** exactly like measured ones. A writer that
+[`decisions.md`](./decisions.md): every row **written by the Release B writers
+onward** records **provenance** (`is_estimated` — a provider-resolved rate, or
+an operator-configured estimate), and estimated rows **count toward the
+ceiling** exactly like measured ones. `is_estimated` is nullable and **rows
+predating Release B are `NULL`** until Release C's classification backfill
+runs — a query or review that treats `NULL` as impossible is wrong today. A writer that
 cannot obtain its figure skips the row and increments `ledger_write_failures`
 rather than substituting a constant; a fabricated figure, and especially a
 zero, is worse than an absent row because it exists and hides itself.
