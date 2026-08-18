@@ -294,6 +294,16 @@ every counter-argument in my own draft, verbatim — with the subagent
 prompted adversarially: *try to reverse this*. Not "review it," which
 invites agreement.
 
+**What comes back DECIDES (David, 2026-08-17).** The verdict is not a
+recommendation to weigh, and not one input among several. If the pass says
+reverse, I reverse; if it upholds, the decision stands as it upheld it. **I
+do not adopt the parts I find persuasive and set the rest aside** — that
+converts the strongest available reader into a rubber stamp for whatever I
+had already drafted, which is the failure the dispatch exists to prevent.
+Disagreeing with a verdict is a matter for David, never grounds to overrule
+it myself. The resident statement of this rule, and the story of my getting
+it backwards, are in `CLAUDE.md`.
+
 **As of 2026-08-15 this pass carries the decision weight the per-round
 David check-in used to.** Under the autonomy contract
 (`working-modes.md`'s *post-round adjudication*), what survives the

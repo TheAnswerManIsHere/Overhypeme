@@ -2055,53 +2055,47 @@ so a "needs my context" test swallows the paradigm case the rule was built
 around. A rule whose plain reading excludes its own model case is a loophole,
 not a boundary. (Adversarial Fable subagent, #504.)
 
-**What actually distinguishes a barred case is function, not context
-dependence** — barred and mandated cases alike are context-dependent. An
-adjudication **renders a verdict on material that can be packaged**, in one of
-two shapes: *challenging a drafted verdict* (the structural triggers, the
-stopping-rule pass) or *classifying material de novo* (the blind ledger pass).
-The bars are **enumeration from memory**: you cannot package what you have not
-yet noticed, and noticing *is* the task.
+**A Fable adjudicator's verdict DECIDES. It is not a recommendation (David,
+2026-08-17).** The whole point of routing a judgement to the strongest model is
+to use its judgement, so what comes back governs: a decline posts only if the
+pass upholds it, a stop/continue call executes as the pass leaves it, a
+classification is recorded as the pass made it. **I do not weigh it, adopt the
+parts I like, or treat it as one input among several.** If I think it is wrong,
+that is a disagreement to take to David — not license to overrule it myself,
+which would make the dispatch ceremonial.
 
-**The "de novo" half is load-bearing and was missing from the first draft.** I
-wrote that an adjudication packages "a drafted verdict plus its evidence" —
-which excludes the **blind ledger pass**, whose entire value is that my
-classifications are *withheld* from it. Under that wording the mandated blind
-pass was either disqualified or pressured toward leaking the classifications
-into its package, destroying the blindness it exists for. (Codex, #504 round
-2.) The test is *can the material be packaged*, not *does the package contain
-my conclusion*.
+**This needed saying because I got it backwards in the conversation that
+produced it.** Codex argued these passes were "input to a controller who acts
+next," and I **agreed** — writing that the Fable pass "returns an argument and I
+decide what to do with it." That is the opposite of the contract, which already
+said the decline "posts only if it survives" and that what survives the
+stopping-rule pass "executes." Conceding it revealed I had been treating a
+dispositive verdict as advice. Stated here in the resident file, unmissably,
+because a rule I can talk myself out of mid-argument is not a rule.
 
-That is still checkable from the artifact rather than from a claim about what I
-felt I needed — the question is whether a package can be assembled at all,
-which for an enumeration-from-memory task it cannot.
+**And it is what separates a reviewer from an adjudicator** — the boundary four
+successive definitions failed to draw:
 
-**Reviewers are NOT adjudicators, and "returns a verdict" does not settle it.**
-`subagent-driven-development`'s task reviewer returns a spec-compliance verdict
-and an `Approved | Needs fixes` judgement on a packageable diff, which fits the
-definition above word-for-word — so the definition alone cannot tell that
-reviewer apart from an adjudication, and the exemption below would contradict
-it. (Codex, #504 round 3.) The separating question is **what the verdict
-does**:
+- **A reviewer's findings can be declined.** That is what a decline *is*, and
+  declining one is itself an adjudication (so it takes Fable).
+- **An adjudicator's verdict cannot.** Nothing downstream re-opens it.
 
-- **An adjudication RESOLVES the matter.** The thread is resolved, the loop
-  stops, the pass runs or doesn't, the record is classified. Nothing
-  downstream re-examines it — which is exactly why it needs the strongest
-  reader.
-- **A review is INPUT to someone else's decision.** The controller reads
-  "needs fixes" and decides what to do. That decision is re-examined by
-  construction, because a human or a controller acts on it next.
+**The four failed attempts are recorded rather than buried**, because the shape
+of the failure is the lesson: "packages a drafted verdict" (too narrow — it
+excluded the blind ledger pass), "renders a verdict on packageable material"
+(too broad — it admitted `subagent-driven-development`'s task reviewer),
+"resolves versus feeds someone else's decision" (false in both directions).
+Four definitions, one paragraph, behaviour never changing underneath — exactly
+the *hand-maintained note describing emergent behaviour* pattern in
+[`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md),
+committed inside the contract that cites it. What broke the run was not a fifth
+definition but **a fact I did not have**: David's ruling on decision authority.
+When a boundary resists repeated definition, the missing piece is usually a
+decision nobody has made yet, not a sharper sentence.
 
-So SDD's reviewer keeps its own risk-scaled model policy — a small mechanical
-diff genuinely does not need the most capable model to *review* — while the
-**controller's decision to decline that reviewer's finding** is an
-adjudication and takes Fable, because a decline resolves the finding and
-nothing downstream catches it.
-
-**A corollary that bites, and is meant to.** That decline rule holds inside
-vendored skills too. Exempting a skill by provenance would have missed it —
-and `subagent-driven-development` already carries an Overhype-specific
-local-calibration block citing this file, so "not ours" was never true anyway.
+**None of this decides *whether* to dispatch** — that is the mandate/bar/default
+rule above, unchanged. This decides what a dispatched verdict is worth, and the
+answer is: everything.
 
 ### Subagent delegation is capped (Opus 5 delegates eagerly)
 
