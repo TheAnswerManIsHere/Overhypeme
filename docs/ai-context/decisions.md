@@ -270,9 +270,11 @@
 - **Why:** The two cases look alike ("we cannot determine the true cost") and
   were deliberately split. A pricing miss still leaves a defensible,
   model-specific figure available: the operator-configured estimate for that
-  exact engine — from the persisted row where one exists, and **falling back to
-  the code catalogue's entry for that same model when the table has no row for
-  it**, which happens legitimately. An unreadable `engines` table leaves nothing
+  exact engine — from the persisted row where one has a **usable** figure, and
+  **falling back to the code catalogue's entry for that same model whenever it
+  does not**: no row for that model (which happens legitimately), or a row whose
+  cost is null or non-numeric, both of which `costOrNull` sends down the same
+  path. An unreadable `engines` table leaves nothing
   defensible — if you
   could not read the persisted values, no number derived from the catalogue is
   provably above them, so a $0.04 seed can silently displace an admin-set $0.08

@@ -1261,9 +1261,13 @@ pinned to the ceiling that actually applied.
 - **`false` — provider-resolved.** Computed from the provider's own published
   rate, fetched by `getCachedPrice`, times the job's actual quantity.
 - **`true` — estimated.** No provider rate resolved, so the figure came from the
-  operator-configured `engines` row **or from a hard-coded fallback** when no
-  row exists for that model. Both are estimates; the column does not
-  distinguish them, and `budgetGate.ts`'s own contract says so.
+  operator-configured `engines` row **or from a hard-coded fallback whenever no
+  usable configured estimate resolves** — which is broader than "no row exists":
+  an existing row whose `estimatedCostUsdPerSecond` is null or non-numeric falls
+  back too (`routes/videos.ts`'s `ENGINE_PER_SEC_FALLBACK`,
+  `videoPipelineRunner.ts`'s `engineNumeric`, both `0.05`). All of these are
+  estimates; the column does not distinguish them, and `budgetGate.ts`'s own
+  contract says so.
 - **`NULL` — unclassified.** Rows written before Release B, which
   migration `0101` added the column to without classifying. Release C's backfill
   narrows this; until it runs, **a query treating `NULL` as impossible is

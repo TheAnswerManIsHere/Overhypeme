@@ -285,9 +285,11 @@ see the 2026-08-18 skip-and-count entry in [`decisions.md`](./decisions.md) and
   defensible estimate and still gates, or denies. See the
   [precondition failure pattern](./known-failure-patterns.md) for the general
   shape. `scripts/check-budget-gate-unconditional.mjs` is a CI guard that walks
-  the TypeScript AST and fails the build if a `checkBudget` call is ever made
-  conditional on price resolution again; its known limits are documented in its
-  own header, and it is a backstop rather than the control.
+  the TypeScript AST and fails the build when an **existing** `checkBudget` call
+  sits inside a **price-named** conditional — the exact regression that occurred.
+  Read it with the narrowing above: it does not see a conditional behind a helper
+  or a non-price-named flag, and it cannot see a spend path that never calls
+  `checkBudget` at all. A backstop against one recurrence, not the control.
 - **The fallback estimate prefers the persisted `engines` row over the code
   catalogue, but does use the catalogue as a fallback.** Precedence is
   persisted-exact → catalogue-exact → the maximum across both sources.
@@ -308,16 +310,19 @@ see the 2026-08-18 skip-and-count entry in [`decisions.md`](./decisions.md) and
   denied by, the *proposed-cost* lookup or the downstream config/ledger reads: a
   caller whose cost is itself fallible to determine passes a **thunk**, which
   `checkBudget` invokes only after the exemption.
-- **The ledger cannot tell you how a figure was arrived at.** Some rows are
-  computed from fal's published rate for that endpoint; others from an
-  operator-configured estimate. No column distinguishes them, and no row is a
-  reconciled provider charge. Consequences for this gate: an unpriced generation on either
-  synchronous path (image or video) is not recorded at all, so across a sustained
-  pricing outage its recorded spend stops growing and the ceiling is measured
-  against a stale total. Which writers produce which kind of figure is **not** stated here —
-  see [`deferred-work.md`](../engineering/deferred-work.md), and derive it from
-  the code rather than from either doc, because that breakdown was mis-stated
-  three times in one review.
+- **The ledger records how a figure was arrived at, from Release B onward.**
+  `is_estimated` distinguishes a provider-resolved rate (`false`) from an
+  estimate (`true`); **no row is a reconciled provider charge either way** — see
+  the glossary, and never call the `false` side "measured". Two live residuals,
+  both stated above rather than repeated here: rows predating Release B are
+  `NULL` until Release C's backfill, and the `recordStage2Cost` path can omit a
+  paid generation without incrementing the counter (#511). **What Release B
+  changed for this gate:** an unpriced generation on a synchronous path is now
+  recorded from a fallback estimate rather than skipped, so a sustained pricing
+  outage no longer freezes recorded spend while generations continue — the
+  failure this bullet used to describe as current. Which writers produce which
+  kind of figure is **not** enumerated here: derive it from the code rather than
+  from any doc, because that breakdown was mis-stated three times in one review.
 
 ## HTTP security headers (C5)
 
