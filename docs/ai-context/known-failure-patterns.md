@@ -1310,16 +1310,25 @@ applying it. Three distinct ways, none of which the sub-pattern above covers:
    enumeration** — "A or B" where the truth is "A, B, or C". Same class, no
    shared lexical signature. An oracle written from the instances you have
    encodes their surface form; the class is what they mean.
-3. **The invocation is part of the oracle.** PR #430, same day: `grep -rn`
-   from the repo root over-counts (it walks `.git`, `node_modules`, generated
-   output), so it was replaced with `rg -n` — which **under-counts in this
-   repo**, because ripgrep skips hidden directories and `.agents/` and
-   `.github/` are where the process sources live. Measured:
-   `rg -l "## Settled Decisions"` returns **zero files**;
-   `rg -l --hidden --glob '!.git'` finds `.agents/PLANS.md`. A fix for
-   over-counting shipped an under-count, in the very section whose subject is
-   not claiming false completeness. The prescribed form is
-   `rg -n --hidden --glob '!.git'`.
+3. **The invocation is part of the oracle, and it took four corrections to
+   get right.** PR #430, same day, one line, four successive fixes — each
+   correcting the previous symptom and leaving the class intact:
+
+   | invocation | measured failure |
+   |---|---|
+   | `grep -rn` from the root | **over**-counts — walks `.git`, `node_modules`, generated output |
+   | `rg -n` | **under**-counts — skips hidden dirs; `rg -l "## Settled Decisions"` returns **0 files** while the pattern sits in `.agents/PLANS.md` |
+   | `rg -n --hidden` | `.git` is back |
+   | `rg -n --hidden --glob '!.git'` | **under**-counts again — ripgrep honours VCS ignore rules, so `rg -l … VITE_MBFO_WIZARD` finds 3 files where `git grep -l` finds 4, missing the tracked `artifacts/overhype-me/.env.local` |
+
+   The settled answer is **`git grep -n`**, and the reason it settles the
+   question is not that it has better defaults — it is that the inventory
+   asks *what does this repository contain*, and `git grep` searches the
+   **tracked set**, which is that question's definition. Every flag-tuning
+   answer was an attempt to make a filesystem walker approximate a corpus it
+   has no notion of. **Ask git for the corpus rather than reasoning about
+   ignore semantics** — three of the four wrong answers were confidently
+   defended before being measured.
 
 **The root generalization, which is about writing rather than tooling:**
 summarising a release in prose defaults to naming the two clean cases and
