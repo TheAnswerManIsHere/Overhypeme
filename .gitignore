@@ -87,3 +87,8 @@ attached_assets/
 # boot) materializes it next to dist/ so the bundled server can resolve
 # ../assets. The canonical, tracked sources live under src/assets/.
 artifacts/api-server/assets/
+
+# Readiness receipts are session-local evidence, not repo history: each one
+# describes one commit at one moment, and lives only long enough to be quoted
+# in a readiness claim and checked by the merge hook.
+.agents/receipts/

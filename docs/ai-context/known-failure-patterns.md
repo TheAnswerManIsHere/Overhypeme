@@ -189,6 +189,62 @@ NOT to reintroduce):** blanket "no readable text"; `gpt-4o-mini`/`gpt-image-1`/F
 as the render path; enrichment-time visual preview as source of truth; violence
 auto-softeners; `enrichment_pending` stage name (it's `prep_pending`).
 
+## A hand-maintained note describing emergent behaviour
+
+**Looks like:** a comment or contract paragraph that describes what a system
+*does*, where the behaviour is not implemented in one place but emerges from
+several independent rules. **Dangerous:** the description is accurate the day
+it is written and silently stops being accurate as the rules change, while
+reading exactly as authoritative as it did before. Nothing fails; the note is
+just wrong, and it is wrong in the file a future session trusts most.
+
+**PR #488 is the sustained example: one paragraph was wrong in four
+consecutive review rounds while the behaviour it described never changed
+once.** Too narrow (named one rule), too narrow again (named three, missed a
+fourth), then falsely universal ("any protected command is refused" — one
+inert leading word defused it), then falsely positional ("the first word
+decides" — wrapper and env-assignment prefixes are stripped first).
+
+**Four things that generalize, in the order they had to be learned:**
+
+1. **A limitation goes stale when a rule is added ABOVE it or removed BENEATH
+   it**, and removal is the direction nobody re-reads for. #488's heredoc note
+   described a fix that a later revert had removed; `CLAUDE.md` simultaneously
+   described a receipt guarantee that had been split out one commit earlier.
+2. **The author of a change is its least reliable narrator.** Both of those
+   were written by the person who had just made the change, describing it from
+   the example that prompted it rather than from its blast radius.
+3. **Widening a too-narrow claim's quantifier is not a fix.** "Some of these"
+   and "all of these" are both outcome claims and both go stale; #488 went from
+   the first to the second and got a counter-example in one round.
+4. **Replacing prose with a formula does not make the formula checked.** The
+   fix that finally held was an invariant executed against real inputs — but
+   it was first written one level above where it runs (`decide(...)` rather
+   than the command text the tests actually compare), so for one round it
+   *looked* verified and was not.
+
+**Avoid:** when behaviour is emergent, state an **invariant that can be
+executed** rather than a description that must be maintained, and state it at
+the boundary the test actually exercises. #488's note is now one line — an
+array literal gets exactly the verdict its words get as a command — pinned
+against 19 inputs.
+
+**What that buys, stated exactly, because overstating it would be this very
+pattern again:** the *claim* stays true as rules are added, where all four
+prose descriptions went false. The *coverage* does not — the 19 cases are a
+hand-curated list, so a new rule whose inputs aren't represented in it can
+behave differently inside an array with every invariant test still green.
+**Adding a rule therefore still requires adding a representative case**, or
+deriving the list from the rule set rather than maintaining it by hand. An
+invariant narrows what can drift from "a paragraph" to "the sample"; it does
+not eliminate drift, and saying otherwise recreates the false assurance this
+section is about. (Codex caught exactly that overstatement in the first draft
+of this entry.)
+
+**Also avoid:** claiming in a test file that its rows protect a *prose* claim.
+They do not — assertions check runtime verdicts, and the branch shipped 236
+green tests beside a header statement that was already refuted.
+
 ## A verification step placed where it cannot physically run
 
 **Looks like:** writing a workflow that gates step N on evidence only
@@ -319,6 +375,75 @@ next input. **Avoid:** fix the mechanism and add a test that asserts the
 must agree" rule (not just "They keeps"), with a narrow anchor so it never
 mis-wraps non-person subjects ("Sharks have …"), plus idempotency tests. See
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#regression-examples-must-stay-green).
+
+### When the mechanism cannot be fixed either: abandon the layer
+
+The advice above assumes a general mechanism exists to fix. Sometimes the
+"general rule" is another program's entire command-line grammar, and then
+fixing the mechanism and matching the instance are the same move wearing a
+better argument. **PR #488 is the worked example: five attempts to enumerate
+were started and all five were abandoned** — curl's option grammar, an
+allowlisted probe exception, a widened `LOOKS_DESTRUCTIVE`, a replacement
+heredoc delimiter scanner, and an array-assignment suppression. Each was
+locally reasonable, each closed the reported case, and each produced the next
+round's finding.
+
+**Abandoned does not uniformly mean deleted, and the split is 3 / 2.** Three
+were removed outright: curl's option grammar (`isGitHubApiUrl` and the whole
+`rest.some(...)` argument-inspection branch, gone from the merged file — zero
+occurrences remain), the probe exception, and the array suppression. Two
+survive in their original, deliberately incomplete form with their gaps
+recorded — `LOOKS_DESTRUCTIVE` and an identifier-shaped `HEREDOC_RE` — and what
+was abandoned there is only the attempt to make them *general*: widening the
+regex to cover fetchers, and replacing the delimiter class with a full scanner.
+
+That distinction is worth the sentence because it cuts both ways for a
+maintainer. "All five were deleted" sends them looking for code that is plainly
+still there; "none were deleted" implies the enumerations were merely paused.
+And the direction matters for a guard specifically: **refusing the class means
+stop trying to complete a mechanism, not delete every mechanism that partially
+works** — the second reading is a licence to remove protective code, which is
+the one direction this module must never move in.
+
+**Three signals that you are in this situation rather than the ordinary one:**
+
+- **The counter-examples come from a different sub-language every time.** #488
+  round 4 produced findings in wgetrc directives, `--connect-to` composites,
+  brace URL globbing, long-option prefix abbreviation, and `--variable`
+  interpolation. That is not a bug with variants; it is a parser you have
+  agreed to reimplement without noticing.
+- **Your fixes start failing at the rate you make them.** Round 16 made four
+  small fixes; round 17 found a defect in all four. Count it — the ratio is
+  the evidence, and it is far more reliable than the feeling that this next
+  one is obviously right.
+- **The exception has the same surface as the rule.** #488 kept one allowlisted
+  probe URL and got three findings against that single exception in one round,
+  including a config file (`$CURL_HOME/.curlrc`) that adds requests which never
+  appear in argv at all — unfixable by argument inspection, because the thing
+  being inspected is not there.
+
+**Avoid:** refuse the whole class instead of judging instances of it. #488's
+decision module (`scripts/guard-decision.mjs`) refuses `curl` and `wget` with
+no argument-shape exception, because that is the only version that is complete
+by construction. Accept and **write down** the residual gaps rather than
+closing them one at a time.
+
+**Scoped to the module deliberately, and this sentence is itself an instance of
+the pattern below.** The refusal lives in `guard-decision.mjs`, which
+`.claude/guard.sh` runs *only when `node` is available*; the node-less fallback
+has no fetcher alternative and lets a `curl` payload through. An earlier
+version of this paragraph said the guard "refuses `curl` and `wget` outright"
+with no qualifier — a blanket claim about a wrapper that does no such thing,
+written in the entry warning against exactly that. It survived a repo-wide
+sweep for the *neighbouring* class because it used none of the swept words.
+(Codex, #499 round 4.)
+
+**One asymmetry worth keeping, because it is what finally converged:**
+**deleting an allow-producing rule cannot open a hole**, while adding
+interpretation can — so when a guard is oscillating, removal is the safe move
+and refinement is not. State that narrowly: it is true of a removal proven
+monotonic in the restrictive direction against the assertion table, **not** of
+deletions generally (deleting a *protective* branch turns blocks into allows).
 
 ## Regex grammar rewrite reaches past a safe anchor
 

@@ -9,10 +9,27 @@
 # on 2026-08-05. That ruleset is the real control: server-side, applied to every
 # actor, and not dependent on a local regex enumerating every spelling.
 #
-# So this hook does not try to reimplement it. Its one job is to make the LEASE
-# MANDATORY on the branches this session owns, because the container is
-# ephemeral: the local reflog dies with it, so an overwritten remote branch has
-# no second copy to recover from.
+# So this hook does not try to reimplement it. It has SEVERAL responsibilities
+# and this list is NOT exhaustive -- read guard-decision.mjs for the authority:
+#
+#   - Making the LEASE MANDATORY on the branches this session owns. The
+#     container is ephemeral: the local reflog dies with it, so an overwritten
+#     remote branch has no second copy to recover from.
+#   - Refusing `curl` and `wget` (2026-08-17) -- a silent failure mode rather
+#     than a destructive one. See docs/ai-context/decisions.md, 2026-08-17.
+#   - Refusing root-shaped `rm -rf` and `drizzle-kit push`, which belong to
+#     neither of the above and predate both.
+#
+# An earlier version of this header called the lease the "FIRST" job and the
+# fetcher refusal the "SECOND", which reads as exhaustive and is false -- a
+# maintainer could conclude their command is outside the guard's contract when
+# it is not. Ordinals are avoided here for that reason. (Codex, #499 round 4.)
+#
+# Note what the ruleset above does and does not cover: it protects `main` and
+# does NOT target `claude/*` or `plan-review/*`, so on the branches the lease
+# rule actually governs, this hook is the ONLY line -- not the third one. No
+# responsibility above is backstopped server-side; they differ in how they
+# FAIL, not in what stands behind them.
 #
 # The decision logic lives in scripts/guard-decision.mjs -- next to the repo's
 # other guards, unit-tested in scripts/__tests__/guard-decision.test.mjs, and
@@ -21,9 +38,24 @@
 # version of this file blocked `git push --force` while waving `git push -f`
 # straight through, and nothing would have caught that.
 #
-# If node is somehow unavailable this falls back to a conservative regex scan
-# that blocks every force push including the permitted one -- degraded, never
-# weaker than the version it replaced.
+# If node is unavailable this falls back to the regex scan below. Its coverage
+# is MIXED -- not "weaker", and not "stricter" either. Both adjectives were
+# tried here and both were false. Measured (#499 rounds 3-4):
+#
+#   command                                       node path   fallback
+#   git push -f origin claude/x                    BLOCK       BLOCK
+#   git push --force-with-lease origin claude/x    allow       BLOCK   <- stricter
+#   git-push -f origin claude/x                    BLOCK       allow   <- LOOSER
+#   rm -rf /                                       BLOCK       BLOCK
+#   drizzle-kit push                               BLOCK       BLOCK
+#   curl https://api.github.com/x                  BLOCK       allow   <- LOOSER
+#
+# So the fallback over-blocks the one permitted force push, and under-blocks
+# both the direct `git-push` executable form and every fetcher. Any claim that
+# a responsibility above holds "in the guard" is really a claim about the node
+# path; only the rows marked BLOCK in both columns hold unconditionally.
+# Closing the two LOOSER rows is a behavioral change and belongs in its own
+# bugfix PR, not in the documentation harvest that found them.
 set -uo pipefail
 
 payload=$(cat)
@@ -34,13 +66,14 @@ if command -v node >/dev/null 2>&1; then
   exit $?
 fi
 
-# Two judgements sit behind this hook, and they must stay isolated in the
-# degraded path exactly as they are in scripts/guard-decision.mjs. Running both
-# greps over every payload leaks in both directions: a commit message quoting
-# "@codex review" gets refused as a review request, and an ordinary PR comment
-# quoting a force push gets refused as a destructive command. So route on
-# tool_name first. An unrecognised payload shape runs BOTH scans -- if we
-# cannot tell what this is, both refusals apply. (Codex, round 2.)
+# Three judgements sit behind this hook -- Bash commands, merges, and review
+# requests -- and they must stay isolated in the degraded path exactly as they
+# are in scripts/guard-decision.mjs. Running every grep over every payload
+# leaks across judgements: a commit message quoting "@codex review" would be
+# refused as a review request, an ordinary PR comment quoting a force push
+# would be refused as a destructive command. So route on tool_name first; an
+# unrecognised payload shape gets EVERY scan -- if we cannot tell what this
+# is, every refusal applies. (Codex, #503 round 2.)
 scan_destructive() {
   if printf '%s' "$payload" | grep -Eq 'drizzle-kit[[:space:]]+push|rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+/|git[[:space:]]+.*push[[:space:]].*(--force|--mirror|-[a-zA-Z]*f[a-zA-Z]*)|git[[:space:]]+update-ref'; then
     echo "Guard: blocked a destructive command (node unavailable -- conservative fallback)" >&2
@@ -48,10 +81,20 @@ scan_destructive() {
   fi
 }
 
-# Reading the budget receipts needs node, so the fallback cannot check the
-# count -- and a budget guard that fails OPEN is a budget guard that disappears
-# exactly when something is already wrong. The degraded path therefore refuses
-# the review request outright and says why.
+# Node is what reads the readiness receipt, so without it a merge cannot be
+# verified at all. Refuse rather than wave it through -- the degraded path is
+# allowed to be inconvenient, never weaker.
+scan_merge() {
+  if printf '%s' "$payload" | grep -q 'mcp__github__merge_pull_request'; then
+    echo "Guard: blocked a merge (node unavailable -- the readiness receipt could not be read)" >&2
+    exit 2
+  fi
+}
+
+# Same reasoning for the round budget: node is what reads the budget and
+# round-check receipts, so a review request cannot be counted without it. A
+# budget guard that fails OPEN disappears exactly when something is already
+# wrong.
 scan_review_request() {
   if printf '%s' "$payload" | grep -Eqi '@codex[[:space:]]+review'; then
     echo "Guard: blocked an @codex review post -- the round budget cannot be checked (node unavailable -- conservative fallback)" >&2
@@ -61,10 +104,13 @@ scan_review_request() {
 
 if printf '%s' "$payload" | grep -Eq '"tool_name"[[:space:]]*:[[:space:]]*"Bash"'; then
   scan_destructive
+elif printf '%s' "$payload" | grep -Eq '"tool_name"[[:space:]]*:[[:space:]]*"mcp__github__merge_pull_request"'; then
+  scan_merge
 elif printf '%s' "$payload" | grep -Eq '"tool_name"[[:space:]]*:[[:space:]]*"mcp__github__'; then
   scan_review_request
 else
   scan_destructive
+  scan_merge
   scan_review_request
 fi
 exit 0

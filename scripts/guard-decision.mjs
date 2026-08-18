@@ -15,12 +15,48 @@
  *      and catches spellings a local hook cannot be trusted to enumerate.
  *   3. This hook.
  *
- * So this hook does NOT try to be GitHub's ruleset. Its one job is to make the
- * LEASE MANDATORY on the branches this session owns. That matters more here
- * than on a normal machine: the container is ephemeral, so the local reflog
- * dies with it and an overwritten remote branch has no second copy to recover
- * from. `--force-with-lease` refuses when the remote moved since the last
- * fetch, which is exactly the "something I have not seen is up there" case.
+ * So this hook does NOT try to be GitHub's ruleset. It carries SEVERAL
+ * responsibilities, and the list below is NOT exhaustive -- `decide()` and the
+ * MUST_BLOCK/MUST_ALLOW table are the authority, this prose is a summary:
+ *
+ *   - THE LEASE, MANDATORY on the branches this session owns. The container is
+ *     ephemeral, so the local reflog dies with it and an overwritten remote
+ *     branch has no second copy. `--force-with-lease` refuses when the remote
+ *     moved since the last fetch -- exactly the "something I have not seen is
+ *     up there" case.
+ *   - REFUSING `curl` AND `wget` (2026-08-17), for a different reason: a
+ *     SILENT failure (api.github.com returns a 403 whose body a `grep` finds
+ *     nothing in, so a wait loop built on it sleeps forever without erroring)
+ *     rather than a destructive one.
+ *   - REFUSING root-shaped `rm -rf` and `drizzle-kit push`, in `checkCommand`,
+ *     which belong to neither of the above and predate both.
+ *
+ * NO ORDINALS, deliberately. This header has now been wrong three ways about
+ * its own scope: it said "one job" after the fetcher rule shipped; then
+ * "FIRST"/"SECOND", which reads as exhaustive and omits `checkCommand`'s
+ * standing destructive/schema refusals -- letting a maintainer conclude their
+ * command is outside the guard's contract when it is not. A count is a claim,
+ * and it is the claim that keeps going stale. (Codex, #499 rounds 2-4.)
+ *
+ * NONE of these is backstopped server-side; they differ in how they FAIL, not
+ * in what stands behind them. READ LAYER 2 CAREFULLY BEFORE RELYING ON IT: the
+ * ruleset targets `main`, and does NOT target `claude/*` or `plan-review/*` --
+ * the branches the lease rule actually governs -- so for THAT job this hook is
+ * the only line, not the third. "Third line of defence" is true of protecting
+ * `main` and false of the job this file mostly does. An earlier version also
+ * claimed the lease rule had a backstop the fetcher rule lacked, reading the
+ * ruleset's scope off its existence rather than off its target. See
+ * `docs/ai-context/decisions.md`, 2026-08-17, and the `FETCHER_REFUSAL` block
+ * below for the full reasoning and its gap register. (Codex, #499 round 3.)
+ *
+ * ALL of it is conditional on `node`. Without it `.claude/guard.sh` falls back
+ * to a regex scan whose coverage is MIXED -- looser on fetchers and on the
+ * direct `git-push` executable form, stricter on the permitted lease push.
+ * That file's header carries the measured matrix; do not paraphrase it as
+ * "weaker" or "stricter", because both were tried and both were false. Every
+ * "refuses curl and wget" claim in this repo is scoped to the node path.
+ * Measured, not assumed (#499 rounds 3-4); closing the looser rows is a
+ * behavioral change owed its own bugfix PR.
  *
  * POSTURE
  * -------
@@ -191,6 +227,9 @@
  *   direction announces itself. (Codex, #488 rounds 6-10 and round 16.)
  */
 
+import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { staleReason, remoteTip } from "./pr-ready.mjs";
 import { REVIEW_REQUEST_TOOLS, judgeReviewRequest, nodeIo } from "./review-budget.mjs";
 
 const ALLOW = 0;
@@ -1121,8 +1160,17 @@ const FETCHER_REFUSAL =
  * ended it -- **an emergent behaviour should be stated as an invariant that
  * can be executed, not as a description that has to be maintained.** The four
  * failed versions were all descriptions of what eight independent rules
- * happen to do. The invariant above is one line, needs no updating when a rule
- * is added, and is pinned as a test that runs it against the bare command.
+ * happen to do. The invariant above is one line, stays TRUE as rules are
+ * added, and is pinned as a test that runs it against the bare command.
+ *
+ * ITS COVERAGE IS NOT SELF-UPDATING, THOUGH, and an earlier version of this
+ * sentence said it was -- which is the same false assurance this whole note is
+ * about. `ARRAY_INVARIANT_CASES` is a hand-curated list, so a new rule whose
+ * inputs are not represented in it can behave differently inside an array with
+ * every invariant test green. **Adding a rule means adding a representative
+ * case**, or deriving the list from the rule set instead of curating it. An
+ * invariant narrows what can drift from "a paragraph" to "the sample"; it does
+ * not eliminate drift. (Codex, #488 round 21 and #499 round 2.)
  *
  * It is deliberate: the suppression written to allow these opened a fail-open
  * in each of its two versions (substitutions with no `$`, then integer-array
@@ -1150,7 +1198,22 @@ const FETCHER_REFUSAL =
  *    recursive parse reads `--` as the program. Measured: `eval -- "printf X
  *    > file"` writes the file. Fix: strip a leading `--` before joining.
  *
- * WHY THOSE TWO ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
+ * A SEVENTH, #499 round 3 -- and it is NOT in this module, which is why five
+ * rounds of gap-hunting inside this file could never have found it. If `node`
+ * is unavailable, `.claude/guard.sh` never reaches this code at all: it falls
+ * back to a regex scan covering destructive git/rm/drizzle shapes and NOTHING
+ * ELSE, so a `curl` payload exits 0. Measured by hiding `node` from `PATH` and
+ * running the real hook. The fallback is stricter than this parser on force
+ * pushes and absent on fetchers -- degraded rather than uniformly weaker.
+ *
+ * Fix: add a fetcher alternative to that regex. Deferred here because it is a
+ * BEHAVIORAL change and the PR that found it is a documentation harvest; it is
+ * owed its own bugfix PR. What the harvest does instead is scope every
+ * "refuses curl and wget outright" claim in this repo to the node path, since
+ * an unqualified claim in a security-sensitive header is the exact false
+ * assurance this file's own notes are about.
+ *
+ * WHY THE FIFTH AND SIXTH ARE DEFERRED, AND THE BOUNDARY THAT NO LONGER APPLIES.
  *
  * Round 16 published a line here: a defect in a wrapper this module MODELS is
  * a correctness bug and gets fixed, while an unmodelled wrapper is the
@@ -1554,44 +1617,151 @@ function evaluateScript(text, depth) {
   return null;
 }
 
+const RECEIPT_HOWTO =
+  "Capture pull_request_read (get_check_runs, get_reviews, get_comments, get_review_comments) into a " +
+  "snapshot and run `node scripts/pr-ready.mjs --pr <N> --snapshot <file>`.";
+
 /**
- * Read `tool_name` / `tool_input` out of a PreToolUse payload.
+ * Refuse a merge that isn't backed by a current, passing readiness receipt.
  *
- * Returns null for anything that is not the shape we expect, which routes the
- * payload to the Bash pipeline exactly as before -- including the bare-string
- * inputs this module's own tests feed it.
+ * CLAUDE.md's merge bar is CI green + Codex converged + every thread resolved,
+ * and it has been broken twice in the same way -- one item checked, three
+ * reported (PR #458, then PR #487). The standing rule is that a discipline
+ * broken twice becomes a check, so the merge tool now requires the artifact
+ * `scripts/pr-ready.mjs` produces rather than my assurance that I looked.
+ *
+ * `resolveSha` is injected so the decision stays pure and testable; in
+ * production it is a local `git rev-parse` of the PR's head branch. It closes
+ * the one gap the age cap cannot: a receipt that was accurate when written and
+ * was then invalidated by my own push a minute later.
+ *
+ * This covers merges I perform. It cannot cover a PR David merges on my
+ * word -- no hook sees his click -- which is why the receipt is also what
+ * CLAUDE.md now requires a readiness claim to quote.
  */
-export function extractToolCall(raw) {
+export function checkMerge(toolInput, { now = Date.now(), readReceipt, resolveSha } = {}) {
+  const pr = toolInput?.pullNumber;
+  if (!Number.isInteger(pr)) {
+    return `merge blocked: no pullNumber in the tool input, so no readiness receipt could be checked. ${RECEIPT_HOWTO}`;
+  }
+
+  const receipt = readReceipt(pr);
+  if (!receipt) {
+    return (
+      `merge blocked: no readiness receipt for PR #${pr}. The merge bar is CI green + Codex returned + ` +
+      `every review thread resolved, and it has been reported from a single item twice (#458, #487). ` +
+      RECEIPT_HOWTO
+    );
+  }
+  // The receipt is found by filename, so a mismatched body means a hand-edited
+  // or misfiled receipt -- exactly the artifact whose word should not be taken.
+  if (receipt.pr !== pr) {
+    return `merge blocked: the receipt filed for PR #${pr} says it is for PR #${receipt.pr}. ${RECEIPT_HOWTO}`;
+  }
+  // A number is not an identity. Receipts are keyed by PR number and shas are
+  // resolved against THIS checkout's origin, so a merge aimed at a different
+  // repository whose PR number happened to match would find a locally valid
+  // receipt and a locally matching tip, and pass every remaining check.
+  // (Codex, #490.)
+  const target = `${toolInput?.owner ?? ""}/${toolInput?.repo ?? ""}`;
+  if (!toolInput?.owner || !toolInput?.repo) {
+    return `merge blocked: the merge tool input names no owner/repo, so the receipt for PR #${pr} cannot be tied to a repository. ${RECEIPT_HOWTO}`;
+  }
+  if (typeof receipt.repo !== "string" || receipt.repo.toLowerCase() !== target.toLowerCase()) {
+    return (
+      `merge blocked: the receipt for PR #${pr} was minted for ${receipt.repo ?? "an unrecorded repository"}, ` +
+      `but the merge targets ${target}. ${RECEIPT_HOWTO}`
+    );
+  }
+  if (receipt.verdict !== "READY") {
+    const failing = Object.entries(receipt.items ?? {})
+      .filter(([, item]) => !item.pass)
+      .map(([key, item]) => `${key}: ${item.detail}`)
+      .join("; ");
+    return `merge blocked: the receipt for PR #${pr} says NOT READY -- ${failing || "no item detail recorded"}.`;
+  }
+
+  // ONE staleness predicate, imported rather than reimplemented. The previous
+  // revision claimed this was shared with `--show` and only half was: this
+  // function kept its own window constant and its own timestamp arithmetic, so
+  // a later change to either would have made the manual READY surface and this
+  // guard disagree about the same receipt. (Codex, #490 round 4.)
+  const stale = staleReason(receipt, now);
+  if (stale) return `merge blocked: ${stale} ${RECEIPT_HOWTO}`;
+
+  // Everything below is the SHA binding, and every branch of it denies. A
+  // receipt that cannot be tied to the commit GitHub would merge is not weaker
+  // evidence than one that can -- it is no evidence at all for the only
+  // question being asked here.
+  if (typeof receipt.headSha !== "string" || !/^[0-9a-f]{40}$/i.test(receipt.headSha)) {
+    return `merge blocked: the receipt for PR #${pr} carries no full head sha to bind against. ${RECEIPT_HOWTO}`;
+  }
+  if (typeof receipt.branch !== "string" || receipt.branch.trim() === "") {
+    return `merge blocked: the receipt for PR #${pr} names no branch, so its head sha cannot be checked against the tip. ${RECEIPT_HOWTO}`;
+  }
+
+  const tip = resolveSha(receipt.branch);
+  if (!tip) {
+    // Previously this abstained, on the reasoning that a branch this container
+    // never fetched is not evidence of a problem. That was the wrong default
+    // for a guard: the abstention is indistinguishable from the case it was
+    // meant to catch. (Codex, #490.)
+    return (
+      `merge blocked: could not resolve the current tip of ${receipt.branch} on the remote, so the receipt ` +
+      `for PR #${pr} cannot be tied to the commit that would merge. ${RECEIPT_HOWTO}`
+    );
+  }
+  if (tip !== receipt.headSha) {
+    return (
+      `merge blocked: the receipt for PR #${pr} validated ${receipt.headSha.slice(0, 7)}, but ` +
+      `${receipt.branch} is now at ${tip.slice(0, 7)}. The commit that was verified is not the commit ` +
+      `that would merge. ${RECEIPT_HOWTO}`
+    );
+  }
+
+  return null;
+}
+
+function readReceiptFromDisk(pr) {
   try {
-    const payload = JSON.parse(raw);
-    if (typeof payload?.tool_name !== "string") return null;
-    return { toolName: payload.tool_name, toolInput: payload.tool_input ?? {} };
+    const path = new URL(`../.agents/receipts/pr-${pr}.json`, import.meta.url);
+    return JSON.parse(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
 }
 
-/**
- * Full decision for a raw payload. Returns { blocked, reason }.
- *
- * Two judgements live behind one hook, because they are the same kind of thing
- * -- an action-path check on a move that cannot be undone by noticing later:
- *
- *   - A Bash command: is this a force push that would overwrite work the
- *     ephemeral container holds no second copy of?
- *   - An `@codex review` post: is this round inside the budget this loop
- *     declared before round 1? (See `review-budget.mjs` for why that is a
- *     check and not a contract line.)
- *
- * The review-request branch is taken ONLY for the specific comment-posting
- * tools, so every other payload -- Bash today, anything a future matcher adds
- * -- keeps the existing behaviour unchanged.
- */
-export function decide(raw, io = undefined) {
-  const call = extractToolCall(raw);
-  if (call && REVIEW_REQUEST_TOOLS.has(call.toolName)) {
-    return judgeReviewRequest(call, io ?? nodeIo());
+const MERGE_TOOL = "mcp__github__merge_pull_request";
+
+/** Full decision for a raw payload. Returns { blocked, reason }. */
+export function decide(raw, options = {}) {
+  let payload = null;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    // Not JSON; only the Bash path below can make sense of it.
   }
+
+  if (payload?.tool_name === MERGE_TOOL) {
+    const reason = checkMerge(payload.tool_input, {
+      readReceipt: readReceiptFromDisk,
+      resolveSha: remoteTip,
+      ...options,
+    });
+    return reason ? { blocked: true, reason } : { blocked: false, reason: null };
+  }
+
+  // The third judgement behind this hook: the review-round budget. Taken ONLY
+  // for the specific comment-posting tools, so every other payload -- Bash,
+  // the merge tool above, anything a future matcher adds -- is untouched.
+  // See review-budget.mjs for why this is a check and not a contract line.
+  if (typeof payload?.tool_name === "string" && REVIEW_REQUEST_TOOLS.has(payload.tool_name)) {
+    return judgeReviewRequest(
+      { toolName: payload.tool_name, toolInput: payload.tool_input ?? {} },
+      options.io ?? nodeIo(),
+    );
+  }
+
   const command = extractCommand(raw);
   const reason = evaluateScript(command, 0);
   return reason ? { blocked: true, reason } : { blocked: false, reason: null };

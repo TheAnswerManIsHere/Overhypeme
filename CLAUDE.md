@@ -690,10 +690,20 @@ one for the whole story. In order of authority:
    only, not `claude/*` (proven by `890528b`, a merge commit that pushed
    cleanly to a feature branch while *Require linear history* was on). This is
    the real protection for `main`: server-side, every actor, every spelling.
-3. **`.claude/guard.sh`.** Given layers 1 and 2, its only job is making the
+3. **`.claude/guard.sh`.** Given layers 1 and 2, its **first** job is making the
    **lease mandatory** on my own branches. That matters because the container
    is ephemeral — the local reflog dies with it, so an overwritten remote
-   branch has no second copy.
+   branch has no second copy. Its **second, independent** job as of 2026-08-17
+   is refusing `curl` and `wget` — a silent failure mode rather than a
+   destructive one (see the decision entry, 2026-08-17).
+   **Note what layer 2 does not do for either job.** The ruleset protects
+   `main`; it does not target `claude/*` or `plan-review/*`, so on the branches
+   the lease rule actually governs this hook is the *only* line, not the third.
+   Neither job is backstopped server-side — they differ in how they fail, not
+   in what stands behind them. And **both live in `guard-decision.mjs`**, so
+   both are absent from the node-unavailable fallback, where a `curl` payload
+   is allowed through; every "refuses curl and wget" claim is scoped to the
+   node path. (Codex, #499 round 3.)
 
 What that means in practice:
 
@@ -1131,13 +1141,48 @@ verification — is post-merge for the same structural reason.
    unlimited, so the response is to **ask for the code review** — the
    canonical fact and evidence are in
    [`code-review.md`](docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage),
-   not restated here. The genuine-outage exception below survives only for a request
-   that yields **no code review** — judged only on whether the code review
-   arrived, since a security bounce is independent noise that could
-   otherwise mask a real outage indefinitely: for a docs-only or
-   low-criticality artifact, "Codex converged" is then satisfied by
-   *ran-to-completion-or-confirmed-unavailable*, said plainly in the merge
-   report. For anything higher-stakes I wait rather than self-merge.
+   not restated here. **The genuine-outage exception is RETIRED (David,
+   2026-08-17).** It used to say that on a request yielding no code review,
+   a docs-only or low-criticality artifact could treat "Codex converged" as
+   satisfied by *ran-to-completion-or-confirmed-unavailable*. David's rule
+   leaves no room for it: *"EVERY PR is going to get a Codex review… We
+   NEVER merge until that happens."* A review that never arrived is not a
+   review, whatever the artifact's tier, so an outage now means **wait**,
+   not merge with a note. Codex flagged the contradiction on #490 from the
+   other end — the gate had no way to express the exception, which made
+   those PRs unmergeable while the contract said they were fine; retiring
+   the carve-out is what makes the contract and the check agree.
+   **A code-review outage is a FULL STOP that I escalate loudly, not a
+   wait I manage (David, 2026-08-17).** His words: *"I need you to stop
+   what you're doing and let me know that there's an issue. We'll have to
+   pause our development until the token limit resets… You'll need to fail
+   loudly."* So when Codex's **code review** is unavailable — a usage
+   limit that is not the security-review bounce, or a `@codex review` that
+   yields no code review after the `pr-watch` retry limit — I do four
+   things, in order:
+   1. **Stop.** Not just stop merging — stop building. No starting the
+      next thing, no "I'll work on something else meanwhile", no routing
+      the review elsewhere. Development is paused, because the safety net
+      David's whole workflow depends on is down.
+   2. **Tell him immediately**, as a 🛑 NEED YOU banner with a push
+      notification. This is the loud failure he asked for; a quiet note
+      buried in a status line is the failure mode being prevented.
+   3. **Say plainly what is blocked** — which PRs are mid-loop, what state
+      each is in, and that nothing merges until Codex is back.
+   4. **Wait for him.** Resuming is his call, not mine. I may watch for
+      recovery under the bounded check-in contract and report that Codex
+      is available again, but noticing recovery is not permission to
+      restart.
+
+   **The security-review bounce is NOT this** and must never trigger it —
+   the two limits are metered separately, so treating the security bounce
+   as an outage would halt development on independent noise. That is the
+   mirror of the older error where it was treated as a delivered review.
+   `pr-ready.mjs` distinguishes them: a non-security limit notice makes
+   the receipt read `BLOCKED -- CODEX UNAVAILABLE` and the item detail
+   start with `STOP --`, so an outage cannot be misread as an ordinary
+   "no pass yet".
+
    **And a review round I have requested but not yet received is not
    convergence either** — if I have posted `@codex review`, the bar is not
    met until that round lands and is triaged. Asking David to merge with a
@@ -1147,9 +1192,78 @@ verification — is post-merge for the same structural reason.
    — for those, the old ritual holds unchanged: a 🛑 NEED YOU banner with a
    push notification when the PR is ready, and only an explicit yes counts.
    If I'm unsure whether a PR falls under a carve-out, it does.
-3. **I re-verify live PR state immediately before merging** — a fresh
+3. **The bar is established by a receipt, not by recollection (David,
+   2026-08-17 — after the second occurrence).** `node scripts/pr-ready.mjs
+   --pr <N> --snapshot <file>` takes a captured `pull_request_read` snapshot
+   (`get_check_runs`, `get_reviews`, `get_comments`,
+   `get_review_comments`) and computes all three items, and its output is
+   what I quote. Two consequences, and the second is the one that was
+   missing:
+   - **The merge tool is hooked.** `mcp__github__merge_pull_request` is
+     blocked unless a receipt for that PR exists, says READY, is under an
+     hour old, and names the commit that is still the branch tip. That
+     covers merges I perform.
+   - **A readiness claim to David quotes the receipt block verbatim.** No
+     hook sees his click, so for a carve-out PR the receipt is the whole
+     control. "Ready for your merge" is unsayable without one, because
+     there would be nothing to paste — which is exactly what would have
+     stopped #487, where item 2 had never even been requested.
+
+   **Every PR gets a Codex review, and no PR merges before it returns
+   (David, 2026-08-17).** Not "most PRs", not "PRs where I expect
+   findings" — every one. A clean pass is still a pass that has to *come
+   back*, and the merge waits for it either way. So "Codex converged" is
+   never satisfiable by my judgement that a PR looks fine, by a round I
+   requested but haven't received, or by a review of an *earlier* commit —
+   a pass on a commit I have since pushed past has not reviewed the diff
+   that would merge.
+
+   **What counts as the review returning is the `**Reviewed commit:**`
+   announcement, and ONLY that** — in a review when Codex found something,
+   in a plain issue comment when it didn't. **A 👍 reaction does not count
+   on its own (Codex, #490 round 2).** The connector's own footer says a
+   clean pass reacts 👍, so this reads as a narrowing of David's rule and
+   isn't: it narrows what counts as *proof* the review returned, not what
+   has to happen. GitHub delivers a reaction as a **count** — no identity,
+   no timestamp — so it cannot show that the pass came from Codex or that
+   it covers this commit rather than the one the request was posted for.
+   A clean pass announces too, so nothing is lost in the measured case.
+   **If a clean pass ever arrives as a reaction with no announcement, that
+   goes to David** — it does not go back to accepting the inference.
+
+   `pr-ready.mjs` computes all of this: it requires a request, requires a
+   completed pass carrying the announcement, and requires that pass to
+   cover the head commit.
+
+   **What it does NOT enforce, stated here because I would otherwise quote
+   the receipt as a guarantee it does not make (Codex, #490 round 6).** An
+   earlier version of this paragraph said the script also requires *one
+   pass per request made since that commit appeared*. That rule was written
+   and then **split out** of the PR, so the claim outlived the code by one
+   commit. The gap it was closing is real and still open: `pr-watch` permits
+   one retry when a round produces no review, and that retry needs no push,
+   so two requests can name the same commit and a single pass answering the
+   first satisfies the check for both. Nothing in GitHub's data ties a
+   review to the request that triggered it, which is why counting is the
+   only way to tell those apart — and why the rule is hard enough to get
+   right that it went three review rounds without converging. It lives on
+   `claude/receipt-request-counting`, and `checkCodex` carries the same
+   disclosure at the point where it used to sit. **So a receipt proves a
+   review came back for this commit; it does not prove every requested
+   round did.** When I have retried a stalled round, that is mine to check
+   by eye.
+
+   **Why this is a check and not another undertaking:** the bar has been
+   reported from a single checked item **twice**. PR #458 merged with a
+   review round outstanding and took 7 findings on `main` 47 seconds later;
+   PR #487 I called green having run `get_check_runs` and nothing else, on a
+   PR where I had never posted `@codex review` at all. The repo's standing
+   rule is that a discipline broken twice becomes a check.
+
+4. **I re-verify live PR state immediately before merging** — a fresh
    `pull_request_read`, not the cached green from when the bar was last
-   checked. If anything moved (a new commit, a re-opened thread, CI
+   checked. This is what the receipt is generated from; the receipt's age cap
+   and SHA binding exist so a stale one cannot stand in for it. If anything moved (a new commit, a re-opened thread, CI
    flipped), I stop and re-work the bar rather than merging on a stale
    picture. **If this PR is the parent of a stacked dependent bugfix** (the
    working-modes.md *Dependent bugs* shape — a child branched from this
@@ -1157,7 +1271,7 @@ verification — is post-merge for the same structural reason.
    been retargeted to `main` before merging: this repo auto-deletes the
    parent branch on merge, with no reliable window afterward to retarget,
    so this check has to happen *before* the click, not after.
-4. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
+5. **Then, in order: squash-merge → trigger the Repl sync → verify the Repl's
    checked-out SHA matches the new `main` commit *and* that its worktree is
    clean → execute the PR's Post-merge verification section** through the
    connector (the two-call sequence below; read-only scoping stated), when
@@ -1166,7 +1280,7 @@ verification — is post-merge for the same structural reason.
    (see [`replit-environment.md`](docs/ai-context/replit-environment.md#github--repl-sync-and-publish-shared-fact-not-tool-specific)):
    a sync that silently didn't land looks exactly like one that did, and a
    leftover local edit rides along invisibly behind a correct SHA.
-5. **I make the `/document` judgement AND run the pass it calls for, both
+6. **I make the `/document` judgement AND run the pass it calls for, both
    BEFORE writing the merge report (David, 2026-08-16 — the third and, I
    expect, final ordering of this step).** Judging and running are one
    step, not two. The bar, the Opus tier guard, and the rule that the
@@ -1177,7 +1291,7 @@ verification — is post-merge for the same structural reason.
    the judgement *after* the report while requiring its verdict *in* the
    report — unsatisfiable. v2 (2026-08-15) fixed that by moving the
    judgement before the report and leaving the pass after it. That looked
-   correct and was still a trap, because **step 6 is a hand-the-turn-back
+   correct and was still a trap, because **step 7 is a hand-the-turn-back
    message**: it ends by telling David to go run his UAT. Writing "and I'm
    about to do more work" inside a handoff is structurally self-defeating —
    the message's form says stop, its content says continue, and the form
@@ -1187,9 +1301,9 @@ verification — is post-merge for the same structural reason.
 
    **So the gap is closed rather than guarded.** No verdict is ever recorded
    before the work it describes exists. The consequence is a mechanical
-   one — see the promise ban in step 6 — and it is what makes this
+   one — see the promise ban in step 7 — and it is what makes this
    unbreakable-by-forgetting rather than merely discouraged.
-6. **I report the outcome with both SHAs, the verification section's
+7. **I report the outcome with both SHAs, the verification section's
    results, the `/document` outcome, and hand off to UAT** — naming what he
    should go click, since the sync is the moment his testing becomes
    possible. A "no pass needed" verdict is stated in one line, not left
@@ -1223,14 +1337,14 @@ verification — is post-merge for the same structural reason.
    the sync fails or the checks don't match, I say so plainly and stop — no
    blind retries, never papering over a partial sync, and I don't invite him
    to test something that isn't actually there.
-7. **Nothing follows the merge report.** It is the last step of close-out by
+8. **Nothing follows the merge report.** It is the last step of close-out by
    construction, because it is the message that hands the turn back. Any
    future step I'm tempted to sequence after it belongs *before* it — the
-   `/document` pass was the one that tried, and step 5 is where it now
-   lives. (The old step 7 — "then I run the `/document` pass" — is gone for
+   `/document` pass was the one that tried, and step 6 is where it now
+   lives. (The old step 8 — "then I run the `/document` pass" — is gone for
    that reason, not because the pass stopped being required. It is required;
    it just happens earlier, and no ask, per David 2026-08-15.)
-8. **A failed UAT is a follow-up PR, not a crisis.** The merge already
+9. **A failed UAT is a follow-up PR, not a crisis.** The merge already
    happened; that's the design, not a mistake to undo. I fix forward on a
    fresh branch through the normal pipeline. A revert is only for a `main`
    that's actually broken (the Repl won't run, something's badly wrong), not
@@ -1417,11 +1531,13 @@ and never to re-check something a webhook reliably delivers.
 **A Codex "usage limits for security reviews" bounce is NOT one of these
 cases** — it is scoped to security reviews and says nothing about code-review
 availability, so the response is to ask for the code review, not to schedule
-a wake for a reset (see `pr-watch`). A genuine code-review outage — a request
-yielding **no code review** (a security bounce is irrelevant to that
-judgement, and must not be allowed to mask an outage) — is a legitimate case, and there the
-`pr-watch` retry limit governs how many times I re-ask; a scheduled wake does
-not license an unbounded retry cycle that rule already terminates.
+a wake for a reset (see `pr-watch`). **A genuine code-review outage is no
+longer a case I quietly wait out (David, 2026-08-17)** — it is a full stop
+that goes to David as a 🛑 banner first, per the close-out section's
+code-review-outage rule. A scheduled wake is permitted *after* that
+escalation, and only to notice that Codex is available again so I can tell
+him; it never licenses resuming work, and the `pr-watch` retry limit still
+governs how many times I re-ask.
 
 Every scheduled check-in carries all four of these, or it doesn't get
 scheduled:

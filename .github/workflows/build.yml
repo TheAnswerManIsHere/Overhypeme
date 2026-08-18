@@ -193,7 +193,7 @@ jobs:
       - name: Check Bash guard decisions
         run: node --test scripts/__tests__/guard-decision.test.mjs
 
-      # The second judgement behind the same hook: the review-round budget.
+      # Another judgement behind the same hook: the review-round budget.
       # It exists because per-round judgment provably cannot stop a runaway
       # review loop (PR #488: 22 rounds on ~10 lines, 0-for-15 on the
       # judgment-shaped stopping rules). A budget guard whose refusal matrix
@@ -202,6 +202,15 @@ jobs:
       # trusted.
       - name: Check review-round budget decisions
         run: node --test scripts/__tests__/review-budget.test.mjs
+
+      # The merge bar (CI green, Codex converged, threads resolved) was reported
+      # from a single checked item twice — PR #458 merged with a round
+      # outstanding, PR #487 reported green from get_check_runs alone on a PR
+      # where no review had ever been requested. The receipt this script writes
+      # is what the merge hook now demands, so its three checks need the same
+      # asserted-not-asserted-about treatment as the guard above.
+      - name: Check PR readiness receipts
+        run: node --test scripts/__tests__/pr-ready.test.mjs
 
       # Record validity, offline. Needs no token, no PR context, and no base
       # diff, so it runs identically on a PR and on push-to-main.

@@ -267,10 +267,16 @@ the diff *is* the plan. While watching an implementation PR:
     code-review outage, and an "and no bounce" conjunction would let that
     unrelated comment mask the outage permanently — the one-retry
     termination would never fire and a high-stakes PR would wait forever.
-    This is a real, separate case, and the stakes split from the
-    2026-08-15 ready bar governs it: docs-only/low-criticality may proceed
-    noting the skip; anything higher-stakes waits or escalates. One retry,
-    then stop re-asking. **A security-limit bounce does not qualify.**
+    This is a real, separate case, and it is now a **full stop** rather than
+    a stakes split (David, 2026-08-17): *"We'll have to pause our development
+    until the token limit resets. You'll need to fail loudly."* **The
+    2026-08-15 split — docs-only/low-criticality may proceed noting the skip
+    — is RETIRED.** Every PR gets a Codex review, and nothing merges until
+    it returns, whatever the PR's stakes; a criticality of 10 changes how
+    many rounds are worth requesting, never whether the first one has to
+    come back. One retry, then stop re-asking and raise it with David as a
+    🛑 banner with a push notification. **A security-limit bounce does not
+    qualify.**
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or
@@ -282,9 +288,16 @@ the diff *is* the plan. While watching an implementation PR:
   never my prose replies. **No minimum rounds, no convergence ceremony** — that
   is the plan loop, not this: a clean/silent re-review ends it, and new
   substantive findings just follow the rules above (fix the mechanical,
-  escalate real decisions, break on oscillation per the diagnosis rule). Only
-  exception: a genuinely zero-risk push (docs-only, comment typo) doesn't need
-  one — anything touching product code or test logic does.
+  escalate real decisions, break on oscillation per the diagnosis rule).
+  **The old zero-risk exemption — a docs-only push or comment typo needing no
+  re-review — is RETIRED (David, 2026-08-17).** Nothing merges without a
+  completed pass covering the commit that would merge, so any push after a
+  review needs a fresh round however small it was: what makes a push safe is
+  not knowable from its own diff, which is the assumption that let PR #487 be
+  reported ready. The merge gate enforces this rather than trusting the
+  judgement — `scripts/pr-ready.mjs` requires a `**Reviewed commit:**`
+  announcement matching the head sha, so a push after the last pass simply
+  fails the receipt.
   **Two conditions gate every re-request, on top of the criticality gate
   above (David, 2026-08-17 — the round-budget contract).**
   1. **A behavioral change since the last reviewed commit.** No re-request
@@ -293,9 +306,11 @@ the diff *is* the plan. While watching an implementation PR:
      `proseOnly`. A **skill file, `CLAUDE.md`, or a `docs/ai-context/`
      contract counts as behavioral** — in this repo those change what
      agents do — while comment wording, a UAT doc, and a ledger record do
-     not. This is the *stronger* of the two exceptions above: "docs-only
-     doesn't need one" says a round may be skipped; this says a
-     prose-only round may not be requested.
+     not. (This composes with the retired exemption above rather than
+     contradicting it: a prose-only push may not *buy a round*, and it also
+     doesn't *escape review* — it simply waits and rides the next
+     behavioral round, since the merge gate demands a pass covering the
+     final head either way.)
   2. **Pre-registered flip conditions, in the request itself.** Name, before
      the round runs, what would stop the loop: the finding that would end
      it, the count that would trip it, the shape change that would mean
@@ -306,27 +321,22 @@ the diff *is* the plan. While watching an implementation PR:
      one that was already true when written — fires the adversarial subagent
      before the round proceeds.
 
-  The round count itself is no longer mine to track: the guard tallies it and
-  refuses past the budget.
+  The round count itself is no longer mine to track or remember: the guard
+  counts it from fresh GitHub evidence (a round-check receipt) and refuses
+  past the budget.
 
   **Name the branch head, never a specific SHA, in a review request (David,
-  2026-08-17).** The durability rule above guarantees a receipt commit lands
-  *immediately after* every request — the guard writes the tally at post time,
-  so committing it can only happen afterwards. A SHA named in the request is
-  therefore **structurally stale by one commit, every single time**, and
-  Codex reviews the head at the moment it runs rather than the SHA it was
-  told. Observed twice in one loop before it was noticed. The delta is always
-  a `record`-class receipt file, so nothing material is lost — but a request
-  that names a commit the reviewer will not review is a request that lies
-  about its own target, and the `Reviewed commit:` line is what the ledger
-  and the mechanical record key on. Say "the branch head" and let the
-  cumulative-diff instruction carry the scope.
+  2026-08-17).** Codex reviews the head at the moment it runs, not the SHA it
+  was told — and the `**Reviewed commit:**` line it emits is what the merge
+  gate binds against and what the ledger keys on, so a request that names a
+  commit the reviewer will not review misstates its own target. Say "the
+  branch head" and let the cumulative-diff instruction carry the scope.
 
   **Verify CI on the SHA that is actually HEAD, not the one you last
-  looked at.** Same root cause, worse consequence: after a push, the previous
-  SHA's green checks say nothing about the current one, and `get_check_runs`
-  returning `total_count: 0` means *checks have not reported yet* — which is
-  not green and must never be reported as green.
+  looked at.** After a push, the previous SHA's green checks say nothing
+  about the current one, and `get_check_runs` returning `total_count: 0`
+  means *checks have not reported yet* — which is not green and must never
+  be reported as green.
 
   **The re-request says what to reconcile.** A bare `@codex review` on a fix round invites a
   review of just the new commits, so I state in the comment which findings the
