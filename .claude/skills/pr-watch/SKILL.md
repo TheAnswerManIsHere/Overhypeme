@@ -62,11 +62,27 @@ node scripts/review-budget.mjs check --pr <n> --mcp-snapshot <file>
 ```
 
 The snapshot is `pull_request_read` (`get`, `get_reviews`, `get_comments`),
-paginated and attested complete. It writes an ephemeral round-check receipt
-that authorizes exactly **one** post — the same evidence-at-decision-time
-pattern the merge gate uses, because the round count is evidence, not
-something to remember. There is no tally to maintain and nothing to reconcile
-if a request stalls.
+paginated and attested complete, and it must also name its source
+(`repo: "TheAnswerManIsHere/Overhypeme"`) and the moment GitHub was read
+(`capturedAt`) — a PR number alone does not identify a pull request, and
+freshness is a property of the evidence rather than of when the command was
+typed. Bodies are required on every issue comment and every reviewer-authored
+review, because that is where the count actually reads. It writes an ephemeral
+round-check receipt that authorizes exactly **one** post — the same
+evidence-at-decision-time pattern the merge gate uses, because the round count
+is evidence, not something to remember. There is no tally to maintain and
+nothing to reconcile if a request stalls.
+
+**Post the request as an issue comment.** The guard refuses a trigger sent
+through a thread reply or a review body: those land where the round count
+cannot see them, so a request in flight there would be invisible as a pending
+round. The refusal says so and names the surface to use.
+
+**A retry of a stalled round is not a new round and costs nothing.** If a
+request produced no review, re-asking is allowed even at the cap — `pending`
+stays 1 until a pass lands, and the guard gates on delivered passes. The one
+retry limit below is still the rule; it is a judgement about when to stop
+asking, not a budget constraint.
 
 This is not optional and not a reminder: `.claude/guard.sh` refuses the
 **first** `@codex review` post until the budget receipt exists, refuses any

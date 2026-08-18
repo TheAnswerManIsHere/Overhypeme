@@ -60,7 +60,7 @@ import {
   REVIEWER_LOGINS,
   normalizeLogin,
 } from "./loop-metrics.mjs";
-import { loadLoop, allowance, countRounds, tierCap, nodeIo, TIERS } from "./review-budget.mjs";
+import { loadLoop, allowance, countRounds, tierCap, nodeIo, TIERS, REPO_OWNER, REPO_NAME } from "./review-budget.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -423,6 +423,18 @@ export function parseArgs(argv) {
 export function assertAdjudicationSnapshot(pr, snapshot) {
   if (snapshot?.pr?.number !== pr) {
     throw new Error(`snapshot describes PR ${snapshot?.pr?.number}, but --pr says ${pr}`);
+  }
+  // Swept with the same fix on the counting path: every repository has a #503,
+  // so a PR number alone does not identify a pull request, and this record is
+  // the adjudicator's ONLY input. A foreign loop's rounds and findings
+  // presented under this PR's budget is the worst input that reader can get.
+  // (Codex, #503 round 4 — raised against `check`; the class lives here too.)
+  const target = `${REPO_OWNER}/${REPO_NAME}`;
+  if (typeof snapshot.repo !== "string" || snapshot.repo.toLowerCase() !== target.toLowerCase()) {
+    throw new Error(
+      `snapshot must name its source repository as "repo": "${target}" -- it says ` +
+        `${JSON.stringify(snapshot.repo ?? null)}, and a PR number alone does not identify a pull request`,
+    );
   }
   if (!Array.isArray(snapshot.issueComments) || snapshot.complete?.issueComments !== true) {
     throw new Error(

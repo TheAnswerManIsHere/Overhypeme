@@ -85,6 +85,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { REVIEWER_LOGINS, normalizeLogin } from "./loop-metrics.mjs";
+
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export const RECEIPTS_DIR = ".agents/receipts";
@@ -160,6 +162,31 @@ export const REVIEW_REQUEST_TOOLS = new Set([
 ]);
 
 /**
+ * The ONE surface a review request may be posted on.
+ *
+ * The other two guarded tools store their body in a review thread or a review
+ * body, NOT in `issueComments` -- and `countRounds` detects a pending round by
+ * scanning issue comments. So a trigger posted through a thread reply is
+ * invisible to the count: a check taken while it is in flight reports no
+ * pending round and can authorize another request at the cap, landing two
+ * passes where one round remained. (Codex, #503 round 4.)
+ *
+ * Two ways to close that. Widen counting to every surface -- which means every
+ * `check` must also capture review threads and review bodies, and a snapshot
+ * missing any one of them silently under-counts. Or narrow POSTING to the one
+ * surface counting can see, which is what this does. The narrow fix is exact
+ * rather than approximate: with the trigger refused everywhere else,
+ * `issueComments` is the complete pending surface BY CONSTRUCTION, and no
+ * future snapshot shape can reopen the hole.
+ *
+ * It also costs nothing real. The contract's re-request has always been an
+ * issue comment; a trigger inside a thread reply was never the sanctioned
+ * shape. What is refused here is a shape we do not use, and the refusal says
+ * where to post instead.
+ */
+export const REVIEW_REQUEST_SURFACE = "mcp__github__add_issue_comment";
+
+/**
  * The trigger phrase, as Codex's connector actually reads it.
  *
  * KNOWN AND ACCEPTED FALSE POSITIVE: a comment that merely *quotes* the phrase
@@ -203,6 +230,18 @@ export function targetsThisRepo(toolInput) {
 export const budgetPath = (pr) => `${RECEIPTS_DIR}/loop-budget-${pr}.json`;
 export const extensionPath = (pr, seq) => `${RECEIPTS_DIR}/loop-extension-${pr}-${seq}.json`;
 export const checkPath = (pr) => `${RECEIPTS_DIR}/loop-round-check-${pr}.json`;
+/**
+ * The claim marker for a round-check receipt.
+ *
+ * `consumedAt` alone is a read-then-write, and the guard runs as a separate
+ * process per tool call: two guarded posts issued in one turn can both read
+ * the unconsumed receipt, both validate, and both write, so one check
+ * authorizes two rounds and the second write merely overwrites the first.
+ * (Codex, #503 round 4.) The claim closes that window because creating it is
+ * a single atomic syscall -- exactly one process can win, whatever the
+ * interleaving. `consumedAt` stays as the human-readable record of when.
+ */
+export const claimPath = (pr) => `${checkPath(pr)}.claim`;
 
 /**
  * The sequence in an extension filename for this PR, or null if the name is
@@ -260,6 +299,31 @@ export function nodeIo(root = REPO_ROOT) {
     write(rel, text) {
       fs.mkdirSync(path.dirname(abs(rel)), { recursive: true });
       fs.writeFileSync(abs(rel), text);
+    },
+    /**
+     * Exclusive create: true for exactly one caller, false for every other,
+     * decided by the filesystem rather than by a read-then-write this process
+     * could lose a race on. Anything other than EEXIST rethrows, so an I/O
+     * fault refuses the post instead of silently reading as "already claimed"
+     * or "free" -- the same ENOENT-only discipline as `read` and
+     * `listReceipts`.
+     */
+    claimOnce(rel) {
+      fs.mkdirSync(path.dirname(abs(rel)), { recursive: true });
+      try {
+        fs.closeSync(fs.openSync(abs(rel), "wx"));
+        return true;
+      } catch (err) {
+        if (err.code === "EEXIST") return false;
+        throw err;
+      }
+    },
+    releaseClaim(rel) {
+      try {
+        fs.unlinkSync(abs(rel));
+      } catch (err) {
+        if (err.code !== "ENOENT") throw err;
+      }
     },
   };
 }
@@ -539,6 +603,17 @@ export function validateCheckReceipt(pr, receipt, now) {
   if (!Number.isInteger(receipt.spent) || receipt.spent < 0) {
     return `round-check receipt carries no usable round count (spent: ${JSON.stringify(receipt.spent)})`;
   }
+  // The gate reads these two directly (a retry of a stalled round is not a new
+  // round), so neither may be absent or wrong-typed.
+  if (!Number.isInteger(receipt.delivered) || receipt.delivered < 0) {
+    return `round-check receipt carries no usable delivered count (${JSON.stringify(receipt.delivered)})`;
+  }
+  if (receipt.pending !== 0 && receipt.pending !== 1) {
+    return `round-check receipt carries a pending value of ${JSON.stringify(receipt.pending)}; at most one round can be in flight, so it must be 0 or 1`;
+  }
+  if (receipt.delivered + receipt.pending !== receipt.spent) {
+    return `round-check receipt does not add up (${receipt.delivered} delivered + ${receipt.pending} pending != ${receipt.spent} spent)`;
+  }
   // One receipt authorizes ONE post. Without this, a receipt minted before
   // round N still says N-1 spent when round N+1 is requested, and freshness
   // alone would let it authorize both.
@@ -559,7 +634,10 @@ export function validateCheckReceipt(pr, receipt, now) {
 
 const CHECK_HOWTO = (pr) =>
   `Capture pull_request_read (get, get_reviews, get_comments) into a snapshot and run ` +
-  `\`node scripts/review-budget.mjs check --pr ${pr} --mcp-snapshot <file>\`.`;
+  `\`node scripts/review-budget.mjs check --pr ${pr} --mcp-snapshot <file>\`. The snapshot must carry ` +
+  `repo: "${REPO_OWNER}/${REPO_NAME}", pr.number, a capturedAt timestamp from when GitHub was actually ` +
+  `read, complete.reviews/complete.issueComments attestations, a body on every issue comment and on every ` +
+  `reviewer-authored review, and must be re-captured rather than reused once it is an hour old.`;
 
 /**
  * The refusal text. This is the product, not a side note: it is read by the
@@ -617,6 +695,20 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
   if (!mentionsReviewRequest(toolInput?.body)) return { blocked: false, reason: null };
   if (!targetsThisRepo(toolInput)) return { blocked: false, reason: null };
 
+  // Refuse the trigger on any surface the count cannot see. This is what makes
+  // `issueComments` a complete pending surface -- see REVIEW_REQUEST_SURFACE.
+  if (toolName !== REVIEW_REQUEST_SURFACE) {
+    return {
+      blocked: true,
+      reason:
+        `a review request posted through ${toolName} lands in a review thread or review body, not in the ` +
+        `issue comments the round count reads -- so it would be invisible as a pending round and could let ` +
+        `an extra round through at the cap. Post the re-request as an issue comment ` +
+        `(${REVIEW_REQUEST_SURFACE}) instead. If this comment only QUOTES the trigger rather than being one, ` +
+        `reword it: the guard reads raw text and cannot tell the difference.`,
+    };
+  }
+
   const pr = prNumberFrom(toolInput);
   if (pr === null) {
     return {
@@ -665,9 +757,39 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
     return { blocked: true, reason: `${checkError}. ${CHECK_HOWTO(pr)}` };
   }
 
-  const spent = check.value.spent;
-  if (spent >= allowance(state.tier, state.extensions, spent)) {
+  // A RETRY OF A STALLED ROUND IS NOT A NEW ROUND, and refusing it was a real
+  // deadlock. With `spent = delivered + pending`, an internal loop sitting at
+  // 2 delivered + 1 stalled equals the cap, so the retry was refused -- while
+  // the documented recovery could not clear it either, since the adjudication
+  // record would show 2 completed passes against a required 3. A reviewer
+  // outage at the cap became a hard stop until the original pass arrived or
+  // David intervened. (Codex, #503 round 4.)
+  //
+  // The distinction is exact, not approximate. `pending` is defined as a
+  // trigger sitting AFTER the last completed pass, so if it is 1 then nothing
+  // has been answered since that request, and any request now is a retry of
+  // the same unanswered round rather than a new one. Gate on `delivered`, and
+  // only when nothing is in flight.
+  //
+  // Staging still reads `spent`: a pending round is budget already committed,
+  // so an extension must not activate early just because the round in flight
+  // has not landed yet.
+  const { delivered, pending, spent } = check.value;
+  if (pending === 0 && delivered >= allowance(state.tier, state.extensions, spent)) {
     return { blocked: true, reason: refusal(pr, state, spent) };
+  }
+
+  // Claim the receipt ATOMICALLY before allowing anything. `consumedAt` alone
+  // is a read-then-write and this runs once per tool call in its own process,
+  // so two posts issued together could both read it unconsumed and both be
+  // allowed. See claimPath().
+  if (!io.claimOnce(claimPath(pr))) {
+    return {
+      blocked: true,
+      reason:
+        `the round-check receipt for PR #${pr} has already been claimed by another post in flight -- one ` +
+        `check authorizes one request. ${CHECK_HOWTO(pr)}`,
+    };
   }
 
   // Consume the receipt: one check, one post. Written before the post goes
@@ -756,10 +878,48 @@ function declare(flags, io) {
  * entries lack the fields the counter reads is undercounted, not rejected --
  * so the load-bearing fields are checked here.)
  */
-export function assertCountingSnapshot(pr, snapshot) {
+export function assertCountingSnapshot(pr, snapshot, now = Date.now()) {
   if (!snapshot || typeof snapshot !== "object") throw new Error("snapshot is not an object");
   if (snapshot.pr?.number !== pr) {
     throw new Error(`snapshot describes PR ${snapshot.pr?.number}, but --pr says ${pr}`);
+  }
+  // A PR number alone does not identify a pull request. Every repository has a
+  // #503, so a snapshot captured elsewhere -- with fewer passes -- would be
+  // laundered into a valid-looking lower count and buy an unearned round,
+  // while `check` stamped the receipt with THIS repo's name regardless of
+  // where the data came from. (Codex, #503 round 4. `pr-ready.mjs` already
+  // binds its readiness snapshot this way; this path did not.)
+  const target = `${REPO_OWNER}/${REPO_NAME}`;
+  if (typeof snapshot.repo !== "string" || snapshot.repo.toLowerCase() !== target.toLowerCase()) {
+    throw new Error(
+      `snapshot must name its source repository as "repo": "${target}" -- it says ` +
+        `${JSON.stringify(snapshot.repo ?? null)}, and a PR number alone does not identify a pull request`,
+    );
+  }
+  // FRESHNESS IS A PROPERTY OF THE EVIDENCE, NOT OF THE COMMAND.
+  //
+  // The receipt used to stamp `capturedAt` with the time `check` ran, so a
+  // snapshot saved hours earlier -- after which more passes landed -- minted a
+  // receipt that looked current for another hour while carrying the older,
+  // lower count. The one-hour cap measured how recently the command was typed,
+  // which is not a fact about anything. It now measures how recently GitHub
+  // was actually read. (Codex, #503 round 4 -- and they were right that this
+  // is the dissolved reconciliation-staleness finding reappearing in its
+  // replacement, which is exactly why it needed closing rather than noting.)
+  const capturedAt = Date.parse(snapshot.capturedAt ?? "");
+  if (!Number.isFinite(capturedAt)) {
+    throw new Error(
+      'snapshot must carry a parseable "capturedAt" -- the moment GitHub was read. Without it the ' +
+        "receipt's freshness would measure when the command ran, which a reused snapshot satisfies trivially",
+    );
+  }
+  const age = now - capturedAt;
+  if (age < 0) throw new Error(`snapshot capturedAt (${snapshot.capturedAt}) is in the future`);
+  if (age > MAX_CHECK_AGE_MS) {
+    throw new Error(
+      `snapshot was captured ${Math.round(age / 60000)} minutes ago, older than the ` +
+        `${MAX_CHECK_AGE_MS / 60000}-minute limit -- re-capture it rather than re-stamping stale evidence`,
+    );
   }
   for (const key of ["reviews", "issueComments"]) {
     if (!Array.isArray(snapshot[key])) throw new Error(`snapshot "${key}" must be an array`);
@@ -777,12 +937,34 @@ export function assertCountingSnapshot(pr, snapshot) {
           "reviewerPasses would silently undercount this shape rather than reject it",
       );
     }
+    // A REVIEWER's review is counted by its body: `reviewerPasses` keys on the
+    // "Reviewed commit:" announcement, and with the body absent it silently
+    // falls back to one-pass-per-record. Demanded only of reviewer-authored
+    // records, because those are the only ones the body is load-bearing for --
+    // requiring it of every record would mean inventing empty bodies for the
+    // dozens of my own replies a real snapshot carries, which is fabricating
+    // data to satisfy a validator. (Codex, #503 round 4.)
+    if (REVIEWER_LOGINS.has(normalizeLogin(r.user.login)) && typeof r.body !== "string") {
+      throw new Error(
+        `snapshot reviews[${i}] is a reviewer record with no string body -- the pass count keys on the ` +
+          "\"Reviewed commit:\" announcement in that body, so an omitted one silently changes the count",
+      );
+    }
   });
   snapshot.issueComments.forEach((c, i) => {
     if (c?.id === undefined || typeof c?.user?.login !== "string" || !Number.isFinite(Date.parse(c?.created_at ?? ""))) {
       throw new Error(
         `snapshot issueComments[${i}] is missing id, user.login, or a parseable created_at -- ` +
           "pass and pending detection would silently miscount this shape rather than reject it",
+      );
+    }
+    // Every issue comment's body is load-bearing here: it is the only place a
+    // pending trigger can be seen, and an absent body reads as "no trigger" --
+    // a missing pending round, which is headroom the loop did not earn.
+    if (typeof c.body !== "string") {
+      throw new Error(
+        `snapshot issueComments[${i}] has no string body -- pending-trigger detection reads it, and an ` +
+          "omitted body is indistinguishable from a comment that carries no trigger",
       );
     }
   });
@@ -792,7 +974,7 @@ async function check(flags, io) {
   const pr = requirePr(flags);
   if (!flags["mcp-snapshot"]) throw new Error(`--mcp-snapshot <file> is required. ${CHECK_HOWTO(pr)}`);
   const snapshot = JSON.parse(fs.readFileSync(flags["mcp-snapshot"], "utf8"));
-  assertCountingSnapshot(pr, snapshot);
+  assertCountingSnapshot(pr, snapshot, Date.parse(io.now()));
 
   const state = loadLoop(pr, io);
   if (state.problem === "no-budget") throw new Error(`no budget declared for PR #${pr} -- declare first`);
@@ -807,13 +989,25 @@ async function check(flags, io) {
   const receipt = {
     pr,
     repo: `${REPO_OWNER}/${REPO_NAME}`,
-    capturedAt: io.now(),
+    // The snapshot's own capture time, NOT `io.now()`. See the freshness note
+    // in assertCountingSnapshot: stamping the command time lets a stale
+    // snapshot mint an indefinitely-renewable receipt.
+    capturedAt: snapshot.capturedAt,
+    mintedAt: io.now(),
     ...counted,
   };
   io.write(checkPath(pr), `${JSON.stringify(receipt, null, 2)}\n`);
+  // A fresh receipt gets a fresh claim: the guard claims by exclusive create,
+  // so a leftover claim from the previous post would refuse this one.
+  io.releaseClaim(claimPath(pr));
 
   const cap = allowance(state.tier, state.extensions, counted.spent);
-  const verdict = counted.spent >= cap ? "the NEXT request will be refused (tripwire)" : "the next request is inside budget";
+  const verdict =
+    counted.pending === 0 && counted.delivered >= cap
+      ? "the NEXT request will be refused (tripwire)"
+      : counted.pending
+        ? "a round is in flight; a retry of it is allowed and costs nothing new"
+        : "the next request is inside budget";
   return (
     `PR #${pr}: ${counted.delivered} completed reviewer pass(es)` +
     `${counted.pending ? " + 1 pending request" : ""} = ${counted.spent} of ` +

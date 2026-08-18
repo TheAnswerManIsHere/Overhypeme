@@ -756,6 +756,14 @@ const memoryIo = (files = {}) => {
     write: (rel, text) => {
       store[rel] = text;
     },
+    claimOnce: (rel) => {
+      if (rel in store) return false;
+      store[rel] = "";
+      return true;
+    },
+    releaseClaim: (rel) => {
+      delete store[rel];
+    },
   };
 };
 

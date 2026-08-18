@@ -45,6 +45,17 @@ export function fakeIo(files = {}) {
     write: (rel, text) => {
       store[rel] = text;
     },
+    // Exclusive create, same contract as the real adapter: true once, false
+    // ever after. Modelling it as a store key is exactly right — the point of
+    // the real one is that the CREATE is the atom, not the read.
+    claimOnce: (rel) => {
+      if (rel in store) return false;
+      store[rel] = "";
+      return true;
+    },
+    releaseClaim: (rel) => {
+      delete store[rel];
+    },
   };
 }
 
@@ -594,19 +605,32 @@ test("ordinary comments, other repos, and other tools are untouched", () => {
 // Snapshot validation for `check`
 // ---------------------------------------------------------------------------
 
+const SNAPSHOT_NOW = Date.parse("2026-08-17T10:40:00Z");
+
 const snapshot = (pr, extra = {}) => ({
   pr: { number: pr },
-  reviews: [{ id: 1, user: { login: "chatgpt-codex-connector[bot]" }, submitted_at: "2026-08-17T10:00:00Z" }],
+  repo: "TheAnswerManIsHere/Overhypeme",
+  capturedAt: "2026-08-17T10:35:00Z",
+  reviews: [
+    {
+      id: 1,
+      user: { login: "chatgpt-codex-connector[bot]" },
+      submitted_at: "2026-08-17T10:00:00Z",
+      body: "**Reviewed commit:** `abc1234567`",
+    },
+  ],
   issueComments: [{ id: 2, user: { login: "TheAnswerManIsHere" }, created_at: "2026-08-17T10:30:00Z", body: "hi" }],
   complete: { reviews: true, issueComments: true },
   ...extra,
 });
 
+const assertSnapshot = (pr, snap) => assertCountingSnapshot(pr, snap, SNAPSHOT_NOW);
+
 test("a counting snapshot must describe this PR and be attested complete", () => {
-  assert.doesNotThrow(() => assertCountingSnapshot(1, snapshot(1)));
-  assert.throws(() => assertCountingSnapshot(2, snapshot(1)), /describes PR 1, but --pr says 2/);
+  assert.doesNotThrow(() => assertSnapshot(1, snapshot(1)));
+  assert.throws(() => assertSnapshot(2, snapshot(1)), /describes PR 1, but --pr says 2/);
   assert.throws(
-    () => assertCountingSnapshot(1, snapshot(1, { complete: { reviews: true, issueComments: false } })),
+    () => assertSnapshot(1, snapshot(1, { complete: { reviews: true, issueComments: false } })),
     /complete\.issueComments === true/,
   );
 });
@@ -616,15 +640,197 @@ test("a snapshot whose entries lack the counted fields is rejected, not undercou
   // undercounted by reviewerPasses — wrong in the guard's favour. (Codex,
   // #503 round 3.)
   assert.throws(
-    () => assertCountingSnapshot(1, snapshot(1, { reviews: [{ user: { login: "x" }, submitted_at: "2026-08-17T10:00:00Z" }] })),
+    () => assertSnapshot(1, snapshot(1, { reviews: [{ user: { login: "x" }, submitted_at: "2026-08-17T10:00:00Z" }] })),
     /reviews\[0\] is missing id/,
   );
   assert.throws(
-    () => assertCountingSnapshot(1, snapshot(1, { reviews: [{ id: 1, user: { login: "x" }, submitted_at: "nope" }] })),
+    () => assertSnapshot(1, snapshot(1, { reviews: [{ id: 1, user: { login: "x" }, submitted_at: "nope" }] })),
     /parseable submitted_at/,
   );
   assert.throws(
-    () => assertCountingSnapshot(1, snapshot(1, { issueComments: [{ id: 1, created_at: "2026-08-17T10:00:00Z" }] })),
+    () => assertSnapshot(1, snapshot(1, { issueComments: [{ id: 1, created_at: "2026-08-17T10:00:00Z" }] })),
     /issueComments\[0\] is missing id, user\.login/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Codex, #503 round 4. Six findings, all against the counting mechanism —
+// which is new code on its first review, not the previous round's fixes.
+// ---------------------------------------------------------------------------
+
+test("the trigger is refused on any surface the count cannot see", () => {
+  // countRounds detects a pending round by scanning issue comments. A trigger
+  // posted through a thread reply or a review body lands somewhere else, so a
+  // check taken while it is in flight reports no pending round and can
+  // authorize another request at the cap. Narrowing the POSTING surface makes
+  // issueComments complete by construction.
+  const io = fakeIo({ [budgetPath(7)]: budget(7), [checkPath(7)]: check(7, 0) });
+  for (const toolName of [
+    "mcp__github__add_reply_to_pull_request_comment",
+    "mcp__github__pull_request_review_write",
+  ]) {
+    const verdict = judgeReviewRequest(
+      { toolName, toolInput: { owner: REPO_OWNER, repo: REPO_NAME, pullNumber: 7, body: "@codex review" } },
+      io,
+      NOW,
+    );
+    assert.equal(verdict.blocked, true, `${toolName} must not be able to post a trigger`);
+    assert.match(verdict.reason, /Post the re-request as an issue comment/);
+  }
+  assert.equal(
+    judgeReviewRequest(post(7), io, NOW).blocked,
+    false,
+    "the sanctioned surface still works — this narrows posting, it does not break it",
+  );
+});
+
+test("a reply that does not carry the trigger is untouched by the surface rule", () => {
+  // Replying to review threads is most of what this session does; only a body
+  // carrying the trigger is judged at all.
+  const io = fakeIo({ [budgetPath(7)]: budget(7) });
+  const verdict = judgeReviewRequest(
+    {
+      toolName: "mcp__github__add_reply_to_pull_request_comment",
+      toolInput: { owner: REPO_OWNER, repo: REPO_NAME, pullNumber: 7, body: "Fixed in abc1234." },
+    },
+    io,
+    NOW,
+  );
+  assert.equal(verdict.blocked, false);
+});
+
+test("a counting snapshot is bound to the repository, not just the PR number", () => {
+  // Every repo has a #503. A foreign snapshot with fewer passes would be
+  // laundered into a lower count while `check` stamped this repo's name on it.
+  assert.throws(() => assertSnapshot(1, snapshot(1, { repo: undefined })), /must name its source repository/);
+  assert.throws(() => assertSnapshot(1, snapshot(1, { repo: "someone/else" })), /must name its source repository/);
+  assert.doesNotThrow(() => assertSnapshot(1, snapshot(1, { repo: "theanswermanishere/overhypeme" })));
+});
+
+test("freshness is a property of the evidence, not of the command", () => {
+  // Stamping the receipt with the command time let a snapshot saved hours ago
+  // — after which more passes landed — mint a receipt that looked current for
+  // another hour while carrying the older, lower count.
+  assert.throws(() => assertSnapshot(1, snapshot(1, { capturedAt: undefined })), /parseable "capturedAt"/);
+  assert.throws(() => assertSnapshot(1, snapshot(1, { capturedAt: "not a time" })), /parseable "capturedAt"/);
+  assert.throws(
+    () => assertSnapshot(1, snapshot(1, { capturedAt: "2026-08-17T11:00:00Z" })),
+    /is in the future/,
+  );
+  assert.throws(
+    () => assertSnapshot(1, snapshot(1, { capturedAt: new Date(SNAPSHOT_NOW - MAX_CHECK_AGE_MS - 1000).toISOString() })),
+    /older than the 60-minute limit/,
+  );
+});
+
+test("a body is required exactly where the count reads one", () => {
+  // Reviewer reviews: the pass count keys on the "Reviewed commit:"
+  // announcement in the body, so an omitted one silently changes the count.
+  assert.throws(
+    () =>
+      assertSnapshot(
+        1,
+        snapshot(1, {
+          reviews: [{ id: 1, user: { login: "chatgpt-codex-connector[bot]" }, submitted_at: "2026-08-17T10:00:00Z" }],
+        }),
+      ),
+    /reviewer record with no string body/,
+  );
+  // Non-reviewer reviews are not: demanding a body there would mean inventing
+  // empty ones for the dozens of my own replies a real snapshot carries.
+  assert.doesNotThrow(() =>
+    assertSnapshot(
+      1,
+      snapshot(1, {
+        reviews: [
+          {
+            id: 1,
+            user: { login: "chatgpt-codex-connector[bot]" },
+            submitted_at: "2026-08-17T10:00:00Z",
+            body: "**Reviewed commit:** `abc1234567`",
+          },
+          { id: 2, user: { login: "TheAnswerManIsHere" }, submitted_at: "2026-08-17T10:10:00Z" },
+        ],
+      }),
+    ),
+  );
+  // Every issue comment's body is load-bearing: it is the only place a pending
+  // trigger can be seen, and an absent body reads as "no trigger".
+  assert.throws(
+    () =>
+      assertSnapshot(
+        1,
+        snapshot(1, {
+          issueComments: [{ id: 2, user: { login: "TheAnswerManIsHere" }, created_at: "2026-08-17T10:30:00Z" }],
+        }),
+      ),
+    /issueComments\[0\] has no string body/,
+  );
+});
+
+test("a retry of a stalled round is allowed at the cap; a NEW round is not", () => {
+  // The deadlock: internal cap 3, two passes delivered, one request stalled.
+  // spent === 3 === cap refused the retry — and the documented recovery could
+  // not clear it either, because the adjudication record would show 2
+  // completed passes against a required 3. A reviewer outage at the cap became
+  // a hard stop until David intervened.
+  const stalled = fakeIo({
+    [budgetPath(8)]: budget(8),
+    [checkPath(8)]: check(8, 3, { delivered: 2, pending: 1 }),
+  });
+  assert.equal(
+    judgeReviewRequest(post(8), stalled, NOW).blocked,
+    false,
+    "pending === 1 means nothing has been answered since that request, so this IS the same round",
+  );
+
+  const atCap = fakeIo({
+    [budgetPath(9)]: budget(9),
+    [checkPath(9)]: check(9, 3, { delivered: 3, pending: 0 }),
+  });
+  const verdict = judgeReviewRequest(post(9), atCap, NOW);
+  assert.equal(verdict.blocked, true, "with nothing in flight, the next request is a fourth round");
+  assert.match(verdict.reason, /TRIPWIRE 1/);
+});
+
+test("the tripwire still fires the moment the stalled round is answered", () => {
+  // The retry allowance must not become a way to sit past the cap forever.
+  const answered = fakeIo({
+    [budgetPath(10)]: budget(10),
+    [checkPath(10)]: check(10, 3, { delivered: 3, pending: 0 }),
+  });
+  assert.equal(judgeReviewRequest(post(10), answered, NOW).blocked, true);
+});
+
+test("one check authorizes one post even when two are issued together", () => {
+  // consumedAt alone is a read-then-write, and the guard runs once per tool
+  // call in its own process. The claim is an exclusive create, so exactly one
+  // caller wins whatever the interleaving.
+  const io = fakeIo({ [budgetPath(11)]: budget(11), [checkPath(11)]: check(11, 0) });
+  assert.equal(judgeReviewRequest(post(11), io, NOW).blocked, false);
+
+  // Simulate the race precisely: the second process read the receipt BEFORE
+  // the first wrote consumedAt, so consumedAt cannot be what stops it.
+  io.store[checkPath(11)] = check(11, 0);
+  const second = judgeReviewRequest(post(11), io, NOW);
+  assert.equal(second.blocked, true, "only the claim can catch this; consumedAt is already gone");
+  assert.match(second.reason, /already been claimed by another post in flight/);
+});
+
+test("a round-check receipt must carry a coherent delivered/pending split", () => {
+  // The gate reads these directly now, so neither may be absent or wrong.
+  const base = { pr: 1, repo: `${REPO_OWNER}/${REPO_NAME}`, capturedAt: new Date(NOW - 60_000).toISOString() };
+  assert.match(
+    validateCheckReceipt(1, { ...base, spent: 2, pending: 0 }, NOW),
+    /no usable delivered count/,
+  );
+  assert.match(
+    validateCheckReceipt(1, { ...base, spent: 2, delivered: 2, pending: 2 }, NOW),
+    /at most one round can be in flight/,
+  );
+  assert.match(
+    validateCheckReceipt(1, { ...base, spent: 5, delivered: 2, pending: 1 }, NOW),
+    /does not add up/,
+  );
+  assert.equal(validateCheckReceipt(1, { ...base, spent: 3, delivered: 2, pending: 1 }, NOW), null);
 });
