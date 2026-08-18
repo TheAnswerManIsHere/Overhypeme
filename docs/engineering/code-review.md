@@ -411,6 +411,77 @@ still concluded the review was unavailable. See
 [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)'s
 *Reading a scoped limit message as a blanket outage*.
 
+## A comparative claim has two directions, and only one gets tested
+
+**Applies when writing a finding, a reply, or a header comment** — not to the
+code under review. A claim of the form *X is stricter/earlier/safer than Y*
+asserts **both** directions. The usual failure is to check the direction that
+prompted the claim, find it holds, and ship the comparison.
+
+**Three instances in one session (2026-08-17), across three PRs:**
+
+| Claim | Direction checked | Direction that was false |
+| --- | --- | --- |
+| The node-less guard fallback is "stricter on force pushes" | It blocks the permitted lease push | It *allows* `git-push -f`, which the parser blocks |
+| `committedAt` "necessarily precedes the push"; backdating "only over-blocks" | Backdating moves the bound earlier | `GIT_COMMITTER_DATE` is arbitrary, so it can be set *forward* |
+| The lease rule "sits behind GitHub's ruleset," unlike the fetcher rule | The ruleset exists and blocks force pushes | It targets `main`, not the `claude/*` branches the lease rule governs |
+
+**Why it survives review of the code itself.** These claims live in prose, and
+prose is not executed — nothing fails, and the half that *is* true makes the
+sentence read as verified. The fallback claim had already survived one review
+round, because that round only challenged the word "weaker" — and "stricter"
+is equally one-directional.
+
+**Avoid:** construct the counter-example for the opposite direction *before*
+shipping the sentence, and prefer a **measured matrix to a comparative
+adjective** whenever the behaviour has more than one axis. `.claude/guard.sh`
+now carries a six-row block/allow table precisely because two successive
+adjectives were tried and both were false; a table has no direction to get
+backwards.
+
+**The cheap test that would have caught all three:** ask *what would make the
+opposite true, and can I run it?* Each was falsifiable in under a minute —
+hiding `node` from `PATH`, setting `GIT_COMMITTER_DATE` to a future date,
+checking the ruleset's *target* rather than its existence. None was hard to
+check; all three were simply never checked.
+
+**Note which clock that middle one names, because the first version of this
+line got it wrong.** It said "reading `git commit --date`" — but `--date`
+overrides the **author** date, and the claim under test was about the
+**committer** date. Measured in a scratch repo:
+
+```
+git commit --date=2001-01-01 ...              author: 2001   committer: now
+GIT_COMMITTER_DATE=2031-01-01T00:00:00Z ...   author: now    committer: 2031
+```
+
+**The committer form needs the full timestamp; the author form does not.**
+`GIT_COMMITTER_DATE=2031-01-01` fails with `fatal: invalid date format`
+(git 2.43), while `--date=2001-01-01` is accepted. An earlier version of this
+block abbreviated both, so the line a reader would copy errored out — and it
+survived review because its neighbour, which tolerates the short form, sits
+directly above it. Presenting an abbreviated command as "the measurement" when
+the abbreviation is not what was run is the same defect as the rest of this
+entry, one layer down. (Codex, #506.)
+
+So a reviewer following the original recipe would have checked a clock the
+claim never depended on, found nothing, and concluded it held. **A remedy that
+does not exercise the thing it is prescribed for is worse than no remedy** —
+it converts "unverified" into "verified" while changing nothing. That this
+happened *inside the entry about testing claims properly* is the strongest
+argument it makes. (Codex, #506 round 2.)
+
+**A near miss that does NOT belong here**, recorded because it was in this
+list for one review round: a `Math.min` over a widened set, described with the
+wrong causal mechanism. That has no opposite direction — "the reduction was
+wrong" and "its consumer is the ordering check" are unrelated predicates, not
+two halves of a comparison, and the counter-example test above would not have
+caught it. Its actual lesson is *trace a value through its consumers*, and it
+lives in
+[`reduction-over-a-set-that-changed-size.md`](../../.agents/memory/reduction-over-a-set-that-changed-size.md).
+Padding a pattern with an adjacent-looking case makes its mechanism claim
+false, which is the same defect as the pattern itself. (Codex, #506 round 1.)
+
 ## Review output format
 
 **Two delivery surfaces exist; they don't support the same shape** — same split
