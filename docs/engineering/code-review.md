@@ -441,8 +441,26 @@ backwards.
 
 **The cheap test that would have caught all three:** ask *what would make the
 opposite true, and can I run it?* Each was falsifiable in under a minute —
-hiding `node` from `PATH`, reading `git commit --date`, checking the ruleset's
-target. None was hard to check; all three were simply never checked.
+hiding `node` from `PATH`, setting `GIT_COMMITTER_DATE` to a future date,
+checking the ruleset's *target* rather than its existence. None was hard to
+check; all three were simply never checked.
+
+**Note which clock that middle one names, because the first version of this
+line got it wrong.** It said "reading `git commit --date`" — but `--date`
+overrides the **author** date, and the claim under test was about the
+**committer** date. Measured in a scratch repo:
+
+```
+git commit --date=2001-01-01 ...   author: 2001   committer: now
+GIT_COMMITTER_DATE=2031-01-01 ...  author: now    committer: 2031
+```
+
+So a reviewer following the original recipe would have checked a clock the
+claim never depended on, found nothing, and concluded it held. **A remedy that
+does not exercise the thing it is prescribed for is worse than no remedy** —
+it converts "unverified" into "verified" while changing nothing. That this
+happened *inside the entry about testing claims properly* is the strongest
+argument it makes. (Codex, #506 round 2.)
 
 **A near miss that does NOT belong here**, recorded because it was in this
 list for one review round: a `Math.min` over a widened set, described with the
