@@ -1285,6 +1285,62 @@ corrects the method. Where no reviewer is available, at minimum re-derive the
 sweep from the rule's meaning rather than re-running the grep that already
 passed.
 
+### Sub-pattern: the oracle's *scope*, its *invocation*, and the class's *shape*
+
+PR #509 ran five rounds against one class — a claim stated more broadly than
+the behaviour supports — and produced **nine confirmed instances across five
+files**. Every individual fix was correct. The class kept coming back, and the
+reason each time was a different property of the oracle rather than a lapse in
+applying it. Three distinct ways, none of which the sub-pattern above covers:
+
+1. **A diff-scoped oracle is *definitionally* blind to what a correction
+   contradicts.** Round 3's sweep ran over the diff and passed; round 4's
+   findings were in **unchanged** lines two paragraphs below the corrections.
+   That is not bad luck: a correction's whole job is to contradict what stood
+   before, so the text it contradicts is **always** outside the diff. The
+   reader hitting the section top-down gets the narrowing first and the stale
+   claim second, so the later text wins on a skim — leaving a corrected claim
+   upstream of an uncorrected one is *worse* than not correcting it, because
+   the section now looks reviewed. **Scope the oracle to the file, never the
+   diff, whenever the change is a correction.**
+2. **The class changed shape and walked past the file-scoped oracle.** The
+   round-4 fix widened the scope correctly, and round 5 found an instance
+   anyway, because the regex matched **universal quantifiers**
+   (`every|all|never`) and the new instance was an **incomplete
+   enumeration** — "A or B" where the truth is "A, B, or C". Same class, no
+   shared lexical signature. An oracle written from the instances you have
+   encodes their surface form; the class is what they mean.
+3. **The invocation is part of the oracle.** PR #430, same day: `grep -rn`
+   from the repo root over-counts (it walks `.git`, `node_modules`, generated
+   output), so it was replaced with `rg -n` — which **under-counts in this
+   repo**, because ripgrep skips hidden directories and `.agents/` and
+   `.github/` are where the process sources live. Measured:
+   `rg -l "## Settled Decisions"` returns **zero files**;
+   `rg -l --hidden --glob '!.git'` finds `.agents/PLANS.md`. A fix for
+   over-counting shipped an under-count, in the very section whose subject is
+   not claiming false completeness. The prescribed form is
+   `rg -n --hidden --glob '!.git'`.
+
+**The root generalization, which is about writing rather than tooling:**
+summarising a release in prose defaults to naming the two clean cases and
+dropping the messy third. Provider-resolved *or* operator-configured — and not
+the hard-coded fallback. Every writer records — except the one that reads its
+engine before its own `try`. The pull is structural, not careless, which is
+why instance-by-instance fixing never generalised across nine attempts.
+
+**A corollary worth knowing at the end of a loop:** because this repo's merge
+bar requires a completed reviewer pass on the **head** commit, any further fix
+moves the head and costs another round. That makes "just fix one more thing"
+mechanically expensive at loop end — a stopping force that operates
+independently of anyone's judgment, and one worth counting when deciding
+whether a cheap fix is actually cheap.
+
+**Avoid:** re-running the oracle that just passed and reading a clean result
+as convergence. Ask instead which of the three properties changed since it was
+written — scope, invocation, or the class's surface form. The instance history
+for this one lives in **#516**, which carries the extended oracle rather than
+restating it here.
+
 ## Satisfying a lexical guard by changing a value's form, not its meaning
 
 **Looks like:** a CI text guard flags a stated value in prose. The fix changes
@@ -1863,6 +1919,20 @@ finding. The truth was the opposite: all three were reviewed and came back
 clean. **Each record's own original note had said so correctly**; the sweep
 that re-derived them replaced a right answer with a wrong one, because the
 sweep trusted the number over the prose.
+
+**A second shape of the same failure: the numbers are counted and the
+sentences around them are not.** On 2026-08-18 I generated what I called a
+mechanical record for PR #503's review loop, correctly counted its rounds and
+findings from API data — and then narrated the *budget state* from inference,
+reporting a growth tripwire as never classified and the loop as having
+overrun its budget by two rounds. Both were false and both were checkable: the
+round-4 review request had classified the growth contemporaneously, and rounds
+4 and 5 had been released by the mechanism's own tripwire-1 adjudication and a
+tier-2 authorization. The counted half was right; the narrated half was
+recalled, and it was the half that carried the conclusion. **A record is only
+as mechanical as its least mechanical sentence** — and the counted figures
+lend their authority to the prose sitting beside them, which is exactly what
+makes the mixture more dangerous than an openly recalled account.
 
 **Avoid:** before reading a zero as an absence, ask *which channel would this
 have arrived on, and does the collector read it?* Check the cheap
