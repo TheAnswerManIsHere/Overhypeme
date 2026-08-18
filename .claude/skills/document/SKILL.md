@@ -20,6 +20,21 @@ chapter → Cross-check → Report & commit.** The contract holds the substance
 no-empty-chapter quality bar, proportionality, boundaries). I don't restate it
 here.
 
+**The harvest is a standing dispatch BAR; the run/don't-run judgement is a
+standing dispatch MANDATE.** Pre-registered here in writing, per `CLAUDE.md`'s
+*Whether a judgement dispatches is fixed in advance* — not decided at dispatch
+time, and not removable mid-task.
+
+- **The harvest never runs in a subagent.** Its richest source is the *build
+  session's* own decisions and rejected alternatives, which a cold worker does
+  not inherit; the work is enumeration from memory, and no dispatch package can
+  carry what has not been noticed yet.
+- **The judgement always dispatches, on Fable, whatever tier the session is**
+  (David, 2026-08-17). It is bounded: the merged diff, the decisions taken
+  **enumerated rather than summarized**, and the bar. The enumeration is the
+  part that matters — an omitted decision is invisible to the judge, and no
+  tier fixes that.
+
 ## Trigger check (don't run the ceremony for a "remember this")
 
 Decide by what "this" refers to (contract's trigger table):
@@ -48,8 +63,23 @@ Decide by what "this" refers to (contract's trigger table):
   first. I go straight to `git fetch origin main`, a fresh branch off
   `origin/main` created with **`-b` (never `-B`)**, and open a **new**, small
   docs-only PR for the harvest — never try to reuse or reopen the
-  already-merged feature PR. No TEST_RUN/UAT docs on that PR (pure-docs
-  exception) — a short verification note in the PR body suffices. I only
+  already-merged feature PR. No UAT doc and "none needed" post-merge
+  verification on that PR (pure-docs
+  exception) — a short verification note in the PR body suffices.
+  **The PR body carries the harvest's review-scope oracle (David,
+  2026-08-15**, per
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md)'s
+  meta-artifact scope-oracle rule — this PR class is its worked example,
+  after PR #434 ran eight rounds of prose polish): *in scope — routing
+  correctness against `documentation-workflow.md`, factual accuracy against
+  the merged diffs, contradiction or duplication with existing docs; out of
+  scope — prose style, structure preferences, completeness beyond the
+  session's actual learnings.* Out-of-scope findings are declined against
+  the stated oracle in one triage pass; rounds continue only on
+  behavior-changing findings per `working-modes.md`'s consequence rule
+  (a polish-only round is convergence), and once the ready bar is met I
+  self-merge per CLAUDE.md's close-out contract — same-day
+  convergence-by-decline is the expected outcome, not a shortcut. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
   force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old

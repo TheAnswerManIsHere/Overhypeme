@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "pr": 449,
+  "closedAt": "2026-08-15T06:24:48Z",
+  "mechanical": {
+    "title": "Relax loop check-ins: SOW-gated autonomy, in-loop adjudication, self-merge, weekly ledger flush",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 28,
+      "added": 1260,
+      "removed": 1532
+    },
+    "rounds": 5,
+    "findings": 28,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-15T01:34:53Z",
+        "source": "review",
+        "findings": 11
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-15T05:46:57Z",
+        "source": "review",
+        "findings": 8
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-15T06:01:54Z",
+        "source": "review",
+        "findings": 5
+      },
+      {
+        "round": 4,
+        "submitted_at": "2026-08-15T06:09:13Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 5,
+        "submitted_at": "2026-08-15T06:15:52Z",
+        "source": "review",
+        "findings": 2
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-15T01:26:05Z",
+      "last_review_at": "2026-08-15T06:15:52.000Z",
+      "hours": 4.8
+    },
+    "warnings": [
+      "1 reviewer pass(es) absorbed a bodiless inline-comment review record alongside their announcement (cde5694aba\u00d73). Counted as one round each, per reviewerPasses' announcement rule."
+    ]
+  },
+  "judgment": {
+    "causes": {
+      "new": 14,
+      "prop": 2,
+      "wrong": 12,
+      "reRaised": 0,
+      "invalid": 0
+    },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
+    "breakersFired": "The rising-count tripwire never fired \u2014 findings fell monotonically (11/8/5/2/2). The OSCILLATION signal did, and was not acted on: rounds 3, 4 and 5 were entirely self-inflicted (5/5, 2/2, 2/2), each repairing an incomplete sweep left by the round before it, chasing the same two rules \u2014 the ledger carrier restriction and the stale-record sweep \u2014 through successive locations. working-modes.md names a round dominated by failures of the previous round's fixes as its own stopping condition precisely because prose cannot be executed; three consecutive such rounds is the pattern that rule exists to catch.",
+    "newGroundTerritory": {
+      "inDiff": 14,
+      "preExisting": 0
+    }
+  },
+  "adjudication": {
+    "status": "never-run"
+  },
+  "notes": "28 findings over 5 rounds. Round 1's 11 are all new_ground by construction. Round 2 splits 3 new_ground (the waiting:replit blocker-bucket rendering, the roadmap's stale deleted-Action entry, the stage:uat-before-sync gap) against 5 self-inflicted. Rounds 3, 4 and 5 are 9 further self-inflicted findings: every one is a location a previous round's fix failed to reach. Of the 14 self-inflicted, 12 are WRONG-FIX and 2 are propagation. The split follows working-modes.md's definitions literally: wrong-fix is an earlier fix in this loop that did not resolve what it claimed (the symptom persists or the fix is incomplete), and the sweep protocol explicitly classifies a sibling instance of a class an earlier round claimed to sweep as wrong-fix for the ledger's causal accounting. Only two findings are genuine propagation \u2014 a NEW defect the fix's own shape introduced rather than the same one recurring: round 2's adjudicated-stop wording newly authorizing prototyping before approval, and round 2's delivery-route wording newly admitting non-mergeable plan PRs as ledger carriers. Territory: all 14 new_ground are inDiff. Both findings this record originally called pre-existing are in files the diff DID touch \u2014 `docs/ai-context/current-roadmap.md` and `.claude/skills/status-all/SKILL.md` are both in commit 19ad5b8 \u2014 and the rubric splits on whether the loop's diff touched the surface, not on whether the loop authored the file.\n\nCORRECTED at PR #461 round 1 (Codex, 7 findings, all confirmed against the source and applied; the class sweep they triggered found an eighth instance in #449's territory split that the review did not flag). Codex flagged the wrong-fix/propagation error on this record; the territory error here was found by sweeping the class it raised on #453 and #456 across every record in the flush."
+}

@@ -377,8 +377,30 @@ export async function ensureSchema(): Promise<void> {
         computed_cost_usd       NUMERIC(10,4) NOT NULL,
         pricing_fetched_at      TIMESTAMPTZ NOT NULL,
         job_reference_id        TEXT,
+        is_estimated            BOOLEAN,
         created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
       )`,
+    },
+    {
+      // Belt-and-braces for databases where the table already existed before
+      // migration 0101. On a FRESH database the CREATE above already carries
+      // the column and this is a no-op; on an existing one 0101 adds it. Both
+      // entries are needed — see the note on 0101 for why the migration alone
+      // is not sufficient.
+      label: "user_generation_costs.is_estimated",
+      ddl: `ALTER TABLE user_generation_costs
+            ADD COLUMN IF NOT EXISTS is_estimated BOOLEAN`,
+    },
+    {
+      // The comment is part of the schema the two paths must converge on, not
+      // decoration: it is where the flag's semantics live for anyone reading
+      // the database directly. Migration 0101 applies it on existing
+      // databases; on a fresh one 0101 no-ops entirely (42P01), so without
+      // this entry the column would exist with no explanation of what its
+      // three states mean. COMMENT ON is idempotent — it overwrites.
+      label: "user_generation_costs.is_estimated comment",
+      ddl: `COMMENT ON COLUMN user_generation_costs.is_estimated IS
+            'Cost provenance. false = derived from fal''s published rate for the endpoint; true = derived from an operator-configured estimate or hard-coded fallback; NULL = unrecoverable for this historical row, or written by a build predating the flag. NOT measured-vs-estimated: no row holds an actual provider charge. When true, pricing_fetched_at is the write time, not a fetch time.'`,
     },
     {
       label: "user_generation_costs.IDX_user_created",
@@ -527,22 +549,18 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     // ── Feature flags ──────────────────────────────────────────────────────
-    {
-      label: "feature_flags seed: video_generation",
-      ddl: `INSERT INTO feature_flags (key, display_name, description)
-            VALUES ('video_generation', 'Video Generation', 'Ability to generate AI-powered videos from meme images')
-            ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "tier_feature_permissions seed: video_generation",
-      ddl: `INSERT INTO tier_feature_permissions (tier, feature_key, enabled)
-            VALUES
-              ('unregistered', 'video_generation', false),
-              ('registered',   'video_generation', false),
-              ('legendary',    'video_generation', true),
-              ('admin',        'video_generation', true)
-            ON CONFLICT (tier, feature_key) DO UPDATE SET enabled = EXCLUDED.enabled`,
-    },
+    // The `video_generation` seed steps that used to live here are GONE, and
+    // deliberately not replaced with a gentler version. Migration
+    // 0099_admin_permissions_core guarantees the feature row and its four tier
+    // rows, so these were redundant — and the second of them carried
+    // `DO UPDATE SET enabled = EXCLUDED.enabled`, which re-asserted the seeded
+    // values on every boot. That is why `video_generation` could not be
+    // switched off from the admin grid: an operator's toggle survived only
+    // until the next restart.
+    //
+    // Softening it to DO NOTHING was the tempting fix and is the wrong one: it
+    // would leave a second write path into tables this architecture is giving
+    // exactly one. The grid has a single writer now — `featureAccess.ts`.
     // ── Stripe hardening migrations ───────────────────────────────────────────
     {
       label: "users.monthly_generation_limit_override_usd",

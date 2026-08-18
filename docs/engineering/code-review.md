@@ -156,7 +156,7 @@ style nit.
 
 ### Documentation-only PRs get a light review (David, 2026-08-08)
 
-When a PR changes only documentation — TEST_RUN/UAT docs, `docs/ai-context/`,
+When a PR changes only documentation — UAT docs, `docs/ai-context/`,
 `docs/engineering/`, skills, READMEs, the manual — the review bar drops to:
 **is it generally correct, with no glaring issues?** A glaring issue means an
 instruction that would lead someone to do something harmful or wrong, a claim
@@ -173,12 +173,18 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
 cost more than the defects they describe. This is the *depth* rule; the
-*round-count* rule for the same artifacts (light docs never loop — see the
-criticality gate) lives in
-[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
-The author's review request on a docs-only PR states this bar explicitly
-("docs-only — light review per code-review.md"), so the reviewer calibrates
-from the request itself, not just from this file.
+*continuation* rule for the same artifacts is consequence-based — a round
+earns a successor only if it surfaced behavior-changing defects (this
+file's "glaring issue" class), the re-request names the specific fixes it
+verifies, out-of-diff findings route to follow-up issues by default, and a
+third round fires the adversarial adjudication tripwire — defined in
+[`working-modes.md`](../ai-context/working-modes.md#docs-only-loops-continue-on-consequence-not-count-david-2026-08-15-superseding-the-2026-08-14-one-re-request-cap)
+(David, 2026-08-15, superseding the brief 2026-08-14 hard cap; PR #434's
+eight polish rounds and PR #449's behavior-changing second pass are the
+two calibration cases). The author's review request on a docs-only PR
+states this bar explicitly ("docs-only — light review per
+code-review.md"), so the reviewer calibrates from the request itself, not
+just from this file.
 
 **Loop-ledger records get the same light bar, split by which half of the
 record a finding touches (David, 2026-08-11).** A `.agents/metrics/loops/
@@ -199,7 +205,8 @@ concrete cost this carve-out exists to stop paying twice.
 **This bar, and the one-pass cap in `working-modes.md`'s ceremony table,
 apply only to findings on the ledger JSON file itself.** A ledger record
 routinely rides a carrier PR alongside unrelated product-code changes (it
-"rides any PR of mine except the one it measures" — see `working-modes.md`'s
+"rides any *mergeable* PR of mine except the one it measures — never a
+`[PLAN REVIEW]` PR" — see `working-modes.md`'s
 *The loop ledger*); those changes are reviewed to convergence as normal
 product code, exactly as if the ledger file weren't in the diff. The
 author's review request on a loop-ledger PR states this bar explicitly, and
@@ -273,6 +280,42 @@ matching the docs-only convention above.
   [`decisions.md`](../ai-context/decisions.md) → "Recurring failure patterns
   become CI guards."
 
+### A source guard bounds a *shape*, and shapes have more forms than they look
+
+The CI-guard rule above is right, but a source guard has a specific failure
+mode worth pricing in when reviewing one. It matches **syntax**, while the
+defect is **semantics**, and the set of syntactic forms with the same meaning
+is usually larger than the author enumerated.
+
+Worked example, PR #474's `check-budget-gate-unconditional.mjs` — a guard
+against a spend check being made conditional. Three consecutive review rounds
+each found one more reachable form the current version missed: a regex over
+`if (<identifier>)` missed `if (priced !== null)`; the AST rewrite that fixed
+that treated an entire `if` condition as unconditional and so missed
+`if (priced && await checkBudget(…))`; and the fix for *that* inspected only
+the then-branch, missing `if (priced) {…} else return;`. Each fix was correct
+and each left a cheaper equivalent reachable.
+
+What to take from it, as a reviewer or an author:
+
+- **Probe, don't reason.** Every one of those was found by writing the form
+  into a throwaway source file and running the guard — never by reading it.
+  A guard's own correctness claim is worth exactly the probes behind it, so ask
+  which forms were actually executed against it.
+- **Prefer a real test when the behavior is testable.** The same PR's
+  admin-exemption regression was ordinary unit-testable behavior and got three
+  tests pinning it, verified to fail against the old code. A source guard is
+  the right instrument only when the invariant is inline control flow that no
+  unit test can reach — not merely when writing one is inconvenient.
+- **Expect to cap it, and document the residual.** At some point another
+  missed shape is evidence the space cannot be closed syntactically, not a
+  to-do. Record the known limits in the guard's own header, and be explicit
+  that it is a backstop rather than the control — silence from it is not proof
+  of safety.
+- **Watch the cost.** That guard was belt-and-braces on an otherwise ~10-line
+  fix and generated three of the loop's eight findings. Worth it here, on a
+  money path; not worth it by default.
+
 ## Observability
 
 - Failures reported (Sentry where appropriate)? Bulk operations expose what
@@ -315,6 +358,129 @@ Who posts the re-review trigger, which findings it names, who replies on which
 thread, and the git mechanics around all of it are the implementing agent's
 ceremony — for Claude Code, `CLAUDE.md`'s *Watching the PRs I open*. This
 section defines only the reviewer's substantive standard.
+
+## Codex has two usage limits — a security-review bounce is NOT a code-review outage
+
+**The fact (David, 2026-08-15), canonical here because it binds every agent
+watching a PR, not just the one that hit it:**
+
+The Codex connector meters **two independent things**:
+
+| Limit | Capacity | What bouncing it means |
+|---|---|---|
+| **Security reviews** | Limited, and the one that actually bounces | Only that security reviews are unavailable |
+| **General code reviews** | Effectively unlimited for this repo | — |
+
+The connector's comment names its own scope:
+
+> You have reached your Codex usage limits **for security reviews**. Please try again later.
+
+**So the rule is: ignore that comment and request the code review.** Post
+`@codex review` as normal. A security-limit bounce is never a reason to skip a
+code review, defer one, treat a round as converged, or merge past it.
+
+**Evidence, because this was previously written up from a bad inference.** On
+PR #458 the security bounce landed at 22:42 and a **full code review with 8
+findings arrived at 22:48**, with a second round of 7 at 22:59 — code review
+was working the entire time the bounce was on screen. On PR #459 the identical
+bounce produced no review at all, not because Codex was unavailable but
+because the misreading meant nobody asked. The earlier PR #371 observation
+(bounces while David's visible weekly quota showed ~98% remaining) fits the
+same picture: that quota is the code-review pool, which stayed full while the
+*security* limit bounced.
+
+**A genuine code-review outage is a different animal** — a request that yields
+**no code review**. Judge that on the absence of the code review alone: the
+two limits are independent, so a security bounce can fire *during* a real
+code-review outage, and testing for "no review **and** no bounce" would let
+that unrelated comment mask the outage indefinitely. That case still exists,
+and since 2026-08-17 it is a **development stop**, not a stakes-graded
+proceed: **every PR gets a code review, and nothing merges until it returns.**
+A PR's criticality governs how many rounds are worth requesting; it never
+governs whether the first one has to come back. So an agent that cannot get a
+code review stops and says so loudly to David rather than proceeding on a
+docs-only or low-criticality exemption — that exemption is retired. The retry
+limit in the implementing agent's ceremony (for Claude Code,
+`.claude/skills/pr-watch/SKILL.md`) governs how many times to re-ask before
+escalating. A security-limit bounce does not qualify as an outage, and must
+not be reported as one.
+
+**The failure mode this exists to prevent is a reading error, not a tooling
+gap** — the prior rule quoted the "for security reviews" wording verbatim and
+still concluded the review was unavailable. See
+[`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)'s
+*Reading a scoped limit message as a blanket outage*.
+
+## A comparative claim has two directions, and only one gets tested
+
+**Applies when writing a finding, a reply, or a header comment** — not to the
+code under review. A claim of the form *X is stricter/earlier/safer than Y*
+asserts **both** directions. The usual failure is to check the direction that
+prompted the claim, find it holds, and ship the comparison.
+
+**Three instances in one session (2026-08-17), across three PRs:**
+
+| Claim | Direction checked | Direction that was false |
+| --- | --- | --- |
+| The node-less guard fallback is "stricter on force pushes" | It blocks the permitted lease push | It *allows* `git-push -f`, which the parser blocks |
+| `committedAt` "necessarily precedes the push"; backdating "only over-blocks" | Backdating moves the bound earlier | `GIT_COMMITTER_DATE` is arbitrary, so it can be set *forward* |
+| The lease rule "sits behind GitHub's ruleset," unlike the fetcher rule | The ruleset exists and blocks force pushes | It targets `main`, not the `claude/*` branches the lease rule governs |
+
+**Why it survives review of the code itself.** These claims live in prose, and
+prose is not executed — nothing fails, and the half that *is* true makes the
+sentence read as verified. The fallback claim had already survived one review
+round, because that round only challenged the word "weaker" — and "stricter"
+is equally one-directional.
+
+**Avoid:** construct the counter-example for the opposite direction *before*
+shipping the sentence, and prefer a **measured matrix to a comparative
+adjective** whenever the behaviour has more than one axis. `.claude/guard.sh`
+now carries a six-row block/allow table precisely because two successive
+adjectives were tried and both were false; a table has no direction to get
+backwards.
+
+**The cheap test that would have caught all three:** ask *what would make the
+opposite true, and can I run it?* Each was falsifiable in under a minute —
+hiding `node` from `PATH`, setting `GIT_COMMITTER_DATE` to a future date,
+checking the ruleset's *target* rather than its existence. None was hard to
+check; all three were simply never checked.
+
+**Note which clock that middle one names, because the first version of this
+line got it wrong.** It said "reading `git commit --date`" — but `--date`
+overrides the **author** date, and the claim under test was about the
+**committer** date. Measured in a scratch repo:
+
+```
+git commit --date=2001-01-01 ...              author: 2001   committer: now
+GIT_COMMITTER_DATE=2031-01-01T00:00:00Z ...   author: now    committer: 2031
+```
+
+**The committer form needs the full timestamp; the author form does not.**
+`GIT_COMMITTER_DATE=2031-01-01` fails with `fatal: invalid date format`
+(git 2.43), while `--date=2001-01-01` is accepted. An earlier version of this
+block abbreviated both, so the line a reader would copy errored out — and it
+survived review because its neighbour, which tolerates the short form, sits
+directly above it. Presenting an abbreviated command as "the measurement" when
+the abbreviation is not what was run is the same defect as the rest of this
+entry, one layer down. (Codex, #506.)
+
+So a reviewer following the original recipe would have checked a clock the
+claim never depended on, found nothing, and concluded it held. **A remedy that
+does not exercise the thing it is prescribed for is worse than no remedy** —
+it converts "unverified" into "verified" while changing nothing. That this
+happened *inside the entry about testing claims properly* is the strongest
+argument it makes. (Codex, #506 round 2.)
+
+**A near miss that does NOT belong here**, recorded because it was in this
+list for one review round: a `Math.min` over a widened set, described with the
+wrong causal mechanism. That has no opposite direction — "the reduction was
+wrong" and "its consumer is the ordering check" are unrelated predicates, not
+two halves of a comparison, and the counter-example test above would not have
+caught it. Its actual lesson is *trace a value through its consumers*, and it
+lives in
+[`reduction-over-a-set-that-changed-size.md`](../../.agents/memory/reduction-over-a-set-that-changed-size.md).
+Padding a pattern with an adjacent-looking case makes its mechanism claim
+false, which is the same defect as the pattern itself. (Codex, #506 round 1.)
 
 ## Review output format
 

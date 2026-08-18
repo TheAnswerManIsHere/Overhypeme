@@ -253,6 +253,41 @@ _td_dump_public() {
   pg_dump "$src" --schema=public --schema-only --no-owner --no-privileges --no-comments -f "$out"
 }
 
+# Reference tables whose ROWS a worker database cannot function without.
+#
+# The template is structure-only, which is correct for everything a test creates
+# for itself. It is wrong for migration-seeded *reference* data: rows that exist
+# because a migration inserted them, and that the application reads on every
+# request rather than a test setting up.
+#
+# The Feature Permission Grid is exactly that. Since the permission chokepoint
+# landed, every product-feature gate resolves through it and fails CLOSED on a
+# missing row — so a worker database with an empty grid denies every feature to
+# everyone, and dozens of unrelated suites fail for a reason that has nothing to
+# do with what they test. (`entitlement_grid_revision` is here too: the resolver
+# treats an absent singleton as "the migration has not run" and refuses to serve
+# an empty grid as authoritative.)
+#
+# This copies the rows rather than re-declaring them, so the migration stays the
+# single source of truth for what the grid contains. The engine catalogue is the
+# sibling case, handled differently only because it is reconciled from code
+# (`seed_catalogue`) rather than owned by a migration.
+_TD_REFERENCE_TABLES=(
+  public.feature_flags
+  public.tier_feature_permissions
+  public.entitlement_grid_revision
+)
+
+# _td_dump_reference_data <outfile> — data-only dump of the reference tables.
+_td_dump_reference_data() {
+  local out="$1" src args=(); src="$(build_source_db_url_for)"
+  local t; for t in "${_TD_REFERENCE_TABLES[@]}"; do args+=(--table="$t"); done
+  # --on-conflict-do-nothing + --inserts so replaying over a template that
+  # already has rows (or a re-run) is harmless rather than a unique violation.
+  pg_dump "$src" --data-only --no-owner --no-privileges --inserts \
+    --on-conflict-do-nothing "${args[@]}" -f "$out"
+}
+
 # reset_and_clone_schema_into <target_db> — build a per-DB template (route B):
 # fresh DB from template0 + pgvector + the source public DDL (structure only).
 # Return codes: 0 ok; 1 create failed; 2 extension denied; 3 real dump/replay error.
@@ -279,6 +314,17 @@ reset_and_clone_schema_into() {
     rm -f "$dump"; _td_err "schema replay into ${target} failed"; return 3
   fi
   rm -f "$dump"
+
+  # Reference rows — see _TD_REFERENCE_TABLES. Structure alone leaves the
+  # permission grid empty, and an empty grid denies every feature to everyone.
+  local refdump; refdump="$(mktemp /tmp/td_ref_XXXXXX.sql)"
+  if ! _td_dump_reference_data "$refdump"; then
+    rm -f "$refdump"; _td_err "pg_dump of reference data failed"; return 3
+  fi
+  if ! psql "$target_url" -v ON_ERROR_STOP=1 -q -f "$refdump"; then
+    rm -f "$refdump"; _td_err "reference-data replay into ${target} failed"; return 3
+  fi
+  rm -f "$refdump"
   return 0
 }
 
@@ -318,6 +364,16 @@ reset_and_clone_schema() {
     rm -f "$dump"; _td_err "schema clone into ${schema} failed"; return 1
   fi
   rm -f "$dump"
+
+  # Reference rows, rewritten into this schema the same way the DDL was.
+  local refdump; refdump="$(mktemp /tmp/td_ref_XXXXXX.sql)"
+  if ! _td_dump_reference_data "$refdump"; then
+    rm -f "$refdump"; _td_err "pg_dump of reference data failed"; return 1
+  fi
+  if ! sed "s/public\./${schema}./g" "$refdump" | psql "$src" -v ON_ERROR_STOP=1 -q; then
+    rm -f "$refdump"; _td_err "reference-data clone into ${schema} failed"; return 1
+  fi
+  rm -f "$refdump"
   return 0
 }
 

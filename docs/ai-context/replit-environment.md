@@ -1,7 +1,7 @@
 # Replit: the live environment, not a fourth reviewer
 
 Replit is where the app actually runs — dev and production both. It executes
-the post-merge `TEST_RUN` checklists (see
+each PR's post-merge verification checks (see
 [`test-run-contract.md`](../tests/test-run-contract.md)), and it also
 diagnoses and repairs problems it finds there directly against the running
 environment, including database migrations. This file is the shared,
@@ -13,8 +13,8 @@ how the rest of us treat its output. Sibling to
 ## Claude Code can run *inside* the Repl — and the repo's agent config is not written for it
 
 Claude Code is installed in the Repl's shell (2026-08-11), which makes it a
-third actor: a **live-environment operator** — diagnostics, ops, `TEST_RUN`
-execution — distinct from Claude Code on the Web, which is the builder. It is
+third actor: a **live-environment operator** — diagnostics, ops,
+post-merge verification runs — distinct from Claude Code on the Web, which is the builder. It is
 powerful like Replit Agent, not constrained like the web sandbox: it holds the
 Repl's git credentials and can reach the running app.
 
@@ -120,7 +120,7 @@ prompts becoming rare enough to actually be read, not merely fewer.
 The `env.DATABASE_URL` now points at the real **dev** database (`heliumdb`),
 not the sandbox test database it originally inherited from the versioned
 settings — wired in deliberately so in-Repl sessions can do real diagnostics
-and, eventually, database-touching `TEST_RUN` steps. **Production (`neondb`
+and, eventually, database-touching post-merge verification steps. **Production (`neondb`
 on Neon) is not present anywhere in this file, or anywhere else in the Repl's
 environment, and that is deliberate** — see the dev/prod split noted below,
 which the production guard now protects explicitly.
@@ -242,17 +242,29 @@ Both halves are load-bearing, and neither is sufficient alone:
 Check only one and the other becomes the hole. Check the branch name alone
 and both are.
 
-*(Source and a live lesson in the caveat below: an initial `ask_question`
-pass against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
+*(Source, and a live lesson in how to ask: an initial `ask_question` pass
+against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
 auto-sync" toggle that does not actually exist — Replit Agent's own account
 of Replit's behavior was wrong. A follow-up diagnostic, explicitly
 instructed not to touch any code and to `git fetch`/inspect the Git pane,
 corrected it: no auto-sync toggle is visible, only explicit Pull/Push/Sync
 Changes controls, so manual sync is mandatory, not merely the safe default
-when auto-sync is off. This is exactly why `ask_question` output is
-diagnostics, not verification evidence — the first answer was fluent,
-specific, and false. Confirm against Replit's own product docs if this ever
-needs to be authoritative rather than a working assumption.)*
+when auto-sync is off.*
+
+***The two passes differ in the shape of the question, and that — not the
+tool — is what decides how far an answer can be trusted** (clarified
+2026-08-14). The failing pass asked how a feature works and got an answer
+composed from the agent's understanding: fluent, specific, and false. The
+correcting pass named the commands to run and asked for their output, and
+came back grounded in what actually executed. A `ask_question` answer that
+quotes the command it ran and that command's raw output (`git rev-parse
+HEAD` → the SHA, `git status` → the literal text) is deterministic
+evidence and can be recorded as fact; an answer describing how something
+behaves is a working assumption until corroborated — against Replit's own
+product docs, if it needs to be authoritative. This distinction is why
+`ask_question` is the connector's read channel for live state rather than
+something to route around: the mutating call
+(`update_app_using_prompt`) never returns answer text at all.)*
 
 ## Dev and production are two separate databases
 

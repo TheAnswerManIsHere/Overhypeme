@@ -5,10 +5,33 @@ description: Weekly repo maintenance ritual. Use when David says /maintenance or
 
 # Weekly maintenance
 
-David invokes this roughly weekly (`/maintenance`). It is **ops work** —
-per the CLAUDE.md tier table this belongs on **Sonnet**; if the session is
-on a higher tier when invoked, I say so and suggest switching before
-starting, but I don't block on it.
+David invokes this roughly weekly (`/maintenance`). It is **ops work**, and
+it runs in whatever session it was invoked in — **I do not suggest a model
+switch** (David, 2026-08-15: the session tier is a constant and switch-asks
+are retired in both directions; see `CLAUDE.md`'s *Token / cost discipline*).
+Bounded, stateless pieces of the pass — a research sweep, a self-contained
+lookup — are eligible for a Sonnet subagent; the triage judgements are not.
+
+**The triage judgements are a standing dispatch BAR** under `CLAUDE.md`'s
+*Whether a judgement dispatches is fixed in advance* — they run in my main
+loop, settled, not pending classification.
+
+Two earlier versions of this line were both wrong, and the second is the
+instructive one. It first excluded them from *Sonnet* delegation while saying
+nothing about Fable, leaving them undefined once the always-Fable rule landed.
+The fix then marked them "unclassified" — but that global default treats
+unclassified as **temporary**, a signal to go classify the surface in a PR, so
+every weekly run would have manufactured a standing follow-up obligation for a
+behaviour that is already settled. **A permanent intent must not be expressed
+in a state the contract defines as transitional.** (Codex, #504 rounds 2-3.)
+
+Why barred rather than mandated: these are continuous ops judgements over a
+queue the main loop is already holding — which bump to merge, which error
+matters, which trigger has fired — not a bounded verdict on packageable
+material. Removing this bar is a contract change that ships in a PR.
+**The blind loop-ledger adjudication run during this pass is different** — it
+is a standing mandate and dispatches to Fable, per `CLAUDE.md`'s loop-ledger
+section.
 
 The deliverable is one concise report at the end covering the seven areas
 below. If an area has nothing to report, one line ("no open dependency
@@ -21,10 +44,10 @@ PRs") — the discipline stays visible, the report stays short.
 2. For each PR, check CI status via a single `pull_request_read` call
    (`minimal_output: true` where possible).
 3. **Grouped minor/patch PRs with green CI → squash-merge them**
-   (standing authorization, David 2026-07-22 — this is the one merge I
-   perform myself; everything else in the repo stays David-merges-only).
-   If CI is red, diagnose briefly: a flaky run gets one re-trigger; a real
-   incompatibility gets flagged, not merged.
+   (originally the one merge I performed myself, David 2026-07-22; since
+   2026-08-15 subsumed by the general self-merge rule in CLAUDE.md's
+   close-out contract). If CI is red, diagnose briefly: a flaky run gets
+   one re-trigger; a real incompatibility gets flagged, not merged.
 4. **Major-version bumps are never auto-merged.** For each, one line in
    the report: package, old → new, why it matters (or doesn't), and my
    merge/hold recommendation. David decides.
@@ -96,9 +119,65 @@ and re-check **each entry's revisit trigger**:
 - Write it **PM-facing**: what changed in product terms, one line per PR,
   grouped as features / fixes / dependencies / infra. Not a commit log.
 
-## 6. Loop-efficacy digest
+## 6. Loop-efficacy digest — flush first, then digest, then the conversation
 
-**Build the closed-PR inventory and pass it — this step is required, not
+**Step 6a — the ledger flush (David, 2026-08-15).** Loop records are no
+longer written at each loop's close; this pass is where they get created.
+List the loops that reached their terminal point since the last maintenance
+run (the closed-PR inventory below already covers this window), and for each
+one with no record yet: run `node scripts/loop-metrics.mjs --pr <n> --write`
+(or `--mcp-snapshot`, per the shared contract's mechanics in
+[`working-modes.md`](../../../docs/ai-context/working-modes.md#the-loop-ledger)),
+fill the judgment, run the blind adjudication where sampled, and commit the
+records together as part of this pass. **Also sweep for staleness across
+two sets, not just the previous window**: (a) every record from the
+*previous* window's flush, and (b) **every existing record with a `null`
+`mechanical.reviewInterval`, regardless of which window it was created
+in** — a null interval (the field `loop-metrics.mjs`'s `reviewInterval()`
+returns when the record was written with zero reviewer stamps) means the
+loop had no review yet as of its last derivation, and stays exactly
+`null` until something re-derives it; scoping the null-check to only "the
+previous window" would let a record whose first review lands two or more
+flushes later evade the sweep permanently, since it's no longer in that
+narrower set on any later pass. For either set: a record whose PR shows
+review/comment activity newer than the record's own captured
+`last_review_at` (a late-landing pass — the frozen ledger's rows #323/#324
+are the observed shape), **or whose `reviewInterval` is `null` while the
+live PR shows any reviewer activity at all**, gets re-derived and edited
+this pass, per the shared contract's late-review rule. Compare against
+what the record actually captured, not an inferred commit or derivation
+time — a review landing after the PR snapshot was fetched but before the
+record was committed can predate that inferred time and evade the sweep
+even though the record never captured it. Without
+this sweep the correction path is a promise nothing triggers — the
+new-records selection skips loops that already have a record, and the
+completeness check sees the stale file as present. **There is no settling-window
+skip** — `working-modes.md`'s standing rule is that terminal point (closed
+or merged) is eligibility, full stop; a loop whose review lands late gets
+its record re-derived and edited at a future flush, not held back from
+this one. The flush runs
+**before** the digest so the completeness check below runs against flushed
+state — a gap it still names afterward is a real miss to fix in this same
+pass, not a report line.
+
+**Delivery route (David, 2026-08-15).** The records need an ordinary
+reviewed PR to reach `main` — this repo requires a PR before merging, and
+the ledger contract bans a standalone ledger-only PR the same way it
+always has. Two cases: **if any of my own *mergeable* PRs are open**, the
+flush commit rides one of them as a normal additional commit (any PR
+except the one a given record measures, per the loop-ledger's own rule —
+and **never a `[PLAN REVIEW]` PR**, which is closed without merging, so a
+record riding it would never reach `main` at all). **If none are
+open**, this pass opens one small `docs(maintenance): weekly digest` PR
+carrying the flush commit plus this week's `deferred-work.md` updates (the
+other docs-only exception in Boundaries below) — reviewed by Codex like any
+docs-only PR, continuing on consequence rather than a round cap (per
+`working-modes.md`'s *Docs-only loops continue on consequence, not
+count*), then self-merged under the general close-out rule once ready.
+Never skip straight to a direct push: that bypasses the Codex pass the
+ledger contract still requires.
+
+**Step 6b — the digest.** **Build the closed-PR inventory and pass it — this step is required, not
 optional.** Since this PR retired CI's coverage gate, the digest's
 `--inventory` completeness check is the *only* remaining mechanism that
 notices a missing record; skipping it every week means coverage can rot
@@ -123,6 +202,16 @@ routine.
 Run `node scripts/loop-report.mjs --inventory <file>` and **narrate the
 result to David in plain language** — a few sentences, not the raw tables.
 The script computes; this step interprets; David decides.
+
+**Step 6c — the "how are we doing" conversation (David, 2026-08-15).** The
+narrated digest opens the weekly conversation David actually wants from the
+ledger: *how are we doing, and is there anything we can improve?* Beyond
+the numbers, bring anything the week's loops suggest about the process
+itself — a tripwire that keeps firing, a decline pattern, a ceremony that
+looks mismatched to its artifact class — as candidates, for him to engage
+with or skip. This conversation is the ledger's entire delivery surface
+now; a flush-and-digest with no interpretation is the measurement half
+shipping without the delivery half again.
 
 This section exists because the measurement half shipped in PR #270 and the
 delivery half never did: for a year the answers sat in a file David doesn't
@@ -237,9 +326,60 @@ it doesn't cover: **closed-but-unmerged** PR branches, and branches with
 4. If nothing's found beyond `main`, exempt branches, and active work, one
    line: "branch hygiene: clean, N branches total, all active or exempt."
 
+## 9. Backlog and dependency hygiene
+
+This is the half that makes `/next` trustworthy. `/next` computes its
+recommendation from backlog issues, `queue:` priorities, `Blocked by:`
+markers, and Phases checklists (see
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)) —
+all of which decay silently. Nothing else re-checks them, and a stale queue
+produces a confidently wrong recommendation, which is worse than no
+recommendation. David's standing instruction is that he can react well but
+can't track state, so this step brings him a **concrete proposed diff** to
+approve or amend, never an open-ended "is the backlog still right?"
+
+1. **List both label families** — open issues carrying a `queue:` label,
+   and open issues carrying a `stage:` label (`mcp__github__list_issues`,
+   paginated, both label sets). Steps 3–4 below sweep `Blocked by:` chains
+   and Phases checklists, and both live on `stage:` workstream issues, not
+   `queue:` backlog ones — fetching only the backlog set leaves this pass
+   unable to see the data it's meant to validate. For the backlog set,
+   check the cheap staleness signals: has it been superseded by something
+   merged since it was filed? Has its rationale been overtaken? Is it a
+   duplicate of another backlog item?
+2. **Re-check `queue:` priorities against the roadmap.** Anything labeled
+   `queue:now` that hasn't been started in weeks is either mislabeled or
+   genuinely blocked — say which. Anything in
+   [`current-roadmap.md`](../../../docs/ai-context/current-roadmap.md)'s
+   near-term slices with no backlog issue is a **gap**: propose opening
+   one, since an item only in prose is invisible to `/next`.
+3. **Sweep `Blocked by:` markers** — for each, is the named blocker still
+   open? A marker pointing at a closed issue is stale and should be
+   removed. Flag two shapes specifically, because both are the
+   UAT-descent stack going wrong rather than working:
+   - **A chain deeper than 2**, or **any blocker open longer than two
+     weeks** — surface it with the park-or-continue question. Pre-launch
+     the default is continue, but the call should be *prompted*, not
+     silently defaulted (`workstream-tracking.md`'s escape hatch).
+   - **A cycle** (A blocked by B, B transitively blocked by A) — a real
+     data error that would make every item in it permanently
+     non-actionable. Report it; don't guess which edge to cut.
+4. **Sweep Phases checklists** — for each parent issue carrying one, does
+   it match reality? A phase whose PR merged but whose checkbox is
+   unticked makes `/next` recommend work that's already done.
+5. **Deliver as a numbered proposed diff**, e.g. "close #431 (superseded by
+   #440); drop #418 `queue:now` → `queue:later`; open a backlog issue for
+   *Record the Stripe mode on every entitlement source*; remove the stale
+   `Blocked by: #405` from #422." David approves, amends, or declines each
+   line — **then I apply the approved ones in that same session.** Same
+   posture as `/status`: proposed, confirmed, then written, never
+   unattended.
+6. If nothing's drifted, one line: "backlog hygiene: N queued items, M
+   blocked, no drift."
+
 ## Report delivery
 
-Single message, eight short sections, worst news first. When something needs
+Single message, nine short sections, worst news first. When something needs
 David's decision (major bump, alarming Sentry issue, recurring flake), it
 goes in a numbered question list at the end per the numbered-questions rule.
 If the report is substantial, also publish it as an Artifact page — the chat
@@ -256,15 +396,25 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   longer batches, see
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#one-bug-one-branch-one-pr-david-2026-07-26))
   if he says so. Maintenance touches nothing but
-  dependency merges, **with one narrow exception**: committing updates to
+  dependency merges, **with two narrow exceptions**: committing updates to
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
-  (step 4) — recording a newly-parked item or updating an entry's status.
-  That's docs-only, zero behavior/dependency change, no PR ceremony, and
-  matches the tier table's "documentation is Sonnet-always, drift is
-  self-catching" rationale. It is **not** license to fix, refactor, or bump
+  (step 4) — recording a newly-parked item or updating an entry's status —
+  and committing the loop-ledger flush records (step 6a). Both are
+  docs-only, zero behavior/dependency change, no PR ceremony, and match
+  the tier table's "documentation is Sonnet-always, drift is
+  self-catching" rationale. Neither is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
   (dependency or Action) still only ever becomes a reported decision item,
-  never a direct action, per step 4 above.
-- **No scheduled self-wakeups.** David invokes this manually (standing
-  no-background-check-ins rule). If he later opts into a scheduled weekly
+  never a direct action, per step 4 above. **Step 9's backlog hygiene is
+  not a third exception** — it writes only issue labels, bodies, and
+  closures, never code, and only the specific lines David approved from
+  its numbered diff. An unapproved line is not applied, and "I was already
+  in there" is not approval.
+- **No scheduled self-wakeups — same conclusion, different reason as of
+  2026-08-15.** This used to rest on the blanket no-background-check-ins
+  rule. That rule is gone, replaced by the bounded contract in `CLAUDE.md`'s
+  *Scheduled self-check-ins* — and that contract doesn't authorize this
+  either: a weekly ritual is a recurring heartbeat, not a wait on a named
+  external state, and heartbeats are the one thing it still rules out. So
+  David still invokes this manually. If he later opts into a scheduled weekly
   routine, that decision changes this section — not before.

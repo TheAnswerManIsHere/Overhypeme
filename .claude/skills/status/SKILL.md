@@ -26,8 +26,8 @@ GitHub. Applied top-down; first match wins:
 | State | When |
 | --- | --- |
 | `DONE` | `stage:done` — terminal, wins over everything else |
-| `WAITING ON YOU` | `waiting:david` **or** `waiting:replit` (Replit never acts alone — David runs the TEST_RUN and relays the result) |
-| `STALLED` | `waiting` is `claude`/`codex`/`ci` and nothing has happened in > 48h |
+| `WAITING ON YOU` | `waiting:david` |
+| `STALLED` | `waiting` is `claude`/`codex`/`ci`/`replit` and nothing has happened in > 48h (`waiting:replit` moved here from WAITING ON YOU on 2026-08-15 — the post-merge verification run is driven by the agent through the connector now, so a lingering `waiting:replit` means a close-out an agent needs to finish, not something David runs) |
 | `WATCHING` | `waiting:codex`/`waiting:ci` **and** a live check *this invocation* shows an open PR with CI running, an unanswered thread, or a requested review that hasn't landed |
 | `WORKING` | everything else — the residual, so the table is always total |
 
@@ -54,7 +54,7 @@ Two rules that matter more than the table:
    Find the PR by regex `^Workstream:[ \t]*#(\d+)` (multiline, anchored to the
    start of a line) over `list_pull_requests(state: all, sort: updated,
    perPage: 50)` — the same convention `/status-all` and
-   `sync-test-run-completion.mjs` use. The anchor matters: an unanchored
+   `/status-all` uses. The anchor matters: an unanchored
    `Workstream:\s*#(\d+)` can cross a line break (`\s` matches newlines) and
    grab an unrelated `#N` several lines later, or match an example embedded
    in prose (an approved-plan oracle illustrating the convention, say) as if

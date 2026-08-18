@@ -1,12 +1,28 @@
 {
-  "model": "opusplan",
+  "model": "opus",
   "env": {
     "DATABASE_URL": "postgres://overhype:overhype@localhost:5432/overhype_test"
   },
   "permissions": {
     "defaultMode": "bypassPermissions",
     "allow": [
-      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__delete_trigger"
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__send_later",
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__create_trigger",
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__update_trigger",
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__list_triggers",
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__delete_trigger",
+      "mcp__Claude_Code_Remote__send_later",
+      "mcp__Claude_Code_Remote__create_trigger",
+      "mcp__Claude_Code_Remote__update_trigger",
+      "mcp__Claude_Code_Remote__list_triggers",
+      "mcp__Claude_Code_Remote__delete_trigger",
+      "mcp__Claude_Code_Remote__fire_trigger",
+      "mcp__claude-code-remote__send_later",
+      "mcp__claude-code-remote__create_trigger",
+      "mcp__claude-code-remote__update_trigger",
+      "mcp__claude-code-remote__list_triggers",
+      "mcp__claude-code-remote__delete_trigger",
+      "mcp__claude-code-remote__fire_trigger"
     ],
     "deny": [
       "Bash(drizzle-kit push*)",
@@ -35,6 +51,16 @@
             "type": "command",
             "command": "bash .claude/guard.sh",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__merge_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/guard.sh",
+            "timeout": 20
           }
         ]
       }

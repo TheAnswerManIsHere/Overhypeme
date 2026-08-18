@@ -32,7 +32,7 @@ function FlameMark({ className = "" }: { className?: string }) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role, can } = useAuth();
   const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
@@ -43,10 +43,12 @@ export function Navbar() {
   // the onboarding work instead of a competing nav button.
   const isColdMobile = !isAuthenticated && !authLoading && !name;
 
-  const isLegendary = role === "legendary" || role === "admin";
-
+  // Which avatar is public is a SERVER decision now (effectiveAvatar.ts), and
+  // this surface asks the same entitlement the server resolves rather than
+  // inferring it from the role. Three public projections used to ignore
+  // avatarSource entirely; this one honoured it but checked no entitlement.
   const navAvatarUrl = (() => {
-    if (isLegendary && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+    if (can("custom_avatar") && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
       return profile.profileImageUrl;
     }
     if (profile?.id) {

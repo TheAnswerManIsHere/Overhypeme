@@ -297,12 +297,30 @@ Client-side `useAuth()` mirrors this with `role`/`realRole`
 has an `"anonymous"` value for the logged-out case, which the server-side
 type doesn't need (no session ⇒ no `req.user` at all).
 
+**Role is for PRIVILEGE; entitlements come from the grid.** Since the
+permission chokepoint landed, `deriveUserRole`/`isAtLeastLegendary` govern
+operational privilege only — console access, user management, moderation,
+config. Product-feature permissions resolve through
+`artifacts/api-server/src/lib/featureAccess.ts`'s `can(principal, key)` and never from the role, so a
+new `isAtLeastLegendary(...)` gate on a product capability now fails CI. That
+separation is what makes admin lockout impossible by configuration: nothing
+that grants console access lives in the grid. See
+[`membership-entitlements.md`](./membership-entitlements.md).
+
 **`isAdmin` is granted three ways**, all checked in `authMiddleware.ts:122`:
 a manually-set `usersTable.isAdmin` flag (via `PATCH /admin/users/:id`); an
 env-var allowlist, `ADMIN_USER_IDS` (`auth.ts:27-30`); and one hardcoded
 bootstrap email, `BOOTSTRAP_ADMIN_EMAIL` (`auth.ts:19-22`), which
 guarantees at least one account can always reach the admin panel to grant
 access to others.
+
+All three are honoured together by `artifacts/api-server/src/lib/adminIdentity.ts`, which is the single
+definition used anywhere the question is asked outside a request — the
+active-admin count that prevents lockout, alert-recipient selection, and the
+admin listing. Asking only the stored column (which several sites did) makes
+env- and bootstrap-granted admins invisible to those queries: they could pass
+every gate in the request path and still receive no fraud or dispute alerts,
+and the last-admin guard could approve zeroing the real population.
 
 ## Files to inspect before accounts/auth work
 

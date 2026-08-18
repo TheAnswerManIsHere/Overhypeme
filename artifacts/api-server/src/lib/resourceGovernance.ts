@@ -73,19 +73,30 @@ export function enforceGovernance(req: Request, res: Response, opts: { path: Gen
   return { ok: true, idempotencyKey };
 }
 
-export function completeGovernance(req: Request, info: { provider: string; latencyMs: number; failed: boolean; actualCostUsd: number; responseStatus?: number; responseBody?: unknown; idempotencyKey?: string | null }) {
+export function completeGovernance(req: Request, info: { provider: string; latencyMs: number; failed: boolean; actualCostUsd: number; responseStatus?: number; responseBody?: unknown; idempotencyKey?: string | null; skipProviderHealth?: boolean }) {
   const userId = req.user?.id ?? "anon";
   inFlightByUser.set(userId, Math.max(0, (inFlightByUser.get(userId) ?? 1) - 1));
   for (let i = usageEvents.length - 1; i >= 0; i--) {
     const e = usageEvents[i]!;
     if (e.userId === userId && e.endpoint === req.path && e.accepted && e.actualCostUsd === 0) { e.actualCostUsd = info.actualCostUsd; break; }
   }
-  const h = providerHealth.get(info.provider) ?? { fails: 0, latencyMs: [], openedUntil: 0 };
-  h.latencyMs.push(info.latencyMs); if (h.latencyMs.length > 25) h.latencyMs.shift();
-  const avg = h.latencyMs.reduce((a, b) => a + b, 0) / h.latencyMs.length;
-  h.fails = info.failed ? h.fails + 1 : 0;
-  if (h.fails >= 3 || avg > 10_000) h.openedUntil = Date.now() + 60_000;
-  providerHealth.set(info.provider, h);
+  // A pre-provider refusal (e.g. a budget-gate check that never reached the
+  // provider) is neither a provider success nor a provider failure — it did
+  // not happen as far as the provider is concerned. `failed: false` alone
+  // isn't enough to say that: it still resets the fail streak (masking real
+  // consecutive provider failures) and feeds this request's latency into the
+  // provider's rolling average (a slow DB check would then look like a slow
+  // provider). skipProviderHealth omits it from the provider's health
+  // tracking entirely, rather than reporting it as a successful completion
+  // (#409 round 4).
+  if (!info.skipProviderHealth) {
+    const h = providerHealth.get(info.provider) ?? { fails: 0, latencyMs: [], openedUntil: 0 };
+    h.latencyMs.push(info.latencyMs); if (h.latencyMs.length > 25) h.latencyMs.shift();
+    const avg = h.latencyMs.reduce((a, b) => a + b, 0) / h.latencyMs.length;
+    h.fails = info.failed ? h.fails + 1 : 0;
+    if (h.fails >= 3 || avg > 10_000) h.openedUntil = Date.now() + 60_000;
+    providerHealth.set(info.provider, h);
+  }
   if (info.idempotencyKey && info.responseStatus && info.responseBody) {
     idempotencyCache.set(`${userId}:${req.path}:${info.idempotencyKey}`, { status: info.responseStatus, body: info.responseBody, expiresAt: Date.now() + 10 * 60_000 });
   }

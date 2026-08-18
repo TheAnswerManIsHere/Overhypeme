@@ -865,7 +865,7 @@ async function pickEnrichmentTargets(
   return { toEnqueue, skippedAdminEdited };
 }
 
-interface SendBackTargetPick {
+export interface SendBackTargetPick {
   toEnqueue: number[];
   skipOutcomes: Array<{ factId: number; reason: TaxonomyHealthSkipReason; message: string }>;
   /** Corpus-wide stale-for-reprocess count at request time. */
@@ -894,7 +894,7 @@ interface SendBackTargetPick {
  * the all_stale overflow case — that's a capacity limit, not an ineligibility
  * reason, so no skip outcome is emitted for it.
  */
-async function pickSendBackTargets(
+export async function pickSendBackTargets(
   scope: "all_stale" | "selected",
   factIds: number[] | undefined,
   batchLimit: number,

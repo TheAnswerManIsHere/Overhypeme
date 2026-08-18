@@ -53,12 +53,20 @@ const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: 
 ];
 
 export default function SubmitFact() {
-  const { isAuthenticated, isLoading: authLoading, role, user } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, can, user } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  const isLegendary = role === "legendary" || role === "admin";
-  const isCaptchaVerified = isLegendary || !!user?.captchaVerified;
+  // The SAME entitlement the server gates on (ai.ts's tokenize-fact route and
+  // reviews.ts's submit-review route both resolve fact_submit_captcha_bypass).
+  // This used to derive the bypass from role, so a grid change wouldn't move
+  // this screen: revoking the bypass from Legendary would leave the CAPTCHA
+  // hidden while the server started rejecting every submission, and granting
+  // it to another tier wouldn't remove the CAPTCHA here. The onboarding half
+  // (`user?.captchaVerified`) stays separate — it's an identity prerequisite,
+  // not an entitlement.
+  const hasBypassEntitlement = can("fact_submit_captcha_bypass");
+  const isCaptchaVerified = hasBypassEntitlement || !!user?.captchaVerified;
 
   const [step, setStep] = useState<Step>("write");
 

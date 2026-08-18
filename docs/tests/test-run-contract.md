@@ -1,12 +1,30 @@
-# TEST_RUN authoring contract (what Replit executes)
+# Post-merge verification contract (what Replit executes)
 
-> **Audience:** whoever authors a `docs/PR<N>_<FEATURE>_TEST_RUN.md` (in
-> practice, Claude Code — see [`CLAUDE.md`](../../CLAUDE.md) for the PR-first
-> naming/delivery ceremony). This file owns the doc's **content and shape**;
-> `CLAUDE.md` owns *when* it ships and *what it's called*.
+> **Audience:** whoever authors a PR's **Post-merge verification** section
+> (in practice, Claude Code). This file owns the checks' **content and
+> shape**; the PR template owns where they live.
 >
-> **Executor:** Replit, running the checklist in the live workspace against the
-> live database, **after** the PR has merged to `main`.
+> **Delivery surface (David, 2026-08-15 — the standalone TEST_RUN file is
+> retired):** the checks are written into the PR body's *Post-merge
+> verification* section, alongside the diff they verify, and reviewed with
+> it. The old `docs/tests/Replit/PR<N>_<FEATURE>_TEST_RUN.md` file — with its
+> PR-first delivery dance, deletion-as-completion-signal, and the
+> `test-run-completion.yml` Action that watched for it — is retired: the
+> file pattern existed for a pre-connector world where David couriered
+> instructions to Replit and file presence was the only owner of "has this
+> run yet." Both jobs now belong to the close-out sequence. **Legacy docs
+> still in `docs/tests/Replit/` run out under the old pattern** — the
+> driving agent runs them and deletes each on a full pass; their presence
+> still means not-run or not-clean.
+>
+> **Executor:** Replit Agent in the live workspace against the live
+> database, **after** merge + Repl sync — driven by Claude through the
+> Replit connector (the two-call sequence in `CLAUDE.md`'s connector
+> policy: `update_app_using_prompt` carrying the section's checks with the
+> read-only scoping stated, then `ask_question` for the results). Results
+> are reported, pass or fail, in the close-out merge report; a failure
+> routes through the normal channel (`/bugfix`, or a report to David) and
+> the workstream stays at its verification stage until clean.
 
 ## The governing rule
 
@@ -49,11 +67,15 @@ harmless to follow:
   backfill-outcome verification — all safe to run any number of times, and
   they cover what CI genuinely cannot see.
 
-A TEST_RUN doc is criticality 1 on the 1–100 scale
-([`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)) —
-but only because of this rule. A checklist that instructs risky operations
-against production is not a criticality-1 artifact no matter how transient
-the file is; keeping the doc read-only is what keeps it harmless.
+The read-only rule is what keeps the checks harmless — a set of
+instructions that mutates live state is not low-risk no matter where it's
+written. Under the PR-body delivery surface this rule gets a *stronger*
+enforcement point than the old standalone doc had: the section is reviewed
+by Codex in the same pass as the diff it verifies, so a check that would
+touch live state is caught before the code it rides with ever merges. The
+connector prompt that executes the section restates the scoping every
+time ("read-only: execute and report; do not write or edit anything, even
+if a step fails"), per `CLAUDE.md`'s connector policy.
 
 ## What earns a section (always include, when applicable)
 
@@ -117,6 +139,27 @@ guard), but they run in CI, not here.
 
 ## What to demote
 
+- **Anything behind the admin gate belongs in the UAT, not here (learned
+  2026-08-16, PR #472).** The agent executing this section has **no admin
+  session**, so every `/admin/*` URL returns *Access Denied*. A section
+  containing "open `/admin/help`, click the `?`, run a search" doesn't come
+  back failed — it comes back **not run**, which is worse, because a section
+  written to be verified and then reported as unverifiable is indistinguishable
+  from one nobody bothered with. Seven of PR #472's nine items landed that way.
+
+  The fix is placement, not wording: an admin-console click-through is
+  **UAT-shaped by construction** — David runs it while signed in as an admin,
+  which is the only context where it can pass. Keep this section to what a
+  session-less agent can actually execute: repo-health commands, HTTP checks on
+  public routes, database reads, log and worker inspection. If a check needs a
+  logged-in admin, it is a UAT step; putting it in both places just guarantees
+  one copy reports "not run" every time.
+
+  One thing the failed attempt *did* establish for free, and it's worth
+  knowing: a non-admin hitting an admin URL correctly gets *Access Denied*. If
+  that's the property under test, it belongs here — it's the only admin-route
+  check a session-less agent can genuinely confirm.
+
 - **The full sharded suite** (`pnpm --filter @workspace/api-server test`) is
   **omitted by default — CI ran it on this exact code.** Per the read-only
   rule above, "the PR touches shared infra" is no longer a reason to re-run
@@ -164,8 +207,16 @@ guard), but they run in CI, not here.
   exports, test-DB env setup, or any environment-specific DB config — Replit's
   database lives elsewhere and anything written here would be wrong there.
   Describe *what* should happen against the DB and let Replit connect.
-- **Keep the "Delete me" footer.** The transient TEST_RUN + durable UAT sibling
-  split is deliberate and works.
+- **The section lives and dies with the PR; the UAT doc stays a file.**
+  The verification checks need no lifecycle — the PR page records them and
+  their results forever, and there is nothing to delete on a pass. The UAT
+  half of the old pairing is unchanged and deliberately file-based:
+  `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` is David's own to-do list, and
+  **he deletes each one himself** when he completes it — the agent never
+  does. A mutating one-time deploy step (the third permitted write shape
+  above) is executed by the driving agent through the connector at
+  close-out, clearly labeled in the section as a mutating action with its
+  credential and ordering prerequisites named.
 - **Keep "what's deliberately NOT shipped" to terse bullets.** It exists so
   Replit does not diagnose a deliberate absence as a defect — not as a design
   essay. Anything longer belongs in the plan or in
@@ -183,7 +234,7 @@ stopped on David's stop-on-error instruction, but the checklist itself
 mischaracterized a value migration 0097 deliberately treats as a
 `RAISE WARNING` (`dangling`) as equivalent to the one value that's an actual
 invariant break (`linkable_but_unlinked`) — see the corrected
-`docs/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md` for the fix. Getting the
+`docs/tests/Replit/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md` for the fix. Getting the
 must-flag/may-ignore line right in the doc is what keeps a correctly-obeyed
 stop instruction from firing on a false alarm.
 
@@ -191,21 +242,23 @@ stop instruction from firing on a false alarm.
 
 When Replit stops mid-run and writes a handoff document describing what it
 ran, what it found, and where it stopped, that document is **transient in
-exactly the way a TEST_RUN checklist is** — a message in flight, not a
-record, and it follows the same lifecycle. As of 2026-08-09 these live in
+exactly the way the retired TEST_RUN checklists were** — a message in
+flight, not a record, and it keeps that delete-once-addressed lifecycle
+even though the checklists themselves no longer have one. As of 2026-08-09 these live in
 [`docs/handoff/`](../handoff/README.md), which owns the full contract
 (naming, the delete-once-addressed rule, the describe-state-don't-snapshot-it
 authoring note, and the public-repo disclosure check) — this file no longer
 restates it.
 
-## Template
+## Template — the PR body's *Post-merge verification* section
 
 ```markdown
-# PR<N> — <title> · TEST_RUN
+## Post-merge verification (live environment)
 
-Checklist for Replit (the technical safety net), run post-merge against the
-live workspace. Replit owns the DB connection — no DATABASE_URL / test-DB env
-is set here.
+Executed by Replit Agent post-merge via the connector; read-only unless a
+step is explicitly labeled as a mutating deploy action. Replit owns the DB
+connection — no DATABASE_URL / test-DB env is set here. Write "none needed"
+and delete the rest if nothing below applies (pure-docs/infra PRs).
 
 Pre-merge gates (install, typecheck, codegen drift) are assumed green; spot-check
 only if something below fails.
@@ -215,7 +268,7 @@ code. Everything below is what CI cannot see: the live database and the live
 app. Nothing below writes a row<, except <the one exception + its
 capture-before/restore-after steps — or delete this clause>>.
 
-## Repo-health gates (post-merge state — run always)
+### Repo-health gates (post-merge state — run always)
 - `pnpm --filter @workspace/db validate-snapshots` — expected: passes (matches
   CI's `build.yml`)
 - `pnpm --filter @workspace/db check-snapshots` — expected: passes. New
@@ -223,7 +276,7 @@ capture-before/restore-after steps — or delete this clause>>.
 - `node scripts/check-docs-accuracy.mjs` — expected: clean
 - Other allow-list entries this PR added: <list, or "none">
 
-## Live checks (read-only; run always)
+### Live checks (read-only; run always)
 1. Migration <N> applied — confirm <exact column/table/row, type, nullability,
    constraint/trigger definitions where correctness-critical>
 2. Re-running migration <N>: a second `migrate` skips it via the content-hash
@@ -236,17 +289,13 @@ capture-before/restore-after steps — or delete this clause>>.
 Proof tests guarding this PR's budgets (run in CI, listed for awareness):
 <name them, or "none">
 
-## What's deliberately NOT shipped
+### What's deliberately NOT shipped
 - <terse bullets>
-
-## Delete me
-Transient — delete once the checklist has been run. The `_UAT.md` sibling is
-the durable half.
 ```
 
 ## Related
 
-- [`testing-guide.md`](testing-guide.md) — how tests are actually run in this
+- [`TESTING.md`](TESTING.md) — how tests are actually run in this
   repo, and what to report after running them.
 - [`migrations-and-backfills.md`](migrations-and-backfills.md) — the
   idempotency and row-state expectations a migration check should assert.

@@ -54,6 +54,13 @@ const MECHANICAL_KEYS = [
 const CAUSES = ["new", "prop", "wrong", "reRaised", "invalid"];
 
 /**
+ * Loops closed on/after this date must split `causes.new` by territory
+ * (`newGroundTerritory`) whenever there is new ground to split; earlier
+ * records are grandfathered. See working-modes.md's adjudication rubric.
+ */
+const TERRITORY_CUTOFF = "2026-08-13";
+
+/**
  * The only keys each adjudication status may carry. `disagreementPct` and
  * `verdict` were rejected by name for the `completed` case alone; an exact
  * allowlist closes every other stale-duplicate spelling (`percentage`,
@@ -105,6 +112,46 @@ export function judgmentProblems(record) {
     }
   }
   if (!j.breakersFired) problems.push("breakersFired is missing");
+  // Territory split of causes.new (see working-modes.md's rubric). REQUIRED
+  // for loops closed on or after the cutover date whenever there are
+  // new-ground findings to split — otherwise a post-cutoff record omitting
+  // it would be indistinguishable from a grandfathered legacy record and the
+  // metric would silently go incomplete. Records closed earlier are
+  // grandfathered, and a record with causes.new === 0 has nothing to split.
+  // ISO-8601 UTC timestamps compare correctly as strings.
+  const territoryRequired =
+    typeof record.closedAt === "string" &&
+    record.closedAt >= TERRITORY_CUTOFF &&
+    Number.isInteger(j.causes?.new) &&
+    j.causes.new > 0;
+  if (territoryRequired && j.newGroundTerritory === undefined) {
+    problems.push(
+      `judgment.newGroundTerritory is required for loops closed on/after ${TERRITORY_CUTOFF} with ` +
+        `new-ground findings (closedAt ${record.closedAt}, causes.new ${j.causes.new}) — split them ` +
+        `into { inDiff, preExisting }`,
+    );
+  }
+  // When present it must be internally coherent: two non-negative integers
+  // summing exactly to causes.new, so a hand-typed record can't silently
+  // claim a territory mix the causal counts contradict.
+  if (j.newGroundTerritory !== undefined) {
+    const t = j.newGroundTerritory;
+    for (const k of ["inDiff", "preExisting"]) {
+      if (!Number.isInteger(t?.[k]) || t[k] < 0) {
+        problems.push(`judgment.newGroundTerritory.${k} must be a non-negative integer`);
+      }
+    }
+    const newCount = j.causes?.new;
+    if (
+      Number.isInteger(t?.inDiff) && Number.isInteger(t?.preExisting) &&
+      Number.isInteger(newCount) && t.inDiff + t.preExisting !== newCount
+    ) {
+      problems.push(
+        `judgment.newGroundTerritory sums to ${t.inDiff + t.preExisting} but causes.new is ${newCount} — ` +
+          `the territory split must cover exactly the new-ground findings`,
+      );
+    }
+  }
   return problems;
 }
 

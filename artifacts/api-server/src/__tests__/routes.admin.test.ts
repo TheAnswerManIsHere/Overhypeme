@@ -39,7 +39,7 @@ import {
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
-import { createSession, type SessionData } from "../lib/auth.js";
+import { createSession, type SessionData, BOOTSTRAP_ADMIN_EMAIL } from "../lib/auth.js";
 import { hashFactText } from "../lib/enrichmentVersioning.js";
 import { APPROVED_FACT_TEXT_EDIT_PHRASE, buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
@@ -357,6 +357,30 @@ describe("PATCH /admin/users/:id", () => {
     );
     assert.equal(res.body.success, true);
     assert.equal((res.body.user as { displayName?: string }).displayName, "patched-by-test");
+  });
+
+  // Round 2 of PR #425's review: the email-change lockout guard used to reject
+  // ANY change crossing the bootstrap-email boundary, even when the target
+  // remains a real admin through `is_admin` — nothing is actually being
+  // removed. Isolated from the admin-population count entirely: `is_admin`
+  // stays true across the change, so the guard never runs for this request
+  // regardless of how many other admins exist.
+  it("allows an email change away from the bootstrap address when the target is independently is_admin", async () => {
+    const targetId = await createTestUser({ isAdmin: true });
+    // Start the target ON the bootstrap address so the change below actually
+    // crosses the boundary — the bug only reproduces on a real crossing.
+    await db.update(usersTable).set({ email: BOOTSTRAP_ADMIN_EMAIL }).where(eq(usersTable.id, targetId));
+    const newEmail = `${randomUUID()}@example.test`;
+    const res = await request(makeApp())
+      .patch(`/admin/users/${targetId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ email: newEmail });
+    assert.equal(
+      res.status,
+      200,
+      `expected 200, got ${res.status} (body: ${JSON.stringify(res.body)})`,
+    );
+    assert.equal((res.body.user as { email?: string }).email, newEmail);
   });
 });
 

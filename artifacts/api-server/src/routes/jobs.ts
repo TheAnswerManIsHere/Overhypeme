@@ -1,3 +1,4 @@
+import { isRealAdminRequest } from "../lib/adminIdentity";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { runFactOfTheDayJob } from "../jobs/factOfTheDay";
 import { logger } from "../lib/logger";
@@ -23,7 +24,9 @@ function isCronAuthorized(req: Request): boolean {
 
 // POST /jobs/fact-of-the-day — run manually (cron or admin-triggered)
 router.post("/jobs/fact-of-the-day", async (req: Request, res: Response) => {
-  const isAdmin = req.isAuthenticated() && (req.user as { isAdmin?: boolean })?.isAdmin;
+  // Operational privilege: the REAL admin flag, over all three grant
+  // mechanisms, and never the toggle-aware one.
+  const isAdmin = isRealAdminRequest(req);
   if (!isCronAuthorized(req) && !isAdmin) {
     res.status(403).json({ error: "Forbidden" });
     return;
@@ -41,7 +44,9 @@ export default router;
 
 
 router.post("/jobs/data-retention", async (req: Request, res: Response) => {
-  const isAdmin = req.isAuthenticated() && (req.user as { isAdmin?: boolean })?.isAdmin;
+  // Operational privilege: the REAL admin flag, over all three grant
+  // mechanisms, and never the toggle-aware one.
+  const isAdmin = isRealAdminRequest(req);
   if (!isCronAuthorized(req) && !isAdmin) {
     res.status(403).json({ error: "Forbidden" });
     return;

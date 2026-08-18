@@ -211,6 +211,73 @@ Webhook signature verification is delegated to `stripe-replit-sync` (Replit's
 fork of Supabase's stripe-sync-engine); it sits in the payment-critical path and
 is pinned exact + Dependabot-monitored.
 
+## Generation spend enforcement
+
+Distinct from the membership-grant trust above: this is the per-user **spend
+ceiling** on paid generation (fal.ai image and video calls), and it is a
+fail-closed control, not just a budgeting nicety — an unbounded generation path
+spends real money with no upper limit.
+
+**Two independent layers, and changes must not update only one.**
+`checkBudget` (`budgetGate.ts`) is the **durable, ledger-backed per-user
+ceiling** and is what the rest of this section describes. `enforceGovernance`
+(`resourceGovernance.ts`) runs *first* on the synchronous image and video routes
+(`routes/memes.ts`, `routes/videos.ts`) and independently rejects on
+`DAILY_SPEND_CAP_EXCEEDED` / `MONTHLY_SPEND_CAP_EXCEEDED` plus request-rate,
+concurrency, duration and payload caps. Its accounting is **in-memory and
+per-process**, so like the global rate limiter it is a per-instance backstop
+rather than a fleet-wide guarantee — see the
+[decision record](./decisions.md) for that layer.
+
+`checkBudget`'s contract, established across #409 / PR #443 / PR #474:
+
+- **It denies when it cannot answer.** A config-read, tier-lookup, or ledger-sum
+  failure throws `BudgetGateError` rather than returning `{allowed: true}`. That
+  error is deliberately distinct from `BudgetExceededError`: the first is a
+  retry-able 503 ("we could not tell"), the second a 429 that sends the user to
+  the upgrade path ("you are over"). **Never conflate them** — telling someone
+  hitting a transient database error to go buy more credit is the failure this
+  split exists to prevent.
+- **The gate's input is part of the gate.** Resolving the fal price can fail, and
+  a call site that skips the check when it does leaves the ceiling unenforced at
+  precisely the wrong moment. Every call site therefore either degrades to a
+  defensible estimate and still gates, or denies. See the
+  [precondition failure pattern](./known-failure-patterns.md) for the general
+  shape. `scripts/check-budget-gate-unconditional.mjs` is a CI guard that walks
+  the TypeScript AST and fails the build if a `checkBudget` call is ever made
+  conditional on price resolution again; its known limits are documented in its
+  own header, and it is a backstop rather than the control.
+- **The fallback estimate prefers the persisted `engines` row over the code
+  catalogue, but does use the catalogue as a fallback.** Precedence is
+  persisted-exact → catalogue-exact → the maximum across both sources.
+  The persisted row wins because `estimatedCostUsdPerCall` is admin-editable and
+  `engines/reconcile.ts` strips `ADMIN_EDITABLE_FIELDS` from its boot update
+  precisely so operator edits survive; the catalogue still supplies a value when
+  the table legitimately has no row for that model, which happens (a seeded test
+  database has far fewer rows than the catalogue). A model-specific figure always
+  beats an aggregate, so an incomplete table cannot lower the floor. If the
+  `engines` read itself **fails**, the gate denies rather than falling back —
+  when the persisted values are unknown, no catalogue-derived number provably
+  avoids undercutting them.
+- **The admin exemption precedes the *cost* resolution and the config/ledger
+  reads — not every fallible read.** `checkBudget` must first read the user row
+  to know whether the caller is an admin at all, and that read sits inside the
+  same fail-closed catch, so a `users`-table failure denies an admin like anyone
+  else. What the exemption does guarantee is that an admin never triggers, or is
+  denied by, the *proposed-cost* lookup or the downstream config/ledger reads: a
+  caller whose cost is itself fallible to determine passes a **thunk**, which
+  `checkBudget` invokes only after the exemption.
+- **The ledger cannot tell you how a figure was arrived at.** Some rows are
+  computed from fal's published rate for that endpoint; others from an
+  operator-configured estimate. No column distinguishes them, and no row is a
+  reconciled provider charge. Consequences for this gate: an unpriced generation on either
+  synchronous path (image or video) is not recorded at all, so across a sustained
+  pricing outage its recorded spend stops growing and the ceiling is measured
+  against a stale total. Which writers produce which kind of figure is **not** stated here —
+  see [`deferred-work.md`](../engineering/deferred-work.md), and derive it from
+  the code rather than from either doc, because that breakdown was mis-stated
+  three times in one review.
+
 ## HTTP security headers (C5)
 
 `artifacts/api-server/src/lib/securityHeaders.ts`, mounted **first** in `app.ts` so every response
@@ -246,6 +313,39 @@ break the SPA's inline scripts. Deliberate, env/route-aware choices:
 - **Dependabot** (`.github/dependabot.yml`) covers the whole pnpm workspace via
   `directories` globs (`directory: "/"` alone misses every workspace manifest —
   see [`dependabot-pnpm-workspace-directories.md`](../../.agents/memory/dependabot-pnpm-workspace-directories.md)).
+
+### Boot-time configuration assertions
+
+Some configuration is required for a security control to *be* a security
+control, and the only loud moment to check it is boot. `IP_HASH_SALT` is the
+worked example: `transient_renders.ip_hash` exists so source-IP abuse queries
+work without retaining PII, and that only holds while the salt is secret — the
+dev fallback is a literal in this **public** repository, so hashing production
+IPs with it makes them reversible while the schema still presents them as a
+privacy control. Production now refuses to start without a >= 16-character
+`IP_HASH_SALT` (PR #484, closing a deferral first raised on PR #299).
+
+Two structural constraints, both learned the hard way and both load-bearing
+for anything similar added later:
+
+- **The check runs at boot, not at the point of use**, because
+  `logTransientRender` catches and swallows its own errors by design — the
+  audit insert must never fail a user's render — so a runtime throw would be
+  absorbed by that same catch and never surface.
+- **The check is a side-effecting IMPORT, not a statement in `index.ts`.** ES
+  imports are all evaluated before the importing module's first statement, so
+  a statement-form check runs *after* the database-backed graph has loaded and
+  (in the bundle) already opened a pool. `artifacts/api-server/src/lib/bootChecks.ts`
+  is imported second, after `./instrument` only, and its import graph is kept
+  minimal on purpose — `artifacts/api-server/src/lib/ipSalt.ts` and
+  `artifacts/api-server/src/lib/env.ts` deliberately never reach
+  `@workspace/db`. Adding a new boot assertion means adding it *there*, not in
+  the entrypoint body. See
+  [`known-failure-patterns.md`](./known-failure-patterns.md)'s boot-ordering
+  entry for the full mechanism.
+
+Non-production keeps the dev fallback: dev, test and Replit preview must boot
+with no secret configured.
 
 ## Admin surface (C9)
 

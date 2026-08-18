@@ -467,8 +467,7 @@ deliberately excludes them and points here instead.
 
 - API DB-backed tests: `artifacts/api-server/src/__tests__/*.test.ts`, run via the
   isolated runners (never raw `node --test`). See
-  [`../tests/testing-guide.md`](../tests/testing-guide.md) and
-  `docs/tests/TESTING.md` (canonical).
+  [`../tests/TESTING.md`](../tests/TESTING.md) (canonical).
 - Frontend: Vitest under `artifacts/overhype-me`.
 - **GitHub CI is the authoritative gate** (`Build` + `Test` required on PRs to
   `main`).

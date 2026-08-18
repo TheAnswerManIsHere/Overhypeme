@@ -20,3 +20,11 @@ symptoms (silent non-starts, stuck queues, "quota-shaped" billing numbers)
 are close to indistinguishable from an actual limit being hit, and jumping
 to the billing explanation first cost a full round of investigation and a
 wrong explanation delivered to David before the outage was found.
+
+**A third cause produces the same zero-runs symptom:** a `pull_request`
+trigger whose `branches:` filter doesn't match the PR's base — see
+[`stacked-pr-gets-no-workflow-run.md`](./stacked-pr-gets-no-workflow-run.md).
+The cheap discriminator between that and an incident is **whether other PRs
+are also missing runs**: a trigger mismatch is PR-specific, an incident is
+not. So zero workflow runs is never itself a diagnosis, in either direction.
+

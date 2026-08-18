@@ -35,7 +35,6 @@ import {
   type RenderMode,
   type RenderRequest,
 } from "../lib/validators/memeBuilder";
-import { hasFeature } from "../lib/tierFeatures";
 import { logTransientRender, ipFromRequest } from "../lib/transientRenderLog";
 
 const router: IRouter = Router();
@@ -118,24 +117,14 @@ async function validateAndResolve(
     return null;
   }
 
-  // Tier gate. PuLID is legendary-only; the other modes are open to every
-  // registered user.
-  if (mode === "pulid") {
-    const allowed = await hasFeature(membershipTier, "meme_ai_background");
-    if (!allowed) {
-      res.status(403).json({ error: "tier_mismatch" });
-      void logTransientRender({
-        endpoint,
-        userId,
-        ip,
-        mode,
-        result: "rejected",
-        rejectionReason: "tier_mismatch",
-        latencyMs: Date.now() - startedAt,
-      });
-      return null;
-    }
-  }
+  // The PuLID gate that used to sit here is GONE, and its removal is not a
+  // weakening: it was unreachable. `deriveRenderMode` is called on line 103
+  // with one argument, so its `imageTransform` parameter is always `undefined`
+  // and `mode` can never be `"pulid"` — the branch never ran. It also checked
+  // the wrong key (`meme_ai_background`) for the capability it named.
+  //
+  // PuLID's real, reachable gate is `meme_pulid_stylize`, enforced where PuLID
+  // is actually requested: `pulidJobs.ts` and `createMemeRecord`.
 
   // Look up the fact. Soft-deleted / inactive facts are treated as missing.
   const [fact] = await db

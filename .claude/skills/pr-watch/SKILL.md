@@ -7,30 +7,54 @@ description: Use after opening or being re-engaged on any PR (implementation or 
 
 Migrated out of `CLAUDE.md` so it loads when a PR is actually being watched.
 The three standing rules that must fire without this skill loaded — always
-subscribe (tier gate), never arm background check-ins, never resolve review
-threads — stay resident in `CLAUDE.md`.
+subscribe (no tier gate), the bounded self-check-in contract, and resolve
+review threads once addressed — stay resident in `CLAUDE.md`.
 
 ### Subscribe rules (resident in CLAUDE.md — pointer, not a second copy)
 
-The subscribe/tier gate lives in `CLAUDE.md`'s *Watching the PRs I open*
-stub, which fires at PR-open time before this skill is ever invoked:
-implementation PRs are watched on **Sonnet** (already there → subscribe
-immediately; on Opus → ask for the switch first), a `[PLAN REVIEW]` draft PR
-is planning and gets subscribed immediately on **Opus** with no switch ask,
-and background self-check-ins (`send_later`) are never armed — David
-(2026-07-07) checks PR status manually and pings me. One detail that lives
-only here: if a session gets switched to Sonnet later and there's an open,
-unwatched PR I created earlier, that's the moment to subscribe — I don't
-need David to re-ask.
+The subscribe rule lives in `CLAUDE.md`'s *Watching the PRs I open* stub,
+which fires at PR-open time before this skill is ever invoked: **I subscribe
+immediately, on whatever tier the session is on — there is no model gate**
+(David, 2026-08-15, retiring the Sonnet gate), for implementation and
+`[PLAN REVIEW]` PRs alike. **Self-check-ins follow the bounded contract in
+`CLAUDE.md`'s *Scheduled self-check-ins*** (David, 2026-08-15, replacing the
+2026-07-07 blanket ban): allowed against a named external state that won't
+reliably wake me, bounded by **both** caps (3 consecutive no-op wakes, and 6
+wakes or 24 hours total), silent when nothing changed **except a terminal
+wake** — never a routine heartbeat.
+
+The old gate's companion rule — *"if the session gets switched to Sonnet
+later, that's the moment to subscribe any open unwatched PR"* — is retired
+with it: there is no tier moment to wait for any more. What survives is the
+substance underneath: **an open PR I created and am not yet watching gets
+subscribed the moment I notice it, without David re-asking.**
+
+**One explicit exception, and it is not optional (Codex, PR #458 round 1):
+a `/document` harvest PR is subscribed only at step 5 of
+[`documentation-workflow.md`](../../../docs/ai-context/documentation-workflow.md)** —
+after the workstream issue exists and the PR body's `Workstream:` line points
+at it. Subscribing performs label writes, so subscribing early labels an
+untracked draft against a missing or wrong issue; that doc says in as many
+words that deferring the *subscribe* is what defers labeling, since draft
+status alone does not. The old tier gate happened to enforce this ordering as
+a side effect of making me wait — with the gate gone, the ordering has to be
+stated outright or it silently breaks.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
-webhook event or David re-engages me — I just never schedule my own wake-up
-for it. Whenever a watched PR merges or closes, I unsubscribe.
+webhook event arrives or David re-engages me. I may additionally schedule a
+wake-up **when a specific external state won't reliably deliver one** — a CI
+run that may never report success, a PR gone quiet before merge, a review
+request that produced no code review (a security bounce is irrelevant to that
+judgement) — under the bounded contract
+in `CLAUDE.md`. **A security-review usage-limit bounce is not one of these:**
+request the code review instead. Whenever a watched PR merges or closes, I unsubscribe and
+disarm any check-in still pending on it.
 
-**The break-after-~2-rounds and skip-review-if-docs-only rules below are
+**The convergence-break and skip-review-if-docs-only rules below are
 for implementation PRs.** A `[PLAN REVIEW]` draft PR follows
 `plan-review-loop`'s own cadence instead — minimum 3 rounds even on a clean
-early pass, no ~2-round break (its soft cap is ~20 rounds), and every
+early pass, no count-based break (its stopping rule is the judgment rubric,
+per that skill's step 9), and every
 revision re-triggered regardless of whether the diff is docs-only, since
 the diff *is* the plan. While watching an implementation PR:
 
@@ -56,31 +80,57 @@ the diff *is* the plan. While watching an implementation PR:
   merge-conflict transitions, and events can arrive out of order or be my own
   replies bouncing back. So whenever I'm re-engaged on a watched PR — by a real
   webhook event or by David — I re-check its true state (threads + CI +
-  mergeability) rather than assuming the last event told the whole story. I do
-  **not** schedule my own wake-up (`send_later`) to go check in the absence of
-  being re-engaged: per David's standing instruction above, he checks PR status
-  manually and pings me if he needs me, so there is nothing for me to
-  proactively poll for.
-- **Every substantive review round pauses for the post-round check-in before
-  any fix is implemented (David, 2026-08-07).** When a round's findings land,
-  I triage first and bring David the check-in defined in
-  [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-check-in-david-2026-08-07):
-  count + trend against prior rounds, each finding's nature / affected area /
-  verdict (fix, accept-and-document, escalate, decline) with whether it's
-  critical to the delivery, the causal flag (new ground vs. repairing an
-  earlier round's fix vs. impossible-as-specified), and a continue/stop
-  recommendation — delivered as a 🛑 NEED YOU banner, then I wait for his go
-  before pushing fixes. **Every finding in the check-in is written in product
-  English** per the contract's 2026-08-08 addition — David's four-question
-  template, outcomes never mechanics; the mechanics stay in the PR thread. **Skip-on-clean:** a round with zero findings or only
-  the unambiguous mechanical nits below doesn't pause — fix silently, one
-  status line. **Model mechanics:** the check-in is written on the session's
-  current tier (usually Sonnet); Opus-subagent escalation is **structural,
-  not self-assessed** — the three triggers in the sweep-protocol bullet
-  below (any decline, any unmechanizable finding, any recurrence of a swept
-  class), which superseded the 2026-08-07 ambiguous-triage judgment call
-  and the `/advisor opus` review-loop trial (see the `model-routing`
-  skill).
+  mergeability) rather than assuming the last event told the whole story.
+  **A scheduled wake-up supplements that, it does not replace it**: I use one
+  only when a named external state won't reliably deliver an event (CI
+  success is the classic drop), never as a general poll and never for a
+  security-review bounce. The contract — named condition, matched cadence,
+  exit condition, **both caps** (3 consecutive no-ops; 6 wakes or 24 hours
+  total), silent on no change **except a terminal wake** — is in `CLAUDE.md`'s
+  *Scheduled self-check-ins*.
+- **Every substantive review round runs the post-round adjudication before
+  any fix is implemented (David, 2026-08-15 — superseding the 2026-08-07
+  per-round David check-in).** When a round's findings land, I triage first
+  and produce the round record defined in
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in):
+  count + trend + bucket mix against prior rounds, each finding's nature /
+  affected area / verdict (fix, accept-and-document, escalate, decline) with
+  whether it's critical to the delivery, the causal flag (new ground vs.
+  repairing an earlier round's fix vs. impossible-as-specified), and the
+  continue/stop decision with its flip condition — **decided by me**, with
+  the judgment moments gated by the adversarial subagent and noteworthy
+  adjudications surfaced as 👀 FYIs. **The durable trail is a maintained PR
+  body section (David, 2026-08-15)** — unlike a plan-review PR, an
+  implementation PR has no findings-ledger section to hold this, and
+  per-comment thread replies can't carry an aggregate record, so I keep a
+  `## Review round ledger` section in the PR body (append-and-edit, same
+  pattern as `plan-review-loop`'s Findings ledger), updated in the same
+  push as each round's fix commits — never a standalone summary *comment*
+  (that rule is unchanged; this is the PR body, not a comment). If the loop
+  stops without a further re-request, this section is still what the
+  close-out report and any later audit read from — session context alone
+  isn't durable. What still stops for a 🛑: a genuine design/architecture/product decision
+  (the escalate rule below), a scope addition, a split. David gets the
+  whole decision trail in the merge report at close. **Anything that
+  reaches him is written in product English** per the contract's 2026-08-08
+  rule — David's four-question template, outcomes never mechanics; the
+  mechanics stay in the PR thread. **Skip-on-clean:** a round with zero
+  findings or only the unambiguous mechanical nits below needs no
+  adjudication — fix silently, one status line. **Model mechanics:** the
+  adjudication itself runs in my main loop, which is **Opus** (David,
+  2026-08-15 — the session tier is now a constant, so this no longer reads
+  "usually Sonnet"), but **every subagent it dispatches runs on Fable**
+  (David, 2026-08-17: *for judgements, I want the strongest possible
+  model*). So all four triggers are genuine escalations again, and each
+  dispatch carries the announce-don't-sneak line. Their value was never
+  only the tier — an independent challenge from a context that did not
+  produce the conclusion is the load-bearing half — but the tier is no
+  longer a reason to soften the framing. Subagent dispatch stays
+  **structural, not self-assessed**: the three triggers in the
+  sweep-protocol bullet below (any decline, any unmechanizable finding, any
+  recurrence of a swept class), plus the adversarial subagent on the
+  judgment moments, which now carries the decision weight the retired
+  check-in used to (see the `model-routing` skill).
 - **Every fix is class-level — the sweep protocol (David, 2026-08-08).** The
   shared contract is
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)'s
@@ -94,36 +144,50 @@ the diff *is* the plan. While watching an implementation PR:
   fact about the situation rather than my own sense of ambiguity (they
   supersede the older "when the triage feels ambiguous" call; full
   mechanics in the `model-routing` skill):
-  1. **Any decline**: before posting it, a one-shot announced **Opus
+  1. **Any decline**: before posting it, a one-shot announced **Fable
      subagent** gets the finding plus my refutation and argues the
      finding's side; the decline posts only if it survives. A wrong
      decline is the one verdict nothing downstream catches — Codex has
      already fired, David doesn't read diffs.
   2. **Any finding with no mechanical oracle** (step 2 of the shared
      protocol came up empty): a pure-judgment finding, so its triage
-     verdict comes from the Opus subagent.
+     verdict comes from the Fable subagent.
   3. **Any recurrence of a swept class** (the shared protocol's process
-     failure): the class re-naming goes to the Opus subagent, and the
-     recurrence is called out in that round's check-in.
-  Sensitive-path PRs (the tier table's Opus-always rows) run the whole loop
-  on Opus, so triggers 1–2's Opus-subagent dispatch is redundant there — the
-  main loop already is Opus. **The sweep itself (name the class, write the
-  oracle, sweep to zero) and the recurrence check-in flag still apply on
-  Opus loops** — a swept class recurring is a process signal David needs to
-  see regardless of which tier caught it.
+     failure): the class re-naming goes to the Fable subagent, and the
+     recurrence is called out in that round's record.
+  **All three triggers stay live whatever the main loop's tier — corrected
+  2026-08-15 (Codex, PR #458 round 1).** These lines used to call triggers
+  1–2's dispatch "redundant" on an Opus loop, which was harmless when Opus
+  loops were the exception and became dangerous once *every* loop was Opus:
+  read literally it retires trigger 1 entirely, and trigger 1 protects the
+  one verdict nothing downstream catches (a wrong decline resolves the
+  thread and no one sees it again). **The trigger was never about reaching a
+  stronger tier — it is about an independent challenge from a context that
+  did not produce the conclusion**, which a same-tier subagent supplies just
+  as well. Since 2026-08-17 the dispatch is *also* an escalation, because it
+  runs on Fable — so the announcement applies again — but the reasoning is
+  kept because the failure it guards against is a trigger quietly mooting
+  itself, which no tier arithmetic fixes. The sweep itself (name the class,
+  write the oracle, sweep to zero) and the recurrence round-record flag
+  apply throughout.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class
-  are the skip-on-clean category — they don't wait on a check-in, but they
+  are the skip-on-clean category — they don't wait on an adjudication, but they
   do get the class sweep above (a lint error's class is "this lint rule,
   everywhere in the diff").
 - **Escalate anything that's a real decision.** A design / architecture /
   trade-off comment (which abstraction to use, whether to refactor more, a
   behavior change) goes to David via AskUserQuestion — I do **not** silently
   rewrite the design on a reviewer's say-so, even a bot's.
-- **Break non-converging loops.** If a fix would be contested, or after ~2
-  rounds without convergence, I stop and bring David the diagnosis instead of
-  churning the code.
+- **Break non-converging loops — by diagnosis, not by count (David,
+  2026-08-15).** The signal is the bucket mix, not the round number: a round
+  dominated by failures of the previous round's fixes (oscillation), or a
+  fix that would be contested, ends the loop — I run the adversarial
+  adjudication and either ship what's sound, or escalate with the diagnosis
+  if the disagreement is substantive. A loop still yielding new ground in
+  the diff keeps running, however many rounds it takes; the criticality gate
+  keeps low-stakes artifacts from getting extra rounds at all.
 - **Reply inline on each comment's own thread — never a standalone summary.**
   When I act on (or decline) a reviewer comment (Codex or otherwise), I reply
   **directly on that specific comment's thread**, one reply per comment, saying
@@ -132,38 +196,66 @@ the diff *is* the plan. While watching an implementation PR:
   each thread, and a catch-all comment defeats that.
 - **The criticality gate fires before every re-request (David, 2026-08-08).**
   Before posting any `@codex review`, I rate the artifact 1–100 on "what
-  breaks in production if this ships wrong" and say the number in the
-  check-in. Single-digit artifacts **never get a re-request** — transient
-  docs (TEST_RUN checklists) get Codex's automatic first pass, one triage,
+  breaks in production if this ships wrong" and say the number in the round
+  record and in the re-request comment itself. Single-digit artifacts
+  **never get a re-request** — transient
+  docs (handoff docs, legacy TEST_RUN checklists) get Codex's automatic
+  first pass, one triage,
   and the loop is over, regardless of finding badges. The cap is on rounds,
   never on fixes: that one triage still fixes anything safety-relevant
-  (an instruction that could touch live state breaks the TEST_RUN
+  (an instruction that could touch live state breaks the verification
   read-only contract and is a glaring issue). This gate exists
   because PR #356 ran five rounds and 36 findings on a delete-after-one-use
   checklist; the re-request bullet below applies only to artifacts that pass
   this gate. On any **docs-only PR** that does warrant a review request, the
   request itself states the light bar
   ([`code-review.md`](../../../docs/engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08):
-  generally correct, glaring issues only, no grammar/count nits), and
-  pedantic findings that arrive anyway are declined against that rule in one
-  pass.
-- **A Codex "usage limits for security reviews" bounce is not a real
-  finding-in-waiting — don't block on it (David, 2026-08-08).** The
-  connector's bounce comment ("You have reached your Codex usage limits
-  for security reviews. Please try again later.") does not correspond to
-  David's *visible weekly quota* — his own Codex analytics showed ~98% of
-  it remaining while the connector kept bouncing every `@codex review`
-  request on PR #371 with this exact message. That doesn't rule out some
-  other, undocumented limit specific to this feature; there's no
-  documentation either way, and no predictable time it clears. One retry
-  is fine, but past that: **don't keep retrying, don't treat the silence
-  as "no findings," and don't hold the PR waiting on a review that isn't
-  coming** — proceed as if that round's review is unavailable and move the
-  PR forward (merge-ready for docs-only/low-criticality artifacts; for
-  anything higher-stakes, say plainly that the round shipped without a
-  live Codex pass rather than silently treating it as clean). Note the
-  skip in the workstream/PR status rather than pretending a review
-  happened.
+  generally correct, glaring issues only, no grammar/count nits), the PR
+  body carries the **review-scope oracle** naming what review is for on
+  this artifact (`working-modes.md`'s 2026-08-15 rule), and out-of-scope or
+  pedantic findings that arrive anyway are declined against those stated
+  rules in one pass — convergence-by-decline is convergence for this class,
+  and same-day self-merge after it is the expected outcome. **Docs-loop
+  continuation is consequence-based, not capped (David, 2026-08-15)**: a
+  further round needs behavior-changing findings and a re-request naming
+  the specific fixes it verifies (a polish-only round is convergence), and
+  a third round fires the adversarial-adjudication tripwire — per
+  `working-modes.md`'s *Docs-only loops continue on consequence, not
+  count*.
+- **A "usage limits for security reviews" bounce is NOT a code-review
+  outage — ignore it and request the code review (David, 2026-08-15,
+  correcting the 2026-08-08 rule that used to live here).** Codex meters
+  security reviews and general code reviews separately, and our code-review
+  capacity is effectively unlimited. **The canonical fact, the evidence, and
+  the standing rule live in
+  [`code-review.md`](../../../docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage)**
+  — it binds every agent watching a PR, so it is not restated here. The
+  failure mode is in
+  [`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)'s
+  *Reading a scoped limit message as a blanket outage*; note that the rule
+  this replaced quoted the "for security reviews" wording and still drew the
+  unscoped conclusion, so having the evidence nearby is not protection.
+  - **My enactment:** post `@codex review` as normal and treat the bounce as
+    unrelated noise. A security-limit bounce never satisfies "converged,"
+    never justifies skipping or deferring a round, and never licenses a
+    merge.
+  - **A genuine code-review outage** — a request producing **no code
+    review**, judged *only* on whether the code review arrived. **A security
+    bounce is irrelevant noise and must not enter this test** (Codex, round
+    3): the two limits are independent, so a bounce can fire alongside a real
+    code-review outage, and an "and no bounce" conjunction would let that
+    unrelated comment mask the outage permanently — the one-retry
+    termination would never fire and a high-stakes PR would wait forever.
+    This is a real, separate case, and it is now a **full stop** rather than
+    a stakes split (David, 2026-08-17): *"We'll have to pause our development
+    until the token limit resets. You'll need to fail loudly."* **The
+    2026-08-15 split — docs-only/low-criticality may proceed noting the skip
+    — is RETIRED.** Every PR gets a Codex review, and nothing merges until
+    it returns, whatever the PR's stakes; a criticality of 10 changes how
+    many rounds are worth requesting, never whether the first one has to
+    come back. One retry, then stop re-asking and raise it with David as a
+    🛑 banner with a push notification. **A security-limit bounce does not
+    qualify.**
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
   2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
   reliably re-trigger it — so the fixes I push in response to review comments or
@@ -175,9 +267,16 @@ the diff *is* the plan. While watching an implementation PR:
   never my prose replies. **No minimum rounds, no convergence ceremony** — that
   is the plan loop, not this: a clean/silent re-review ends it, and new
   substantive findings just follow the rules above (fix the mechanical,
-  escalate real decisions, break after ~2 non-converging rounds). Only
-  exception: a genuinely zero-risk push (docs-only, comment typo) doesn't need
-  one — anything touching product code or test logic does. **The re-request
+  escalate real decisions, break on oscillation per the diagnosis rule).
+  **The old zero-risk exemption — a docs-only push or comment typo needing no
+  re-review — is RETIRED (David, 2026-08-17).** Nothing merges without a
+  completed pass covering the commit that would merge, so any push after a
+  review needs a fresh round however small it was: what makes a push safe is
+  not knowable from its own diff, which is the assumption that let PR #487 be
+  reported ready. The merge gate enforces this rather than trusting the
+  judgement — `scripts/pr-ready.mjs` requires a `**Reviewed commit:**`
+  announcement matching the head sha, so a push after the last pass simply
+  fails the receipt. **The re-request
   says what to reconcile.** A bare `@codex review` on a fix round invites a
   review of just the new commits, so I state in the comment which findings the
   round was meant to close and ask Codex to confirm each is actually resolved
@@ -221,27 +320,39 @@ silently leaving the workstream unlabeled):
 - **A genuine design/architecture decision goes to David** (the escalate
   rule above) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
-- **CI is green and Codex has converged, but the PR isn't merged yet** →
-  `stage:merge`, `waiting:david`. This is the 🛑 Merge David-gate — leaving
-  the issue at `stage:code-review` here is exactly the kind of ready-to-go
-  workstream `/status-all` exists to surface, so don't let it sit
-  unlabeled just because nothing forced a transition.
-- **The PR merges with a TEST_RUN doc** (`docs/PR<N>_..._TEST_RUN.md`) →
-  `stage:test-run`, `waiting:replit` — the lifecycle's own Test-run stage,
-  between Merge and UAT, not a step to skip past. Per the `pr-docs`
-  contract, the TEST_RUN doc is transient: David deletes it once Replit has
-  actually run it, so its **absence on `main`** is the completion signal.
-  **The `test-run-completion.yml` Action owns what happens next** —
-  triggered on the push that deletes the doc, it applies the same
-  UAT-vs-close-out check as the next bullet and moves the label itself
-  (`scripts/sync-test-run-completion.mjs`), no agent session required. This
-  replaced an earlier best-effort "whoever notices next" design that Codex
-  correctly flagged twice as having no real owner (round-2 and round-3 of
-  PR #334's review). I don't need to do anything here beyond setting the
-  initial `stage:test-run` at merge — just know it's not a dead end if
-  `/status-all` later reports the issue already moved on its own.
-- **The PR merges with no TEST_RUN doc** → `stage:uat` **only if a UAT doc
-  exists or is actually due** — pure-docs/pure-devops PRs never have one,
+- **CI is green and Codex has converged, and every thread is resolved** →
+  the ready bar is met and **I merge it myself per CLAUDE.md's close-out
+  contract (David, 2026-08-15)** — re-verify live state, squash-merge, sync,
+  verify, report — so `stage:merge` is normally a moment, not a resting
+  state. The exception is a carve-out PR (guardrail/authority-widening,
+  which stays David-merge-only): there, label `stage:merge`,
+  `waiting:david`, deliver the 🛑 merge ask, and don't let it sit at
+  `stage:code-review` — a ready-to-go workstream parked under the wrong
+  label is exactly what `/status-all` exists to surface.
+- **The PR merges with a Post-merge verification section that has real
+  content** → `stage:test-run`, `waiting:replit` — the lifecycle's own
+  Test-run stage, between Merge and UAT, not a step to skip past. Per the
+  `pr-docs` contract this stage is now **executed inside close-out**: I
+  drive the section through the connector, read the results, and on a
+  clean pass move the label myself to `stage:uat`/`stage:close-out` per
+  the next bullet's check, in the same close-out sequence. A failure
+  keeps the workstream here while it routes through the normal channel.
+  (The `test-run-completion.yml` Action that used to own this transition —
+  built on PR #334 when file deletion was the completion signal and no
+  agent owned the moment — is retired along with the TEST_RUN file
+  pattern, 2026-08-15: close-out now has an owner, me. A **legacy**
+  `docs/tests/Replit/PR<N>_..._TEST_RUN.md` doc still on `main` follows
+  this same flow, plus deleting the doc on a full pass — a tiny deletion
+  PR, self-merged; the label move is likewise mine, since the Action is
+  gone.)
+- **The PR merges with "none needed" verification** → `stage:uat` **only
+  after the close-out sync checks pass, and only if a UAT doc
+  exists or is actually due**. The transition moment is the verified Repl
+  sync (matching SHA + clean worktree, per CLAUDE.md's close-out
+  sequence), not the merge click — a failed sync would otherwise put a
+  David-held UAT gate on the board for a build he can't actually reach;
+  until the checks pass the workstream stays agent-held in close-out.
+  On the UAT-doc test: pure-docs/pure-devops PRs never have one,
   and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
   internal (per `working-modes.md`'s Tier B exception): all three go
   straight to `stage:close-out` instead, since holding them at `uat` would
@@ -257,6 +368,78 @@ silently leaving the workstream unlabeled):
   or not a stage tracks it; this just points him. Never `stage:done` at
   merge — that's David's to set once he's actually verified it, the same
   reason the Project's built-in `PR merged → Done` workflow is off.
+
+**If this PR is one phase of a phased feature, every `waiting:` toggle
+updates the parent too — not just close-out.** Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*Phased features* section, the parent's `waiting:` is supposed to mirror
+whoever holds the active phase at all times. Touching it only at close-out
+leaves the parent showing a stale holder for the entire review-and-merge
+cycle of every phase — so **each time this section moves the phase issue's
+`waiting:`** (round-by-round toggling, escalation, merge), mirror the same
+value onto the parent, in the same edit, State of Play included.
+
+**The parent's Phases checklist moves when the phase issue itself reaches
+`stage:close-out` — never at merge.** This is the same distinction the
+general flow above already makes for an ordinary workstream (merge is not
+verified work; David's UAT is) — a phase is no different. A product-visible
+phase merges into `stage:test-run`/`stage:uat` like any workstream and sits
+there through David's UAT before reaching `stage:close-out`; a phase with
+no UAT reaches `stage:close-out` sooner, immediately after its verification
+checks, but through the same transition, not a merge-time shortcut. Ticking
+the checklist at merge instead would let `/next` treat a phase as done —
+and surface the next phase, or close the parent — while its own UAT is
+still outstanding.
+
+**Keep mirroring the parent's `waiting:` through this entire span**, per
+the toggle rule above — that already covers the phase's `stage:uat`/
+`waiting:david` transition, so the parent correctly shows "waiting on
+David's UAT" for exactly as long as that's true.
+
+**When the phase issue reaches `stage:close-out`, move the parent's
+checklist**, in the same edit as the phase's own transition:
+
+- **Tick this phase's checkbox** in the parent's checklist, replacing
+  `(active)` with the merged PR number.
+- **Re-point the parent's `waiting:`** at whoever holds the next phase — or
+  `waiting:claude` when the next phase hasn't been opened yet, since an
+  unstarted next phase is work owed, not a resting state.
+- **If this was the last phase**, move the parent straight to
+  `stage:close-out`. There is no separate whole-feature UAT gate — every
+  phase already ran its own UAT wherever it was product-visible, per
+  `workstream-tracking.md`'s *Phased features* section, so a UAT stage here
+  would be a gate with nothing left to run against it.
+- **If a phase's own UAT surfaced a bug**, that's the UAT-descent case —
+  see `workstream-tracking.md`'s *When UAT finds a bug* section for the
+  `Blocked by:` marker that records the way back up. The phase stays open
+  (not `stage:close-out`) until that descent resolves, so the checklist
+  correctly doesn't tick early.
+
+**At the close-out of any workstream, check whether it was the target of a
+`Blocked by:` marker** — one `search_issues` call, `"Blocked by: #<this
+issue>" in:body`, trusted-issue filtered the same way every other marker
+lookup here is. If a match comes back, that match is a parent this closure
+just unblocked — but what to do about its `waiting:` depends on whether
+this is the UAT-descent shape:
+
+- **If the matched issue's State of Play records a stashed prior
+  `waiting:` value** (only `bugfix`'s UAT-descent intake writes one, per
+  `workstream-tracking.md`'s *When UAT finds a bug*) — **restore it**
+  (normally back to `david`) and remove the now-stale `Blocked by:` line.
+  Skipping this leaves the unblocked parent sitting at `waiting:claude`
+  indefinitely — mechanically releasable per the `Blocked by:` contract,
+  but with no open question left for anyone to notice needs restoring.
+  **If that matched issue is itself a phase sub-issue, restore its
+  parent's `waiting:` the same way, in the same edit** — `bugfix` mirrors
+  the descent flip onto the parent at intake, so the restore has to mirror
+  back the same way, or the parent is left stuck at `waiting:claude` after
+  the phase itself has already recovered.
+- **Otherwise** — an ordinary workstream-to-workstream dependency, or a
+  blocked backlog item — **only remove the stale `Blocked by:` line.**
+  Nothing stashed a prior value for these, so guessing a `waiting:` (or
+  adding one to a `queue:`-only item that shouldn't carry the label at
+  all) would fabricate state instead of restoring it. Their own next
+  `waiting:`-touching moment sets the right value normally.
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,

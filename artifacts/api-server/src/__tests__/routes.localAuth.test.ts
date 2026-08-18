@@ -31,7 +31,7 @@ import { eq, like, sql, and } from "drizzle-orm";
 
 import localAuthRouter from "../routes/localAuth.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
-import { createSession, type SessionData } from "../lib/auth.js";
+import { createSession, type SessionData, BOOTSTRAP_ADMIN_EMAIL } from "../lib/auth.js";
 
 
 const USER_PREFIX = "t_routes_la_";
@@ -516,6 +516,44 @@ describe("GET /auth/verify-email", () => {
       .get("/auth/verify-email")
       .query({ token: rawToken });
     assert.equal(res.status, 200);
+
+    const [row] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+    assert.equal(row.email, newEmail);
+    assert.equal(row.pendingEmail, null);
+  });
+
+  // Round 2 of PR #425's review: this promotion is a SECOND path (besides
+  // PATCH /admin/users/:id) that can cross the bootstrap-admin-email
+  // boundary, and it wasn't wired into the lockout guard at all. This proves
+  // the wiring doesn't wrongly block the common case — an admin who is
+  // independently `is_admin` confirming a normal email change — the same
+  // false-rejection shape the admin.ts route-level fix closes. The
+  // population-sensitive rejection path itself (target has NO other
+  // admin mechanism) is exercised at the unit level in
+  // adminLockout.integration.test.ts against the shared guard, which this
+  // route now calls rather than duplicating.
+  it("promotes pendingEmail across the bootstrap boundary when the admin is independently is_admin", async () => {
+    const { id } = await createUserWithPassword({ email: BOOTSTRAP_ADMIN_EMAIL });
+    await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, id));
+    const newEmail = uniqueEmail();
+    const rawToken = randomUUID().replace(/-/g, "");
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    await db.update(usersTable).set({ pendingEmail: newEmail }).where(eq(usersTable.id, id));
+    await db.insert(emailVerificationTokensTable).values({
+      userId: id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000),
+      pendingEmail: newEmail,
+    });
+
+    const res = await request(makeApp())
+      .get("/auth/verify-email")
+      .query({ token: rawToken });
+    assert.equal(
+      res.status,
+      200,
+      `expected 200, got ${res.status} (body: ${JSON.stringify(res.body)})`,
+    );
 
     const [row] = await db.select().from(usersTable).where(eq(usersTable.id, id));
     assert.equal(row.email, newEmail);

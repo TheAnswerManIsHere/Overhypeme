@@ -14,6 +14,13 @@ import { ipFromRequest } from "../lib/transientRenderLog";
 import { logger } from "../lib/logger";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 import { effectiveTierForRow } from "../lib/membershipState";
+import {
+  acquireAdminPopulationLock,
+  assertAdminPopulationSurvives,
+  crossesBootstrapBoundary,
+  respondToGuardError,
+} from "../lib/adminLockoutGuard";
+import { isRealAdminRow } from "../lib/adminIdentity";
 
 const router: IRouter = Router();
 
@@ -471,11 +478,48 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
   }
 
   if (record.pendingEmail) {
-    // Email change verification — promote pendingEmail to email
-    await db
-      .update(usersTable)
-      .set({ email: record.pendingEmail, pendingEmail: null, emailVerifiedAt: new Date() })
-      .where(eq(usersTable.id, record.userId));
+    // Email change verification — promote pendingEmail to email. This is a
+    // SECOND path (besides PATCH /admin/users/:id) that can cross the
+    // bootstrap-admin-email boundary, so it needs the same lockout guard:
+    // round 2 of PR #425's review found the last bootstrap-email-only admin
+    // could confirm a pending non-bootstrap address here and silently lose
+    // console access with no guard catching it.
+    const pendingEmail = record.pendingEmail;
+    try {
+      await db.transaction(async (tx) => {
+        // Lock FIRST — round 5 of PR #425's review found this path reading
+        // the target's email/isAdmin before entering a transaction at all,
+        // the same shape admin.ts's PATCH handler had before round 4's fix.
+        // The decision of whether this promotion removes admin access must
+        // be made under the population lock, not from a read taken before
+        // any transaction opens.
+        await acquireAdminPopulationLock(tx);
+
+        const [current] = await tx
+          .select({ id: usersTable.id, email: usersTable.email, isAdmin: usersTable.isAdmin })
+          .from(usersTable)
+          .where(eq(usersTable.id, record.userId))
+          .limit(1);
+
+        const removesAdminAccess =
+          !!current &&
+          crossesBootstrapBoundary(current.email, pendingEmail) &&
+          isRealAdminRow(current) &&
+          !isRealAdminRow({ id: current.id, email: pendingEmail, isAdmin: current.isAdmin });
+
+        if (removesAdminAccess) {
+          await assertAdminPopulationSurvives(tx, record.userId);
+        }
+
+        await tx
+          .update(usersTable)
+          .set({ email: pendingEmail, pendingEmail: null, emailVerifiedAt: new Date() })
+          .where(eq(usersTable.id, record.userId));
+      });
+    } catch (err) {
+      if (respondToGuardError(err, res)) return;
+      throw err;
+    }
   } else {
     // New account email verification
     await db

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { ImageTransform, MemeBuilderProps } from "./types";
-import { resolveBehavior } from "./behaviorMatrix";
+import { resolveBehavior, entitlementsFromViewerContext } from "./behaviorMatrix";
 import { useBuilderState, snapshotPendingState } from "./state/useBuilderState";
 import { capturePendingState, clearPendingState } from "./state/pendingBuilderState";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
@@ -24,9 +24,10 @@ import {
 /**
  * Phase-3 universal meme builder.
  *
- * Behavior is decided once via `resolveBehavior(mode, tier, entryFlow)`. The
- * rest of the component reads `cell.*` — there are no nested switches on the
- * raw tuple here.
+ * Behavior is decided once via `resolveBehavior(mode, tier, entryFlow,
+ * entitlements)`. The rest of the component reads `cell.*` — there are no
+ * nested switches on the raw tuple here. `entitlements` is the server's
+ * resolved payload, not derived from `tier` — see `behaviorMatrix.ts`.
  *
  * Persistence is delegated to API endpoints; this component never writes to
  * GCS, the DB, or fal.ai directly. Background-URL math and server-bound
@@ -37,9 +38,10 @@ import {
 export function MemeBuilder(props: MemeBuilderProps) {
   const { mode, factId, factText, viewerContext, entryFlow, onComplete, onCancel } = props;
 
+  const entitlements = entitlementsFromViewerContext(viewerContext);
   const cell = useMemo(
-    () => resolveBehavior(mode, viewerContext.tier, entryFlow),
-    [mode, viewerContext.tier, entryFlow],
+    () => resolveBehavior(mode, viewerContext.tier, entryFlow, entitlements),
+    [mode, viewerContext.tier, entryFlow, entitlements.meme_pulid_stylize, entitlements.meme_ai_background],
   );
 
   const initial = props.initialPendingState

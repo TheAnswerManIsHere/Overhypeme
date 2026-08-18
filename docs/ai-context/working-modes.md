@@ -58,8 +58,8 @@ to review.
 
 | Artifact class | Ceremony | Why |
 | --- | --- | --- |
-| **Transient, single-use process docs** — TEST_RUN checklists, one-off run notes, anything deleted after one execution by one person | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request. The cap ends the *loop*, never a fix: the one triage still fixes anything safety-relevant (see the next column). | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and gets fixed in the single triage. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
-| **Loop-ledger records** — `.agents/metrics/loops/<pr>.json`, filed per *The loop ledger* below | **This cap covers only findings *on the ledger file itself*.** The record "rides any PR of mine except the one it measures" (see *The loop ledger* below), so it routinely shares a carrier PR with unrelated product-code changes — this row never governs those; they keep their own artifact class's ceremony (product code: review to convergence, as normal). For the ledger file: write it, one review pass, ship regardless of findings. The review *request* itself states the narrowed bar (mechanical-value-or-factual-claim only, scoped explicitly to the ledger JSON — see [`code-review.md`](../engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08)'s loop-ledger carve-out), so Codex is asked not to surface prose/wording findings on that file in the first place, and a carrier PR's review request says which files this bar applies to. Whatever the first pass returns *on the ledger file* gets one triage — fix anything that's actually a wrong stored number or a factually wrong claim about the loop; anything else (a defensible reading of an ambiguous rubric clause, imprecise phrasing around a correct label) is merged as written, no re-request. | Criticality ≈ 1 (David, 2026-08-11, after PR #406 — the record for PR #398 — ran three review rounds on a JSON file with no product surface: the causal numbers were correct every round, only the prose explaining them kept needing polish). This is a self-measurement about an already-closed, already-merged loop; looping review on it is the same ceremony-mismatch the *transient process docs* row above exists to prevent, just on a record that happens to be kept rather than deleted. If the author's own judgment says a finding reveals something genuinely missed (not just an alternate phrasing), fix it in that one triage or flag it to David directly — never loop Codex again to confirm. The scope-to-the-file-not-the-PR caveat was added the same day, after Codex's review of PR #407 (the PR introducing this row) correctly flagged that unscoped "ship regardless of findings" language would, read literally, excuse a carrier PR's product-code changes from review too. |
+| **Transient, single-use process docs** — handoff docs, one-off run notes, legacy TEST_RUN checklists (the TEST_RUN file itself is retired as of 2026-08-15 — new PRs carry a *Post-merge verification* PR-body section reviewed with the diff, per [`test-run-contract.md`](../tests/test-run-contract.md); this row still governs the legacy files while they run out), anything deleted after one execution | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request. The cap ends the *loop*, never a fix: the one triage still fixes anything safety-relevant (see the next column). | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and gets fixed in the single triage. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
+| **Loop-ledger records** — `.agents/metrics/loops/<pr>.json`, filed per *The loop ledger* below | **This cap covers only findings *on the ledger file itself*.** The record "rides any *mergeable* PR of mine except the one it measures — never a `[PLAN REVIEW]` PR" (see *The loop ledger* below), so it routinely shares a carrier PR with unrelated product-code changes — this row never governs those; they keep their own artifact class's ceremony (product code: review to convergence, as normal). For the ledger file: write it, one review pass, ship regardless of findings. The review *request* itself states the narrowed bar (mechanical-value-or-factual-claim only, scoped explicitly to the ledger JSON — see [`code-review.md`](../engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08)'s loop-ledger carve-out), so Codex is asked not to surface prose/wording findings on that file in the first place, and a carrier PR's review request says which files this bar applies to. Whatever the first pass returns *on the ledger file* gets one triage — fix anything that's actually a wrong stored number or a factually wrong claim about the loop; anything else (a defensible reading of an ambiguous rubric clause, imprecise phrasing around a correct label) is merged as written, no re-request. | Criticality ≈ 1 (David, 2026-08-11, after PR #406 — the record for PR #398 — ran three review rounds on a JSON file with no product surface: the causal numbers were correct every round, only the prose explaining them kept needing polish). This is a self-measurement about an already-closed, already-merged loop; looping review on it is the same ceremony-mismatch the *transient process docs* row above exists to prevent, just on a record that happens to be kept rather than deleted. If the author's own judgment says a finding reveals something genuinely missed (not just an alternate phrasing), fix it in that one triage or flag it to David directly — never loop Codex again to confirm. The scope-to-the-file-not-the-PR caveat was added the same day, after Codex's review of PR #407 (the PR introducing this row) correctly flagged that unscoped "ship regardless of findings" language would, read literally, excuse a carrier PR's product-code changes from review too. |
 | **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **Write it, one review pass, ship.** No plan document, no convergence loop. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
 | **Product code** | Today's full feature ceremony — plan, review to convergence, approval. | Codex's review is a real net, but a subtly wrong behavior can reach users. |
 | **Migrations, backfills, auth, payments, the visual pipeline** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
@@ -353,11 +353,59 @@ will keep finding things, and each fix adds surface for the next round.
   criticality), ship, and move on. Correctness of the findings is not the
   test — in the loop that taught this rule, every finding was correct and the
   loop was still the wrong place to spend tokens. Rate the artifact 1–100 on
-  "what breaks in production if this is wrong"; a TEST_RUN checklist is a 1,
+  "what breaks in production if this is wrong"; a transient run checklist is a 1,
   and nothing rated in the single digits earns a second round.
-- **Findings must fall round over round.** If a round produces **more** findings
-  than the one before it, stop and reassess **with David** before starting
-  another round. Report the count trend plainly.
+- **The count trend is a tripwire, not a verdict (David, 2026-08-13 —
+  superseding "findings must fall round over round").** Report the trend
+  plainly every round, and let a rising count still force a hard pause before
+  any further round — but what the pause produces is a *classification*, not
+  an automatic stop. The rule this supersedes said a rising count "means the
+  artifact or the ceremony is wrong"; PR #425 falsified that interpretation
+  three rounds running (6 → 7 → 8, each rise mostly the reviewer widening
+  into pre-existing code while the diff itself converged), and a *falling*
+  count was already known to hide oscillation and growth. What actually
+  carried the continue/stop decision every time the tripwire fired was the
+  causal-and-territory sort of the findings — so that sort is the decision
+  rule, and the count is merely one of the tripwires (alongside artifact
+  growth and oscillation) that forces it to happen:
+
+  | Bucket | What it is | Decision |
+  |---|---|---|
+  | **Oscillation** — findings repairing an earlier round's fixes | propagation / wrong-fix / re-raised dominating the round | **Stop.** More prose rounds cannot converge this; implementation or reassessment can. |
+  | **Class recurrence** — a sibling instance of an already-swept class | the sweep protocol's process-failure flag | **Continue**: finish the class, name the process miss in the round record. Converges fast. |
+  | **New ground, in the diff** — fresh defects in code this loop touched | ordinary review progress | **Continue**, normal triage. |
+  | **New ground, pre-existing** — defects in code the diff never touched | the reviewer ran out of diff and started auditing the repo | **A now / next / never scope decision per finding — never "another round" by default.** Closer to a convergence signal than a failure: the diff stopped yielding. |
+
+  **Territory is the dimension the causal flag alone misses.** "New ground"
+  lumps a defect in this PR's fresh code together with a years-old bug the
+  reviewer wandered into, and the two demand opposite responses — so a
+  finding is classified on both axes: cause (the ledger rubric's vocabulary)
+  and territory (in this loop's diff, or outside it).
+
+  **Bucket precedence, so every finding routes exactly one way.** The
+  overlap case is a sibling instance of a class an earlier round claimed to
+  sweep — the sweep protocol classifies that as wrong-fix for the *ledger's
+  causal accounting*, which would also read as oscillation here. For the
+  *loop decision*, the **first** recurrence of a swept class is class
+  recurrence (continue: escalated re-name, re-sweep, process miss named in
+  the round record) — one faulty sweep is a fixable mistake, not evidence that
+  prose can't converge. A **second** recurrence of the *same* class joins
+  oscillation: at that point the sweep mechanism itself is failing and
+  another prose round won't fix it. The two axes deliberately diverge on
+  this case — the bucket routes this loop's next step; the cause feeds the
+  self-inflicted share — and the round record states both when they differ.
+- **Impact ranks the fixes; it does not drive the loop (David, 2026-08-13).**
+  A high-impact pre-existing finding earns *urgency in whatever vehicle it's
+  routed to* — usually a promptly-scheduled follow-up — not another round of
+  this loop. A low-impact oscillation finding is still a stop signal.
+  Causality and territory decide whether the loop continues; impact decides
+  how fast each routed finding gets fixed, wherever it lands. **The
+  criticality gate above remains the outer gate and fires first**: buckets
+  route continuation only for an artifact the gate already admitted. "Impact
+  never drives the loop" means a finding's severity buys no *extra* rounds
+  inside an admitted loop — it does not resurrect a loop the criticality
+  gate already ended, and a single-digit-criticality artifact still gets no
+  second round no matter how its findings classify.
 - **The artifact must not grow while it is being reviewed (David,
   2026-08-11).** Record its size at round 1 and state the current size in every
   re-review request, beside the finding trend. **Growth past roughly 50% means
@@ -391,7 +439,12 @@ will keep finding things, and each fix adds surface for the next round.
 
   So the menu at a fired tripwire is **split / cap-and-implement / stop**, and
   the question that picks between them is *did the artifact take on new scope,
-  or get deeper about the scope it had?*
+  or get deeper about the scope it had?* **Who decides (David, 2026-08-15):**
+  cap-and-implement and stop are the driving agent's own calls, made through
+  the post-round adjudication (adversarial subagent, FYI to David) — but
+  **split always escalates to David**, because a split changes the
+  deliverable shape the scope-of-work gate agreed to, and the loop has no
+  authority over its own scope.
 - **Oscillation is its own stopping condition (David, 2026-08-13).** When a
   round's findings are dominated by **failures of the previous round's
   fixes**, the loop is not converging, it is oscillating — and more rounds do
@@ -414,20 +467,132 @@ will keep finding things, and each fix adds surface for the next round.
   P2-badged findings were runtime crashes: `has_any_column_privilege(...,
   'DELETE')` raises, and `pg_has_role` raises on a role that does not exist
   yet. Read what a finding *does*, never what it is labelled.
-- **Cap by artifact class.** Transient single-use docs: **the automatic first
-  pass only — never a re-request** (see the ceremony table above). Agent-facing
-  markdown: **1–2 rounds.** Product code: the existing soft cap, and the
-  ~20-round figure is a backstop, not a budget.
-- **A rising count is a signal about the artifact or the process, not a reason
-  to try harder.** Two live examples, both 2026-08-05: PR #329's guard (9, 11,
-  12, 19 — an unbounded parsing surface) and PR #333's plan (12, 1, 4, 6, 12 —
-  ceremony mismatched to a markdown file, with later rounds specifying
-  guarantees the platform could not provide). And the one that produced the
-  criticality gate itself, 2026-08-08: PR #356's TEST_RUN doc ran **five
-  rounds and 36 findings on a checklist that gets deleted after a single
-  run** — every finding technically correct, every round a misallocation,
-  resolved by cutting the findings' whole subject (re-running CI-covered test
-  suites) out of the doc rather than fixing round 5.
+- **Cap by artifact class — only the floor tier still has one.** Transient
+  single-use docs and ledger records: **the automatic first pass only —
+  never a re-request** (see the ceremony table above; a criticality
+  judgment, not a count). Docs-only PRs of any kind: **no round cap —
+  rounds continue on consequence, with a round-3 adjudication tripwire**
+  (David, 2026-08-15, superseding both the 2026-08-14 one-re-request cap
+  and the earlier "agent-facing markdown: 1–2 rounds" phrasing) — see
+  *Docs-only loops continue on consequence, not count* below. Product code
+  and plan-review loops: **no round-count cap** (David, 2026-08-15,
+  retiring the prior ~20-round soft-cap/check-in figure) — the bucket mix,
+  the tripwires, and the criticality gate are the whole stopping rule; see
+  *The post-round adjudication* and the `plan-review-loop` skill's step 9.
+- **The historical record reads cleanly under the bucket rubric — the
+  diagnosis, never the number, was the decision every time.** PR #329's guard
+  (9, 11, 12, 19 — 2026-08-05) was new-ground-in-diff against an unbounded
+  parsing surface: the artifact really was the problem. PR #333's plan (12,
+  1, 4, 6, 12 — same day) was ceremony mismatched to a markdown file, with
+  later rounds specifying guarantees the platform could not provide. PR
+  #356's TEST_RUN doc (2026-08-08) ran **five rounds and 36 findings on a
+  checklist that gets deleted after a single run** — every finding correct,
+  every round a misallocation, and the origin of the criticality gate. And
+  PR #425 (6, 7, 8 — 2026-08-13) was majority pre-existing territory plus a
+  pair of half-applied fixes: a scope decision wearing a divergence costume.
+  Four rising or high counts, four different correct responses — which is
+  the whole case for classifying before deciding.
+
+### Docs-only loops continue on consequence, not count (David, 2026-08-15, superseding the 2026-08-14 one-re-request cap)
+
+A code-review loop converges because the diff bounds it: the reviewer runs
+out of changed lines. A documentation diff has no such bound — every claim
+in a doc is checkable against the entire repo, so an adversarial reviewer
+never runs out of true findings; each corrected claim exposes its
+neighbors, and the loop's own fix commits hand the next round fresh prose
+to audit. A convergence target ("review until clean") is therefore the
+wrong exit condition for docs **even when every finding is correct** — and
+in the loop that taught this, they all were: PR #434 (the `/document`
+harvest of PR #425) ran **eight rounds**, every finding genuinely factual.
+Rounds 1–5 fixed real errors in durable docs; rounds 6–8 polished the
+allowlist of a CI guard that did not exist yet and audited pre-existing
+docs outside the diff.
+
+The 2026-08-14 answer was a hard cap — first pass plus at most one
+re-request. **The cap answered the right problem with the wrong
+instrument** (David, 2026-08-15): it was a count rule in a contract that
+had just replaced count rules with judgment everywhere else, and its own
+worked counter-example arrived the next day — PR #449's second pass
+returned eight findings that were all behavior-changing contract defects
+(one would have let a plan loop start implementation before David's
+approval), whose fixes the cap then shipped *unverified*. What actually
+separates #434's waste from #449's value is neither count nor validity —
+it is **consequence class**, the same vocabulary the docs light-review bar
+already uses: a *glaring issue* (an instruction that leads someone to do
+the wrong thing, a claim contradicting real behavior, a contradiction
+between contracts, a procedure that dead-ends) versus polish (style,
+structure preference, precision drift, completeness padding).
+
+So a **docs-only PR** — any PR whose entire diff is documentation:
+agent-facing markdown, `/document` harvests, manual chapters — runs on
+these rules, not a round cap:
+
+1. **The continue signal is consequence.** A round earns a successor
+   **only if** it surfaced behavior-changing defects, and the re-request
+   must name the **specific load-bearing fixes** it exists to verify. A
+   re-request the author cannot fill in that way does not get posted —
+   the same mechanical trick as the criticality number. A round of only
+   polish, style, or out-of-scope findings **is convergence for prose**,
+   however true its findings are: under an unbounded surface, "the
+   findings are real" is the permanent condition, so validity can never
+   be the continue signal — consequence is.
+2. **The count survives as a tripwire, never a verdict** — the standing
+   2026-08-13 rule, now applied to docs: a docs loop reaching a **third
+   round** fires the mandatory adversarial adjudication (the
+   `model-routing` triggers) before any further round is requested. The
+   count forces the classification; the classification decides.
+3. **Out-of-diff findings route to follow-up issues by default, at any
+   round.** A docs reviewer wandering into pre-existing docs is the
+   convergence signal (the diff stopped yielding), never grounds for
+   another round — the same *new ground, pre-existing* bucket the stopping
+   rule already routes to a scope decision, hardened here into the
+   default.
+4. **The scope oracle and decline-by-default do the containment** (next
+   subsection): with review's purpose stated in the PR body, a polish loop
+   is starved of fuel regardless of how many rounds the rules would permit.
+
+The floor tier stays stricter and is **criticality-based, not
+count-based**: transient process docs and loop-ledger records keep their
+zero-re-request rule from the ceremony table, because for a
+single-digit-criticality artifact the answer to "what breaks if this
+ships wrong" is genuinely nothing — that judgment doesn't need
+re-litigating per loop. And the mechanical criticality rule is unchanged:
+any re-request, on any PR of any kind, states the artifact's 1–100
+criticality number in the request text itself; a request the author
+cannot put a number in does not get posted.
+
+Calibration against the record: #434 ends at round 5–6 under these rules
+(nothing behavior-changing left — no continue signal, regardless of how
+many true findings remained), and #449's second-pass fixes earn exactly
+one named-fix verification round the cap would have forbidden. **Flip
+condition (recorded with the rule, per the standing revisit discipline):**
+if the ledger starts showing docs loops running past three rounds where
+the late rounds' "behavior-changing" findings turn out to be polish in
+costume, the consequence judgment is bending under momentum and the hard
+cap comes back — narrowly, for the artifact class that showed it.
+
+What none of this changes: factual wrongness in durable docs is still the
+one thing worth fixing there, so verified-real findings from any round
+still get fixed (in the merge-ready commit or via a filed issue) —
+stopping ends *rounds*, never fixes. And a docs PR whose findings reveal a
+real product defect (not a doc defect) leaves docs ceremony entirely:
+route it to `/bugfix` or a feature workstream, where code rules apply.
+
+**The PR body states the scope oracle, so the reviewer reviews the right
+thing (David, 2026-08-15).** Every meta-artifact PR — ledger records,
+`/document` harvests, agent-facing markdown — carries a
+short *review scope* block naming what review is *for* on this artifact and
+what is out of scope. A `/document` harvest's oracle, as the worked
+example: *in scope — routing correctness against
+`documentation-workflow.md`, factual accuracy against the merged diffs,
+contradiction or duplication with existing docs; out of scope — prose
+style, structure preferences, completeness beyond the session's actual
+learnings.* PR #434's eight rounds were mostly prose polish — correct
+findings against the wrong review target. With a stated oracle,
+out-of-scope findings are **declined against the stated rule**, not
+absorbed to be polite, and **convergence-by-decline in one triage pass is
+convergence for this class**: merging same-day after declining every
+out-of-scope finding is the expected outcome, not a diligence failure.
 
 ### Findings are triaged against the artifact's real risk
 
@@ -484,7 +649,7 @@ instances are.** For every finding, whichever agent is driving the fixes:
 5. **A recurrence of a swept class in a later round is a process failure by
    definition** — the class was misnamed or the sweep skipped. It is the
    "repairing an earlier round's fix" causal flag made mechanically
-   detectable: it gets flagged as such in that round's check-in, and the
+   detectable: it gets flagged as such in that round's record, and the
    re-naming of the class escalates to a stronger model rather than being
    retried at the tier that misnamed it.
 
@@ -494,28 +659,80 @@ the generalization step explicit every time, not grepping ritualistically.
 A class that outlives its PR (a repo-wide, durable pattern) is a CI-guard
 candidate at loop close, per the standing recurring-failure-patterns rule.
 
-### The post-round check-in (David, 2026-08-07)
+### The scope-of-work gate (David, 2026-08-15)
 
-The stopping rule and the triage above were self-policed — the agent driving
-the loop classified, judged the trend, and decided to continue, all
-unilaterally. The NCMEC plan loop (PR #280 — 18 rounds, 180 findings, this
-repo's worst by finding count, ledger row 14) showed what that costs: rounds
-went into trying to make a migration block the application role from mutating
-objects that role *owns* — a boundary PostgreSQL structurally cannot enforce
-without a superuser, which is now exactly what
+Before any plan-review loop opens, the pre-plan conversation's outcome is
+compressed into a **scope of work David explicitly agrees to**: the direction
+served, product intent for this increment, must-not-change, settled
+decisions, the explicit scope boundaries (what is already decided to be
+*next* or *never*), the artifact's ceremony tier, and its 1–100 criticality.
+**That agreement is the loop's authority to run autonomously to
+convergence** — it replaces the retired per-round check-in (below) as
+David's control point at the front of the loop, paired with explicit plan
+approval at the back. The corollary is the escalation rule: anything that
+would *change* the agreed scope of work — a mid-loop scope addition, a
+split, a product/design fork — is outside the loop's authority and goes to
+David, however the loop is otherwise pacing itself. (Claude's enactment of
+the gate's mechanics lives in the `plan-review-loop` skill; the SOW's
+content is the same material the plan-review PR body template already
+carries, agreed *before* the loop starts instead of discovered during it.)
+
+### The post-round adjudication (David, 2026-08-15, superseding the 2026-08-07 per-round check-in)
+
+The stopping rule and the triage above were originally self-policed — the
+agent driving the loop classified, judged the trend, and decided to continue,
+all unilaterally. The NCMEC plan loop (PR #280 — 18 rounds, 180 findings,
+this repo's worst by finding count, ledger row 14) showed what that costs:
+rounds went into trying to make a migration block the application role from
+mutating objects that role *owns* — a boundary PostgreSQL structurally
+cannot enforce without a superuser, which is now exactly what
 [`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)
-documents ("where the transfer would buy something, it is not permitted;
-where it is permitted, it buys nothing"). One round of "impossible as
-specified — escalate" was the correct disposition; iterated fix attempts were
-not. The structural fix: **the continue/stop decision moves from the agent to
-David, every substantive round.**
+documents. One round of "impossible as specified — escalate" was the correct
+disposition; iterated fix attempts were not. The 2026-08-07 fix moved the
+continue/stop decision to David, every substantive round.
 
-**When a review round's findings land: triage first, implement nothing,
-report.** The check-in carries:
+**As of 2026-08-15 that decision moves back in-loop — but not back to the
+unilateral self-policing that failed.** What made the 2026-08-07 pause
+necessary was a decision that was unchecked, unscoped, and invisible. Each
+of those now has a structural replacement, and together they are the
+conditions of the autonomy:
 
-1. **Count + trend** — this round's finding count against the prior rounds'
-   ("round 3: 4 findings; 9 → 6 → 4"). A rising count is flagged as a stop
-   candidate in the same breath, per the stopping rule above.
+1. **Not unchecked.** Every judgment moment — a fired tripwire, a rising
+   count or oscillation signal, any split / cap / stop decision, any
+   recommendation whose flip condition is missing or already true — gets the
+   **adversarial second-opinion subagent** (the `model-routing` skill's
+   structural triggers) before the decision executes. The subagent is
+   prompted to *reverse* the drafted decision, not review it; what survives
+   is what runs.
+2. **Not unscoped.** The scope-of-work gate above bounds what the loop may
+   decide. The decisions that remain David's, always blocking (🛑): a
+   genuine **product or design fork**; a mid-loop **scope addition** (the
+   now/next/never question — default *next*); any **split**, because a split
+   changes the deliverable shape the SOW agreed to; anything touching the
+   **disclosure check**. Cap-and-implement and stop are the loop's own
+   calls; pulling new scope *in*, or cutting the deliverable *apart*, is
+   not.
+3. **Not invisible.** Every substantive round still produces the full round
+   record (below) — in the loop's own trail (the PR thread and findings
+   ledger) rather than as a blocking banner. Noteworthy adjudications (a
+   fired tripwire and how it resolved, a stop/cap call) surface as
+   non-blocking 👀 FYIs as they happen, and **the loop-close report
+   summarizes the whole decision trail** — tripwires fired, how each was
+   adjudicated, declines and their survivals — at the moment David re-enters:
+   the approval ask for a plan loop, the merge/close-out report for a code
+   loop. David audits the trail at the bookends instead of gating each round.
+
+**When a review round's findings land: triage first, implement nothing until
+the adjudication is done.** The round record carries:
+
+1. **Count + trend, then the bucket mix that interprets it (David,
+   2026-08-13)** — this round's finding count against the prior rounds'
+   ("round 3: 4 findings; 9 → 6 → 4"), followed in the same breath by the
+   stopping rule's classification: how many findings are oscillation /
+   class recurrence / new ground in the diff / new ground in pre-existing
+   code. **The mix, not the count, carries the continue/stop weight** — a
+   rising count still forces this classification to be presented, but the
+   count alone is never reported as the reason to stop.
 2. **Per finding** (grouped where natural): what it is, which part of the
    feature or fix it affects, and the triage verdict — fix /
    accept-and-document / escalate / decline — with a plain statement of
@@ -527,11 +744,14 @@ report.** The check-in carries:
    repository or platform evidence, or settled by an explicit prior product
    decision from David. A bare disagreement is neither; it's escalated.
 
-   **Written in product English, for a product manager (David,
-   2026-08-08).** The check-in's audience is David, who does not write code
-   and does not care about internal mechanics — he cares whether the thing
-   being built will meaningfully change how the product behaves. Before
-   writing any finding into the report, run it through his own template:
+   **Anything that reaches David is written in product English, for a
+   product manager (David, 2026-08-08).** The round record itself now lives
+   in the loop's own trail, where mechanics belong — but every surface with
+   David as the audience (an escalation, an FYI, the loop-close report)
+   keeps this rule in full. He does not write code and does not care about
+   internal mechanics — he cares whether the thing being built will
+   meaningfully change how the product behaves. Before writing any finding
+   into a report to him, run it through his own template:
    *"What are you trying to build, why do we need it, why does Codex think
    there's an issue, and what is the ramification of having bugs in this
    code?"* Each finding in the report answers, in plain sentences: what
@@ -551,26 +771,36 @@ report.** The check-in carries:
    script, or environment-variable precedence. If the sentence would have to
    be rewritten when the mechanism changes, it's describing the mechanism —
    rewrite it as the outcome instead.
-3. **The causal flag, explicitly.** Is the finding **new ground**, or is it
-   **repairing something an earlier round's fix introduced** (propagation /
-   wrong-fix, in the loop ledger's rubric vocabulary), or is it **demanding a
-   guarantee the platform or configuration cannot provide** (the NCMEC case)?
-   An impossible-as-specified finding is named as such and never absorbed as
-   another fix attempt.
-4. **A recommendation** — continue / stop and ship / escalate — and then the
-   loop waits. David decides.
-5. **The flip condition: the one fact that would reverse the recommendation
+3. **The causal flag, explicitly — and for new ground, the territory.** Is
+   the finding **new ground**, or is it **repairing something an earlier
+   round's fix introduced** (propagation / wrong-fix, in the loop ledger's
+   rubric vocabulary), or is it **demanding a guarantee the platform or
+   configuration cannot provide** (the NCMEC case)? An
+   impossible-as-specified finding is named as such and never absorbed as
+   another fix attempt. New-ground findings additionally say **which
+   territory** they sit in — code this loop's diff touched, or pre-existing
+   code the reviewer widened into — because the latter routes to a
+   now/next/never scope decision rather than a fix-by-default (per the
+   stopping rule's bucket table).
+4. **A decision** — continue / stop and ship / escalate. The loop makes it
+   and proceeds, except where the decision is one of the reserved 🛑
+   escalations above (a product/design fork, a scope addition, a split, a
+   disclosure question) — those still wait for David.
+5. **The flip condition: the one fact that would reverse the decision
    (David, 2026-08-13).** One line, always. Two failure modes it catches, and
    both have happened here:
-   - **No flip condition can be named.** A recommendation nothing could
+   - **No flip condition can be named.** A decision nothing could
      reverse was not reasoned to; it was looked up.
-   - **The named fact is already true.** That is the recommendation failing in
-     the act of being written, caught before it reaches David.
+   - **The named fact is already true.** That is the decision failing in
+     the act of being written. Either condition is itself a structural
+     trigger for the adversarial subagent — the decision does not execute
+     until a real, false flip condition can be stated.
 
-**A recommendation that carries an unrefuted argument against itself does not
-ship (David, 2026-08-13).** Either refute the counter-argument explicitly, or
-the recommendation flips to follow it. **A caveat that cannot be refuted *is*
-the recommendation.**
+**A decision that carries an unrefuted argument against itself does not
+execute (David, 2026-08-13).** Either refute the counter-argument explicitly,
+or the decision flips to follow it. **A caveat that cannot be refuted *is*
+the decision.** Under autonomy this rule matters *more*, not less — it is now
+enforced by the adversarial subagent pass instead of by David's read.
 
 This is not a general call for humility — it names a specific, mechanically
 detectable failure. On PR #422 the recommendation to split ended with a
@@ -589,22 +819,25 @@ harder — before sending any recommendation, find every sentence in it that
 argues the other way, and treat each one as a stop signal rather than a
 hedge.
 
-**The check-in shows the argument against the recommendation, never a
-sanitized case for it.** This is the safeguard with a perfect record in this
-repo: both times a recommendation was wrong, David caught it *because* the
-counter-argument was there in full for him to read. Whatever else changes
-about check-ins, that property is preserved deliberately.
+**Every record, FYI, and report shows the argument against the decision,
+never a sanitized case for it.** This is the safeguard with a perfect record
+in this repo: both times a recommendation was wrong, David caught it
+*because* the counter-argument was there in full for him to read. The
+check-in it rode on is retired; the property is not — the adversarial
+subagent receives the counter-arguments verbatim, and the loop-close report
+carries them so David's bookend audit reads the same evidence the old
+per-round read did.
 
-**Fixes are implemented only after David's go.** The pause sits *before* the
-round's fix work, not after, because the waste in a runaway loop is
-*implementing* the chased fix — a report delivered afterwards would spend
-exactly the tokens the pause exists to save.
+**Fixes are implemented only after the adjudication.** The pause sits
+*before* the round's fix work, not after, because the waste in a runaway
+loop is *implementing* the chased fix — the adjudication is cheap, and a
+verdict reached after the fixes would spend exactly the tokens it exists to
+save.
 
 **Skip-on-clean:** a round with zero findings, or only trivial mechanical
-nits (a typo, a dead import, lint), does not pause — handle it silently and
-report one status line so the discipline stays visible. The pause is for
-rounds with substantive findings; a hard stop on a clean round adds latency
-and notification noise with no decision attached.
+nits (a typo, a dead import, lint), needs no adjudication — handle it
+silently and note one status line in the loop's trail so the discipline
+stays visible.
 
 **Scope: every review loop — plan review and code review, feature and
 bugfix, whichever agent is driving it.** The per-round causal flags double as
@@ -780,14 +1013,17 @@ the miniature UAT. No separate docs.
 
 Everything in Tier A, plus:
 
-- **A real UAT doc** (`docs/PR<N>_<FEATURE>_UAT.md`) — the click-through
+- **A real UAT doc** (`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`) — the click-through
   acceptance script, so David's product-verification net is restored for exactly
   the fixes that can reach past the reported symptom.
-- **A TEST_RUN doc only when the fix genuinely needs one** — i.e. when something
-  can only be verified in Replit's environment (live DB state, live config/data).
-  Per [`../tests/test-run-contract.md`](../tests/test-run-contract.md),
-  a TEST_RUN is not a default; most bug fixes need none, and one that re-verifies
-  what CI already gates is waste.
+- **A Post-merge verification section in the PR body only when the fix
+  genuinely needs one** — i.e. when something can only be verified in
+  Replit's environment (live DB state, live config/data). Per
+  [`../tests/test-run-contract.md`](../tests/test-run-contract.md), it is
+  not a default; most bug fixes need none ("none needed" is the correct
+  content), and a check that re-verifies what CI already gates is waste.
+  The driving agent executes the section through the Replit connector at
+  close-out (the standalone TEST_RUN file is retired, 2026-08-15).
 - **The strongest model tier available** for the fix itself.
 
 **Internal/infra-only exception on the UAT doc.** The test is **whether the
@@ -800,7 +1036,7 @@ product-visible, ship a written verification note in the PR body instead of
 a click-through UAT doc, regardless of how many or which triggers fired —
 the same ship-the-UI-surface exception feature mode already grants pure
 infra/refactor changes (see
-[`../tests/testing-guide.md`](../tests/testing-guide.md) and
+[`../tests/TESTING.md`](../tests/TESTING.md) and
 CLAUDE.md). A click-through script for a fix with no in-app surface to click
 through is manufactured ceremony, not verification. The moment the fix also
 touches anything product-visible — even indirectly, e.g. a codegen change
@@ -871,7 +1107,7 @@ oracle and the Tier A/B bugfix oracle below.
    callers" is exactly the gap a mechanical search closes for free.
 6. **Verify — scoped by step 5, not by the diff (David, 2026-08-09).** The
    touched tests + typecheck (see
-   [`../tests/testing-guide.md`](../tests/testing-guide.md)), **plus the
+   [`../tests/TESTING.md`](../tests/TESTING.md)), **plus the
    test suites of the neighbors the blast radius named** — the callers and
    shared-path dependents step 5 identified. A fix that breaks a neighbor
    is the exact failure the bugfix oracle warns about, and step 5's output
@@ -935,10 +1171,11 @@ this miss a caller?*
 - No plan file, no pre-plan ceremony, no plan-review loop.
 - No forced "ship a new UI surface" gate for a pure fix (include UI only if the fix
   genuinely needs it to be testable).
-- No UAT/TEST_RUN docs on **Tier A**. On **Tier B**, a UAT ships only if the fix
-  has product-visible behavior (a written verification note otherwise — see the
-  internal/infra-only exception above), and a TEST_RUN only when something
-  truly needs Replit's environment.
+- No UAT doc and no post-merge verification checks on **Tier A**. On
+  **Tier B**, a UAT ships only if the fix has product-visible behavior (a
+  written verification note otherwise — see the internal/infra-only
+  exception above), and the PR-body verification section gets real content
+  only when something truly needs Replit's environment.
 
 **What it KEEPS (non-negotiable):**
 - **Pause-and-ask on real ambiguity.** If a "bug" is actually a behavior change in
@@ -1024,7 +1261,8 @@ thread that escalated into a reviewed change.
 > [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md) is
 > **frozen** at rows 1–46 and is never appended to again — it is the archive
 > of what those loops showed, pinned by a `sha256` baseline. The `[LEDGER]`
-> PR type is retired: a record rides any PR except the one it measures. Blind
+> PR type is retired: a record rides any *mergeable* PR except the one it
+> measures — never a `[PLAN REVIEW]` PR, which closes without merging. Blind
 > adjudication now runs on a **sample of loops** (each still adjudicated over
 > its full finding population). And the answers now reach David through a
 > digest rather than sitting in a file. Rationale — including why sampling
@@ -1040,9 +1278,25 @@ Codex-driven loop. The resulting record set would look complete while being
 wrong about the thing it exists to measure — worse than none, because it
 would be trusted.
 
-**Record at the loop's terminal point — closed or merged.** There is no
-settling-window wait (David, 2026-08-08: first shortened from 14 days to 1
-hour, then removed outright — nothing in this pipeline runs automatically.
+**A loop becomes recordable at its terminal point — closed or merged — and
+records are written and delivered at the weekly `/maintenance` flush
+(David, 2026-08-15).** A loop's close no longer triggers its own recording
+ceremony: David reads the ledger only through the digest `/maintenance`
+narrates — the weekly "how are we doing and what can we improve"
+conversation — so per-close recording bought freshness nobody consumed at
+the cost of a review loop per loop. At each `/maintenance` pass, the
+records for every loop closed since the last pass are created (via
+`loop-metrics.mjs`, as below) and committed together on that pass's
+docs-only commit; the digest's completeness check then runs against the
+flushed state, so a gap it names is a real one. A record may still ride an
+earlier carrier PR opportunistically — a record that exists early is fine —
+but a **standalone ledger-only PR between maintenance passes is retired**.
+The terminal-point definition below still governs *eligibility*, and the
+late-review caveat still governs *correctness*:
+
+There is no settling-window wait (David, 2026-08-08: first shortened from
+14 days to 1 hour, then removed outright — nothing in this pipeline runs
+automatically.
 `--write` needs an agent to run it in a live session, and the digest needs
 David to invoke `/maintenance`; a wait bought no real safety margin against
 that, only a window where a genuinely missing record went unreported. The
@@ -1055,12 +1309,15 @@ still in flight. If a late review arrives after a record exists, re-derive
 and edit the record; that is an ordinary commit, not a special case to
 detect automatically.
 
-**Commit the record on any open PR except the one being measured.** Adding a
+**Commit the record on any open, mergeable PR except the one being
+measured** — never a `[PLAN REVIEW]` PR, which closes without merging, so
+a record riding it never reaches `main` at all. Adding a
 metrics file to the PR it describes changes that PR's diff, which can trigger
 a further reviewer pass *after* the rounds and interval were derived — the
 record would then omit the round its own addition caused.
 
-**At loop close:**
+**At the `/maintenance` flush, per loop closed since the last pass**
+(not at the individual loop's close — see above):
 
 1. Run `node scripts/loop-metrics.mjs --pr <number> --write`, which lands a
    record with a `judgment: null` scaffold. **Do not type the mechanical
@@ -1250,6 +1507,23 @@ and the blind adjudicator use:
   adjudicator. This default does not extend to the new-ground-vs-propagation
   test above: an *exposed* pre-existing defect is new ground by definition,
   not an ambiguous case defaulting to self-inflicted.
+- **`newGroundTerritory` — the territory split of `causes.new` (David,
+  2026-08-13; recorded for loops closing from this date, absent on older
+  records).** The judgment block additionally carries
+  `newGroundTerritory: { inDiff, preExisting }`: of the new-ground findings,
+  how many were in code this loop's diff touched versus code the reviewer
+  widened into? **The two must sum exactly to `causes.new`.** This exists to
+  evaluate the stopping rule's bucket rubric with data instead of anecdote:
+  the self-inflicted share measures fix quality, but a loop can have a
+  spotless causal record and still run long because the reviewer left the
+  diff and started auditing the repo — PR #425's rounds were exactly that
+  shape, and without this field the record would show only "lots of new
+  ground," indistinguishable from a genuinely defective diff. The ambiguous
+  default here leans `inDiff` (the bias that makes *this* loop look worse,
+  matching the self-inflicted default's direction). A high `preExisting`
+  share across records is not a review-loop failure signal — it is a
+  discovery/pre-planning signal: the affected-surface inventory was
+  incomplete before the plan was written.
 
 **Why the full population, not a sample (David, 2026-07-27).** Earlier drafts
 adjudicated a 30% sample, inheriting the assumption that a *human* would do
@@ -1272,8 +1546,10 @@ it (see the ledger's row-provenance notes) — if that pass surfaces a rubric
 gap, fix the rubric here rather than making a one-off judgment call on #268
 alone.*
 
-**A record rides any PR except the one it measures (David, 2026-08-07 —
-retiring the `[LEDGER]` PR type).** Two rules preceded this one, and the
+**A record rides any *mergeable* PR except the one it measures (David,
+2026-08-07 — retiring the `[LEDGER]` PR type; the mergeable qualifier
+added 2026-08-15 — never a `[PLAN REVIEW]` PR, which closes without
+merging, so a record riding one would never reach `main`).** Two rules preceded this one, and the
 history explains why the third is different in kind rather than just in
 detail:
 
@@ -1296,10 +1572,13 @@ detail:
 
 What remains:
 
-- **Commit the record on any open PR of yours, except the PR being
-  measured** (adding it there would change the diff it describes and can
-  trigger another reviewer pass after the numbers were derived). A small
-  standalone PR is fine when nothing else is in flight.
+- **Commit the record on any open, *mergeable* PR of yours, except the PR
+  being measured** (adding it there would change the diff it describes and
+  can trigger another reviewer pass after the numbers were derived) —
+  **never a `[PLAN REVIEW]` PR**, whose commits never reach `main`. The
+  default delivery vehicle is the weekly `/maintenance` flush (above);
+  riding an unrelated open carrier PR early is fine, a standalone
+  ledger-only PR is not.
 - **Recording the same loop twice, sequentially, is a no-op** —
   `--write` checks the working tree and `origin/main`. Any overlap *before*
   a record lands (two sessions at once, or a second session starting while

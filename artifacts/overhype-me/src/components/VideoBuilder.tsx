@@ -158,8 +158,11 @@ function ModeTab({
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }: VideoBuilderProps) {
-  const { isAuthenticated, role } = useAuth();
-  const isLegendary = role === "legendary" || role === "admin";
+  const { isAuthenticated, can } = useAuth();
+  // Told, not derived — the same video_generation entitlement the server
+  // gates on. This component is unrouted (no importer reaches it from any
+  // route), kept correct rather than left as a landmine.
+  const isLegendary = can("video_generation");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 

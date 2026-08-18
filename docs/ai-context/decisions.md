@@ -13,6 +13,707 @@
 
 ---
 
+### 2026-08-17 · The bash guard refuses curl and wget outright, and ships with its gaps written down
+- **Supersedes in part:** the 2026-08-05 entry below, which narrowed the guard
+  to *"make the lease mandatory"* and called that its only real job. That
+  framing is no longer complete: the guard now has a **second** independent
+  responsibility, refusing fetchers, added for a different reason — a silent
+  failure mode, not a destructive one. Everything else in that entry stands,
+  including its reasoning about why the lease scope stayed narrow.
+- **Neither job has a server-side backstop, and an earlier version of this
+  entry claimed the lease rule did.** GitHub's ruleset protects **`main`**; it
+  does not target `claude/*` or `plan-review/*`, which is the scope the lease
+  mandate actually governs. So on the branches that rule is *for*, the hook is
+  the only line — not the third one. The correction matters because the false
+  version invited exactly the wrong inference: that the lease rule could afford
+  gaps the fetcher rule could not, when in fact both fail the same way and
+  differ only in *how* (recoverable-but-destructive versus silent). The
+  "third line of defence" framing is true of protecting `main` and false of the
+  job this hook mostly does. (Codex, #499 round 3.)
+- **Decision:** `scripts/guard-decision.mjs` refuses the `curl` and `wget`
+  programs entirely, with **no exception for any argument shape** — not even
+  the agent proxy's own `__agentproxy/status` probe. It judges the *resolved
+  program* and nothing else. The PR shipped with six known under-blocking gaps
+  and one over-block **documented in the module header rather than closed**,
+  each with a measured reproduction and the fix it would need.
+- **Scoped to the `node` path, which the title above does not say and should be
+  read as saying.** `.claude/guard.sh` runs `guard-decision.mjs` only when
+  `node` is present; without it the wrapper falls back to a regex scan with no
+  fetcher alternative, and a `curl` payload exits 0. Measured by hiding `node`
+  from `PATH` and running the real hook. Left open deliberately — closing it is
+  a behavioral change, and the PR that found it is a documentation harvest —
+  but recorded here and in both guard headers, because an unqualified
+  "refuses curl and wget outright" is the false assurance this decision is
+  otherwise about avoiding. (Codex, #499 round 3.)
+- **Why:** the first four revisions tried to decide whether a given invocation
+  would actually reach `api.github.com`, so unrelated fetches stayed available.
+  That is not a converging problem — doing it correctly means reimplementing
+  curl's and wget's argument grammars, and review found real defects in the
+  judgement four rounds running, in five different sub-languages of those
+  tools. The single allowlisted exception fared no better: three findings
+  against it in one round, one of them a `.curlrc` reached via `$CURL_HOME`,
+  which adds requests that never appear in argv and so cannot be caught by
+  inspecting arguments at all. Refusing the whole program is the only version
+  complete by construction. **Shipping with gaps was David's explicit call**
+  after 17 rounds: the guard's real job is stopping an accidental silent
+  CI-wait loop, which it does; the residual gaps all require deliberately
+  unusual invocations, and there is no adversary in this container.
+- **What it costs:** ad-hoc one-off fetches, including the proxy probe. That
+  fails **loudly** with an explanatory message, which is the opposite of the
+  silent 403-inside-a-pipeline failure the rule exists to prevent. Scripts that
+  run curl internally are unaffected — the hook sees the command line typed at
+  it, not a script's contents.
+- **Reference:** PR #488 (merged `f8428770`), 22 review rounds. The module
+  header carries the gap register; the abandoned-enumeration pattern is in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#one-example-bug-fixes),
+  and the transport facts behind the rule are in
+  [`.agents/memory/github-rest-api-blocked-from-bash.md`](../../.agents/memory/github-rest-api-blocked-from-bash.md).
+- **Revisit if:** an ad-hoc fetch becomes routine rather than exceptional, or
+  the container's proxy stops intercepting `api.github.com` — the silent-403
+  failure is the entire premise, and without it the trade changes.
+
+### 2026-08-16 · The eval dashboard gets its own manual chapter, not a section inside an existing one
+- **Decision:** The render-quality eval dashboard gets **Manual chapter 13**.
+  Rejected: a section inside chapter 5 (visual pipeline), and expanding the
+  one-clause mention it already has in chapter 11's *Watching the machinery*.
+- **Why:** eval is a distinct workflow with its own vocabulary — a golden fact
+  set, cost-confirmed runs, per-render rating, run-vs-run comparison — and
+  enough substance to fill the chapter template rather than a paragraph. The
+  rejected options each bury an admin-facing workflow somewhere a reader
+  wouldn't look for *"what is this screen?"*: chapter 5 is about the pipeline
+  that produces renders, not about the instrument that scores them, and
+  chapter 11 is a map that links out rather than a place for depth.
+- **What it costs, which is more than writing:** the four-representation gate
+  shipped in PR #472 now enforces chapter numbering, so a 13th chapter also
+  flips chapter 12 from *must have no `**Next:**` footer* (it is currently
+  last) to *must have one pointing at 13* — alongside the filename prefix, the
+  `# Chapter 13 · Title` heading and the README's Contents row, all of which
+  must agree in the same commit or the Build job fails. It also needs
+  `helpMap.ts` repointed from chapter 5, and probably a `docs/ai-context/`
+  spec for eval to link into, since none exists (the manual charter's
+  link-don't-fork rule).
+- **Reference:** #480 (the workstream, carrying the full constraint list),
+  raised as an open product question by the PR #472 harvest (#476).
+- **Revisit if:** eval turns out to hold less durable truth than expected once
+  someone reads the subsystem — the manual's no-empty-chapters bar wins over
+  this decision, and "it's a section after all" is a legitimate finding to
+  bring back rather than pad around.
+### 2026-08-16 · The claude.ai "Create PRs automatically" and "Autofix pull requests" toggles stay OFF
+- **Decision:** Both account-level Claude Code settings (claude.ai → Settings →
+  Claude Code → Pull requests) stay **off**. Branch prefix stays `claude`,
+  which already matches the `claude/*` convention the guard and branch rules
+  assume. Not revisited on discovery — only on the trigger below.
+- **Why — "Create pull requests automatically":** it automates something the
+  agent already does under a standing rule, while removing the two things that
+  carry the value. **Timing:** it fires on *push*, not on *done*, and the
+  agent commits in verified slices — so a PR would open mid-build and Codex,
+  which auto-reviews every non-draft PR on open, would spend rounds on
+  half-finished diffs (the loop cost the criticality gate and stopping rules
+  exist to contain). **Body:** an auto-opened PR carries no `Workstream: #N`
+  line (parsed by `/status` and `/status-all`), no
+  [review oracle](../engineering/code-review.md#the-review-oracle-the-pr-body),
+  no post-merge verification section, no checklist. **Branches that must not
+  get a PR:** `plan-review/<slug>-combined` deliberately has none, and
+  `plan-review/<slug>` needs the loop's own `[PLAN REVIEW]` title and template.
+- **Why — "Autofix pull requests":** it collides with the standing
+  `subscribe_pr_activity` + `pr-watch` discipline, and does so **silently**.
+  Per the subscription tool's own contract, when a PR Steward is already
+  watching a PR the agent's subscribe call still *succeeds* while its session
+  receives no events — so the agent would believe it was watching while a cold
+  agent handled the loop. Cold is the defect: a review loop is stateful (round
+  number, cumulative-diff rule, prior declines, finding-count trend, the
+  plan-growth tripwire, the criticality gate), and a steward re-establishes
+  none of it per event. This is the same trade already rejected in
+  [`CLAUDE.md`](../../CLAUDE.md) when delegating the watch to a cheaper
+  subagent was considered — except imposed invisibly. Also, "may post comments
+  on your behalf" puts comments in David's name outside the attribution and
+  review-bar discipline.
+- **The gap it would have covered is REAL and has no automatic mitigation** — a
+  first draft of this entry claimed the bounded self-check-in contract already
+  covered it, which is false and was caught in review on PR #481. A session
+  that is archived or dies takes its subscription with it, leaving an open PR
+  unwatched (not hypothetical: PR #458 merged with a round outstanding, and 7
+  findings landed 47 seconds later). The check-in contract **cannot** be the
+  backup, because it schedules session-bound `send_later` one-shots and the
+  platform auto-disables a trigger whose bound session is gone
+  (`auto_disabled_session_gone` — see [`CLAUDE.md`](../../CLAUDE.md) →
+  *Scheduled self-check-ins* → *Permissions*, the same section that documents
+  the behavior). The check-in covers "a live session's PR goes quiet"; it
+  covers nothing once the session itself is gone. **Recovery from that state
+  is manual:** David notices, or `/status-all` surfaces the stalled workstream,
+  and a new session re-subscribes. So this decision knowingly accepts an
+  unmitigated rare gap.
+- **Why the trade is worth taking — two verified bug reports, not just the
+  collision argument.** The original reasoning treated the steward's precedence
+  (does it claim every PR, or only ones with no live subscriber?) as the
+  decisive unknown, and an A/B trial was offered and declined on cost/benefit.
+  Research settled it a different way: precedence is undocumented, but two
+  reports on `anthropics/claude-code` describe failures that match this repo's
+  exact configuration and were verified by reading the issues directly (both
+  closed, so treat them as reports rather than vendor-confirmed behavior):
+  - **[#62977](https://github.com/anthropics/claude-code/issues/62977)** (closed
+    as duplicate) — on Claude Code on the web, with a PR subscribed via
+    `subscribe_pr_activity` **and the Autofix setting ON**, sessions stop
+    receiving **bot-authored** review events, naming
+    `chatgpt-codex-connector[bot]` explicitly. Human comments and CI events
+    still arrive; bot reviews are silently dropped. Since Codex *is* the review
+    signal in this repo, enabling Autofix plausibly blinds the loop to the only
+    reviewer that matters — and note this is a property of the **setting being
+    on**, not of a steward claiming a PR, so it is not avoidable by winning the
+    precedence question.
+  - **[#65488](https://github.com/anthropics/claude-code/issues/65488)** (closed
+    as not planned) — Autofix monitoring subscribes only to the **first** PR
+    created in a session; later same-session PRs receive no review-comment or
+    CI events. This repo routinely opens several PRs from one session (#469,
+    #470, #471 and #481 all came from a single session), so most PRs would go
+    unmonitored.
+  Together these make Autofix strictly worse than the status quo for this
+  workflow: it would degrade the common case (live review loops) via a
+  documented regression while covering the rare case unreliably. The
+  collision/cold-watcher argument above stands, but it is no longer what the
+  decision rests on.
+- **Reference:** `CLAUDE.md` → *Always open a PR when work is done*, *Watching
+  the PRs I open*; the `pr-watch` skill; this decision was taken in the
+  session that shipped PR #471, and refined by the review on PR #481.
+- **Revisit if:** [#62977](https://github.com/anthropics/claude-code/issues/62977)
+  is fixed (bot-authored review events delivered to subscribed sessions with
+  Autofix on) **and**
+  [#65488](https://github.com/anthropics/claude-code/issues/65488) is fixed
+  (all session-created PRs monitored, not just the first) — those are the two
+  concrete blockers, and both are checkable rather than judgement calls. A PR
+  actually going unwatched because its session ended is the other trigger: a
+  demonstrated incident, not a calendar date. Documented steward precedence
+  favouring live subscribers would remove the collision argument but **not**
+  the #62977 problem, so it is no longer sufficient on its own.
+
+---
+### 2026-08-16 · An unresolvable generation cost degrades to a defensible estimate, but an unreadable authoritative source denies
+- **Decision:** The generation spend gate runs on every generation. When the fal
+  price cannot be resolved, the call site degrades to the engine's configured
+  estimate and **still** calls `checkBudget`; it never skips the check. But when
+  the *authoritative source for that estimate* — the persisted `engines` row —
+  cannot be read, the gate **denies** (`BudgetGateError`) rather than
+  substituting the code catalogue's seeded value.
+- **Why:** The two cases look alike ("we cannot determine the true cost") and
+  were deliberately split. A pricing miss still leaves a defensible,
+  model-specific figure available: the operator-configured estimate for that
+  exact engine — from the persisted row where one exists, and **falling back to
+  the code catalogue's entry for that same model when the table has no row for
+  it**, which happens legitimately. An unreadable `engines` table leaves nothing
+  defensible — if you
+  could not read the persisted values, no number derived from the catalogue is
+  provably above them, so a $0.04 seed can silently displace an admin-set $0.08
+  and let a call through. "Fall back to something that cannot undercut" was
+  considered and is **not achievable** in that branch, which is what makes
+  denying the only sound option rather than merely the more cautious one. The
+  failure modes are also uncorrelated: an `engines` read can fail transiently or
+  by table-scoped permissions while `checkBudget`'s own queries still succeed,
+  so "the database is broken anyway, checkBudget will fail too" was an assumption
+  that did not hold.
+- **Also settled:** a deliberate `0` cost is honored rather than overridden — the
+  admin validator accepts any non-negative value, so a waived or promotional
+  engine is real configuration, not a missing value.
+- **Reference:** PR #474 (rounds 2–3), `artifacts/api-server/src/lib/aiMemePipeline.ts`,
+  [`security-model.md`](./security-model.md)'s generation-spend section.
+- **Revisit if:** the estimate/deny split proves confusing in practice, or if a
+  future change makes a provably-conservative floor available in the unreadable
+  branch (which would make degrading defensible there too).
+
+### 2026-08-16 · Unpriced generations will be recorded to the cost ledger behind an `is_estimated` flag
+- **Decision:** `user_generation_costs` gets an `is_estimated` column, and a
+  generation whose price could not be resolved is recorded with the gating
+  estimate, flagged. Ships as its own migration PR, sequenced after PR #474.
+- **Why:** On both synchronous paths (image and video) `recordCost` is guarded on a real
+  price, so an unpriced generation is not recorded at all. Across a sustained
+  pricing outage recorded spend stops growing, which means the restored ceiling
+  is measured against a stale total and a user under their limit can keep
+  generating indefinitely — the gap PR #474 closes per-request but not
+  cumulatively. Two alternatives were put to David with their ramifications and
+  rejected: recording estimates into the existing columns with no flag (cheaper,
+  no migration, but `unit_price_at_creation` and `pricing_fetched_at` would
+  carry synthetic values and cost reporting would permanently lose the
+  measured-vs-estimated distinction), and leaving it (free now, window stays
+  open). Pre-launch is when a schema change is cheapest.
+- **Correction, found in review of the harvest that recorded this (PR #477):**
+  the decision was taken on the belief that the ledger held measured prices
+  only, and **it does not** — the async video pipeline already writes
+  operator-configured figures for some of its stages, indistinguishably. The
+  per-writer detail lives in
+  [`deferred-work.md`](../engineering/deferred-work.md) and is deliberately not
+  repeated here; it was restated in several docs and corrected three times in
+  one review, which is what a fact with no single home does. So the rejected
+  "no flag" option was
+  not a choice between clean data and dirty data — the video path had *already*
+  made that choice implicitly, and the flag's real value is larger than the
+  decision assumed: it retires an existing ambiguity rather than only preventing
+  a new one. The decision stands; its scope grows. Implementation must cover the
+  video-pipeline writers and take an explicit position on historical rows rather
+  than defaulting them to `false`.
+- **Reference:** PR #474's "known residual"; David's call, 2026-08-16; scope
+  correction from PR #477 round 1.
+- **Revisit if:** the three ledger consumers (`checkBudget`, the user
+  monthly-spend endpoint, the admin per-user spend panel) need estimates
+  *excluded* rather than labelled — an open product question at the time of the
+  decision, to be settled when the migration ships.
+
+### 2026-08-16 · A `docs/` → code generator puts its freshness gate in the always-on Build job, never in a test suite
+- **Decision:** The admin help system renders `docs/manual/` in-app from a
+  **committed generated artifact** (`artifacts/overhype-me/src/generated/help/`,
+  built by `artifacts/overhype-me/scripts/generate-help-content.ts`) — the
+  `generate:field-docs`
+  shape, but with the **direction inverted**: source in `docs/`, artifact in
+  code. Because of that inversion its drift check runs as a step in the
+  **always-on Build job**, not in Frontend Test. Generation also **fails
+  loudly** rather than emitting a plausible-but-wrong artifact: on disk/table
+  disagreement, on chapter-number disagreement across any of its four
+  representations, on an unclassifiable link or a `#fragment` that doesn't
+  resolve **in its rendered destination**, on markdown outside the declared
+  vocabulary, and on anything executable in the output.
+- **Why:** `scripts/classify-ci-paths.mjs` classifies `docs/**` as **inert**,
+  so a chapter-only PR skips Test, Frontend Test and E2E Smoke entirely. A
+  staleness assertion living in the frontend suite would therefore never run on
+  the exact change that can invalidate the artifact — the gate would be
+  structurally incapable of firing when it mattered, while looking fully wired
+  up.
+- **The general rule has two answers, not one — pick by where the check must
+  live.** When a generated artifact's source or output sits under an inert
+  path, either (a) **move the gate to the always-on Build job**, or (b) **make
+  that specific path non-inert** so the heavy suite runs. This repo already
+  does both, deliberately: `isInertPath()` carries an explicit
+  `docs/ADMIN_FIELD_REFERENCE.md → false` exception precisely so
+  `fieldDocs.test.ts` (Frontend Test) keeps asserting byte-parity against it.
+  The deciding question is what form the check takes — a **script** you can run
+  as a Build step chooses (a), a **vitest assertion** that has to run inside a
+  suite chooses (b). Help content is a `--check` script, so it took (a);
+  the field reference is a parity test, so it took (b). Reading "all of
+  `docs/**` is inert" as a blanket fact — as the first version of this entry
+  did — would send a future gate to the wrong job.
+- **Also settled here:** the README renders at `/admin/help` (so every
+  intra-Manual link has a rendered destination, and fragments validate against
+  that destination rather than the source file), but is **not** search-indexed
+  — David, 2026-08-16: *"Ignore the readme."* Accepted cost: readable in-app,
+  not findable by search; the benefit is that every search result names a
+  chapter and a section with no exceptions.
+- **Reference:** PR #472 (plan-review PR #464, workstream #463).
+  [`admin-console.md`](./admin-console.md) holds the subsystem shape;
+  [`docs/manual/README.md`](../manual/README.md) tells chapter authors what the
+  gates mean for them.
+- **Revisit if:** `classify-ci-paths.mjs` stops treating `docs/**` as inert, or
+  a second docs→code generator appears and the placement rule is worth
+  extracting rather than repeating.
+
+### 2026-08-16 · Client-side routing is not a confidentiality boundary — "admin-only reading" was withdrawn as unenforceable
+- **Decision:** The admin help system makes **no claim** that the Manual's prose
+  is confidential to admins. The plan originally asserted admin-only *reading*;
+  that claim was withdrawn during plan review rather than implemented, and
+  replaced with an **input-boundary invariant**: the generator reads only
+  `docs/manual/`, which is already public in a public repo, so the exposure
+  delta is exactly zero.
+- **Why:** the content ships as a static chunk, and a static asset is served
+  **before** any client-side role check runs. `AdminLayout`'s gate controls what
+  the *console renders*, not what the CDN hands out — so no amount of routing
+  work could have made the claim true. The honest fix was to stop claiming it
+  and to constrain the **input** instead: if nothing non-public can enter the
+  generator, nothing non-public can reach a publicly-fetchable asset,
+  regardless of who can reach the URL.
+- **The generalizing form:** for any client-rendered surface, ask *"is this
+  content confidential, or merely inconvenient to find?"* Only a server-side
+  boundary answers the first. A privilege gate in the client is a **navigation**
+  control, and treating it as an access control is how a false confidentiality
+  claim gets written into a plan and then into a doc.
+- **Reference:** PR #472 settled decision 11; plan-review PR #464.
+  [`security-model.md`](./security-model.md) is the deep doc for the real
+  boundaries.
+- **Revisit if:** the Manual ever needs to hold something genuinely non-public,
+  in which case it needs a server-side surface — not a client-side gate.
+
+### 2026-08-15 · Scheduled self-check-ins return under a bounded contract, scoped to the behavior rather than a tool name
+- **Decision:** The 2026-07-07 blanket ban on background self-check-ins is
+  replaced by a bounded contract. **Scope: a timer or trigger the agent
+  arms** — externally delivered events (GitHub webhooks, task notifications)
+  are explicitly excluded, since they carry none of these requirements and
+  the standing PR-watch workflow requires processing them. Scheduling is
+  allowed **only** against a named external state that won't reliably wake
+  the agent (CI that may never report success, a PR gone quiet before merge,
+  a long Replit operation), and every scheduled check-in carries four things:
+  a named condition, a cadence matched to that condition, an exit condition,
+  and **two caps — 3 consecutive no-op wakes, and 6 wakes or 24 hours in
+  total.** The second exists because the first doesn't bound a *churn* loop:
+  when the watched state keeps changing without becoming terminal, no wake is
+  a no-op and the consecutive counter never trips. Hitting either cap means
+  disarm and report. A no-change wake is silent, **except a terminal one** —
+  when a wake both changes nothing and trips a cap, the report wins over the
+  silence rule. **Self-wake cost is currently unmeasured** (see the honest-gap
+  note below). A recurring "poll for work" heartbeat remains forbidden, and a
+  **Codex security-review bounce is not a qualifying case** — it says nothing
+  about code-review availability, so the response is to request the code
+  review, per
+  [`code-review.md`](../engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage).
+- **Why now:** David's diagnosis on revisiting the ban — that the original
+  token burn was poor loop tracking and scoping rather than check-ins as
+  such — holds up against the record. The canonical burn case (PR #333: six
+  rounds and a 660-line plan for two markdown files) had nothing to do with
+  check-ins, and the loop ledger, stopping rules, criticality gate and
+  ceremony tiering that now catch that class all postdate the ban. **What
+  made it newly necessary rather than merely affordable** is the same-day
+  close-out change: with the merge click no longer David's, he is no longer
+  looking at PRs as a matter of course, so a PR that goes quiet has nobody
+  watching it. The live example arrived during the change itself — PR #458
+  was merged with a review round outstanding and 7 findings landed 47 seconds
+  later, with nothing watching for them. (An earlier draft cited a Codex
+  usage-limit bounce as the example; that is void — a security-review bounce
+  says nothing about code-review availability and calls for a request, not a
+  scheduled wake.)
+- **Why the rule is keyed to behavior, not to a tool:** David reported the
+  agent applying the ban inconsistently — binding in some contexts, ignored
+  in others. The cause was structural, not judgment: the old rule named
+  `send_later` and the PR-watching context, while the capability exists
+  behind at least four doors (`send_later`, `create_trigger`,
+  `ScheduleWakeup`, `/loop`). A rule keyed to one tool name is silently
+  inapplicable whenever a different door is used. The replacement governs
+  **any timer or trigger the agent arms**, across all four doors — but *not*
+  externally delivered events, which an over-broad first draft ("any
+  mechanism that starts a future turn without David typing") wrongly swept in.
+- **What the ban was actually protecting, and what replaces it:** the wake →
+  find nothing → re-arm → repeat loop, where each wake pays a full context
+  read. The ledger doesn't measure that, so the caps are the specific
+  substitute — the part to keep even if the rest is later loosened.
+- **Honest gap: self-wake cost is not measured.** An earlier draft of this
+  entry claimed self-wakes are counted in the loop ledger. They are not:
+  `loop-metrics.mjs` persists eight GitHub-derived mechanical fields with no
+  wake count, and `loop-report.mjs` derives cost from review interval and
+  preflight time only. Closing the gap needs a new persisted field plus a
+  reporting path. Until then "is this worth it" is a judgement on
+  recollection, and this decision should not be revisited on the strength of
+  counts that don't exist.
+- **Superseded sub-decision (2026-08-16): the allowlist does not govern these
+  prompts, and `send_later` one-shots are the only trigger tool autonomous
+  sessions may use.** This entry originally recorded allowlisting all five
+  trigger tools with a "volatile UUID prefix" fragility note. That theory was
+  refuted empirically (Overhypeme issue #468): a fresh session's
+  `create_trigger` prompted under a tool name exactly matching an allow rule;
+  PR #469 (re-pointed entries) changed nothing, and PR #470 (`autoMode.allow`)
+  was closed unmerged because the official auto-mode docs say the classifier
+  deliberately ignores both repo-resident `autoMode` keys and, per
+  anthropics/claude-code#38834 (closed, not planned), does not honor allow
+  rules for MCP mutations in auto mode. The standing rule now lives in
+  `CLAUDE.md` → *Scheduled self-check-ins* → *Permissions*: schedule with
+  `send_later` exclusively; never create/update/delete triggers (one-shots
+  self-disable after firing, and the platform auto-disables triggers whose
+  session is gone, so skipped cleanup costs at most one no-op wake).
+- **Explicitly NOT authorized by this:** scheduling `/maintenance`. A weekly
+  ritual is a heartbeat, not a wait on external state. Automating it stays a
+  separate decision, which David's one-shot ~4-week reminder (around
+  2026-08-19) exists to revisit.
+- **Reference:** `CLAUDE.md` → *Scheduled self-check-ins*; the `pr-watch` and
+  `plan-review-loop` skills.
+- **Revisit if:** caps are observed being hit routinely (the condition being
+  waited on is the wrong one) — observed, not counted, per the honest gap
+  above — or if
+  check-ins reappear as a measurable share of token spend.
+
+---
+
+### 2026-08-15 · The session model is a constant (Opus); tier changes route to subagents instead of asking David to switch
+- **Decision:** Three changes, superseding the model-switching half of the
+  2026-07-24 entry below:
+  1. **`.claude/settings.json` default model → `opus`** (was `opusplan`).
+     The **web/builder** session — pre-plan conversation, planning, the
+     plan-review loop, building, PR-watching, ops — starts and stays on
+     Opus. **Scoped deliberately:** an in-Repl session is pinned to
+     `sonnet` by a gitignored `settings.local.json` that outranks the
+     project file (see
+     [`replit-environment.md`](./replit-environment.md)), and a session
+     still running under the old `opusplan` value keeps it until restart.
+     Both stay as they are; the contract's response is to verify the tier
+     actually in play before Opus-reserved work rather than inferring it
+     from the settings file.
+  2. **The Sonnet gate on PR-watching is retired.** Claude subscribes to a PR
+     it opens immediately, on whatever tier the session is on, for
+     implementation and `[PLAN REVIEW]` PRs alike. Claude no longer asks for a
+     model switch **in any direction — with one narrow exception**: when a
+     session is genuinely below Opus (an in-Repl session, or one still on
+     `opusplan` until restart) and the work itself is Opus-reserved
+     (migration, Tier B fix, security review, dev-infra), routing a
+     *judgement* to a subagent does not satisfy the reservation, so Claude
+     says so and asks David to run that work from an Opus session. The
+     retired asks were about Claude's convenience; this one is about work the
+     contract reserves, which is why it survives.
+  3. **Cheaper and stronger tiers are reached by subagent routing only.**
+     Sonnet downward for stateless, bounded work (documentation **drafting
+     from an already-complete handoff**, codebase Q&A, mechanical multi-file
+     edits from an approved plan, bounded research sweeps); Fable and Opus
+     upward as already practised. Every dispatch is announced, in both
+     directions. **A `/document` harvest is explicitly NOT routable** — its
+     first source is the build session's own decisions, which a subagent does
+     not inherit; only the judgement of whether to run one is bounded enough
+     to route. An earlier draft of this line said "documentation passes",
+     which would have sent the harvest to a cold worker.
+- **Why:** David reported the switch-ask was "a real blocker," and it was
+  structural rather than occasional: the contract carried asks pointing *both*
+  ways — up to Opus for planning (because `opusplan` only covers plan-mode
+  turns, missing the pre-plan conversation and the whole plan-review loop) and
+  down to Sonnet before watching a PR. Each landed exactly where work should
+  have flowed. The downward one directly contradicted the same-day SOW-gate
+  decision above: David's scope approval is what authorizes an autonomous run,
+  and the first thing that run did was stop and block on a model switch. The
+  gate also only ever protected **cost, never safety** — and the safety
+  argument now runs the other way, since the post-round adjudication moved the
+  loop's real judgment (continue/stop, declines, tripwires) onto Claude.
+- **Considered and rejected — delegating PR-watching to a Sonnet subagent.**
+  This was David's own proposed mechanism and it looks ideal (high-volume,
+  mostly mechanical), but a review loop is long-running and *stateful*: round
+  number, the cumulative-diff rule, declines and their reasoning, resolved
+  threads, finding-count and plan-growth tripwires. A subagent starts cold and
+  would re-establish all of it per webhook event, while the main loop stays
+  engaged anyway because the adjudication is Claude's. Plausibly *more*
+  expensive than simply watching on Opus. Recorded so it isn't re-proposed as
+  an obvious optimization.
+- **Considered, initially rejected on a factual error, now available —
+  dialing effort instead of tiers.** The first version of this entry said
+  Claude Code has **no persistable effort setting**, and called that
+  "checked rather than assumed." It was wrong: the check read the settings
+  **docs page** (which omits the key) rather than the settings **JSON
+  schema** (which carries `effortLevel`: `low` | `medium` | `high` |
+  `xhigh`, *"Persisted effort level for supported models"*). Corrected the
+  same day, before merge. So `model: opus` + `effortLevel` **is** a real
+  session-wide cost dial requiring no ask from David — it does not reverse
+  this decision (the tier gate was a *blocking-ask* problem, not a cost
+  problem), but it is the first lever to reach for if Opus-everywhere gets
+  expensive, ahead of reinstating any switch-ask. **Durable lesson: for
+  settings questions the schema is the source of truth; a docs-page absence
+  is not evidence of non-existence.** Per-subagent `effort` was always
+  available and is unaffected.
+- **Reference:** `CLAUDE.md` → *Token / cost discipline* and *Watching the PRs
+  I open*; the `model-routing` and `pr-watch` skills. Note the `model` key is
+  read once at session start, so the change lands on the *next* session.
+- **Revisit if:** cumulative quota usage becomes a real constraint again (the
+  honest cost of this decision is that ops-shaped turns now run at Opus
+  rates). The first response then is **`effortLevel`**, not a switch-ask —
+  see the corrected bullet above.
+
+---
+
+### 2026-08-15 · `/next` ranks by closest-to-done, with priority inheriting down `Blocked by:` chains — built on two new coupled primitives
+- **Decision:** A new `/next` skill answers "given where we are, what should
+  we work on now?" — the third tracking skill, and the only one that ranks
+  rather than reports. It needed two conventions that didn't exist yet,
+  built first as prerequisites:
+  1. **Phase-tracking for multi-PR features**, finally implementing the
+     design settled 2026-08-05: a parent issue carries a **Phases
+     checklist**; each phase is a sub-issue with its own labels, PR, and
+     merge, opened uniformly by `overhype-implementation` (not
+     `plan-review-loop`, whose lifecycle ends at plan approval and never
+     runs again for phase 2 onward — a review-round finding, not something
+     designed in upfront). **Supersedes the 2026-08-05 entry's parent-level
+     UAT checkpoint**: per-phase UAT is the only UAT, and the parent moves
+     straight from its last phase's close-out to its own close-out — no
+     separate parent-level UAT gate exists (see the note added to that
+     entry, above).
+  2. **The backlog + the `Blocked by: #N` marker.** Queued-but-unstarted
+     work is a `queue:now`/`next`/`later`-labeled issue with no `stage:`
+     label — curated, not computed from roadmap prose, so the nuance in an
+     issue body isn't lost. `Blocked by:` is mechanical, read with the same
+     anchored-marker convention as `Workstream: #N`.
+  3. **Ranking is one rule: closest to done wins**, pulling from the right
+     of the lifecycle board. **Priority inherits down every `Blocked by:`
+     chain** — an item's effective rank is the highest rank of anything
+     transitively blocked on it. This is what makes bugs need no rank of
+     their own (they inherit whatever they block), and what makes a deep
+     rabbit hole correctly outrank fresh work.
+  4. **The UAT-descent stack.** When David's UAT surfaces a bug that turns
+     into real work (the PR #213 → admin-permission-rebuild shape), the
+     `Blocked by:` chain **plus a State-of-Play note on the interrupted
+     issue** is the call stack recording the way back — the chain is the
+     link, the note is what records *which UAT step failed* (the chain
+     itself carries only issue numbers). `bugfix` flips the interrupted
+     issue's `waiting:` to `claude` (stashing the prior value) so
+     `/status-all`, which doesn't parse `Blocked by:`, stops showing a
+     blocked UAT under NEEDS YOU; `pr-watch` restores it on the blocker's
+     close-out, mirroring the flip onto a phased parent too if the
+     interrupted workstream is itself a phase.
+  5. On **zero Actionable candidates** — not merely an empty backlog, since
+     a `waiting:david` UAT, a stalled workstream, or any other actionable
+     item still wins first — `/next` makes an **argued feature
+     recommendation**, always on **Fable** tier, rather than a menu:
+     escalate-don't-absorb for the one step here that's genuinely a
+     product-priority call.
+- **Why:** David's standing constraint is that he answers specific
+  questions well but can't track state across ~10 concurrent sessions —
+  `/status`/`/status-all` report state, but nothing previously took a
+  position on what to do next, or reliably remembered a rabbit hole's way
+  back to an interrupted UAT.
+- **Reference:** PR #453 (three review rounds, 10→4→3 findings, all fixed;
+  a mandated adversarial adjudication at round 3 verdicted STOP/converge and
+  surfaced one more small gap, folded in directly), workstream #452. See
+  [`workstream-tracking.md`](./workstream-tracking.md) for the full
+  mechanics.
+- **Revisit if:** the async-queue hardening work (PR #288, predates
+  workstream tracking entirely) still has no tracked parent issue — its
+  Phases-checklist retrofit was deliberately deferred to `/maintenance`
+  rather than reconstructed here from prose. Also revisit if the
+  UAT-descent park escape hatch (for a rabbit hole that outgrows the UAT it
+  interrupted) turns out to need real-world tuning once it's actually used.
+
+---
+
+### 2026-08-15 · SDLC autonomy: the SOW gate + in-loop adjudication replace per-round check-ins; Claude self-merges; the ledger flushes weekly
+- **Decision:** Six related changes, agreed in one conversation, that move
+  David's control points to the bookends of each loop instead of inside it:
+  1. **The scope-of-work gate.** Before a plan-review loop opens, David
+     explicitly agrees to the scope of work (direction, intent,
+     must-not-change, settled decisions, now/next/never boundaries, ceremony
+     tier, criticality). That agreement authorizes the loop to run to
+     convergence without per-round check-ins.
+  2. **The post-round adjudication.** The 2026-08-07 per-round David
+     check-in is retired for plan and code loops alike. Every substantive
+     round still triages before fixing and produces the full round record,
+     but the continue/stop decision is made in-loop — gated by the
+     adversarial-subagent pass at every judgment moment — with noteworthy
+     adjudications surfacing as non-blocking FYIs and the whole decision
+     trail summarized at the loop's close. Still blocking, always: product/
+     design forks, mid-loop scope additions, splits (they change the agreed
+     SOW), and disclosure questions. Loop-count-based pauses are gone; the
+     judgment rubric (bucket sort, tripwires, criticality gate, oscillation)
+     is the whole decision rule.
+  3. **General self-merge.** Claude merges any of its own PRs that meet the
+     ready bar (CI green, Codex converged, threads resolved) and runs the
+     full close-out (merge → Repl sync → SHA + clean-worktree verification →
+     evidenced report). Carve-outs that stay David-merge-only: anything that
+     widens Claude's guardrails or authority, `[PLAN REVIEW]` PRs (never
+     merged), and publishing (separate act, unchanged).
+  4. **The ledger flushes at `/maintenance`.** Loop records are written and
+     delivered at the weekly maintenance pass — where David actually
+     consumes them, in the "how are we doing" conversation — not at each
+     loop's close. Standalone ledger-only PRs are retired; meta-artifact PRs
+     carry a stated review-scope oracle and convergence-by-decline in one
+     pass is convergence for that class.
+  5. **The standalone TEST_RUN file is retired; post-merge verification
+     moves into the PR body and the close-out sequence.** The checks that
+     only Replit's live environment can verify are written into the PR
+     body's *Post-merge verification* section (reviewed by Codex with the
+     diff they verify — a stronger review point than the old standalone
+     criticality-1 doc), and executed by the driving agent through the
+     Replit connector after merge + sync, results reported in the merge
+     report. The `test-run-completion.yml` Action and
+     `sync-test-run-completion.mjs` are retired with the file pattern —
+     both existed because file presence was the only owner of "has this
+     run yet," and close-out now has an owner. The content rules
+     (read-only by default, Replit owns the DB connection, clearly-labeled
+     mutating deploy steps executed by the agent at close-out) survive in
+     `test-run-contract.md`, relocated, not weakened. Legacy TEST_RUN
+     files on `main` run out under the old pattern: the agent drives each
+     run and deletes the doc on a full pass. (An interim version of this
+     item, superseded within the same conversation, merely moved the
+     deletion click from David to the agent — stepping back showed the
+     file itself was a relic of the pre-connector, David-as-courier era.)
+     UAT docs are deliberately untouched: they are David's personal done
+     list, file-based on purpose, and only he deletes them.
+  6. **Docs-only loops continue on consequence, not count.** The
+     2026-08-14 hard cap (first pass + one re-request) lasted a day:
+     David flagged it as count-thinking in a contract that had just
+     replaced counts with judgment everywhere else, and its
+     counter-example arrived on this very PR — a second pass of eight
+     behavior-changing contract defects whose fixes the cap shipped
+     unverified. The rule now: a docs round earns a successor only if it
+     surfaced behavior-changing defects and the re-request names the
+     specific fixes it verifies; a polish-only round is convergence
+     regardless of finding validity; out-of-diff findings still file as
+     issues; a third round fires the adversarial-adjudication tripwire;
+     the criticality-1 floor tier keeps zero re-requests (a criticality
+     judgment, not a count). Flip condition recorded in the contract: if
+     the ledger shows docs loops running long on "behavior-changing"
+     findings that turn out to be polish, the hard cap returns narrowly.
+- **Why:** the per-round check-ins were scaffolding that forced the judgment
+  rubric to be applied while it was still being built; a year of David's
+  corrections is now encoded in the rubric itself (the bucket sort, the
+  tripwires, the flip-condition rules, the adversarial subagent — the
+  mechanism that caught both wrong recommendations is preserved, its
+  audience moved). The merge click and the per-close ledger ceremony were
+  pure time cost with no judgment attached: merging is what makes work
+  testable, not shipping (production sits behind the separate publish step
+  David manages), and ledger data was only ever read weekly. Blast-radius
+  principle applied to the process itself.
+- **Reference:** [`working-modes.md`](./working-modes.md)'s *scope-of-work
+  gate*, *post-round adjudication*, stopping-rule and loop-ledger sections;
+  [`CLAUDE.md`](../../CLAUDE.md)'s *Close-out is mine, end to end*;
+  [`test-run-contract.md`](../tests/test-run-contract.md) and the PR
+  template's *Post-merge verification* section; the `plan-review-loop`,
+  `pr-watch`, `pr-docs`, `maintenance`, and `model-routing` skills.
+- **Revisit if:** an autonomous loop ships a miss that the retired
+  check-ins would have caught — the agreed response is reinstating the
+  narrowest rule that would have caught it, not wholesale reversion — or
+  David finds the bookend reports (SOW gate, loop-close trail, merge
+  report) insufficient to audit what the loops decided in his absence.
+
+### 2026-08-14 · Keep the sharded api-server test runner; fix its diagnostics instead of removing it
+- **Decision:** `artifacts/api-server/scripts/run-tests-sharded.sh` (parallel
+  `node --test --test-shard` workers, each against its own cloned Postgres
+  database) stays. David asked whether it was still worth its complexity now
+  that Replit Agent's fast-inner-loop feedback need — the reason it was
+  originally built — no longer describes how the repo is worked. The answer
+  was no on the premise, yes on the tool: the per-worker DB isolation and
+  wall-clock parallelism are real, independent of which agent originally
+  motivated them, and CI still pays for every second of serial test time on
+  every PR. What was actually costing time wasn't the sharding architecture —
+  it was thin diagnostics (a crash or a signal mid-run gave no attribution to
+  which shard/worker, and cleanup could leave orphans) making failures hard
+  to read.
+- **Why:** removing sharding would trade a real, ongoing parallelism win for
+  removing a diagnostics problem that was fixable on its own. PR #427 fixed
+  it directly — FIFO-based per-shard log prefixing, and a signal-safe
+  critical-section pattern around each worker spawn so `SIGINT`/`SIGTERM`
+  during a run reliably cleans up every worker and prefixer, however far the
+  loop got (see
+  [`bash-signal-safe-spawn-critical-section.md`](../../.agents/memory/bash-signal-safe-spawn-critical-section.md)).
+  That same investigation also surfaced and fixed a genuine, previously
+  undiscovered persistent-test-database bug: `drizzle-kit push --force`
+  silently dropping two undeclared Postgres sequences on repeat pushes
+  against a long-lived database (Replit's `heliumdb_test`, a persistent
+  sandbox) — GitHub CI's ephemeral, single-push-per-database shape never
+  reaches the second push that exposes it. Production was unaffected; this
+  command never reaches Neon production. The gap had been quietly causing
+  16-19 unrelated test failures attributed to flakiness rather than a schema
+  gap (see the known-failure-patterns.md sequence-drop entry).
+- **Reference:** PR #427.
+- **Revisit if:** the working pattern changes again such that per-PR CI time
+  stops being a real cost (e.g. CI moves off a model where wall-clock matters),
+  or a simpler runner emerges that gets the same DB isolation without the
+  signal-handling surface area sharding currently requires.
+
+### 2026-08-14 · The permission-chokepoint guards are scoped as a tripwire against habitual mistakes, not a proof against adversarial evasion
+- **Decision:** `scripts/check-permission-chokepoint.mjs` and its frontend
+  sibling catch the inline tier/role comparisons a developer or agent would
+  actually write by habit (`===`, `!==`, a formatter-wrapped multi-line
+  comparison) — not every syntactically possible way to write one. A
+  round-7 finding on PR #425 that a reversed operand (`"legendary" ===
+  membershipTier`) still passes was confirmed accurate and declined rather
+  than fixed. Both guards' headers now state this scope explicitly.
+- **Why:** this was the fourth round to find a new gap in the same two
+  guards, across a five-round span (round 3: file-vs-line allowlist scope;
+  round 4: `!==`; round 5 was unrelated, a different admin-lockout finding;
+  round 6: multiline; round 7: reversed operand) — the same shape as every other
+  instance of "chasing completeness against an adversarial reviewer past
+  the artifact's real risk" (see
+  [`known-failure-patterns.md`](./known-failure-patterns.md#chasing-completeness-against-an-adversarial-reviewer-past-the-artifacts-real-risk)).
+  Rounds 4 and 6 were real, worth fixing: those are forms an author reaches
+  for without thinking. A reversed Yoda condition is not — nobody on this
+  team or Codex writes one in this codebase — and the space of
+  syntactically-valid-but-never-written forms is unbounded regardless: even
+  a full AST parser would still miss a new helper function or an
+  `.includes()` check, so "catch every form" was never a reachable goal.
+  The actual defense is architectural, not lexical: `can(principal,
+  '<feature_key>')` / `useAuth().can('<feature_key>')` is the obvious,
+  documented, already-modeled-everywhere path, so the guard's real job is
+  catching an accidental reach for a raw tier comparison, not defeating a
+  reviewer deliberately trying to write an undetectable one.
+- **Reference:** PR #425 round 7 (declined finding + guard header update,
+  commit `99bf7bc`).
+- **Revisit if:** a real (not adversarially-constructed) inline tier/role
+  gate is later found in one of these two guards' habitual-form blind spots
+  — that would mean the "what a developer/agent would actually write"
+  scoping judgment was wrong, not just incomplete.
+
 ### 2026-08-11 · Claude drives PR close-out (merge + Repl sync); David's UAT gates nothing pre-merge
 - **Decision:** Once a PR is CI-green, Codex-converged, and every review
   thread is resolved, Claude asks David for an explicit go, then owns the
@@ -28,18 +729,28 @@
   build in front of him. A failed UAT afterward is a normal fix-forward PR,
   not a crisis — the merge already happened, and production is untouched
   either way because publishing stays a separate, explicitly-asked step.
-- **Reference:** [`CLAUDE.md`](../../CLAUDE.md)'s *Close-out is mine; the go
-  is David's* section.
+- **Reference:** [`CLAUDE.md`](../../CLAUDE.md)'s close-out section (then
+  titled *Close-out is mine; the go is David's* — renamed *Close-out is
+  mine, end to end* when the 2026-08-15 entry above retired the go).
 - **Revisit if:** the Repl ever stops being the thing David actually tests
   against (e.g. a staging environment is introduced), which would change
   what "makes the work testable" means.
 
 ### 2026-08-11 · The Replit connector's mutating tool is governed by request class, not banned outright
 - **Decision:** `update_app_using_prompt` (the Replit MCP connector's only
-  mutating channel — every action in the Repl, from a `git log` to a file
-  edit, goes through it) is allowed for ops/diagnostics/debugging and for
-  file edits in service of debugging or the Repl's own configuration; it is
-  never used to build product features. The dividing line is **whose work
+  mutating channel — every action that *changes* something in the Repl, from
+  triggering a git sync to a file edit, goes through it) is allowed for
+  ops/diagnostics/debugging and for file edits in service of debugging or
+  the Repl's own configuration; it is never used to build product features.
+  **Factual correction, 2026-08-14 — the decision is unchanged, but this
+  clause originally read "every action in the Repl, from a `git log` to a
+  file edit," which mis-stated the tool's mechanics.** A `git log` is a
+  *read*, and `update_app_using_prompt` never returns answer text — reads
+  go through `ask_question`, the connector's synchronous read channel. See
+  [`replit-environment.md`](./replit-environment.md#githubrepl-sync-and-publish-shared-fact-not-tool-specific)
+  and `CLAUDE.md`'s connector policy for the return-shape split and the
+  command-output-vs-understanding distinction that governs how far an
+  `ask_question` answer can be trusted. The dividing line is **whose work
   dodges review**, not whether a file changed on disk — Replit Agent's own
   direct pushes to `main` are a separate, already-sanctioned path because
   Replit brings its own judgment and live verification to that act.
@@ -248,7 +959,9 @@
      finding population.**
   3. **Delivery.** `scripts/loop-report.mjs` renders a digest that
      `/maintenance` narrates to David in plain language. The `[LEDGER]` PR
-     type is retired; a record rides any PR except the one it measures.
+     type is retired; a record rides any PR except the one it measures
+     (narrowed 2026-08-15 to *mergeable* PRs only, never a `[PLAN REVIEW]`
+     PR — see that date's SDLC-autonomy entry above).
 - **Why:** Three failures, all observed. **(a)** The single-table design
   forced concurrent sessions to collide: PRs #327 and #335 both claimed rows
   24–26 with different contents and each made the other un-mergeable, because
@@ -444,6 +1157,21 @@
 ---
 
 ### 2026-08-05 · The Bash guard is narrowed to "make the lease mandatory," then review-loop iteration stops after round 4 widened instead of narrowed
+> **Superseded in part by the 2026-08-17 fetcher-refusal entry above.** The
+> scope claim here — that making the lease mandatory is the guard's only real
+> job — was true when written and is no longer: the guard also refuses `curl`
+> and `wget`. The rest of this entry, including why the lease scope stayed
+> narrow, still stands.
+>
+> **One clarification rather than a supersession**, because this entry states
+> both halves correctly and they are easy to combine wrongly: the ruleset that
+> makes this hook the *third* line covers `main`, while the job described below
+> is scoped to `claude/*` and `plan-review/*`. Both facts are here; the
+> inference "therefore the lease requirement is server-backed" is not, and is
+> false. On the branches this rule governs, the hook is the only line — which
+> strengthens rather than weakens the narrowing argument below, since a lease
+> is cheap and the branches it protects have no other protection at all.
+> (Codex, #499 round 3.)
 - **Decision:** `.claude/guard.sh` (via `scripts/guard-decision.mjs`) was rewritten
   from a single inverted grep — it blocked `git push --force` while waving
   through the equivalent `git push -f` — into a token-level parser, then
@@ -497,6 +1225,12 @@
   backstop and the cost/benefit of closing the remaining gaps changes.
 
 ### 2026-08-05 · Multi-PR features get parent-issue-plus-phase-sub-issue tracking, and I ask before declaring a split
+> **Superseded in part 2026-08-15** (see that entry, below): as built, there
+> is no separate parent-level UAT checkpoint — per-phase UAT (already named
+> here) is the *only* UAT, and the parent goes straight from its last
+> phase's close-out to its own close-out. The "🛑 Plan approval, 🛑 UAT,
+> close-out" list two lines down should be read as "🛑 Plan approval,
+> close-out" for the parent.
 - **Decision:** When a feature is too large for one PR (the pattern PR #293
   hit, self-documented mid-flight as "phase 1 of 8"), the **parent issue**
   carries the plan and the checkpoints that only make sense once — 🛑 Plan
@@ -521,8 +1255,18 @@
   when a plan looks too big," revisitable if it becomes cumbersome in
   practice.
 - **Reference:** Design settled in conversation 2026-08-05, alongside the
-  `/status` redesign below. **Not yet built** — see
-  [`current-roadmap.md`](./current-roadmap.md).
+  `/status` redesign below. **Built 2026-08-15** as the prerequisite slice
+  for the `/next` skill, which needs a machine-readable answer to "what's
+  the next phase of something we already started" — the contract is
+  [`workstream-tracking.md`](./workstream-tracking.md)'s *Phased features*
+  section (the parent's **Phases checklist** is the durable record of what a
+  feature still owes), with the trigger points wired into
+  `plan-review-loop` (writes the checklist at approval, and never opens a
+  phase itself — its lifecycle ends at that handoff), `overhype-implementation`
+  (opens each phase sub-issue uniformly as it starts, including the first),
+  `pr-watch` (mirrors the parent's `waiting:` at every toggle on the active
+  phase, ticks a phase at close-out, advances the parent), and `pr-docs`
+  (per-phase UAT, plus the scope line on a phase PR's oracle).
 - **Revisit if:** the ask-before-splitting step becomes friction in practice
   (David's own stated condition for revisiting).
 
@@ -1108,7 +1852,7 @@
 ---
 
 ### 2026-07-26 · TEST_RUN checklists are scoped to what only Replit's live environment can verify
-- **Decision:** A `docs/PR<N>_*_TEST_RUN.md` checklist runs, always: live-DB
+- **Decision:** A `docs/tests/Replit/PR<N>_*_TEST_RUN.md` checklist runs, always: live-DB
   migration state, post-merge repo-health gates (**both**
   `pnpm --filter @workspace/db validate-snapshots` — matches CI's
   `build.yml` — **and** `check-snapshots` — catches a migration that shipped
@@ -1427,8 +2171,9 @@
   and `fact_ai_meme_backfill` lanes) and a bounded repeated-failure circuit
   breaker added to bulk-send-back so a persistently-failing fact can't create
   an unbounded number of retry cycles nor be silently declared "migration
-  complete" while still excluded. See `docs/tests/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
-  and `docs/tests/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
+  complete" while still excluded. See
+  `docs/tests/Replit/PR293_NCMEC_CYBERTIPLINE_TEST_RUN.md`
+  and `docs/tests/UAT/PR256_VARIANT_INDEPENDENCE_UAT.md` for the verification record.
   This entry was a forward-looking "sites to fix" list at decision time — it
   now describes fixed behavior, not a plan.
 

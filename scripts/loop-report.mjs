@@ -239,14 +239,42 @@ export function renderDigest({ records, since, inventory = null }) {
         const share = selfInflictedShare(r);
         const prop = r.judgment.causes.prop;
         const wrong = r.judgment.causes.wrong;
+        const t = r.judgment.newGroundTerritory;
         out.push(
           `- **#${r.pr}** — ${pct(share)} self-inflicted (${selfInflictedCount(r)}/${validFindings(r)} ` +
             `valid findings; ${wrong} wrong-fix, ${prop} propagation), ` +
-            `${findingBearingRounds(r)} finding-bearing rounds, cohort \`${r.mechanical.cohort}\`.`,
+            `${findingBearingRounds(r)} finding-bearing rounds, cohort \`${r.mechanical.cohort}\`` +
+            (t ? `; new ground: ${t.inDiff} in-diff / ${t.preExisting} pre-existing` : "") +
+            `.`,
         );
       }
     }
     out.push("");
+
+    // ── Territory — where the new ground actually was ────────────────────
+    // Aggregated over every windowed record carrying the split (recorded for
+    // loops closed from 2026-08-13), not just trend-qualifying ones: a
+    // single-round loop can't have self-inflicted churn but its reviewer can
+    // still have wandered off the diff. A high pre-existing share is a
+    // DISCOVERY/PRE-PLANNING signal (the affected-surface inventory was
+    // incomplete before planning), not a review-loop failure — see
+    // working-modes.md's stopping-rule bucket rubric.
+    const withTerritory = windowed.filter((r) => r.judgment?.newGroundTerritory);
+    if (withTerritory.length > 0) {
+      const inDiff = withTerritory.reduce((n, r) => n + r.judgment.newGroundTerritory.inDiff, 0);
+      const preExisting = withTerritory.reduce((n, r) => n + r.judgment.newGroundTerritory.preExisting, 0);
+      const totalNew = inDiff + preExisting;
+      out.push("## Territory — where the new-ground findings were");
+      out.push("");
+      out.push(
+        `- **${withTerritory.length} loop(s) with a territory split:** ${inDiff} in-diff, ` +
+          `${preExisting} pre-existing` +
+          (totalNew > 0 ? ` (${pct(preExisting / totalNew)} pre-existing)` : "") +
+          `. A high pre-existing share means reviewers are auditing beyond the diff — a ` +
+          `discovery/pre-planning signal, not review-loop churn.`,
+      );
+      out.push("");
+    }
 
     // ── Trend ────────────────────────────────────────────────────────────
     out.push("## Trend");

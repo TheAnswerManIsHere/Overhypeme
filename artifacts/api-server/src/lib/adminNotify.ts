@@ -8,6 +8,7 @@
  * (livemode === false) are suppressed. Set the admin config key
  * `stripe_notify_test_mode_alerts` to "true" to enable them.
  */
+import { isReachableAdminSql } from "./adminIdentity";
 import { BRAND_ORANGE } from "@workspace/api-zod";
 import { eq, and } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
@@ -107,9 +108,13 @@ export async function notifyAdmins(opts: AdminNotifyOpts): Promise<void> {
       .from(usersTable)
       .where(
         and(
-          eq(usersTable.isAdmin, true),
+          // Real-admin resolution over all three grant mechanisms. Filtering on
+          // the stored column alone silently dropped env- and bootstrap-granted
+          // admins from every alert, including time-sensitive fraud and dispute
+          // warnings. This is always the REAL flag: view-as-user changes what an
+          // admin can do, never who gets paged.
+          isReachableAdminSql(),
           eq(usersTable.adminNotifications, true),
-          eq(usersTable.isActive, true),
         ),
       );
 
@@ -182,9 +187,10 @@ export async function notifyAdminsOfDispute(opts: AdminDisputeNotifyOpts): Promi
       .from(usersTable)
       .where(
         and(
-          eq(usersTable.isAdmin, true),
+          // See the note on the general-alert query above — same three-mechanism
+          // gap, same fix.
+          isReachableAdminSql(),
           eq(usersTable.disputeNotifications, true),
-          eq(usersTable.isActive, true),
         ),
       );
 
@@ -361,9 +367,13 @@ export async function notifyAdminsOfAbandonedEmail(
       .from(usersTable)
       .where(
         and(
-          eq(usersTable.isAdmin, true),
+          // Real-admin resolution over all three grant mechanisms. Filtering on
+          // the stored column alone silently dropped env- and bootstrap-granted
+          // admins from every alert, including time-sensitive fraud and dispute
+          // warnings. This is always the REAL flag: view-as-user changes what an
+          // admin can do, never who gets paged.
+          isReachableAdminSql(),
           eq(usersTable.adminNotifications, true),
-          eq(usersTable.isActive, true),
         ),
       );
 
@@ -469,9 +479,10 @@ export async function notifyAdminsOfFraudWarning(opts: AdminFraudWarningNotifyOp
       .from(usersTable)
       .where(
         and(
-          eq(usersTable.isAdmin, true),
+          // See the note on the general-alert query above — same three-mechanism
+          // gap, same fix.
+          isReachableAdminSql(),
           eq(usersTable.disputeNotifications, true),
-          eq(usersTable.isActive, true),
         ),
       );
 

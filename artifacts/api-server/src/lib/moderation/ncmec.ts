@@ -20,6 +20,7 @@ import { ncmecReportsTable, type NcmecMatchSource } from "@workspace/db/schema";
 import { and, eq } from "drizzle-orm";
 import { logger } from "../logger";
 import { sendEmail } from "../email";
+import { isReachableAdminSql } from "../adminIdentity";
 
 export interface NcmecReportInput {
   matchSource: NcmecMatchSource;
@@ -45,10 +46,14 @@ export async function submitNcmecReport(input: NcmecReportInput): Promise<{ id: 
   // Best-effort admin notification. Never fail the surrounding pipeline if
   // the email fails — the DB row is the source of truth.
   try {
+    // The canonical reachable-admin predicate (all three grant mechanisms,
+    // active only), not the raw is_admin column — an env- or bootstrap-only
+    // admin was silently never paged about a pending CSAM report. Round 2 of
+    // PR #425's review caught this.
     const admins = await db
       .select({ email: usersTable.email })
       .from(usersTable)
-      .where(and(eq(usersTable.isAdmin, true), eq(usersTable.adminNotifications, true), eq(usersTable.isActive, true)));
+      .where(and(isReachableAdminSql(), eq(usersTable.adminNotifications, true)));
     const text =
       `A moderation hit needs CyberTipline submission.\n\n` +
       `Report row id: ${row?.id}\n` +

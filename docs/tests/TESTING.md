@@ -52,6 +52,20 @@ pnpm --filter @workspace/db run migrate
 
 ---
 
+## Typecheck & codegen order
+
+Generated API artifacts and workspace libs must be built before package-local
+checks, or you get false negatives (project references to `lib/*` that don't
+exist yet in a cold environment):
+
+```sh
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck:libs
+pnpm typecheck          # repo-level; prefer this for general typechecking
+```
+
+---
+
 ## Topology & roles — who trusts what?
 
 Replit is the dev/prod trunk. GitHub is the manual sync hub for Claude/Codex work
@@ -122,6 +136,79 @@ bash artifacts/api-server/scripts/run-test.sh --setup src/__tests__/<file>.test.
 
 ---
 
+## Test types
+
+Pure-logic tests live alongside the suite (e.g. tokenizer/grammar:
+`factTokenizer.test.ts`, `autoConjugatePersonSubjectVerbs.test.ts`; enrichment
+resolver: `enrichmentOverridesResolver.test.ts`; taxonomy health:
+`taxonomyHealth.evaluate.test.ts`). Assert **invariants**, not just the reported
+example, with negative cases.
+
+**Integration / API tests** — `artifacts/api-server/src/__tests__/*.test.ts`, run
+via the runners above against Postgres + pgvector. They exercise routes + domain
+logic end to end with DB-backed fixtures created in-test.
+
+**End-to-end / route-load smoke tests** — `artifacts/overhype-me/e2e/*.spec.ts`,
+run via Playwright against a **real dev stack** — not a mock. `routeLoadSmoke.spec.ts`
+in particular is the regression net for the crash/reload-loop bug class (see
+`known-failure-patterns.md` → "Self-retriggering recovery with no bounded exit"):
+it asserts each heavy route actually renders, doesn't loop, and doesn't hit the
+Sentry error boundary.
+
+Locally (both servers already running, e.g. via Replit's workflows):
+
+```sh
+pnpm --filter @workspace/overhype-me run e2e:smoke
+```
+
+Outside Replit (CI, or a bare Claude Code environment) there's no platform
+path-router splitting `/api` from the SPA, so two env-gated escape hatches in
+`vite.config.ts` / `playwright.config.ts` stand in:
+
+- `E2E_API_PROXY_TARGET` — points Vite's dev-server proxy at the api-server
+  (e.g. `http://localhost:8080`). Inert when unset.
+- `E2E_CHROMIUM_PATH` — pins Playwright to a system-provided Chromium binary
+  instead of its managed download (needed where browser downloads are
+  disabled and the pinned Playwright version may not match what's
+  preinstalled). Inert when unset.
+
+The suite authenticates via `POST /api/auth/dev-admin-login`, which looks up
+a specific bootstrap admin row — seed it first with
+`pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts`
+(idempotent; imports the canonical email from `src/lib/auth.ts` so it can't
+drift from the login route). See the `E2E Smoke` job in
+`.github/workflows/build.yml` for the full sequence CI runs.
+
+**Admin UI tests** — Frontend tests via Vitest under `artifacts/overhype-me`.
+For admin surfaces, prioritize the async-status contract (per-item + aggregate
+states) and preview/runtime parity where relevant.
+
+**Async job tests** — Test the terminal state, not the enqueue. Assert
+`pending → processing → done | failed` transitions and that per-item/aggregate
+status is reported. The image preview bench must **not** read the production
+`aiScenePrompts` cache (tests assert this) — see
+`.agents/memory/image-prompt-preview-parity.md`.
+
+**Migration / backfill tests** — Apply the migration to the local public schema,
+re-clone the test schema (`run-test.sh --setup`), then run the affected tests.
+Backfills should be tested for **idempotency** (run twice == once) and for
+old/partial/failed/skipped/no-op rows. See
+[`migrations-and-backfills.md`](./migrations-and-backfills.md).
+
+**Regression fixtures** — When you fix a bug, add a regression case that proves
+the **general** invariant. Tokenizer/grammar regressions in particular should
+include `They keep`, `Sharks have`, name possessives, and the pronoun sets
+exercising the changed branch.
+
+External services (Pexels, object storage, pricing, embeddings, image/video
+generation, Stripe) must be stubbed/mocked or disabled with test-mode helpers in
+any of the above — no real credentials or network. See
+`.agents/memory/test-db-isolation.md`, `test-schema-isolation.md`,
+`test-idle-drain-timeout.md`, `running-long-test-suites.md` for isolation
+gotchas.
+
+---
+
 ## Database-name glossary
 
 These names are easy to confuse. Only the "Safe target?" column matters for "can I
@@ -180,13 +267,27 @@ for the full topology.
 
 ## CI gate + parity contract
 
-`.github/workflows/build.yml` defines two jobs that run on every PR to `main`:
+`.github/workflows/build.yml` defines these jobs, which run on every PR to
+`main`:
 
-- **`Build`** — install, validate migration snapshots, and `pnpm run build`
-  (typecheck + build).
+- **`Classify changed paths`** — decides whether the heavy suites below can be
+  skipped for a docs-only PR. Every failure path falls back to running
+  everything; push-to-main skips classification entirely.
+- **`Build`** — install, validate migration snapshots, the repo-health guards
+  (docs accuracy, codegen drift, loop-metrics, CI-classifier and Bash-guard
+  logic), and `pnpm run build` (typecheck + build). **Never** skipped.
 - **`Test`** — the api-server suite against a real Postgres + pgvector service
   container, with `DATABASE_URL` set to `overhype_test`. The suite's own runner
-  does all DB setup (per-worker clones); CI just supplies the database.
+  does all DB setup (per-worker clones); CI just supplies the database. This
+  job also runs the **`@workspace/db`** suite, against a *separate*
+  `overhype_db_test` database — see the job's "Prepare database" step for why
+  that separation is a correctness requirement, not tidiness.
+- **`Frontend Test`** — the `@workspace/overhype-me` vitest suite (jsdom; no
+  server or DB).
+- **`E2E Smoke`** — Playwright route-load smoke against the real dev stack
+  (api-server + Vite), the regression net for the crash/reload-loop bug class.
+
+The last three are gated by the classifier and report success when skipped.
 
 For frontend, package/workspace-script, Vite/build-config, or build-time
 environment-variable changes, reproduce the Build gate locally/sandbox-side with
@@ -203,6 +304,24 @@ workspace package.
 Because Replit and GitHub run the same api-server suite, a green `Test` means the
 same thing in both. If they disagree on the same commit, treat it as an
 environment-parity bug, not a flake.
+
+---
+
+## Manual QA / UAT
+
+Product-visible behavior needs a click-through check against intent (David tests
+the product, not the diff). "Done" = the intended behavior can be exercised in the
+app. In **feature mode**, Claude Code additionally ships paired `TEST_RUN` + `UAT`
+docs per PR by default (see `CLAUDE.md` for when/naming and
+[`test-run-contract.md`](test-run-contract.md) for what the `TEST_RUN` must
+contain — it verifies only what Replit's live environment can verify, not what
+already passed pre-merge). **In bugfix mode the pairing is conditional, not a
+default** — see
+[`working-modes.md`](../ai-context/working-modes.md#tier-b--elevated-fix): a
+Tier A fix ships neither doc, and a Tier B fix ships a UAT only when the fix has
+product-visible behavior and a TEST_RUN only when something genuinely needs
+Replit's live environment. Codex should at minimum describe the manual steps to
+observe the change.
 
 ---
 
@@ -228,12 +347,12 @@ valid command passed).
 
 ## Not yet in the CI gate (fast-follow)
 
-The `Test` job currently runs the **api-server** suite only. These are not in the
-gate yet and are tracked as a fast-follow — don't pretend they're covered:
+- **`lib/redact`** — not covered by any CI job. Run it by hand
+  (`pnpm --filter @workspace/redact test`) when touching that package.
 
-- frontend vitest (`@workspace/overhype-me`)
-- `lib/redact`
-- `lib/db` migration tests
+Frontend vitest and the `lib/db` migration tests used to be listed here; both
+are now gated (the `Frontend Test` job and the `Test` job's `@workspace/db`
+step respectively) and are described in the CI section above.
 
 ---
 

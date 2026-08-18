@@ -616,7 +616,12 @@ describe("POST /users/me/profile-image — task #507", () => {
   });
 
   it("tags the row is_profile=true, clears any prior tag, and updates users.profileImageUrl + avatarSource", async () => {
-    const userId = await createTestUser();
+    // Legendary, because the flip to `avatarSource: 'photo'` is now the
+    // `custom_avatar` entitlement. The unentitled case is the test below: the
+    // photo still stores and the endpoint still returns 200 — only the flip is
+    // skipped, because this endpoint bundles the upload with the flip and
+    // Onboard.tsx calls it to finish free photo onboarding.
+    const userId = await createTestUser({ membershipTier: "legendary" });
     const sid = await bearerForUser(userId);
 
     const oldPath = `/objects/uploads/${randomUUID()}-old.jpg`;
@@ -649,6 +654,62 @@ describe("POST /users/me/profile-image — task #507", () => {
       .where(eq(usersTable.id, userId));
     assert.equal(user.profileImageUrl, `/api/storage${newPath}`);
     assert.equal(user.avatarSource, "photo");
+  });
+
+  it("stores the photo but skips the avatarSource flip for an unentitled user", async () => {
+    // The onboarding path. A 403 here would fail free photo onboarding for
+    // every non-paying registered user, and would remove a capability that is
+    // free today — the stored image is also the identity photo PuLID meme and
+    // video generation consume, so the upload itself is never gated.
+    const userId = await createTestUser({ membershipTier: "registered" });
+    const sid = await bearerForUser(userId);
+
+    const path = `/objects/uploads/${randomUUID()}-free.jpg`;
+    await db.insert(uploadImageMetadataTable).values({
+      objectPath: path, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: false,
+    });
+
+    const res = await request(makeApp())
+      .post("/users/me/profile-image")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ objectPath: path });
+
+    assert.equal(res.status, 200, "onboarding upload must still succeed");
+    assert.equal(res.body.profileImageUrl, `/api/storage${path}`);
+
+    const [user] = await db
+      .select({ profileImageUrl: usersTable.profileImageUrl, avatarSource: usersTable.avatarSource })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+    assert.equal(user.profileImageUrl, `/api/storage${path}`, "the photo is stored");
+    assert.equal(user.avatarSource, "avatar", "but the paid flip is silently skipped");
+  });
+
+  it("rejects a standalone avatarSource:photo selection from an unentitled user", async () => {
+    // PATCH /users/me is the standalone, explicit selection request with no
+    // onboarding riding on it, so it fails loudly rather than silently.
+    const userId = await createTestUser({ membershipTier: "registered" });
+    const sid = await bearerForUser(userId);
+
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ avatarSource: "photo" });
+
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "custom_avatar_required");
+  });
+
+  it("allows a standalone avatarSource:photo selection from an entitled user", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    const sid = await bearerForUser(userId);
+
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ avatarSource: "photo" });
+
+    assert.equal(res.status, 200);
   });
 
   it("is idempotent — re-posting the same path keeps the row tagged", async () => {

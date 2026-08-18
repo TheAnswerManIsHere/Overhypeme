@@ -24,6 +24,98 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **The generation spend gate now runs even when pricing can't be resolved**
+  (2026-08-16, PR #474). Found by the auth/entitlement/spend security pass:
+  three of four spend call sites wrapped `checkBudget` in `if (priced)`, so a
+  fal pricing miss skipped the ceiling entirely — enforcement disappearing at
+  the moment something else was already failing. All sites now degrade to the
+  engine's configured estimate and still gate, or deny when the authoritative
+  cost can't be read; the fallback prefers the persisted `engines` row over the
+  code seed (falling back to the seed for a model the table has no row for),
+  honors a deliberate `0`, and resolves after the admin exemption. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop.
+  Five Codex rounds, eight findings, all real. See
+  [`security-model.md`](./security-model.md)'s generation-spend section and the
+  two 2026-08-16 entries in [`decisions.md`](./decisions.md).
+  **Still owed from that pass:** the `is_estimated` ledger column (approved,
+  queued) and the `recordCost` swallow it folds in — both tracked in
+  [`deferred-work.md`](../engineering/deferred-work.md). The twice-deferred
+  `IP_HASH_SALT` boot assertion the pass also re-flagged is now done (PR #484).
+
+- **The admin help system — the Manual, rendered in-console** (2026-08-16,
+  PR #472, workstream #463). `docs/manual/` is now readable at `/admin/help`
+  with per-chapter bookmarkable URLs, client-side search over a build-time
+  index, and a `?` on each admin screen that deep-links into the section
+  describing that screen. Content is a committed generated artifact — no
+  backend, no API, no table — with its freshness gate in the always-on Build
+  job because `docs/manual/**` is CI-inert, and generation that **fails** rather than
+  degrading when the source drifts out of what it can faithfully render. Two
+  decisions worth reading rather than rederiving: the CI-placement rule for
+  any `docs/` → code generator, and the withdrawal of the "admin-only reading"
+  claim as unenforceable ([`decisions.md`](./decisions.md)).
+
+- **`/next` — the "what should we work on now" skill, plus the two
+  tracking primitives it needed** (2026-08-15). Three coupled pieces:
+  **phase-tracking** for multi-PR features (the parent-issue + phase
+  sub-issue design settled 2026-08-05 and finally built — a parent's
+  **Phases checklist** is now the durable record of what a feature still
+  owes); **the backlog** (`queue:now`/`next`/`later` issues carrying no
+  `stage:` label, so they stay out of `/status-all`'s active-work view)
+  together with the mechanical **`Blocked by: #N`** marker; and **`/next`**
+  itself, which ranks everything by *closest to done wins* with priority
+  inheriting down each blocked chain. That inheritance rule is what makes
+  the **UAT-descent stack** work: when UAT surfaces a bug that turns into a
+  whole rebuild (PR #213 → the #405/#422 admin-permission arc is the worked
+  example), the chain records the way back to the interrupted UAT step, and
+  the deep rebuild correctly outranks starting anything new because
+  finishing it is what unwinds the stack. `/maintenance` gains a
+  backlog-hygiene pass — stale priorities, dangling markers, chains deeper
+  than 2, cycles, unticked phase checkboxes — delivered as a numbered diff
+  David approves. See
+  [`workstream-tracking.md`](./workstream-tracking.md).
+
+- **Sharded api-server test runner kept, diagnostics hardened (PR #427,
+  2026-08-14).** Evaluated whether the runner's complexity was still
+  justified now that the fast-inner-loop use case it was built for no longer
+  applies — kept it (the DB-isolation and parallelism wins are real on their
+  own), fixed the actual pain instead: per-shard log attribution and a
+  signal-safe critical-section fix so a `SIGINT`/`SIGTERM` mid-run always
+  cleans up every worker. The investigation also surfaced and fixed a
+  previously-undiscovered `drizzle-kit push --force` bug silently dropping
+  two undeclared Postgres sequences, which had been misattributed as test
+  flakiness. See the
+  [2026-08-14 decisions.md entry](./decisions.md#2026-08-14--keep-the-sharded-api-server-test-runner-fix-its-diagnostics-instead-of-removing-it).
+- **Plan 1a — one resolver, one client contract, no admin lockout** (PR #425,
+  workstream #405, merged 2026-08-14, from the plan reviewed on PR #421).
+  Nearly every product-feature permission check now resolves through one
+  function (`featureAccess.ts`'s `can(principal, key)`), reading the
+  Feature Permission Grid — one documented exception remains (an
+  admin-only engine catalogue filter), tracked to close in a later phase
+  — and a CI guard
+  (`scripts/check-permission-chokepoint.mjs` + its frontend sibling) fails
+  the build on the *habitual* forms of a new inline `tier`/`role`
+  comparison outside it (a tripwire, not a proof against a deliberately
+  obscure one — see the guard-scoping decision below). The grid's
+  Admin column is live (a union with the account's own tier, never an
+  override); the client is told its resolved entitlements instead of
+  deriving them from `role`; and an admin cannot be locked out by any
+  sequence of demotion, deletion, deactivation, or an email change,
+  including concurrent ones — enforced by an advisory-lock population
+  guard (`adminLockoutGuard.ts`). The "view as user" toggle is a separate,
+  simpler case: it writes only session state, never touches the database,
+  and `requireRole` checks the toggle-independent `realUserRole`, so
+  console access is never actually at risk — a recovery control (in
+  `AdminLayout` and on the profile page) is what closes the loop back to
+  admin mode, not the population guard. See
+  [`membership-entitlements.md`](./membership-entitlements.md) for the
+  model. **8 review rounds**, the last four post-merge-readiness findings
+  concentrated in pre-existing code the reviewer widened into rather than
+  the diff itself — see the
+  [2026-08-14 `decisions.md` entry](./decisions.md#2026-08-14--the-permission-chokepoint-guards-are-scoped-as-a-tripwire-against-habitual-mistakes-not-a-proof-against-adversarial-evasion)
+  for the guard-scoping call that closed the loop, and
+  [`known-failure-patterns.md`](./known-failure-patterns.md#a-guards-population-safety-lock-protects-the-count-but-not-the-decision-to-check-it-at-all)
+  for the admin-lockout TOCTOU shape that recurred twice within the PR.
+  **Plan 1b (write-side enforcement of the grid, #422) is next** — this
+  plan's migration must run before it, and did.
 - **Overhype.me Manual — one-time chapter backfill, closed out 2026-08-09.**
   David approved the plan 2026-07-30; the pass brought the manual from 3
   written chapters (moderation, taxonomy/enrichment, background work) to the
@@ -163,11 +255,12 @@ priorities (moderation speed, render/enrichment quality, video). See
   write a Projects v2 item field** — the same constraint that keeps
   `/status-all` reading labels rather than the board. Label maintenance is owned
   by `plan-review-loop`, `bugfix`, `pr-watch`, and `pr-docs` at trigger
-  points they already hit, not by a standing habit — plus one automated
-  exception: the `test-run-completion.yml` Action (PR #334) is the sole
-  non-agent label writer, moving a workstream from `stage:test-run` to
-  `stage:uat`/`stage:close-out` the moment its TEST_RUN doc is deleted,
-  since nothing else was guaranteed to notice that event. See
+  points they already hit, not by a standing habit. (The one automated
+  exception this entry used to name — the `test-run-completion.yml` Action
+  (PR #334), the sole non-agent label writer — was retired 2026-08-15 with
+  the TEST_RUN file pattern: `pr-watch`'s close-out sequence owns the
+  `stage:test-run` transition now, per the 2026-08-15 `decisions.md`
+  entry.) See
   [`workstream-tracking.md`](./workstream-tracking.md) and
   [`decisions.md`](./decisions.md#2026-08-05--workstream-tracking-runs-on-githubs-own-project-management-with-labels--not-the-board--as-the-source-of-truth).
 - **`test-run-completion.yml` hardened to convergence; `/status` naming
@@ -187,19 +280,17 @@ priorities (moderation speed, render/enrichment quality, video). See
   suites on provably docs-only PRs — see the
   [2026-08-07 `decisions.md` entry](./decisions.md#2026-08-07--ci-cancels-superseded-pr-runs-and-skips-the-heavy-suites-on-provably-docs-only-changes)
   and the two GitHub Actions gotchas it links from `.agents/memory/`.
-  **Open next — still genuinely open, not resolved by the hardening above:**
-  the 20 rounds validated the 8 pure parsing/routing/body-transformation
-  helpers `sync-test-run-completion.mjs` exports (`extractPrNumberFromTestRunPath`,
-  `extractWorkstreamIssueNumber`, `hasUatDoc`, `findUatDocFilename`,
-  `stillHasTestRunDoc`, `computeTransition`, `updateStateOfPlayBody`,
-  `handoffText`) against unit tests; `ensureCleanLabels()`,
-  `processDeletedTestRunDoc()`, every REST call, retry orchestration, and
-  board synchronization are validated by code review only, never executed by
-  a test. Nothing yet has exercised the deployed Action itself either — the
-  actual `push`-to-`main` trigger, its permissions,
-  `PROJECTS_TOKEN`/`GITHUB_TOKEN` scoping, and a real label/board write —
-  since no push since it landed has deleted a matching TEST_RUN doc. Worth a
-  check once a real TEST_RUN doc deletion has gone through it live.
+  **Superseded 2026-08-15 — the "open next" this entry used to carry is
+  moot:** the Action, `sync-test-run-completion.mjs`, and their tests were
+  retired with the TEST_RUN file pattern (post-merge verification now lives
+  in the PR body and runs through the Replit connector at close-out; see
+  the 2026-08-15 `decisions.md` entry). The live-trigger verification this
+  item was waiting on — exercising the deployed Action's `push`-to-`main`
+  trigger, permissions, and board write — will never happen and no longer
+  needs to; the untested-by-execution halves it flagged were deleted, not
+  fixed. The concurrent-label-mutation *pattern* the hardening produced
+  remains recorded in `.agents/memory/` as design history for any future
+  Action that mutates labels.
 - **Async-queue hardening, Phase 1: worker liveness heartbeats + the Queue
   Health surface** (PR #288, from the plan reviewed on the closed-unmerged
   PR #282). Claim/retry/dedupe/lane **scheduling** semantics are unchanged —
@@ -282,10 +373,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   markdown file to `prose/contract` by bare presence — it now weighs
   changed-line counts, so a code-majority mixed PR lands in `feature/code`
   (see `cohortWeights` in `scripts/loop-metrics.mjs`); presence alone only
-  decides when one side is entirely absent. **Still open, for David to
-  decide:** #279 ran 32 rounds, about 12 past the ~20-round soft cap meant
-  to trigger a check-in, with no record of whether one happened (see the
-  frozen ledger's row 6).
+  decides when one side is entirely absent. **Resolved 2026-08-15, not by
+  deciding this specific case but by retiring the cap it questioned:**
+  #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to
+  trigger a check-in, with no record of whether one happened (see the
+  frozen ledger's row 6) — the open question was whether the cap needed a
+  firmer trigger. It doesn't, because the cap itself is gone:
+  `working-modes.md`'s stopping rule replaced round-count caps with the
+  bucket-mix/tripwire/criticality rubric, so there is no threshold left to
+  miss triggering.
 - **The loop ledger: every AI-agent review loop gets a permanent, falsifiable
   row** (PR #270). **Superseded 2026-08-07** (see the bullet above): loops no
   longer append to this table, and adjudication no longer covers every
@@ -530,10 +626,22 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Near-term planned slices
 
-- **Phase-tracking for multi-PR features** — parent issue carries the plan,
-  each phase is a sub-issue with its own PR. Design settled 2026-08-05, not
-  yet built; #310 and #293 are named retrofit candidates. See the
-  [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--multi-pr-features-get-parent-issue-plus-phase-sub-issue-tracking-and-i-ask-before-declaring-a-split).
+- **Manual chapter 13 — the render-quality eval dashboard.** Settled as its own
+  chapter (not a section in chapter 5, not an expanded clause in chapter 11) —
+  the decision and its rationale are in
+  [`decisions.md`](./decisions.md); the constraint list, including the chapter-12
+  footer flip the four-representation gate forces, is on **#480**.
+- **Retrofit the async-queue parent for phase-tracking.** NCMEC's parent
+  (#310) got its Phases checklist 2026-08-15, as part of PR #453's
+  post-merge retrofit — done, not a remaining item. The async-queue
+  hardening work (PR #288) still has no tracked parent issue at all — it
+  predates workstream tracking entirely — so this is a bigger unit of work
+  than "add a checklist": open a fresh workstream issue and backfill its
+  history. Deliberately deferred to `/maintenance` rather than done inline.
+  Per the phase-tracking contract, a phase's own sub-issue is opened only
+  when that phase actually starts — an unopened phase's checklist line
+  reading `not yet opened` is the intended steady state, not a gap to fill
+  upfront.
 - **Moderation-speed / reviewer-toil reductions** — ergonomics of the review +
   visual-review flow. **Needs David confirmation** on specifics.
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render

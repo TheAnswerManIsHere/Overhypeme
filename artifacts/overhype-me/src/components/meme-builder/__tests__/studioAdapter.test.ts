@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   studioPathToMode,
-  roleToTier,
+  roleToIdentity,
   extractObjectPath,
 } from "../integration/studioAdapter";
 
@@ -17,24 +17,29 @@ describe("studioPathToMode", () => {
   });
 });
 
-describe("roleToTier", () => {
+describe("roleToIdentity", () => {
+  // This is an IDENTITY mapper, not a permission check. It replaced
+  // `roleToTier`, whose admin → legendary collapse is the PR #402 bug: the
+  // builder offered a Private pill on the strength of it while the save path
+  // resolved the entitlement differently. Entitlements now arrive from the
+  // server; nothing derives them from this.
   it("collapses anonymous and unregistered to unregistered", () => {
-    expect(roleToTier("anonymous")).toBe("unregistered");
-    expect(roleToTier("unregistered")).toBe("unregistered");
+    expect(roleToIdentity("anonymous")).toBe("unregistered");
+    expect(roleToIdentity("unregistered")).toBe("unregistered");
   });
 
   it("passes registered through unchanged", () => {
-    expect(roleToTier("registered")).toBe("registered");
+    expect(roleToIdentity("registered")).toBe("registered");
   });
 
   it("maps legendary and admin to legendary", () => {
-    expect(roleToTier("legendary")).toBe("legendary");
-    expect(roleToTier("admin")).toBe("legendary");
+    expect(roleToIdentity("legendary")).toBe("legendary");
+    expect(roleToIdentity("admin")).toBe("legendary");
   });
 
   it("treats unknown / missing roles as unregistered (defensive default)", () => {
-    expect(roleToTier(undefined)).toBe("unregistered");
-    expect(roleToTier("alien-tier")).toBe("unregistered");
+    expect(roleToIdentity(undefined)).toBe("unregistered");
+    expect(roleToIdentity("alien-tier")).toBe("unregistered");
   });
 });
 

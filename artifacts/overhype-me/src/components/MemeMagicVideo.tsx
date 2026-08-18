@@ -48,8 +48,12 @@ export function MemeMagicVideo({
   onBack,
   onClose,
 }: MemeMagicVideoProps) {
-  const { isAuthenticated, role, user } = useAuth();
-  const isLegendary = role === "legendary" || role === "admin";
+  const { isAuthenticated, can, user } = useAuth();
+  // Told, not derived — the same video_generation entitlement the server
+  // gates on. MemeStudio.tsx's Magic Video card already reflects this at the
+  // hub, but this component is Suspense-rendered independently, so it needs
+  // its own live check rather than trusting the hub's stale role-derived one.
+  const canVideo = can("video_generation");
   const profileImageUrl = user?.profileImageUrl ?? null;
   const { pronouns } = usePersonName();
   const { styles: videoStyles } = useVideoStyles();
@@ -220,7 +224,7 @@ export function MemeMagicVideo({
       </div>
     );
   }
-  if (!isLegendary) {
+  if (!canVideo) {
     return (
       <div className="p-4 md:p-5 max-w-2xl mx-auto">
         <BackBar onBack={onBack} />

@@ -31,6 +31,13 @@ checks that [role](../ai-context/glossary.md#role) and turns visitors away other
 every admin surface together, with a live counter on the [moderation](../ai-context/glossary.md#moderation)
 section so the team can see at a glance whether anything's waiting.
 
+An admin can also switch into "view as user" mode to see the product the
+way an ordinary member does — the console stays reachable underneath, and
+a control on the profile page and inside the console itself (labeled
+Resume Admin while previewing) switches back. Access to the console
+itself never depends on this toggle either way: it's a preview of what a
+regular account sees, not a separate permission level.
+
 ### Reviewing content
 
 New facts and comments both go through a review step before they're
@@ -60,12 +67,19 @@ they happen.
 
 Two different screens exist for two different questions. One is a
 general settings editor for the product's overall configuration. The
-other is specifically about what each membership tier is allowed to do
-— a grid of features against tiers, so "can a free user do X" is one
-clear answer in one place for the features actually wired to read it.
-Not every tier gate is: some are hard-coded straight into route
-middleware instead, so editing the grid doesn't change what those
-specific routes enforce.
+other is specifically about what each membership tier — including the
+Admin column — is allowed to do: a grid of features against tiers, so
+"can a free user do X" is one clear answer in one place, and a toggle
+takes effect with no deploy (see the deep spec for the per-process
+window before every server picks it up). Nearly every product feature
+gate reads this grid rather than picking a tier or role apart on its
+own; one documented exception remains (an admin-only engine catalogue
+filter), tracked to close in a later phase. A separate, smaller set of
+console-access and moderation privileges (who can reach this console at
+all, who can act on other people's content) is deliberately **not** on
+this grid — keeping those two kinds of permission apart is what makes it
+impossible to configure your way into locking every admin out of the
+console.
 
 ### Watching the machinery
 
@@ -73,6 +87,29 @@ A handful of screens exist purely to keep an eye on things running in
 the background: the health of the [job queues](../ai-context/glossary.md#async-job-queue) that do async work, the
 quality of AI-rendered images against a curated reference set, and which
 pages are actually getting traffic.
+
+### Reading this manual without leaving the console
+
+This manual is readable inside the console itself. Every chapter has its
+own address, so a section can be bookmarked or pasted to a colleague and
+it opens on that section rather than at the top of the page. A search box
+covers all twelve chapters and every result names both the chapter and
+the section it came from, so it's clear where an answer lives before
+clicking it.
+
+Most usefully, each admin screen carries a **`?`** that opens the part of
+the manual describing *that* screen — the queue-health screen opens the
+section on watching background work, the taxonomy screen opens the
+taxonomy chapter, and so on. It's a way into the explanation from the
+place where the question actually occurs, rather than a documentation
+site to be navigated separately.
+
+The chapters shown are built from the same files the team edits, so what
+you read in the console is the same text as on GitHub, never a stale
+copy. Search covers the chapters themselves; the front page you land on
+is the manual's own charter — readable, but deliberately not indexed, so
+that every search result is guaranteed to point at a real chapter
+section.
 
 ## Why it works this way
 
@@ -90,6 +127,17 @@ pages are actually getting traffic.
   [taxonomy](../ai-context/glossary.md#taxonomy) evolves — a hand-maintained version would drift the moment
   someone added a field and forgot to update a doc; a generated one
   can't drift, and a build check catches it if it ever tries to.
+- **The in-console manual is built from the source files rather than
+  copied into the app**, for the same reason: a copy would drift, and a
+  drifted manual is worse than no manual because it's confidently wrong.
+  The build refuses to produce a version that disagrees with the source,
+  and it refuses outright rather than quietly rendering something
+  approximate — a chapter that would look different in the console than
+  it does on GitHub stops the build instead of shipping.
+- **Being able to read the manual in the console is not a claim that
+  it's private.** These pages are already public in the repository, so
+  putting them behind the console's gate makes them convenient to reach,
+  not confidential. Nothing that isn't already public goes into them.
 
 ## Boundaries & known limitations
 
@@ -108,6 +156,12 @@ pages are actually getting traffic.
   yet** — the machinery they'd configure isn't live, so those particular
   fields exist ahead of what they control. They look like any other
   setting in the list; nothing currently marks them as different.
+- **One screen's `?` points at a neighbouring chapter rather than its
+  own.** The render-quality eval dashboard has no chapter of its own yet,
+  so its `?` opens the [visual pipeline](./5-visual-pipeline.md)
+  chapter — the nearest relevant explanation, but not a description of
+  that screen. A real gap in this manual, recorded rather than papered
+  over.
 - **The "flagged comments" review tab's own description overstates what
   populates it** — see
   [`8-community-and-engagement.md`](./8-community-and-engagement.md#boundaries--known-limitations)
@@ -129,4 +183,6 @@ pages are actually getting traffic.
 **Next:** chapter 12 — [`12-background-work.md`](./12-background-work.md),
 async jobs, the scheduling lanes, and how status is surfaced.
 
-*Verified against `4fd4c66` (2026-08-09) · claim inventory in PR #379.*
+*Verified against `4fd4c66` (2026-08-09) · claim inventory in PR #379. The
+view-as-user/Resume-Admin control and the permission-grid coverage claims
+re-verified against `91fa048` (2026-08-14, PR #425).*

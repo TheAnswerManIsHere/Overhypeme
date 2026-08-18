@@ -93,8 +93,13 @@ shared-contract requirement now
 
 For everything else: per `workstream-tracking.md`, bugfix mode branches
 straight from Discovery to Coding, skipping Planning and Plan approval. If
-David's bug report doesn't already have a workstream issue, open one now —
-**but only if the disclosure check above passed.** If it didn't, this is
+David's bug report doesn't already have a workstream issue, **check for a
+backlog issue first** — a known, already-queued bug (`queue:` label) is
+exactly this situation, David just decided to fix it now. Per
+`workstream-tracking.md`'s *The backlog* section, promote a matching
+backlog issue (drop `queue:`, add the labels below) rather than opening a
+duplicate. Only when no backlog match exists does a genuinely new issue
+open — **but only if the disclosure check above passed.** If it didn't, this is
 where that matters mechanically, not just as a stated rule: open a private
 draft Project item instead of a public issue, and say so plainly rather
 than silently taking the fast path. When the check passed, open the public
@@ -103,6 +108,42 @@ matching the one-bug-per-branch-per-PR rule above — and give it a State of
 Play block (per `workstream-tracking.md`) at the same time, not just
 labels. From PR open onward, `pr-watch` owns the label transitions and the
 block's upkeep.
+
+**If this bug was found during UAT, record the way back up — in the same
+edit, not later.** This is the single most common way a bug arrives here,
+and the descent is what makes it dangerous: chasing it is usually right
+pre-launch, but the interrupted UAT is what gets lost. Per
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)'s
+*When UAT finds a bug*:
+
+- Add `Blocked by: #<this bug>` to the **interrupted** workstream's issue
+  body, and one line in its State of Play naming **which UAT step failed**
+  — that's what turns resumption into "resume at step 4" rather than a full
+  re-run.
+- **Also flip the interrupted issue's `waiting:` label to `claude`**,
+  recording its prior value (normally `david`, mid-UAT) in the same State
+  of Play line. Left at `waiting:david`, `/status-all` — which doesn't
+  parse `Blocked by:` and was deliberately left unchanged — keeps showing
+  a mechanically non-actionable UAT under NEEDS YOU while the actual ask
+  is the new bug, which is agent-held work. `waiting:claude` is accurate:
+  a session needs to close this bug before David has anything to look at
+  again.
+- **If the interrupted workstream is a phase sub-issue, mirror the same
+  flip onto its parent, in the same edit.** The parent's `waiting:`
+  mirroring obligation (`pr-watch`, per `workstream-tracking.md`'s *Phased
+  features*) only covers PR-driven toggles — this is an issue edit, not a
+  PR one, so without this the parent sits at `waiting:david` for the whole
+  descent while the phase correctly shows `waiting:claude`.
+- Do it at intake, while the context is in front of me. A session that ends
+  before this is written loses the link entirely; nothing reconstructs it.
+- The chain nests if the fix hits its own blocker, and it pops on its own:
+  closing this issue makes the interrupted UAT actionable again, and
+  `/next` surfaces it as the top recommendation.
+- **If diagnosis reveals this isn't a bug fix at all** but a real
+  behavior change or a subsystem rebuild (the PR #213 → admin-permission
+  shape), that's Tier C — leave bugfix mode per the classification rule.
+  The `Blocked by:` link stays exactly as written; it doesn't care which
+  mode the work ends up in.
 
 ## 2. Diagnose, classify, then fix
 
@@ -117,13 +158,25 @@ the PR. Tier A is the exception, by design.
 
 **Model tier follows the classification (CLAUDE.md's *Token / cost discipline*):**
 
-- **Entering the bugfix workflow** (routed or via `/bugfix`) — Sonnet is
-  fine. Triage and diagnosis are usually shallow, and Codex's diff review is
-  the net.
-- **The moment I classify a fix as Tier B** — I say so and ask David to switch me
-  to **Opus** before I write it. That is the whole point of the tier: these are
-  the fixes where a subtle error slips both nets. I don't switch myself; a
-  system-reminder confirming the change is what tells me it happened.
+- **Entering the bugfix workflow** (routed or via `/bugfix`) — no switch, no
+  ask (David, 2026-08-15: the session tier is a constant, Opus). Triage and
+  diagnosis stay in my main loop. A **bounded** piece of the work — reproduce
+  the symptom, find every caller of X — is eligible for a Sonnet subagent;
+  the diagnosis itself is not, because it is stateful.
+- **The moment I classify a fix as Tier B** — I say so, and what it now means
+  is that the fix is **not eligible for subagent routing**: I write it myself,
+  in my main loop. That is the whole point of the tier: these are the fixes
+  where a subtle error slips both nets.
+  - **This assumes the main loop is Opus — verify, don't assume (Codex,
+    round 3).** A Tier B fix is Opus-reserved *execution*, and the contract
+    requires me to write it myself, so it is not routable by construction.
+    If the session is genuinely below Opus — an in-Repl session pinned to
+    `sonnet`, or one still on `opusplan` until restart — **I stop and ask
+    David to run this fix from an Opus session.** That is the one surviving
+    switch ask, and it survives because the *work* is reserved, not because
+    it's convenient. Executing a Tier B fix on Sonnet because "the contract
+    says the session is Opus" is exactly the silent failure the tier guard
+    exists to prevent.
 - **Tier C** — stop and escalate to David; it isn't a bug fix, so this mode
   doesn't pick its model tier. Where it goes next does: non-trivial or
   behavior-changing Tier C work **restarts in feature mode**, which picks the
@@ -211,30 +264,31 @@ the PR back only delays the review that catches things.
    file-naming reasons):** open the PR **as a draft** (the number now
    exists, and a draft doesn't trigger the Codex connector — the same
    property the plan-review loop relies on), commit
-   `docs/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then **mark
-   the PR ready for review** — round 1 fires once, on the complete diff,
-   UAT included. **The connector documents this trigger itself:** its review
-   boilerplate lists exactly three — "Open a pull request for review",
-   **"Mark a draft as ready"**, and commenting `@codex review` (observed on
-   PR #391, 2026-08-09). Still glance that round 1 actually lands on the
-   first draft-first fix; if it somehow doesn't, post one explicit
-   `@codex review` naming the full diff and correct this line. Match the most recent surviving
-   `docs/PR<N>_*_UAT.md`. Publish it as an Artifact page too (per
+   `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then
+   **mark the PR ready for review** — round 1 fires once, on the complete
+   diff, UAT included. **The connector documents this trigger itself:** its
+   review boilerplate lists exactly three — "Open a pull request for
+   review", **"Mark a draft as ready"**, and commenting `@codex review`
+   (observed on PR #391, 2026-08-09). Still glance that round 1 actually
+   lands on the first draft-first fix; if it somehow doesn't, post one
+   explicit `@codex review` naming the full diff and correct this line.
+   Match the most recent surviving `docs/tests/UAT/PR<N>_*_UAT.md`. Publish
+   it as an Artifact page too (per
    CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
-   which owns that rule). A `TEST_RUN` doc only if something genuinely
-   needs Replit's environment — per
+   which owns that rule). The PR body's Post-merge verification section
+   gets real content only if something genuinely needs Replit's
+   environment — per
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
-   is not a default. **Add the UAT (and TEST_RUN, if shipped) doc link to
+   is not a default ("none needed" is the correct content otherwise; the
+   standalone TEST_RUN file is retired, 2026-08-15). **Add the UAT doc
+   link to
    the workstream issue's State of Play `Artifacts` field once committed** —
    the same instruction `pr-docs` follows for feature-mode UAT docs, so a
    cold-resumed session finds the doc regardless of which path produced it.
-4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open* — including its
-   **Sonnet gate**: already on Sonnet → `subscribe_pr_activity` immediately;
-   on **any other tier** — Opus (which a Tier B fix will have put me on),
-   Fable, or anything future — tell David the PR is ready to watch and ask him
-   to switch me to Sonnet first. The gate is "not Sonnet," not "is Opus":
-   naming one non-default tier is how this rule got read literally and missed
-   once already (David, 2026-08-08).
+4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open*:
+   `subscribe_pr_activity` immediately, on whatever tier the session is on.
+   **There is no model gate** (David, 2026-08-15 — the Sonnet gate this step
+   used to carry is retired, along with the switch-ask it forced).
 
 ## 4. Drive the review to convergence
 
@@ -242,16 +296,19 @@ The review-loop contract is shared and enacted elsewhere — **the mechanics
 live in the `pr-watch` skill** (which loads for any watched PR, bugfix or
 feature) **and in
 [`working-modes.md`](../../../docs/ai-context/working-modes.md)**: the
-post-round check-in before any fixes are implemented (count + trend, product
-English, causal flags, continue/stop recommendation — skip-on-clean), the
+post-round adjudication before any fixes are implemented (count + trend,
+causal flags, the continue/stop decision made in-loop via the adversarial
+subagent, product English on anything that reaches David — skip-on-clean), the
 class-sweep protocol (name the class, cite the mechanical oracle, sweep to
 zero, re-run prior rounds' oracles before every push), the criticality gate
 before every re-request, the fix / accept-and-document / escalate / decline
-triage (a decline posts only after surviving the Opus-subagent challenge),
+triage (a decline posts only after surviving the Fable-subagent challenge),
 resolving each thread myself right after addressing it, per-round
 `@codex review` re-requests naming what the round closes, the
-cumulative-diff rule after 2+ fix rounds, breaking non-converging loops
-(~2 rounds), and unsubscribing at merge/close. **Pointer, not a copy** —
+cumulative-diff rule after 2+ fix rounds, breaking non-converging loops by
+diagnosis — oscillation or a genuinely contested fix, not a round count
+(David, 2026-08-15, superseding the earlier ~2-round figure) — and
+unsubscribing at merge/close. **Pointer, not a copy** —
 restating those mechanics here is how this section went stale once already
 (it carried a "never resolve threads" rule for two months after David
 reversed it, 2026-08-06).
@@ -274,8 +331,11 @@ What is *bugfix-specific* about the loop:
   that it's a fix.** A fix to product code passes the gate normally; a real
   product fix is essentially never single-digit. But routed entry means a bug
   can be *in the docs*: when the whole diff is agent-facing markdown or a
-  transient checklist, that artifact's cap governs (1–2 rounds, and the
-  automatic first pass with no re-request, respectively) and the review
+  transient checklist, that artifact's rule governs — no round cap but
+  continuation gated on behavior-changing findings for markdown, and the
+  automatic first pass with no re-request for a transient checklist — per
+  `working-modes.md`'s *Docs-only loops continue on consequence, not
+  count* and the ceremony table, and the review
   request states the docs-only light bar — exactly as if the same change had
   arrived through feature mode. Entering through this mode never raises an
   artifact's ceremony, and never lowers product code's.

@@ -16,7 +16,7 @@ describe("VisibilityToggle", () => {
   it("defaults to public and lets a legendary viewer switch to private", () => {
     const onChange = vi.fn();
     const { rerender } = render(
-      <VisibilityToggle isPublic onChange={onChange} tier="legendary" onRequestUpgrade={() => {}} />,
+      <VisibilityToggle isPublic onChange={onChange} canSetPrivate onRequestUpgrade={() => {}} />,
     );
 
     expect(screen.getByTestId("meme-visibility-public").getAttribute("aria-pressed")).toBe("true");
@@ -29,7 +29,7 @@ describe("VisibilityToggle", () => {
       <VisibilityToggle
         isPublic={false}
         onChange={onChange}
-        tier="legendary"
+        canSetPrivate
         onRequestUpgrade={() => {}}
       />,
     );
@@ -43,7 +43,7 @@ describe("VisibilityToggle", () => {
       <VisibilityToggle
         isPublic={false}
         onChange={onChange}
-        tier="legendary"
+        canSetPrivate
         onRequestUpgrade={() => {}}
       />,
     );
@@ -58,7 +58,7 @@ describe("VisibilityToggle", () => {
       <VisibilityToggle
         isPublic
         onChange={onChange}
-        tier="registered"
+        canSetPrivate={false}
         onRequestUpgrade={onRequestUpgrade}
       />,
     );
@@ -82,7 +82,7 @@ describe("VisibilityToggle", () => {
       <VisibilityToggle
         isPublic={false}
         onChange={() => {}}
-        tier="registered"
+        canSetPrivate={false}
         onRequestUpgrade={() => {}}
       />,
     );

@@ -8,7 +8,11 @@ import { stableSerialize } from "@/lib/form-draft-storage";
 vi.mock("@workspace/replit-auth-web", () => ({
   useAuth: () => ({
     isAuthenticated: true,
-    role: "legendary", // legendary => no captcha, so the composer renders plainly
+    role: "legendary",
+    // The composer asks the SERVER's entitlement now, not the role — granting
+    // comment_captcha_bypass is what makes it render plainly.
+    entitlements: { comment_captcha_bypass: { allowed: true, limit: null } },
+    can: (key: string) => key === "comment_captcha_bypass",
     user: { id: "u1", displayName: "Me", firstName: "Me" },
   }),
 }));

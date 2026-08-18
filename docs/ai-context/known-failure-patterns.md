@@ -24,6 +24,69 @@ everything through it. **Overhype:** `facts.*` is the sole *active* enrichment
 truth — `fact_enrichment_versions` is an archive, not lineage. The visual
 **compiler** owns identity/text-policy language; the planner must not re-author it.
 
+## A test asserting what you believe a producer emits, instead of what it emits
+
+**Looks like:** a test that hardcodes the producer's output — a marker value, a
+slug, a character class — from your understanding of the producer rather than
+from the producer itself. It passes. **Dangerous:** it doesn't just fail to
+catch a broken contract, it **actively enforces the broken version**, so the
+suite is greenest exactly when the contract is most broken. Both halves of a
+producer/consumer pair can be individually tested, both green, and the pair
+still dead. **Avoid:** for any generated artifact, assert against the **real
+committed output** run through the **real consumer** — import the generated
+module, pull the actual values out of it, and feed them to the actual guard. If
+a test names a literal the producer emits, that literal is a belief, and beliefs
+in tests are how this happens. **Overhype:** PR #472 hit this three times in one
+build. (1) A test asserted `data-help-internal="true"` while the consumer had
+been changed to read a *path* out of that attribute — every in-app Manual link
+was silently inert, with that test and the consumer's own unit test both
+passing, because neither touched the artifact. (2) A test asserted
+`#emoji-🎉-heading` was a producible heading slug; `github-slugger` strips emoji
+and actually emits `emoji--heading`. (3) Two successive hand-written Unicode
+character classes for "what the slugger emits" were each measured wrong — the
+first excluded 1164 characters it really emits, the second still excluded 61.
+The fix in each case was to stop describing the producer and start executing it.
+
+**The same shape, one level up: describing a GUARD's coverage from the part of
+it you read.** A doc, a decision entry or a PR body that states what a check
+protects is making a claim about that check's *inputs* — which file list it
+walks, which paths it classifies, which branches it exempts — and those live in
+a different part of the file from the logic you were reading. Two instances in
+two review rounds on the same afternoon: *"`classify-ci-paths.mjs` treats all of
+`docs/**` as inert"* (it carries an explicit `ADMIN_FIELD_REFERENCE.md`
+exception, for the symmetric reason) and *"a green `check:docs` means every
+prefixed path resolves"* (it runs on a five-entry library list, so `docs/tests`,
+`CLAUDE.md` and all of `.agents/memory/` are outside it). Both read as
+confident, both were wrong in the **over**-claiming direction, and an
+over-claimed guard is the dangerous direction — it tells the next reader they're
+covered where they aren't. **Avoid:** before writing what a guard covers, read
+the collection it iterates and the exemptions it applies, not just the rule it
+enforces. If the sentence names a scope, that scope is a claim, and claims get
+checked against the source.
+
+## A guard that matches spelling instead of resolving bindings fails open
+
+**Looks like:** a static check that recognises its target by name — counting
+`setLocation(` occurrences, matching a callee called `useLocation`, grepping for
+an import string. **Dangerous:** it fails in the **open** direction. Renaming or
+aliasing produces a fully functional second path that the guard cannot see, and
+because the *original* spelling is usually still present somewhere, the guard's
+own "did I find anything?" assertion stays satisfied — so it reports green while
+certifying the exact regression it exists to prevent. **Avoid:** resolve the
+**binding**, not the text — follow a destructuring to whatever name it binds,
+and follow an import specifier (`propertyName ?? name`) to whatever the module
+actually exported. And give the guard **bypass fixtures**: mutate a copy of the
+source to introduce the violation and require the analysis to object, with an
+assertion that the mutation actually applied — a fixture whose `.replace()`
+silently no-ops is itself a vacuous test. **Overhype:** PR #472's navigation
+guard, three versions deep. v1 counted `setLocation(` and was defeated by
+`const [, navigate] = useLocation()`; v2 resolved the destructuring but matched
+the hook by callee text and was defeated by
+`import { useLocation as useHelpLocation }`; v3 resolves the import specifier.
+Each version's guards-the-guard assertion passed throughout, because token
+presence is not the property being guarded. See
+`artifacts/overhype-me/src/components/admin/helpNavigationGuard.test.ts`.
+
 ## Preview/runtime mismatch
 
 **Looks like:** an admin preview that shows something different from what
@@ -125,6 +188,62 @@ as background only. Verify; where you can't, ask. **Overhype (retired assumption
 NOT to reintroduce):** blanket "no readable text"; `gpt-4o-mini`/`gpt-image-1`/FLUX
 as the render path; enrichment-time visual preview as source of truth; violence
 auto-softeners; `enrichment_pending` stage name (it's `prep_pending`).
+
+## A hand-maintained note describing emergent behaviour
+
+**Looks like:** a comment or contract paragraph that describes what a system
+*does*, where the behaviour is not implemented in one place but emerges from
+several independent rules. **Dangerous:** the description is accurate the day
+it is written and silently stops being accurate as the rules change, while
+reading exactly as authoritative as it did before. Nothing fails; the note is
+just wrong, and it is wrong in the file a future session trusts most.
+
+**PR #488 is the sustained example: one paragraph was wrong in four
+consecutive review rounds while the behaviour it described never changed
+once.** Too narrow (named one rule), too narrow again (named three, missed a
+fourth), then falsely universal ("any protected command is refused" — one
+inert leading word defused it), then falsely positional ("the first word
+decides" — wrapper and env-assignment prefixes are stripped first).
+
+**Four things that generalize, in the order they had to be learned:**
+
+1. **A limitation goes stale when a rule is added ABOVE it or removed BENEATH
+   it**, and removal is the direction nobody re-reads for. #488's heredoc note
+   described a fix that a later revert had removed; `CLAUDE.md` simultaneously
+   described a receipt guarantee that had been split out one commit earlier.
+2. **The author of a change is its least reliable narrator.** Both of those
+   were written by the person who had just made the change, describing it from
+   the example that prompted it rather than from its blast radius.
+3. **Widening a too-narrow claim's quantifier is not a fix.** "Some of these"
+   and "all of these" are both outcome claims and both go stale; #488 went from
+   the first to the second and got a counter-example in one round.
+4. **Replacing prose with a formula does not make the formula checked.** The
+   fix that finally held was an invariant executed against real inputs — but
+   it was first written one level above where it runs (`decide(...)` rather
+   than the command text the tests actually compare), so for one round it
+   *looked* verified and was not.
+
+**Avoid:** when behaviour is emergent, state an **invariant that can be
+executed** rather than a description that must be maintained, and state it at
+the boundary the test actually exercises. #488's note is now one line — an
+array literal gets exactly the verdict its words get as a command — pinned
+against 19 inputs.
+
+**What that buys, stated exactly, because overstating it would be this very
+pattern again:** the *claim* stays true as rules are added, where all four
+prose descriptions went false. The *coverage* does not — the 19 cases are a
+hand-curated list, so a new rule whose inputs aren't represented in it can
+behave differently inside an array with every invariant test still green.
+**Adding a rule therefore still requires adding a representative case**, or
+deriving the list from the rule set rather than maintaining it by hand. An
+invariant narrows what can drift from "a paragraph" to "the sample"; it does
+not eliminate drift, and saying otherwise recreates the false assurance this
+section is about. (Codex caught exactly that overstatement in the first draft
+of this entry.)
+
+**Also avoid:** claiming in a test file that its rows protect a *prose* claim.
+They do not — assertions check runtime verdicts, and the branch shipped 236
+green tests beside a header statement that was already refuted.
 
 ## A verification step placed where it cannot physically run
 
@@ -256,6 +375,75 @@ next input. **Avoid:** fix the mechanism and add a test that asserts the
 must agree" rule (not just "They keeps"), with a narrow anchor so it never
 mis-wraps non-person subjects ("Sharks have …"), plus idempotency tests. See
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#regression-examples-must-stay-green).
+
+### When the mechanism cannot be fixed either: abandon the layer
+
+The advice above assumes a general mechanism exists to fix. Sometimes the
+"general rule" is another program's entire command-line grammar, and then
+fixing the mechanism and matching the instance are the same move wearing a
+better argument. **PR #488 is the worked example: five attempts to enumerate
+were started and all five were abandoned** — curl's option grammar, an
+allowlisted probe exception, a widened `LOOKS_DESTRUCTIVE`, a replacement
+heredoc delimiter scanner, and an array-assignment suppression. Each was
+locally reasonable, each closed the reported case, and each produced the next
+round's finding.
+
+**Abandoned does not uniformly mean deleted, and the split is 3 / 2.** Three
+were removed outright: curl's option grammar (`isGitHubApiUrl` and the whole
+`rest.some(...)` argument-inspection branch, gone from the merged file — zero
+occurrences remain), the probe exception, and the array suppression. Two
+survive in their original, deliberately incomplete form with their gaps
+recorded — `LOOKS_DESTRUCTIVE` and an identifier-shaped `HEREDOC_RE` — and what
+was abandoned there is only the attempt to make them *general*: widening the
+regex to cover fetchers, and replacing the delimiter class with a full scanner.
+
+That distinction is worth the sentence because it cuts both ways for a
+maintainer. "All five were deleted" sends them looking for code that is plainly
+still there; "none were deleted" implies the enumerations were merely paused.
+And the direction matters for a guard specifically: **refusing the class means
+stop trying to complete a mechanism, not delete every mechanism that partially
+works** — the second reading is a licence to remove protective code, which is
+the one direction this module must never move in.
+
+**Three signals that you are in this situation rather than the ordinary one:**
+
+- **The counter-examples come from a different sub-language every time.** #488
+  round 4 produced findings in wgetrc directives, `--connect-to` composites,
+  brace URL globbing, long-option prefix abbreviation, and `--variable`
+  interpolation. That is not a bug with variants; it is a parser you have
+  agreed to reimplement without noticing.
+- **Your fixes start failing at the rate you make them.** Round 16 made four
+  small fixes; round 17 found a defect in all four. Count it — the ratio is
+  the evidence, and it is far more reliable than the feeling that this next
+  one is obviously right.
+- **The exception has the same surface as the rule.** #488 kept one allowlisted
+  probe URL and got three findings against that single exception in one round,
+  including a config file (`$CURL_HOME/.curlrc`) that adds requests which never
+  appear in argv at all — unfixable by argument inspection, because the thing
+  being inspected is not there.
+
+**Avoid:** refuse the whole class instead of judging instances of it. #488's
+decision module (`scripts/guard-decision.mjs`) refuses `curl` and `wget` with
+no argument-shape exception, because that is the only version that is complete
+by construction. Accept and **write down** the residual gaps rather than
+closing them one at a time.
+
+**Scoped to the module deliberately, and this sentence is itself an instance of
+the pattern below.** The refusal lives in `guard-decision.mjs`, which
+`.claude/guard.sh` runs *only when `node` is available*; the node-less fallback
+has no fetcher alternative and lets a `curl` payload through. An earlier
+version of this paragraph said the guard "refuses `curl` and `wget` outright"
+with no qualifier — a blanket claim about a wrapper that does no such thing,
+written in the entry warning against exactly that. It survived a repo-wide
+sweep for the *neighbouring* class because it used none of the swept words.
+(Codex, #499 round 4.)
+
+**One asymmetry worth keeping, because it is what finally converged:**
+**deleting an allow-producing rule cannot open a hole**, while adding
+interpretation can — so when a guard is oscillating, removal is the safe move
+and refinement is not. State that narrowly: it is true of a removal proven
+monotonic in the restrictive direction against the assertion table, **not** of
+deletions generally (deleting a *protective* branch turns blocks into allows).
 
 ## Regex grammar rewrite reaches past a safe anchor
 
@@ -857,6 +1045,46 @@ smaller than the list beside it. Both were plain `db.transaction(...)` blocks
 before the fix — the first was corrected to `repeatable read`, the second to
 `count(*) OVER ()` in one statement.
 
+## A guard's population-safety lock protects the count, but not the decision to check it at all
+
+**Looks like:** a mutation reads the target row's current state to DECIDE
+whether a lockout/safety guard needs to run at all — then, only if that
+decision says yes, opens a transaction, takes the advisory lock, and asks
+the guard to count survivors. **Dangerous:** the guard's lock and count are
+airtight once invoked, but the READ that decides whether to invoke it at all
+happens before the lock exists, so a concurrent mutation can change the
+target's state in the window between that read and the eventual write — the
+DECISION goes stale even though the COUNT never would have. This is easy to
+miss precisely because the guard itself looks correct in isolation (its own
+tests pass, its lock/count logic is sound); the bug is entirely in what
+happens *before* the guarded transaction, not inside it. **Avoid:** acquire
+the same lock the guard uses FIRST, before reading anything the "does this
+even need guarding" decision depends on — then make that decision from a
+read taken under the lock, inside the same transaction, immediately before
+the guard's own count. A helper that only exposes "acquire the lock" (not
+just "acquire the lock and count") lets a caller that needs to decide-then-
+guard do both under one lock without duplicating the count logic.
+**Overhype:** PR #425's admin-lockout guard (`assertAdminPopulationSurvives`,
+under `pg_advisory_xact_lock(ADMIN_POPULATION_LOCK_KEY)`) recurred in this
+exact shape **twice in the same PR**: round 4 found `PATCH
+/admin/users/:id`'s email-change handler reading the target's
+email/`isAdmin` via a plain `db.select(...)` before opening any transaction,
+so `removesAdminAccess` — whether to call the guard at all — could be
+computed from data a concurrent admin-removal was about to invalidate; round
+5 found the identical shape in the separate `GET /auth/verify-email`
+pending-email-promotion path, which had gotten the crossing-boundary CHECK
+right in an earlier round but not the lock-ordering. Both fixed by exporting
+`acquireAdminPopulationLock(tx)` (factored out of the guard's own
+lock+count) and moving each handler's read + decision inside the
+transaction, after acquiring it, before the guard's count. The second
+recurrence — same root cause, sibling code path, found one round later — is
+also a worked example of *class recurrence* under this repo's own
+review-loop bucket rubric
+([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)):
+porting a fix to one of several similarly-shaped call sites and missing a
+sibling is common enough to specifically check for once a first instance of
+a shape like this is found, not just fixed in place.
+
 ## A broad error-class match convicts more than the one case it was written for
 
 **Looks like:** catching an error and testing a general property of it — an
@@ -880,6 +1108,67 @@ prepare — a real failure — and the broad test called it a duplicate, silentl
 acking an event whose purchase was never granted (PR #287, review round 9).
 Fixed by matching `err.constraint === "stripe_processed_events_pkey"`
 specifically.
+
+## Reading a scoped limit message as a blanket outage
+
+**Symptom:** a tool reports that *one specific capability* is unavailable, and
+you conclude the whole tool is down. Work that depended on the still-working
+capability silently stops happening — and because you concluded it was
+unavailable, you never retry, so nothing surfaces the mistake. The gap looks
+like an outage rather than an unasked question.
+
+**Why it happens:** the qualifier is the least load-bearing-looking part of the
+sentence. "You have reached your usage limits **for security reviews**" reads
+at a glance as "you have reached your usage limits," because the actionable
+part (a limit was hit) lands first and the scope arrives as trailing detail.
+The failure is reinforced by *consistency*: the message keeps appearing, which
+feels like confirmation, when it is only the same scoped condition recurring.
+
+**The nastiest version — and the one that actually happened — is when a written
+rule already quotes the qualifier and still draws the unscoped conclusion.**
+`pr-watch`'s pre-2026-08-15 rule reproduced the "for security reviews" wording
+verbatim and concluded "proceed as if that round's review is unavailable."
+Having the evidence in the document did not prevent the error, because the
+rule's *conclusion* was what got applied, not its quoted evidence. A wrong
+conclusion sitting next to correct evidence is more durable than a plain
+mistake: it looks sourced.
+
+**Avoid:** when a tool reports a limit, refusal, or failure, **read which
+thing it names** before concluding anything is unavailable — the scope is part
+of the message, not colour. Then check the cheap disconfirming evidence: did
+the supposedly-unavailable capability produce output anyway, before or after?
+On PR #458 a full code review landed six minutes after the "outage," which
+would have refuted the reading immediately had anyone looked. And when writing
+a rule from an observed failure, make the rule's conclusion quote the same
+scope its evidence does.
+
+**Overhype:** the canonical fact and the standing rule live in
+[`code-review.md`](../engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage).
+Cost: PR #459 sat unreviewed until David corrected the reading, and the
+resulting "Codex is unavailable" framing fed into asking him to merge PR #458
+while a requested round was still outstanding — 7 findings then landed 47
+seconds post-merge, as defects on `main`.
+
+### Sub-pattern: a confident claim about tooling that the tooling doesn't support
+
+The same session produced three of these, which is why it is recorded as a
+pattern rather than an anecdote:
+
+| Claim asserted | Reality | How it would have been caught |
+|---|---|---|
+| No persistable effort setting exists | `effortLevel` is in the settings **schema**; only the docs *page* omits it | Read the schema, not the prose docs |
+| The Codex bounce means no review is coming | It means no *security* review | Read the qualifier; check whether a review arrived anyway |
+| Self-wakes get counted in the loop ledger | `MECHANICAL_KEYS` has eight GitHub-derived fields and no wake count | `grep` the field list before claiming it |
+
+**The common shape:** each was a claim about what a *tool* can do, asserted
+from recollection or from a plausible-but-incomplete source, and each was
+cheap to verify — one file read would have settled it. Two of the three were
+caught by review rather than by the author.
+
+**Avoid:** before writing down what a tool does or doesn't support, open the
+thing that defines it — the schema, the field list, the message text. Treat a
+docs page's *silence* as no evidence at all: a curated page will omit a key
+but will never invent one, so absence there is not absence.
 
 ## Fixing the flagged site and leaving its siblings
 
@@ -953,6 +1242,48 @@ resource (an endpoint, a response shape, an error code), grep for **every**
 caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
 count found is the count that exists.
+
+### Sub-pattern: the sweep itself has three failure modes, learned one per round
+
+PRs #458/#459 ran five review rounds where **every round's finding was
+something the previous round's sweep was structurally incapable of catching**.
+Each round taught a distinct lesson, and each invalidated the verification
+method that had felt sufficient the round before. The parent pattern above
+covers only the first.
+
+1. **Sweep by class, not by phrasing.** The first sweep grepped the exact
+   strings it had just removed ("switch me to", "Sonnet gate") and passed —
+   while `maintenance/SKILL.md` still said *"suggest switching before
+   starting."* Same rule, different words. Grep for what the rule **means**,
+   with an alternation wide enough to catch paraphrase, and accept noise over
+   a false clean.
+2. **Re-sweep what the fixes themselves introduce.** The second sweep
+   correctly enumerated every home of every rule the PR *set out to change* —
+   and missed the Opus-reserved-execution exception entirely, because that
+   rule was **created by the previous round's fix**. A sweep anchored to the
+   starting set cannot see what the fixes add. Re-run the enumeration over
+   the round's own output before calling it done.
+3. **The unit is the assertion, not the file.** The third sweep asked, per
+   file, *"does this file carry the exception?"* — a boolean that passes the
+   moment **one** mention exists. `CLAUDE.md` passed while containing both
+   the exception and a contradicting sibling two sections away. Check every
+   individual site, and specifically look for **two rules that fire on the
+   same condition and disagree** — that shape accounted for three of the last
+   four findings.
+
+**A fourth home is easy to forget entirely: the PR body.** It asserts the
+rules too, it is what the human actually reads, and no sweep that greps the
+working tree will ever touch it. In #459 it still described a superseded
+version of the contract — one cap instead of two, a claim the ledger tracked
+self-wakes, a rejected case listed as allowed — after five rounds had
+corrected all three in the files.
+
+**Avoid:** treat "I swept for it" as a claim needing the same verification as
+any other. The honest generalization from these rounds is that self-review
+converges on *the method you already had*; an outside reviewer is what
+corrects the method. Where no reviewer is available, at minimum re-derive the
+sweep from the rule's meaning rather than re-running the grep that already
+passed.
 
 ## Satisfying a lexical guard by changing a value's form, not its meaning
 
@@ -1080,6 +1411,37 @@ by definition. Diagnosing it as this pattern would prescribe the wrong fix
 (cut the subject / stop the loop) instead of the right one (split the artifact
 and keep going on the smaller half). See
 [*A plan that grew during its own review*](#a-plan-that-grew-during-its-own-review).
+
+**A sixth instance, caught earlier than the others (PR #425, 2026-08-13/14).**
+The permission-chokepoint CI guards
+(`scripts/check-permission-chokepoint.mjs` and its frontend sibling) exist to
+catch a hand-written `tier === "legendary"`-shaped comparison outside the
+resolver. Across the implementation review loop, four rounds — spread over
+a five-round span, round 5 was an unrelated finding — found a genuinely new
+gap: round 3 (file-level allowlist scope, fixed),
+round 4 (`!==`, fixed), round 6 (a formatter-wrapped multi-line comparison,
+fixed), round 7 (a reversed operand, `"legendary" === tier` — confirmed
+real, and **declined**, not fixed). Every probe was real and every
+finding accurate — this is the identical finding-never-falls shape as the
+other five instances, three hardenings deep before the fourth probe is
+what finally got a different response. **What's different here is where
+the loop stopped.** Rounds 4 and 6 closed gaps in the space of
+forms a developer or an agent would actually write by habit — those were
+worth fixing. Round 7's reversed operand is a Yoda condition nobody on this
+team or Codex writes in this codebase, and the space of
+syntactically-valid-but-never-written forms a regex (or even a full AST
+parser — it would still miss a new helper function or an `.includes()`
+check) could be asked to cover next is unbounded regardless, so "catch
+every form" was never a reachable goal for a guard scoped to catch mistakes,
+not adversarial evasion. Declined on the merits at round 7, four rounds in —
+not round 17 or 20 — because the question this whole entry teaches ("does
+this round's fix target the original design or the shape of the previous
+round's fix?") was asked directly at the point the answer changed from yes
+to no, instead of waiting for a rising-count or growing-artifact tell to
+force it. The decision, and the guard's now-explicit tripwire-vs-proof scope
+contract written into both scripts' headers so a future round doesn't have
+to rediscover the same boundary, is in
+[`decisions.md`](./decisions.md#2026-08-14--the-permission-chokepoint-guards-are-scoped-as-a-tripwire-against-habitual-mistakes-not-a-proof-against-adversarial-evasion).
 
 ### Sub-pattern: hand-rolled parser chasing full coverage of a real language's syntax
 
@@ -1271,6 +1633,99 @@ the specific fixes named below over re-deriving them.
   the original is a no-op the tracker will never perform. Corollary for
   verification: "the migration is recorded as applied" is not evidence the
   constraint exists — query `pg_constraint` directly.
+- **Recurred 2026-08-13 with SEQUENCES — the rule covers every object type
+  `push` DOES reconcile, not just constraints.** `membership_source_state_seq` and
+  `membership_lease_fence_seq` were created by 0095's raw SQL and never
+  declared in `schema/membershipEntitlements.ts`, so `push --force` dropped
+  both; 16 membership-lease/grace-sweep tests then failed on
+  `nextval(...)`. The entry above already stated the general rule, but its
+  parenthetical enumerated only `check()`/index/FK — and a sequence isn't any
+  of those, which is exactly how a documented pattern recurred in a new
+  shape. **Read that list as illustrative rather than exhaustive — but the
+  rule is bounded by what `push` actually reconciles**, which is the object
+  types drizzle-kit introspects: tables, columns, constraints, indexes, enums,
+  and sequences (the last via `pgSequence`). It does **not** extend to
+  functions and triggers — drizzle-kit does not model those at all, so `push`
+  leaves them untouched and there is no declaration to add. Verified rather
+  than assumed: 0095's own `membership_entitlements_guard_immutable` function
+  and its trigger are undeclared and have survived many pushes intact, in the
+  same migration whose sequences did not. Stating the rule as "anything in raw
+  SQL needs a declaration" would send the next author hunting for a
+  declaration that cannot exist.
+  **What hid it for so long is worth more than the fix:** the drop needs
+  *two* pushes to be observable — the first creates from a pristine database,
+  the second reconciles against a schema that never mentioned the object.
+  GitHub CI builds an ephemeral Postgres and runs push+migrate exactly **once**
+  per database, so it never reaches the state that exposes the drop and stays
+  green; only a PERSISTENT database (Replit's `heliumdb_test`, a long-lived
+  sandbox) gets a second push. **A green CI is therefore not evidence the
+  schema is push-safe** — but note that this is a property of how the workflow
+  is currently shaped, *not* an inherent limit: pushing a second time within
+  one job and asserting the objects survive would reproduce the whole
+  transition in CI. That guard is deliberately deferred to its own change
+  rather than bundled here (David, 2026-08-13); until it lands, this class is
+  caught by nothing but the rule above. Verified empirically before fixing: second push-force
+  dropped both sequences, exited 0, and logged nothing. Verification
+  corollary matching the one above — query `pg_class WHERE relkind='S'`, and
+  when a persistent test database starts failing where CI passes, suspect this
+  before suspecting the tests.
+
+## Editing an already-merged migration file — even a comment — makes the hash-tracked runner replay it
+
+**Symptom would have been:** a database that already ran migration N silently
+runs it again on the next deploy, re-executing every statement in the file —
+including a real `DELETE`, a data overwrite, and a duplicate audit-log
+`INSERT` — with no error and no obvious trigger.
+
+**Why it happens:** `lib/db/src/migrate.ts`'s `applyMigrations()` decides
+whether a migration is "already applied" by SHA-256 of the migration file's
+**entire content** (`crypto.createHash("sha256").update(sql)`, `sql =
+fs.readFileSync(path, "utf8")`), not by its tag, filename, or journal index.
+Editing *any* byte — including a comment — changes that hash. A database that
+already recorded the old hash as applied then sees the new hash as an
+unrecognized, pending migration on its next `migrate()` call and runs the
+whole file from scratch, `BEGIN…COMMIT` and all.
+
+**Caught during PR #427's review (round 9), not by any automated check.**
+Round 8 made a documentation-only fix inside `0099_admin_permissions_core.sql`
+— a migration from a *different*, already-merged PR (#425) — to correct a
+comment that had become stale. The file happened to be sitting in the diff
+because a doc fix elsewhere referenced it; nothing about editing it felt
+different from editing any other file. Codex's round-9 review named the exact
+mechanism and the exact consequence (the file's own `INSERT INTO
+feature_permissions_migration_log` and its conditional `DELETE` are not
+idempotent-safe to run twice with intent — a second run inserts a duplicate
+audit row and can delete a row a later admin action had deliberately
+restored). **Verified, not just restored on the finding's say-so:** the
+edited file's SHA-256 matched zero rows in a real database's
+`drizzle.__drizzle_migrations` table; the restored, byte-identical file's hash
+matched a row already there. Fixed by `git checkout origin/main -- <file>`
+(byte-for-byte, diffed empty) and moving the same doc correction into the
+adjacent `schema/*.ts` file instead — plain TypeScript, never hash-tracked,
+safe to edit freely.
+
+**The rule: a migration file that has already merged into `main` is
+byte-for-byte immutable, full stop — not "immutable except for comments" or
+"immutable except for whitespace."** There is no safe partial edit, because
+the hash function has no concept of "cosmetic." If a migration's comment is
+wrong, wrong, or its behavior needs to change, the fix is always a **new**
+forward-only migration (or, for pure documentation, editing prose in a
+non-migrations file that references it) — never touching the original file's
+bytes. This applies regardless of *why* the file is in your diff: it doesn't
+matter whether you authored it, whether it's part of the same PR, or whether
+the edit is "just a comment" — the moment a migration has a real chance of
+having already been applied somewhere (which for anything on `main` is not a
+theoretical concern), touching it is a mistake with no small-blast-radius
+version.
+
+**A file living in `lib/db/migrations/` is not "docs I can touch" the moment
+it sits in your diff.** Before editing anything under that directory, ask
+whether it's the migration *this* change is introducing (safe — nothing has
+run it yet) or someone else's, already-merged one (never safe). See
+[`migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)
+for the working rule and
+[`.agents/memory/migration-file-immutable-once-merged.md`](../../.agents/memory/migration-file-immutable-once-merged.md)
+for the quick-reference version.
 
 ## An entitlement gate that reads the tier column when the rule is role-based
 
@@ -1291,13 +1746,26 @@ migrations `0028`/`0029` are unreachable by construction. Because most
 legendary gates in the codebase *are* role-based and work fine for admins, the
 one that isn't looks correct under exactly the account most likely to test it.
 
-**Avoid:** decide which vocabulary a gate speaks *before* writing it, and when
-admin should qualify, resolve from the role — `isAtLeastLegendary(role)`,
-optionally OR-ed with the feature lookup so a tier can still be granted the
-capability independently (`facts.ts`'s captcha bypass, and now
-`createMemeRecord`'s private-visibility gate). Sibling gates in the same
-function are the tell: `createMemeRecord` had `canPulid` on the role and
-`canPrivate` on the tier three lines apart.
+**Avoid — and this is now structural, not advisory.** The whole "decide which
+vocabulary a gate speaks" question is gone, because there is only one:
+`artifacts/api-server/src/lib/featureAccess.ts`. Route code asks
+`can(principal, key)`; the tier-keyed lookup is module-private and
+`scripts/check-permission-chokepoint.mjs` fails the build if anything outside
+that module references it, reads the grid tables, or adds a new inline role
+comparison in a product-feature path. Admin resolution is a union
+(`features(tier) ∪ features('admin')`), so the grid's Admin column is what
+grants admins a feature — not a hand-written exception beside the lookup.
+
+The old advice ("resolve from the role, optionally OR-ed with the feature
+lookup") is what produced the mess: it made the OR a *convention*, and twelve
+places ended up gating one capability by two different rules. `facts.ts`'s
+captcha bypass was the worked example of the good version and was still wrong —
+its comment claimed the direct check was authoritative and the table entry
+"secondary", which is two sources of truth stated as a feature.
+
+Sibling gates in the same function remain the tell that something has drifted
+back: `createMemeRecord` had `canPulid` on the role and `canPrivate` on the
+tier three lines apart.
 
 **And never coerce a denied *privacy* request into its permissive default.**
 The gate above was only half the defect. The other half was what it did on
@@ -1315,6 +1783,13 @@ found `registered`, and coerced the meme public. Both surfaces believed they
 were consistent with the other — `VisibilityToggle`'s own comment claimed the
 control "can never display a value the server would silently overwrite,"
 which was true for every tier except the one the author was testing on.
+
+*Closed structurally, not by fixing the two sites.* `roleToTier` is deleted and
+the client is told its entitlements by the server; `VisibilityToggle` takes the
+resolved `canSetPrivate` rather than a derived tier, so the control's lock and
+the server's gate are one expression evaluated once. A CI guard
+(`scripts/check-permission-chokepoint.mjs`) fails the build if the tier-keyed
+lookup becomes reachable from route code again.
 
 ## Permission-prompt fatigue defeats a "safe" default with no curated allow/deny list
 
@@ -1349,3 +1824,165 @@ anything else on the deny list, through a prefix the rule never inspects
 past. **Overhype:** the local settings override in the Repl (see
 [`replit-environment.md`](replit-environment.md#the-repl-requires-a-local-settings-override-that-is-not-in-git),
 which also has the corrected list and the full reasoning).
+
+## A derived metric that silently undercounts because its collector only reads one delivery channel
+
+**Symptom:** a number computed from an external source looks authoritative —
+counted, not recalled, by a script written specifically so nobody types it from
+memory — and is quietly wrong in one direction. Not because the arithmetic is
+wrong, but because the *collector* reads one channel and the source emits on
+several. The failure is invisible at the point of use: a zero from "nothing
+happened" and a zero from "the thing happened somewhere I don't look" are the
+same zero.
+
+**The three live instances**, all in `scripts/loop-metrics.mjs`, all found on
+2026-08-15 during and immediately after the first `/maintenance` ledger flush:
+
+| Channel | What the collector reads | What it misses |
+|---|---|---|
+| Findings | inline **review threads** | a finding delivered in the review **body** — PR #447's round 1 raised a real one (broken TEST_RUN↔UAT sibling links), so the record reads `findings: 0` on a loop that had one |
+| Rounds | issue comments and review bodies carrying a `**Reviewed commit:**` marker | a **👍-only clean pass** — the connector's documented behaviour is "if Codex has suggestions, it will comment; otherwise it will react with 👍," and a reaction emits no marker, so PRs #414, #415 and #416 record `rounds: 0` |
+| Rounds | the same marker | a clean pass posted in the **`## Review Result`** comment format, which carries prose, a testing checklist and permalinks but **no marker at all** — unlike the older `Codex Review: Didn't find any major issues. **Reviewed commit:** <sha>` shape, which has one |
+
+**The third one is the most instructive, because it happened *to this entry's
+own PR* (#465) minutes after the first two were written.** Codex returned a
+full, clean, visibly thorough code review — and it will still record as
+`rounds: 0`, because the connector emits at least two clean-pass formats and
+only one of them carries the marker. The lesson is not "there are two gaps,"
+it is that **the collector keys on a convention the source never promised to
+keep**, so the gap list is open-ended and will grow again whenever the
+connector changes its output shape.
+
+**Why it bites harder than an ordinary bug:** the undercount is *credible*.
+`loop-metrics.mjs` exists because recalled figures in this repo were wrong
+three times out of three, so a counted figure carries earned authority — and
+that authority transfers to the gaps. On the 2026-08-15 pass the `rounds: 0`
+on #414/#415/#416 was read as "these PRs were never reviewed," reported to
+David as a process failure, and nearly written into three records as a
+finding. The truth was the opposite: all three were reviewed and came back
+clean. **Each record's own original note had said so correctly**; the sweep
+that re-derived them replaced a right answer with a wrong one, because the
+sweep trusted the number over the prose.
+
+**Avoid:** before reading a zero as an absence, ask *which channel would this
+have arrived on, and does the collector read it?* Check the cheap
+disconfirming signal — for a review, that is the PR's reactions and its review
+bodies, neither of which the marker scan touches. And when a record's prose
+disagrees with its own derived number, **that is a signal to investigate, not
+prose to correct**: the human note was written with context the collector
+never had.
+
+**Do not hand-fix the numbers.** The never-type-mechanical-values rule still
+governs — a hand-edited count is exactly the failure `loop-metrics.mjs` was
+built to prevent, and a corrected-by-hand record is indistinguishable from a
+fabricated one. Record the gap in the affected record's `notes` and leave the
+derived value alone, which is what #414, #415, #416 and #447 now do.
+
+**The real fix, if this recurs:** teach the collector the missing channels —
+reactions for the clean-pass case, and a body-level finding count for the
+other — rather than documenting around them a third time. Per this repo's
+standing rule, a pattern that recurs graduates from a memory note to a
+deterministic check.
+
+**Overhype:** the store's own contract is
+[`.agents/metrics/loops/README.md`](../../.agents/metrics/loops/README.md); the
+ledger obligation that binds every agent is
+[`working-modes.md`](./working-modes.md#the-loop-ledger).
+
+## A gate's precondition is treated as optional, so the gate silently doesn't run
+
+**Looks like:** a check that fails closed correctly — it denies on its own
+internal error, it distinguishes "you are over the limit" from "I could not
+tell" — but whose *input* is resolved beforehand by something that can fail,
+and whose call site expresses "we could not get the input" as **"there is
+nothing to check"** rather than **"check anyway, conservatively"** or
+**"deny."** The gate's own hardening reads as complete because every branch
+*inside* it is correct; the hole is in front of it.
+
+**Dangerous:** the skip fires exactly when something else is already broken,
+so the protection disappears at the moment it is most needed, and typically
+with only a WARN log to say so. It also survives review well, because the
+conditional looks like ordinary defensive coding (`if (priced) { …gate… }`)
+and reads as *more* careful, not less.
+
+**Avoid:** treat resolving the gate's input as part of the gate. On failure,
+either degrade to a conservative estimate and still run the check, or deny —
+never skip. When choosing between those two, ask whether a *defensible*
+substitute value exists: a model-specific configured estimate is defensible;
+a number derived from a source you could not read is not, because nothing
+proves it doesn't undercut what that source actually said.
+
+**The precondition can also be ORDERING, not just availability.** A callee
+that resolves a cheap exemption *before* its own fallible work is defeated by
+a caller that resolves that fallible work in the argument list — arguments are
+evaluated before the callee is entered, so `gate(user, await expensive())`
+puts `expensive()`'s failure in front of an exemption the user was entitled
+to. The fix belongs in the callee (accept a thunk, invoke it after the
+exemption), not in the caller re-deriving the exemption — a caller that
+re-derives an authorization decision to fix an ordering bug trades a
+correctness bug for a source-of-truth-drift bug.
+
+**Overhype:** the generation spend gate. `checkBudget` was hardened to fail
+closed on its own errors (#409, PR #443), but three of four call sites wrapped
+it in `if (priced)`, so a fal pricing miss — no cached row, pricing API down,
+no FAL key — skipped the spend check entirely and left the per-user ceiling
+unenforced (PR #474). `videoPipelineRunner.ts` had always had the right shape:
+`estimateStage2Cost` degrades to the engine's configured estimate and still
+calls the gate. The ordering variant appeared *inside the fix for that*:
+resolving the fallback eagerly in `checkBudget`'s argument list put a fallible
+`engines` read ahead of the admin exemption, refusing admins a check they are
+exempt from. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop;
+see also [`security-model.md`](./security-model.md)'s generation-spend section.
+
+## A boot-time check written as a statement runs after every import, not before
+
+**Looks like:** adding a configuration assertion — "refuse to start without
+this secret / this env var / this credential" — as a call near the top of the
+entrypoint, right beside the other early checks, and treating "it's the first
+thing in the file" as "it's the first thing that runs." **Dangerous:** ES
+module imports are *all* evaluated before the importing module's first
+statement executes, so the assertion runs after every module the entrypoint
+imports has finished its own top-level work. If any of them opens a database
+pool, reads a file, or starts a worker at module scope, the process has
+already done the thing the assertion was supposed to prevent. The check still
+throws, so it looks like it works — it just throws too late, and every unit
+test of the assertion function passes regardless because none of them involve
+the entrypoint.
+
+**Bundling makes it worse in a way that is invisible in source.** A module
+whose bottom carries the standard `if (process.argv[1] ===
+fileURLToPath(import.meta.url))` CLI guard is inert when imported as a
+library — but esbuild folds it into the output bundle, where both sides of
+that comparison resolve to the *bundle's* path. The guard becomes true, and
+whatever it was guarding (a CLI's pool, its migrations, its `process.exit`)
+now runs during module evaluation of the production server.
+
+**Avoid:** if a check must precede the module graph, it has to *be* a module
+in that graph, imported for its side effect ahead of everything else — not a
+statement in the file that imports them (this repo's is
+`artifacts/api-server/src/lib/bootChecks.ts`). Keep that module's own imports
+minimal for the same reason; anything it reaches is pulled forward with it.
+Then verify against the **built artifact**, not the source: run the bundle in
+the failing configuration and confirm the error you expect is the error you
+get.
+
+**The verification trap this hides behind is checking the wrong quantity.**
+It is possible to check the bundle carefully, find the assertion positioned
+ahead of every database call, and conclude the ordering holds — because
+*statement order* was preserved and that is what got measured. Statement order
+was never the binding constraint; module evaluation order was. This is the
+same shape as the assert-from-the-artifact pattern above, one level up: a real
+check, correctly executed, reported as verifying something it does not
+address. The tell is that the check and the claim use different nouns.
+
+**Overhype:** the `IP_HASH_SALT` production assertion (PR #484). First version
+called `assertIpSaltConfigured()` at the top of `index.ts`; because
+`transientRenderLog.ts` imports `@workspace/db`, and `lib/db/src/migrate.ts`'s
+CLI guard is true inside `dist/index.mjs`, a production boot with no salt and
+an unreachable database exited on `ECONNREFUSED` from `migrate.ts` and never
+emitted the salt error at all. Fixed by moving the assertion into
+`artifacts/api-server/src/lib/bootChecks.ts` (imported second, after
+`./instrument` only) and splitting the salt logic into
+`artifacts/api-server/src/lib/ipSalt.ts`, which never reaches the database. The
+folded-CLI-guard half is a live pre-existing bug in its own right —
+production runs migrations twice at every boot — tracked separately as #486.

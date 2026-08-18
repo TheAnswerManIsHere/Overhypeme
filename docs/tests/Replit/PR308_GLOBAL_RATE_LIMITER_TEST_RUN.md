@@ -7,7 +7,7 @@ is set here.
 Pre-merge gates (install, typecheck, codegen drift) are assumed green; spot-check
 only if something below fails.
 
-Sibling: [`PR308_GLOBAL_RATE_LIMITER_UAT.md`](./PR308_GLOBAL_RATE_LIMITER_UAT.md)
+Sibling: [`PR308_GLOBAL_RATE_LIMITER_UAT.md`](../UAT/PR308_GLOBAL_RATE_LIMITER_UAT.md)
 (David's click-through — the durable half of the pair).
 
 **No migration in this PR.** No new table, no schema change — the store is

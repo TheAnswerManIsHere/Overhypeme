@@ -8,7 +8,7 @@
 >
 > **One source of truth for all agents.** These docs are shared by Codex, Claude
 > Code, and future agents. Claude Code's `CLAUDE.md` holds only Claude-specific
-> ceremony (plan-mode delivery, its PR/squash-merge workflow, TEST_RUN/UAT,
+> ceremony (plan-mode delivery, its PR/squash-merge workflow, post-merge verification/UAT,
 > auto-watch) and defers to these shared docs for every cross-agent principle. When
 > shared product/architecture/principle truth changes, edit the shared doc here —
 > do not fork a divergent copy into any agent's own file or private memory.
@@ -98,15 +98,15 @@ For **billing, Stripe webhooks, or membership** work specifically, also read:
   grace episodes, the known reconciliation gap
 
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
-[testing-guide](docs/tests/testing-guide.md),
+[testing](docs/tests/TESTING.md),
 [migrations-and-backfills](docs/engineering/migrations-and-backfills.md)
 (and its worked example,
 [ncmec-audit-ledger-hardening](docs/engineering/ncmec-audit-ledger-hardening.md),
 for a migration that cannot enforce its own privilege boundary),
 [code-review](docs/engineering/code-review.md),
-[test-run-contract](docs/tests/test-run-contract.md) (what a per-PR
-`TEST_RUN` checklist must contain — Replit executes it post-merge against the
-live DB),
+[test-run-contract](docs/tests/test-run-contract.md) (what a PR's
+*Post-merge verification* section must contain — Replit executes it
+post-merge against the live DB, driven through the Replit connector),
 [deferred-work](docs/engineering/deferred-work.md) (the backlog of parked
 maintenance/security/tech-debt items — engineering deferrals only; product
 deferrals stay in the roadmap). Subsystem gotchas: `.agents/memory/`.
@@ -137,10 +137,21 @@ working-modes.md.) Read
 [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md) for the full
 contract of each and how to switch between them.
 
-**End-of-feature documentation.** When David invokes `/document` or asks to lock
-in a finished feature's learnings, follow
+**End-of-feature documentation.** Follow
 [`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
-(distinct from a one-off "remember this," which is immediate targeted persistence).
+on **either** trigger (distinct from a one-off "remember this," which is
+immediate targeted persistence):
+
+- **David invokes `/document`** or asks to lock in a finished feature's learnings.
+- **The agent's own close-out judgement (David, 2026-08-15).** After merging a
+  task, judge whether it cleared that document's harvest bar and, if so, start
+  the pass **without asking**. This trigger has to be named here because this
+  file is the always-loaded entrypoint: a grant that exists only in the
+  workflow doc never fires, since nothing routes an agent there absent a
+  request. Enactment detail — how the judgement is made, and the rule that the
+  harvest itself never runs in a subagent — is each agent's own (Claude Code's
+  is in `CLAUDE.md`; as of 2026-08-17 the judgement dispatches unconditionally
+  to Fable and the tier guard that used to sit here is retired).
 
 **Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
 has a GitHub issue as its spine, tracked on a private Project board and kept
@@ -222,9 +233,8 @@ paragraph is a summary, not the authority.
 
 ## Setup, verification, and the CI gate
 
-Full commands, DB isolation, and the production guard are in
-[`docs/tests/testing-guide.md`](docs/tests/testing-guide.md) and the
-canonical [`docs/tests/TESTING.md`](docs/tests/TESTING.md). The essentials:
+Full commands, DB isolation, and the production guard are in the canonical
+[`docs/tests/TESTING.md`](docs/tests/TESTING.md). The essentials:
 
 - Build generated artifacts + libs before package checks:
   `pnpm --filter @workspace/api-spec run codegen` → `pnpm run typecheck:libs` →

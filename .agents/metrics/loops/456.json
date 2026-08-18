@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "pr": 456,
+  "closedAt": "2026-08-15T22:28:41Z",
+  "mechanical": {
+    "title": "docs: /document harvest for /next (PR #453)",
+    "cohort": "prose/contract",
+    "size": {
+      "files": 7,
+      "added": 173,
+      "removed": 8
+    },
+    "rounds": 3,
+    "findings": 8,
+    "perRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-15T22:18:41Z",
+        "source": "review",
+        "findings": 6
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-15T22:25:07Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-15T22:28:23Z",
+        "source": "comment",
+        "findings": 0
+      }
+    ],
+    "reviewInterval": {
+      "opened_at": "2026-08-15T22:11:56Z",
+      "last_review_at": "2026-08-15T22:28:23.000Z",
+      "hours": 0.3
+    },
+    "warnings": []
+  },
+  "judgment": {
+    "causes": {
+      "new": 6,
+      "prop": 1,
+      "wrong": 1,
+      "reRaised": 0,
+      "invalid": 0
+    },
+    "preOpenPreflightMin": null,
+    "preOpenPreflightReason": "Unknown. This record was written at the weekly flush by a session that did not run the loop, so no timestamp separates a pre-open preflight phase from the rest of the work. Recorded as null rather than fabricated as zero.",
+    "breakersFired": "None. Findings fell 6/2/0 with a clean pass closing it. Criticality ~10 (a /document harvest \u2014 docs-only, no behavior). Round 2 was substantive rather than polish-only, so it earned its successor under working-modes.md's docs-only consequence rule; round 3's clean pass then converged it.",
+    "newGroundTerritory": {
+      "inDiff": 6,
+      "preExisting": 0
+    }
+  },
+  "adjudication": {
+    "status": "never-run"
+  },
+  "notes": "8 findings over 3 rounds. Round 1's 6 are new_ground by construction. Round 2's 2 split 1 wrong-fix and 1 propagation: the glossary still attributing the failed-UAT step to the Blocked-by chain is a sibling instance of a class round 1 claimed to sweep, which the sweep protocol classifies as wrong-fix; describing the SOW gate as a board Status option that does not exist is a NEW defect round 1's own fix wording introduced, which is propagation. Territory: all 6 new_ground are inDiff. Both findings this record originally called pre-existing sit in files commit fac70e3 changed directly \u2014 `docs/ai-context/current-roadmap.md` and `docs/ai-context/glossary.md` \u2014 and the rubric splits on whether the diff touched the surface, not on whether this loop first authored it.\n\nCORRECTED at PR #461 round 1 (Codex, 7 findings, all confirmed against the source and applied; the class sweep they triggered found an eighth instance in #449's territory split that the review did not flag)."
+}
