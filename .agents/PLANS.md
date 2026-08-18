@@ -29,7 +29,7 @@ inventory** —
 defines it. If this plan touches a *pattern* (a permission shape, a
 derivation rule, a naming convention) rather than one call site, name the
 class and write the mechanical oracle
-(`rg -n --hidden --glob '!.git'` / `ls` / `find`) that finds every instance
+(`git grep -n`, which searches the tracked set) that finds every instance
 before scoping the plan — the hit list is what the plan's scope is drawn
 from, not a recalled inventory. Note the oracle and its result as a Settled
 Decision even when it finds nothing new.

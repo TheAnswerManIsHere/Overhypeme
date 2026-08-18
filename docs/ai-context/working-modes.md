@@ -190,23 +190,31 @@ the same discipline the class-sweep protocol already requires at fix time
 class, write the `rg`/`ls`/`find` oracle that finds every instance, run it,
 and scope the plan against the actual hit list — not a recalled one.
 
-**The oracle's invocation is part of the oracle, and both obvious choices are
-wrong here.** `grep -rn` from the repo root walks `.git`, `node_modules` and
-generated output, inflating the count with non-source copies. But bare `rg -n`
-under-counts in the direction that actually matters in *this* repo: ripgrep
-skips hidden directories by default, and `.agents/` and `.github/` are where
-the process sources live — a default `rg -l "## Settled Decisions"` returns
-**zero files**, while `rg -l --hidden --glob '!.git'` finds
-`.agents/PLANS.md`. So the prescribed form is:
+**The oracle's invocation is part of the oracle — and every general-purpose
+search tool has a different idea of the corpus.** The question the inventory
+asks is *what does this repository contain*, and the only search whose corpus
+is exactly that is one that asks git. So the prescribed form is:
 
 ```
-rg -n --hidden --glob '!.git' '<pattern>'
+git grep -n '<pattern>'
 ```
 
-`--hidden` without the `.git` exclusion re-introduces the `grep -rn` problem
-from the other end. An oracle that silently skips a whole tracked tree is the
+`git grep` searches the **tracked set**, which is the definition of the
+repository's contents. Every alternative gets the corpus wrong in a way that
+is silent at the point of use — measured in this tree, not reasoned about:
+
+| invocation | what it gets wrong |
+|---|---|
+| `grep -rn` from the root | **over**-counts: walks `.git`, `node_modules`, and generated output, inflating N with non-source copies |
+| bare `rg -n` | **under**-counts: skips hidden directories, and `.agents/` and `.github/` are where this repo's process sources live — `rg -l "## Settled Decisions"` returns **zero files** while the pattern is in `.agents/PLANS.md` |
+| `rg -n --hidden` | re-introduces the `grep -rn` problem: `.git` comes back |
+| `rg -n --hidden --glob '!.git'` | still **under**-counts: ripgrep honours VCS ignore rules, so a tracked-but-ignored file is invisible — `rg -l --hidden --glob '!.git' VITE_MBFO_WIZARD` finds 3 files where `git grep -l` finds 4, missing the tracked `artifacts/overhype-me/.env.local` |
+
+Use `ls`/`find` only for questions about the filesystem rather than the
+repository. An oracle that silently skips a tracked file is the
 false-completeness failure below, arriving through the tool rather than the
-prose.
+prose — and it took **four** successive corrections here to stop arriving,
+which is the real argument for asking git rather than reasoning about flags.
 
 **This is the same move, moved earlier.** The class-sweep protocol exists
 because a reviewer's cited instance is never guaranteed to be every instance.
