@@ -195,21 +195,34 @@ must be the tracked set.** The inventory asks *what does this repository
 contain*, and "the tracked set" is that question's definition — so any search
 whose corpus is narrower or wider answers a different question and reports a
 hit count the plan should not be scoped against. `git grep -n '<pattern>'` is
-the example that satisfies it today; `git ls-files` piped into whatever you
-like satisfies it equally.
+the example that satisfies it. **Deliberately only one** — the previous
+version offered `git ls-files` "piped into whatever you like" as an
+equivalent, and that pipeline searches the *filename stream*, not file
+contents: `git ls-files | rg <pattern>` returns **no hits** for a pattern
+present in five tracked files. An example offered to illustrate the property
+must itself satisfy the property, and a second example is a second chance to
+get that wrong.
 
-**This is stated as a property because five successive rounds of stating it as
-a command failed.** Each fix corrected the previous invocation's symptom and
-left the class untouched, and the fifth reviewer finding was that the section
-had *already* been fixed in three places while a fourth still said `rg`.
-Measured in this tree, not reasoned about:
+**This is stated as a property because six successive rounds of stating it as
+a command failed** — each fix correcting the previous invocation's symptom and
+leaving the class untouched. What each alternative gets wrong, stated as the
+**difference from the tracked set** rather than as a hit count:
 
 | invocation | what it gets wrong |
 |---|---|
-| `grep -rn` from the root | **over**-counts: walks `.git`, `node_modules`, and generated output, inflating N with non-source copies |
-| bare `rg -n` | **under**-counts: skips hidden directories, and `.agents/` and `.github/` are where this repo's process sources live — `rg -l "## Settled Decisions"` returns **zero files** while the pattern is in `.agents/PLANS.md` |
-| `rg -n --hidden` | re-introduces the `grep -rn` problem: `.git` comes back |
-| `rg -n --hidden --glob '!.git'` | still **under**-counts: ripgrep honours VCS ignore rules, so a tracked-but-ignored file is invisible — `rg -l --hidden --glob '!.git' VITE_MBFO_WIZARD` finds 3 files where `git grep -l` finds 4, missing the tracked `artifacts/overhype-me/.env.local` |
+| `grep -rn` from the root | **over**-counts — walks `.git`, `node_modules`, and generated output, so N includes non-source copies |
+| bare `rg -n` | **under**-counts — skips hidden directories, so a heading present only in `.agents/PLANS.md` is invisible to it, and `.agents/`/`.github/` are where this repo's process sources live |
+| `rg -n --hidden` | the `grep -rn` problem returns: `.git` is back in the corpus |
+| `rg -n --hidden --glob '!.git'` | **under**-counts — ripgrep honours VCS ignore rules, so it misses the tracked-but-gitignored `artifacts/overhype-me/.env.local` that `git grep -l` finds |
+| `git ls-files \| rg` | searches **filenames**, not contents — no hits for a pattern that exists only inside files |
+
+**No totals appear in that table, and that is the fix rather than a style
+choice.** Earlier versions quoted probe strings and stated counts like "returns
+zero files" — and each was **false at its own commit**, because writing the
+probe into this file made this file a hit. A count is a property of the tree at
+an instant; a *delta* ("misses this tracked file that `git grep` finds") and a
+*mechanism* ("honours ignore rules") stay true as the tree changes. Cite the
+delta and the mechanism; never the total.
 
 A filesystem walker (`ls`, `find`, `grep -r`, `rg`) answers a question about
 the *disk*; use one only when that is genuinely what you mean. An oracle that
@@ -257,6 +270,14 @@ option — running a nominal search that does not actually find every instance a
 then claiming inventory-backed scope. That is worse than skipping the step,
 because it launders false completeness into the plan's scope, which is the
 precise failure this section exists to prevent.
+
+**Re-run the oracle whenever the class, the oracle, or the scope changes, and
+once against the final revision.** The inventory is a pre-drafting step, not a
+one-time one: if drafting or review refines the affected class or adds an
+in-scope mechanism, a hit list produced for the earlier, narrower class is a
+**recalled** inventory wearing a mechanical one's authority — which is the
+failure this whole section exists to prevent, arriving through staleness
+instead of through scope.
 
 **If the inventory is expensive or the pattern's boundary is genuinely
 fuzzy, say so** — "inventoried via `git grep -n <pattern>`, N hits, list attached;
