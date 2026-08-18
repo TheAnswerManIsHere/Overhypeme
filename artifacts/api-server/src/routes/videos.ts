@@ -10,6 +10,7 @@ import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation
 import {
   BudgetGateError,
   checkBudget,
+  noteLedgerWriteFailure,
   recordCost,
 } from "../lib/budgetGate.js";
 import { buildAuthorizationSnapshot, can, principalFromRequest } from "../lib/featureAccess.js";
@@ -588,6 +589,16 @@ router.post("/videos/generate", async (req, res) => {
     : null;
   let estimatedCostUsd = 0;
   let cachedPriceForRecording: CachedPrice | null = null;
+  /**
+   * The figure `checkBudget` was actually given, priced or not.
+   *
+   * Distinct from `estimatedCostUsd`, which is assigned ONLY on the priced
+   * branch and therefore stays 0 through a pricing outage. Recording that zero
+   * would produce a ledger row that exists and contributes nothing — the
+   * ceiling would still stop growing while looking fixed, which is worse than
+   * the original bug because it hides itself.
+   */
+  let gateResolvedCostUsd: number | null = null;
 
   if (authenticatedUserId) {
     let priced: { price: CachedPrice; costUsd: number } | null = null;
@@ -625,7 +636,20 @@ router.post("/videos/generate", async (req, res) => {
     try {
       // Deliberately outside the catch above (#409): a gate failure is not
       // a pricing failure, and must propagate rather than be swallowed.
-      const budget = await checkBudget(authenticatedUserId, gateCostUsd);
+      // Assigned OUTSIDE the thunk, deliberately. This route resolves its
+      // estimate eagerly and non-fallibly — the pricing miss is already caught
+      // above and the fallback is arithmetic on an engine row loaded earlier —
+      // so there is nothing here that could deny an exempt admin. Putting the
+      // assignment inside the thunk would instead BREAK the admin path: the
+      // thunk never runs for an exempt user, so the recording branch below
+      // would find null and record zero, which is the bug round 1 fixed.
+      gateResolvedCostUsd = gateCostUsd;
+      // The thunk is still required, and this is the shape the guard's own
+      // header calls its residual limit: closing over an already-resolved
+      // value. It is safe *here* only because that value cannot fail. The rule
+      // is bright-line because proving that per call site is what nobody
+      // reliably does — see scripts/check-budget-gate-thunk.mjs.
+      const budget = await checkBudget(authenticatedUserId, async () => gateCostUsd);
       if (!budget.allowed) {
         budgetGateRefusal = true;
         res.status(429).json({
@@ -782,22 +806,80 @@ router.post("/videos/generate", async (req, res) => {
       });
 
     // Record cost AFTER successful job completion (spec: not before, to avoid phantom costs)
-    if (authenticatedUserId && cachedPriceForRecording && estimatedCostUsd > 0) {
-      const dims = resolveVideoDimensions(aspectRatio, resolution);
-      const { billingUnits } = computeVideoCost(
-        { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
-        cachedPriceForRecording,
-      );
-      await recordCost({
-        userId: authenticatedUserId,
-        jobType: "video",
-        endpointId,
-        unitPriceAtCreation: cachedPriceForRecording.unitPrice,
-        billingUnits,
-        computedCostUsd: estimatedCostUsd,
-        pricingFetchedAt: cachedPriceForRecording.fetchedAt,
-        jobReferenceId: result.requestId ?? updated?.id?.toString() ?? null,
-      });
+    //
+    // TWO guards removed here, both of which dropped real spend:
+    //   * `cachedPriceForRecording` — an unpriced generation was gated on the
+    //     engine estimate and then recorded nowhere.
+    //   * `estimatedCostUsd > 0` — a deliberate zero is a real price for a free
+    //     endpoint, and `> 0` is the wrong null guard (the same mistake already
+    //     recorded in .agents/memory/).
+    if (authenticatedUserId) {
+      const jobRef = result.requestId ?? updated?.id?.toString() ?? null;
+      if (cachedPriceForRecording) {
+        const dims = resolveVideoDimensions(aspectRatio, resolution);
+        const { billingUnits } = computeVideoCost(
+          { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
+          cachedPriceForRecording,
+        );
+        await recordCost({
+          userId: authenticatedUserId,
+          jobType: "video",
+          endpointId,
+          unitPriceAtCreation: cachedPriceForRecording.unitPrice,
+          billingUnits,
+          computedCostUsd: estimatedCostUsd,
+          pricingFetchedAt: cachedPriceForRecording.fetchedAt,
+          isEstimated: false,
+          jobReferenceId: jobRef,
+        });
+      } else {
+        // Unpriced. Unlike the image paths, this route computes its estimate
+        // EAGERLY from an already-loaded engine before calling checkBudget, so
+        // the figure is in hand whether or not the gate consumed it — including
+        // for an exempt admin. No post-call lookup, and therefore no failure
+        // window that could lose a row we could already account for.
+        //
+        // Record the figure the GATE used — `gateResolvedCostUsd`, not
+        // `estimatedCostUsd`. The latter is assigned only on the priced branch,
+        // so on a pricing miss it is still 0 and this row would record nothing.
+        //
+        // Per-second decomposition: unit_price is the per-second rate and
+        // billing_units the duration, so unit_price * billing_units =
+        // computed_cost holds. pricing_fetched_at is the write time; nothing
+        // was fetched, which is what is_estimated = true says.
+        if (gateResolvedCostUsd === null) {
+          // Structurally unreachable: the assignment and this site sit under
+          // the same `authenticatedUserId` guard, and the assignment is the
+          // first statement of the gate's try block. TypeScript cannot narrow
+          // across that distance, so the null has to be handled — and the one
+          // thing it must NOT do is fall through to a silent zero. A zero row
+          // is worse than a missing one because it exists, so nothing looks
+          // wrong while the ceiling stops growing. This makes the impossible
+          // case land on the same counter operators already watch, and still
+          // writes the row, so every path through here records something.
+          logger.error(
+            { endpointId, jobRef },
+            "[videos/generate] gate figure unavailable at recording time — recording zero; recorded spend for this user is now understated",
+          );
+// Detached, not awaited: the pool checkout inside this call is
+          // unbounded and this is a user-facing path. See the call site in
+          // budgetGate.recordCost for the full reasoning.
+          void noteLedgerWriteFailure();
+        }
+        const total = gateResolvedCostUsd ?? 0;
+        const perSecond = durationSec > 0 ? total / durationSec : total;
+        await recordCost({
+          userId: authenticatedUserId,
+          jobType: "video",
+          endpointId,
+          unitPriceAtCreation: perSecond,
+          billingUnits: durationSec > 0 ? durationSec : 1,
+          computedCostUsd: total,
+          pricingFetchedAt: new Date(),
+          isEstimated: true,
+          jobReferenceId: jobRef,
+        });
+      }
     }
 
     const responseBody = {
@@ -806,7 +888,15 @@ router.post("/videos/generate", async (req, res) => {
       status: "completed",
       record: updated ?? null,
     };
-    governanceActualCostUsd = estimatedCostUsd;
+    // The priced figure when we have one, otherwise the figure the gate used.
+    // NOT bare `estimatedCostUsd`, which is assigned only on the priced branch
+    // and stays 0 through a pricing outage — the same defect this PR fixed one
+    // block above for the ledger, and missed here. Resource governance is an
+    // INDEPENDENT enforcement layer (its own daily/monthly caps and the admin
+    // top-spender view), so a zero here makes unpriced videos invisible to it
+    // even once the ledger records them correctly. Two enforcement layers, the
+    // same figure, or the second one quietly stops binding too.
+    governanceActualCostUsd = cachedPriceForRecording ? estimatedCostUsd : (gateResolvedCostUsd ?? 0);
     res.json(responseBody);
   } catch (err) {
     await db
