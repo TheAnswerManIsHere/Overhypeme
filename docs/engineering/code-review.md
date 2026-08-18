@@ -451,9 +451,18 @@ overrides the **author** date, and the claim under test was about the
 **committer** date. Measured in a scratch repo:
 
 ```
-git commit --date=2001-01-01 ...   author: 2001   committer: now
-GIT_COMMITTER_DATE=2031-01-01 ...  author: now    committer: 2031
+git commit --date=2001-01-01 ...              author: 2001   committer: now
+GIT_COMMITTER_DATE=2031-01-01T00:00:00Z ...   author: now    committer: 2031
 ```
+
+**The committer form needs the full timestamp; the author form does not.**
+`GIT_COMMITTER_DATE=2031-01-01` fails with `fatal: invalid date format`
+(git 2.43), while `--date=2001-01-01` is accepted. An earlier version of this
+block abbreviated both, so the line a reader would copy errored out — and it
+survived review because its neighbour, which tolerates the short form, sits
+directly above it. Presenting an abbreviated command as "the measurement" when
+the abbreviation is not what was run is the same defect as the rest of this
+entry, one layer down. (Codex, #506.)
 
 So a reviewer following the original recipe would have checked a clock the
 claim never depended on, found nothing, and concluded it held. **A remedy that
