@@ -1293,11 +1293,16 @@ files**. Every individual fix was correct. The class kept coming back, and the
 reason each time was a different property of the oracle rather than a lapse in
 applying it. Three distinct ways, none of which the sub-pattern above covers:
 
-1. **A diff-scoped oracle is *definitionally* blind to what a correction
-   contradicts.** Round 3's sweep ran over the diff and passed; round 4's
-   findings were in **unchanged** lines two paragraphs below the corrections.
-   That is not bad luck: a correction's whole job is to contradict what stood
-   before, so the text it contradicts is **always** outside the diff. The
+1. **A diff-scoped oracle misses what a correction contradicts, whenever the
+   contradicted text predates the branch.** Round 3's sweep ran over the diff
+   and passed; round 4's findings were in **unchanged** lines two paragraphs
+   below the corrections. **Not an invariant, and the first draft of this
+   entry overstated it as one** (Codex, #518): a *cumulative branch* diff does
+   contain both assertions when the PR introduced both, so a correction to one
+   of them is checkable against the other without leaving the diff. What is
+   always outside the diff is pre-existing text — the common case for a
+   correction, since correcting something usually means it was already there.
+   File scope is the conservative rule because it covers both. The
    reader hitting the section top-down gets the narrowing first and the stale
    claim second, so the later text wins on a skim — leaving a corrected claim
    upstream of an uncorrected one is *worse* than not correcting it, because
@@ -1317,9 +1322,17 @@ applying it. Three distinct ways, none of which the sub-pattern above covers:
    | invocation | measured failure |
    |---|---|
    | `grep -rn` from the root | **over**-counts — walks `.git`, `node_modules`, generated output |
-   | `rg -n` | **under**-counts — skips hidden dirs; `rg -l "## Settled Decisions"` returns **0 files** while the pattern sits in `.agents/PLANS.md` |
+   | `rg -n` | **under**-counts — skips hidden dirs; a heading that exists only in `.agents/PLANS.md` returns **0 files** under `rg -l` and one under `git grep -l` |
    | `rg -n --hidden` | `.git` is back |
    | `rg -n --hidden --glob '!.git'` | **under**-counts again — ripgrep honours VCS ignore rules, so `rg -l … VITE_MBFO_WIZARD` finds 3 files where `git grep -l` finds 4, missing the tracked `artifacts/overhype-me/.env.local` |
+
+   **The heading is deliberately not quoted here, and that is the sharpest
+   instance in this entry.** The first draft named it — at which point this
+   file became a second hit, the `rg` probe stopped returning zero, and the
+   measured evidence for the claim was falsified *by documenting it* (Codex,
+   #518). A probe whose literal appears in its own write-up is not
+   reproducible. Cite the shape of the measurement, or pick a string the
+   explanation does not repeat.
 
    The settled answer is **`git grep -n`**, and the reason it settles the
    question is not that it has better defaults — it is that the inventory
@@ -1337,12 +1350,17 @@ the hard-coded fallback. Every writer records — except the one that reads its
 engine before its own `try`. The pull is structural, not careless, which is
 why instance-by-instance fixing never generalised across nine attempts.
 
-**A corollary worth knowing at the end of a loop:** because this repo's merge
-bar requires a completed reviewer pass on the **head** commit, any further fix
-moves the head and costs another round. That makes "just fix one more thing"
-mechanically expensive at loop end — a stopping force that operates
-independently of anyone's judgment, and one worth counting when deciding
-whether a cheap fix is actually cheap.
+**A corollary worth knowing at the end of a loop, scoped to the artifacts it
+actually applies to:** for a PR whose class requires head-bound re-review, this
+repo's merge bar needs a completed reviewer pass on the **head** commit, so any
+further fix moves the head and costs another pass. That makes "just fix one
+more thing" mechanically expensive at loop end — a stopping force independent
+of anyone's judgment, worth counting when deciding whether a cheap fix is
+actually cheap. **It does not apply to the floor tier** — transient process
+docs and loop-ledger records keep their zero-re-request rule from
+[`working-modes.md`](working-modes.md)'s ceremony table, and a post-review fix
+there moves the head without owing a pass. Stating the corollary universally
+would have made those artifacts unmergeable in principle (Codex, #518).
 
 **Avoid:** re-running the oracle that just passed and reading a clean result
 as convergence. Ask instead which of the three properties changed since it was
@@ -1942,6 +1960,15 @@ recalled, and it was the half that carried the conclusion. **A record is only
 as mechanical as its least mechanical sentence** — and the counted figures
 lend their authority to the prose sitting beside them, which is exactly what
 makes the mixture more dangerous than an openly recalled account.
+
+**Its remedy is different from the collector fix below, and reaching for that
+one would be wrong** (Codex, #518): no channel is missing and no count is off,
+so teaching the collector about another delivery channel changes nothing. What
+this case needs is **provenance on the prose** — every process-state sentence
+in a record either cites the artifact it was read from (the review request,
+the receipt, the comment) or is cut. The check is mechanical even though the
+sentence is not: *which file did I open to write this?* If the answer is "I
+remembered", it does not belong in a record calling itself mechanical.
 
 **Avoid:** before reading a zero as an absence, ask *which channel would this
 have arrived on, and does the collector read it?* Check the cheap
