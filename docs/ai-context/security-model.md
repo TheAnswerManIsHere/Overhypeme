@@ -236,11 +236,21 @@ was checked, ran, and cost money but recorded nothing makes the ceiling
 progressively stop binding, silently, with nothing erroring. Three CI guards now
 hold the three halves of that, and each documents its own residual limits:
 
-| guard | invariant |
+| guard | what it actually checks |
 | --- | --- |
-| `check-budget-gate-unconditional.mjs` | the gate is never skipped on a pricing miss |
-| `check-record-cost-unconditional.mjs` | **every branch records** — a price conditional may not write in one branch only |
-| `check-budget-gate-thunk.mjs` | the proposed cost reaches `checkBudget` as a **thunk**, never a value (see [`decisions.md`](./decisions.md)) |
+| `check-budget-gate-unconditional.mjs` | of the `checkBudget` calls that **exist**, none sits inside a price-named conditional |
+| `check-record-cost-unconditional.mjs` | of the `recordCost` calls that **exist**, a price-named conditional does not write in one branch only |
+| `check-budget-gate-thunk.mjs` | every `checkBudget` call passes a thunk, never a value (see [`decisions.md`](./decisions.md)) |
+
+**Read that table narrowly — it is deliberately not phrased as "the gate is
+never skipped."** All three are conditional-shape tripwires over calls that are
+already present: a new spend path that never calls `checkBudget` at all passes
+every one of them, as does a conditional hidden behind a helper or a
+non-price-named flag like `resolved`. They stop a specific regression from
+returning; they do not establish that every paid-generation path is gated. A
+green CI is not that proof, and treating it as such is the failure mode
+[`known-failure-patterns.md`](./known-failure-patterns.md)'s *guard that
+encodes the shape that occurred* entry exists to describe.
 
 Two properties of the ledger follow from that, both settled in
 [`decisions.md`](./decisions.md): every row **written by the Release B writers
@@ -254,7 +264,11 @@ predating Release B are `NULL`** until Release C's classification backfill
 runs — a query or review that treats `NULL` as impossible is wrong today. A writer that
 cannot obtain its figure skips the row and increments `ledger_write_failures`
 rather than substituting a constant; a fabricated figure, and especially a
-zero, is worse than an absent row because it exists and hides itself.
+zero, is worse than an absent row because it exists and hides itself. **With one
+known live exception:** `recordStage2Cost` reads its engine *before* its own
+`try`, so a failure there omits a paid generation **and** skips the counter —
+see the 2026-08-18 skip-and-count entry in [`decisions.md`](./decisions.md) and
+#511. Do not read the counter as a complete census of omitted rows.
 
 `checkBudget`'s contract, established across #409 / PR #443 / PR #474:
 

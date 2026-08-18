@@ -1256,11 +1256,18 @@ pinned to the ceiling that actually applied.
 
 ### Provider-resolved rate / operator-configured estimate
 
-The two values `is_estimated` distinguishes on a `user_generation_costs` row.
-**Provider-resolved** (`false`) means the cost was computed from the provider's
-own published rate, fetched by `getCachedPrice`, times the job's actual
-quantity. **Operator-configured estimate** (`true`) means it came from the
-`engines` row's own figure, because no provider rate could be resolved.
+**Three** states, not two — the column is nullable:
+
+- **`false` — provider-resolved.** Computed from the provider's own published
+  rate, fetched by `getCachedPrice`, times the job's actual quantity.
+- **`true` — estimated.** No provider rate resolved, so the figure came from the
+  operator-configured `engines` row **or from a hard-coded fallback** when no
+  row exists for that model. Both are estimates; the column does not
+  distinguish them, and `budgetGate.ts`'s own contract says so.
+- **`NULL` — unclassified.** Rows written before Release B, which
+  migration `0101` added the column to without classifying. Release C's backfill
+  narrows this; until it runs, **a query treating `NULL` as impossible is
+  wrong**.
 
 **Neither is a "measured" cost, and that word is retired here.** No ledger row
 holds an actual charge reconciled against the provider — even the
