@@ -114,4 +114,4 @@ artifacts/api-server/assets/
 # evening.
 .agents/receipts/pr-*.json
 .agents/receipts/loop-round-check-*.json
-.agents/receipts/loop-round-check-*.json.claim
+.agents/receipts/loop-round-check-*.json.*.claim
