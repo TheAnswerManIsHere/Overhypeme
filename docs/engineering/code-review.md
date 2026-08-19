@@ -509,6 +509,95 @@ lives in
 Padding a pattern with an adjacent-looking case makes its mechanism claim
 false, which is the same defect as the pattern itself. (Codex, #506 round 1.)
 
+## A count in prose is a hand-maintained duplicate of the thing it counts
+
+**Applies to a number that summarizes a separately-maintained enumerated
+set** — "four findings", "five failed attempts", "three removed outright."
+The number duplicates an enumeration that lives somewhere else, so it is a
+[duplicate source of truth](../ai-context/known-failure-patterns.md) in
+miniature — and the copy is the one that rots.
+
+**Does not apply to a standalone scalar with no enumeration behind it** — a
+configured limit, a threshold, a date, or a count read directly from a
+canonical, mechanically-produced source ("236 tests" straight from the test
+runner's own summary line has nothing to enumerate against; it either matches
+the runner's current output or it doesn't). Telling a reviewer to "enumerate
+or delete" a value like that would be asking them to invent an enumeration
+that was never the source of truth in the first place. The distinction is
+whether some other artifact enumerates the members this number is counting —
+if yes, this pattern applies; if the number **is** the artifact, it doesn't.
+
+**What makes it worse than an ordinary stale claim:** it goes stale *during the
+edit that is fixing something else*, so the moment of highest attention is also
+the moment it breaks. Three instances in one session (2026-08-17):
+
+| Where | What happened |
+| --- | --- |
+| A guard header's job list | "one job" → "FIRST/SECOND", which read as exhaustive and omitted `checkCommand`'s standing refusals |
+| A harvest entry's instance table | "four instances" survived removing one of them, and the count was load-bearing in the argument for the entry existing |
+| A contract section's header | changed to "five failed attempts" over a body still enumerating three and saying "four definitions" |
+
+The third is the sharpest: it happened **inside the edit that added the fifth
+attempt**, in a section whose subject is claims going stale.
+
+**Avoid — in order of preference:**
+
+1. **Enumerate instead of counting.** A numbered list cannot disagree with
+   itself; a sentence saying "four" above a list of three can and did.
+2. **Derive the number mechanically** if it must appear (a script, a test).
+3. **Delete it.** "Several rounds" carries the same weight and cannot be wrong.
+
+**Never patch the number.** Editing "four" to "five" and moving on is what
+produced instance three — the count was corrected and the body it summarized
+was not, so the paragraph was internally inconsistent in a *new* way.
+
+**Graduation trigger.** Three recurrences in one session makes a deterministic
+check a named candidate under this repo's recurring-failure→CI-guard rule.
+That's a code change, so it's tracked as a proper backlog item —
+[`deferred-work.md`](deferred-work.md#code-level-tech-debt) — rather than
+left to whoever next re-reads this paragraph during a maintenance sweep.
+
+## A boundary that resists repeated definition is missing a decision, not a better sentence
+
+**Looks like:** you write a rule that needs a general test to sort cases, a
+reviewer breaks the test with a counter-example, you sharpen it, and the
+sharpened version breaks somewhere else. The instinct each time is that the
+sentence was not precise enough.
+
+**PR #504 is the worked example: five definitions of one boundary failed in
+sequence**, each refuted by a concrete counter-example, while the behaviour
+underneath never changed. The enumeration and what each attempt got wrong are
+in `CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* — not
+repeated here, since the instance belongs to that contract and only the
+generalization belongs in shared review practice.
+
+**What actually ended it was two things arriving together, and neither was a
+better sentence:** an owner resolving what a dispatched verdict is *worth*,
+and that same owner separately instructing that the boundary stop being
+defined at all. The first fact alone didn't stop the drafting — it was
+immediately spent deriving a sixth attempt, in the same breath as recording
+the fifth having failed. It took the explicit stop instruction, on top of the
+new fact, to actually end the cycle. A generalization that keeps only the
+first condition would predict that the fact alone should have been enough,
+which is the opposite of what happened.
+
+**Two consequences worth having in front of you during a review loop:**
+
+- **Count the attempts.** Repeated failed definitions of the same boundary —
+  not a specific number; the worked example ran to five with nothing
+  stopping it at three or four — is the signal to stop drafting and go find
+  the missing decision. It is cheap to count and easy to miss, because each
+  individual attempt feels like progress.
+- **Once the decision arrives, the temptation is to spend it on one more
+  definition.** That is exactly what happened on #504: the new fact was used to
+  derive attempt five, in the same commit that recorded four having failed.
+  The decision's value is usually that it makes the definition *unnecessary*,
+  not that it makes one possible.
+
+**A reviewer is well placed to say this out loud**, often better placed than
+the author — the counter-examples are coming from the reviewer's side, so it
+sees the sequence before the author admits it is one.
+
 ## Review output format
 
 **Two delivery surfaces exist; they don't support the same shape** — same split
