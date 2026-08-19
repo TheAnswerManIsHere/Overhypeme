@@ -33,6 +33,32 @@ before writing any code that maps MCP output into a REST-shaped structure.
   nothing for every one of the bot's own comments — normalize both sides
   (strip a trailing `[bot]`) before comparing.
 
+## The flags describe THREAD state, not CODE state (PR #503)
+Shape isn't the only thing that misleads. `get_review_comments` returns
+`isResolved` and `isOutdated` per thread, and both describe **the
+conversation**, not the code:
+
+- **`resolved: false` does not mean "the finding was never fixed."** It means
+  nobody marked the thread resolved. A finding that was fixed in code but whose
+  thread reply is still outstanding is **shape-identical** to one that was
+  ignored.
+- **`isOutdated: false` does not mean "recent commits didn't touch this."** It
+  is GitHub's judgement about whether the anchored diff hunk still applies, not
+  a statement about whether the defect was addressed.
+
+This is not hypothetical: PR #503's fresh-context adjudicator reasoned from a
+mechanical record built on these fields and drew both wrong conclusions — that
+two fixed findings were unfixed, and that the commits since the last pass had
+not touched them. The numbers were right; the fields invited a reading they do
+not support. If a consumer needs *code* state, it has to come from the diff,
+not from thread metadata — and if a record surfaces these fields to a reader,
+each one needs a note saying what it is and what it is not.
+
+A third field with the same problem: **`sinceLastReview` (branch movement) is
+not the PR's diff.** After a merge from the base branch it includes the base
+branch's own already-reviewed files, which an adjudicator read as unreviewed
+surface.
+
 ## Why it's dangerous
 Code written against the REST shape (or against an assumed/remembered MCP
 shape) will look like it works — it won't throw — while silently producing

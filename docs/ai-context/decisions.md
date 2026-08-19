@@ -13,6 +13,73 @@
 
 ---
 
+### 2026-08-19 · Review loops get a mechanical round budget, counted fresh from GitHub
+- **Decision:** every review loop Claude Code drives declares a **round budget**
+  before round 1 — 3 rounds for internal tooling/docs/guards, 5 for product
+  code, uncapped-with-a-mandatory-🛑-at-5 for auth/payments/migrations — and
+  `.claude/guard.sh` → `scripts/review-budget.mjs` **refuses the `@codex review`
+  post itself** past it. The tier picks the number, so a loop cannot declare its
+  own cap. Release is by fresh-context adjudication **once** (a one-shot Fable
+  subagent ruling on a script-generated record, verdict ∈
+  ship-with-gaps-recorded / split / continue +N≤2 / escalate), and after that
+  only by David. **No second self-serve extension, ever.**
+- **Why a check and not more contract prose:** PR #488 ran 22 rounds on a
+  ~10-line change. Every round was locally rational — real findings, correct
+  fixes — and no event ever put the *aggregate* in front of anyone. The
+  judgment-shaped stopping devices already in the contract (criticality gate,
+  count trend, growth tripwire, oscillation diagnosis) went **0-for-15** there;
+  the two stops that did happen were both a **pre-registered flip condition
+  colliding with an event**, 2-for-2. Per the standing rule that a discipline
+  broken twice becomes a check, the stopping rule moved onto the action path.
+- **The result reproduced live, on the PR that built it.** #503's own loop spent
+  every stage of its escalation path in order — budget (rounds 1–3), tripwire 1's
+  adjudication (round 4), David's authorization (round 5), then a merge-bar head
+  pass and a second David authorization. Each escalation was **forced by the
+  guard rather than chosen**. Its four pre-registered flip conditions went
+  4-for-4; nothing judgment-shaped stopped it at any point.
+- **Sub-decision — rounds are counted fresh, never stored.** The first
+  implementation kept a committed tally the guard incremented. It was deleted in
+  `0cd6f3c` after round 3 returned 12 findings, 6 against the tally's repair
+  machinery: the tally was a cache of state GitHub already holds, so every
+  failure was a cache-coherence failure. A round is now a completed reviewer
+  pass (`loop-metrics.mjs`'s `reviewerPasses()`) plus at most one pending
+  request, read from a validated snapshot at decision time. Consequences that
+  fall out of this and are load-bearing: the gate reads `delivered` and only
+  when `pending === 0`, so **a retry of a stalled round is not a new round**;
+  and the trigger may only be posted as an **issue comment**, because review
+  threads and review bodies are surfaces the pending count cannot see.
+  Committed receipts are kept for **decisions** (the budget declaration, the
+  extension grants) and not for evidence — "no second self-serve extension"
+  has to survive the container or tripwire 2 never fires.
+- **Authorship of a David-authorization receipt is deliberately not verified,**
+  and the module header says so. Fabrication is a *different failure class* from
+  the one being closed (a loop that never notices its own length), and a guard
+  that pretends to defend against its own author is a false assurance. The
+  control is that receipts are committed, reviewed, and read back in the weekly
+  digest.
+- **Known residuals, both real:** (1) an automatic Codex review — triggered by
+  opening a non-draft PR or marking a draft ready, lifecycle calls the hook
+  never sees — can be in flight while `pending` reads 0, bounded at one round of
+  overshoot (**issue #514**; the honest fix reaches every PR in the repo). (2)
+  **The merge bar can require a pass the round budget has no room for**, and the
+  mechanism has no receipt kind for it — this collided twice on #503 and each
+  time had to be recorded as an inflated grant with the arithmetic spelled out
+  in the receipt's `context`. Exempting merge-bar passes from the count was
+  rejected: changing the counting rule mid-loop in the loop's own favour is the
+  self-excusing shape the module exists to prevent. **Not yet tracked by an
+  issue.**
+- **Reference:** PR #503 (merged `7c56add`), issue #501,
+  `scripts/review-budget.mjs`, `scripts/review-loop-record.mjs`,
+  `.claude/agents/review-loop-adjudicator.md`, `.agents/receipts/README.md`.
+  The contract is [`CLAUDE.md`](../../CLAUDE.md)'s *Every review loop declares a
+  round budget*; [`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)
+  carries the pointer and still governs everything *inside* a budget.
+- **Revisit if:** the guard's fail-closed refusals turn out to block legitimate
+  rounds more often than they catch runaway ones (expect some in its first weeks
+  — those are flip-condition-1 fixes, not crises), or if the merge-bar collision
+  recurs a third time, which would make it a design gap needing its own pass
+  rather than a per-loop receipt note.
+
 ### 2026-08-18 · The proposed cost reaches `checkBudget` as a thunk, always
 - **Decision:** every `checkBudget` call passes its proposed cost as a function,
   never a resolved value — enforced by `scripts/check-budget-gate-thunk.mjs` in

@@ -24,6 +24,30 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 (From recent history — read `git log` for the live picture.)
 
+- **Review-round budget — a mechanical stopping rule for review loops**
+  (2026-08-19, PR #503, workstream #501). PR #488 ran 22 Codex rounds on a
+  ~10-line change: every round locally rational, and no event ever presenting
+  the aggregate. The judgment-shaped stopping devices went 0-for-15 there, so
+  the stopping rule moved onto the action path. Every loop now declares a
+  budget before round 1 (3 internal / 5 product / uncapped-with-🛑-at-5 for
+  auth, payments, migrations) and the guard **refuses the `@codex review` post**
+  past it — released once by a fresh-context Fable adjudication, and after that
+  only by David. Rounds are **counted fresh from a validated GitHub snapshot**,
+  never stored: the first design's committed tally was a cache of state GitHub
+  already holds and was deleted mid-loop after a round returned 12 findings,
+  half of them against the tally's own repair machinery.
+  **Six completed passes, 41 findings, 0 declines** — and the mechanism spent
+  every stage of its own escalation path on its own PR, each escalation forced
+  by the guard rather than chosen. Read the 2026-08-19 entry in
+  [`decisions.md`](./decisions.md) and
+  [`CLAUDE.md`](../../CLAUDE.md)'s *Every review loop declares a round budget*
+  rather than rederiving it.
+  **Open:** #514 (an automatic Codex review can be in flight while the pending
+  count reads 0 — bounded at one round of overshoot; the honest fix reaches
+  every PR in the repo). **Untracked residual:** the merge bar can require a
+  pass the round budget has no room for, which collided twice on this PR and
+  has no receipt kind — recorded in the decisions entry, no issue yet.
+
 - **Cost-ledger provenance — `is_estimated`, Releases A and B** (2026-08-18,
   PRs #497 and #498, workstream #473). The spend ceiling only binds on what the
   ledger records, and a generation gated on an *estimate* used to be checked,
