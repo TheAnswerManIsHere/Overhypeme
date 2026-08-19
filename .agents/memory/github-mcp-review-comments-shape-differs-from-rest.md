@@ -34,9 +34,9 @@ before writing any code that maps MCP output into a REST-shaped structure.
   (strip a trailing `[bot]`) before comparing.
 
 ## The flags describe THREAD state, not CODE state (PR #503)
-Shape isn't the only thing that misleads. `get_review_comments` returns
-`isResolved` and `isOutdated` per thread, and both describe **the
-conversation**, not the code:
+Shape isn't the only thing that misleads. `get_review_comments` returns a
+resolved flag and an outdated flag per thread, and both describe **the
+conversation**, not the code.
 
 **Mind the field name — this call has two spellings, and neither is
 `resolved`.** A live `get_review_comments` response observed 2026-08-19 returns
