@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   assertSnapshot,
@@ -7,6 +11,7 @@ import {
   codeReviewOutage,
   checkCi,
   checkCodex,
+  checkAdjudicatedCodex,
   checkThreads,
   evaluate,
   staleReason,
@@ -668,4 +673,227 @@ test("evaluate: one failing item is enough for NOT READY", () => {
   assert.equal(receipt.verdict, "NOT READY");
   assert.equal(receipt.items.ci.pass, true);
   assert.equal(receipt.items.threads.pass, false);
+});
+
+// ---------------------------------------------------------------------------
+// checkAdjudicatedCodex: a closed review-loop adjudication as a fallback for
+// item 2, bounded by real git ancestry and a bookkeeping-only diff so it
+// cannot become a standing bypass. Exercised against a real temporary git
+// repo -- this is exactly the git-plumbing logic this file's own culture
+// insists on testing directly, not trusting by inspection (remoteTip
+// elsewhere in this file shells to `git ls-remote` and is NOT unit-tested
+// for that reason; this function is more security-sensitive, since it's a
+// path around the merge gate, so it gets the real-repo treatment instead).
+// ---------------------------------------------------------------------------
+
+function tempRepo() {
+  const dir = mkdtempSync(join(tmpdir(), "pr-ready-adjudication-"));
+  const run = (args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+  run(["init", "-q"]);
+  run(["config", "user.email", "test@example.com"]);
+  run(["config", "user.name", "Test"]);
+  const commit = (files, message) => {
+    for (const [path, content] of Object.entries(files)) {
+      const full = join(dir, path);
+      mkdirSync(join(full, ".."), { recursive: true });
+      writeFileSync(full, content);
+    }
+    run(["add", "-A"]);
+    run(["commit", "-q", "-m", message]);
+    return run(["rev-parse", "HEAD"]).trim();
+  };
+  return { dir, commit };
+}
+
+function adjudicationReceiptDir(dir) {
+  const receiptDir = join(dir, ".agents", "receipts");
+  mkdirSync(receiptDir, { recursive: true });
+  return receiptDir;
+}
+
+function writeReceipt(receiptDir, pr, seq, fields) {
+  writeFileSync(join(receiptDir, `loop-extension-${pr}-${seq}.json`), JSON.stringify({ pr, kind: "adjudication", ...fields }));
+}
+
+test("adjudication: no receipt directory at all", () => {
+  const { dir } = tempRepo();
+  const res = checkAdjudicatedCodex(999, "a".repeat(40), { receiptDir: join(dir, ".agents", "receipts"), cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /does not exist/);
+});
+
+test("adjudication: receipt directory exists but no matching file", () => {
+  const { dir } = tempRepo();
+  const receiptDir = adjudicationReceiptDir(dir);
+  const res = checkAdjudicatedCodex(999, "a".repeat(40), { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no loop-extension-999-\*\.json/);
+});
+
+test("adjudication: a receipt naming a different PR does not qualify", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { pr: 111, verdict: "ship-with-gaps-recorded", headSha: sha });
+  const res = checkAdjudicatedCodex(999, sha, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+});
+
+test('adjudication: a "continue" verdict does not qualify -- it grants rounds, it doesn\'t close the loop', () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { verdict: "continue", grant: 2, risk: "x", headSha: sha });
+  const res = checkAdjudicatedCodex(999, sha, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not "ship-with-gaps-recorded"/);
+});
+
+test('adjudication: "split" and "escalate" don\'t qualify either -- neither means "ready to merge"', () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { verdict: "split", headSha: sha });
+  writeReceipt(receiptDir, 999, 2, { verdict: "escalate", headSha: sha });
+  const res = checkAdjudicatedCodex(999, sha, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+});
+
+test("adjudication: a malformed or abbreviated headSha is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { verdict: "ship-with-gaps-recorded", headSha: sha.slice(0, 7) });
+  const res = checkAdjudicatedCodex(999, sha, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /full 40-character/);
+});
+
+test("adjudication: a headSha that doesn't resolve to a real commit is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { verdict: "ship-with-gaps-recorded", headSha: "f".repeat(40) });
+  const res = checkAdjudicatedCodex(999, sha, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /does not resolve to a commit/);
+});
+
+test("adjudication: headSha equal to the current head passes directly", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { verdict: "ship-with-gaps-recorded", headSha: sha });
+  const res = checkAdjudicatedCodex(999, sha, { receiptDir, cwd: dir });
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /current head/);
+});
+
+test("adjudication: an ancestor headSha with ONLY bookkeeping changes since it passes", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "docs/x.md": "content" }, "c1 -- the adjudicated commit");
+  const receiptDir = adjudicationReceiptDir(dir);
+  const receiptJson = JSON.stringify({ pr: 999, kind: "adjudication", verdict: "ship-with-gaps-recorded", headSha: sha });
+  // Simulate exactly PR #534's own shape: a commit AFTER adjudication that
+  // only adds the receipt file itself. Written with its real content here
+  // (not a placeholder) -- committing garbage over the path checkAdjudicatedCodex
+  // is about to read would test nothing.
+  const head = commit({ ".agents/receipts/loop-extension-999-1.json": receiptJson }, "c2 -- record the receipt");
+  const res = checkAdjudicatedCodex(999, head, { receiptDir, cwd: dir });
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /bookkeeping-only/);
+});
+
+test("adjudication: real content changed since the adjudicated commit is refused, not waved through", () => {
+  // The bound that stops this from being a standing bypass: an adjudication
+  // covers the commit it was run against, not whatever ships later under its
+  // name.
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "docs/x.md": "content" }, "c1 -- the adjudicated commit");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { verdict: "ship-with-gaps-recorded", headSha: sha });
+  const head = commit({ "docs/x.md": "DIFFERENT unreviewed content" }, "c2 -- real change, never reviewed");
+  const res = checkAdjudicatedCodex(999, head, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not loop bookkeeping/);
+  assert.match(res.detail, /docs\/x\.md/);
+});
+
+test("adjudication: a headSha that is NOT an ancestor (history rewritten) is refused", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  writeReceipt(receiptDir, 999, 1, { verdict: "ship-with-gaps-recorded", headSha: sha });
+  // A sibling commit, not a descendant -- simulates an amended/rebased branch.
+  execFileSync("git", ["checkout", "-q", "--orphan", "other"], { cwd: dir });
+  execFileSync("git", ["rm", "-rq", "--cached", "."], { cwd: dir });
+  const other = commit({ "b.txt": "2" }, "unrelated history");
+  const res = checkAdjudicatedCodex(999, other, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not an ancestor/);
+});
+
+test("adjudication: one file mixed in with bookkeeping still fails the whole check", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "docs/x.md": "content" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  const receiptJson = JSON.stringify({ pr: 999, kind: "adjudication", verdict: "ship-with-gaps-recorded", headSha: sha });
+  const head = commit(
+    {
+      ".agents/receipts/loop-extension-999-1.json": receiptJson,
+      "docs/x.md": "content changed too",
+    },
+    "c2 -- receipt AND real content",
+  );
+  const res = checkAdjudicatedCodex(999, head, { receiptDir, cwd: dir });
+  assert.equal(res.pass, false);
+  // Confirms it fails on the mixed-content diff specifically, not on a
+  // malformed receipt -- a receipt this well-formed would otherwise pass.
+  assert.match(res.detail, /not loop bookkeeping/);
+  assert.match(res.detail, /docs\/x\.md/);
+});
+
+test("evaluate: a failed live Codex check falls back to a qualifying adjudication and reaches READY", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "docs/x.md": "content" }, "c1");
+  const receiptDir = adjudicationReceiptDir(dir);
+  const receiptJson = JSON.stringify({ pr: 500, kind: "adjudication", verdict: "ship-with-gaps-recorded", headSha: sha });
+  const head = commit({ ".agents/receipts/loop-extension-500-1.json": receiptJson }, "c2 -- receipt only");
+
+  const snap = goodSnapshot();
+  snap.pr.head.sha = head;
+  snap.checkRuns = allRequired("completed", "success", head); // must match the new head, not the dummy HEAD constant
+  snap.issueComments = []; // no @codex review request at all -- checkCodex fails outright
+  snap.reviews = [];
+  snap.capturedAt = { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER };
+
+  const receipt = evaluate(snap, NOW, { receiptDir, cwd: dir });
+  assert.equal(receipt.items.codex.pass, true);
+  assert.match(receipt.items.codex.detail, /adjudicated ship-with-gaps-recorded/);
+  assert.equal(receipt.verdict, "READY");
+});
+
+test("evaluate: a failed live Codex check AND a non-qualifying adjudication stays NOT READY, with both failures visible", () => {
+  const { dir } = tempRepo();
+  const receiptDir = adjudicationReceiptDir(dir);
+  // No receipt written at all.
+  const snap = goodSnapshot();
+  snap.issueComments = [];
+  snap.reviews = [];
+
+  const receipt = evaluate(snap, NOW, { receiptDir, cwd: dir });
+  assert.equal(receipt.items.codex.pass, false);
+  assert.match(receipt.items.codex.detail, /review loop was never started/);
+  assert.match(receipt.items.codex.detail, /adjudication fallback also failed/);
+  assert.equal(receipt.verdict, "NOT READY");
+});
+
+test("evaluate: a PASSING live Codex check never even looks for an adjudication receipt", () => {
+  // Confirms the fallback is a fallback -- a normal green PR's evaluate()
+  // must not depend on .agents/receipts existing at all, let alone on git
+  // ancestry succeeding for an unrelated cwd.
+  const snap = goodSnapshot();
+  const receipt = evaluate(snap, NOW, { receiptDir: "/nonexistent/path/that/would/throw", cwd: "/nonexistent" });
+  assert.equal(receipt.items.codex.pass, true);
+  assert.equal(receipt.verdict, "READY");
 });

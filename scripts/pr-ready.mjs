@@ -41,7 +41,7 @@
  * Exit 0 when READY, 1 when NOT READY, 2 on a malformed snapshot.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -532,6 +532,148 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   };
 }
 
+/**
+ * Item 2, alternate path: a closed review-loop adjudication can satisfy
+ * "Codex returned" when the round-budget guard (`review-budget.mjs`) has
+ * permanently closed the loop and no further per-commit pass can ever be
+ * requested.
+ *
+ * WHY THIS EXISTS. The round-budget guard's own rule is "only a `continue`
+ * verdict reopens the guard, and only once" -- a `ship-with-gaps-recorded`
+ * verdict closes it for good. That guard and this one were built
+ * independently and never wired together: this file's `checkCodex` still
+ * demands a pass covering the exact head commit, which a closed loop can
+ * never produce again. PR #534 hit this directly -- three real review
+ * rounds, seven findings fixed, a fresh-context adjudicator returned
+ * `ship-with-gaps-recorded` with zero remaining gaps, and the PR was then
+ * structurally unmergeable: the guard refused every further `@codex review`
+ * request, and this file refused to merge without one. This function closes
+ * that gap.
+ *
+ * ONLY "ship-with-gaps-recorded" QUALIFIES. `split` and `escalate` are not
+ * "this is ready" verdicts -- they hand the PR to further human or agent
+ * action before anything should merge, so accepting them here would let an
+ * adjudication that explicitly said "not yet" wave a PR through anyway.
+ * `continue` is excluded by construction: it grants more rounds rather than
+ * closing the loop, so a receipt bearing it is asking for another pass, not
+ * standing in for one.
+ *
+ * THE ANCESTOR-PLUS-BOOKKEEPING-ONLY BOUND is what keeps this from becoming
+ * a standing bypass. The receipt must name the exact commit (`headSha`) the
+ * adjudicator's record was generated from. That commit must be a real,
+ * resolvable ancestor of the commit being merged, and EVERY file that
+ * differs between them must live under `.agents/receipts/` or
+ * `.agents/adjudications/` -- pure loop bookkeeping, never product or doc
+ * content. A single line of real change outside those two directories
+ * fails this check and falls back to requiring an actual Codex pass, which
+ * is what stops someone from adjudicating once and then pushing arbitrary
+ * unreviewed content forever under the same closed loop.
+ *
+ * `git` calls are read-only and local (`cat-file -e`, `merge-base
+ * --is-ancestor`, `diff --name-only`) -- no network, same posture as
+ * `remoteTip` elsewhere in this file, and independently timed out so a
+ * hung git process can't hang the merge gate.
+ */
+const BOOKKEEPING_PREFIXES = [".agents/receipts/", ".agents/adjudications/"];
+
+// `cwd` is injectable so tests can point this at a throwaway temp repo
+// instead of exercising real git plumbing against this checkout -- the
+// ancestry/diff logic below is exactly the part this file's own culture
+// insists on testing directly rather than trusting by inspection.
+function git(args, cwd) {
+  try {
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      timeout: REMOTE_TIP_TIMEOUT_MS,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+export function checkAdjudicatedCodex(prNumber, headSha, { receiptDir = RECEIPT_DIR, cwd } = {}) {
+  if (!existsSync(receiptDir)) return { pass: false, detail: `no adjudication receipt: ${receiptDir} does not exist` };
+  const candidates = readdirSync(receiptDir).filter(
+    (f) => f.startsWith(`loop-extension-${prNumber}-`) && f.endsWith(".json"),
+  );
+  if (!candidates.length) {
+    return { pass: false, detail: `no loop-extension-${prNumber}-*.json adjudication receipt found` };
+  }
+
+  // Multiple sequence numbers are possible (tripwire 1 fires at most once per
+  // loop per the guard's own rule, but a stale receipt from an earlier,
+  // unrelated loop on a reused PR number is not impossible). Any one
+  // qualifying receipt is sufficient -- this is an existence check, not a
+  // uniqueness one.
+  const failures = [];
+  for (const file of candidates) {
+    const path = join(receiptDir, file);
+    let receipt;
+    try {
+      receipt = JSON.parse(readFileSync(path, "utf8"));
+    } catch (e) {
+      failures.push(`${file}: unreadable or malformed JSON (${e.message})`);
+      continue;
+    }
+    if (receipt.pr !== prNumber) {
+      failures.push(`${file}: names PR ${receipt.pr}, not ${prNumber}`);
+      continue;
+    }
+    if (receipt.kind !== "adjudication") {
+      failures.push(`${file}: kind is ${JSON.stringify(receipt.kind)}, not "adjudication"`);
+      continue;
+    }
+    if (receipt.verdict !== "ship-with-gaps-recorded") {
+      failures.push(`${file}: verdict is ${JSON.stringify(receipt.verdict)}, not "ship-with-gaps-recorded" -- only that verdict means the loop is ready to merge`);
+      continue;
+    }
+    if (typeof receipt.headSha !== "string" || !/^[0-9a-f]{40}$/i.test(receipt.headSha)) {
+      failures.push(`${file}: headSha must be a full 40-character commit sha (got ${JSON.stringify(receipt.headSha)}) -- the receipt must bind to the exact commit the adjudicator's record covered`);
+      continue;
+    }
+    if (git(["cat-file", "-e", `${receipt.headSha}^{commit}`], cwd) === null) {
+      failures.push(`${file}: headSha ${receipt.headSha.slice(0, 7)} does not resolve to a commit in this checkout`);
+      continue;
+    }
+    if (!headSha) {
+      failures.push(`${file}: no head sha supplied to check ancestry against`);
+      continue;
+    }
+    const isAncestor = git(["merge-base", "--is-ancestor", receipt.headSha, headSha], cwd) !== null;
+    if (!isAncestor) {
+      failures.push(`${file}: adjudicated commit ${receipt.headSha.slice(0, 7)} is not an ancestor of ${headSha.slice(0, 7)} -- the branch was rewritten since adjudication`);
+      continue;
+    }
+    if (receipt.headSha === headSha) {
+      return { pass: true, detail: `adjudicated ship-with-gaps-recorded at ${receipt.headSha.slice(0, 7)}, which is the current head` };
+    }
+    const changed = git(["diff", "--name-only", `${receipt.headSha}..${headSha}`], cwd);
+    if (changed === null) {
+      failures.push(`${file}: could not diff ${receipt.headSha.slice(0, 7)}..${headSha.slice(0, 7)}`);
+      continue;
+    }
+    const files = changed.split("\n").filter(Boolean);
+    const nonBookkeeping = files.filter((f) => !BOOKKEEPING_PREFIXES.some((p) => f.startsWith(p)));
+    if (nonBookkeeping.length) {
+      failures.push(
+        `${file}: ${nonBookkeeping.length} file(s) changed since the adjudicated commit that are not loop bookkeeping ` +
+          `(${nonBookkeeping.slice(0, 5).join(", ")}${nonBookkeeping.length > 5 ? ", ..." : ""}) -- ` +
+          `real content changed since adjudication, so a fresh Codex pass is required, not this receipt`,
+      );
+      continue;
+    }
+    return {
+      pass: true,
+      detail:
+        `adjudicated ship-with-gaps-recorded at ${receipt.headSha.slice(0, 7)}; ${files.length} bookkeeping-only ` +
+        `file(s) changed since (${files.join(", ")}), nothing reviewable`,
+    };
+  }
+  return { pass: false, detail: `no qualifying adjudication receipt (${failures.join("; ")})` };
+}
+
 /** Item 3: no review thread left open. */
 export function checkThreads(reviewThreads) {
   const open = reviewThreads.filter((t) => !t.isResolved);
@@ -615,9 +757,24 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
 }
 
 /** The full verdict for a validated snapshot. */
-export function evaluate(snapshot, now = Date.now()) {
+export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
   const headSha = snapshot.pr.head.sha;
-  const codex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha);
+  const directCodex = checkCodex(snapshot.issueComments, snapshot.reviews, headSha);
+  // A closed review-loop adjudication (see checkAdjudicatedCodex) is a
+  // fallback, never a replacement: it is only even attempted when a live
+  // Codex pass didn't satisfy the bar on its own, and its own bound (ancestry
+  // + bookkeeping-only diff) is what keeps it from becoming a standing
+  // bypass. On success it carries no `acceptedAt` -- there is no live
+  // GitHub response to order the other collections against, and
+  // `checkCapture` already treats a missing `acceptedAt` as "nothing to
+  // order against" rather than a failure.
+  const adjudicated = directCodex.pass ? null : checkAdjudicatedCodex(snapshot.pr.number, headSha, adjudicationOpts);
+  const codex =
+    adjudicated?.pass
+      ? { pass: true, detail: adjudicated.detail }
+      : adjudicated
+        ? { ...directCodex, detail: `${directCodex.detail} | adjudication fallback also failed: ${adjudicated.detail}` }
+        : directCodex;
   const items = {
     ci: checkCi(snapshot.checkRuns, headSha),
     codex,
