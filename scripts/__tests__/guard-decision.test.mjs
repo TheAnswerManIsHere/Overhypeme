@@ -765,7 +765,7 @@ const memoryIo = (files = {}) => {
       delete store[rel];
     },
     nonce: () => "0123456789abcdef",
-    gitContains: (_ref, rel) => rel in store,
+    gitShow: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
     upstreamRef: () => "origin/fake",
   };
 };

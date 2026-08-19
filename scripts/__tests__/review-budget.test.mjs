@@ -64,7 +64,7 @@ export function fakeIo(files = {}) {
     // The fake tree is "what is committed": a receipt the tests wrote is
     // durable unless a test says otherwise by overriding this member. The
     // durability tests do exactly that.
-    gitContains: (_ref, rel) => rel in store,
+    gitShow: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
     upstreamRef: () => "origin/fake",
   };
 }
@@ -908,15 +908,18 @@ test("the real git adapter distinguishes absent-from-the-tree from cannot-tell",
   // instead of the actionable reason. Resolving the ref first is what splits
   // them, and only a test against real git can catch it going back.
   const io = nodeIo();
-  assert.equal(io.gitContains("HEAD", "CLAUDE.md"), true, "a tracked file in HEAD");
-  assert.equal(
-    io.gitContains("HEAD", "no-such-file-at-the-repo-root.md"),
-    false,
+  const tracked = io.gitShow("HEAD", "CLAUDE.md");
+  assert.equal(tracked.state, "present", "a tracked file in HEAD");
+  assert.equal(typeof tracked.text, "string");
+  assert.ok(tracked.text.length > 0, "and its CONTENTS come back, which is what durability compares");
+  assert.deepEqual(
+    io.gitShow("HEAD", "no-such-file-at-the-repo-root.md"),
+    { state: "absent" },
     "the ref resolves and the path is not in it -- an answer, not an unknown",
   );
-  assert.equal(
-    io.gitContains("no-such-ref-exists-here", "CLAUDE.md"),
-    null,
+  assert.deepEqual(
+    io.gitShow("no-such-ref-exists-here", "CLAUDE.md"),
+    { state: "unknown" },
     "no such ref -- could not tell, which the caller must treat as refuse",
   );
 });
@@ -940,21 +943,32 @@ test("an extension receipt that is not provably durable grants no rounds", () =>
 
   // Uncommitted: refused, and the refusal says what to do about it.
   const local = fakeIo(files);
-  local.gitContains = () => false;
+  local.gitShow = () => ({ state: "absent" });
   const uncommitted = judgeReviewRequest(post(22), local, NOW);
   assert.equal(uncommitted.blocked, true);
-  assert.match(uncommitted.reason, /is not present in origin\/fake -- commit and push it/);
+  assert.match(uncommitted.reason, /is not in origin\/fake -- commit and push it to origin\/fake/);
+
+  // A COMMITTED receipt edited in the working tree is the same fail-open route
+  // one level down: proving the PATH is in the ref says nothing about the
+  // version that is actually granting the rounds. Found by this function
+  // failing to catch its own author raising a grant from 1 to 2.
+  const edited = fakeIo(files);
+  edited.gitShow = (_ref, r) =>
+    r === rel ? { state: "present", text: json(adjudication(22, { grant: 1 })) } : { state: "present", text: edited.store[r] };
+  const raised = judgeReviewRequest(post(22), edited, NOW);
+  assert.equal(raised.blocked, true, "the working-tree edit is not what is committed, so it grants nothing");
+  assert.match(raised.reason, /differs from the copy in origin\/fake/);
 
   // No upstream ref: HEAD is the most that can be established, and the reason
   // says so rather than overclaiming.
   const noUpstream = fakeIo(files);
   noUpstream.upstreamRef = () => null;
-  noUpstream.gitContains = () => false;
-  assert.match(judgeReviewRequest(post(22), noUpstream, NOW).reason, /is not committed in HEAD/);
+  noUpstream.gitShow = () => ({ state: "absent" });
+  assert.match(judgeReviewRequest(post(22), noUpstream, NOW).reason, /is not in HEAD -- commit it/);
 
   // Cannot tell -- default refuse. An unanswerable question is not an answer.
   const unknown = fakeIo(files);
-  unknown.gitContains = () => null;
+  unknown.gitShow = () => ({ state: "unknown" });
   assert.match(
     judgeReviewRequest(post(22), unknown, NOW).reason,
     /durability could not be established against origin\/fake/,
@@ -962,7 +976,7 @@ test("an extension receipt that is not provably durable grants no rounds", () =>
 
   // No git at all: same default, phrased for an environment that cannot ask.
   const noGit = fakeIo(files);
-  delete noGit.gitContains;
+  delete noGit.gitShow;
   assert.match(judgeReviewRequest(post(22), noGit, NOW).reason, /durability cannot be established/);
 });
 

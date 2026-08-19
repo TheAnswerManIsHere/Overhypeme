@@ -366,16 +366,17 @@ export function nodeIo(root = REPO_ROOT) {
      * inside one second must not collide on a claim path. */
     nonce: () => crypto.randomBytes(8).toString("hex"),
     /**
-     * Does `ref` contain `rel`? Used to prove an extension receipt is DURABLE
-     * before it grants anything -- see loadLoop. Returns false for "not there",
-     * null for "could not tell" (no such ref, git unavailable), and the caller
-     * treats null as refuse rather than as absent, because "I could not check"
-     * is not evidence of durability.
+     * The CONTENTS of `rel` at `ref`, used to prove an extension receipt is
+     * DURABLE before it grants anything -- see extensionDurability. Returns
+     * `{ state: "present", text }`, `{ state: "absent" }`, or
+     * `{ state: "unknown" }` for "could not tell" (no such ref, git
+     * unavailable), which the caller treats as refuse rather than as absent:
+     * "I could not check" is not evidence of durability.
      */
-    gitContains(ref, rel) {
+    gitShow(ref, rel) {
       // TWO calls, because ONE cannot tell the two failures apart. Measured
-      // 2026-08-19 in this repo: `git cat-file -e HEAD:missing.md` and
-      // `git cat-file -e no-such-ref:CLAUDE.md` BOTH exit 128, and
+      // 2026-08-19 in this repo: `git show HEAD:missing.md` and
+      // `git show no-such-ref:CLAUDE.md` BOTH exit 128, and
       // `rev-parse --verify --quiet` returns 1 for both. So an exit code
       // alone can never distinguish "the ref exists and the file is not in
       // it" (an answer: false) from "there is no such ref" (not an answer:
@@ -387,18 +388,15 @@ export function nodeIo(root = REPO_ROOT) {
           stdio: "ignore",
         });
       } catch {
-        return null; // no such ref -- could not tell, so the caller refuses
+        return { state: "unknown" }; // no such ref -- the caller refuses
       }
       try {
-        execFileSync("git", ["cat-file", "-e", `${ref}:${rel}`], {
-          cwd: root,
-          stdio: "ignore",
-        });
-        return true;
+        const text = execFileSync("git", ["show", `${ref}:${rel}`], { cwd: root, encoding: "utf8" });
+        return { state: "present", text };
       } catch {
         // The ref resolved above, so this failure is about the path: it is
         // genuinely not in that tree.
-        return false;
+        return { state: "absent" };
       }
     },
     /** The upstream tracking ref for HEAD, or null when there is none. */
@@ -562,25 +560,45 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
  * "Could not tell" (no git, no such ref) refuses, because an unanswerable
  * question is not an answer.
  *
+ * THE CHECK IS ON CONTENTS, NOT ON THE PATH. The first version asked only
+ * whether the path existed in the ref, which a committed receipt satisfies
+ * forever -- so EDITING a committed receipt in the working tree activated the
+ * edit immediately, and a grant could be raised locally without anything
+ * durable saying so. That is the same fail-open route this function was
+ * written to close, one level down, and it was found by this very file
+ * refusing to catch its own author raising a grant. Comparing the bytes makes
+ * "durable" mean the thing that is actually granting the rounds.
+ *
  * Returns a reason string on refusal, or null when the receipt is durable.
  */
 export function extensionDurability(io, rel) {
-  if (typeof io.gitContains !== "function") {
+  if (typeof io.gitShow !== "function") {
     return "durability cannot be established (this environment cannot read git), and an extension that is " +
       "not provably durable does not grant rounds";
   }
   const upstream = typeof io.upstreamRef === "function" ? io.upstreamRef() : null;
   const ref = upstream ?? "HEAD";
-  const present = io.gitContains(ref, rel);
-  if (present === true) return null;
-  if (present === false) {
-    return upstream
-      ? `is not present in ${upstream} -- commit and push it before it grants any rounds. An extension that ` +
-        "exists only locally dies with this container, and the next session is offered tripwire 1 again"
-      : "is not committed in HEAD -- commit it before it grants any rounds (there is no upstream ref here, so " +
-        "committed is the most that can be established)";
+  const shown = io.gitShow(ref, rel);
+  // The instruction differs by whether there is anywhere to push to; the
+  // rationale differs by whether the receipt is missing or merely edited.
+  const publish = upstream
+    ? `commit and push it to ${upstream}`
+    : "commit it (there is no upstream ref here, so committed is the most that can be established)";
+  const why =
+    "An extension that exists only in the working tree dies with this container, and the next session is " +
+    "offered tripwire 1 again";
+
+  if (shown?.state === "absent") return `is not in ${ref} -- ${publish} before it grants any rounds. ${why}`;
+  if (shown?.state !== "present") {
+    return `durability could not be established against ${ref}; refusing to grant rounds on an unverifiable extension`;
   }
-  return `durability could not be established against ${ref}; refusing to grant rounds on an unverifiable extension`;
+  // Present by path is not present by content: an edit to a committed receipt
+  // would otherwise take effect the moment it was typed.
+  if (shown.text !== io.read(rel)) {
+    return `differs from the copy in ${ref} -- ${publish} before the edit grants any rounds. The working-tree ` +
+      `version is what would be granting them, and it is the version that is not durable. ${why}`;
+  }
+  return null;
 }
 
 /**
