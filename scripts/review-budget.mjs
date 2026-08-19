@@ -439,7 +439,15 @@ export function nodeIo(root = REPO_ROOT) {
         return { state: "unknown" };
       }
       try {
-        const text = execFileSync("git", ["show", `${ref}:${rel}`], { cwd: root, encoding: "utf8" });
+        // stderr ignored: "path exists on disk, but not in <ref>" is an
+        // EXPECTED state here (an uncommitted decision), not an error, and
+        // letting git narrate it over the top of this module's own message
+        // reads as a crash.
+        const text = execFileSync("git", ["show", `${ref}:${rel}`], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
         return { state: "present", text };
       } catch {
         return { state: "absent" };
@@ -457,6 +465,7 @@ export function nodeIo(root = REPO_ROOT) {
         const out = execFileSync("git", ["ls-tree", "--name-only", ref, `${dir}/`], {
           cwd: root,
           encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
         });
         return out
           .split("\n")
@@ -661,7 +670,24 @@ export function loadLoop(pr, io) {
   }
 
   const budget = readDurableJson(io, ref, budgetPath(pr));
-  if (budget.state === "absent") return { problem: "no-budget" };
+  if (budget.state === "absent") {
+    // The DECISION is identical either way -- absent from the ref is absent.
+    // Only the wording differs, and it matters: "declared but not pushed" is
+    // the likeliest way anyone meets this rule for the first time, and
+    // "no budget declared" would send them to re-run `declare`, which is
+    // exactly the thing that already worked. The working tree is consulted
+    // here to phrase a refusal, never to make one.
+    const writtenLocally = typeof io.exists === "function" && io.exists(budgetPath(pr));
+    if (writtenLocally) {
+      return {
+        problem: "bad-receipt",
+        detail:
+          `${budgetPath(pr)} exists in the working tree but is not in ${ref}. Commit and push it -- a budget ` +
+          "that dies with this container is not a declared budget, and re-running `declare` will not help",
+      };
+    }
+    return { problem: "no-budget" };
+  }
   if (budget.state !== "ok") {
     return { problem: "bad-receipt", detail: `${budgetPath(pr)} could not be read from ${ref} (${budget.state}: ${budget.error})` };
   }

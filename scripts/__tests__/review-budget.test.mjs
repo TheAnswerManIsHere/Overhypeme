@@ -389,6 +389,24 @@ test("an unreadable receipt is refused, never read as absent", () => {
   assert.match(loadLoop(1, unknown).detail, /could not be read from origin\/fake \(unreadable/);
 });
 
+test("a budget written but not pushed says so, instead of \"no budget declared\"", () => {
+  // The decision is the same either way -- absent from the ref is absent --
+  // but this is the likeliest first encounter with the push requirement, and
+  // "no budget declared" would send someone back to `declare`, which already
+  // worked. The working tree is consulted to phrase the refusal, never to
+  // make it.
+  const io = fakeIo({});
+  io.exists = (rel) => rel === budgetPath(40);
+  const verdict = loadLoop(40, io);
+  assert.equal(verdict.problem, "bad-receipt");
+  assert.match(verdict.detail, /exists in the working tree but is not in origin\/fake/);
+  assert.match(verdict.detail, /re-running `declare` will not help/);
+
+  // Genuinely never declared still reports no-budget, so the two stay
+  // distinguishable rather than collapsing into one confusing message.
+  assert.equal(loadLoop(41, fakeIo({})).problem, "no-budget");
+});
+
 test("a branch with no upstream has no durable ref, and refuses", () => {
   // #526 finding 3. There is no HEAD fallback: a commit that never reached a
   // remote dies with this container, which is the exact failure the rule
