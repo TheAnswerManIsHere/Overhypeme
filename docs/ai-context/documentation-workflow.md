@@ -160,6 +160,32 @@ the chapter links to them.
 - **Generated docs were not hand-edited.** If generated content
   (e.g. `ADMIN_FIELD_REFERENCE.md`) is wrong, fix the generator / source
   registry and regenerate — never the output file.
+- **Per-claim verification, not just cross-file consistency** (added
+  2026-08-19 after PRs #525/#513/#528 each shipped a claim of this shape,
+  documented in
+  [`known-failure-patterns.md`](./known-failure-patterns.md#a-document-harvest-drafted-immediately-after-its-triggering-pr-ships-claims-it-hasnt-actually-verified)).
+  This repo's cross-check step already asked whether docs contradict each
+  other; it never asked whether any single claim was actually checked before
+  being written down. For every claim in the harvest that isn't a plain
+  restatement of the diff, ask which of these it's making, and verify it on
+  those terms:
+  - **A fact** — is it actually true, not just plausible? (#525 asserted a
+    security mechanism that doesn't exist in this repo.)
+  - **A scope** — does it claim only what was demonstrated, not a
+    broader-sounding version? (#528 generalized "this mutation is still
+    caught" into "this test is correct and reliable.")
+  - **An internal consistency** — does it agree with the neighboring text in
+    the same entry, not just with other files? (#513 stated an unconditional
+    rule two lines above a carve-out that contradicted it.)
+  - **A citation** — does it represent the *full* source, not a convenient
+    half of it? (#513 credited one of two conditions a cited source named.)
+  - **A number** — was it actually counted, never invented for rhetorical
+    weight? (#513 asserted a specific threshold with no measurement behind
+    it.)
+  - **A routing decision** — does it point at the doc that actually owns
+    that *kind* of tracking (e.g. `deferred-work.md` for deferred
+    engineering work), not wherever was convenient to write? (#513 left a
+    CI-guard candidate in review prose instead of the backlog.)
 
 ## Step 5 — Report & commit
 

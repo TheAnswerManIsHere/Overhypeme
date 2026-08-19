@@ -2426,28 +2426,40 @@ author before review, and genuinely NOT all the same shape:**
 | #513, finding 5 | Treated a deferred CI guard as adequately tracked by review-guidance prose instead of routing it through the repo's actual backlog mechanism. | **Procedural miscategorization** — right observation, wrong home. |
 | #528 (harvesting #515) | Described a mutation-testing technique as distinguishing "correct and reliable" from "too loose" — when killing one deliberately-introduced mutant only establishes that the test still detects *that specific* fault. | **Unscoped generalization** — the one genuinely clean instance of "a real local result restated more broadly than it supports." |
 
-**Why this is still one pattern despite the varied failure kinds.** Not
-because the failures share a mechanism — they don't, and claiming they did
-is the mistake this entry itself made and had to correct. It's a pattern
-because all seven instances share a **cause**: a claim went into a harvest
-without being checked against what it cited, what it implied, or what it
-actually established, because the harvest was drafted in one pass
-immediately after the triggering PR with nothing prompting a second look.
-Three sessions' worth of harvests, same immediate-drafting process, seven
-unverified claims of five different kinds — that's a property of the
-process, not of any one PR's content, even though the individual defects
-don't reduce to a single mechanism.
+**Why this is still one pattern despite the varied failure kinds — and what's
+NOT established.** Not because the failures share a mechanism — they don't,
+and claiming they did is the mistake this entry itself made and had to
+correct (round 1 of this entry's own review). **A second, narrower
+overclaim survived that correction and needs naming too (round 2, same
+review): the claim that immediate, no-cooling-off drafting is the shared
+*cause*.** That's unverified — the three PRs show that several defects
+occurred during immediate harvests, not that immediacy caused them, and this
+repo's own [`documentation-workflow.md`](./documentation-workflow.md) Step 4
+already runs a cross-check before every harvest commits. Timing isn't
+established as the explanation; what's established is narrower and more
+useful: **the cross-check that already exists didn't ask these particular
+questions.** Step 4's cross-check catches duplicate homes, manual/ai-context
+contradictions, and invented product truth — none of which cover "is this
+specific claim actually true," "does this stated scope match what was
+demonstrated," or "does this number reflect an actual count." A defect
+sailing through a real cross-check that doesn't ask about it is not evidence
+about *why* the defect was written; it's only evidence that nothing was
+positioned to catch it once written.
 
-**What to do instead.** Don't reach for a single unifying mechanism to
-explain a cluster of review findings unless the findings actually share one
-— check each instance against the others before generalizing, the same
-discipline the "does not apply" step below asks of the *claims themselves*.
-For the underlying harvest-drafting problem: before submitting a harvest,
-re-read every claim that isn't a plain restatement of the diff and ask,
-per claim, which of these it's making — **a fact** (verify it's true, not
-just plausible), **a scope** (state only what was actually demonstrated,
-not the more satisfying-sounding broader version), **a citation** (check it
-represents the full source, not a convenient half), **a number** (only if
-it was actually counted, never invented for rhetorical weight), or **a
-routing decision** (to the doc that actually owns that kind of tracking).
-Five different questions, because they were five different failures.
+**What to do instead.** Don't reach for a single unifying mechanism — or a
+single unifying cause — to explain a cluster of review findings unless the
+findings actually establish one; check each claim against what it would
+take to verify *that* claim, not against a narrative that makes a tidier
+paragraph. That applies to this entry's own two rounds of correction as much
+as to the harvests it describes. For the underlying gap: `documentation-workflow.md`'s Step 4 now
+carries the actual per-claim check (added alongside this entry) — six
+questions for six failure kinds, not five for five, since the table above
+lists six: **a fact**, **a scope**, **an internal consistency** (does the
+claim agree with its own neighboring text, not just with other files —
+missing from this entry's first fix, which listed five questions for what
+was already a six-kind table), **a citation**, **a number**, and **a
+routing decision**. Putting the check in `documentation-workflow.md` rather
+than only here matters structurally: that's the doc every `/document` run
+actually consults, while this failure-patterns file is loaded by whichever
+sessions happen to touch the handful of subsystems that reference it — a
+mitigation that lives only here would never reach most harvests.
