@@ -484,11 +484,21 @@ false, which is the same defect as the pattern itself. (Codex, #506 round 1.)
 
 ## A count in prose is a hand-maintained duplicate of the thing it counts
 
-**Applies to any number written into a doc, comment, header or PR body** — "four
-findings", "five failed attempts", "three removed outright", "236 tests". The
-number duplicates an enumeration that lives somewhere else, so it is a
+**Applies to a number that summarizes a separately-maintained enumerated
+set** — "four findings", "five failed attempts", "three removed outright."
+The number duplicates an enumeration that lives somewhere else, so it is a
 [duplicate source of truth](../ai-context/known-failure-patterns.md) in
 miniature — and the copy is the one that rots.
+
+**Does not apply to a standalone scalar with no enumeration behind it** — a
+configured limit, a threshold, a date, or a count read directly from a
+canonical, mechanically-produced source ("236 tests" straight from the test
+runner's own summary line has nothing to enumerate against; it either matches
+the runner's current output or it doesn't). Telling a reviewer to "enumerate
+or delete" a value like that would be asking them to invent an enumeration
+that was never the source of truth in the first place. The distinction is
+whether some other artifact enumerates the members this number is counting —
+if yes, this pattern applies; if the number **is** the artifact, it doesn't.
 
 **What makes it worse than an ordinary stale claim:** it goes stale *during the
 edit that is fixing something else*, so the moment of highest attention is also
@@ -514,11 +524,11 @@ attempt**, in a section whose subject is claims going stale.
 produced instance three — the count was corrected and the body it summarized
 was not, so the paragraph was internally inconsistent in a *new* way.
 
-**Graduation trigger, recorded rather than acted on:** three recurrences in one
-session makes a deterministic check a named candidate under this repo's
-recurring-failure→CI-guard rule. That is a code change and does not belong in a
-documentation pass; this entry exists so the next occurrence is the fourth and
-not the first.
+**Graduation trigger.** Three recurrences in one session makes a deterministic
+check a named candidate under this repo's recurring-failure→CI-guard rule.
+That's a code change, so it's tracked as a proper backlog item —
+[`deferred-work.md`](deferred-work.md#code-level-tech-debt) — rather than
+left to whoever next re-reads this paragraph during a maintenance sweep.
 
 ## A boundary that resists repeated definition is missing a decision, not a better sentence
 
@@ -534,16 +544,23 @@ in `CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* — not
 repeated here, since the instance belongs to that contract and only the
 generalization belongs in shared review practice.
 
-**What actually ended it was a decision nobody had made yet** — an owner
-resolving what a dispatched verdict is *worth* — not a sixth attempt at
-wording. Once that fact existed, the taxonomy the definitions had been
-groping for stopped being needed at all.
+**What actually ended it was two things arriving together, and neither was a
+better sentence:** an owner resolving what a dispatched verdict is *worth*,
+and that same owner separately instructing that the boundary stop being
+defined at all. The first fact alone didn't stop the drafting — it was
+immediately spent deriving a sixth attempt, in the same breath as recording
+the fifth having failed. It took the explicit stop instruction, on top of the
+new fact, to actually end the cycle. A generalization that keeps only the
+first condition would predict that the fact alone should have been enough,
+which is the opposite of what happened.
 
 **Two consequences worth having in front of you during a review loop:**
 
-- **Count the attempts.** Three failed definitions of the same boundary is the
-  signal to stop drafting and go find the missing decision. It is cheap to
-  count and easy to miss, because each individual attempt feels like progress.
+- **Count the attempts.** Repeated failed definitions of the same boundary —
+  not a specific number; the worked example ran to five with nothing
+  stopping it at three or four — is the signal to stop drafting and go find
+  the missing decision. It is cheap to count and easy to miss, because each
+  individual attempt feels like progress.
 - **Once the decision arrives, the temptation is to spend it on one more
   definition.** That is exactly what happened on #504: the new fact was used to
   derive attempt five, in the same commit that recorded four having failed.

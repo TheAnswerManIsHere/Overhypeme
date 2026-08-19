@@ -2204,9 +2204,13 @@ which must read the PR branch under review, not `main`:
    post-merge `/document` judgement is about `main` at the merge commit; a
    review-loop adjudication is about the PR head; a triage challenge may not
    be about a tree at all.
-2. **Check the working tree matches that commit before dispatching.** The
-   subagent inherits my checkout, and my checkout follows whatever branch I was
-   last working on — which is exactly as likely to be stale as not.
+2. **When the question is about a tree — which item 1 says isn't every
+   case — check the working tree matches that commit before dispatching.**
+   The subagent inherits my checkout, and my checkout follows whatever
+   branch I was last working on — which is exactly as likely to be stale as
+   not. A triage challenge with no tree or commit to check skips this item
+   entirely rather than being blocked on it or forced to pin an arbitrary
+   commit just to satisfy the step.
 3. **Instruct the judge to verify load-bearing premises against that state**
    rather than taking them from me. The re-run that corrected this one was told
    the earlier premise, told it was false, and asked to confirm before
