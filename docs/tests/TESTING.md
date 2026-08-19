@@ -211,11 +211,18 @@ degrades into a total-duration cap), confirm the widened test still fails on
 that specific mutation with the right assertion, then revert the mutation.
 That the *old*, tighter test also passed under local load is expected and is
 exactly why it isn't evidence either way — the mutation check is what actually
-distinguishes "correct and reliable" from "so loose it stopped checking
-anything." Worked example: PR #515 widened `cliJobPoller.test.ts`'s stall
-margins 8x (15ms of real headroom to 100ms) after CI failures escalated to
-blocking every manual-touching docs PR, and used this technique to confirm the
-poller's zero-progress invariant was still actually being asserted.
+distinguishes "still detects this specific regression" from "widened past the
+point of checking anything." **Scope of what this proves:** killing the
+mutant confirms the widened test still catches *that* fault; it says nothing
+about whether the margins are wide enough to hold under real CI load
+generally, or whether the test would catch a *different* regression than the
+one mutated. Repeated CI runs are the separate evidence for reliability under
+load — this technique answers "did the widening blind the test," not "is the
+test flake-free now." Worked example: PR #515 widened `cliJobPoller.test.ts`'s
+stall margins 8x (15ms of real headroom to 100ms) after CI failures escalated
+to blocking every manual-touching docs PR, and used this technique to confirm
+the poller's zero-progress invariant was still actually being asserted after
+the widening.
 
 External services (Pexels, object storage, pricing, embeddings, image/video
 generation, Stripe) must be stubbed/mocked or disabled with test-mode helpers in
