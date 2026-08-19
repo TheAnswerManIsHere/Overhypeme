@@ -9,7 +9,9 @@ import {
   budgetPath,
   extensionPath,
   checkPath,
+  claimPath,
   loadLoop,
+  nodeIo,
   mentionsReviewRequest,
   prNumberFrom,
   targetsThisRepo,
@@ -56,6 +58,14 @@ export function fakeIo(files = {}) {
     releaseClaim: (rel) => {
       delete store[rel];
     },
+    // Per-generation nonce. Deterministic in the fake so a test can predict
+    // the claim path a check will mint.
+    nonce: () => "0123456789abcdef",
+    // The fake tree is "what is committed": a receipt the tests wrote is
+    // durable unless a test says otherwise by overriding this member. The
+    // durability tests do exactly that.
+    gitContains: (_ref, rel) => rel in store,
+    upstreamRef: () => "origin/fake",
   };
 }
 
@@ -84,6 +94,7 @@ const check = (pr, spent, extra = {}) =>
     delivered: spent,
     pending: 0,
     spent,
+    nonce: "0123456789abcdef",
     ...extra,
   });
 
@@ -169,7 +180,7 @@ test("a round is a completed reviewer pass, counted from GitHub", () => {
     reviewerPasses: [pass("2026-08-17T10:00:00Z"), pass("2026-08-17T11:00:00Z")],
     issueComments: [],
   });
-  assert.deepEqual(counted, { delivered: 2, pending: 0, spent: 2 });
+  assert.deepEqual(counted, { delivered: 2, pending: 0, spent: 2, ambiguous: false });
 });
 
 test("the automatic opening review needs no special flag — it is simply a pass", () => {
@@ -184,7 +195,7 @@ test("a request awaiting its review counts as one pending round", () => {
     reviewerPasses: [pass("2026-08-17T10:00:00Z")],
     issueComments: [comment("2026-08-17T10:30:00Z")],
   });
-  assert.deepEqual(counted, { delivered: 1, pending: 1, spent: 2 });
+  assert.deepEqual(counted, { delivered: 1, pending: 1, spent: 2, ambiguous: false });
 });
 
 test("a stall and its retry are ONE pending round, not two", () => {
@@ -196,13 +207,13 @@ test("a stall and its retry are ONE pending round, not two", () => {
     reviewerPasses: [pass("2026-08-17T10:00:00Z")],
     issueComments: [comment("2026-08-17T10:30:00Z"), comment("2026-08-17T10:45:00Z")],
   });
-  assert.deepEqual(stalled, { delivered: 1, pending: 1, spent: 2 }, "two requests, one round in flight");
+  assert.deepEqual(stalled, { delivered: 1, pending: 1, spent: 2, ambiguous: false }, "two requests, one round in flight");
 
   const answered = countRounds({
     reviewerPasses: [pass("2026-08-17T10:00:00Z"), pass("2026-08-17T11:00:00Z")],
     issueComments: [comment("2026-08-17T10:30:00Z"), comment("2026-08-17T10:45:00Z")],
   });
-  assert.deepEqual(answered, { delivered: 2, pending: 0, spent: 2 }, "the stall costs nothing once answered");
+  assert.deepEqual(answered, { delivered: 2, pending: 0, spent: 2, ambiguous: false }, "the stall costs nothing once answered");
 });
 
 test("a trigger comment BEFORE the last pass is that pass's request, not a pending one", () => {
@@ -817,9 +828,152 @@ test("one check authorizes one post even when two are issued together", () => {
   assert.match(second.reason, /already been claimed by another post in flight/);
 });
 
+// ---------------------------------------------------------------------------
+// Codex, #503 head pass. Three fail-open routes, each of which let a single
+// authorization produce more than the one round it authorized.
+// ---------------------------------------------------------------------------
+
+test("a fresh check cannot destroy a live claim, because the claim is keyed to the receipt's generation", () => {
+  // The route: `check` used to delete the PR's one claim file before writing a
+  // fresh receipt. A `check` running while a post was mid-flight destroyed
+  // that post's LIVE claim, so a second post could claim the new receipt while
+  // the first still proceeded on the one it had already read -- two requests
+  // from one single-use authorization.
+  const io = fakeIo({ [budgetPath(20)]: budget(20), [checkPath(20)]: check(20, 0) });
+  assert.equal(judgeReviewRequest(post(20), io, NOW).blocked, false, "the first post claims generation A");
+
+  const claimA = claimPath(20, "0123456789abcdef");
+  assert.equal(claimA in io.store, true, "generation A's claim is on disk");
+
+  // A new generation arrives (a fresh `check` run). It is a DIFFERENT file, so
+  // nothing needs deleting and generation A's claim survives untouched.
+  io.store[checkPath(20)] = check(20, 0, { nonce: "fedcba9876543210" });
+  assert.equal(claimA in io.store, true, "the new generation cannot reach the old claim");
+
+  // And a post replaying generation A is still refused by A's own claim.
+  io.store[checkPath(20)] = check(20, 0);
+  const replay = judgeReviewRequest(post(20), io, NOW);
+  assert.equal(replay.blocked, true);
+  assert.match(replay.reason, /already been claimed by another post in flight/);
+});
+
+test("the claim path is derived from the nonce, and a receipt without one is refused", () => {
+  assert.equal(claimPath(20, "0123456789abcdef"), `${checkPath(20)}.0123456789abcdef.claim`);
+  assert.notEqual(
+    claimPath(20, "0123456789abcdef"),
+    claimPath(20, "fedcba9876543210"),
+    "two generations must never share a claim file -- that sharing IS the race",
+  );
+  // Fail closed rather than falling back to a shared path.
+  assert.throws(() => claimPath(20, undefined), /carries no usable nonce/);
+  assert.throws(() => claimPath(20, "not-hex"), /carries no usable nonce/);
+
+  // A receipt minted before this keying existed has no generation to key to,
+  // so it is refused at validation rather than claimed on a guessed path.
+  const stale = fakeIo({ [budgetPath(21)]: budget(21), [checkPath(21)]: check(21, 0, { nonce: undefined }) });
+  const verdict = judgeReviewRequest(post(21), stale, NOW);
+  assert.equal(verdict.blocked, true);
+  assert.match(verdict.reason, /carries no generation nonce/);
+});
+
+test("a request in the same second as the latest pass is cannot-determine, not zero", () => {
+  // The route: `pending` was computed with a strict `>`, so a request sharing
+  // its second with the latest completed pass read as pending 0 -- which at
+  // the cap frees the tripwire to authorize one more request that may already
+  // be in flight. Second-resolution timestamps make the tie ordinary, not
+  // exotic.
+  const tie = countRounds({
+    reviewerPasses: [pass("2026-08-17T10:00:00Z")],
+    issueComments: [comment("2026-08-17T10:00:00Z")],
+  });
+  assert.equal(tie.pending, 0, "the tie cannot be counted as pending either -- it is unordered");
+  assert.equal(tie.ambiguous, true, "so the count is flagged as undeterminable rather than reported as fact");
+
+  // A tie is only ambiguous when nothing later resolves it: a request strictly
+  // after the pass is an ordinary pending round, tie or no tie.
+  const resolved = countRounds({
+    reviewerPasses: [pass("2026-08-17T10:00:00Z")],
+    issueComments: [comment("2026-08-17T10:00:00Z"), comment("2026-08-17T10:30:00Z")],
+  });
+  assert.deepEqual(resolved, { delivered: 1, pending: 1, spent: 2, ambiguous: false });
+});
+
+test("the real git adapter distinguishes absent-from-the-tree from cannot-tell", () => {
+  // The fake models gitContains as a three-way answer; this asserts the REAL
+  // adapter actually produces all three. It matters because the first version
+  // could not: it read `git cat-file -e`'s exit status, and that command exits
+  // 128 BOTH for a path missing from the tree and for a ref that does not
+  // exist. The "not committed -- commit it" branch was unreachable, so every
+  // uncommitted extension reported the vaguer "could not be established"
+  // instead of the actionable reason. Resolving the ref first is what splits
+  // them, and only a test against real git can catch it going back.
+  const io = nodeIo();
+  assert.equal(io.gitContains("HEAD", "CLAUDE.md"), true, "a tracked file in HEAD");
+  assert.equal(
+    io.gitContains("HEAD", "no-such-file-at-the-repo-root.md"),
+    false,
+    "the ref resolves and the path is not in it -- an answer, not an unknown",
+  );
+  assert.equal(
+    io.gitContains("no-such-ref-exists-here", "CLAUDE.md"),
+    null,
+    "no such ref -- could not tell, which the caller must treat as refuse",
+  );
+});
+
+test("an extension receipt that is not provably durable grants no rounds", () => {
+  // The route: an extension living only in the working tree activated
+  // immediately. If the session died before committing it, the grant vanished
+  // with the container and the next session was offered tripwire 1 again --
+  // bypassing "no second self-service extension, ever".
+  const rel = `.agents/receipts/loop-extension-22-1.json`;
+  const files = {
+    [budgetPath(22)]: budget(22),
+    [RECORD(22)]: recordFile(22),
+    [rel]: json(adjudication(22)),
+    [checkPath(22)]: check(22, 3),
+  };
+
+  // Present in the upstream ref: durable, and the grant is live.
+  const committed = fakeIo(files);
+  assert.equal(judgeReviewRequest(post(22), committed, NOW).blocked, false);
+
+  // Uncommitted: refused, and the refusal says what to do about it.
+  const local = fakeIo(files);
+  local.gitContains = () => false;
+  const uncommitted = judgeReviewRequest(post(22), local, NOW);
+  assert.equal(uncommitted.blocked, true);
+  assert.match(uncommitted.reason, /is not present in origin\/fake -- commit and push it/);
+
+  // No upstream ref: HEAD is the most that can be established, and the reason
+  // says so rather than overclaiming.
+  const noUpstream = fakeIo(files);
+  noUpstream.upstreamRef = () => null;
+  noUpstream.gitContains = () => false;
+  assert.match(judgeReviewRequest(post(22), noUpstream, NOW).reason, /is not committed in HEAD/);
+
+  // Cannot tell -- default refuse. An unanswerable question is not an answer.
+  const unknown = fakeIo(files);
+  unknown.gitContains = () => null;
+  assert.match(
+    judgeReviewRequest(post(22), unknown, NOW).reason,
+    /durability could not be established against origin\/fake/,
+  );
+
+  // No git at all: same default, phrased for an environment that cannot ask.
+  const noGit = fakeIo(files);
+  delete noGit.gitContains;
+  assert.match(judgeReviewRequest(post(22), noGit, NOW).reason, /durability cannot be established/);
+});
+
 test("a round-check receipt must carry a coherent delivered/pending split", () => {
   // The gate reads these directly now, so neither may be absent or wrong.
-  const base = { pr: 1, repo: `${REPO_OWNER}/${REPO_NAME}`, capturedAt: new Date(NOW - 60_000).toISOString() };
+  const base = {
+    pr: 1,
+    repo: `${REPO_OWNER}/${REPO_NAME}`,
+    capturedAt: new Date(NOW - 60_000).toISOString(),
+    nonce: "0123456789abcdef",
+  };
   assert.match(
     validateCheckReceipt(1, { ...base, spent: 2, pending: 0 }, NOW),
     /no usable delivered count/,

@@ -81,6 +81,8 @@
  * budget guard a syntax error switches off.
  */
 
+import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -253,8 +255,30 @@ export const checkPath = (pr) => `${RECEIPTS_DIR}/loop-round-check-${pr}.json`;
  * (Codex, #503 round 4.) The claim closes that window because creating it is
  * a single atomic syscall -- exactly one process can win, whatever the
  * interleaving. `consumedAt` stays as the human-readable record of when.
+ *
+ * THE CLAIM IS KEYED TO THE RECEIPT'S GENERATION, not to the PR. An earlier
+ * version used one path per PR and had `check` delete it when writing a fresh
+ * receipt -- so a `check` running while a post was mid-flight destroyed that
+ * post's LIVE claim, and a second post could then claim the new receipt while
+ * the first still proceeded on the one it had already read. Two requests from
+ * one single-use authorization. (Codex, #503 head pass.)
+ *
+ * Keying by the receipt's `nonce` removes the race rather than narrowing it:
+ * a new receipt's claim is a DIFFERENT FILE, so `check` never needs to delete
+ * anything and cannot touch a claim it did not create. Claims for spent
+ * generations are inert -- they are gitignored, and a stale one can only ever
+ * refuse a post that quotes its own already-consumed generation, which is the
+ * safe direction.
  */
-export const claimPath = (pr) => `${checkPath(pr)}.claim`;
+export const claimPath = (pr, nonce) => {
+  if (typeof nonce !== "string" || !/^[0-9a-f]{16}$/.test(nonce)) {
+    // Fail closed on a receipt with no usable generation: without a nonce the
+    // claim would fall back to a shared path, which is the collision this
+    // keying exists to remove.
+    throw new Error(`round-check receipt for PR #${pr} carries no usable nonce; run check again`);
+  }
+  return `${checkPath(pr)}.${nonce}.claim`;
+};
 
 /**
  * The sequence in an extension filename for this PR, or null if the name is
@@ -336,6 +360,56 @@ export function nodeIo(root = REPO_ROOT) {
         fs.unlinkSync(abs(rel));
       } catch (err) {
         if (err.code !== "ENOENT") throw err;
+      }
+    },
+    /** A fresh receipt generation. Random, never derived from time: two checks
+     * inside one second must not collide on a claim path. */
+    nonce: () => crypto.randomBytes(8).toString("hex"),
+    /**
+     * Does `ref` contain `rel`? Used to prove an extension receipt is DURABLE
+     * before it grants anything -- see loadLoop. Returns false for "not there",
+     * null for "could not tell" (no such ref, git unavailable), and the caller
+     * treats null as refuse rather than as absent, because "I could not check"
+     * is not evidence of durability.
+     */
+    gitContains(ref, rel) {
+      // TWO calls, because ONE cannot tell the two failures apart. Measured
+      // 2026-08-19 in this repo: `git cat-file -e HEAD:missing.md` and
+      // `git cat-file -e no-such-ref:CLAUDE.md` BOTH exit 128, and
+      // `rev-parse --verify --quiet` returns 1 for both. So an exit code
+      // alone can never distinguish "the ref exists and the file is not in
+      // it" (an answer: false) from "there is no such ref" (not an answer:
+      // null). Resolving the ref first splits them cleanly, and each half is
+      // then unambiguous.
+      try {
+        execFileSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+          cwd: root,
+          stdio: "ignore",
+        });
+      } catch {
+        return null; // no such ref -- could not tell, so the caller refuses
+      }
+      try {
+        execFileSync("git", ["cat-file", "-e", `${ref}:${rel}`], {
+          cwd: root,
+          stdio: "ignore",
+        });
+        return true;
+      } catch {
+        // The ref resolved above, so this failure is about the path: it is
+        // genuinely not in that tree.
+        return false;
+      }
+    },
+    /** The upstream tracking ref for HEAD, or null when there is none. */
+    upstreamRef() {
+      try {
+        return execFileSync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+          cwd: root,
+          encoding: "utf8",
+        }).trim();
+      } catch {
+        return null;
       }
     },
   };
@@ -470,6 +544,46 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
 // ---------------------------------------------------------------------------
 
 /**
+ * An extension receipt must be DURABLE before it grants anything.
+ *
+ * The receipt is now the only record enforcing "no second self-service
+ * extension, ever" -- so an extension living only in the working tree is a
+ * grant that dies with the container. The session that wrote it spends the
+ * rounds; the next session counts those same rounds from GitHub, no longer
+ * sees the extension, and is offered tripwire 1 and a second self-service
+ * extension. Nobody acts in bad faith and the invariant is gone. This
+ * container is ephemeral, so "the session ended before the receipt was
+ * pushed" is an ordinary Tuesday. (Codex, #503 head pass.)
+ *
+ * DEFAULT REFUSE, with a burden of proof -- deliberately not a list of
+ * durable-enough cases. Where an upstream ref exists, the receipt must be in
+ * it: committed AND pushed. Where it does not, being in `HEAD` is the most
+ * that can be established, and that is stated as the weaker thing it is.
+ * "Could not tell" (no git, no such ref) refuses, because an unanswerable
+ * question is not an answer.
+ *
+ * Returns a reason string on refusal, or null when the receipt is durable.
+ */
+export function extensionDurability(io, rel) {
+  if (typeof io.gitContains !== "function") {
+    return "durability cannot be established (this environment cannot read git), and an extension that is " +
+      "not provably durable does not grant rounds";
+  }
+  const upstream = typeof io.upstreamRef === "function" ? io.upstreamRef() : null;
+  const ref = upstream ?? "HEAD";
+  const present = io.gitContains(ref, rel);
+  if (present === true) return null;
+  if (present === false) {
+    return upstream
+      ? `is not present in ${upstream} -- commit and push it before it grants any rounds. An extension that ` +
+        "exists only locally dies with this container, and the next session is offered tripwire 1 again"
+      : "is not committed in HEAD -- commit it before it grants any rounds (there is no upstream ref here, so " +
+        "committed is the most that can be established)";
+  }
+  return `durability could not be established against ${ref}; refusing to grant rounds on an unverifiable extension`;
+}
+
+/**
  * Load the budget and extensions for one loop. Returns either a `problem`
  * (fail closed, with the reason already phrased for the refusal) or the
  * loop's state.
@@ -526,6 +640,8 @@ export function loadLoop(pr, io) {
     }
     const error = validateExtension(pr, tier, parsed.value, { adjudicationsAlreadySeen: adjudicationsSeen, io });
     if (error) return { problem: "bad-receipt", detail: `${rel}: ${error}` };
+    const durability = extensionDurability(io, rel);
+    if (durability) return { problem: "bad-receipt", detail: `${rel}: ${durability}` };
     if (parsed.value.kind === "adjudication") adjudicationsSeen += 1;
     extensions.push({ seq, ...parsed.value });
   }
@@ -597,7 +713,7 @@ const hasAdjudication = (extensions) => extensions.some((e) => e.kind === "adjud
 export function countRounds({ reviewerPasses, issueComments }) {
   const delivered = reviewerPasses.length;
   const lastPassAt = delivered ? Date.parse(reviewerPasses[delivered - 1].at) : -Infinity;
-  const pending = (issueComments ?? []).some(
+  const triggers = (issueComments ?? []).filter(
     (c) =>
       // A REVIEWER NEVER REQUESTS ITS OWN REVIEW. Codex's connector footer
       // quotes the trigger verbatim ("Reviews are triggered when you ... comment
@@ -607,13 +723,25 @@ export function countRounds({ reviewerPasses, issueComments }) {
       // footer would skip the refusal entirely -- and re-skip it every time a
       // later response carried a newer footer. `pr-ready.mjs` already filters
       // reviewer logins for the same reason. (Codex, #503 round 5.)
-      !REVIEWER_LOGINS.has(normalizeLogin(c.user?.login)) &&
-      mentionsReviewRequest(c.body) &&
-      Date.parse(c.created_at ?? "") > lastPassAt,
-  )
-    ? 1
-    : 0;
-  return { delivered, pending, spent: delivered + pending };
+      !REVIEWER_LOGINS.has(normalizeLogin(c.user?.login)) && mentionsReviewRequest(c.body),
+  );
+  const pending = triggers.some((c) => Date.parse(c.created_at ?? "") > lastPassAt) ? 1 : 0;
+
+  // GitHub timestamps have SECOND resolution, so a request posted in the same
+  // second as the pass before it is genuinely unordered: `>` reads it as
+  // already-answered and reports `pending: 0`, which suppresses nothing but
+  // frees the tripwire to authorize another request from the same delivered
+  // count -- at the cap, that is one round too many. (Codex, #503 head pass.)
+  //
+  // A tie only matters when it would DECIDE the answer. If some other trigger
+  // is strictly later, `pending` is already 1 and the tie changes nothing.
+  // Reported rather than resolved: the caller refuses to mint a receipt, and
+  // the ambiguity clears on its own the moment either the pass or the request
+  // is joined by anything with a later timestamp.
+  const ambiguous =
+    pending === 0 && triggers.some((c) => Date.parse(c.created_at ?? "") === lastPassAt);
+
+  return { delivered, pending, spent: delivered + pending, ambiguous };
 }
 
 /** What the round-check CLI writes and the guard demands. */
@@ -626,6 +754,12 @@ export function validateCheckReceipt(pr, receipt, now) {
   }
   if (!Number.isInteger(receipt.spent) || receipt.spent < 0) {
     return `round-check receipt carries no usable round count (spent: ${JSON.stringify(receipt.spent)})`;
+  }
+  // The generation the claim is keyed to. A receipt without it cannot be
+  // claimed at all (claimPath throws), so refuse here with a message that says
+  // what to do rather than letting the throw surface as an I/O failure.
+  if (typeof receipt.nonce !== "string" || !/^[0-9a-f]{16}$/.test(receipt.nonce)) {
+    return "round-check receipt carries no generation nonce -- it predates the per-generation claim; run check again";
   }
   // The gate reads these two directly (a retry of a stalled round is not a new
   // round), so neither may be absent or wrong-typed.
@@ -815,7 +949,7 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
   // claim, ENOSPC on the write -- were therefore the ones that let a request
   // through. (Codex, #503 round 5.)
   try {
-    if (!io.claimOnce(claimPath(pr))) {
+    if (!io.claimOnce(claimPath(pr, check.value.nonce))) {
       return {
         blocked: true,
         reason:
@@ -1062,6 +1196,15 @@ async function check(flags, io) {
     issueComments: snapshot.issueComments,
   });
 
+  if (counted.ambiguous) {
+    throw new Error(
+      `cannot determine this loop's round count: a review request on PR #${pr} carries the SAME second as ` +
+        "the latest completed pass, so whether that request is still in flight is unordered. Refusing to " +
+        "mint a receipt rather than guessing -- at the cap, guessing wrong authorizes a round that is not " +
+        "there. Re-capture the snapshot once anything newer has landed and the tie resolves itself.",
+    );
+  }
+
   const receipt = {
     pr,
     repo: `${REPO_OWNER}/${REPO_NAME}`,
@@ -1070,12 +1213,14 @@ async function check(flags, io) {
     // snapshot mint an indefinitely-renewable receipt.
     capturedAt: snapshot.capturedAt,
     mintedAt: io.now(),
+    // This receipt's generation. The guard's claim path is derived from it, so
+    // a fresh receipt gets a fresh claim WITHOUT deleting the previous one --
+    // see the claimPath header. Never reused: `check` mints a new one every
+    // time, so a replayed receipt cannot inherit a live claim.
+    nonce: io.nonce(),
     ...counted,
   };
   io.write(checkPath(pr), `${JSON.stringify(receipt, null, 2)}\n`);
-  // A fresh receipt gets a fresh claim: the guard claims by exclusive create,
-  // so a leftover claim from the previous post would refuse this one.
-  io.releaseClaim(claimPath(pr));
 
   const cap = allowance(state.tier, state.extensions, counted.spent);
   const verdict =

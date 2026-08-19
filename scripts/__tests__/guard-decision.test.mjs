@@ -764,6 +764,9 @@ const memoryIo = (files = {}) => {
     releaseClaim: (rel) => {
       delete store[rel];
     },
+    nonce: () => "0123456789abcdef",
+    gitContains: (_ref, rel) => rel in store,
+    upstreamRef: () => "origin/fake",
   };
 };
 
@@ -786,6 +789,7 @@ const checkFile = (pr, spent) =>
     delivered: spent,
     pending: 0,
     spent,
+    nonce: "0123456789abcdef",
   });
 
 const budgeted = (extra = {}) =>
