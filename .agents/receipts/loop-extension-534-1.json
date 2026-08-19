@@ -1,0 +1,10 @@
+{
+  "pr": 534,
+  "kind": "adjudication",
+  "verdict": "ship-with-gaps-recorded",
+  "grant": 0,
+  "risk": "",
+  "gaps": [],
+  "recordPath": ".agents/adjudications/534-1.json",
+  "adjudicatedAt": "2026-08-19T19:42:39.506Z"
+}
