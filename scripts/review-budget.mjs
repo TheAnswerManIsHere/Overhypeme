@@ -92,6 +92,13 @@ import { REVIEWER_LOGINS, normalizeLogin } from "./loop-metrics.mjs";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export const RECEIPTS_DIR = ".agents/receipts";
+
+// The canonical value lives in review-loop-record.mjs, which already imports
+// FROM this file (loadLoop, allowance, countRounds, tierCap, ...) -- importing
+// it back here would be circular. Duplicated as a literal instead, same
+// posture as RECEIPTS_DIR above: a stable, well-known repo-relative path, not
+// a value expected to drift.
+const ADJUDICATIONS_DIR = ".agents/adjudications";
 export const REPO_OWNER = "TheAnswerManIsHere";
 export const REPO_NAME = "Overhypeme";
 
@@ -475,6 +482,16 @@ export function validateBudget(pr, receipt) {
  * defend against.
  */
 function validateRecordReference(pr, tier, recordPath, io) {
+  // pr-ready.mjs's merge-gate fallback requires every recordPath to live
+  // under ADJUDICATIONS_DIR (never trusting an arbitrary path), so a
+  // receipt this guard accepts as closing the loop must be one that gate
+  // can also honor -- otherwise the same structural deadlock PR #534 hit
+  // recurs under a different path. Checked here, not just there, so the
+  // deadlock is impossible at the point the receipt is first accepted.
+  // (Codex, #539 round 3.)
+  if (typeof recordPath !== "string" || !recordPath.startsWith(`${ADJUDICATIONS_DIR}/`)) {
+    return `recordPath ${JSON.stringify(recordPath)} is not under ${ADJUDICATIONS_DIR}/ -- pr-ready.mjs's merge gate will never accept it`;
+  }
   if (!io) return null; // pure-validation callers; the guard always passes io
   const parsed = readJson(io, recordPath);
   if (parsed.state === "absent") return `cited mechanical record ${recordPath} does not exist`;
@@ -515,6 +532,29 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
     // that gate -- exactly the deadlock PR #534 hit. (Codex, #539 round 2.)
     if (typeof receipt.recordPath !== "string" || !receipt.recordPath.trim()) {
       return "adjudication receipt must cite the mechanical record it ruled on in `recordPath`";
+    }
+    // The record's own `generatedAt` is written BEFORE the adjudicator is
+    // even dispatched (step 1 of the tripwire procedure runs
+    // review-loop-record.mjs, THEN step 2 dispatches Fable) -- so it
+    // predates the actual decision and cannot stand in for "when was this
+    // verdict decided". `decidedAt` is the moment this receipt itself was
+    // written, which pr-ready.mjs's merge gate uses to order fresh evidence
+    // against the real decision rather than its input's preparation time.
+    // (Codex, #539 round 3.)
+    if (!Number.isFinite(Date.parse(receipt.decidedAt ?? ""))) {
+      return "adjudication receipt must carry a parseable `decidedAt` -- when the verdict was actually decided, not when its input record was generated";
+    }
+    // The adjudicator's documented output schema (review-loop-adjudicator.md)
+    // always returns `reasoning` and `gaps`, for every verdict -- carrying
+    // only pr/kind/verdict/recordPath/decidedAt into the committed receipt
+    // discards the adjudicator's actual justification and, for
+    // ship-with-gaps-recorded specifically, the durable record of what's
+    // knowingly being left. (Codex, #539 round 3.)
+    if (typeof receipt.reasoning !== "string" || !receipt.reasoning.trim()) {
+      return "adjudication receipt must carry the adjudicator's `reasoning`, verbatim";
+    }
+    if (!Array.isArray(receipt.gaps)) {
+      return "adjudication receipt must carry the adjudicator's `gaps` array, verbatim (empty is valid for a verdict with no known gaps)";
     }
     const recordError = validateRecordReference(pr, tier, receipt.recordPath, io);
     if (recordError) return recordError;
@@ -849,9 +889,13 @@ function refusal(pr, state, spent) {
       `say out loud that you are dispatching it (the announce-don't-sneak rule in the model-routing skill).\n` +
       `  3. Write its verdict to ${extensionPath(pr, nextSeq)} ` +
       `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate), and commit it. ` +
-      `Every verdict -- not just "continue" -- must also carry \`recordPath\`, citing the exact record ` +
-      `path step 1 printed: a ship-with-gaps-recorded receipt with no recordPath closes this guard but can ` +
-      `never satisfy pr-ready.mjs's merge gate, which derives its diff baseline from that record.\n` +
+      `Every verdict -- not just "continue" -- must also carry \`recordPath\` (citing the exact record path ` +
+      `step 1 printed) and \`decidedAt\` (an ISO timestamp of when THIS receipt is being written, not when ` +
+      `the record was generated in step 1). Carry the adjudicator's own \`reasoning\` and \`gaps\` fields ` +
+      `into the receipt verbatim -- a receipt with only pr/kind/verdict/recordPath/decidedAt closes this ` +
+      `guard but discards the adjudicator's actual justification. A ship-with-gaps-recorded receipt missing ` +
+      `recordPath, decidedAt, reasoning, or gaps closes this guard but can never satisfy pr-ready.mjs's ` +
+      `merge gate.\n` +
       `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard, and only once.`
     );
   }

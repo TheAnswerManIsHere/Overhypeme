@@ -725,10 +725,13 @@ function tempRepo() {
 function record(pr, seq, {
   passes = TIER_CAP,
   generatedAt = "2026-08-17T04:30:00Z",
+  evidenceCapturedAt = "2026-08-17T04:28:00Z",
   generator = "scripts/review-loop-record.mjs",
   recordPr = pr,
   tier = TIER,
   pendingRequest = false,
+  ambiguous = false,
+  allowanceValue = TIER_CAP,
   extensions = [],
   baseline,
   resolved = true,
@@ -738,16 +741,26 @@ function record(pr, seq, {
     generator,
     pr: recordPr,
     generatedAt,
-    budget: { tier, pendingRequest, extensions },
+    evidenceCapturedAt,
+    budget: { tier, pendingRequest, ambiguous, allowance: allowanceValue, extensions },
     rounds: { completedReviewerPasses: passes },
     sinceLastReview: { resolved, head: baseline },
   });
   return { path, files: { [path]: body } };
 }
 
-function extension(pr, seq, { verdict = "ship-with-gaps-recorded", recordPath, extPr = pr, kind = "adjudication", ...rest } = {}) {
+function extension(pr, seq, {
+  verdict = "ship-with-gaps-recorded",
+  recordPath,
+  extPr = pr,
+  kind = "adjudication",
+  decidedAt = "2026-08-17T04:35:00Z",
+  reasoning = "test reasoning citing the record's own numbers",
+  gaps = [],
+  ...rest
+} = {}) {
   const path = `.agents/receipts/loop-extension-${pr}-${seq}.json`;
-  const body = JSON.stringify({ pr: extPr, kind, verdict, recordPath, ...rest });
+  const body = JSON.stringify({ pr: extPr, kind, verdict, recordPath, decidedAt, reasoning, gaps, ...rest });
   return { path, files: { [path]: body } };
 }
 
@@ -872,6 +885,61 @@ test("adjudication: a ship verdict superseded by a later (david) extension is no
 });
 
 // ---------------------------------------------------------------------------
+// The receipt's own payload must be complete (Codex, #539 round 3) -- the
+// adjudicator's documented output schema always returns reasoning and gaps,
+// and decidedAt records when the verdict was actually decided (after the
+// adjudicator ran), not when its input record was generated (before).
+// ---------------------------------------------------------------------------
+
+test("adjudication: a receipt with no reasoning is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json", reasoning: "" });
+  const head = commit(ext.files, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /missing the adjudicator's `reasoning`/);
+});
+
+test("adjudication: a receipt with a non-array gaps is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json", gaps: "not an array" });
+  const head = commit(ext.files, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /missing the adjudicator's `gaps` array/);
+});
+
+test("adjudication: a receipt with no decidedAt is rejected", () => {
+  // `undefined` would just re-trigger extension()'s own default -- built by
+  // hand, bypassing the factory, to actually omit the field.
+  const { dir, commit } = tempRepo();
+  const path = ".agents/receipts/loop-extension-999-1.json";
+  const body = JSON.stringify({
+    pr: 999,
+    kind: "adjudication",
+    verdict: "ship-with-gaps-recorded",
+    recordPath: ".agents/adjudications/999-1.json",
+    reasoning: "test",
+    gaps: [],
+  });
+  const head = commit({ [path]: body }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /missing or unparseable `decidedAt`/);
+});
+
+test("adjudication: a decidedAt that predates the cited record's generatedAt is rejected -- the decision can't precede its own input", () => {
+  const { dir, commit } = tempRepo();
+  const { recordPath, baseline } = closedLoop(commit, 999, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+  const ext = extension(999, 2, { recordPath, decidedAt: "2026-08-17T04:00:00Z" }); // before generatedAt
+  const head = commit(ext.files, "c2 -- a later, badly-timestamped receipt");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /decidedAt .* predates the cited record's own generatedAt/);
+  void baseline;
+});
+
+// ---------------------------------------------------------------------------
 // The receipt must cite, and this file fully validates, a real mechanical
 // record (Codex, #539 rounds 1 and 2) -- honoring a receipt here unblocks a
 // merge, so this file demands more evidence than review-budget.mjs's own
@@ -966,14 +1034,50 @@ test("adjudication: the SENSITIVE tier is never honored, however clean the recor
   assert.match(res.detail, /no self-serve extension/);
 });
 
-test("adjudication: a record generated below the tier's round cap is rejected -- adjudication must follow its tripwire", () => {
+test("adjudication: a record generated below the loop's active allowance is rejected -- adjudication must follow its tripwire", () => {
   const { dir, commit } = tempRepo();
   const rec = record(999, 1, { passes: TIER_CAP - 1, baseline: "a".repeat(40) });
   const ext = extension(999, 1, { recordPath: rec.path });
   const head = commit({ ...rec.files, ...ext.files }, "c1");
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /below tier "internal"'s cap/);
+  assert.match(res.detail, /below the loop's active allowance of 3/);
+});
+
+test("adjudication: a David-granted allowance ABOVE the base tier cap is honored -- reaching the base cap alone doesn't mean the tripwire fired (Codex, #539 round 3)", () => {
+  // A prior `david` extension can raise the loop's real allowance past the
+  // tier's base cap before any adjudication happens. Passing the base cap
+  // (3) but not the active allowance (8) must still be rejected; only
+  // reaching the ACTIVE allowance qualifies.
+  const { dir, commit } = tempRepo();
+  const belowActive = record(999, 1, { passes: TIER_CAP + 1, allowanceValue: 8, baseline: "a".repeat(40) });
+  const ext1 = extension(999, 1, { recordPath: belowActive.path });
+  const head1 = commit({ ...belowActive.files, ...ext1.files }, "c1");
+  const res1 = checkAdjudicatedCodex(999, head1, { cwd: dir });
+  assert.equal(res1.pass, false);
+  assert.match(res1.detail, /below the loop's active allowance of 8/);
+});
+
+test("adjudication: a non-finite (uncapped) allowance is rejected, not treated as always-satisfied", () => {
+  // JSON has no representation for Infinity -- an uncapped grant serializes
+  // as `allowance: null`. That must fail closed, not be read as "any pass
+  // count satisfies it".
+  const { dir, commit } = tempRepo();
+  const path = ".agents/adjudications/999-1.json";
+  const body = JSON.stringify({
+    generator: "scripts/review-loop-record.mjs",
+    pr: 999,
+    generatedAt: "2026-08-17T04:30:00Z",
+    evidenceCapturedAt: "2026-08-17T04:28:00Z",
+    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: null, extensions: [] },
+    rounds: { completedReviewerPasses: 999 },
+    sinceLastReview: { resolved: true, head: "a".repeat(40) },
+  });
+  const ext = extension(999, 1, { recordPath: path });
+  const head = commit({ [path]: body, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /below the loop's active allowance of null/);
 });
 
 test("adjudication: a record generated with a request still pending is rejected (Codex, #539 round 2)", () => {
@@ -984,6 +1088,20 @@ test("adjudication: a record generated with a request still pending is rejected 
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
   assert.match(res.detail, /pendingRequest is true/);
+});
+
+test("adjudication: a record with an AMBIGUOUS request/pass tie is rejected -- pendingRequest: false alone can't distinguish it from resolved (Codex, #539 round 3)", () => {
+  // A trigger comment and the last completed pass sharing the exact same
+  // GitHub-reported second makes `pending` read 0 (so pendingRequest is
+  // correctly false) while the true ordering is indeterminate. `ambiguous`
+  // carries that distinction separately.
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { pendingRequest: false, ambiguous: true, baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /budget\.ambiguous is true/);
 });
 
 test("adjudication: a record whose own extension history already shows a PRIOR adjudication is rejected (Codex, #539 round 2)", () => {
@@ -1000,6 +1118,25 @@ test("adjudication: a record whose own extension history already shows a PRIOR a
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
   assert.match(res.detail, /already shows a prior adjudication/);
+});
+
+test("adjudication: a record with no parseable evidenceCapturedAt is rejected (Codex, #539 round 3)", () => {
+  const { dir, commit } = tempRepo();
+  const path = ".agents/adjudications/999-1.json";
+  const body = JSON.stringify({
+    generator: "scripts/review-loop-record.mjs",
+    pr: 999,
+    generatedAt: "2026-08-17T04:30:00Z",
+    // evidenceCapturedAt omitted entirely
+    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: TIER_CAP, extensions: [] },
+    rounds: { completedReviewerPasses: TIER_CAP },
+    sinceLastReview: { resolved: true, head: "a".repeat(40) },
+  });
+  const ext = extension(999, 1, { recordPath: path });
+  const head = commit({ [path]: body, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /evidenceCapturedAt is missing or unparseable/);
 });
 
 // ---------------------------------------------------------------------------
@@ -1169,18 +1306,21 @@ test("adjudication: a @codex review request posted BEFORE the record was generat
   assert.equal(res.pass, true);
 });
 
-test("adjudication: a request landing in the SAME SECOND as the record's generatedAt fails closed (Codex, #539 round 2)", () => {
-  // GitHub comment timestamps round to the second; record.generatedAt
-  // carries milliseconds. A request genuinely posted at 04:30:00.900 (after
-  // generation at 04:30:00.500) is reported as 04:30:00.000, which compares
-  // as EARLIER under a naive strict `>` -- so any request whose rounded
-  // timestamp falls in or after the record's own second must fail closed.
+test("adjudication: a request landing in the SAME SECOND as the record's evidenceCapturedAt fails closed (Codex, #539 round 3)", () => {
+  // GitHub comment timestamps round to the second; evidenceCapturedAt
+  // carries milliseconds. A request genuinely posted at 04:28:00.900 (after
+  // evidence capture at 04:28:00.500) is reported as 04:28:00.000, which
+  // compares as EARLIER under a naive strict `>` -- so any request whose
+  // rounded timestamp falls in or after evidenceCapturedAt's own second
+  // must fail closed. The boundary is evidenceCapturedAt, not generatedAt
+  // or decidedAt: it's the earliest of the three, and the only one that
+  // bounds how current the record's own DATA actually is.
   const { dir, commit } = tempRepo();
-  const { head } = closedLoop(commit, 999, { recordOpts: { generatedAt: "2026-08-17T04:30:00.500Z" } });
-  const sameSecondRoundedDown = Date.parse("2026-08-17T04:30:00.000Z");
+  const { head } = closedLoop(commit, 999, { recordOpts: { evidenceCapturedAt: "2026-08-17T04:28:00.500Z" } });
+  const sameSecondRoundedDown = Date.parse("2026-08-17T04:28:00.000Z");
   const res = checkAdjudicatedCodex(999, head, { cwd: dir, latestRequestAt: sameSecondRoundedDown });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /at or after the adjudication record's own second/);
+  assert.match(res.detail, /at or after the record's own evidence capture second/);
 });
 
 // ---------------------------------------------------------------------------

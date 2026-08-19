@@ -117,6 +117,9 @@ const adjudication = (pr, extra = {}) => ({
   grant: 2,
   risk: "the retry path can double-charge on a 409",
   recordPath: RECORD(pr),
+  decidedAt: "2026-08-19T21:45:00Z",
+  reasoning: "the record shows a named, unaddressed behavioral risk in the retry path",
+  gaps: [],
   ...extra,
 });
 
@@ -298,6 +301,35 @@ test("a non-continue verdict with no recordPath is rejected", () => {
   assert.match(
     validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }),
     /must cite the mechanical record/,
+  );
+});
+
+test("a recordPath outside .agents/adjudications/ is rejected -- pr-ready.mjs's merge gate would never accept it (Codex, #539 round 3)", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", recordPath: "docs/fake-record.json" });
+  assert.match(
+    validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }),
+    /is not under \.agents\/adjudications\//,
+  );
+});
+
+test("an adjudication receipt with no decidedAt is rejected (Codex, #539 round 3)", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", decidedAt: undefined });
+  assert.match(
+    validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }),
+    /must carry a parseable `decidedAt`/,
+  );
+});
+
+test("an adjudication receipt with no reasoning, or a non-array gaps, is rejected (Codex, #539 round 3)", () => {
+  const noReasoning = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", reasoning: "" });
+  assert.match(
+    validateExtension(1, "internal", noReasoning, { adjudicationsAlreadySeen: 0, io: null }),
+    /must carry the adjudicator's `reasoning`/,
+  );
+  const noGaps = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", gaps: "not an array" });
+  assert.match(
+    validateExtension(1, "internal", noGaps, { adjudicationsAlreadySeen: 0, io: null }),
+    /must carry the adjudicator's `gaps` array/,
   );
 });
 

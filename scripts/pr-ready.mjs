@@ -45,7 +45,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS, tierCap } from "./review-budget.mjs";
+import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS } from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -723,13 +723,25 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
     };
   }
   const passes = record.rounds?.completedReviewerPasses;
-  const cap = tierCap(tier);
+  // The ACTIVE allowance, not the tier's base cap: if David granted extra
+  // rounds (a `david`-kind extension) before this adjudication ever
+  // happened, the base cap can be crossed while the guard's tripwire still
+  // hasn't fired -- ordinary rounds remain available up to the grant. The
+  // record's own `budget.allowance` already accounts for every extension
+  // active at generation time, which `tierCap(tier)` alone cannot.
+  // `JSON.stringify` has no representation for `Infinity` (an uncapped
+  // grant serializes as `null`), so a missing/non-finite allowance also
+  // means "cannot confirm the tripwire fired" and fails closed the same way.
+  // (Codex, #539 round 3.)
+  const allowanceField = record.budget?.allowance;
+  const cap = Number.isFinite(allowanceField) ? allowanceField : Infinity;
   if (!Number.isInteger(passes) || passes < cap) {
     return {
       ok: false,
       detail:
-        `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below tier ` +
-        `"${tier}"'s cap of ${cap} -- an adjudication must follow its tripwire, not precede it`,
+        `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below the ` +
+        `loop's active allowance of ${cap === Infinity ? JSON.stringify(allowanceField) : cap} -- an adjudication ` +
+        "must follow its tripwire, not precede it",
     };
   }
   if (record.budget?.pendingRequest !== false) {
@@ -738,6 +750,18 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
       detail:
         `${recordPath}: budget.pendingRequest is ${JSON.stringify(record.budget?.pendingRequest)}, not false -- ` +
         "an in-flight Codex pass had not returned when this record was generated",
+    };
+  }
+  // A trigger comment and the last completed pass sharing the exact same
+  // GitHub-reported second is genuinely indeterminate, not "answered" --
+  // `pendingRequest: false` alone can't distinguish the two cases, which is
+  // why the record carries `ambiguous` separately. (Codex, #539 round 3.)
+  if (record.budget?.ambiguous !== false) {
+    return {
+      ok: false,
+      detail:
+        `${recordPath}: budget.ambiguous is ${JSON.stringify(record.budget?.ambiguous)}, not false -- a trigger ` +
+        "comment and the last completed pass shared the same reported second, which is indeterminate, not resolved",
     };
   }
   if ((record.budget?.extensions ?? []).some((e) => e.kind === "adjudication")) {
@@ -753,6 +777,16 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   if (!Number.isFinite(generatedAt)) {
     return { ok: false, detail: `${recordPath}.generatedAt is missing or unparseable` };
   }
+  // The moment the record's UNDERLYING EVIDENCE (issueComments) was actually
+  // read -- always <= generatedAt, and the real freshness boundary for
+  // "did a request arrive that this record's own analysis couldn't have
+  // seen". `generatedAt` alone overstates freshness: it only says when the
+  // FILE was written, which is later than when its data was captured.
+  // (Codex, #539 round 3.)
+  const evidenceCapturedAt = Date.parse(record.evidenceCapturedAt ?? "");
+  if (!Number.isFinite(evidenceCapturedAt)) {
+    return { ok: false, detail: `${recordPath}.evidenceCapturedAt is missing or unparseable` };
+  }
 
   if (record.sinceLastReview?.resolved !== true) {
     return { ok: false, detail: `${recordPath}: sinceLastReview.resolved is not true -- the record's own diff baseline never resolved` };
@@ -765,7 +799,7 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
     return { ok: false, detail: `${recordPath}: sinceLastReview.head ${baseline.slice(0, 7)} does not resolve to a commit in this checkout` };
   }
 
-  return { ok: true, generatedAt, baseline };
+  return { ok: true, generatedAt, evidenceCapturedAt, baseline };
 }
 
 export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = false, latestRequestAt = null } = {}) {
@@ -838,23 +872,60 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
         "later extension superseded the ship verdict, or none was ever recorded as the loop's last word",
     };
   }
+  // The adjudicator's documented output schema always returns `reasoning`
+  // and `gaps` -- a receipt carrying only the minimal pr/kind/verdict
+  // triple discards the adjudicator's actual justification and, for this
+  // verdict specifically, the durable record of what's knowingly left.
+  // (Codex, #539 round 3.)
+  if (typeof receipt.reasoning !== "string" || !receipt.reasoning.trim()) {
+    return { pass: false, detail: `${terminal.path}: missing the adjudicator's \`reasoning\`` };
+  }
+  if (!Array.isArray(receipt.gaps)) {
+    return { pass: false, detail: `${terminal.path}: missing the adjudicator's \`gaps\` array` };
+  }
+  // `decidedAt` is when THIS receipt was written -- after the adjudicator
+  // actually responded, unlike the record's own `generatedAt`, which is
+  // written by step 1 of the tripwire procedure BEFORE the adjudicator is
+  // even dispatched. This is the boundary the live snapshot's capture times
+  // (reviewThreads, checkRuns, issueComments -- read fresh, right before
+  // this merge check runs) are ordered against below, via `acceptedAt`.
+  // (Codex, #539 round 3.)
+  const decidedAt = Date.parse(receipt.decidedAt ?? "");
+  if (!Number.isFinite(decidedAt)) {
+    return { pass: false, detail: `${terminal.path}: missing or unparseable \`decidedAt\`` };
+  }
 
   const recordCheck = validateAdjudicationRecord(prNumber, receipt.recordPath, headSha, cwd);
   if (!recordCheck.ok) {
     return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
   }
+  if (decidedAt < recordCheck.generatedAt) {
+    return {
+      pass: false,
+      detail:
+        `${terminal.path}: decidedAt (${new Date(decidedAt).toISOString()}) predates the cited record's own ` +
+        `generatedAt (${new Date(recordCheck.generatedAt).toISOString()}) -- the decision cannot have happened ` +
+        "before the record it ruled on was generated",
+    };
+  }
 
-  // Same-second fail-closed (Codex, #539 round 2): treat a request timestamp
-  // anywhere in or after the record's own second as ambiguous-or-newer,
-  // never provably-earlier.
+  // Same-second fail-closed (Codex, #539 rounds 2 and 3): treat a request
+  // timestamp anywhere in or after the record's OWN EVIDENCE capture second
+  // as ambiguous-or-newer, never provably-earlier. `evidenceCapturedAt` --
+  // not `generatedAt` or `decidedAt` -- is the right boundary here: it is
+  // the earliest of the three, and the only one that describes how current
+  // the record's actual DATA (round counts, pendingRequest) is. A request
+  // posted after evidence capture but before generation or decision is
+  // invisible to the record's own analysis regardless of how much later the
+  // file was written or the verdict was decided.
   if (latestRequestAt !== null) {
-    const generatedSecondFloor = Math.floor(recordCheck.generatedAt / 1000) * 1000;
-    if (latestRequestAt >= generatedSecondFloor) {
+    const evidenceSecondFloor = Math.floor(recordCheck.evidenceCapturedAt / 1000) * 1000;
+    if (latestRequestAt >= evidenceSecondFloor) {
       return {
         pass: false,
         detail:
           `${terminal.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
-          `at or after the adjudication record's own second (generated ${new Date(recordCheck.generatedAt).toISOString()}) -- ` +
+          `at or after the record's own evidence capture second (${new Date(recordCheck.evidenceCapturedAt).toISOString()}) -- ` +
           "a fresh review may have been asked for since the loop closed, and this receipt cannot answer for it",
       };
     }
@@ -897,9 +968,10 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   return {
     pass: true,
     detail:
-      `adjudicated ship-with-gaps-recorded, record generated against ${recordCheck.baseline.slice(0, 7)}; ` +
-      `${files.length} bookkeeping-only file(s) changed since (${files.join(", ") || "none"}), nothing reviewable`,
-    acceptedAt: recordCheck.generatedAt,
+      `adjudicated ship-with-gaps-recorded at ${new Date(decidedAt).toISOString()}, record generated against ` +
+      `${recordCheck.baseline.slice(0, 7)}; ${files.length} bookkeeping-only file(s) changed since ` +
+      `(${files.join(", ") || "none"}), nothing reviewable`,
+    acceptedAt: decidedAt,
   };
 }
 
