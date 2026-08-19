@@ -2310,6 +2310,48 @@ parts I like, or treat it as one input among several.** If I think it is wrong,
 that is a disagreement to take to David — not license to overrule it myself,
 which would make the dispatch ceremonial.
 
+**A dispatch package with a FALSE PREMISE produces a confidently wrong verdict,
+and under the rule above nothing downstream catches it (2026-08-17).** Two
+package limits were already recorded — a dispatch that reuses my own reasoning
+is not rescued by Fable, and an incomplete enumeration is invisible to the
+judge. This is their sibling and the most dangerous of the three, because the
+verdict comes back *well-argued*: the judge reasons correctly from what it was
+given, so nothing in its output looks wrong.
+
+**Demonstrated within the hour of writing the rule.** I dispatched a
+`/document` judgement while sitting on a feature branch cut from `main` before
+two of that evening's PRs merged. The judge read that tree, found that
+`CLAUDE.md` cited a `known-failure-patterns.md` pattern with no matching entry,
+and made that missing citation the load-bearing reason for its verdict. On
+`main` the entry was there. The judge was right about the tree it was standing
+in; the tree was the wrong one, and that was mine to get right.
+
+**So the mechanical rule is NOT "refresh to `main` first"** — that would be
+wrong for half the cases and would break the adversarial stopping-rule pass,
+which must read the PR branch under review, not `main`:
+
+1. **Pin the commit the question is about, and say it in the package.** A
+   post-merge `/document` judgement is about `main` at the merge commit; a
+   review-loop adjudication is about the PR head; a triage challenge may not
+   be about a tree at all.
+2. **When the question is about a tree — which item 1 says isn't every
+   case — check the working tree matches that commit before dispatching.**
+   The subagent inherits my checkout, and my checkout follows whatever
+   branch I was last working on — which is exactly as likely to be stale as
+   not. A triage challenge with no tree or commit to check skips this item
+   entirely rather than being blocked on it or forced to pin an arbitrary
+   commit just to satisfy the step.
+3. **Instruct the judge to verify load-bearing premises against that state**
+   rather than taking them from me. The re-run that corrected this one was told
+   the earlier premise, told it was false, and asked to confirm before
+   judging — and it did.
+
+**And when a verdict turns out to rest on a false premise I supplied, the fix
+is to correct the package and re-ask — never to overrule the verdict myself.**
+Those feel similar and are not: re-asking fixes my error, while overruling
+substitutes my judgement for the one I dispatched precisely because it was not
+mine. The tell is whether the correction is to the *input* or to the *output*.
+
 **This needed saying because I got it backwards in the conversation that
 produced it.** Codex argued these passes were "input to a controller who acts
 next," and I **agreed** — writing that the Fable pass "returns an argument and I

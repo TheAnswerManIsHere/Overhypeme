@@ -2349,6 +2349,53 @@ the object (the PR) whose live state that consumer actually needed.
 their state from the same stored `stage:`/`waiting:` label pattern and have
 not been checked for the same discovery gap (tracked in #523).
 
+## An unrelated content change trips a heavy, timing-sensitive test suite because CI classifies by path, not by risk
+
+**The pattern.** CI classifies which test jobs to run by which **paths**
+changed, as a speed optimization — a docs-only diff shouldn't have to wait on
+the full integration suite. But "touches this path" and "is low-risk" aren't
+the same predicate, and when one file under a classified path is generated
+from another file that isn't, editing the *source* silently pulls in the
+*generated* path's full weight. A change that looks docs-only from the diff's
+subject matter runs exactly as heavy a suite as a real code change would —
+including whatever flakiness lives in that suite, on infrastructure never
+sized for a docs PR's traffic.
+
+**The worked example.** Editing the Overhype.me Manual (`docs/manual/`)
+regenerates its rendered help content into `artifacts/`, which is a path the
+CI classifier treats as code — so a pure documentation PR runs the **full
+heavy integration suite**, sharing one Postgres container across four test
+shards. That suite had a timing-sensitive test
+(`cliJobPoller.test.ts`, see [`TESTING.md`](../tests/TESTING.md)'s
+*Regression fixtures* section for the mutation-testing verification technique
+the fix used)
+with only 15ms of real headroom against CI-load jitter. The failure rate
+escalated over one evening (2026-08-17→18) — intermittent on one PR, then
+failing **both** runs on a docs harvest PR that only edited prose — to the
+point where **every manual-touching docs PR became unmergeable**, entirely
+because of a test file whose subject matter (an async job poller) has nothing
+to do with documentation. PR #515 fixed the timing margin; the coupling that
+let a docs edit trip it is the generalizable part.
+
+**What to do instead.**
+
+1. **When a path-based CI classifier exists, know what's actually reachable
+   through each classified path** — not just what's nominally *in* it.
+   `artifacts/` is "code" to the classifier because most of what lives there
+   is code; a generated-content subtree changes that for anyone editing its
+   source.
+2. **A test suite that's expensive or flaky enough to gate on path deserves
+   to be reliable regardless of who trips it.** The fix here was correctly
+   scoped to the test's own margins, not to carving out a documentation
+   exception in the classifier — a real regression in the poller should still
+   fail a docs PR that happens to regenerate its way into that suite; the
+   problem was the test's reliability, not that it ran.
+3. **A recurring "this PR shouldn't be blocked by that" complaint is a signal
+   to trace the actual dependency**, not to special-case the symptom. The
+   generalized fix here was narrower than either "exempt docs paths" or
+   "always run everything" — it was "make the suite that's already running
+   correctly reliable."
+
 ## A persistent counter of state the source of truth already holds
 
 **Looks like:** you need to know how many times something has happened, so you

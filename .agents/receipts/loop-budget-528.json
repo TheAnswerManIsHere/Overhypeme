@@ -1,0 +1,8 @@
+{
+  "pr": 528,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 10,
+  "artifact": "docs harvest: TESTING.md mutation-testing note + known-failure-patterns.md CI-classifier entry (PR #515 learnings)",
+  "declaredAt": "2026-08-19T18:57:03.813Z"
+}
