@@ -284,9 +284,21 @@ test("a continue verdict must name a behavioral risk and grant at most 2", () =>
 });
 
 test("a non-continue verdict is valid but grants nothing", () => {
-  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", recordPath: "" });
+  // recordPath is still required -- pr-ready.mjs's merge-gate fallback
+  // derives its diff baseline from the cited record, never from a
+  // self-declared field on the receipt, so every adjudication verdict
+  // (not just `continue`) must cite one. (Codex, PR #539 round 2.)
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
   assert.equal(validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }), null);
   assert.equal(allowance("internal", [shipped], 3), 3, "a stop verdict does not extend the budget");
+});
+
+test("a non-continue verdict with no recordPath is rejected", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", recordPath: "" });
+  assert.match(
+    validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }),
+    /must cite the mechanical record/,
+  );
 });
 
 test("the sensitive tier has no self-serve extension at all", () => {

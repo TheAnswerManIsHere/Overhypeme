@@ -45,7 +45,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS, tierCap, budgetPath } from "./review-budget.mjs";
+import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS, tierCap } from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -566,35 +566,57 @@ export function checkCodex(issueComments, reviews, headSha = null) {
  * through `git show <sha>:<path>`, never the filesystem -- an untracked or
  * locally-modified file matching the receipt's name must never be able to
  * mint a merge-ready verdict for a commit it was never actually part of.
- * (Codex, #539 round 1.)
+ * (Codex, #539 round 1.) Only DIRECT children of `.agents/receipts/` count
+ * (`git ls-tree` with no `-r`), and only canonically-numbered ones
+ * (`String(Number(seq)) === seq`) -- both match exactly what
+ * `review-budget.mjs`'s own `loadLoop` will and won't consume, so a receipt
+ * this fallback would honor is one the guard's loop actually closed on.
+ * (Codex, #539 round 2.)
  *
- * THE RECEIPT MUST CITE AND SATISFY A REAL MECHANICAL RECORD.
- * `review-budget.mjs` only requires `recordPath` on a `continue` verdict,
- * because there a `ship-with-gaps-recorded` receipt only closes the guard --
- * no unearned rounds ride on it. This file's stakes are different: honoring
- * the receipt is what unblocks a merge, so `recordPath` is required here
- * regardless of verdict, and validated the same way `review-budget.mjs`
- * validates a `continue` receipt's record -- produced by
- * `review-loop-record.mjs`, describing this PR, generated with at least the
- * declared tier's round cap worth of completed reviewer passes.
+ * THE DIFF BASELINE IS DERIVED FROM THE CITED RECORD, NEVER FROM A
+ * SELF-DECLARED RECEIPT FIELD. The first version of this function had the
+ * receipt name its own `headSha` -- an untrusted second source of truth: a
+ * receipt can claim ANY later ancestor commit that happens to already
+ * contain the cited record, including one carrying real unreviewed changes,
+ * and the documented tripwire procedure never actually produces a `headSha`
+ * on the verdict it writes in the first place. `sinceLastReview.head` on the
+ * record -- the PR head at the moment the record's round-counting analysis
+ * was generated -- is source-derived instead, so THAT is the baseline used
+ * below. (Codex, #539 round 2.)
+ *
+ * THE RECEIPT MUST CITE, AND THIS FUNCTION FULLY VALIDATES, A REAL
+ * MECHANICAL RECORD -- `review-budget.mjs` now requires `recordPath` on
+ * every adjudication verdict, not just `continue` (this file's stakes are
+ * different: honoring the receipt is what unblocks a merge). Beyond what
+ * `validateRecordReference` checks there (generator, PR, round count against
+ * the declared tier's cap), this function also confirms the tier is
+ * self-serve (`sensitive` never gets this fallback -- its tripwire is a
+ * mandatory 🛑 to David, and a record or receipt claiming otherwise is
+ * wrong on its face), that no request was still pending when the record was
+ * generated, and that the record's own embedded extension history shows no
+ * PRIOR adjudication -- a second one is never valid, so a record already
+ * carrying one means this receipt cannot legitimately be a fresh one.
+ * (Codex, #539 round 2.)
  *
  * THE ANCESTOR-PLUS-EXACT-FILE BOUND is what keeps this from becoming a
- * standing bypass. The receipt must name the exact commit (`headSha`) the
- * adjudicator's record was generated from. That commit must be a real,
- * resolvable ancestor of the commit being merged, and the ONLY files allowed
- * to differ between them are this adjudication's own receipt and its cited
- * record -- not every file under `.agents/receipts/` or
- * `.agents/adjudications/`, which would also wave through a change to
- * another PR's budget or a differently-numbered extension. Rename detection
- * is disabled on the diff (`--no-renames`) so a real file moved into either
- * directory shows up as its original path, not laundered into an allowed
- * one. (Codex, #539 round 1.)
+ * standing bypass. The record's baseline must be a real, resolvable ancestor
+ * of the commit being merged, and the ONLY files allowed to differ between
+ * them are this adjudication's own receipt and its cited record -- not every
+ * file under `.agents/receipts/` or `.agents/adjudications/`, which would
+ * also wave through a change to another PR's budget or a
+ * differently-numbered extension. Rename detection is disabled on the diff
+ * (`--no-renames`) so a real file moved into either directory shows up as
+ * its original path, not laundered into an allowed one. (Codex, #539
+ * round 1.)
  *
  * A LIVE OUTAGE OR A NEWER REQUEST ALWAYS WINS. If Codex is in a reported
- * outage, or a `@codex review` request exists after the mechanical record
- * was generated -- meaning someone asked for a fresh look after the loop
- * closed -- this fallback refuses outright, however clean the receipt is
- * otherwise. (Codex, #539 round 1.)
+ * outage, or a `@codex review` request exists at or after the record's own
+ * second -- GitHub's comment timestamps round to the second while the
+ * record's `generatedAt` carries milliseconds, so a request that landed
+ * later in the same second as generation can round down to look earlier;
+ * ties fail closed the same way this file's other ordering checks do --
+ * this fallback refuses outright, however clean the receipt is otherwise.
+ * (Codex, #539 rounds 1 and 2.)
  *
  * `git` calls are read-only and local (`cat-file -e`, `merge-base
  * --is-ancestor`, `diff --name-only`, `ls-tree`, `show`) -- no network, same
@@ -651,20 +673,27 @@ function latestReviewRequestAt(issueComments) {
 }
 
 /**
- * Mirrors `review-budget.mjs`'s `validateRecordReference`: the mechanical
- * record a ship verdict claims to have ruled on must exist, be one of ours,
- * describe this PR, and show the loop at its cap when it was generated.
- * Reads the record's committed content at `atSha`, never the filesystem, for
- * the same reason the receipt itself is read that way. Returns
- * `{ ok: true, generatedAt }` or `{ ok: false, detail }`.
+ * Reads and fully validates the mechanical record a ship verdict cites,
+ * deriving from it everything the old design took as separately
+ * self-declared receipt fields: the tier, whether it's self-serve, the round
+ * count against its cap, whether a request was still pending at generation,
+ * whether a prior adjudication already occurred, and -- the diff baseline --
+ * `sinceLastReview.head`, the PR head at the moment the record's analysis
+ * was generated. Reads the record's committed content at the CURRENT head
+ * (`headSha`), never a separately-cited commit: like the receipt itself, the
+ * record persists forward in git history once committed, so nothing but
+ * `headSha` is needed to reach it. Mirrors `review-budget.mjs`'s
+ * `validateRecordReference` for the shared checks and extends it for this
+ * file's higher stakes. Returns `{ ok: true, generatedAt, baseline }` or
+ * `{ ok: false, detail }`.
  */
-function validateAdjudicationRecord(prNumber, tier, recordPath, atSha, cwd) {
+function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   if (typeof recordPath !== "string" || !recordPath.startsWith(`${ADJUDICATIONS_DIR}/`)) {
     return { ok: false, detail: `recordPath ${JSON.stringify(recordPath)} is not under ${ADJUDICATIONS_DIR}/` };
   }
-  const raw = git(["show", `${atSha}:${recordPath}`], cwd);
+  const raw = git(["show", `${headSha}:${recordPath}`], cwd);
   if (raw === null) {
-    return { ok: false, detail: `cited mechanical record ${recordPath} is not committed at ${atSha.slice(0, 7)}` };
+    return { ok: false, detail: `cited mechanical record ${recordPath} is not committed at ${headSha.slice(0, 7)}` };
   }
   let record;
   try {
@@ -676,6 +705,23 @@ function validateAdjudicationRecord(prNumber, tier, recordPath, atSha, cwd) {
     return { ok: false, detail: `${recordPath} was not produced by review-loop-record.mjs (generator: ${JSON.stringify(record.generator)})` };
   }
   if (record.pr !== prNumber) return { ok: false, detail: `${recordPath} describes PR ${record.pr}, not ${prNumber}` };
+
+  if (record.budget?.problem) {
+    return {
+      ok: false,
+      detail: `${recordPath} was generated against a broken budget state (${record.budget.problem}: ${record.budget.detail ?? "no detail"})`,
+    };
+  }
+  const tier = record.budget?.tier;
+  if (!TIERS[tier]) {
+    return { ok: false, detail: `${recordPath} names an unknown tier ${JSON.stringify(tier)}` };
+  }
+  if (!TIERS[tier].selfServe) {
+    return {
+      ok: false,
+      detail: `${recordPath}: tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, never an adjudication`,
+    };
+  }
   const passes = record.rounds?.completedReviewerPasses;
   const cap = tierCap(tier);
   if (!Number.isInteger(passes) || passes < cap) {
@@ -686,11 +732,40 @@ function validateAdjudicationRecord(prNumber, tier, recordPath, atSha, cwd) {
         `"${tier}"'s cap of ${cap} -- an adjudication must follow its tripwire, not precede it`,
     };
   }
+  if (record.budget?.pendingRequest !== false) {
+    return {
+      ok: false,
+      detail:
+        `${recordPath}: budget.pendingRequest is ${JSON.stringify(record.budget?.pendingRequest)}, not false -- ` +
+        "an in-flight Codex pass had not returned when this record was generated",
+    };
+  }
+  if ((record.budget?.extensions ?? []).some((e) => e.kind === "adjudication")) {
+    return {
+      ok: false,
+      detail:
+        `${recordPath}: budget.extensions already shows a prior adjudication -- a second adjudication is never ` +
+        "valid (review-budget.mjs's own rule), so this receipt cannot legitimately be one",
+    };
+  }
+
   const generatedAt = Date.parse(record.generatedAt ?? "");
   if (!Number.isFinite(generatedAt)) {
     return { ok: false, detail: `${recordPath}.generatedAt is missing or unparseable` };
   }
-  return { ok: true, generatedAt };
+
+  if (record.sinceLastReview?.resolved !== true) {
+    return { ok: false, detail: `${recordPath}: sinceLastReview.resolved is not true -- the record's own diff baseline never resolved` };
+  }
+  const baseline = record.sinceLastReview.head;
+  if (typeof baseline !== "string" || !/^[0-9a-f]{40}$/i.test(baseline)) {
+    return { ok: false, detail: `${recordPath}: sinceLastReview.head is not a full 40-character commit sha (got ${JSON.stringify(baseline)})` };
+  }
+  if (git(["cat-file", "-e", `${baseline}^{commit}`], cwd) === null) {
+    return { ok: false, detail: `${recordPath}: sinceLastReview.head ${baseline.slice(0, 7)} does not resolve to a commit in this checkout` };
+  }
+
+  return { ok: true, generatedAt, baseline };
 }
 
 export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = false, latestRequestAt = null } = {}) {
@@ -704,25 +779,36 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return { pass: false, detail: "no head sha supplied to check ancestry against" };
   }
 
-  const lsOutput = git(["ls-tree", "-r", "--name-only", headSha, "--", LOOP_RECEIPTS_DIR], cwd);
-  if (lsOutput === null) {
-    return { pass: false, detail: `could not list ${LOOP_RECEIPTS_DIR} at commit ${headSha.slice(0, 7)}` };
-  }
+  // Non-recursive: only DIRECT children of the receipts directory ever
+  // count, matching review-budget.mjs's own (non-recursive) directory
+  // listing -- a receipt nested in a subdirectory is invisible to the
+  // guard's `loadLoop` and would never actually have closed its loop.
+  //
+  // The `<tree>:<path>` colon form is what actually lists a subdirectory's
+  // DIRECT children non-recursively -- `ls-tree <tree> -- <path>` (no colon)
+  // instead names the pathspec's own tree entry, not its contents (verified
+  // empirically; this cost a full round of test failures to catch). The
+  // colon form also errors (rather than returning empty) when the directory
+  // doesn't exist yet, which is the ordinary "no receipts committed" state,
+  // not a real failure -- treated as zero candidates below.
+  const lsOutput = git(["ls-tree", "--name-only", `${headSha}:${LOOP_RECEIPTS_DIR}`], cwd) ?? "";
   const prefix = `loop-extension-${prNumber}-`;
   const candidates = lsOutput
     .split("\n")
     .filter(Boolean)
-    .map((p) => {
-      const base = p.slice(p.lastIndexOf("/") + 1);
+    .map((base) => {
       if (!base.startsWith(prefix) || !base.endsWith(".json")) return null;
       const seqStr = base.slice(prefix.length, base.length - ".json".length);
-      return /^\d+$/.test(seqStr) ? { path: p, seq: Number(seqStr) } : null;
+      // Canonical only: zero-padded or otherwise non-round-trip sequences are
+      // exactly what `loadLoop` rejects as a bad receipt.
+      if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) return null;
+      return { path: `${LOOP_RECEIPTS_DIR}/${base}`, seq: Number(seqStr) };
     })
     .filter(Boolean)
     .sort((a, b) => b.seq - a.seq);
 
   if (!candidates.length) {
-    return { pass: false, detail: `no committed loop-extension-${prNumber}-*.json receipt at ${headSha.slice(0, 7)}` };
+    return { pass: false, detail: `no committed, canonically-named loop-extension-${prNumber}-*.json receipt at ${headSha.slice(0, 7)}` };
   }
 
   // Only the loop's TERMINAL decision (the highest sequence number) is ever
@@ -752,71 +838,50 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
         "later extension superseded the ship verdict, or none was ever recorded as the loop's last word",
     };
   }
-  if (typeof receipt.headSha !== "string" || !/^[0-9a-f]{40}$/i.test(receipt.headSha)) {
-    return {
-      pass: false,
-      detail: `${terminal.path}: headSha must be a full 40-character commit sha (got ${JSON.stringify(receipt.headSha)})`,
-    };
+
+  const recordCheck = validateAdjudicationRecord(prNumber, receipt.recordPath, headSha, cwd);
+  if (!recordCheck.ok) {
+    return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
   }
-  if (git(["cat-file", "-e", `${receipt.headSha}^{commit}`], cwd) === null) {
-    return { pass: false, detail: `${terminal.path}: headSha ${receipt.headSha.slice(0, 7)} does not resolve to a commit in this checkout` };
+
+  // Same-second fail-closed (Codex, #539 round 2): treat a request timestamp
+  // anywhere in or after the record's own second as ambiguous-or-newer,
+  // never provably-earlier.
+  if (latestRequestAt !== null) {
+    const generatedSecondFloor = Math.floor(recordCheck.generatedAt / 1000) * 1000;
+    if (latestRequestAt >= generatedSecondFloor) {
+      return {
+        pass: false,
+        detail:
+          `${terminal.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
+          `at or after the adjudication record's own second (generated ${new Date(recordCheck.generatedAt).toISOString()}) -- ` +
+          "a fresh review may have been asked for since the loop closed, and this receipt cannot answer for it",
+      };
+    }
   }
-  const ancestor = isAncestor(receipt.headSha, headSha, cwd);
+
+  const ancestor = isAncestor(recordCheck.baseline, headSha, cwd);
   if (ancestor === null) {
     return {
       pass: false,
       detail:
-        `${terminal.path}: could not determine whether ${receipt.headSha.slice(0, 7)} is an ancestor of ` +
-        `${headSha.slice(0, 7)} (git merge-base failed -- possibly a shallow clone; fetch full history)`,
+        `${terminal.path}: could not determine whether the record's baseline ${recordCheck.baseline.slice(0, 7)} is ` +
+        `an ancestor of ${headSha.slice(0, 7)} (git merge-base failed -- possibly a shallow clone; fetch full history)`,
     };
   }
   if (!ancestor) {
     return {
       pass: false,
-      detail: `${terminal.path}: adjudicated commit ${receipt.headSha.slice(0, 7)} is not an ancestor of ${headSha.slice(0, 7)} -- the branch was rewritten since adjudication`,
-    };
-  }
-
-  const tierRaw = git(["show", `${receipt.headSha}:${budgetPath(prNumber)}`], cwd);
-  if (tierRaw === null) {
-    return { pass: false, detail: `${terminal.path}: could not read ${budgetPath(prNumber)} at ${receipt.headSha.slice(0, 7)} to determine the loop's tier` };
-  }
-  let budget;
-  try {
-    budget = JSON.parse(tierRaw);
-  } catch (e) {
-    return { pass: false, detail: `${terminal.path}: ${budgetPath(prNumber)} at ${receipt.headSha.slice(0, 7)} is unreadable JSON (${e.message})` };
-  }
-  if (!TIERS[budget.tier]) {
-    return { pass: false, detail: `${terminal.path}: ${budgetPath(prNumber)} names an unknown tier ${JSON.stringify(budget.tier)}` };
-  }
-
-  const recordCheck = validateAdjudicationRecord(prNumber, budget.tier, receipt.recordPath, receipt.headSha, cwd);
-  if (!recordCheck.ok) {
-    return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
-  }
-
-  if (latestRequestAt !== null && latestRequestAt > recordCheck.generatedAt) {
-    return {
-      pass: false,
       detail:
-        `${terminal.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
-        `after the adjudication record was generated at ${new Date(recordCheck.generatedAt).toISOString()} -- a ` +
-        "fresh review was asked for since the loop closed, and this receipt cannot answer for it",
+        `${terminal.path}: the record's baseline ${recordCheck.baseline.slice(0, 7)} is not an ancestor of ` +
+        `${headSha.slice(0, 7)} -- the branch was rewritten since the record was generated`,
     };
   }
 
-  // No `receipt.headSha === headSha` short-circuit: the receipt's own
-  // content necessarily lives in a commit AFTER the one it cites (a commit
-  // cannot declare its own hash inside itself), so that equality can never
-  // hold in practice once candidates are discovered by committed presence
-  // at `headSha`. The generic diff below already handles it correctly if it
-  // ever did -- `git diff X..X` reports zero changed files, which is exactly
-  // "nothing reviewable".
   const allowedPaths = new Set([terminal.path, receipt.recordPath]);
-  const changed = git(["diff", "--no-renames", "--name-only", `${receipt.headSha}..${headSha}`], cwd);
+  const changed = git(["diff", "--no-renames", "--name-only", `${recordCheck.baseline}..${headSha}`], cwd);
   if (changed === null) {
-    return { pass: false, detail: `${terminal.path}: could not diff ${receipt.headSha.slice(0, 7)}..${headSha.slice(0, 7)}` };
+    return { pass: false, detail: `${terminal.path}: could not diff ${recordCheck.baseline.slice(0, 7)}..${headSha.slice(0, 7)}` };
   }
   const files = changed.split("\n").filter(Boolean);
   const outOfScope = files.filter((f) => !allowedPaths.has(f));
@@ -824,16 +889,16 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: ${outOfScope.length} file(s) changed since the adjudicated commit that are not this ` +
+        `${terminal.path}: ${outOfScope.length} file(s) changed since the record's baseline that are not this ` +
         `adjudication's own receipt or record (${outOfScope.slice(0, 5).join(", ")}${outOfScope.length > 5 ? ", ..." : ""}) -- ` +
-        "real content changed since adjudication, so a fresh Codex pass is required, not this receipt",
+        "real content changed since the record was generated, so a fresh Codex pass is required, not this receipt",
     };
   }
   return {
     pass: true,
     detail:
-      `adjudicated ship-with-gaps-recorded at ${receipt.headSha.slice(0, 7)}; ${files.length} bookkeeping-only ` +
-      `file(s) changed since (${files.join(", ") || "none"}), nothing reviewable`,
+      `adjudicated ship-with-gaps-recorded, record generated against ${recordCheck.baseline.slice(0, 7)}; ` +
+      `${files.length} bookkeeping-only file(s) changed since (${files.join(", ") || "none"}), nothing reviewable`,
     acceptedAt: recordCheck.generatedAt,
   };
 }

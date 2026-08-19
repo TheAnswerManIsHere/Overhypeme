@@ -507,7 +507,18 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
     if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
       return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }
-    if (receipt.verdict !== "continue") return null; // valid, grants nothing
+    // Every verdict cites the mechanical record it ruled on -- not just
+    // `continue`. pr-ready.mjs's merge-gate fallback derives its diff
+    // baseline from this record's own `sinceLastReview.head`, never from a
+    // self-declared field on the receipt, so a ship-with-gaps-recorded
+    // receipt with no recordPath can close this guard but can never satisfy
+    // that gate -- exactly the deadlock PR #534 hit. (Codex, #539 round 2.)
+    if (typeof receipt.recordPath !== "string" || !receipt.recordPath.trim()) {
+      return "adjudication receipt must cite the mechanical record it ruled on in `recordPath`";
+    }
+    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io);
+    if (recordError) return recordError;
+    if (receipt.verdict !== "continue") return null; // ship-with-gaps-recorded / split / escalate grant nothing further
     if (!Number.isInteger(receipt.grant) || receipt.grant < 1 || receipt.grant > MAX_ADJUDICATION_GRANT) {
       return `a continue verdict grants 1-${MAX_ADJUDICATION_GRANT} rounds, not ${JSON.stringify(receipt.grant)}`;
     }
@@ -517,10 +528,7 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
     if (typeof receipt.risk !== "string" || !receipt.risk.trim()) {
       return "a continue verdict must name the specific unaddressed BEHAVIORAL risk in `risk`";
     }
-    if (typeof receipt.recordPath !== "string" || !receipt.recordPath.trim()) {
-      return "adjudication receipt must cite the mechanical record it ruled on in `recordPath`";
-    }
-    return validateRecordReference(pr, tier, receipt.recordPath, io);
+    return null;
   }
 
   if (receipt.kind === "david") {
@@ -840,7 +848,10 @@ function refusal(pr, state, spent) {
       `Give it the generated record and NOTHING else from this session. Fable spends at double Opus, so ` +
       `say out loud that you are dispatching it (the announce-don't-sneak rule in the model-routing skill).\n` +
       `  3. Write its verdict to ${extensionPath(pr, nextSeq)} ` +
-      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate), and commit it.\n` +
+      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate), and commit it. ` +
+      `Every verdict -- not just "continue" -- must also carry \`recordPath\`, citing the exact record ` +
+      `path step 1 printed: a ship-with-gaps-recorded receipt with no recordPath closes this guard but can ` +
+      `never satisfy pr-ready.mjs's merge gate, which derives its diff baseline from that record.\n` +
       `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard, and only once.`
     );
   }
