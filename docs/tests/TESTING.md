@@ -200,6 +200,23 @@ the **general** invariant. Tokenizer/grammar regressions in particular should
 include `They keep`, `Sharks have`, name possessives, and the pronoun sets
 exercising the changed branch.
 
+**Verifying a widened timing margin didn't gut the test.** A timing-sensitive
+test (a stall ceiling, a debounce window, a poll interval) that flakes under
+real CI load usually needs its margins widened, not its assertions changed —
+but "it passes now" proves nothing on its own, since a margin wide enough to
+also swallow the regression the test exists to catch would pass too, silently.
+**Mutation-test it**: deliberately break the production code the test is
+guarding (e.g. stop resetting a progress timestamp, so a zero-progress ceiling
+degrades into a total-duration cap), confirm the widened test still fails on
+that specific mutation with the right assertion, then revert the mutation.
+That the *old*, tighter test also passed under local load is expected and is
+exactly why it isn't evidence either way — the mutation check is what actually
+distinguishes "correct and reliable" from "so loose it stopped checking
+anything." Worked example: PR #515 widened `cliJobPoller.test.ts`'s stall
+margins 8x (15ms of real headroom to 100ms) after CI failures escalated to
+blocking every manual-touching docs PR, and used this technique to confirm the
+poller's zero-progress invariant was still actually being asserted.
+
 External services (Pexels, object storage, pricing, embeddings, image/video
 generation, Stripe) must be stubbed/mocked or disabled with test-mode helpers in
 any of the above — no real credentials or network. See
