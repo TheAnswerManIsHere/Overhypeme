@@ -2395,3 +2395,48 @@ let a docs edit trip it is the generalizable part.
    generalized fix here was narrower than either "exempt docs paths" or
    "always run everything" — it was "make the suite that's already running
    correctly reliable."
+
+## A `/document` harvest drafted immediately after its triggering PR tends to overclaim what that PR's evidence actually established
+
+**The pattern.** A `/document` harvest is written right after the PR it's
+harvesting merges — same session, same context, no cooling-off period. That
+immediacy is exactly what makes the harvest accurate about *what happened*;
+it's also what makes it prone to a specific, narrow failure: restating the
+triggering PR's own verification evidence more broadly than that evidence
+actually supports. The harvest isn't inventing anything — it's generalizing
+a real, local result into a universal-sounding claim, in prose written fast
+enough that the gap between "this specific check passed" and "this class of
+thing is now established" doesn't get noticed by the person writing it.
+
+**The worked example — three independent instances in one session
+(2026-08-18/19), each caught by Codex, none caught by the harvest's own
+author before review:**
+
+| Harvest PR | What it overclaimed |
+| --- | --- |
+| #525 (harvesting #522) | Named "opening a PR needs push access" as the trust boundary for an independent PR-discovery sweep — false on a public repo, where any account can open a PR from a fork. The actual boundary (`author_association: OWNER` filtering) was already correctly *implemented* in the code the harvest was documenting; the harvest just described the wrong mechanism for why it was safe. Also separately overclaimed a narrow ranking override as "the PR is ground truth, the label isn't" — broader than the specific, scoped fix it was describing. |
+| #513 (harvesting #504) | Five separate overclaims in one PR: a rule stated as applying to "any number" that needed a carve-out for canonical/configured values; an unconditional step that needed a conditional carve-out already implied by a sibling item; crediting a single condition with ending a five-round cycle when the source material it cited named two; inventing a specific "three failed attempts" threshold with no evidence behind the number; and treating a deferred CI guard as adequately tracked by review-guidance prose instead of the repo's actual backlog mechanism. |
+| #528 (harvesting #515) | Described a mutation-testing technique as distinguishing "correct and reliable" from "too loose" — when killing one deliberately-introduced mutant only establishes that the test still detects *that specific* fault, not that it's reliable under real CI load or would catch a *different* regression. |
+
+**Why this is a pattern and not three unrelated review findings.** Each
+individual instance, in isolation, is ordinary review-and-fix churn — Codex
+caught it, the author fixed it, the thread resolved, nothing left over. What
+makes it worth recording is that three independent harvests, written by the
+same kind of process in immediate succession to their triggering PRs, failed
+in the *same shape*: not wrong facts, but a locally-true result restated as
+if it generalized further than it does. A single instance is noise; three is
+a property of the process (write-immediately-after, no cooling-off), not of
+any one PR's content.
+
+**What to do instead.** When drafting a `/document` harvest, for every claim
+that generalizes a result from the triggering PR's own verification (a test
+passing, a mechanism working, a technique proving something), ask **exactly
+what was demonstrated, and state only that** — not the broader-sounding
+version that's more satisfying to write. "This mutation-testing check proves
+the test still catches this specific regression" is correct; "this proves
+the test is now correct and reliable" is the same sentence with the scope
+quietly widened past what happened. The check this suggests — re-reading
+every generalizing claim in a harvest and asking "what specifically was
+shown, versus what does this sentence claim" — is exactly the review lens
+that caught all three instances above; the fix is applying it during
+drafting, not only during review.
