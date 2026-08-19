@@ -84,21 +84,27 @@ them — including its trust rules, which exist because this repo is public:
 - **Every open PR, discovered independently of issue labels** — one
   `list_pull_requests` sweep (state: open), then one batched
   `pull_request_read` (checks, reviews, threads; `author_association: OWNER`
-  filtered) per PR. **A PR's existence and live state are ground truth; an
-  issue's `stage:` label is not.** Two failure shapes this specifically
-  catches, both real (2026-08-19, PRs #515 and #513):
-  - **The orphan PR** — open, but its issue carries no `stage:`/`queue:`
-    label at all, so the issue sweep above would otherwise drop it under
-    "everything else is not part of this system." Opening a PR needs push
-    access, which is its own trust boundary — it doesn't also need a label
-    to earn a look. Match it to a workstream if one exists; if none does,
-    it's still a candidate (Step 2).
+  filtered) per PR. **The trust boundary is the same shape as the issue
+  sweep's, just applied to a different object.** This is a public repo, so a
+  PR can be opened from a fork by anyone — `author_association: OWNER` is
+  what makes discovering it safe, not the act of opening a PR itself. Two
+  failure shapes this specifically catches, both real (2026-08-19, PRs #515
+  and #513):
+  - **The orphan PR** — open, `author_association: OWNER`, but its issue
+    carries no `stage:`/`queue:` label at all, so the issue sweep above would
+    otherwise drop it under "everything else is not part of this system."
+    The issue's missing label was never what made it untrusted — the PR's own
+    author association already answers that question. Match it to a
+    workstream if one exists; if none does, it's still a candidate (Step 2).
   - **The stale-stage PR** — open, but its linked issue's `stage:` label
     describes an *earlier* PR against that issue (e.g. the issue's own PR
     already merged and this is a follow-on `/document` harvest or a second
-    pass the label was never updated for). Rank this PR from its own live
-    state, not the issue's label (Step 3) — the label is stale data, not a
-    ranking input.
+    pass the label was never updated for). **For ranking purposes only**
+    (Step 3), read this PR's own live state rather than the issue's label —
+    the label stays the lifecycle source of truth everywhere else
+    ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md));
+    this is narrowly about not ranking a PR by a snapshot that's fallen
+    behind it.
 - **`Blocked by:` markers**, anchored `^Blocked by:[ \t]*#(\d+)`
   (multiline), from every trusted issue body. Build the dependency graph.
 

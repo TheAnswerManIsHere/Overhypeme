@@ -2306,38 +2306,45 @@ snapshot data, not lying data, but the skill trusted it as current anyway.
 Neither PR needed to forge anything to become invisible; they just needed to
 be new enough, or a second pass, that the label hadn't caught up.
 
-**The second half of the same mistake: trusting a label as current state
-rather than as a stale snapshot.** Even where the security-boundary framing is
-completely correct (an issue's label really is the only thing an outside
-account can't forge), a label is written once and then never automatically
-revisited — it says what was true *when someone last touched it*, not what's
-true now. A PR's own checks, reviews, and unresolved threads are live by
-construction (GitHub computes them on every event); an issue's `stage:` label
-is not. Ranking or routing decisions that read the label as ground truth will
-silently fall behind the PR's real state every time a follow-on PR opens
-against an issue whose earlier PR already shipped.
+**The second half of the same mistake: reading a label as current state in a
+context where a live signal is available and more current.** A label is
+written once and then never automatically revisited — it says what was true
+*when someone last touched it*, not what's true now. A PR's own checks,
+reviews, and unresolved threads are live by construction (GitHub computes
+them on every event); an issue's `stage:` label is not. **This is narrower
+than "the label isn't the source of truth"** — `workstream-tracking.md`'s
+contract that `stage:`/`waiting:` labels are the canonical lifecycle state
+stands untouched; the fix only added specific live PR signals (red CI, a
+stalled review round, unresolved threads) as ranking inputs that can outrank
+a label *for `/next`'s own prioritization decision*, not a general license to
+disregard labels wherever they conflict with something live.
 
 **What to do instead.**
 
 1. **Don't let one gate answer two questions.** "Is this trustworthy" and "does
-   this need to be discovered at all" are different questions with different
-   correct trust boundaries — a PR needs push access to open, which is its own
-   security boundary independent of any issue label, so PR discovery should
-   never be gated by whether some *other* object (the issue) happens to carry
-   a label.
+   this need to be discovered at all" are different questions, and can have
+   the *same* correct trust boundary applied to different objects rather than
+   one applied transitively through an intermediary. This repo's actual
+   defense against a forged PR is `author_association: OWNER` filtering (a PR
+   needs no push access to open — anyone can open one from a fork on a public
+   repo) — `/next`'s fix kept that filter on the PR sweep directly instead of
+   relying on the issue's label to vouch for it.
 2. **Sweep for the object directly, not through an intermediary.** `/next`'s
-   fix (PR #522) added an independent `list_pull_requests` sweep alongside the
-   issue sweep, rather than trying to make the issue-labeling ceremony more
-   reliable — the intermediary was the bug, not the label logic itself.
-3. **When a live signal and a cached label disagree, the live signal wins.**
-   Encode that explicitly as a rule (`/next`'s Step 3 now states "a PR's live
-   state can outrank its issue's label") rather than leaving it as an implicit
-   assumption that happens to hold until the two drift.
+   fix (PR #522) added an independent, still-filtered `list_pull_requests`
+   sweep alongside the issue sweep, rather than trying to make the
+   issue-labeling ceremony more reliable — the intermediary was the bug, not
+   the label logic itself.
+3. **State exactly which decision the live signal is allowed to win, not a
+   blanket "live beats cached."** Encode that explicitly and narrowly
+   (`/next`'s Step 3 lists three specific ranking cases where "a PR's live
+   state can outrank its issue's label") rather than a general rule that
+   would silently license ignoring a valid label anywhere else it's used.
 
 **Related:** this is a different failure from *"duplicate source of truth"*
-above — there's only one source of truth here (the PR), but a downstream
-consumer reads a cache of it (the label) instead of the thing itself, and
-nothing invalidates the cache when the PR moves past what the label describes.
+above — there's still one canonical lifecycle source of truth (the label,
+per `workstream-tracking.md`), and the fix didn't relocate that; it added a
+narrow, explicitly-scoped override for one consumer's ranking decision, on
+the object (the PR) whose live state that consumer actually needed.
 **Not yet audited**: the sibling skills `/status` and `/status-all` derive
 their state from the same stored `stage:`/`waiting:` label pattern and have
-not been checked for the same gap (tracked in #523).
+not been checked for the same discovery gap (tracked in #523).
