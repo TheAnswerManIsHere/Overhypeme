@@ -40,7 +40,7 @@ const REPO_OWNER = "TheAnswerManIsHere";
 const REPO_NAME = "Overhypeme";
 
 /** Logins whose reviews count as a review round. */
-const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt-codex-connector"]);
+export const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt-codex-connector"]);
 
 /**
  * The connector's own machine-ish declaration that a review pass completed,
@@ -724,7 +724,7 @@ export function derive({ pr, reviews, comments, files, issueComments }) {
  * silently finds nothing for every one of the bot's own comments, which is
  * exactly the kind of confidently-wrong result this file exists to prevent.
  */
-const normalizeLogin = (login) => (login ?? "").replace(/\[bot\]$/, "");
+export const normalizeLogin = (login) => (login ?? "").replace(/\[bot\]$/, "");
 
 export function flattenMcpThreads(reviewThreads, reviews) {
   const byAuthor = new Map();

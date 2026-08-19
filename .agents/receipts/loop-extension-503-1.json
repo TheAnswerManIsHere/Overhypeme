@@ -1,0 +1,10 @@
+{
+  "pr": 503,
+  "kind": "adjudication",
+  "verdict": "continue",
+  "grant": 1,
+  "risk": "scripts/review-budget.mjs can honor an extension receipt without proof that a tripwire refusal actually preceded it, and can reuse an occupied extension path after a sequence gap (threads PRRT_kwDOR3LTYs6Z6nlJ and PRRT_kwDOR3LTYs6Z6nlo) -- so the guard could grant review rounds no adjudication authorized, which defeats the enforcement this PR exists to create.",
+  "recordPath": ".agents/adjudications/503-1.json",
+  "adjudicator": "review-loop-adjudicator on Fable, one-shot, fresh context",
+  "createdAt": "2026-08-18T01:45:00.000Z"
+}

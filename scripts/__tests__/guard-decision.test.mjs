@@ -715,6 +715,180 @@ for (const words of ARRAY_INVARIANT_CASES) {
 }
 
 // ---------------------------------------------------------------------------
+// The review-round budget, at the routing layer.
+//
+// `review-budget.test.mjs` owns the budget matrix itself. What is pinned HERE
+// is the thing only this file can break: that ONE hook now carries THREE
+// judgements without any of them leaking into the others. The Bash pipeline
+// must never see a comment payload (it would tokenise a JSON blob and judge
+// prose); the budget must never see a Bash payload (it would refuse a commit
+// message quoting the trigger); and the merge gate must never see either.
+// ---------------------------------------------------------------------------
+
+const REVIEW_TOOL = "mcp__github__add_issue_comment";
+const NOW_ISO = "2026-08-17T12:00:00.000Z";
+const NOW_MS = Date.parse(NOW_ISO);
+
+const reviewPayload = (body, overrides = {}) =>
+  JSON.stringify({
+    tool_name: REVIEW_TOOL,
+    tool_input: {
+      owner: "TheAnswerManIsHere",
+      repo: "Overhypeme",
+      issue_number: 991,
+      body,
+      ...overrides,
+    },
+  });
+
+/** An in-memory receipt store, so these tests never touch .agents/receipts. */
+const memoryIo = (files = {}) => {
+  const store = { ...files };
+  return {
+    store,
+    now: () => NOW_ISO,
+    read: (rel) => (rel in store ? store[rel] : null),
+    exists: (rel) => rel in store,
+    listReceipts: () =>
+      Object.keys(store)
+        .filter((k) => k.startsWith(".agents/receipts/"))
+        .map((k) => k.slice(".agents/receipts/".length)),
+    write: (rel, text) => {
+      store[rel] = text;
+    },
+    claimOnce: (rel) => {
+      if (rel in store) return false;
+      store[rel] = "";
+      return true;
+    },
+    releaseClaim: (rel) => {
+      delete store[rel];
+    },
+    nonce: () => "0123456789abcdef",
+    gitShow: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
+    upstreamRef: () => "origin/fake",
+  };
+};
+
+const budgetFile = (pr, tier, cap) =>
+  JSON.stringify({
+    pr,
+    tier,
+    budget: cap,
+    criticality: 30,
+    artifact: "x",
+    declaredAt: "2026-08-17T00:00:00.000Z",
+  });
+
+/** The fresh-evidence receipt the guard demands: rounds counted, not tallied. */
+const checkFile = (pr, spent) =>
+  JSON.stringify({
+    pr,
+    repo: "TheAnswerManIsHere/Overhypeme",
+    capturedAt: "2026-08-17T11:59:00.000Z",
+    delivered: spent,
+    pending: 0,
+    spent,
+    nonce: "0123456789abcdef",
+  });
+
+const budgeted = (extra = {}) =>
+  memoryIo({ ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3), ...extra });
+
+test("an @codex review post with no declared budget is refused", () => {
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io: memoryIo(), now: NOW_MS });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no round budget declared for PR #991/);
+});
+
+test("an @codex review post with a budget but no counted evidence is refused", () => {
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io: budgeted(), now: NOW_MS });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no round-check receipt/);
+});
+
+test("an @codex review post inside its counted budget is allowed", () => {
+  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 1) });
+  assert.equal(decide(reviewPayload("@codex review"), { io, now: NOW_MS }).blocked, false);
+});
+
+test("an @codex review post past its budget is refused at tripwire 1", () => {
+  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 3) });
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io, now: NOW_MS });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /TRIPWIRE 1/);
+  assert.match(reason, /ON FABLE/);
+});
+
+test("an ordinary PR comment is unaffected by the budget", () => {
+  const io = memoryIo();
+  assert.equal(decide(reviewPayload("Fixed in abc1234 — resolving this thread."), { io, now: NOW_MS }).blocked, false);
+  assert.deepEqual(io.store, {}, "and nothing is written");
+});
+
+test("the three judgements do not leak into each other", () => {
+  // A commit message quoting the trigger goes down the Bash path, where the
+  // budget has no say -- otherwise writing about this mechanism would block
+  // every commit that mentions it.
+  assert.equal(blocked('git commit -m "post @codex review after the fix"'), false);
+  // A comment payload never reaches the tokeniser: this body is a shell
+  // string that WOULD be blocked as a command.
+  assert.equal(decide(reviewPayload("git push -f origin main"), { io: memoryIo(), now: NOW_MS }).blocked, false);
+  // And a merge payload reaches the merge gate, not the budget: its refusal
+  // is about the readiness receipt, never about rounds.
+  const mergeCall = JSON.stringify({
+    tool_name: "mcp__github__merge_pull_request",
+    tool_input: { owner: "TheAnswerManIsHere", repo: "Overhypeme", pullNumber: 991 },
+  });
+  const mergeVerdict = decide(mergeCall, { readReceipt: () => null, resolveSha: () => null });
+  assert.equal(mergeVerdict.blocked, true);
+  assert.match(mergeVerdict.reason, /readiness receipt/);
+  assert.doesNotMatch(mergeVerdict.reason, /round budget/);
+});
+
+// ---------------------------------------------------------------------------
+// The DEGRADED path (Codex, round 2). When node is unavailable the hook falls
+// back to raw greps — and running both of them over every payload leaked in
+// both directions, which is the one thing the node path is careful never to
+// do. Running with node stripped from PATH is what makes this a test of the
+// fallback rather than a second test of the module.
+// ---------------------------------------------------------------------------
+
+function runHookWithoutNode(rawPayload) {
+  try {
+    execFileSync("bash", [".claude/guard.sh"], {
+      cwd: REPO_ROOT,
+      input: rawPayload,
+      env: { ...process.env, PATH: "/usr/bin:/bin" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return 0;
+  } catch (error) {
+    return error.status;
+  }
+}
+
+const FALLBACK_CASES = [
+  ["a commit quoting the trigger is not a review request", { tool_name: "Bash", tool_input: { command: 'git commit -m "post @codex review after the fix"' } }, 0],
+  ["a real force push is still refused", { tool_name: "Bash", tool_input: { command: "git push -f origin main" } }, 2],
+  ["a comment quoting a force push is not a command", { tool_name: "mcp__github__add_issue_comment", tool_input: { body: "git push -f origin main" } }, 0],
+  ["a comment carrying the trigger is refused — the budget cannot be checked without node", { tool_name: "mcp__github__add_issue_comment", tool_input: { body: "@codex review" } }, 2],
+  ["an unrecognised payload shape gets BOTH scans", { tool_input: { body: "@codex review" } }, 2],
+];
+
+for (const [name, payloadObject, expected] of FALLBACK_CASES) {
+  test(`fallback (no node): ${name}`, () => {
+    assert.equal(runHookWithoutNode(JSON.stringify(payloadObject)), expected);
+  });
+}
+
+test("the fallback really is the fallback — node must be absent from that PATH", () => {
+  // Without this the five cases above would silently be re-testing the node
+  // path, and would keep passing even if the fallback routing were removed.
+  assert.throws(() => execFileSync("node", ["--version"], { env: { PATH: "/usr/bin:/bin" }, stdio: "ignore" }));
+});
+
+// ---------------------------------------------------------------------------
 // The merge gate.
 //
 // CLAUDE.md's merge bar is CI green + Codex converged + every review thread

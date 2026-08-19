@@ -230,6 +230,7 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { staleReason, remoteTip } from "./pr-ready.mjs";
+import { REVIEW_REQUEST_TOOLS, judgeReviewRequest, nodeIo } from "./review-budget.mjs";
 
 const ALLOW = 0;
 const BLOCK = 2;
@@ -1748,6 +1749,21 @@ export function decide(raw, options = {}) {
       ...options,
     });
     return reason ? { blocked: true, reason } : { blocked: false, reason: null };
+  }
+
+  // The third judgement behind this hook: the review-round budget. Taken ONLY
+  // for the specific comment-posting tools, so every other payload -- Bash,
+  // the merge tool above, anything a future matcher adds -- is untouched.
+  // See review-budget.mjs for why this is a check and not a contract line.
+  if (typeof payload?.tool_name === "string" && REVIEW_REQUEST_TOOLS.has(payload.tool_name)) {
+    // `now` is injected for the same reason `checkMerge` takes it: the
+    // round-check receipt's freshness is half its trustworthiness, so the
+    // clock has to be assertable rather than ambient.
+    return judgeReviewRequest(
+      { toolName: payload.tool_name, toolInput: payload.tool_input ?? {} },
+      options.io ?? nodeIo(),
+      options.now ?? Date.now(),
+    );
   }
 
   const command = extractCommand(raw);
