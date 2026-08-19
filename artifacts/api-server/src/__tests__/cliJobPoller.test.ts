@@ -109,10 +109,21 @@ describe("pollJobsToTerminal", () => {
     // Each GAP between resolutions stays comfortably under the stall
     // ceiling, but the batch's TOTAL wall-clock span exceeds it — proving
     // this is a zero-progress ceiling, not a fixed total-duration cap.
-    setTimeout(() => { void setStatus(jobA, "done"); }, 25);
-    setTimeout(() => { void setStatus(jobB, "done"); }, 90);
+    //
+    // TIMINGS ARE DELIBERATELY GENEROUS. The invariant needs two properties to
+    // hold at once — each gap under the ceiling, and the total over it — and
+    // the earlier values (25/90 against an 80ms ceiling) left the gap just
+    // **15ms** of headroom. That has to absorb a real Postgres UPDATE plus a
+    // poll tick, on a CI runner sharing one database container across four
+    // shards. It held locally and failed repeatedly in CI, latterly on every
+    // run (issue #508). Scaled ~8x so both margins are ~100ms; the assertions
+    // and the property under test are unchanged, and the cost is about half a
+    // second. Do not tighten these to speed the suite up — a failure here
+    // reads as a real regression in the poller and burns a diagnosis.
+    setTimeout(() => { void setStatus(jobA, "done"); }, 200);
+    setTimeout(() => { void setStatus(jobB, "done"); }, 600);
 
-    const result = await pollJobsToTerminal(jobs, { pollIntervalMs: 10, stallCeilingMs: 80 });
+    const result = await pollJobsToTerminal(jobs, { pollIntervalMs: 25, stallCeilingMs: 500 });
     assert.equal(result.succeeded, 2, "a serialized-lane batch making steady progress must not be prematurely abandoned");
     assert.equal(result.unresolved.length, 0);
   });
