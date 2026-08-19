@@ -9,13 +9,35 @@ Evidence describes a PR at a moment — it is worthless once the moment passes
 and re-derivable at will, so it is gitignored and dies with the session. A
 decision is taken once and binds afterwards, so it is committed.
 
+**And a decision is *read* from the commit, never from the working tree.** That
+is what makes the line above load-bearing rather than decorative: the guard
+resolves the branch's upstream ref and reads the budget and every extension out
+of it with `git show` / `git ls-tree`. A receipt sitting only in the working
+tree is not "present but undurable" — it is simply absent, because the read
+that would have seen it never happens.
+
+The practical consequence, and the one thing that changed for the workflow: **a
+budget must be committed *and pushed* before round 1**, not merely written.
+Extensions already carried that requirement. `HEAD` is deliberately not
+accepted as a fallback — a commit that never reached a remote dies with the
+container, which is exactly the failure the rule exists to prevent — so a
+branch with no upstream has no durable ref and every review request on it is
+refused until it is pushed.
+
 | File | Kind | Written by |
 |---|---|---|
 | `pr-<pr>.json` | evidence | `pr-ready.mjs` — merge readiness, checked by the merge hook |
 | `loop-round-check-<pr>.json` | evidence | `review-budget.mjs check` — rounds counted from a snapshot |
-| `loop-round-check-<pr>.json.claim` | evidence | the guard — an atomic single-use claim on that receipt |
+| `loop-round-check-<pr>.json.<nonce>.claim` | evidence | the guard — an atomic single-use claim on **one generation** of that receipt |
 | `loop-budget-<pr>.json` | **decision** | `review-budget.mjs declare`, before round 1 |
 | `loop-extension-<pr>-<n>.json` | **decision** | the session, after an adjudication or David's authorization |
+
+The claim is keyed to the receipt's `nonce` rather than to the PR, so a fresh
+`check` writes a *different* claim file instead of deleting a live one — and
+`.gitignore` therefore has to match `loop-round-check-*.claim`, not the
+narrower `*.json.claim`. That pattern silently stopped matching when the nonce
+was introduced, and the only symptom was an untracked file after every guarded
+post.
 
 `.gitignore` names the ephemeral shapes explicitly and leaves the decision
 shapes tracked. It cannot be written the other way round: git will not
