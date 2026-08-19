@@ -427,8 +427,42 @@ export function nodeIo(root = REPO_ROOT) {
       const REMOTE = "refs/remotes/";
       if (!full.startsWith(REMOTE)) return null;
       // Stripping the prefix yields exactly what `--abbrev-ref` would have
-      // printed, so this stays a single git call.
-      return full.slice(REMOTE.length);
+      // printed, so the happy path stays cheap.
+      const abbrev = full.slice(REMOTE.length);
+
+      // ...BUT `refs/remotes/` IS NOT ITSELF PROOF OF DURABILITY. A remote
+      // whose URL is a local repository produces exactly that namespace:
+      // reproduced 2026-08-19 with `git remote add local ../origin-repo.git`,
+      // which yields `refs/remotes/local/main` while both repositories die
+      // with the container. (Codex, #531 round 2.)
+      //
+      // The test is on the property that actually matters -- does this remote
+      // live on a disk that disappears with us -- rather than on URL syntax,
+      // which is a swamp: `file://` has a scheme and is local, while
+      // `git@github.com:owner/repo` has none and is not. So: resolve the URL
+      // git would really use (honouring `insteadOf` rewrites) and reject it if
+      // it names something on this filesystem.
+      const remote = abbrev.split("/")[0];
+      let url;
+      try {
+        url = execFileSync("git", ["ls-remote", "--get-url", remote], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+      } catch {
+        return null; // cannot tell what the remote is -- refuse
+      }
+      // `--get-url` echoes the name back when the remote is unknown.
+      if (!url || url === remote) return null;
+      if (/^file:\/\//i.test(url)) return null;
+      // A bare path, absolute or relative to the repo. Anything reachable over
+      // a network -- https://, ssh://, git://, or the scp-like
+      // user@host:path -- will not exist as a path here. A local path that
+      // does NOT exist is left alone deliberately: fetch and push against it
+      // are already broken, so it cannot be how the ref got updated.
+      if (fs.existsSync(path.resolve(root, url))) return null;
+      return abbrev;
     },
     /**
      * The contents of `rel` AT `ref` -- the only way durable decisions are
@@ -963,7 +997,9 @@ function refusal(pr, state, spent, tiedCount = false) {
       `Give it the generated record and NOTHING else from this session. Fable spends at double Opus, so ` +
       `say out loud that you are dispatching it (the announce-don't-sneak rule in the model-routing skill).\n` +
       `  3. Write its verdict to ${extensionPath(pr, nextSeq)} ` +
-      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate), and commit it.\n` +
+      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate), then COMMIT ` +
+      `AND PUSH it -- extensions are read from the remote-tracking ref, so an unpushed one grants nothing and ` +
+      `this refusal will simply repeat.\n` +
       `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard, and only once.`
     );
   }
@@ -973,7 +1009,8 @@ function refusal(pr, state, spent, tiedCount = false) {
     `TRIPWIRE 2 (hard stop). The one self-serve extension is spent, and there is never a second one. ` +
     `Take this to David as a 🛑 NEED YOU with the adjudication record pre-written as the options, and record ` +
     `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
-    `"authorization":"<his words>"}, committed.`
+    `"authorization":"<his words>"}, then COMMIT AND PUSH it -- extensions are read from the ` +
+    `remote-tracking ref, so an unpushed authorization grants nothing and this refusal will simply repeat.`
   );
 }
 

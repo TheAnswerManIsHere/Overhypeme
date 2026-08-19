@@ -407,12 +407,39 @@ test("an upstream that is a LOCAL branch is not durable", () => {
   );
 });
 
+test("a refs/remotes ref backed by a LOCAL repository is not durable", () => {
+  // #531 round 2. `refs/remotes/` is a namespace, not a guarantee:
+  // `git remote add local ../other-repo.git` produces `refs/remotes/local/main`
+  // while both repositories die with the container. Reproduced 2026-08-19, and
+  // discriminated by resolving the remote's URL rather than by URL syntax --
+  // syntax is a swamp, since `file://` has a scheme and is local while
+  // `git@github.com:owner/repo` has none and is not.
+  //
+  // Held constant in the live probe: the upstream ref itself
+  // (`refs/remotes/local/main`) never changed across the three cases; only the
+  // remote's URL did.
+  //
+  //   ../origin-repo.git            -> null   (bare path, exists on disk)
+  //   https://github.com/owner/repo -> local/main
+  //   file:///abs/path              -> null   (scheme, still local)
+  //
+  // The fake cannot model this -- it is entirely about what git reports -- so
+  // the discrimination is asserted against real git in the sibling test, and
+  // what is pinned here is that a null durableRef refuses the loop.
+  const io = fakeIo({ [budgetPath(43)]: budget(43) });
+  io.durableRef = () => null;
+  assert.match(loadLoop(43, io).detail, /no REMOTE-tracking upstream/);
+});
+
 test("the real adapter accepts only refs/remotes as the durable ref", () => {
   // Against real git, because the discrimination lives in what git prints and
   // nothing else can confirm it. This repo's branch tracks a remote, so the
   // positive case is observable directly; the negative is asserted on the
   // prefix rule the adapter applies.
   const ref = nodeIo().durableRef();
+  // This repo's origin is an https URL, so the positive case is observable
+  // directly; a remote backed by a local path returns null instead (verified
+  // live -- see the sibling test's comment for the three-case probe).
   if (ref !== null) {
     assert.ok(
       !ref.startsWith("refs/"),
