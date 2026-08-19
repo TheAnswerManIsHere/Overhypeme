@@ -95,6 +95,7 @@ artifacts/api-server/assets/
 # Both shapes below are ignored --
 #   pr-*.json               readiness, quoted in a merge claim and checked by the merge hook
 #   loop-round-check-*.json rounds counted from a snapshot for the budget guard
+#   loop-round-check-*.claim  the atomic single-use claim on one such receipt
 #
 # DECISIONS (loop-budget-*.json, loop-extension-*.json) are committed instead.
 # They are taken once and bind afterwards, and they MUST survive the container
@@ -114,4 +115,10 @@ artifacts/api-server/assets/
 # evening.
 .agents/receipts/pr-*.json
 .agents/receipts/loop-round-check-*.json
-.agents/receipts/loop-round-check-*.json.claim
+# Matches BOTH claim shapes: the original `<check>.json.claim`, and the
+# per-generation `<check>.json.<nonce>.claim` the guard writes now that the
+# claim is keyed to the receipt's nonce. The narrower `*.json.claim` pattern
+# stopped matching the moment the nonce was added -- a silent coupling break
+# that showed up only as an untracked file, so the pattern is now written to
+# cover the whole family rather than one spelling of it.
+.agents/receipts/loop-round-check-*.claim
