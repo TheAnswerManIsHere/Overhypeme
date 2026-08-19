@@ -389,6 +389,39 @@ test("an unreadable receipt is refused, never read as absent", () => {
   assert.match(loadLoop(1, unknown).detail, /could not be read from origin\/fake \(unreadable/);
 });
 
+test("an upstream that is a LOCAL branch is not durable", () => {
+  // #531 round 1. `git branch --set-upstream-to=<local-branch>` is supported
+  // and sets `branch.<name>.remote=.`; measured 2026-08-19, the ABBREVIATED
+  // upstream is then a bare name indistinguishable from a remote-tracking one,
+  // while its receipts die with the checkout. So the check is on the FULL ref:
+  // `refs/remotes/...` is durable, `refs/heads/...` is not.
+  const io = fakeIo({ [budgetPath(42)]: budget(42) });
+  io.durableRef = () => null; // what the adapter now returns for a local upstream
+  const verdict = loadLoop(42, io);
+  assert.equal(verdict.problem, "bad-receipt");
+  assert.match(verdict.detail, /no REMOTE-tracking upstream/);
+  assert.match(
+    verdict.detail,
+    /tracking another LOCAL branch reports the same way/,
+    "the refusal covers both causes -- a local upstream IS an upstream, just not a durable one",
+  );
+});
+
+test("the real adapter accepts only refs/remotes as the durable ref", () => {
+  // Against real git, because the discrimination lives in what git prints and
+  // nothing else can confirm it. This repo's branch tracks a remote, so the
+  // positive case is observable directly; the negative is asserted on the
+  // prefix rule the adapter applies.
+  const ref = nodeIo().durableRef();
+  if (ref !== null) {
+    assert.ok(
+      !ref.startsWith("refs/"),
+      "the returned ref is the abbreviated remote-tracking name, usable directly with git show",
+    );
+    assert.ok(ref.includes("/"), "and carries its remote, e.g. origin/<branch>");
+  }
+});
+
 test("a budget written but not pushed says so, instead of \"no budget declared\"", () => {
   // The decision is the same either way -- absent from the ref is absent --
   // but this is the likeliest first encounter with the push requirement, and
@@ -415,7 +448,7 @@ test("a branch with no upstream has no durable ref, and refuses", () => {
   io.durableRef = () => null;
   const verdict = loadLoop(1, io);
   assert.equal(verdict.problem, "bad-receipt");
-  assert.match(verdict.detail, /no upstream, so there is no durable ref/);
+  assert.match(verdict.detail, /no REMOTE-tracking upstream, so there is no durable ref/);
   assert.match(verdict.detail, /git push -u origin/, "the refusal says how to fix it");
 });
 

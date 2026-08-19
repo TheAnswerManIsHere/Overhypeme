@@ -1076,9 +1076,17 @@ never had. Pointer, not fork: the buckets are not restated here.
 
    The tier picks the number — it is not a field I fill in. I also **state the
    budget in the PR body**, so it is visible to David and to the reviewer, not
-   only to the guard. The budget and any extension receipts are **committed**;
-   they are decisions, and an ephemeral extension record would let a loop that
-   already spent its adjudication be offered the self-serve tripwire again.
+   only to the guard. The budget and any extension receipts are **committed
+   AND PUSHED**; they are decisions, and an ephemeral extension record would
+   let a loop that already spent its adjudication be offered the self-serve
+   tripwire again.
+
+   **The push is what makes them exist, not housekeeping.** Both are read from
+   the branch's remote-tracking ref, never from the working tree, so an
+   unpushed receipt reads as *no budget declared* and the guard refuses. That
+   is deliberate: `HEAD` is not accepted either, because a commit that never
+   reached a remote dies with the container — which is the exact failure the
+   durability rule exists to prevent.
 
    **The round count itself is never stored — it is counted fresh, every
    time.** Before each `@codex review` post I capture a snapshot and run

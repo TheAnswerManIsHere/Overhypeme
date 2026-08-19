@@ -406,14 +406,29 @@ export function nodeIo(root = REPO_ROOT) {
      * 2026-08-19).
      */
     durableRef() {
+      let full;
       try {
-        return execFileSync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+        full = execFileSync("git", ["rev-parse", "--symbolic-full-name", "@{upstream}"], {
           cwd: root,
           encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
         }).trim();
       } catch {
         return null;
       }
+      // THE FULL REF, NOT THE ABBREVIATED ONE, because the abbreviated forms
+      // are indistinguishable. `git branch --set-upstream-to=<local-branch>`
+      // is supported and sets `branch.<name>.remote=.`, after which
+      // `--abbrev-ref @{upstream}` prints a bare name that looks exactly like
+      // a remote-tracking one -- while its receipts die with the checkout,
+      // which is the very thing this ref is supposed to rule out. Measured
+      // 2026-08-19: a remote upstream is `refs/remotes/origin/<branch>`, a
+      // local one is `refs/heads/<branch>`. (Codex, #531 round 1.)
+      const REMOTE = "refs/remotes/";
+      if (!full.startsWith(REMOTE)) return null;
+      // Stripping the prefix yields exactly what `--abbrev-ref` would have
+      // printed, so this stays a single git call.
+      return full.slice(REMOTE.length);
     },
     /**
      * The contents of `rel` AT `ref` -- the only way durable decisions are
@@ -663,9 +678,11 @@ export function loadLoop(pr, io) {
     return {
       problem: "bad-receipt",
       detail:
-        "this branch has no upstream, so there is no durable ref to read the budget and extensions from. " +
-        "Push the branch (`git push -u origin <branch>`) before requesting a review: a decision that exists " +
-        "only in this container dies with it, and the next session would be offered the self-serve tripwire again",
+        "this branch has no REMOTE-tracking upstream, so there is no durable ref to read the budget and " +
+        "extensions from. Push the branch (`git push -u origin <branch>`) before requesting a review: a " +
+        "decision that exists only in this container dies with it, and the next session would be offered the " +
+        "self-serve tripwire again. (A branch tracking another LOCAL branch reports the same way, and for the " +
+        "same reason -- a local ref is not durable either.)",
     };
   }
 
@@ -1168,7 +1185,9 @@ function declare(flags, io) {
   return (
     `declared: PR #${pr}, tier "${flags.tier}" (${TIERS[flags.tier].label}), ` +
     `${TIERS[flags.tier].budget === null ? `uncapped with a mandatory 🛑 at ${cap}` : `${cap} rounds`}, ` +
-    `criticality ${criticality}. Written to ${budgetPath(pr)} -- commit it, and state the budget in the PR body.`
+    `criticality ${criticality}. Written to ${budgetPath(pr)} -- COMMIT AND PUSH it (a budget is read from the ` +
+    `branch's remote-tracking ref, so an unpushed one reads as no budget at all), and state the budget in the ` +
+    `PR body.`
   );
 }
 
