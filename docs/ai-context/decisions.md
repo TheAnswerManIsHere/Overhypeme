@@ -69,8 +69,7 @@
   time had to be recorded as an inflated grant with the arithmetic spelled out
   in the receipt's `context`. Exempting merge-bar passes from the count was
   rejected: changing the counting rule mid-loop in the loop's own favour is the
-  self-excusing shape the module exists to prevent. **Not yet tracked by an
-  issue.**
+  self-excusing shape the module exists to prevent. Filed as **issue #532**.
 - **Reference:** PR #503 (merged `7c56add`), issue #501,
   `scripts/review-budget.mjs`, `scripts/review-loop-record.mjs`,
   `.claude/agents/review-loop-adjudicator.md`, `.agents/receipts/README.md`.
@@ -80,8 +79,8 @@
 - **Revisit if:** the guard's fail-closed refusals turn out to block legitimate
   rounds more often than they catch runaway ones (expect some in its first weeks
   — those are flip-condition-1 fixes, not crises), or if the merge-bar collision
-  recurs a third time, which would make it a design gap needing its own pass
-  rather than a per-loop receipt note.
+  (#532) recurs, since two occurrences already made it a design gap rather than
+  a per-loop receipt note.
 
 ### 2026-08-18 · The proposed cost reaches `checkBudget` as a thunk, always
 - **Decision:** every `checkBudget` call passes its proposed cost as a function,

@@ -48,9 +48,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   rather than rederiving it.
   **Open:** #514 (an automatic Codex review can be in flight while the pending
   count reads 0 — bounded at one round of overshoot; the honest fix reaches
-  every PR in the repo). **Untracked residual:** the merge bar can require a
-  pass the round budget has no room for, which collided twice on this PR and
-  has no receipt kind — recorded in the decisions entry, no issue yet.
+  every PR in the repo) and #532 (the merge bar can require a pass the round
+  budget has no room for; it collided twice on this PR, and the mechanism has
+  no receipt kind that means "the merge gate required this").
 
 - **Cost-ledger provenance — `is_estimated`, Releases A and B** (2026-08-18,
   PRs #497 and #498, workstream #473). The spend ceiling only binds on what the
