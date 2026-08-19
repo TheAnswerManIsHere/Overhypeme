@@ -1,0 +1,8 @@
+{
+  "pr": 503,
+  "kind": "david",
+  "grant": 1,
+  "authorization": "1",
+  "context": "Tripwire 2 again on PR #503, and his SECOND authorization on this loop -- which the design permits for him and forbids for me. The head pass returned three fail-open findings: the receipt claim was keyed to the PR and deleted by a fresh check (destroying a live claim mid-flight), a request in the same second as the latest pass read as pending 0 at the cap, and an uncommitted extension receipt activated immediately (so a session that died before committing offered the next one tripwire 1 again). All three let one authorization produce more than one round -- in the module whose entire purpose is to stop that. He was offered: 1 = fix all three and take one more pass, 2 = merge with the three recorded as gaps, 3 = close unmerged and re-cut smaller. He answered \"1\", with the ramification stated to him that this would be a 7th pass and his second authorization. Fixes are in c677397.",
+  "createdAt": "2026-08-19T00:00:00.000Z"
+}
