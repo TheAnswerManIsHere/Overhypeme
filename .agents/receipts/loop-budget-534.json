@@ -1,0 +1,8 @@
+{
+  "pr": 534,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 10,
+  "artifact": "docs harvest: known-failure-patterns.md meta-entry on /document harvests overclaiming their triggering PR's evidence",
+  "declaredAt": "2026-08-19T19:19:29.851Z"
+}
