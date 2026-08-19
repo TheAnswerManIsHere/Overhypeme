@@ -19,10 +19,13 @@
   code, uncapped-with-a-mandatory-🛑-at-5 for auth/payments/migrations — and
   `.claude/guard.sh` → `scripts/review-budget.mjs` **refuses the `@codex review`
   post itself** past it. The tier picks the number, so a loop cannot declare its
-  own cap. Release is by fresh-context adjudication **once** (a one-shot Fable
-  subagent ruling on a script-generated record, verdict ∈
-  ship-with-gaps-recorded / split / continue +N≤2 / escalate), and after that
-  only by David. **No second self-serve extension, ever.**
+  own cap. **On the internal and product tiers only**, the refusal is released
+  once by a fresh-context adjudication (a one-shot Fable subagent ruling on a
+  script-generated record, verdict ∈ ship-with-gaps-recorded / split /
+  continue +N≤2 / escalate), and after that only by David. **The sensitive
+  tier has no self-serve stage at all** — `TIERS.sensitive.selfServe` is
+  `false`, so its mandatory stop at 5 escalates directly to David. **No second
+  self-serve extension, ever.**
 - **Why a check and not more contract prose:** PR #488 ran 22 rounds on a
   ~10-line change. Every round was locally rational — real findings, correct
   fixes — and no event ever put the *aggregate* in front of anyone. The

@@ -28,11 +28,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   (2026-08-19, PR #503, workstream #501). PR #488 ran 22 Codex rounds on a
   ~10-line change: every round locally rational, and no event ever presenting
   the aggregate. The judgment-shaped stopping devices went 0-for-15 there, so
-  the stopping rule moved onto the action path. Every loop now declares a
-  budget before round 1 (3 internal / 5 product / uncapped-with-🛑-at-5 for
-  auth, payments, migrations) and the guard **refuses the `@codex review` post**
-  past it — released once by a fresh-context Fable adjudication, and after that
-  only by David. Rounds are **counted fresh from a validated GitHub snapshot**,
+  the stopping rule moved onto the action path. **Every review loop Claude Code
+  drives** now declares a budget before round 1 (3 internal / 5 product /
+  uncapped-with-🛑-at-5 for auth, payments, migrations) and `.claude/guard.sh`
+  **refuses the `@codex review` post** past it — released once by a
+  fresh-context Fable adjudication on the internal and product tiers, and
+  after that only by David; the sensitive tier skips self-serve entirely and
+  escalates straight to him. The ceremony is Claude Code's, since it posts the
+  trigger and the guard is on its action path — it is not a rule for other
+  agents' loops. Rounds are **counted fresh from a validated GitHub snapshot**,
   never stored: the first design's committed tally was a cache of state GitHub
   already holds and was deleted mid-loop after a round returned 12 findings,
   half of them against the tally's own repair machinery.
