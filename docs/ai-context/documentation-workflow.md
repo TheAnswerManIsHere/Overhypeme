@@ -164,11 +164,14 @@ the chapter links to them.
   2026-08-19 after PRs #525/#513/#528 each shipped a claim of this shape,
   documented in
   [`known-failure-patterns.md`](./known-failure-patterns.md#a-document-harvest-drafted-immediately-after-its-triggering-pr-ships-claims-it-hasnt-actually-verified)).
-  This repo's cross-check step already asked whether docs contradict each
-  other; it never asked whether any single claim was actually checked before
-  being written down. For every claim in the harvest that isn't a plain
-  restatement of the diff, ask which of these it's making, and verify it on
-  those terms:
+  This repo's cross-check step already covers **product**-truth claims — no
+  invented product truth, unverified product claims carry *Needs David
+  confirmation* — and none of the seven instances behind this addition were
+  product claims, so that part of the check isn't in question. What it
+  didn't ask about is narrower and specific: claims about this repo's own
+  tooling, process, and sourcing. For every such claim in the harvest that
+  isn't a plain restatement of the diff, ask which of these it's making, and
+  verify it on those terms:
   - **A fact** — is it actually true, not just plausible? (#525 asserted a
     security mechanism that doesn't exist in this repo.)
   - **A scope** — does it claim only what was demonstrated, not a
