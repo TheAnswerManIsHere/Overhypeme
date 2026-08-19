@@ -81,8 +81,24 @@ them — including its trust rules, which exist because this repo is public:
   the parent only reappears once its checklist is fully checked and it
   moves to `stage:close-out` (phased parents have no separate UAT stage —
   per-phase UAT already covers it).
-- **Linked PRs and their live state**, one batched `pull_request_read` per
-  workstream that has one, `author_association: OWNER` filtered.
+- **Every open PR, discovered independently of issue labels** — one
+  `list_pull_requests` sweep (state: open), then one batched
+  `pull_request_read` (checks, reviews, threads; `author_association: OWNER`
+  filtered) per PR. **A PR's existence and live state are ground truth; an
+  issue's `stage:` label is not.** Two failure shapes this specifically
+  catches, both real (2026-08-19, PRs #515 and #513):
+  - **The orphan PR** — open, but its issue carries no `stage:`/`queue:`
+    label at all, so the issue sweep above would otherwise drop it under
+    "everything else is not part of this system." Opening a PR needs push
+    access, which is its own trust boundary — it doesn't also need a label
+    to earn a look. Match it to a workstream if one exists; if none does,
+    it's still a candidate (Step 2).
+  - **The stale-stage PR** — open, but its linked issue's `stage:` label
+    describes an *earlier* PR against that issue (e.g. the issue's own PR
+    already merged and this is a follow-on `/document` harvest or a second
+    pass the label was never updated for). Rank this PR from its own live
+    state, not the issue's label (Step 3) — the label is stale data, not a
+    ranking input.
 - **`Blocked by:` markers**, anchored `^Blocked by:[ \t]*#(\d+)`
   (multiline), from every trusted issue body. Build the dependency graph.
 
@@ -93,9 +109,9 @@ Every candidate lands in exactly one bucket:
 | Bucket | Rule |
 | --- | --- |
 | **Blocked** | Has an open `Blocked by:` target. Not recommendable — but its rank propagates down to its blocker (step 3). |
-| **In flight** | `waiting:codex`/`waiting:ci`/`waiting:claude`/`waiting:replit` with real activity inside 48h. A machine — or another Claude session — is actively working it; recommending it again risks two sessions colliding on the same workstream, which defeats the parallel-safety goal this skill exists to serve. Listed, never recommended. **Exception: an unopened phase is never In flight**, regardless of the parent's `waiting:` or how recent its activity is — a checklist line with no issue and no PR can't literally have anyone working on it. A parent ticking to `waiting:claude` at a sibling phase's close-out shouldn't hide the next phase for 48h; it's Blocked or Actionable like any other candidate. |
+| **In flight** | `waiting:codex`/`waiting:ci`/`waiting:claude`/`waiting:replit` with real activity inside 48h — **or the same shape read off the PR directly** (a review requested in the last 48h with no reply yet, CI still running) when there's no issue `waiting:` label to check, which is the normal case for an orphan or stale-stage PR (Step 1). A machine — or another Claude session — is actively working it; recommending it again risks two sessions colliding on the same workstream, which defeats the parallel-safety goal this skill exists to serve. Listed, never recommended. **Exception: an unopened phase is never In flight**, regardless of the parent's `waiting:` or how recent its activity is — a checklist line with no issue and no PR can't literally have anyone working on it. A parent ticking to `waiting:claude` at a sibling phase's close-out shouldn't hide the next phase for 48h; it's Blocked or Actionable like any other candidate. |
 | **Actionable** | Everything else, including `waiting:david` items — David is the one asking, so "the next thing is yours" is a legitimate and common answer. |
-| **Stalled** | `waiting:` a non-David actor with **no** attributable activity for >48h (this is what separates it from In flight — recent activity keeps it there instead). **Actionable**, and usually near the top: something needs unsticking. |
+| **Stalled** | `waiting:` a non-David actor with **no** attributable activity for >48h (this is what separates it from In flight — recent activity keeps it there instead) — **or the same shape at the PR level**: a review round requested and not yet returned, or an unresolved thread with no reply, both past a normal review-turnaround window; or a check that's been red since its last push, no window needed. **Actionable**, and usually near the top: something needs unsticking. |
 
 Use `/status-all`'s attribution discipline for the activity timestamp —
 the login-vs-signature rule especially. Claude posts under David's GitHub
@@ -128,6 +144,25 @@ out of this single rule rather than needing four rules.
 That's what puts "start Phase 5 of NCMEC" above any fresh feature start
 but below a code-review loop someone left hanging — which is the ordering
 David asked for.
+
+### A PR's live state can outrank its issue's label
+
+A `stage:` label is a snapshot from whenever someone last touched it; a PR's
+checks, reviews, and threads are live. When they disagree, **the PR wins**:
+
+- **Red CI on an open PR** ranks at `merge` or higher, regardless of what the
+  issue says — a broken build is never below "waiting to be reviewed."
+- **A review round requested and not yet returned** is not convergence (per
+  `CLAUDE.md`'s close-out contract, "a round I have requested but not yet
+  received is not convergence either") and does not rank as done — it ranks
+  `code-review`, and moves to Stalled once it's sat past a normal
+  review-turnaround window, same as any other Stalled item.
+- **Unresolved review threads with no reply** rank at `code-review`
+  regardless of the issue's stage. This is usually where an orphan PR or a
+  stale-stage PR (Step 1) lands, since no issue label is tracking it at all.
+
+This is the ordinary lifecycle rule applied to whichever signal is more
+current — not the severe-bug override below, and not a reason to invoke it.
 
 ### Priority inheritance — the part that handles rabbit holes
 
@@ -265,6 +300,10 @@ looks thin:
   Project items by design, not issues.
 - **A stale backlog.** `/next` computes from `queue:` labels, `Blocked by:`
   markers, and Phases checklists — all maintained by ceremonies, all able
-  to drift. `/maintenance`'s backlog-hygiene step is the corrective. If a
+  to drift. Step 1's PR sweep catches a *stale-stage* PR (the label lies
+  about which PR it describes) by re-deriving that PR's rank from its own
+  live state — but it can't catch a stale `queue:`/`Blocked by:` marker on
+  an issue with no PR yet, since there's no live signal to check it against.
+  `/maintenance`'s backlog-hygiene step is the corrective there. If a
   recommendation depends on data that looks stale, say so rather than
   presenting a confident answer built on it.
