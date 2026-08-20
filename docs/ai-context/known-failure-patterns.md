@@ -2396,6 +2396,74 @@ let a docs edit trip it is the generalizable part.
    "always run everything" — it was "make the suite that's already running
    correctly reliable."
 
+## A `/document` harvest drafted immediately after its triggering PR ships claims it hasn't actually verified
+
+**The pattern.** A `/document` harvest is written right after the PR it's
+harvesting merges — same session, same context, no cooling-off period. In
+three observed instances (below), that immediacy co-occurred with a claim
+that sounded authoritative but hadn't actually been checked against
+anything. **Whether the immediacy caused that, versus merely being present
+when it happened, is not established by these three instances** — a point
+raised twice already in this entry's own review (rounds 1 and 2) and worth
+holding onto rather than letting causal language creep back in through the
+framing, which is exactly what happened once already before this fix. This
+is also **not one narrow failure shape** — an earlier draft of this entry
+claimed it was ("evidence generalized past its scope"), which was itself an
+instance of the same thing: force-fitting genuinely different failures into
+one tidy mechanism because a single shape makes a cleaner paragraph.
+
+**The worked examples — three independent instances in one session
+(2026-08-18/19), each caught by Codex, none caught by the harvest's own
+author before review, and genuinely NOT all the same shape:**
+
+| Harvest PR | What went wrong | Kind |
+| --- | --- | --- |
+| #525 (harvesting #522) | Named "opening a PR needs push access" as the trust boundary for an independent PR-discovery sweep — flatly false on a public repo, where any account can open a PR from a fork. The actual boundary (`author_association: OWNER` filtering) was already correctly *implemented* in the code being documented; the harvest just asserted a mechanism that doesn't exist. | **Unverified factual claim** — asserted without checking whether it was true. |
+| #513 (harvesting #504), finding 1 | A rule stated as applying to "any number" that needed a carve-out for canonical/configured values it hadn't considered. | **Unscoped generalization** — a real distinction, stated more broadly than it holds. |
+| #513, finding 2 | An unconditional step that needed a conditional carve-out a sibling item in the same list already implied. | **Internal inconsistency** — contradicted its own neighboring text. |
+| #513, finding 3 | Credited a single condition with ending a five-round cycle when the source material it was citing named two. | **Dropped evidence** — omitted half of what its own citation said. |
+| #513, finding 4 | Invented a specific "three failed attempts" threshold with no evidence anywhere behind that number. | **Fabricated specificity** — not a generalization of a real result; a number that was never measured. |
+| #513, finding 5 | Treated a deferred CI guard as adequately tracked by review-guidance prose instead of routing it through the repo's actual backlog mechanism. | **Procedural miscategorization** — right observation, wrong home. |
+| #528 (harvesting #515) | Described a mutation-testing technique as distinguishing "correct and reliable" from "too loose" — when killing one deliberately-introduced mutant only establishes that the test still detects *that specific* fault. | **Unscoped generalization** — the one genuinely clean instance of "a real local result restated more broadly than it supports." |
+
+**Why this is still one pattern despite the varied failure kinds — and what's
+NOT established.** Not because the failures share a mechanism — they don't,
+and claiming they did is the mistake this entry itself made and had to
+correct (round 1 of this entry's own review). Nor because immediate,
+no-cooling-off drafting is a demonstrated *cause* — a second overclaim, also
+corrected (round 2), and the correction needed a third pass (round 3) to
+fully hold, since causal-sounding language survived in the opening after
+the explicit denial was added here. **What actually generalizes across all
+seven instances is narrower: none of the six failure kinds above was asked
+about by the `/document` harvest's own pre-review Step 4 self-check, before
+the harvest was ever opened for review — the PR review that actually caught
+every one of these seven findings is not the gap; the author-side check that
+runs before a harvest ships is. That's a real, specific gap, not "no
+verification happened."**
+`documentation-workflow.md`'s Step 4 already catches duplicate homes,
+manual/ai-context contradictions, and invented **product** truth (an
+unverified product claim must carry *Needs David confirmation*) — that part
+of the cross-check is real and these seven instances aren't counterexamples
+to it, since none of them were claims about product behavior. What Step 4
+didn't ask about is a different category: claims about this repo's own
+tooling, process, and citations — is a stated mechanism actually
+implemented the way described, does a scope claim match what was
+demonstrated, does neighboring prose agree with itself, does a citation
+represent its full source, was a number actually counted, is a tracking
+item routed to the doc that owns that kind of tracking.
+
+**What to do instead.** Don't reach for a single unifying mechanism, cause,
+or "the gap is total" framing to explain a cluster of review findings
+unless the findings actually establish it — check each claim, including
+claims made *about* the findings, against what verifying it would actually
+take. That applies to this entry's own three rounds of correction as much
+as to the harvests it describes. The actual per-claim check for the
+non-product-truth gap lives in
+[`documentation-workflow.md`](./documentation-workflow.md)'s Step 4 — one
+question per failure kind in the table above, kept there rather than
+duplicated here so there's exactly one place to update when a question
+changes.
+
 ## A persistent counter of state the source of truth already holds
 
 **Looks like:** you need to know how many times something has happened, so you
