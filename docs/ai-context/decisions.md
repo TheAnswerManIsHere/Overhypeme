@@ -25,9 +25,17 @@
   receipt and its cited record (that's how the fallback itself gets committed
   after the baseline) — but any branch movement *outside* those two paths,
   even movement required to resolve a real GitHub merge conflict, invalidates
-  it for that PR, permanently: `review-budget.mjs`'s own rule ("a second
+  it for that PR **in practice**. The check itself is stateless and
+  recomputes ancestry and the diff fresh on every call, so it isn't
+  mechanically permanent — resetting the branch back to the exact
+  post-adjudication, bookkeeping-only commit would make it valid again. But
+  doing that means discarding whatever forced the movement in the first
+  place, which usually isn't a real option (here, it would mean un-resolving
+  a merge conflict that has to be resolved for the PR to be mergeable at
+  all). And regenerating a *fresh* adjudication to cover new legitimate
+  movement isn't available either: `review-budget.mjs`'s own rule ("a second
   adjudication extension is never valid") means there is no self-serve way to
-  regenerate it once one adjudication has been spent.
+  do that once one adjudication has been spent.
 - **First new occurrence.** PR #534 (a `/document` harvest) had a spent
   self-serve adjudication (`ship-with-gaps-recorded`) satisfying the merge
   bar via the fallback. Resolving a real conflict against `main` (which had
