@@ -755,7 +755,18 @@ What that means in practice:
   against me more permissive to save a keystroke. David chose to leave it.
   Recorded here so a future session doesn't spend the diagnosis time again.
 - **`git reset --hard` → WORKS.** It cannot reach the remote; blocking it
-  protected `main` from nothing.
+  protected `main` from nothing. **But chained ahead of a force-push in one
+  compound Bash call (`git reset --hard <sha> && git push --force-with-lease
+  ...`), a guard denial on the push cancels the WHOLE call — including the
+  reset, which the guard would never deny on its own (PR #534,
+  2026-08-20).** The hook runs *before* the tool executes, so a refusal on
+  any part of a multi-statement command means none of it ran, not just the
+  flagged part. I only caught this because a retried push reported "Everything
+  up-to-date" — the tell that the reset it depended on had silently never
+  happened. **The fix is mechanical: never chain a command that might trip
+  this guard after (or before) anything else with `&&`/`;`/newlines — issue it
+  as its own, isolated Bash call**, so a denial only ever costs that one
+  command and a silent no-op on an earlier step is never possible.
 - **`git push origin --delete <branch>` → still does NOT work** (the proxy
   hangs / "remote end hung up"). *Restrict deletions* is on the ruleset but
   targets `main`, so it is not the cause here — the proxy is.

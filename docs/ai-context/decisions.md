@@ -13,6 +13,72 @@
 
 ---
 
+### 2026-08-20 · #532's merge-bar collision recurred a fourth and fifth time on PR #534 — the closed-adjudication fallback has a fixed baseline, and once its one-time slot is spent, a trailing commit outside its bookkeeping paths needs a fresh round or an exact-SHA reset
+- **Decision:** no code change; recorded per #532's own "revisit if" (a fourth
+  occurrence), which fired twice more in one PR. The two new occurrences
+  surface a real gap in #539's closed-adjudication fallback
+  (`checkAdjudicatedCodex` in `scripts/pr-ready.mjs`) that its own design
+  didn't anticipate: the fallback's diff baseline
+  (`record.sinceLastReview.head`) is fixed at whatever the PR's head was when
+  the mechanical record was generated. The fallback's own bookkeeping-only-diff
+  check does tolerate later commits confined to the terminal adjudication
+  receipt and its cited record (that's how the fallback itself gets committed
+  after the baseline) — but any branch movement *outside* those two paths,
+  even movement required to resolve a real GitHub merge conflict, invalidates
+  it for that PR **in practice**. The check itself is stateless and
+  recomputes ancestry and the diff fresh on every call, so it isn't
+  mechanically permanent — resetting the branch back to the exact
+  post-adjudication, bookkeeping-only commit would make it valid again. But
+  doing that means discarding whatever forced the movement in the first
+  place, which usually isn't a real option (here, it would mean un-resolving
+  a merge conflict that has to be resolved for the PR to be mergeable at
+  all). And regenerating a *fresh* adjudication to cover new legitimate
+  movement isn't available either: `review-budget.mjs`'s own rule ("a second
+  adjudication extension is never valid") means there is no self-serve way to
+  do that once one adjudication has been spent.
+- **First new occurrence.** PR #534 (a `/document` harvest) had a spent
+  self-serve adjudication (`ship-with-gaps-recorded`) satisfying the merge
+  bar via the fallback. Resolving a real conflict against `main` (which had
+  moved via #539, touching the same file #534 also edited) required merging
+  `main` into #534's branch — moving the head past the adjudication's
+  baseline. The fallback's own bookkeeping-only-diff check then correctly
+  refused (real content, not just receipts/records, had changed since the
+  baseline), and — because one adjudication was already spent — there was no
+  self-serve recovery. This is a straightforward instance of #532's class,
+  now escalating to David not because of the last round's own unreviewed fix
+  commit (the original shape #532 documents) but because of a *required
+  conflict resolution* landing on top of an already-spent adjudication. David
+  authorized one fresh round.
+- **Second new occurrence, smaller and more mechanical.** After that fresh
+  round landed with real findings and all were fixed, one more trivial
+  bookkeeping fix (correcting two numbers in an already-superseded historical
+  record file) was pushed *after* the round had already been requested —
+  landing one commit past what the live Codex pass actually covered.
+  `pr-ready.mjs` correctly reported NOT READY, and this time the fallback
+  could not help even in principle: its own kind-check requires the loop's
+  *terminal* (highest-sequence) committed extension receipt to be an
+  `adjudication` ship-verdict, and by then it was a `david`-kind grant. Once
+  a `david` grant supersedes the one spent adjudication, the fallback is
+  closed for the rest of that PR's life — every subsequent push, however
+  small, needs either a full fresh round or the branch walked back to a
+  commit a prior pass actually covered. **A plain revert commit cannot do
+  that recovery**: `checkCodex`'s match is by commit *identity*
+  (`sameCommit`, comparing SHAs), not tree-content equality, so a revert
+  produces a new, uncited SHA that still fails the check. The only recovery
+  is `git reset --hard <the exact previously-reviewed sha>` followed by
+  `git push --force-with-lease` — verified working end-to-end on PR #534.
+  David chose this over spending a sixth round, given the trivial (two
+  cosmetic numbers in a superseded audit file) size of what was discarded.
+- **Reference:** PR #534; the prior 2026-08-20 entry above (the third
+  occurrence, on PR #531); issue #532 (updated with this as occurrences 4–5);
+  `.agents/receipts/loop-extension-534-{1,2,3}.json` and
+  `.agents/adjudications/534-{2,3}.json` for the concrete receipts/records.
+- **Revisit if:** a sixth occurrence lands, or #532's design pass (still
+  deferred) finally happens — at which point this entry and the two before
+  it are the worked examples a designed receipt kind needs to satisfy.
+
+---
+
 ### 2026-08-20 · The round-budget guard's durability check is deleted and rebuilt on the ref, not the working tree — and #532's merge-bar collision recurred a third time, resolved by the mechanism itself
 - **Decision:** `scripts/review-budget.mjs` no longer reads the budget or
   extension receipts from the working tree at all. `readDurableJson`/
