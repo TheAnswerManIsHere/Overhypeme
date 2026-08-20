@@ -779,6 +779,45 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
     time this exact mistake recurs a fourth time.
 
+- **No CI guard against a stale hand-written count in doc/comment prose
+  (found on PR #513's `/document` harvest, first recorded occurrence).**
+  - **What.** [`code-review.md`](code-review.md#a-count-in-prose-is-a-hand-maintained-duplicate-of-the-thing-it-counts)
+    documents the pattern — a number written into a doc, comment, header, or
+    PR body that summarizes a separately-maintained enumerated set (e.g.
+    "four findings", "five failed attempts") is a duplicate source of truth
+    in miniature, and it goes stale specifically *during the edit that's
+    fixing something else*, which is the moment attention is elsewhere.
+    Three instances landed in one session (2026-08-17), the sharpest inside
+    the very edit that added the count that made it wrong. Nothing
+    mechanical catches this today; it relies on a reviewer noticing.
+  - **Why deferred now.** This repo's own rule is that a recurring failure
+    pattern becomes a deterministic CI guard, not a reviewer-memory ask —
+    this entry is the queued acknowledgment of that rule firing, not a
+    decision to skip it. Not implemented in the PR that raised it (#513)
+    because that pass is a docs-only `/document` harvest; writing and wiring
+    a new guard script is a code change outside that ceremony's boundary.
+    Unlike the two sibling entries below, this is the **first** recorded
+    occurrence, not the third — flagged here specifically so a maintenance
+    sweep can watch for a second and third instance rather than the pattern
+    only living in review-guidance prose that nothing re-reads on a
+    schedule.
+  - **Cost of waiting.** Low today (one session, three instances, all caught
+    by the same reviewer in the same pass) — but the pattern's own point is
+    that it goes unnoticed precisely when attention is on something else, so
+    "caught so far" isn't evidence it'll keep being caught.
+  - **Shape of the fix, not yet built.** Nontrivial to do well: a naive
+    regex over standalone numbers in prose would false-positive on
+    configured values, dates, and thresholds that this pattern explicitly
+    doesn't cover (see the "does not apply" carve-out in the code-review.md
+    entry). A workable version likely needs to pair a counting word ("four
+    findings", "N instances", "N attempts") with a nearby enumerated list or
+    table and flag a mismatch between the stated count and the actual item
+    count — closer to a doc-linting AST pass than a grep.
+  - **Revisit trigger.** Next dev-infra/tooling pass, or the next time this
+    exact mistake recurs a second time (matching the two-strikes-plus
+    threshold the sibling CI-guard entries below used before being written
+    up as backlog items).
+
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
     conditionally gaining `/api/auth/dev-admin-login` only inside an

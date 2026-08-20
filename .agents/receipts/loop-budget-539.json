@@ -1,0 +1,8 @@
+{
+  "pr": 539,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 35,
+  "artifact": "pr-ready.mjs: let a closed review-loop adjudication satisfy the Codex merge-gate check",
+  "declaredAt": "2026-08-19T21:05:33.040Z"
+}

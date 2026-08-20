@@ -123,6 +123,9 @@ const adjudication = (pr, extra = {}) => ({
   grant: 2,
   risk: "the retry path can double-charge on a 409",
   recordPath: RECORD(pr),
+  decidedAt: "2026-08-19T21:45:00Z",
+  reasoning: "the record shows a named, unaddressed behavioral risk in the retry path",
+  gaps: [],
   ...extra,
 });
 
@@ -290,9 +293,50 @@ test("a continue verdict must name a behavioral risk and grant at most 2", () =>
 });
 
 test("a non-continue verdict is valid but grants nothing", () => {
-  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", recordPath: "" });
+  // recordPath is still required -- pr-ready.mjs's merge-gate fallback
+  // derives its diff baseline from the cited record, never from a
+  // self-declared field on the receipt, so every adjudication verdict
+  // (not just `continue`) must cite one. (Codex, PR #539 round 2.)
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
   assert.equal(validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }), null);
   assert.equal(allowance("internal", [shipped], 3), 3, "a stop verdict does not extend the budget");
+});
+
+test("a non-continue verdict with no recordPath is rejected", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", recordPath: "" });
+  assert.match(
+    validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }),
+    /must cite the mechanical record/,
+  );
+});
+
+test("a recordPath outside .agents/adjudications/ is rejected -- pr-ready.mjs's merge gate would never accept it (Codex, #539 round 3)", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", recordPath: "docs/fake-record.json" });
+  assert.match(
+    validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }),
+    /is not under \.agents\/adjudications\//,
+  );
+});
+
+test("an adjudication receipt with no decidedAt is rejected (Codex, #539 round 3)", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", decidedAt: undefined });
+  assert.match(
+    validateExtension(1, "internal", shipped, { adjudicationsAlreadySeen: 0, io: null }),
+    /must carry a parseable `decidedAt`/,
+  );
+});
+
+test("an adjudication receipt with no reasoning, or a non-array gaps, is rejected (Codex, #539 round 3)", () => {
+  const noReasoning = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", reasoning: "" });
+  assert.match(
+    validateExtension(1, "internal", noReasoning, { adjudicationsAlreadySeen: 0, io: null }),
+    /must carry the adjudicator's `reasoning`/,
+  );
+  const noGaps = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "", gaps: "not an array" });
+  assert.match(
+    validateExtension(1, "internal", noGaps, { adjudicationsAlreadySeen: 0, io: null }),
+    /must carry the adjudicator's `gaps` array/,
+  );
 });
 
 test("the sensitive tier has no self-serve extension at all", () => {

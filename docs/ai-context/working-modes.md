@@ -567,8 +567,10 @@ will keep finding things, and each fix adds surface for the next round.
     drives (David, 2026-08-17).** Every such loop declares a **round budget**
     before round 1 — 3 rounds for internal tooling/docs/guards, 5 for product
     code, uncapped-with-a-mandatory-🛑-at-5 for auth/payments/migrations —
-    and a guard **refuses the `@codex review` post** past it, releasing only
-    on a fresh-context adjudication (once) or David's authorization. The
+    and a guard **refuses the `@codex review` post** past it. On the internal
+    and product tiers it releases on a fresh-context adjudication (once) or
+    David's authorization; **the sensitive tier has no self-serve stage at
+    all** and escalates straight to David. The
     rules in this section are unchanged and still decide everything *inside*
     a budget; what they never had was a bound that fires without anyone
     choosing to look. PR #488 is why: 22 rounds on a ~10-line change with

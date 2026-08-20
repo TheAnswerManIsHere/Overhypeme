@@ -117,8 +117,10 @@ artifacts/api-server/assets/
 .agents/receipts/loop-round-check-*.json
 # Matches BOTH claim shapes: the original `<check>.json.claim`, and the
 # per-generation `<check>.json.<nonce>.claim` the guard writes now that the
-# claim is keyed to the receipt's nonce. The narrower `*.json.claim` pattern
-# stopped matching the moment the nonce was added -- a silent coupling break
-# that showed up only as an untracked file, so the pattern is now written to
-# cover the whole family rather than one spelling of it.
+# claim is keyed to the receipt's nonce (`claimPath` = `${checkPath(pr)}.${nonce}.claim`).
+# The narrower `*.json.claim` pattern stopped matching the moment the nonce
+# was added -- a silent coupling break that showed up only as an untracked
+# file -- so the pattern is written to cover the whole family rather than one
+# spelling of it. Verified to match both shapes (`git status --ignored`); a
+# pre-nonce claim can still be sitting in a working tree from an earlier loop.
 .agents/receipts/loop-round-check-*.claim
