@@ -50,6 +50,30 @@
  * Both are committed: "no second self-service extension, ever" has to survive
  * the container, or tripwire 2 never fires.
  *
+ * AND BOTH ARE READ FROM THE COMMIT, NEVER FROM THE WORKING TREE (#526).
+ * The distinction above was always declared and, for a while, only half
+ * honoured: `loadLoop` read the decisions off the filesystem and then ran a
+ * separate `extensionDurability` check to prove they matched git. That check
+ * was a CACHE-COHERENCE check -- the working copy being a cache of the
+ * committed one -- and every failure it produced was a coherence failure: two
+ * reads that could disagree, a mis-identified backing store (`HEAD` is not
+ * durable; only a pushed ref is), a reconciliation step with its own escaping
+ * error path, bytes that are not comparable under `core.autocrlf`, and the
+ * whole apparatus applied to extensions while the budget -- which sets the cap
+ * -- went unchecked. Five separate findings, one shape.
+ *
+ * This is the round-tally story from round 3 repeated one layer down, and it
+ * gets the same answer: READ THE AUTHORITATIVE COPY, delete the reconciliation.
+ * `readDurableJson` and `listDurable` are the only way a decision enters this
+ * module, so there is no window in which a local edit is what grants the
+ * rounds. Evidence keeps reading the filesystem -- the round-check receipt is
+ * SUPPOSED to be session-local -- and that asymmetry is the whole design.
+ *
+ * The practical consequence: a budget must be committed AND PUSHED before
+ * round 1, not merely written. That is the same requirement extensions
+ * already carried, and it is what "durable" has to mean in a container that
+ * does not outlive the session.
+ *
  * THE THREE REFUSAL SHAPES, in the order they bite:
  *
  *   1. NO BUDGET. Refused until a budget exists -- there is no
@@ -373,46 +397,136 @@ export function nodeIo(root = REPO_ROOT) {
      * inside one second must not collide on a claim path. */
     nonce: () => crypto.randomBytes(8).toString("hex"),
     /**
-     * The CONTENTS of `rel` at `ref`, used to prove an extension receipt is
-     * DURABLE before it grants anything -- see extensionDurability. Returns
-     * `{ state: "present", text }`, `{ state: "absent" }`, or
-     * `{ state: "unknown" }` for "could not tell" (no such ref, git
-     * unavailable), which the caller treats as refuse rather than as absent:
-     * "I could not check" is not evidence of durability.
+     * The durable ref: the branch's upstream, or null when it has none.
+     *
+     * "Durable" means SURVIVES THIS CONTAINER, so the remote-tracking ref is
+     * the only honest answer. `HEAD` is not a weaker version of it -- a commit
+     * that never reached a remote dies with the checkout, which is precisely
+     * the failure the durability rule exists to prevent, so there is no
+     * fallback ladder here. No upstream means no durable ref, and the caller
+     * refuses. (Codex, #526 finding 3.)
+     *
+     * Staleness runs one way only: `origin/<branch>` can lag a push made
+     * elsewhere, which under-reports what is durable and therefore refuses.
+     * A local `git push` updates this ref itself, so a receipt committed and
+     * pushed in-session is visible immediately with no fetch (measured
+     * 2026-08-19).
      */
-    gitShow(ref, rel) {
+    durableRef() {
+      let full;
+      try {
+        full = execFileSync("git", ["rev-parse", "--symbolic-full-name", "@{upstream}"], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+      } catch {
+        return null;
+      }
+      // THE FULL REF, NOT THE ABBREVIATED ONE, because the abbreviated forms
+      // are indistinguishable. `git branch --set-upstream-to=<local-branch>`
+      // is supported and sets `branch.<name>.remote=.`, after which
+      // `--abbrev-ref @{upstream}` prints a bare name that looks exactly like
+      // a remote-tracking one -- while its receipts die with the checkout,
+      // which is the very thing this ref is supposed to rule out. Measured
+      // 2026-08-19: a remote upstream is `refs/remotes/origin/<branch>`, a
+      // local one is `refs/heads/<branch>`. (Codex, #531 round 1.)
+      const REMOTE = "refs/remotes/";
+      if (!full.startsWith(REMOTE)) return null;
+      // Stripping the prefix yields exactly what `--abbrev-ref` would have
+      // printed, so the happy path stays cheap.
+      const abbrev = full.slice(REMOTE.length);
+
+      // ...BUT `refs/remotes/` IS NOT ITSELF PROOF OF DURABILITY. A remote
+      // whose URL is a local repository produces exactly that namespace:
+      // reproduced 2026-08-19 with `git remote add local ../origin-repo.git`,
+      // which yields `refs/remotes/local/main` while both repositories die
+      // with the container. (Codex, #531 round 2.)
+      //
+      // The test is on the property that actually matters -- does this remote
+      // live on a disk that disappears with us -- rather than on URL syntax,
+      // which is a swamp: `file://` has a scheme and is local, while
+      // `git@github.com:owner/repo` has none and is not. So: resolve the URL
+      // git would really use (honouring `insteadOf` rewrites) and reject it if
+      // it names something on this filesystem.
+      const remote = abbrev.split("/")[0];
+      let url;
+      try {
+        url = execFileSync("git", ["ls-remote", "--get-url", remote], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+      } catch {
+        return null; // cannot tell what the remote is -- refuse
+      }
+      // `--get-url` echoes the name back when the remote is unknown.
+      if (!url || url === remote) return null;
+      if (/^file:\/\//i.test(url)) return null;
+      // A bare path, absolute or relative to the repo. Anything reachable over
+      // a network -- https://, ssh://, git://, or the scp-like
+      // user@host:path -- will not exist as a path here. A local path that
+      // does NOT exist is left alone deliberately: fetch and push against it
+      // are already broken, so it cannot be how the ref got updated.
+      if (fs.existsSync(path.resolve(root, url))) return null;
+      return abbrev;
+    },
+    /**
+     * The contents of `rel` AT `ref` -- the only way durable decisions are
+     * ever read. Returns `{ state: "present", text }`, `{ state: "absent" }`,
+     * or `{ state: "unknown" }` for "could not tell", which the caller treats
+     * as a refusal rather than as absence: "I could not check" is not
+     * evidence.
+     */
+    readDurable(ref, rel) {
       // TWO calls, because ONE cannot tell the two failures apart. Measured
       // 2026-08-19 in this repo: `git show HEAD:missing.md` and
       // `git show no-such-ref:CLAUDE.md` BOTH exit 128, and
       // `rev-parse --verify --quiet` returns 1 for both. So an exit code
-      // alone can never distinguish "the ref exists and the file is not in
-      // it" (an answer: false) from "there is no such ref" (not an answer:
-      // null). Resolving the ref first splits them cleanly, and each half is
-      // then unambiguous.
+      // alone can never distinguish "the ref exists and the path is not in
+      // it" (an answer: absent) from "there is no such ref" (not an answer:
+      // unknown). Resolving the ref first splits them cleanly.
       try {
         execFileSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
           cwd: root,
           stdio: "ignore",
         });
       } catch {
-        return { state: "unknown" }; // no such ref -- the caller refuses
+        return { state: "unknown" };
       }
       try {
-        const text = execFileSync("git", ["show", `${ref}:${rel}`], { cwd: root, encoding: "utf8" });
+        // stderr ignored: "path exists on disk, but not in <ref>" is an
+        // EXPECTED state here (an uncommitted decision), not an error, and
+        // letting git narrate it over the top of this module's own message
+        // reads as a crash.
+        const text = execFileSync("git", ["show", `${ref}:${rel}`], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
         return { state: "present", text };
       } catch {
-        // The ref resolved above, so this failure is about the path: it is
-        // genuinely not in that tree.
         return { state: "absent" };
       }
     },
-    /** The upstream tracking ref for HEAD, or null when there is none. */
-    upstreamRef() {
+    /**
+     * The filenames under `dir` AT `ref`, or null when the ref cannot be read.
+     * Null is distinct from an empty list for the same reason `listReceipts`
+     * rethrows: a directory that cannot be listed reading as "no extensions"
+     * would show a loop that had spent its adjudication the self-serve
+     * tripwire again. (Codex, #503 round 3, carried onto the durable path.)
+     */
+    listDurable(ref, dir) {
       try {
-        return execFileSync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+        const out = execFileSync("git", ["ls-tree", "--name-only", ref, `${dir}/`], {
           cwd: root,
           encoding: "utf8",
-        }).trim();
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        return out
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => line.slice(`${dir}/`.length));
       } catch {
         return null;
       }
@@ -431,6 +545,42 @@ function readJson(io, rel) {
   if (text === null) return { state: "absent" };
   try {
     return { state: "ok", value: JSON.parse(text) };
+  } catch (err) {
+    return { state: "malformed", error: err.message };
+  }
+}
+
+/**
+ * Read + parse a DURABLE decision, from the ref and never from the working
+ * tree. Same result shape as `readJson`, plus `unknown` for a ref that could
+ * not be read at all -- which refuses, because "I could not check" is not
+ * evidence.
+ *
+ * THIS IS THE WHOLE POINT OF #526. The module has always said decisions are
+ * committed and evidence is session-local, but `loadLoop` read the decisions
+ * from the session's filesystem and then ran a separate check to prove they
+ * matched git. That proof was a CACHE-COHERENCE check, and every one of its
+ * failures was a coherence failure: two reads that could disagree, a
+ * mis-identified backing store, a reconciliation step with its own error
+ * path, bytes that are not comparable under `core.autocrlf`, and the whole
+ * apparatus applied to extensions but not to the budget. Reading the
+ * authoritative copy directly deletes the question instead of answering it --
+ * the same move that deleted the round tally in #503 round 3, for the same
+ * reason.
+ */
+function readDurableJson(io, ref, rel) {
+  let shown;
+  try {
+    shown = io.readDurable(ref, rel);
+  } catch (err) {
+    return { state: "unreadable", error: err.message };
+  }
+  if (shown?.state === "absent") return { state: "absent" };
+  if (shown?.state !== "present") {
+    return { state: "unreadable", error: `${rel} could not be read from ${ref}` };
+  }
+  try {
+    return { state: "ok", value: JSON.parse(shown.text) };
   } catch (err) {
     return { state: "malformed", error: err.message };
   }
@@ -481,7 +631,7 @@ export function validateBudget(pr, receipt) {
  * likelier failures than the fabrication this module's header declines to
  * defend against.
  */
-function validateRecordReference(pr, tier, recordPath, io) {
+function validateRecordReference(pr, tier, recordPath, io, ref) {
   // pr-ready.mjs's merge-gate fallback requires every recordPath to live
   // under ADJUDICATIONS_DIR (never trusting an arbitrary path), so a
   // receipt this guard accepts as closing the loop must be one that gate
@@ -493,9 +643,16 @@ function validateRecordReference(pr, tier, recordPath, io) {
     return `recordPath ${JSON.stringify(recordPath)} is not under ${ADJUDICATIONS_DIR}/ -- pr-ready.mjs's merge gate will never accept it`;
   }
   if (!io) return null; // pure-validation callers; the guard always passes io
-  const parsed = readJson(io, recordPath);
-  if (parsed.state === "absent") return `cited mechanical record ${recordPath} does not exist`;
-  if (parsed.state !== "ok") return `cited mechanical record ${recordPath} is unreadable (${parsed.error})`;
+  // FROM THE DURABLE REF, like the receipt that cites it. The record is not
+  // itself a decision, but it is the evidence a `continue` verdict rests on,
+  // and it is committed (`.agents/adjudications/` is not gitignored -- checked
+  // 2026-08-19). Leaving this one read on the filesystem would rebuild exactly
+  // the split #526 is about: a durable receipt whose only justification exists
+  // in a container that is about to disappear.
+  const parsed = ref ? readDurableJson(io, ref, recordPath) : readJson(io, recordPath);
+  const where = ref ? ` in ${ref}` : "";
+  if (parsed.state === "absent") return `cited mechanical record ${recordPath} does not exist${where}`;
+  if (parsed.state !== "ok") return `cited mechanical record ${recordPath} is unreadable${where} (${parsed.error})`;
   if (parsed.value?.generator !== "scripts/review-loop-record.mjs") {
     return `${recordPath} was not produced by review-loop-record.mjs (generator: ${JSON.stringify(parsed.value?.generator)})`;
   }
@@ -510,7 +667,7 @@ function validateRecordReference(pr, tier, recordPath, io) {
   return null;
 }
 
-export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen, io }) {
+export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen, io, ref }) {
   if (!receipt || typeof receipt !== "object") return "extension receipt is not an object";
   if (receipt.pr !== pr) return `extension receipt names PR ${receipt.pr}, not ${pr}`;
 
@@ -556,7 +713,7 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
     if (!Array.isArray(receipt.gaps)) {
       return "adjudication receipt must carry the adjudicator's `gaps` array, verbatim (empty is valid for a verdict with no known gaps)";
     }
-    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io);
+    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref);
     if (recordError) return recordError;
     if (receipt.verdict !== "continue") return null; // ship-with-gaps-recorded / split / escalate grant nothing further
     if (!Number.isInteger(receipt.grant) || receipt.grant < 1 || receipt.grant > MAX_ADJUDICATION_GRANT) {
@@ -590,89 +747,64 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
 // ---------------------------------------------------------------------------
 
 /**
- * An extension receipt must be DURABLE before it grants anything.
- *
- * The receipt is now the only record enforcing "no second self-service
- * extension, ever" -- so an extension living only in the working tree is a
- * grant that dies with the container. The session that wrote it spends the
- * rounds; the next session counts those same rounds from GitHub, no longer
- * sees the extension, and is offered tripwire 1 and a second self-service
- * extension. Nobody acts in bad faith and the invariant is gone. This
- * container is ephemeral, so "the session ended before the receipt was
- * pushed" is an ordinary Tuesday. (Codex, #503 head pass.)
- *
- * DEFAULT REFUSE, with a burden of proof -- deliberately not a list of
- * durable-enough cases. Where an upstream ref exists, the receipt must be in
- * it: committed AND pushed. Where it does not, being in `HEAD` is the most
- * that can be established, and that is stated as the weaker thing it is.
- * "Could not tell" (no git, no such ref) refuses, because an unanswerable
- * question is not an answer.
- *
- * THE CHECK IS ON CONTENTS, NOT ON THE PATH. The first version asked only
- * whether the path existed in the ref, which a committed receipt satisfies
- * forever -- so EDITING a committed receipt in the working tree activated the
- * edit immediately, and a grant could be raised locally without anything
- * durable saying so. That is the same fail-open route this function was
- * written to close, one level down, and it was found by this very file
- * refusing to catch its own author raising a grant. Comparing the bytes makes
- * "durable" mean the thing that is actually granting the rounds.
- *
- * Returns a reason string on refusal, or null when the receipt is durable.
- */
-export function extensionDurability(io, rel) {
-  if (typeof io.gitShow !== "function") {
-    return "durability cannot be established (this environment cannot read git), and an extension that is " +
-      "not provably durable does not grant rounds";
-  }
-  const upstream = typeof io.upstreamRef === "function" ? io.upstreamRef() : null;
-  const ref = upstream ?? "HEAD";
-  const shown = io.gitShow(ref, rel);
-  // The instruction differs by whether there is anywhere to push to; the
-  // rationale differs by whether the receipt is missing or merely edited.
-  const publish = upstream
-    ? `commit and push it to ${upstream}`
-    : "commit it (there is no upstream ref here, so committed is the most that can be established)";
-  const why =
-    "An extension that exists only in the working tree dies with this container, and the next session is " +
-    "offered tripwire 1 again";
-
-  if (shown?.state === "absent") return `is not in ${ref} -- ${publish} before it grants any rounds. ${why}`;
-  if (shown?.state !== "present") {
-    return `durability could not be established against ${ref}; refusing to grant rounds on an unverifiable extension`;
-  }
-  // Present by path is not present by content: an edit to a committed receipt
-  // would otherwise take effect the moment it was typed.
-  if (shown.text !== io.read(rel)) {
-    return `differs from the copy in ${ref} -- ${publish} before the edit grants any rounds. The working-tree ` +
-      `version is what would be granting them, and it is the version that is not durable. ${why}`;
-  }
-  return null;
-}
-
-/**
  * Load the budget and extensions for one loop. Returns either a `problem`
  * (fail closed, with the reason already phrased for the refusal) or the
  * loop's state.
  */
 export function loadLoop(pr, io) {
-  const budget = readJson(io, budgetPath(pr));
-  if (budget.state === "absent") return { problem: "no-budget" };
+  // EVERY decision below is read from the durable ref, never from the working
+  // tree. No upstream means nothing here can be durable at all, so there is
+  // nothing to read and the answer is refuse -- see `durableRef`.
+  const ref = typeof io.durableRef === "function" ? io.durableRef() : null;
+  if (!ref) {
+    return {
+      problem: "bad-receipt",
+      detail:
+        "this branch has no REMOTE-tracking upstream, so there is no durable ref to read the budget and " +
+        "extensions from. Push the branch (`git push -u origin <branch>`) before requesting a review: a " +
+        "decision that exists only in this container dies with it, and the next session would be offered the " +
+        "self-serve tripwire again. (A branch tracking another LOCAL branch reports the same way, and for the " +
+        "same reason -- a local ref is not durable either.)",
+    };
+  }
+
+  const budget = readDurableJson(io, ref, budgetPath(pr));
+  if (budget.state === "absent") {
+    // The DECISION is identical either way -- absent from the ref is absent.
+    // Only the wording differs, and it matters: "declared but not pushed" is
+    // the likeliest way anyone meets this rule for the first time, and
+    // "no budget declared" would send them to re-run `declare`, which is
+    // exactly the thing that already worked. The working tree is consulted
+    // here to phrase a refusal, never to make one.
+    const writtenLocally = typeof io.exists === "function" && io.exists(budgetPath(pr));
+    if (writtenLocally) {
+      return {
+        problem: "bad-receipt",
+        detail:
+          `${budgetPath(pr)} exists in the working tree but is not in ${ref}. Commit and push it -- a budget ` +
+          "that dies with this container is not a declared budget, and re-running `declare` will not help",
+      };
+    }
+    return { problem: "no-budget" };
+  }
   if (budget.state !== "ok") {
-    return { problem: "bad-receipt", detail: `${budgetPath(pr)} could not be read (${budget.state}: ${budget.error})` };
+    return { problem: "bad-receipt", detail: `${budgetPath(pr)} could not be read from ${ref} (${budget.state}: ${budget.error})` };
   }
   const budgetError = validateBudget(pr, budget.value);
-  if (budgetError) return { problem: "bad-receipt", detail: `${budgetPath(pr)}: ${budgetError}` };
+  if (budgetError) return { problem: "bad-receipt", detail: `${budgetPath(pr)} (in ${ref}): ${budgetError}` };
 
   const tier = budget.value.tier;
 
   // Iterate the FILENAMES, never a number reconstructed from them: rebuilding
   // the path from a normalized number read one receipt twice and never opened
   // a zero-padded duplicate at all. (Codex, #503 round 2.)
-  let names;
-  try {
-    names = io.listReceipts();
-  } catch (err) {
-    return { problem: "bad-receipt", detail: `${RECEIPTS_DIR} could not be listed (${err.message})` };
+  //
+  // Null, not [], when the ref cannot be listed: an unlistable tree reading as
+  // "no extensions" would show a loop that had spent its adjudication the
+  // self-serve tripwire a second time. (Round 3's finding, carried across.)
+  const names = typeof io.listDurable === "function" ? io.listDurable(ref, RECEIPTS_DIR) : null;
+  if (names === null) {
+    return { problem: "bad-receipt", detail: `${RECEIPTS_DIR} could not be listed in ${ref}` };
   }
   const found = [];
   for (const name of names) {
@@ -700,14 +832,15 @@ export function loadLoop(pr, io) {
   let adjudicationsSeen = 0;
   for (const { seq, name } of found) {
     const rel = `${RECEIPTS_DIR}/${name}`;
-    const parsed = readJson(io, rel);
+    // From the ref. There is no second read to disagree with this one, and no
+    // byte comparison to get wrong -- the bytes being parsed ARE the durable
+    // bytes. (#526 findings 1, 4, 5 and 7 all live in the gap this closes.)
+    const parsed = readDurableJson(io, ref, rel);
     if (parsed.state !== "ok") {
-      return { problem: "bad-receipt", detail: `${rel} could not be read (${parsed.state}: ${parsed.error ?? "unreadable"})` };
+      return { problem: "bad-receipt", detail: `${rel} could not be read from ${ref} (${parsed.state}: ${parsed.error ?? "unreadable"})` };
     }
-    const error = validateExtension(pr, tier, parsed.value, { adjudicationsAlreadySeen: adjudicationsSeen, io });
-    if (error) return { problem: "bad-receipt", detail: `${rel}: ${error}` };
-    const durability = extensionDurability(io, rel);
-    if (durability) return { problem: "bad-receipt", detail: `${rel}: ${durability}` };
+    const error = validateExtension(pr, tier, parsed.value, { adjudicationsAlreadySeen: adjudicationsSeen, io, ref });
+    if (error) return { problem: "bad-receipt", detail: `${rel} (in ${ref}): ${error}` };
     if (parsed.value.kind === "adjudication") adjudicationsSeen += 1;
     extensions.push({ seq, ...parsed.value });
   }
@@ -794,16 +927,33 @@ export function countRounds({ reviewerPasses, issueComments }) {
   const pending = triggers.some((c) => Date.parse(c.created_at ?? "") > lastPassAt) ? 1 : 0;
 
   // GitHub timestamps have SECOND resolution, so a request posted in the same
-  // second as the pass before it is genuinely unordered: `>` reads it as
-  // already-answered and reports `pending: 0`, which suppresses nothing but
-  // frees the tripwire to authorize another request from the same delivered
-  // count -- at the cap, that is one round too many. (Codex, #503 head pass.)
+  // second as the pass before it is genuinely unordered. A tie only matters
+  // when it would DECIDE the answer: if some other trigger is strictly later,
+  // `pending` is already 1 and the tie changes nothing.
   //
-  // A tie only matters when it would DECIDE the answer. If some other trigger
-  // is strictly later, `pending` is already 1 and the tie changes nothing.
-  // Reported rather than resolved: the caller refuses to mint a receipt, and
-  // the ambiguity clears on its own the moment either the pass or the request
-  // is joined by anything with a later timestamp.
+  // IT IS REPORTED, NOT RESOLVED, AND IT NEVER STOPS THE COUNT. The first fix
+  // for this had `check` refuse to mint on a tie, which was safe and DEAD: if
+  // the tied request came just before the pass that answered it, neither
+  // timestamp ever changes, so the condition stayed true forever -- and the
+  // one thing that would clear it, a later request, was itself refused. That
+  // bricks review posting on the PR with no way out, not even David's
+  // authorization, because the refusal happened at mint time before allowance
+  // was ever consulted. (Codex, #526 finding 6.)
+  //
+  // `pending: 0` is the CAP-PRESERVING reading, so the tie is simply counted
+  // that way and the loop stays live. Work through the guard's condition
+  // (`pending === 0 && delivered >= allowance`):
+  //
+  //   AT the cap  -- 0 refuses, 1 would allow. Refusing is the safe half, and
+  //                  it routes into the ordinary tripwire, which an extension
+  //                  can release. A live escalation path, not a dead end.
+  //   BELOW it    -- `pending` does not gate anything; the post is allowed
+  //                  either way. What stops one authorization from becoming
+  //                  two posts is the claim, never this number.
+  //
+  // So the worst case is one legitimate retry refused at the cap, escalating
+  // through the path that already exists for "we are at the cap and cannot
+  // tell." The flag rides along so the refusal can SAY that is why.
   const ambiguous =
     pending === 0 && triggers.some((c) => Date.parse(c.created_at ?? "") === lastPassAt);
 
@@ -868,13 +1018,20 @@ const CHECK_HOWTO = (pr) =>
  * one agent that can act on it, at the one moment it can act, and it has to
  * carry the aggregate the loop could not see for itself.
  */
-function refusal(pr, state, spent) {
+function refusal(pr, state, spent, tiedCount = false) {
   const { budget, tier, extensions, nextSeq } = state;
   const cap = allowance(tier, extensions, spent);
+  const tie = tiedCount
+    ? `\nNOTE: a review request on this PR carries the SAME second as the latest completed pass, and GitHub's ` +
+      `timestamps stop at seconds, so whether that request is still in flight cannot be ordered from the ` +
+      `evidence. It is counted as answered, which is the reading that cannot exceed the cap -- so if that ` +
+      `request is in fact still unanswered, this refusal is blocking a RETRY rather than a new round. Say so ` +
+      `in the adjudication or to David; do not work around it.`
+    : "";
   const head =
     `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
     `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
-    `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).`;
+    `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).${tie}`;
 
   if (!hasAdjudication(extensions) && TIERS[tier].selfServe) {
     return (
@@ -888,14 +1045,15 @@ function refusal(pr, state, spent) {
       `Give it the generated record and NOTHING else from this session. Fable spends at double Opus, so ` +
       `say out loud that you are dispatching it (the announce-don't-sneak rule in the model-routing skill).\n` +
       `  3. Write its verdict to ${extensionPath(pr, nextSeq)} ` +
-      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate), and commit it. ` +
+      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate). ` +
       `Every verdict -- not just "continue" -- must also carry \`recordPath\` (citing the exact record path ` +
       `step 1 printed) and \`decidedAt\` (an ISO timestamp of when THIS receipt is being written, not when ` +
       `the record was generated in step 1). Carry the adjudicator's own \`reasoning\` and \`gaps\` fields ` +
       `into the receipt verbatim -- a receipt with only pr/kind/verdict/recordPath/decidedAt closes this ` +
       `guard but discards the adjudicator's actual justification. A ship-with-gaps-recorded receipt missing ` +
       `recordPath, decidedAt, reasoning, or gaps closes this guard but can never satisfy pr-ready.mjs's ` +
-      `merge gate.\n` +
+      `merge gate. Then COMMIT AND PUSH it -- extensions are read from the remote-tracking ref, so an ` +
+      `unpushed one grants nothing and this refusal will simply repeat.\n` +
       `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard, and only once.`
     );
   }
@@ -905,7 +1063,8 @@ function refusal(pr, state, spent) {
     `TRIPWIRE 2 (hard stop). The one self-serve extension is spent, and there is never a second one. ` +
     `Take this to David as a 🛑 NEED YOU with the adjudication record pre-written as the options, and record ` +
     `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
-    `"authorization":"<his words>"}, committed.`
+    `"authorization":"<his words>"}, then COMMIT AND PUSH it -- extensions are read from the ` +
+    `remote-tracking ref, so an unpushed authorization grants nothing and this refusal will simply repeat.`
   );
 }
 
@@ -1007,7 +1166,12 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
   // has not landed yet.
   const { delivered, pending, spent } = check.value;
   if (pending === 0 && delivered >= allowance(state.tier, state.extensions, spent)) {
-    return { blocked: true, reason: refusal(pr, state, spent) };
+    // `ambiguous` rides along so the refusal can say WHY the count might be
+    // one low: a same-second tie is counted as `pending: 0` (the
+    // cap-preserving reading -- see countRounds), which can refuse a
+    // legitimate retry. Naming it turns a confusing refusal into an ordinary
+    // tripwire the adjudicator or David can act on. (#526 finding 6.)
+    return { blocked: true, reason: refusal(pr, state, spent, check.value.ambiguous === true) };
   }
 
   // Claim the receipt ATOMICALLY before allowing anything, and CONSUME it --
@@ -1112,7 +1276,9 @@ function declare(flags, io) {
   return (
     `declared: PR #${pr}, tier "${flags.tier}" (${TIERS[flags.tier].label}), ` +
     `${TIERS[flags.tier].budget === null ? `uncapped with a mandatory 🛑 at ${cap}` : `${cap} rounds`}, ` +
-    `criticality ${criticality}. Written to ${budgetPath(pr)} -- commit it, and state the budget in the PR body.`
+    `criticality ${criticality}. Written to ${budgetPath(pr)} -- COMMIT AND PUSH it (a budget is read from the ` +
+    `branch's remote-tracking ref, so an unpushed one reads as no budget at all), and state the budget in the ` +
+    `PR body.`
   );
 }
 
@@ -1269,15 +1435,6 @@ async function check(flags, io) {
     issueComments: snapshot.issueComments,
   });
 
-  if (counted.ambiguous) {
-    throw new Error(
-      `cannot determine this loop's round count: a review request on PR #${pr} carries the SAME second as ` +
-        "the latest completed pass, so whether that request is still in flight is unordered. Refusing to " +
-        "mint a receipt rather than guessing -- at the cap, guessing wrong authorizes a round that is not " +
-        "there. Re-capture the snapshot once anything newer has landed and the tie resolves itself.",
-    );
-  }
-
   const receipt = {
     pr,
     repo: `${REPO_OWNER}/${REPO_NAME}`,
@@ -1302,10 +1459,16 @@ async function check(flags, io) {
       : counted.pending
         ? "a round is in flight; a retry of it is allowed and costs nothing new"
         : "the next request is inside budget";
+  const tie = counted.ambiguous
+    ? "\nNOTE: a request shares its second with the latest pass, so the two cannot be ordered from the " +
+      "evidence. Counted as answered -- the reading that cannot exceed the cap. If that request is actually " +
+      "still in flight, this count is one low and a refusal here is blocking a retry."
+    : "";
   return (
     `PR #${pr}: ${counted.delivered} completed reviewer pass(es)` +
     `${counted.pending ? " + 1 pending request" : ""} = ${counted.spent} of ` +
-    `${cap === Infinity ? "uncapped" : cap} -- ${verdict}. Receipt written to ${checkPath(pr)} (ephemeral, one post).`
+    `${cap === Infinity ? "uncapped" : cap} -- ${verdict}. Receipt written to ${checkPath(pr)} ` +
+    `(ephemeral, one post).${tie}`
   );
 }
 

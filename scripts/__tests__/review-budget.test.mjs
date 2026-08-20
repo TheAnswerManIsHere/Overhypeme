@@ -61,11 +61,17 @@ export function fakeIo(files = {}) {
     // Per-generation nonce. Deterministic in the fake so a test can predict
     // the claim path a check will mint.
     nonce: () => "0123456789abcdef",
-    // The fake tree is "what is committed": a receipt the tests wrote is
-    // durable unless a test says otherwise by overriding this member. The
-    // durability tests do exactly that.
-    gitShow: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
-    upstreamRef: () => "origin/fake",
+    // THE FAKE STORE IS THE DURABLE TREE. That is the point of the redesign:
+    // decisions are only ever read from the ref, so the thing the tests
+    // populate is the ref's contents, not a working directory that then has
+    // to be reconciled with one. A test that wants "not durable" overrides
+    // these two members directly.
+    durableRef: () => "origin/fake",
+    readDurable: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
+    listDurable: (_ref, dir) =>
+      Object.keys(store)
+        .filter((k) => k.startsWith(`${dir}/`))
+        .map((k) => k.slice(dir.length + 1)),
   };
 }
 
@@ -406,26 +412,138 @@ test("an adjudication must FOLLOW its tripwire, proven by the record it cites", 
 
 test("a malformed receipt refuses the loop instead of being skipped", () => {
   const io = fakeIo({ [budgetPath(1)]: "{ not json" });
-  assert.match(loadLoop(1, io).detail, /could not be read \(malformed/);
+  assert.match(loadLoop(1, io).detail, /could not be read from origin\/fake \(malformed/);
 });
 
 test("an unreadable receipt is refused, never read as absent", () => {
+  // Now on the DURABLE path: the fault to model is git failing, not the
+  // filesystem. Absent must still stay distinguishable from unreadable, or an
+  // I/O fault reopens an exhausted loop.
   const io = fakeIo({ [budgetPath(1)]: budget(1) });
-  io.read = (rel) => {
+  io.readDurable = (_ref, rel) => {
     if (rel === budgetPath(1)) throw new Error("EACCES: permission denied");
-    return rel in io.store ? io.store[rel] : null;
+    return rel in io.store ? { state: "present", text: io.store[rel] } : { state: "absent" };
   };
-  assert.match(loadLoop(1, io).detail, /could not be read \(unreadable/);
+  assert.match(loadLoop(1, io).detail, /could not be read from origin\/fake \(unreadable/);
+
+  // And a ref that cannot be resolved is "unknown", never "absent" -- absent
+  // would read as "no budget declared" and refuse with the wrong reason.
+  const unknown = fakeIo({ [budgetPath(1)]: budget(1) });
+  unknown.readDurable = () => ({ state: "unknown" });
+  assert.match(loadLoop(1, unknown).detail, /could not be read from origin\/fake \(unreadable/);
+});
+
+test("an upstream that is a LOCAL branch is not durable", () => {
+  // #531 round 1. `git branch --set-upstream-to=<local-branch>` is supported
+  // and sets `branch.<name>.remote=.`; measured 2026-08-19, the ABBREVIATED
+  // upstream is then a bare name indistinguishable from a remote-tracking one,
+  // while its receipts die with the checkout. So the check is on the FULL ref:
+  // `refs/remotes/...` is durable, `refs/heads/...` is not.
+  const io = fakeIo({ [budgetPath(42)]: budget(42) });
+  io.durableRef = () => null; // what the adapter now returns for a local upstream
+  const verdict = loadLoop(42, io);
+  assert.equal(verdict.problem, "bad-receipt");
+  assert.match(verdict.detail, /no REMOTE-tracking upstream/);
+  assert.match(
+    verdict.detail,
+    /tracking another LOCAL branch reports the same way/,
+    "the refusal covers both causes -- a local upstream IS an upstream, just not a durable one",
+  );
+});
+
+test("a refs/remotes ref backed by a LOCAL repository is not durable", () => {
+  // #531 round 2. `refs/remotes/` is a namespace, not a guarantee:
+  // `git remote add local ../other-repo.git` produces `refs/remotes/local/main`
+  // while both repositories die with the container. Reproduced 2026-08-19, and
+  // discriminated by resolving the remote's URL rather than by URL syntax --
+  // syntax is a swamp, since `file://` has a scheme and is local while
+  // `git@github.com:owner/repo` has none and is not.
+  //
+  // Held constant in the live probe: the upstream ref itself
+  // (`refs/remotes/local/main`) never changed across the three cases; only the
+  // remote's URL did.
+  //
+  //   ../origin-repo.git            -> null   (bare path, exists on disk)
+  //   https://github.com/owner/repo -> local/main
+  //   file:///abs/path              -> null   (scheme, still local)
+  //
+  // The fake cannot model this -- it is entirely about what git reports -- so
+  // the discrimination is asserted against real git in the sibling test, and
+  // what is pinned here is that a null durableRef refuses the loop.
+  const io = fakeIo({ [budgetPath(43)]: budget(43) });
+  io.durableRef = () => null;
+  assert.match(loadLoop(43, io).detail, /no REMOTE-tracking upstream/);
+});
+
+test("the real adapter accepts only refs/remotes as the durable ref", () => {
+  // Against real git, because the discrimination lives in what git prints and
+  // nothing else can confirm it. This repo's branch tracks a remote, so the
+  // positive case is observable directly; the negative is asserted on the
+  // prefix rule the adapter applies.
+  const ref = nodeIo().durableRef();
+  // This repo's origin is an https URL, so the positive case is observable
+  // directly; a remote backed by a local path returns null instead (verified
+  // live -- see the sibling test's comment for the three-case probe).
+  if (ref !== null) {
+    assert.ok(
+      !ref.startsWith("refs/"),
+      "the returned ref is the abbreviated remote-tracking name, usable directly with git show",
+    );
+    assert.ok(ref.includes("/"), "and carries its remote, e.g. origin/<branch>");
+  }
+});
+
+test("a budget written but not pushed says so, instead of \"no budget declared\"", () => {
+  // The decision is the same either way -- absent from the ref is absent --
+  // but this is the likeliest first encounter with the push requirement, and
+  // "no budget declared" would send someone back to `declare`, which already
+  // worked. The working tree is consulted to phrase the refusal, never to
+  // make it.
+  const io = fakeIo({});
+  io.exists = (rel) => rel === budgetPath(40);
+  const verdict = loadLoop(40, io);
+  assert.equal(verdict.problem, "bad-receipt");
+  assert.match(verdict.detail, /exists in the working tree but is not in origin\/fake/);
+  assert.match(verdict.detail, /re-running `declare` will not help/);
+
+  // Genuinely never declared still reports no-budget, so the two stay
+  // distinguishable rather than collapsing into one confusing message.
+  assert.equal(loadLoop(41, fakeIo({})).problem, "no-budget");
+});
+
+test("a branch with no upstream has no durable ref, and refuses", () => {
+  // #526 finding 3. There is no HEAD fallback: a commit that never reached a
+  // remote dies with this container, which is the exact failure the rule
+  // exists to prevent, so local-only can never be "durable enough".
+  const io = fakeIo({ [budgetPath(1)]: budget(1) });
+  io.durableRef = () => null;
+  const verdict = loadLoop(1, io);
+  assert.equal(verdict.problem, "bad-receipt");
+  assert.match(verdict.detail, /no REMOTE-tracking upstream, so there is no durable ref/);
+  assert.match(verdict.detail, /git push -u origin/, "the refusal says how to fix it");
+});
+
+test("a working-tree receipt that is not in the ref simply does not exist", () => {
+  // The redesign's central claim. Previously this needed a separate durability
+  // check comparing two reads; now the working tree is never consulted, so an
+  // uncommitted decision is not "present but undurable" -- it is absent, by
+  // the only read that happens.
+  const io = fakeIo({ [budgetPath(2)]: budget(2) });
+  io.store[extensionPath(2, 1)] = json(adjudication(2)); // written locally...
+  io.readDurable = (_ref, rel) =>
+    rel === extensionPath(2, 1) ? { state: "absent" } : ({ state: "present", text: io.store[rel] });
+  io.listDurable = () => ["loop-budget-2.json"]; // ...and absent from the ref
+  const state = loadLoop(2, io);
+  assert.deepEqual(state.extensions, [], "an uncommitted extension grants nothing");
+  assert.equal(state.nextSeq, 1, "and does not consume a sequence number either");
 });
 
 test("an unlistable receipts directory refuses rather than forgetting every extension", () => {
   // Returning [] here used to hide a spent adjudication, showing tripwire 1
   // again instead of the hard stop to David. (Codex, #503 round 3.)
   const io = fakeIo({ [budgetPath(1)]: budget(1) });
-  io.listReceipts = () => {
-    throw new Error("EACCES: permission denied");
-  };
-  assert.match(loadLoop(1, io).detail, /could not be listed/);
+  io.listDurable = () => null;
+  assert.match(loadLoop(1, io).detail, /could not be listed in origin\/fake/);
 });
 
 test("a zero-padded extension name is refused, not normalised onto a canonical one", () => {
@@ -439,7 +557,7 @@ test("a zero-padded extension name is refused, not normalised onto a canonical o
 
 test("two receipts claiming one sequence refuse the loop", () => {
   const io = fakeIo({ [budgetPath(1)]: budget(1) });
-  io.listReceipts = () => ["loop-extension-1-1.json", "loop-extension-1-1.json"];
+  io.listDurable = () => ["loop-extension-1-1.json", "loop-extension-1-1.json"];
   assert.match(loadLoop(1, io).detail, /claim sequence 1/);
 });
 
@@ -942,38 +1060,97 @@ test("a request in the same second as the latest pass is cannot-determine, not z
   assert.deepEqual(resolved, { delivered: 1, pending: 1, spent: 2, ambiguous: false });
 });
 
-test("the real git adapter distinguishes absent-from-the-tree from cannot-tell", () => {
-  // The fake models gitContains as a three-way answer; this asserts the REAL
-  // adapter actually produces all three. It matters because the first version
-  // could not: it read `git cat-file -e`'s exit status, and that command exits
-  // 128 BOTH for a path missing from the tree and for a ref that does not
-  // exist. The "not committed -- commit it" branch was unreachable, so every
-  // uncommitted extension reported the vaguer "could not be established"
-  // instead of the actionable reason. Resolving the ref first is what splits
-  // them, and only a test against real git can catch it going back.
-  const io = nodeIo();
-  const tracked = io.gitShow("HEAD", "CLAUDE.md");
-  assert.equal(tracked.state, "present", "a tracked file in HEAD");
-  assert.equal(typeof tracked.text, "string");
-  assert.ok(tracked.text.length > 0, "and its CONTENTS come back, which is what durability compares");
-  assert.deepEqual(
-    io.gitShow("HEAD", "no-such-file-at-the-repo-root.md"),
-    { state: "absent" },
-    "the ref resolves and the path is not in it -- an answer, not an unknown",
-  );
-  assert.deepEqual(
-    io.gitShow("no-such-ref-exists-here", "CLAUDE.md"),
-    { state: "unknown" },
-    "no such ref -- could not tell, which the caller must treat as refuse",
+test("an unresolvable tie counts as answered, and the loop stays LIVE", () => {
+  // #526 finding 6. The first fix made `check` refuse to mint on a tie. That
+  // was safe and dead: if the tied request came just BEFORE the pass that
+  // answered it, neither timestamp ever changes again, so the condition held
+  // forever -- and the one thing that would clear it, a later request, was
+  // itself refused. The PR could never be reviewed again, and no
+  // authorization could rescue it, because the refusal happened before
+  // allowance was consulted.
+  //
+  // `pending: 0` is the cap-preserving reading, so the tie is counted that
+  // way and the loop keeps moving. Below the cap it changes nothing at all:
+  const belowCap = fakeIo({
+    [budgetPath(30)]: budget(30),
+    [checkPath(30)]: check(30, 1, { delivered: 1, pending: 0, ambiguous: true }),
+  });
+  assert.equal(judgeReviewRequest(post(30), belowCap, NOW).blocked, false, "a tie is not itself a refusal");
+
+  // At the cap it refuses -- the safe half -- and SAYS the count may be one
+  // low, so whoever adjudicates knows this might be a retry rather than a new
+  // round.
+  const atCap = fakeIo({
+    [budgetPath(31)]: budget(31),
+    [checkPath(31)]: check(31, 3, { delivered: 3, pending: 0, ambiguous: true }),
+  });
+  const refused = judgeReviewRequest(post(31), atCap, NOW);
+  assert.equal(refused.blocked, true);
+  assert.match(refused.reason, /TRIPWIRE 1/, "an ordinary tripwire, not a dead end");
+  assert.match(refused.reason, /SAME second/, "and it explains the tie rather than reporting a bare count");
+
+  // THE LIVENESS CLAIM: the ordinary escalation releases it. Under the old
+  // design no receipt could be minted at all, so this was unreachable.
+  const released = fakeIo({
+    [budgetPath(32)]: budget(32),
+    [RECORD(32)]: recordFile(32),
+    [extensionPath(32, 1)]: json(adjudication(32)),
+    [checkPath(32)]: check(32, 3, { delivered: 3, pending: 0, ambiguous: true }),
+  });
+  assert.equal(
+    judgeReviewRequest(post(32), released, NOW).blocked,
+    false,
+    "an extension clears a tied refusal exactly as it clears any other tripwire",
   );
 });
 
-test("an extension receipt that is not provably durable grants no rounds", () => {
-  // The route: an extension living only in the working tree activated
-  // immediately. If the session died before committing it, the grant vanished
-  // with the container and the next session was offered tripwire 1 again --
-  // bypassing "no second self-service extension, ever".
-  const rel = `.agents/receipts/loop-extension-22-1.json`;
+test("the real git adapter distinguishes absent-from-the-tree from cannot-tell", () => {
+  // The fake models readDurable as a three-way answer; this asserts the REAL
+  // adapter produces all three. It matters because a single git call cannot:
+  // `git show` exits 128 BOTH for a path missing from the tree and for a ref
+  // that does not exist, so the "commit and push it" branch would be
+  // unreachable and every missing decision would report the vaguer "could not
+  // be established". Resolving the ref first is what splits them, and only a
+  // test against real git can catch it going back.
+  const io = nodeIo();
+  const tracked = io.readDurable("HEAD", "CLAUDE.md");
+  assert.equal(tracked.state, "present", "a tracked file in HEAD");
+  assert.ok(tracked.text.length > 0, "and its CONTENTS come back -- that is what gets parsed");
+  assert.deepEqual(
+    io.readDurable("HEAD", "no-such-file-at-the-repo-root.md"),
+    { state: "absent" },
+    "the ref resolves and the path is not in it -- an answer",
+  );
+  assert.deepEqual(
+    io.readDurable("no-such-ref-exists-here", "CLAUDE.md"),
+    { state: "unknown" },
+    "no such ref -- not an answer, which the caller must treat as refuse",
+  );
+});
+
+test("the real git adapter lists a directory from a ref, and reports an unreadable ref as null", () => {
+  const io = nodeIo();
+  const names = io.listDurable("HEAD", ".agents/receipts");
+  assert.ok(Array.isArray(names));
+  assert.ok(names.includes("README.md"), "names are relative to the directory, not full paths");
+  assert.ok(
+    names.every((n) => !n.includes("/")),
+    "and carry no path separators, since extensionSequence parses them as bare filenames",
+  );
+  assert.equal(
+    io.listDurable("no-such-ref-exists-here", ".agents/receipts"),
+    null,
+    "null, never [] -- an empty list would silently forget every extension",
+  );
+});
+
+test("only what is in the ref grants rounds, whatever the working tree says", () => {
+  // This replaces the old extensionDurability matrix. That function existed
+  // only because decisions were read from the filesystem and then compared to
+  // git; with the compare gone, the invariant is simpler and stronger -- the
+  // bytes that are parsed ARE the durable bytes, so there is no window in
+  // which a local edit is what grants the rounds. (#526 findings 1, 4, 5, 7.)
+  const rel = extensionPath(22, 1);
   const files = {
     [budgetPath(22)]: budget(22),
     [RECORD(22)]: recordFile(22),
@@ -981,47 +1158,40 @@ test("an extension receipt that is not provably durable grants no rounds", () =>
     [checkPath(22)]: check(22, 3),
   };
 
-  // Present in the upstream ref: durable, and the grant is live.
-  const committed = fakeIo(files);
-  assert.equal(judgeReviewRequest(post(22), committed, NOW).blocked, false);
+  // In the ref: the grant is live and the loop may continue past its cap.
+  assert.equal(judgeReviewRequest(post(22), fakeIo(files), NOW).blocked, false);
 
-  // Uncommitted: refused, and the refusal says what to do about it.
+  // A LOCAL EDIT IS NOT MERELY IGNORED -- IT IS UNOBSERVABLE. The previous
+  // design needed a byte comparison to catch it, and that comparison is what
+  // findings 1, 4 and 7 were about. Here the working tree is not on the
+  // decision path at all, which is the claim worth pinning: blow up both
+  // filesystem readers and the loop still loads. If either is ever wired back
+  // in, this fails immediately rather than years later on someone's CRLF
+  // checkout.
+  const noWorktree = fakeIo(files);
+  noWorktree.read = () => {
+    throw new Error("the working tree must not be consulted for a durable decision");
+  };
+  noWorktree.listReceipts = () => {
+    throw new Error("the working tree must not be listed for durable decisions");
+  };
+  const state = loadLoop(22, noWorktree);
+  assert.equal(state.problem, undefined, "loadLoop reads decisions from the ref alone");
+  assert.equal(state.extensions.length, 1);
+  assert.equal(state.extensions[0].grant, adjudication(22).grant, "and gets them from the ref");
+
+  // Absent from the ref: no grant, so the tripwire still refuses.
   const local = fakeIo(files);
-  local.gitShow = () => ({ state: "absent" });
+  local.readDurable = (_r, r) => (r === rel ? { state: "absent" } : { state: "present", text: local.store[r] });
+  local.listDurable = () => ["loop-budget-22.json"];
   const uncommitted = judgeReviewRequest(post(22), local, NOW);
   assert.equal(uncommitted.blocked, true);
-  assert.match(uncommitted.reason, /is not in origin\/fake -- commit and push it to origin\/fake/);
+  assert.match(uncommitted.reason, /TRIPWIRE 1/, "and it is the ordinary tripwire, not a special durability error");
 
-  // A COMMITTED receipt edited in the working tree is the same fail-open route
-  // one level down: proving the PATH is in the ref says nothing about the
-  // version that is actually granting the rounds. Found by this function
-  // failing to catch its own author raising a grant from 1 to 2.
-  const edited = fakeIo(files);
-  edited.gitShow = (_ref, r) =>
-    r === rel ? { state: "present", text: json(adjudication(22, { grant: 1 })) } : { state: "present", text: edited.store[r] };
-  const raised = judgeReviewRequest(post(22), edited, NOW);
-  assert.equal(raised.blocked, true, "the working-tree edit is not what is committed, so it grants nothing");
-  assert.match(raised.reason, /differs from the copy in origin\/fake/);
-
-  // No upstream ref: HEAD is the most that can be established, and the reason
-  // says so rather than overclaiming.
-  const noUpstream = fakeIo(files);
-  noUpstream.upstreamRef = () => null;
-  noUpstream.gitShow = () => ({ state: "absent" });
-  assert.match(judgeReviewRequest(post(22), noUpstream, NOW).reason, /is not in HEAD -- commit it/);
-
-  // Cannot tell -- default refuse. An unanswerable question is not an answer.
+  // Unreadable ref: refuse, because "I could not check" is not evidence.
   const unknown = fakeIo(files);
-  unknown.gitShow = () => ({ state: "unknown" });
-  assert.match(
-    judgeReviewRequest(post(22), unknown, NOW).reason,
-    /durability could not be established against origin\/fake/,
-  );
-
-  // No git at all: same default, phrased for an environment that cannot ask.
-  const noGit = fakeIo(files);
-  delete noGit.gitShow;
-  assert.match(judgeReviewRequest(post(22), noGit, NOW).reason, /durability cannot be established/);
+  unknown.readDurable = () => ({ state: "unknown" });
+  assert.equal(judgeReviewRequest(post(22), unknown, NOW).blocked, true);
 });
 
 test("a round-check receipt must carry a coherent delivered/pending split", () => {

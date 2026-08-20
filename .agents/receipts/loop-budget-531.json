@@ -1,0 +1,8 @@
+{
+  "pr": 531,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 45,
+  "artifact": "review-budget.mjs: read durable decisions from the ref, delete extensionDurability, close the same-second tie deadlock",
+  "declaredAt": "2026-08-19T18:59:48.921Z"
+}

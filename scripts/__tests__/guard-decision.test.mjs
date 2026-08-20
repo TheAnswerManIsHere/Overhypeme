@@ -765,8 +765,13 @@ const memoryIo = (files = {}) => {
       delete store[rel];
     },
     nonce: () => "0123456789abcdef",
-    gitShow: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
-    upstreamRef: () => "origin/fake",
+    // The store IS the durable tree -- decisions are read from the ref only.
+    durableRef: () => "origin/fake",
+    readDurable: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
+    listDurable: (_ref, dir) =>
+      Object.keys(store)
+        .filter((k) => k.startsWith(`${dir}/`))
+        .map((k) => k.slice(dir.length + 1)),
   };
 };
 

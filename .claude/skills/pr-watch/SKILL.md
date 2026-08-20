@@ -52,8 +52,14 @@ node scripts/review-budget.mjs declare --pr <n> --tier <internal|product|sensiti
 
 `internal` = 3 rounds (tooling, docs, guards, agent contracts), `product` = 5,
 `sensitive` = uncapped with a mandatory 🛑 at 5 (auth, payments, migrations).
-The tier picks the number; it is not a field to fill in. Commit the receipt and
-**state the budget in the PR body**.
+The tier picks the number; it is not a field to fill in. **Commit the receipt
+AND PUSH IT**, then **state the budget in the PR body**.
+
+The push is not housekeeping — it is what makes the budget exist. Budgets and
+extensions are read from the branch's remote-tracking ref, never from the
+working tree, so an unpushed receipt reads as *no budget declared* and `check`
+refuses. (Committing without pushing gets a refusal that says exactly this,
+rather than sending you back to `declare`.)
 
 **Then, before every `@codex review` post, count the rounds fresh:**
 

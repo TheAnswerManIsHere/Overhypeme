@@ -1,0 +1,300 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-20T14:17:06.789Z",
+  "evidenceCapturedAt": "2026-08-20T14:12:30Z",
+  "pr": 531,
+  "title": "Read durable decisions from the ref, deleting the durability check (David-merge-only)",
+  "artifact": {
+    "files": 8,
+    "added": 597,
+    "removed": 211
+  },
+  "budget": {
+    "tier": "internal",
+    "tierMeaning": "internal tooling / docs / guards / agent contracts",
+    "declaredBudget": 3,
+    "cap": 3,
+    "criticality": 45,
+    "artifactDeclaredAtRoundZero": "review-budget.mjs: read durable decisions from the ref, delete extensionDurability, close the same-second tie deadlock",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 3,
+    "extensions": []
+  },
+  "rounds": {
+    "completedReviewerPasses": 3,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-19T19:06:32Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-19T19:17:16Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-19T19:27:41Z",
+        "source": "review",
+        "findings": 3
+      }
+    ],
+    "trend": [
+      2,
+      2,
+      3
+    ],
+    "totalFindings": 7
+  },
+  "findings": {
+    "unresolved": 0,
+    "resolved": 7,
+    "resolutionUnknown": 0,
+    "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alTUR",
+        "path": "scripts/review-budget.mjs",
+        "line": 422,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T19:06:32Z",
+        "excerpt": "Reject local branches as durable upstreams"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alTUb",
+        "path": ".agents/receipts/README.md",
+        "line": 20,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T19:06:33Z",
+        "excerpt": "Add the required push to the loop-start workflow"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alfR0",
+        "path": "scripts/review-budget.mjs",
+        "line": 435,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T19:17:16Z",
+        "excerpt": "Reject remote-tracking refs backed by local repositories"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alfR5",
+        "path": "scripts/review-budget.mjs",
+        "line": 838,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T19:17:16Z",
+        "excerpt": "Require pushing extensions in the tripwire instructions"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alq00",
+        "path": "scripts/review-budget.mjs",
+        "line": 455,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T19:27:41Z",
+        "excerpt": "Validate the remote URL used for pushes"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alq02",
+        "path": "scripts/review-budget.mjs",
+        "line": 452,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T19:27:41Z",
+        "excerpt": "Read the configured remote name without splitting the ref"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alq04",
+        "path": "scripts/review-budget.mjs",
+        "line": 471,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T19:27:41Z",
+        "excerpt": "Reject missing local-path remotes"
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 7,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "8b0036e8f34e5eaf8d0aaf2eb1f8a155fd6a3d3f",
+    "resolved": true,
+    "since": "8b0036e8f34e5eaf8d0aaf2eb1f8a155fd6a3d3f",
+    "head": "ff52049ee498e9ab9dadcb196e97d013fdd91381",
+    "commits": 6,
+    "files": [
+      {
+        "file": ".agents/adjudications/539-1.json",
+        "class": "record",
+        "added": 387,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/MEMORY.md",
+        "class": "agent-contract",
+        "added": 2,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/git-cat-file-exit-128-ambiguous.md",
+        "class": "agent-contract",
+        "added": 34,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/github-mcp-review-comments-shape-differs-from-rest.md",
+        "class": "agent-contract",
+        "added": 36,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/hook-uncaught-throw-fails-open.md",
+        "class": "agent-contract",
+        "added": 44,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-budget-528.json",
+        "class": "record",
+        "added": 8,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-budget-530.json",
+        "class": "record",
+        "added": 8,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-budget-539.json",
+        "class": "record",
+        "added": 8,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-extension-539-1.json",
+        "class": "record",
+        "added": 14,
+        "removed": 0
+      },
+      {
+        "file": ".gitignore",
+        "class": "code",
+        "added": 6,
+        "removed": 4
+      },
+      {
+        "file": "CLAUDE.md",
+        "class": "agent-contract",
+        "added": 46,
+        "removed": 1
+      },
+      {
+        "file": "artifacts/api-server/src/__tests__/cliJobPoller.test.ts",
+        "class": "code",
+        "added": 15,
+        "removed": 4
+      },
+      {
+        "file": "docs/ai-context/current-roadmap.md",
+        "class": "agent-contract",
+        "added": 28,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/decisions.md",
+        "class": "agent-contract",
+        "added": 69,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/known-failure-patterns.md",
+        "class": "agent-contract",
+        "added": 180,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/working-modes.md",
+        "class": "agent-contract",
+        "added": 4,
+        "removed": 2
+      },
+      {
+        "file": "docs/engineering/code-review.md",
+        "class": "agent-contract",
+        "added": 89,
+        "removed": 0
+      },
+      {
+        "file": "docs/engineering/deferred-work.md",
+        "class": "agent-contract",
+        "added": 39,
+        "removed": 0
+      },
+      {
+        "file": "docs/tests/TESTING.md",
+        "class": "prose",
+        "added": 24,
+        "removed": 0
+      },
+      {
+        "file": "scripts/__tests__/pr-ready.test.mjs",
+        "class": "code",
+        "added": 759,
+        "removed": 0
+      },
+      {
+        "file": "scripts/__tests__/review-budget.test.mjs",
+        "class": "code",
+        "added": 45,
+        "removed": 1
+      },
+      {
+        "file": "scripts/__tests__/review-loop-record.test.mjs",
+        "class": "code",
+        "added": 122,
+        "removed": 0
+      },
+      {
+        "file": "scripts/pr-ready.mjs",
+        "class": "code",
+        "added": 467,
+        "removed": 2
+      },
+      {
+        "file": "scripts/review-budget.mjs",
+        "class": "code",
+        "added": 62,
+        "removed": 8
+      },
+      {
+        "file": "scripts/review-loop-record.mjs",
+        "class": "code",
+        "added": 33,
+        "removed": 0
+      }
+    ],
+    "behavioralFiles": 19,
+    "proseOnly": false,
+    "noChange": false,
+    "note": "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the base branch this includes files already reviewed and merged there. Use `artifact` for the size of what is actually under review here."
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/loop-metrics.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}
