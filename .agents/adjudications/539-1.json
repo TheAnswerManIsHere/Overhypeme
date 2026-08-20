@@ -1,0 +1,387 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-19T22:17:55.251Z",
+  "evidenceCapturedAt": "2026-08-19T22:16:30Z",
+  "pr": 539,
+  "title": "Let a closed review-loop adjudication satisfy pr-ready.mjs's Codex check",
+  "artifact": {
+    "files": 7,
+    "added": 1495,
+    "removed": 9
+  },
+  "budget": {
+    "tier": "internal",
+    "tierMeaning": "internal tooling / docs / guards / agent contracts",
+    "declaredBudget": 3,
+    "cap": 3,
+    "criticality": 35,
+    "artifactDeclaredAtRoundZero": "pr-ready.mjs: let a closed review-loop adjudication satisfy the Codex merge-gate check",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 3,
+    "extensions": []
+  },
+  "rounds": {
+    "completedReviewerPasses": 3,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-19T21:13:17Z",
+        "source": "review",
+        "findings": 8
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-19T21:38:32Z",
+        "source": "review",
+        "findings": 8
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-19T21:59:39Z",
+        "source": "review",
+        "findings": 6
+      }
+    ],
+    "trend": [
+      8,
+      8,
+      6
+    ],
+    "totalFindings": 22
+  },
+  "findings": {
+    "unresolved": 0,
+    "resolved": 22,
+    "resolutionUnknown": 0,
+    "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRb",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Require the adjudication receipt to be committed"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRe",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Validate the adjudication record before trusting the verdict"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRg",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Restrict bookkeeping diffs to this adjudication's artifacts"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRh",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Inspect both sides of renames before allowing the diff"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRn",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Reject a ship verdict superseded by a later extension"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRp",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Order snapshot captures after the adjudication response"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRs",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Preserve later pending-review and outage failures"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anZRv",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:13:18Z",
+        "excerpt": "Preserve merge-base errors instead of reporting non-ancestry"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRK",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:38:32Z",
+        "excerpt": "Derive the diff baseline from the mechanical record"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRL",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:38:32Z",
+        "excerpt": "Reject receipt paths the loop guard cannot consume"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRQ",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:38:32Z",
+        "excerpt": "Preserve the sensitive-tier David stop"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRX",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:38:32Z",
+        "excerpt": "Order captures after the adjudication, not record creation"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRf",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:38:32Z",
+        "excerpt": "Treat same-second review requests as newer"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRi",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T21:38:32Z",
+        "excerpt": "Refuse records captured with a review still pending"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRo",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T21:38:33Z",
+        "excerpt": "Validate the complete extension history before shipping"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6anyRr",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:38:33Z",
+        "excerpt": "Teach the tripwire to produce the required receipt shape"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6aoGhC",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:59:40Z",
+        "excerpt": "Compare requests with the record's evidence time"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6aoGhJ",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T21:59:40Z",
+        "excerpt": "Order captures after the adjudication response"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6aoGhM",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T21:59:40Z",
+        "excerpt": "Enforce the record path accepted by the merge gate"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6aoGhR",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T21:59:40Z",
+        "excerpt": "Reject records with an ambiguous pending request"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6aoGhT",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T21:59:40Z",
+        "excerpt": "Validate adjudication against the active allowance"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6aoGhV",
+        "path": "scripts/pr-ready.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-19T21:59:40Z",
+        "excerpt": "Validate the ship verdict's required payload"
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 22,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "aea652ac157c61575d8ca3d2ff4c197164903359",
+    "resolved": true,
+    "since": "aea652ac157c61575d8ca3d2ff4c197164903359",
+    "head": "952b4d29d73549f12706dbaf29a82146c72cc75b",
+    "commits": 3,
+    "files": [
+      {
+        "file": ".agents/memory/MEMORY.md",
+        "class": "agent-contract",
+        "added": 2,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/git-cat-file-exit-128-ambiguous.md",
+        "class": "agent-contract",
+        "added": 34,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/github-mcp-review-comments-shape-differs-from-rest.md",
+        "class": "agent-contract",
+        "added": 36,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/hook-uncaught-throw-fails-open.md",
+        "class": "agent-contract",
+        "added": 44,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-budget-530.json",
+        "class": "record",
+        "added": 8,
+        "removed": 0
+      },
+      {
+        "file": ".gitignore",
+        "class": "code",
+        "added": 5,
+        "removed": 0
+      },
+      {
+        "file": "CLAUDE.md",
+        "class": "agent-contract",
+        "added": 4,
+        "removed": 1
+      },
+      {
+        "file": "docs/ai-context/current-roadmap.md",
+        "class": "agent-contract",
+        "added": 28,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/decisions.md",
+        "class": "agent-contract",
+        "added": 69,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/known-failure-patterns.md",
+        "class": "agent-contract",
+        "added": 133,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/working-modes.md",
+        "class": "agent-contract",
+        "added": 4,
+        "removed": 2
+      },
+      {
+        "file": "scripts/__tests__/pr-ready.test.mjs",
+        "class": "code",
+        "added": 154,
+        "removed": 14
+      },
+      {
+        "file": "scripts/__tests__/review-budget.test.mjs",
+        "class": "code",
+        "added": 32,
+        "removed": 0
+      },
+      {
+        "file": "scripts/__tests__/review-loop-record.test.mjs",
+        "class": "code",
+        "added": 122,
+        "removed": 0
+      },
+      {
+        "file": "scripts/pr-ready.mjs",
+        "class": "code",
+        "added": 86,
+        "removed": 14
+      },
+      {
+        "file": "scripts/review-budget.mjs",
+        "class": "code",
+        "added": 47,
+        "removed": 3
+      },
+      {
+        "file": "scripts/review-loop-record.mjs",
+        "class": "code",
+        "added": 33,
+        "removed": 0
+      }
+    ],
+    "behavioralFiles": 16,
+    "proseOnly": false,
+    "noChange": false,
+    "note": "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the base branch this includes files already reviewed and merged there. Use `artifact` for the size of what is actually under review here."
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/loop-metrics.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}

@@ -1100,7 +1100,10 @@ never had. Pointer, not fork: the buckets are not restated here.
    number. The same evidence-not-recollection posture as `pr-ready.mjs`'s
    merge gate, for the same reason.
 
-2. **Tripwire 1 — self-serve, and it must run in FRESH CONTEXT, on FABLE.** At
+2. **Tripwire 1 — self-serve, and it must run in FRESH CONTEXT, on FABLE.**
+   **On the `internal` and `product` tiers only** — `sensitive` has no
+   self-serve stage (`TIERS.sensitive.selfServe` is `false`), so its mandatory
+   🛑 at 5 goes straight to David and step 3 is its only release. At
    the budget, the guard refuses. To proceed I dispatch **one** adjudicator
    subagent (`.claude/agents/review-loop-adjudicator.md`) **on Fable** — the
    same tier and the same reasoning as the adversarial subagent in the

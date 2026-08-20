@@ -289,6 +289,13 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
         artifactDeclaredAtRoundZero: budgetState.budget.artifact,
         roundsSpent: counted.spent,
         pendingRequest: counted.pending === 1,
+        // `pending === 0` also covers the case where a trigger comment and
+        // the last completed pass share the exact same GitHub-reported
+        // second -- genuinely indeterminate ordering, not "answered".
+        // `pendingRequest: false` alone can't distinguish the two, so the
+        // ambiguity is carried separately rather than silently folded into
+        // "no pending request". (Codex, #539 round 3.)
+        ambiguous: counted.ambiguous,
         allowance: allowance(budgetState.tier, budgetState.extensions, counted.spent),
         extensions: budgetState.extensions.map((e) => ({
           kind: e.kind,
@@ -300,6 +307,17 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
   return {
     generator: "scripts/review-loop-record.mjs",
     generatedAt: now,
+    // The moment the UNDERLYING EVIDENCE (issueComments -- what
+    // pendingRequest/round-counting is computed from) was actually read.
+    // Distinct from and always <= `generatedAt` (this process's own run
+    // time), which describes when the FILE was written, not how current its
+    // analysis is. A consumer checking "did anything happen after this
+    // record closed the loop" must bound against THIS timestamp, not
+    // `generatedAt` -- a request posted between capture and this process
+    // running is invisible to `pendingRequest` but would compare as
+    // "already known" against the later, misleadingly-fresh-looking
+    // `generatedAt`. (Codex, #539 round 3.)
+    evidenceCapturedAt: snapshot.capturedAt.issueComments,
     pr,
     title: snapshot.pr?.title ?? null,
     // Counted, never recalled. Every number below comes from GitHub's records
@@ -440,6 +458,21 @@ export function assertAdjudicationSnapshot(pr, snapshot) {
     throw new Error(
       "an adjudication snapshot must carry issueComments with complete.issueComments === true. " +
         "Clean reviewer passes are delivered as issue comments; without them the round count is short.",
+    );
+  }
+  // The record's own analysis (round counts, pendingRequest) is only as
+  // fresh as the issueComments this snapshot actually read -- NOT as fresh
+  // as whenever this process happens to run. Without a validated capture
+  // time, `generatedAt` (process-run time) is the only timestamp available,
+  // and using it as a freshness boundary silently overstates how current
+  // the underlying data is: a request posted between capture and this
+  // process running would show pendingRequest: false and compare as
+  // "already known" against a boundary that never actually saw it.
+  // (Codex, #539 round 3.)
+  if (!Number.isFinite(Date.parse(snapshot.capturedAt?.issueComments ?? ""))) {
+    throw new Error(
+      "an adjudication snapshot must carry a parseable capturedAt.issueComments -- the record's " +
+        "evidence-freshness boundary is the moment issueComments were actually read, not this process's run time",
     );
   }
 }

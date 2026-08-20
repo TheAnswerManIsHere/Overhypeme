@@ -115,3 +115,8 @@ artifacts/api-server/assets/
 .agents/receipts/pr-*.json
 .agents/receipts/loop-round-check-*.json
 .agents/receipts/loop-round-check-*.json.claim
+# Since c677397 the claim path carries the receipt's generation nonce between
+# `.json` and `.claim` (`claimPath` = `${checkPath(pr)}.${nonce}.claim`), so the
+# bare pattern above no longer matches one. Both shapes are kept: a pre-nonce
+# claim can still be sitting in a working tree from an earlier loop.
+.agents/receipts/loop-round-check-*.json.*.claim

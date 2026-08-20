@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   assertSnapshot,
@@ -7,6 +11,8 @@ import {
   codeReviewOutage,
   checkCi,
   checkCodex,
+  checkAdjudicatedCodex,
+  isAncestor,
   checkThreads,
   evaluate,
   staleReason,
@@ -668,4 +674,757 @@ test("evaluate: one failing item is enough for NOT READY", () => {
   assert.equal(receipt.verdict, "NOT READY");
   assert.equal(receipt.items.ci.pass, true);
   assert.equal(receipt.items.threads.pass, false);
+});
+
+// ---------------------------------------------------------------------------
+// checkAdjudicatedCodex: a closed review-loop adjudication as a fallback for
+// item 2, bounded by real git ancestry, a real committed mechanical record,
+// and an exact-file diff so it cannot become a standing bypass. Exercised
+// against a real temporary git repo -- this is exactly the git-plumbing
+// logic this file's own culture insists on testing directly, not trusting by
+// inspection (remoteTip elsewhere in this file shells to `git ls-remote` and
+// is NOT unit-tested for that reason; this function is more
+// security-sensitive, since it's a path around the merge gate, so it gets
+// the real-repo treatment instead).
+//
+// Every fixture below goes through `commit()`, never a bare `writeFileSync`
+// left uncommitted -- the function under test reads exclusively from `git
+// show`, so an untracked file proves nothing except by the one test that
+// deliberately leaves it untracked to prove exactly that.
+// ---------------------------------------------------------------------------
+
+const TIER = "internal";
+const TIER_CAP = 3; // review-budget.mjs's TIERS.internal.budget -- kept in sync by the "unknown tier" test below noticing drift
+
+function tempRepo() {
+  const dir = mkdtempSync(join(tmpdir(), "pr-ready-adjudication-"));
+  const run = (args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+  run(["init", "-q"]);
+  run(["config", "user.email", "test@example.com"]);
+  run(["config", "user.name", "Test"]);
+  const commit = (files, message) => {
+    for (const [path, content] of Object.entries(files)) {
+      const full = join(dir, path);
+      mkdirSync(join(full, ".."), { recursive: true });
+      writeFileSync(full, content);
+    }
+    run(["add", "-A"]);
+    run(["commit", "-q", "-m", message]);
+    return run(["rev-parse", "HEAD"]).trim();
+  };
+  return { dir, run, commit };
+}
+
+/**
+ * A committed mechanical record satisfying every check
+ * `validateAdjudicationRecord` runs, overridable per field. `baseline` is
+ * the record's own `sinceLastReview.head` -- the PR head the record's
+ * analysis actually covers, and (since Codex #539 round 2) the sole source
+ * of the diff baseline this fallback trusts.
+ */
+function record(pr, seq, {
+  passes = TIER_CAP,
+  generatedAt = "2026-08-17T04:30:00Z",
+  evidenceCapturedAt = "2026-08-17T04:28:00Z",
+  generator = "scripts/review-loop-record.mjs",
+  recordPr = pr,
+  tier = TIER,
+  pendingRequest = false,
+  ambiguous = false,
+  allowanceValue = TIER_CAP,
+  extensions = [],
+  baseline,
+  resolved = true,
+} = {}) {
+  const path = `.agents/adjudications/${pr}-${seq}.json`;
+  const body = JSON.stringify({
+    generator,
+    pr: recordPr,
+    generatedAt,
+    evidenceCapturedAt,
+    budget: { tier, pendingRequest, ambiguous, allowance: allowanceValue, extensions },
+    rounds: { completedReviewerPasses: passes },
+    sinceLastReview: { resolved, head: baseline },
+  });
+  return { path, files: { [path]: body } };
+}
+
+function extension(pr, seq, {
+  verdict = "ship-with-gaps-recorded",
+  recordPath,
+  extPr = pr,
+  kind = "adjudication",
+  decidedAt = "2026-08-17T04:35:00Z",
+  reasoning = "test reasoning citing the record's own numbers",
+  gaps = [],
+  ...rest
+} = {}) {
+  const path = `.agents/receipts/loop-extension-${pr}-${seq}.json`;
+  const body = JSON.stringify({ pr: extPr, kind, verdict, recordPath, decidedAt, reasoning, gaps, ...rest });
+  return { path, files: { [path]: body } };
+}
+
+/**
+ * The common case: commit A is "the reviewed commit" (the record's own
+ * baseline), then a second commit adds the record + receipt together --
+ * exactly PR #534's own shape, and the shape every "ancestor with only
+ * bookkeeping since" test needs.
+ */
+function closedLoop(commit, pr, { seq = 1, recordOpts = {}, extOpts = {} } = {}) {
+  const baseline = commit({ "docs/x.md": "content" }, `c1 -- the reviewed commit for #${pr}`);
+  const rec = record(pr, seq, { baseline, ...recordOpts });
+  const ext = extension(pr, seq, { recordPath: rec.path, ...extOpts });
+  const head = commit({ ...rec.files, ...ext.files }, "c2 -- record + receipt land together");
+  return { baseline, head, recordPath: rec.path, extPath: ext.path };
+}
+
+test("adjudication: no committed receipts at all", () => {
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const res = checkAdjudicatedCodex(999, sha, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no committed, canonically-named loop-extension-999-\*\.json/);
+});
+
+test("adjudication: an UNTRACKED receipt file does not qualify -- only committed content counts", () => {
+  // The vulnerability this whole rewrite closes: a file sitting in the
+  // working tree, never committed, must be invisible to this check.
+  const { dir, commit } = tempRepo();
+  const sha = commit({ "a.txt": "1" }, "c1");
+  const untracked = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json" });
+  const full = join(dir, untracked.path);
+  mkdirSync(join(full, ".."), { recursive: true });
+  writeFileSync(full, Object.values(untracked.files)[0]);
+  const res = checkAdjudicatedCodex(999, sha, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no committed, canonically-named loop-extension-999-\*\.json/);
+});
+
+test("adjudication: a committed receipt is read from the COMMIT, not a locally-modified working tree", () => {
+  const { dir, commit } = tempRepo();
+  const { head, recordPath } = closedLoop(commit, 999);
+  // Now locally overwrite the committed receipt on disk with content that
+  // would qualify under a different PR number -- if the function reads the
+  // filesystem instead of `git show`, this changes the verdict.
+  const tampered = extension(999, 1, { recordPath, extPr: 111 });
+  writeFileSync(join(dir, tampered.path), Object.values(tampered.files)[0]);
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, true); // the COMMITTED content (pr: 999) still governs
+  assert.match(res.detail, /bookkeeping-only/);
+});
+
+test("adjudication: a receipt naming a different PR does not qualify", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json", extPr: 111 });
+  const head = commit(ext.files, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /names PR 111/);
+});
+
+test('adjudication: a "continue" verdict does not qualify -- it grants rounds, it doesn\'t close the loop', () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { verdict: "continue", recordPath: ".agents/adjudications/999-1.json", grant: 2, risk: "x" });
+  const head = commit(ext.files, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not an adjudication ship-with-gaps-recorded/);
+});
+
+test('adjudication: "split" and "escalate" don\'t qualify either -- neither means "ready to merge"', () => {
+  const { dir, commit } = tempRepo();
+  const ext1 = extension(999, 1, { verdict: "split", recordPath: ".agents/adjudications/999-1.json" });
+  const ext2 = extension(999, 2, { verdict: "escalate", recordPath: ".agents/adjudications/999-1.json" });
+  const head = commit({ ...ext1.files, ...ext2.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+});
+
+// ---------------------------------------------------------------------------
+// Canonical receipt discovery (Codex, #539 round 2): only DIRECT children of
+// the receipts directory, and only canonically-numbered ones, are ever
+// candidates -- matching exactly what review-budget.mjs's own `loadLoop`
+// will and won't consume.
+// ---------------------------------------------------------------------------
+
+test("adjudication: a receipt nested in a subdirectory is invisible -- the guard's own loadLoop would never consume it", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json" });
+  const nested = { ".agents/receipts/subdir/loop-extension-999-1.json": Object.values(ext.files)[0] };
+  const head = commit(nested, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no committed, canonically-named/);
+});
+
+test("adjudication: a zero-padded sequence is rejected -- loadLoop treats it as a bad receipt, not a valid one", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json" });
+  const zeroPadded = { ".agents/receipts/loop-extension-999-01.json": Object.values(ext.files)[0] };
+  const head = commit(zeroPadded, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no committed, canonically-named/);
+});
+
+// ---------------------------------------------------------------------------
+// Terminal-decision semantics (Codex, #539 round 1): a second adjudication is
+// never valid (review-budget.mjs's own rule), but a `david`-kind extension
+// reopening the loop after a ship verdict is -- and this fallback must not
+// resurrect a superseded ship verdict.
+// ---------------------------------------------------------------------------
+
+test("adjudication: a ship verdict superseded by a later (david) extension is not honored", () => {
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999);
+  const reopen = { pr: 999, kind: "david", grant: 2, authorization: "David: reopen it" };
+  const head = commit({ ".agents/receipts/loop-extension-999-2.json": JSON.stringify(reopen) }, "c3 -- David reopens after the ship verdict");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /terminal decision is kind="david"/);
+});
+
+// ---------------------------------------------------------------------------
+// The receipt's own payload must be complete (Codex, #539 round 3) -- the
+// adjudicator's documented output schema always returns reasoning and gaps,
+// and decidedAt records when the verdict was actually decided (after the
+// adjudicator ran), not when its input record was generated (before).
+// ---------------------------------------------------------------------------
+
+test("adjudication: a receipt with no reasoning is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json", reasoning: "" });
+  const head = commit(ext.files, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /missing the adjudicator's `reasoning`/);
+});
+
+test("adjudication: a receipt with a non-array gaps is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json", gaps: "not an array" });
+  const head = commit(ext.files, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /missing the adjudicator's `gaps` array/);
+});
+
+test("adjudication: a receipt with no decidedAt is rejected", () => {
+  // `undefined` would just re-trigger extension()'s own default -- built by
+  // hand, bypassing the factory, to actually omit the field.
+  const { dir, commit } = tempRepo();
+  const path = ".agents/receipts/loop-extension-999-1.json";
+  const body = JSON.stringify({
+    pr: 999,
+    kind: "adjudication",
+    verdict: "ship-with-gaps-recorded",
+    recordPath: ".agents/adjudications/999-1.json",
+    reasoning: "test",
+    gaps: [],
+  });
+  const head = commit({ [path]: body }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /missing or unparseable `decidedAt`/);
+});
+
+test("adjudication: a decidedAt that predates the cited record's generatedAt is rejected -- the decision can't precede its own input", () => {
+  const { dir, commit } = tempRepo();
+  const { recordPath, baseline } = closedLoop(commit, 999, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+  const ext = extension(999, 2, { recordPath, decidedAt: "2026-08-17T04:00:00Z" }); // before generatedAt
+  const head = commit(ext.files, "c2 -- a later, badly-timestamped receipt");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /decidedAt .* predates the cited record's own generatedAt/);
+  void baseline;
+});
+
+// ---------------------------------------------------------------------------
+// The receipt must cite, and this file fully validates, a real mechanical
+// record (Codex, #539 rounds 1 and 2) -- honoring a receipt here unblocks a
+// merge, so this file demands more evidence than review-budget.mjs's own
+// write-time schema does.
+// ---------------------------------------------------------------------------
+
+test("adjudication: a receipt with no recordPath at all is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: undefined });
+  const head = commit(ext.files, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not under \.agents\/adjudications\//);
+});
+
+test("adjudication: a recordPath outside .agents/adjudications/ is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: "docs/fake-record.json" });
+  const head = commit({ ...ext.files, "docs/fake-record.json": "{}" }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not under \.agents\/adjudications\//);
+});
+
+test("adjudication: a recordPath pointing at a record that was never committed is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json" });
+  const head = commit(ext.files, "c1 -- no record committed");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /is not committed at/);
+});
+
+test("adjudication: a record from the wrong generator is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { generator: "scripts/some-other-tool.mjs", baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /was not produced by review-loop-record\.mjs/);
+});
+
+test("adjudication: a record describing a different PR is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { recordPr: 111, baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /describes PR 111/);
+});
+
+test("adjudication: a broken budget state (record.budget.problem) is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const path = ".agents/adjudications/999-1.json";
+  const body = JSON.stringify({
+    generator: "scripts/review-loop-record.mjs",
+    pr: 999,
+    generatedAt: "2026-08-17T04:30:00Z",
+    budget: { problem: "bad-receipt", detail: "loop-budget-999.json: unreadable" },
+    rounds: { completedReviewerPasses: TIER_CAP },
+  });
+  const ext = extension(999, 1, { recordPath: path });
+  const head = commit({ [path]: body, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /broken budget state/);
+});
+
+test("adjudication: an unknown tier in the record is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { tier: "not-a-real-tier", baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /unknown tier/);
+});
+
+test("adjudication: the SENSITIVE tier is never honored, however clean the record otherwise looks (Codex, #539 round 2)", () => {
+  // sensitive.selfServe is false -- its tripwire is a mandatory 🛑 to David,
+  // and review-budget.mjs itself rejects every adjudication receipt for this
+  // tier. A record or receipt claiming otherwise must never satisfy the
+  // merge gate either.
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { tier: "sensitive", passes: 5, baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no self-serve extension/);
+});
+
+test("adjudication: a record generated below the loop's active allowance is rejected -- adjudication must follow its tripwire", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { passes: TIER_CAP - 1, baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /below the loop's active allowance of 3/);
+});
+
+test("adjudication: a David-granted allowance ABOVE the base tier cap is honored -- reaching the base cap alone doesn't mean the tripwire fired (Codex, #539 round 3)", () => {
+  // A prior `david` extension can raise the loop's real allowance past the
+  // tier's base cap before any adjudication happens. Passing the base cap
+  // (3) but not the active allowance (8) must still be rejected; only
+  // reaching the ACTIVE allowance qualifies.
+  const { dir, commit } = tempRepo();
+  const belowActive = record(999, 1, { passes: TIER_CAP + 1, allowanceValue: 8, baseline: "a".repeat(40) });
+  const ext1 = extension(999, 1, { recordPath: belowActive.path });
+  const head1 = commit({ ...belowActive.files, ...ext1.files }, "c1");
+  const res1 = checkAdjudicatedCodex(999, head1, { cwd: dir });
+  assert.equal(res1.pass, false);
+  assert.match(res1.detail, /below the loop's active allowance of 8/);
+});
+
+test("adjudication: a non-finite (uncapped) allowance is rejected, not treated as always-satisfied", () => {
+  // JSON has no representation for Infinity -- an uncapped grant serializes
+  // as `allowance: null`. That must fail closed, not be read as "any pass
+  // count satisfies it".
+  const { dir, commit } = tempRepo();
+  const path = ".agents/adjudications/999-1.json";
+  const body = JSON.stringify({
+    generator: "scripts/review-loop-record.mjs",
+    pr: 999,
+    generatedAt: "2026-08-17T04:30:00Z",
+    evidenceCapturedAt: "2026-08-17T04:28:00Z",
+    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: null, extensions: [] },
+    rounds: { completedReviewerPasses: 999 },
+    sinceLastReview: { resolved: true, head: "a".repeat(40) },
+  });
+  const ext = extension(999, 1, { recordPath: path });
+  const head = commit({ [path]: body, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /below the loop's active allowance of null/);
+});
+
+test("adjudication: a record generated with a request still pending is rejected (Codex, #539 round 2)", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { pendingRequest: true, baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /pendingRequest is true/);
+});
+
+test("adjudication: a record with an AMBIGUOUS request/pass tie is rejected -- pendingRequest: false alone can't distinguish it from resolved (Codex, #539 round 3)", () => {
+  // A trigger comment and the last completed pass sharing the exact same
+  // GitHub-reported second makes `pending` read 0 (so pendingRequest is
+  // correctly false) while the true ordering is indeterminate. `ambiguous`
+  // carries that distinction separately.
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { pendingRequest: false, ambiguous: true, baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /budget\.ambiguous is true/);
+});
+
+test("adjudication: a record whose own extension history already shows a PRIOR adjudication is rejected (Codex, #539 round 2)", () => {
+  // review-budget.mjs's own rule: a second adjudication is never valid. If
+  // the record cited by this ship verdict already shows one in its embedded
+  // budget.extensions, this receipt cannot legitimately be a fresh one.
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, {
+    baseline: "a".repeat(40),
+    extensions: [{ kind: "adjudication", verdict: "continue", grant: 2 }],
+  });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /already shows a prior adjudication/);
+});
+
+test("adjudication: a record with no parseable evidenceCapturedAt is rejected (Codex, #539 round 3)", () => {
+  const { dir, commit } = tempRepo();
+  const path = ".agents/adjudications/999-1.json";
+  const body = JSON.stringify({
+    generator: "scripts/review-loop-record.mjs",
+    pr: 999,
+    generatedAt: "2026-08-17T04:30:00Z",
+    // evidenceCapturedAt omitted entirely
+    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: TIER_CAP, extensions: [] },
+    rounds: { completedReviewerPasses: TIER_CAP },
+    sinceLastReview: { resolved: true, head: "a".repeat(40) },
+  });
+  const ext = extension(999, 1, { recordPath: path });
+  const head = commit({ [path]: body, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /evidenceCapturedAt is missing or unparseable/);
+});
+
+// ---------------------------------------------------------------------------
+// The record's own diff baseline (sinceLastReview).
+// ---------------------------------------------------------------------------
+
+test("adjudication: sinceLastReview.resolved !== true is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { resolved: false, baseline: "a".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /sinceLastReview\.resolved is not true/);
+});
+
+test("adjudication: a malformed or abbreviated sinceLastReview.head is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { baseline: "a".repeat(7) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /full 40-character/);
+});
+
+test("adjudication: a sinceLastReview.head that doesn't resolve to a real commit is rejected", () => {
+  const { dir, commit } = tempRepo();
+  const rec = record(999, 1, { baseline: "f".repeat(40) });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /does not resolve to a commit/);
+});
+
+// ---------------------------------------------------------------------------
+// The ancestor-plus-exact-file bound.
+// ---------------------------------------------------------------------------
+
+test("adjudication: a baseline with ONLY its own record + receipt changed since it passes", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999);
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /bookkeeping-only/);
+});
+
+test("adjudication: real content changed since the record's baseline is refused, not waved through", () => {
+  // The bound that stops this from being a standing bypass: an adjudication
+  // covers the commit its record was generated against, not whatever ships
+  // later under its name.
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999);
+  const head = commit({ "docs/x.md": "DIFFERENT unreviewed content" }, "c3 -- real change, never reviewed");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not this adjudication's own receipt or record/);
+  assert.match(res.detail, /docs\/x\.md/);
+});
+
+test("adjudication: a change to ANOTHER PR's bookkeeping file is not waved through (Codex, #539 round 1)", () => {
+  // The old design allowed anything under .agents/receipts/ or
+  // .agents/adjudications/, which would also wave through a change to a
+  // different PR's own loop-extension file. The exact allowlist closes it.
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999);
+  const other = extension(111, 1, { recordPath: ".agents/adjudications/111-1.json" });
+  const head = commit(other.files, "c3 -- an unrelated PR's own extension file changes");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /loop-extension-111-1\.json/);
+});
+
+test("adjudication: an unrelated file added under .agents/receipts/ (e.g. a README) is not waved through", () => {
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999);
+  const head = commit({ ".agents/receipts/README.md": "# notes" }, "c3");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /README\.md/);
+});
+
+test("adjudication: a baseline that is NOT an ancestor of the current head (history rewritten) is refused", () => {
+  const { dir, commit, run } = tempRepo();
+  const baseline = commit({ "a.txt": "1" }, "c1 -- the reviewed commit");
+  // A sibling branch, not a descendant -- simulates an amended/rebased branch.
+  run(["checkout", "-q", "--orphan", "other"]);
+  run(["rm", "-rq", "--cached", "."]);
+  const rec = record(999, 1, { baseline });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ "b.txt": "2", ...rec.files, ...ext.files }, "unrelated history");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not an ancestor/);
+});
+
+test("adjudication: one real file mixed in with the receipt+record still fails the whole check", () => {
+  const { dir, commit } = tempRepo();
+  const baseline = commit({ "docs/x.md": "content" }, "c1");
+  const rec = record(999, 1, { baseline });
+  const ext = extension(999, 1, { recordPath: rec.path });
+  const head = commit({ ...rec.files, ...ext.files, "docs/x.md": "content changed too" }, "c2 -- record+receipt AND real content");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  // Confirms it fails on the mixed-content diff specifically, not on a
+  // malformed receipt -- a receipt this well-formed would otherwise pass.
+  assert.match(res.detail, /not this adjudication's own receipt or record/);
+  assert.match(res.detail, /docs\/x\.md/);
+});
+
+// ---------------------------------------------------------------------------
+// isAncestor: exit-code mapping (Codex, #539 round 1). `merge-base
+// --is-ancestor` returns 1 for a confirmed non-ancestor and something else
+// (128, "not a valid object") for an operational failure -- only the first
+// should ever read as "not an ancestor".
+// ---------------------------------------------------------------------------
+
+test("isAncestor: a real ancestor returns true", () => {
+  const { dir, commit } = tempRepo();
+  const a = commit({ "a.txt": "1" }, "c1");
+  const b = commit({ "a.txt": "2" }, "c2");
+  assert.equal(isAncestor(a, b, dir), true);
+});
+
+test("isAncestor: a confirmed non-ancestor (sibling history) returns false", () => {
+  const { dir, commit } = tempRepo();
+  const a = commit({ "a.txt": "1" }, "c1");
+  execFileSync("git", ["checkout", "-q", "--orphan", "other"], { cwd: dir });
+  execFileSync("git", ["rm", "-rq", "--cached", "."], { cwd: dir });
+  const b = commit({ "b.txt": "2" }, "unrelated");
+  assert.equal(isAncestor(a, b, dir), false);
+});
+
+test("isAncestor: an operational failure (unresolvable object) returns null, not false", () => {
+  const { dir, commit } = tempRepo();
+  const a = commit({ "a.txt": "1" }, "c1");
+  assert.equal(isAncestor(a, "f".repeat(40), dir), null);
+});
+
+// ---------------------------------------------------------------------------
+// A live outage or a newer request always wins (Codex, #539 round 1).
+// ---------------------------------------------------------------------------
+
+test("adjudication: a live Codex outage refuses the fallback outright, however clean the receipt is", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999);
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir, codexOutage: true });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /outage/);
+});
+
+test("adjudication: a @codex review request posted AFTER the record was generated refuses the fallback", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+  const afterRecord = Date.parse("2026-08-17T04:45:00Z");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir, latestRequestAt: afterRecord });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /a fresh review may have been asked for since the loop closed/);
+});
+
+test("adjudication: a @codex review request posted BEFORE the record was generated does not block the fallback", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+  const beforeRecord = Date.parse("2026-08-17T04:00:00Z");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir, latestRequestAt: beforeRecord });
+  assert.equal(res.pass, true);
+});
+
+test("adjudication: a request landing in the SAME SECOND as the record's evidenceCapturedAt fails closed (Codex, #539 round 3)", () => {
+  // GitHub comment timestamps round to the second; evidenceCapturedAt
+  // carries milliseconds. A request genuinely posted at 04:28:00.900 (after
+  // evidence capture at 04:28:00.500) is reported as 04:28:00.000, which
+  // compares as EARLIER under a naive strict `>` -- so any request whose
+  // rounded timestamp falls in or after evidenceCapturedAt's own second
+  // must fail closed. The boundary is evidenceCapturedAt, not generatedAt
+  // or decidedAt: it's the earliest of the three, and the only one that
+  // bounds how current the record's own DATA actually is.
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999, { recordOpts: { evidenceCapturedAt: "2026-08-17T04:28:00.500Z" } });
+  const sameSecondRoundedDown = Date.parse("2026-08-17T04:28:00.000Z");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir, latestRequestAt: sameSecondRoundedDown });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /at or after the record's own evidence capture second/);
+});
+
+// ---------------------------------------------------------------------------
+// evaluate()-level integration.
+// ---------------------------------------------------------------------------
+
+test("evaluate: a failed live Codex check falls back to a qualifying adjudication and reaches READY", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 500, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+
+  const snap = goodSnapshot();
+  snap.pr.head.sha = head;
+  snap.checkRuns = allRequired("completed", "success", head); // must match the new head, not the dummy HEAD constant
+  snap.issueComments = []; // no @codex review request at all -- checkCodex fails outright
+  snap.reviews = [];
+  // All captures after 04:30 (the record's generatedAt) and within the
+  // evidence-age window ending at NOW (05:05) -- both bars checkCapture now
+  // enforces against the adjudication's own acceptedAt.
+  snap.capturedAt = { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER };
+
+  const receipt = evaluate(snap, NOW, { cwd: dir });
+  assert.equal(receipt.items.codex.pass, true);
+  assert.match(receipt.items.codex.detail, /adjudicated ship-with-gaps-recorded/);
+  assert.equal(receipt.items.capture.pass, true);
+  assert.equal(receipt.verdict, "READY");
+});
+
+test("evaluate: reviewThreads captured BEFORE the adjudication's record fails capture ordering, even though codex itself passes", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 500, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+
+  const snap = goodSnapshot();
+  snap.pr.head.sha = head;
+  snap.checkRuns = allRequired("completed", "success", head);
+  snap.issueComments = [];
+  snap.reviews = [];
+  // reviewThreads read at 04:00 -- before the 04:30 adjudication record, so
+  // it cannot be shown to reflect the loop's final state.
+  snap.capturedAt = { checkRuns: LATER, reviewThreads: "2026-08-17T04:00:00Z", issueComments: LATER, reviews: LATER };
+
+  const receipt = evaluate(snap, NOW, { cwd: dir });
+  assert.equal(receipt.items.codex.pass, true);
+  assert.equal(receipt.items.capture.pass, false);
+  assert.equal(receipt.verdict, "NOT READY");
+});
+
+test("evaluate: a failed live Codex check AND a non-qualifying adjudication stays NOT READY, with both failures visible", () => {
+  const { dir } = tempRepo();
+  // No receipt written at all.
+  const snap = goodSnapshot();
+  snap.issueComments = [];
+  snap.reviews = [];
+
+  const receipt = evaluate(snap, NOW, { cwd: dir });
+  assert.equal(receipt.items.codex.pass, false);
+  assert.match(receipt.items.codex.detail, /review loop was never started/);
+  assert.match(receipt.items.codex.detail, /adjudication fallback also failed/);
+  assert.equal(receipt.verdict, "NOT READY");
+});
+
+test("evaluate: a PASSING live Codex check never even looks for an adjudication receipt", () => {
+  // Confirms the fallback is a fallback -- a normal green PR's evaluate()
+  // must not depend on .agents/receipts existing at all, let alone on git
+  // ancestry succeeding for an unrelated cwd.
+  const snap = goodSnapshot();
+  const receipt = evaluate(snap, NOW, { cwd: "/nonexistent" });
+  assert.equal(receipt.items.codex.pass, true);
+  assert.equal(receipt.verdict, "READY");
+});
+
+test("evaluate: a live Codex outage is never overridden by a qualifying adjudication receipt", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 500, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+
+  const snap = goodSnapshot();
+  snap.pr.head.sha = head;
+  snap.checkRuns = allRequired("completed", "success", head);
+  snap.issueComments = [
+    comment("me", "@codex review", "2026-08-17T04:40:00Z"),
+    comment(CODEX_BOT, "You have reached your Codex usage limits for code reviews.", "2026-08-17T04:41:00Z"),
+  ];
+  snap.reviews = [];
+  snap.capturedAt = { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER };
+
+  const receipt = evaluate(snap, NOW, { cwd: dir });
+  assert.equal(receipt.items.codex.pass, false);
+  assert.ok(receipt.items.codex.outage, "directCodex must report an outage");
+  assert.equal(receipt.verdict, "BLOCKED -- CODEX UNAVAILABLE");
+});
+
+test("evaluate: a fresh @codex review request in the snapshot after adjudication blocks the fallback, even though nothing else changed", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 500, { recordOpts: { generatedAt: "2026-08-17T04:30:00Z" } });
+
+  const snap = goodSnapshot();
+  snap.pr.head.sha = head;
+  snap.checkRuns = allRequired("completed", "success", head);
+  // A NEW request posted after the record's generatedAt (04:30) -- nobody's answered it yet.
+  snap.issueComments = [comment("me", "@codex review", "2026-08-17T04:45:00Z")];
+  snap.reviews = [];
+  snap.capturedAt = { checkRuns: LATER, reviewThreads: LATER, issueComments: LATER, reviews: LATER };
+
+  const receipt = evaluate(snap, NOW, { cwd: dir });
+  assert.equal(receipt.items.codex.pass, false);
+  assert.match(receipt.items.codex.detail, /a fresh review may have been asked for since the loop closed/);
+  assert.equal(receipt.verdict, "NOT READY");
 });

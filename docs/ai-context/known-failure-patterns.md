@@ -2460,3 +2460,136 @@ non-product-truth gap lives in
 questions, one per failure kind in the table above, kept there rather than
 duplicated here so there's exactly one place to update when a question
 changes.
+
+## A persistent counter of state the source of truth already holds
+
+**Looks like:** you need to know how many times something has happened, so you
+write it down — a tally file, a counter column, a receipt that accumulates
+entries. It is committed, validated, guarded. Then the bugs start, and every
+one of them is about the *record* rather than about the thing being counted: it
+double-counted because two writers appended; it went stale because the process
+died before committing; it recorded an event that then didn't happen; it needs
+a repair command; the repair command needs its own validation; the durability
+check needs a test.
+
+**The tell — and it is the reliable one:** *each fix defends the previous fix
+rather than the original concern.* A review round where most findings land on
+the repair machinery instead of the design is not a sign the design is nearly
+hardened; it is a sign the design is a **cache of state the source of truth
+already holds**, and every failure is therefore a cache-coherence failure.
+Cache coherence has no local fix, so the fixes cannot converge — there is
+always one more window between the two copies.
+
+**The worked example.** The review-round budget guard (PR #503) first counted
+rounds with a committed tally that the hook appended to on each allowed
+`@codex review` post. In one evening it produced: a double-count (two writers —
+a hand-written entry plus the guard's own), a phantom round (a request that
+posted and yielded no review, so the tally was ahead of truth), a `reconcile`
+subcommand to repair the phantom, a durability rule requiring the tally be
+committed before the next round, and a stale-SHA wart in every review request
+as a side effect of that commit. Round 3 returned 12 findings, **6 of them
+against that repair machinery rather than the design.** Reassessing found one
+bug twelve times. GitHub already holds the authoritative record of how many
+reviewer passes a PR has had; the tally was a second copy of it.
+
+**The fix is deletion, not another layer.** The tally, `reconcile`, the
+durability check, and the commit-before-next-round rule were all removed in one
+commit (`0cd6f3c`). Rounds are now counted fresh from a validated GitHub
+snapshot at the moment of the decision, using the same `reviewerPasses()`
+function the loop ledger uses. Five of round 3's findings dissolved with the
+code they were about; nothing was left to keep coherent. A stalled round and
+its retry are now one round automatically, and the count self-corrects when the
+retry's pass lands — because nothing was written down to be wrong.
+
+**Avoid:**
+
+1. **Before persisting a count, ask who else already knows it.** If an external
+   system is authoritative for the event you are counting, you are writing a
+   cache. Read it at decision time instead, and validate the read hard.
+2. **Persist decisions, not evidence.** PR #503 kept the *budget declaration*
+   and the *extension grants* committed — those are choices nobody else holds a
+   copy of, and "no second self-serve extension, ever" has to survive the
+   container or the second tripwire never fires. It stopped committing the
+   round count, which was evidence. The line between the two is the whole rule:
+   evidence is session-local and re-derivable; a decision is not.
+3. **Treat "most of this round's findings are about the last round's fixes" as
+   a design signal, not a diligence signal.** This repo's oscillation rule
+   already says reassess rather than patch again; this pattern is the most
+   common thing that rule is pointing at.
+
+**Related:** *A derived metric that silently undercounts because its collector
+only reads one delivery channel* above is the opposite failure — there the
+counting is live and the *collector* is incomplete. Deleting a cache does not
+protect you from that one; both apply to the same code.
+
+## A "durable" or "committed" check that proves a proxy, not the property
+
+**Looks like:** a guard needs to establish some property — that a file is
+committed, that a config is deployed, that a value was reviewed — and checks
+the nearest cheap thing that is usually true when the property holds. The
+check goes green in every test, passes review, and is satisfied *forever* by a
+one-time event, because the proxy is not the property.
+
+**The worked example, which caught its own author.** PR #503's guard must
+refuse an extension receipt that exists only in the working tree: a grant that
+dies with the container would let the next session be offered the same
+one-time tripwire again. The first fix asked whether the receipt's **path**
+existed in the upstream ref. A committed receipt satisfies that permanently —
+so editing a committed receipt in the working tree took effect immediately,
+and a grant could be raised locally with nothing durable saying so. It was
+found by exactly that: recording David's second authorization required raising
+a grant from 1 to 2, and the freshly-written durability check waved the edit
+through. `a19dc6a` compares the bytes instead, which makes "durable" mean the
+thing that is actually granting the rounds.
+
+**Why it survives review.** The proxy check and the real check are the same
+sentence in English — "the receipt is committed" — and differ only in what
+would falsify them. Reviewers read the sentence. The test suite tests the
+sentence. The gap appears only when someone changes the contents without
+changing the path, which is not the shape anyone was imagining while writing
+it.
+
+**Avoid:** name the property in terms of what would *break* if it were false,
+then check that. Here: "the grant that is being honoured is the grant that is
+durable" — which forces a comparison of the granting bytes, not a lookup of a
+filename. When a check's subject is a file, ask whether you care about its
+existence or its contents; a check about authority almost always means
+contents.
+
+**Related:** *Satisfying a lexical guard by changing a value's form, not its
+meaning* above is the mirror image — there the guard's subject is right and its
+matcher is evadable; here the matcher works perfectly on the wrong subject.
+
+## Building a second validator beside an existing one re-derives its gaps, not its answers
+
+**Looks like:** the repo already has a script that reads some external system,
+validates the response and decides something from it. You need a second one for
+a neighbouring decision, so you write it — reusing the obviously-shared helpers
+and writing fresh everything else. Review then finds, one at a time, the
+defects the first script had already found and fixed years or weeks ago.
+
+**The worked example.** `scripts/review-budget.mjs` (PR #503) and
+`scripts/pr-ready.mjs` (PR #490) were built within days of each other, both
+gating an action on a captured `pull_request_read` snapshot. Review of the
+second independently re-found: **snapshots must be bound to the repository, not
+just the PR number** (every repo has a #503); **receipt freshness must measure
+when the external system was read, not when the command ran**, or a saved
+snapshot mints an indefinitely renewable receipt; **reviewer logins must be
+excluded from "pending" detection**, which `pr-ready` already did; and **an id
+must be validated as a non-empty string or finite number**, since `!== undefined`
+lets `null` through into a dedupe key. Each landed as a review finding rather
+than as inherited code.
+
+**Why sharing helpers isn't enough.** `review-budget.mjs` *did* reuse
+`loop-metrics.mjs`'s counting functions — deliberately, and that part worked.
+What did not transfer was the **validation posture**: the accumulated list of
+ways the snapshot can be wrong, which lives in neither a function nor a
+comment but in the shape of the older script's checks. Reuse moves answers;
+it does not move the questions somebody already learned to ask.
+
+**Avoid:** before writing a second consumer of an external system, **read the
+first one's validation block end to end and account for every check** — adopt
+it, or write down why it doesn't apply here. That is a ten-minute read against
+a review round per omission. If the two are close enough, extract the
+validation itself rather than the counting, which is the half that was actually
+hard-won.
