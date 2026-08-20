@@ -1,0 +1,8 @@
+{
+  "pr": 540,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 10,
+  "artifact": "docs-only /document harvest for PR #531: known-failure-patterns.md, decisions.md, current-roadmap.md, and a KNOWN GAP comment in review-budget.mjs",
+  "declaredAt": "2026-08-20T15:25:26.959Z"
+}
