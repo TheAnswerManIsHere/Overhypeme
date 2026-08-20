@@ -693,8 +693,8 @@ test("evaluate: one failing item is enough for NOT READY", () => {
 // deliberately leaves it untracked to prove exactly that.
 // ---------------------------------------------------------------------------
 
-const TIER = "internal";
-const TIER_CAP = 3; // review-budget.mjs's TIERS.internal.budget -- kept in sync by the "unknown tier" test below noticing drift
+const TIER = "product";
+const TIER_CAP = 5; // review-budget.mjs's TIERS.product.budget -- kept in sync by the "unknown tier" test below noticing drift
 
 function tempRepo() {
   const dir = mkdtempSync(join(tmpdir(), "pr-ready-adjudication-"));
@@ -1041,7 +1041,7 @@ test("adjudication: a record generated below the loop's active allowance is reje
   const head = commit({ ...rec.files, ...ext.files }, "c1");
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /below the loop's active allowance of 3/);
+  assert.match(res.detail, /below the loop's active allowance of 5/);
 });
 
 test("adjudication: a David-granted allowance ABOVE the base tier cap is honored -- reaching the base cap alone doesn't mean the tripwire fired (Codex, #539 round 3)", () => {
@@ -1069,7 +1069,7 @@ test("adjudication: a non-finite (uncapped) allowance is rejected, not treated a
     pr: 999,
     generatedAt: "2026-08-17T04:30:00Z",
     evidenceCapturedAt: "2026-08-17T04:28:00Z",
-    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: null, extensions: [] },
+    budget: { tier: "product", pendingRequest: false, ambiguous: false, allowance: null, extensions: [] },
     rounds: { completedReviewerPasses: 999 },
     sinceLastReview: { resolved: true, head: "a".repeat(40) },
   });
@@ -1128,7 +1128,7 @@ test("adjudication: a record with no parseable evidenceCapturedAt is rejected (C
     pr: 999,
     generatedAt: "2026-08-17T04:30:00Z",
     // evidenceCapturedAt omitted entirely
-    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: TIER_CAP, extensions: [] },
+    budget: { tier: "product", pendingRequest: false, ambiguous: false, allowance: TIER_CAP, extensions: [] },
     rounds: { completedReviewerPasses: TIER_CAP },
     sinceLastReview: { resolved: true, head: "a".repeat(40) },
   });

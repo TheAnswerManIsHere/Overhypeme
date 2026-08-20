@@ -261,7 +261,7 @@ const MUST_ALLOW = [
   ["a path that merely looks like the host", "cat ./api.github.com.md"],
   ["a commit message naming it", "git commit -m 'note that api.github.com is blocked from bash'"],
   ["a doc write naming it", "echo 'api.github.com returns 403 here' > notes.md"],
-  ["loop-metrics, which uses Node fetch and fails loudly on its own", "node scripts/loop-metrics.mjs --pr 472"],
+  ["a repo script naming the host in a flag", "node scripts/review-budget.mjs status --pr 472"],
 
   // The hook reads the command line typed at it, not a script's contents, so a
   // script that runs curl internally is untouched. That is what keeps the
@@ -798,7 +798,7 @@ const checkFile = (pr, spent) =>
   });
 
 const budgeted = (extra = {}) =>
-  memoryIo({ ".agents/receipts/loop-budget-991.json": budgetFile(991, "internal", 3), ...extra });
+  memoryIo({ ".agents/receipts/loop-budget-991.json": budgetFile(991, "product", 5), ...extra });
 
 test("an @codex review post with no declared budget is refused", () => {
   const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io: memoryIo(), now: NOW_MS });
@@ -818,7 +818,7 @@ test("an @codex review post inside its counted budget is allowed", () => {
 });
 
 test("an @codex review post past its budget is refused at tripwire 1", () => {
-  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 3) });
+  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 5) });
   const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io, now: NOW_MS });
   assert.equal(isBlocked, true);
   assert.match(reason, /TRIPWIRE 1/);

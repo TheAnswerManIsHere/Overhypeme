@@ -156,19 +156,6 @@ jobs:
       - name: Check manual tuning-language guard logic
         run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
 
-      # Also dependency-free. The loop ledger's whole premise is that counted
-      # numbers beat recalled ones, so its counting logic has to be provably
-      # right — an unverified derivation would carry exactly the false
-      # authority it exists to remove.
-      - name: Check loop-metrics derivation
-        run: node --test scripts/__tests__/loop-metrics.test.mjs
-
-      - name: Check loop-metrics guard logic
-        run: node --test scripts/__tests__/check-loop-metrics.test.mjs
-
-      - name: Check loop-report logic
-        run: node --test scripts/__tests__/loop-report.test.mjs
-
       # The workstream board is only trustworthy if its columns match reality.
       # The label -> field mapping is the one place that can quietly drift (a
       # renamed Status option, a new stage with no label slug), and a board that
@@ -211,19 +198,6 @@ jobs:
       # asserted-not-asserted-about treatment as the guard above.
       - name: Check PR readiness receipts
         run: node --test scripts/__tests__/pr-ready.test.mjs
-
-      # Record validity, offline. Needs no token, no PR context, and no base
-      # diff, so it runs identically on a PR and on push-to-main.
-      #
-      # Coverage is deliberately NOT checked here (David, 2026-08-07). The old
-      # guard failed builds over missing rows, which coupled every unrelated
-      # PR to ledger state and still didn't put the gap in front of the person
-      # who could act on it. Missing records are now named in the digest
-      # `/maintenance` narrates — the surface David actually reads. That trades
-      # a red check nobody sees for a weekly report someone does, and accepts
-      # that tracking can lapse for a week. This is a tracking tool.
-      - name: Check loop-metrics store
-        run: node scripts/check-loop-metrics.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

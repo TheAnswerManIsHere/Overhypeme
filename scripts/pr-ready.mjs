@@ -26,7 +26,7 @@
  * in this container (see .agents/memory/github-rest-api-blocked-from-bash.md
  * and the guard rule that now blocks the attempt). A plain Node process
  * therefore cannot call the MCP tools itself. The agent captures the pages and
- * passes them in -- the same adapter shape `loop-metrics.mjs --mcp-snapshot`
+ * passes them in -- the same adapter shape `review-counting.mjs`
  * already uses, and for the same reason.
  *
  * That means this script cannot stop me from fabricating a snapshot. It is not
@@ -158,7 +158,7 @@ const REVIEW_REQUEST = /@codex\s+review/i;
 /**
  * The one thing the connector emits exactly ONCE per completed pass.
  *
- * Measured, not assumed: `loop-metrics.mjs` established this against #286,
+ * Measured, not assumed: `review-counting.mjs` established this against #286,
  * #288 and #290 -- three PRs whose rounds a human had independently narrated
  * -- and it is the only signal that agreed with all three. A pass that finds
  * something puts the marker in a `pull_request_review` body; a pass that finds
@@ -189,7 +189,7 @@ function fail(message) {
 /**
  * Refuse a snapshot that hasn't been paginated to completion.
  *
- * Same reasoning as `loop-metrics.mjs`'s equivalent: this process cannot page
+ * Same reasoning as `review-counting.mjs`'s equivalent: this process cannot page
  * the MCP tool itself, so the agent must attest that it did. A truncated
  * `reviewThreads` page is the dangerous one -- it drops unresolved threads,
  * which turns item 3 from a check into a rubber stamp on precisely the busy
