@@ -13,19 +13,34 @@ into an explicit fold-in pass, and it is how the human-facing
 [Overhype.me Manual](../manual/README.md) gets written, incrementally, one
 area at a time.
 
-**Who triggers it (David, 2026-08-15 — this used to read "David-triggered"):**
-either David, by asking, **or the agent itself**, by judging at close-out
-that a merged task cleared the harvest bar below. David explicitly retired
-the ask for Claude Code; the agent now decides and starts the pass on its
-own. What did *not* change: the bar, the sources, the routing rules, and the
-fact that the pass's output still goes to David as a report and a PR.
-Enactment detail — **how** the judgement is made, and the rule that the
-*harvest* never runs in a subagent — is each agent's own (Claude Code's is in
-`CLAUDE.md`). This deliberately names no tier or model: it said "the tier
-guard on the judgement" until 2026-08-17, which went stale the moment Claude
-Code retired that guard, and a shared contract that characterizes another
-agent's routing will keep going stale that way. It states only that the
-enactment exists and where to find it.
+**When it runs (David, 2026-08-20 — superseding the per-merge trigger):**
+**batched at `/maintenance`**, one pass covering every product feature merged
+since the last maintenance run. David can also invoke it directly whenever he
+wants. It no longer fires per merge, and there is no run/don't-run judgement:
+the per-merge ceremony was producing roughly a quarter of all merged PRs,
+several of them harvests of harvests.
+
+**Process PRs get no harvest.** Guards, scripts, skills, agent contracts and
+process documentation are excluded by class — anything durable they produce is
+a Type 1 learning (below), already persisted.
+
+**The bridge that makes batching safe: a harvest-notes comment at every
+close-out.** Before the batched pass exists to read them, each product feature's
+close-out posts a short comment on its workstream issue — decisions and why,
+alternatives rejected, gotcha candidates. Cheap, always, no PR. Without it a
+weekly pass would be reconstructing intent from cold diffs, which is exactly
+what this ceremony exists to avoid.
+
+**Two kinds of documentation, two schedules (David, 2026-08-20).** Keeping them
+apart is what lets the heavyweight half be batched safely:
+
+- **Type 1 — how we work together: immediate.** A new rule, a process gotcha, a
+  retired mistake — anything that changes how the agents operate — is persisted
+  the moment it is learned, into `CLAUDE.md`, `AGENTS.md`, `working-modes.md` or
+  `.agents/memory/`. This is the "remember this" mechanism (mechanism 1 below)
+  and it never waits for a batch.
+- **Type 2 — how the system works: batched.** Subsystem docs and Manual
+  chapters, harvested in the `/maintenance` pass described here.
 
 ## Relationship to the other two memory mechanisms
 

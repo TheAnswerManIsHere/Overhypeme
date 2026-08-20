@@ -13,6 +13,64 @@
 
 ---
 
+### 2026-08-20 · The review apparatus is cut back: internal tooling leaves the ceremony, the ledger and the self-refereeing tripwires are deleted, and an external judge decides every round
+- **Decision:** David mandated a meta-review (issue #541) asking whether the
+  review-loop apparatus was "building something great or just engineering
+  massive delay." Measured from the GitHub record: **~70% of PRs merged in the
+  preceding three weeks were process/meta, not product**, and the round-budget
+  guard built to stop review churn had become the repo's single largest source
+  of it. Ten changes were agreed item-by-item and shipped together:
+  1. **Internal tooling is carved out of review loops entirely.** Guards,
+     `scripts/`, skills, agent contracts, process docs and harvests get the
+     automatic Codex pass, one triage, one-line declines, and no re-requested
+     rounds. Enforced by deleting the `internal` tier: internal work declares
+     no budget, and no budget already meant no `@codex review`.
+  2. **The four self-refereeing tripwires are deleted** — criticality gate,
+     finding-count trend, plan-growth tripwire, oscillation diagnosis.
+  3. **The dispatch-law sections of `CLAUDE.md` are deleted** (~400 lines
+     governing which judgements dispatch), now that the answer is uniform.
+  4. **The loop ledger is deleted** — `loop-metrics.mjs` (split: its counting
+     library survives as `review-counting.mjs`), `loop-report.mjs`,
+     `check-loop-metrics.mjs`, their tests, the per-loop record store, the
+     weekly flush and the blind sampling. Process-health numbers are now
+     computed fresh from GitHub at `/maintenance`.
+  5. **#537 (receipt durability) closed not-planned** — an open-set hardening
+     war whose defended asset is a round counter.
+  6. **The #532 budget-vs-merge-bar collision is fixed by the adjudicator**
+     rather than a special case, and #532 closed.
+  7. **No trial period** (David's call): the survivors are simply the standing
+     process, and `/maintenance` surfaces the numbers so his keep-going call
+     is informed.
+  8. **`/document` is batched at `/maintenance`**, with a harvest-notes comment
+     on the workstream issue at each close-out as the bridge; Type 1 (how we
+     work) learnings stay immediate. Process PRs get no harvest.
+  9. **`CLAUDE.md` cut from 2,435 lines to ~550** — every rule keeps its
+     operative sentence and loses its history.
+  10. **#514 closed not-planned** — a one-round-bounded counting race whose fix
+      would drag every PR in the repo into the receipt system.
+  Two changes David introduced during the review, both adopted over what was
+  originally proposed: **the external adjudicator now runs after every round**,
+  not only at the budget (the loop stops refereeing itself entirely); and **the
+  adjudicator sizes its own extension** instead of a fixed 2-round ceiling,
+  bounded by an outer rail at 2x the declared budget.
+- **Why:** the churn's root cause was calibration, not any single script —
+  internal tooling reviewed at product rigor, with every finding treated as
+  fix-or-formally-decline. The judgment-shaped stopping devices had a measured
+  record of **0-for-15**; pre-registered flip conditions were 6-for-6, and the
+  fresh-context adjudicator 3-for-3, so the two devices that worked were kept
+  and the ones that didn't were deleted along with their tests and their
+  contract prose. `CLAUDE.md`'s justification layer was cut on the evidence
+  that it does not bind: PR #488 ran 22 rounds with every essay loaded.
+- **What is NOT in question:** Codex review of **product code** is David's
+  safety net — he does not read diffs — and it is untouched.
+- **Reference:** issue #541 (the mandate and the measurements), this PR.
+- **Revisit if:** the `/maintenance` process-health numbers show meta share
+  climbing back toward 40%, or a product loop is damaged by the reduced
+  ceremony (a defect reaching `main` that a second round would have caught).
+  The delete list from the #541 review's first report — which would also
+  remove the budget guard, the merge receipt and the adjudicator — is on file
+  as the next step if the remaining apparatus still costs more than it returns.
+
 ### 2026-08-20 · #532's merge-bar collision recurred a fourth and fifth time on PR #534 — the closed-adjudication fallback has a fixed baseline, and once its one-time slot is spent, a trailing commit outside its bookkeeping paths needs a fresh round or an exact-SHA reset
 - **Decision:** no code change; recorded per #532's own "revisit if" (a fourth
   occurrence), which fired twice more in one PR. The two new occurrences
@@ -175,7 +233,7 @@
   `0cd6f3c` after round 3 returned 12 findings, 6 against the tally's repair
   machinery: the tally was a cache of state GitHub already holds, so every
   failure was a cache-coherence failure. A round is now a completed reviewer
-  pass (`loop-metrics.mjs`'s `reviewerPasses()`) plus at most one pending
+  pass (the loop-metrics script's `reviewerPasses()`) plus at most one pending
   request, read from a validated snapshot at decision time. Consequences that
   fall out of this and are load-bearing: the gate reads `delivered` and only
   when `pending === 0`, so **a retry of a stalled round is not a new round**;
@@ -654,8 +712,8 @@
   substitute — the part to keep even if the rest is later loosened.
 - **Honest gap: self-wake cost is not measured.** An earlier draft of this
   entry claimed self-wakes are counted in the loop ledger. They are not:
-  `loop-metrics.mjs` persists eight GitHub-derived mechanical fields with no
-  wake count, and `loop-report.mjs` derives cost from review interval and
+  the loop-metrics script persists eight GitHub-derived mechanical fields with no
+  wake count, and the loop-report digest derives cost from review interval and
   preflight time only. Closing the gap needs a new persisted field plus a
   reporting path. Until then "is this worth it" is a judgement on
   recollection, and this decision should not be revisited on the strength of
@@ -1221,8 +1279,8 @@
   superseding parts of *2026-07-27 · The loop ledger* below (which stays in
   place as history):
   1. **Storage.** One JSON record per loop at
-     `.agents/metrics/loops/<pr>.json`, keyed by PR number, written by
-     `scripts/loop-metrics.mjs --pr <n> --write`. The markdown table is
+     one JSON record per loop, keyed by PR number, written by the
+     loop-metrics script. The markdown table is
      **frozen** at rows 1–46, pinned by `loop-ledger.sha256`, and never
      appended to again. **There was no migration** — the old rows stay
      exactly as written, and the analysis in *What the ledger's adjudicated
@@ -1231,7 +1289,7 @@
      **sample of loops** — `pr % 5 === 0` or `findings >= 30` — instead of on
      every loop. **Every adjudication that runs still covers that loop's full
      finding population.**
-  3. **Delivery.** `scripts/loop-report.mjs` renders a digest that
+  3. **Delivery.** the loop-report digest renders a digest that
      `/maintenance` narrates to David in plain language. The `[LEDGER]` PR
      type is retired; a record rides any PR except the one it measures
      (narrowed 2026-08-15 to *mergeable* PRs only, never a `[PLAN REVIEW]`
@@ -2082,7 +2140,7 @@
   permanent row in [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md),
   appended when the loop closes, by **both** Claude Code and Codex. Mechanical
   columns (rounds, findings, size, review hours) are derived by
-  `scripts/loop-metrics.mjs` and never typed by hand; judgment columns (cause
+  the loop-metrics script and never typed by hand; judgment columns (cause
   per finding, breakers fired, preflight time) are hand-entered and visibly
   marked as such. The causal classification is checked by **blind
   adjudication over the full finding population** — not a sample — using a

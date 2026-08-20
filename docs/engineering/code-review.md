@@ -186,35 +186,16 @@ states this bar explicitly ("docs-only — light review per
 code-review.md"), so the reviewer calibrates from the request itself, not
 just from this file.
 
-**Loop-ledger records get the same light bar, split by which half of the
-record a finding touches (David, 2026-08-11).** A `.agents/metrics/loops/
-<pr>.json` record has a mechanical half (`derive()`'s numbers) and a
-judgment half (hand-typed causes and prose explaining them — see
-`working-modes.md`'s *The loop ledger*). Only flag: **(a)** a mechanical
-value that's actually wrong — a causal count that doesn't sum to
-`findings`, a date/PR number/schema violation, anything `check-loop-metrics
-.mjs` would itself reject; or **(b)** a judgment claim that's factually
-wrong about what happened in the loop (e.g. claiming a finding was fixed
-when the diff shows it wasn't). **Not** a finding: a defensible read of an
-ambiguous rubric provision, or imprecise *phrasing* in the prose that
-explains a causal label which is itself correct — three review rounds on
-PR #406 were exactly this shape (the counts were right every round; only
-the wording justifying them kept getting relitigated), which is the
-concrete cost this carve-out exists to stop paying twice.
-
-**This bar, and the one-pass cap in `working-modes.md`'s ceremony table,
-apply only to findings on the ledger JSON file itself.** A ledger record
-routinely rides a carrier PR alongside unrelated product-code changes (it
-"rides any *mergeable* PR of mine except the one it measures — never a
-`[PLAN REVIEW]` PR" — see `working-modes.md`'s
-*The loop ledger*); those changes are reviewed to convergence as normal
-product code, exactly as if the ledger file weren't in the diff. The
-author's review request on a loop-ledger PR states this bar explicitly, and
-scopes it to the ledger file by name, so the reviewer never has to infer
-which files it covers ("ledger record — light review per code-review.md,
-mechanical-or-factual findings only, on `.agents/metrics/loops/<pr>.json`;
-other files in this PR get the normal review bar for their class"),
-matching the docs-only convention above.
+**Internal tooling gets the light bar too, and gets no re-requested rounds
+at all (David, 2026-08-20).** Guards, `scripts/`, skills, agent contracts,
+process docs and documentation harvests are reviewed once — the automatic
+pass when the PR opens — and then triaged and shipped. The reviewer should
+raise a genuine defect and skip prose, structure and completeness findings:
+the author will decline them in one line rather than spend a round, because
+the loops this repo has measured on that class were 22 rounds of correct
+findings against an artifact where none of them mattered. The full
+reasoning is in
+[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
 
 ## Runtime correctness
 

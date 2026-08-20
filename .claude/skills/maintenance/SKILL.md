@@ -29,9 +29,6 @@ Why barred rather than mandated: these are continuous ops judgements over a
 queue the main loop is already holding — which bump to merge, which error
 matters, which trigger has fired — not a bounded verdict on packageable
 material. Removing this bar is a contract change that ships in a PR.
-**The blind loop-ledger adjudication run during this pass is different** — it
-is a standing mandate and dispatches to Fable, per `CLAUDE.md`'s loop-ledger
-section.
 
 The deliverable is one concise report at the end covering the seven areas
 below. If an area has nothing to report, one line ("no open dependency
@@ -119,149 +116,47 @@ and re-check **each entry's revisit trigger**:
 - Write it **PM-facing**: what changed in product terms, one line per PR,
   grouped as features / fixes / dependencies / infra. Not a commit log.
 
-## 6. Loop-efficacy digest — flush first, then digest, then the conversation
+## 6. Documentation harvest + process health
 
-**Step 6a — the ledger flush (David, 2026-08-15).** Loop records are no
-longer written at each loop's close; this pass is where they get created.
-List the loops that reached their terminal point since the last maintenance
-run (the closed-PR inventory below already covers this window), and for each
-one with no record yet: run `node scripts/loop-metrics.mjs --pr <n> --write`
-(or `--mcp-snapshot`, per the shared contract's mechanics in
-[`working-modes.md`](../../../docs/ai-context/working-modes.md#the-loop-ledger)),
-fill the judgment, run the blind adjudication where sampled, and commit the
-records together as part of this pass. **Also sweep for staleness across
-two sets, not just the previous window**: (a) every record from the
-*previous* window's flush, and (b) **every existing record with a `null`
-`mechanical.reviewInterval`, regardless of which window it was created
-in** — a null interval (the field `loop-metrics.mjs`'s `reviewInterval()`
-returns when the record was written with zero reviewer stamps) means the
-loop had no review yet as of its last derivation, and stays exactly
-`null` until something re-derives it; scoping the null-check to only "the
-previous window" would let a record whose first review lands two or more
-flushes later evade the sweep permanently, since it's no longer in that
-narrower set on any later pass. For either set: a record whose PR shows
-review/comment activity newer than the record's own captured
-`last_review_at` (a late-landing pass — the frozen ledger's rows #323/#324
-are the observed shape), **or whose `reviewInterval` is `null` while the
-live PR shows any reviewer activity at all**, gets re-derived and edited
-this pass, per the shared contract's late-review rule. Compare against
-what the record actually captured, not an inferred commit or derivation
-time — a review landing after the PR snapshot was fetched but before the
-record was committed can predate that inferred time and evade the sweep
-even though the record never captured it. Without
-this sweep the correction path is a promise nothing triggers — the
-new-records selection skips loops that already have a record, and the
-completeness check sees the stale file as present. **There is no settling-window
-skip** — `working-modes.md`'s standing rule is that terminal point (closed
-or merged) is eligibility, full stop; a loop whose review lands late gets
-its record re-derived and edited at a future flush, not held back from
-this one. The flush runs
-**before** the digest so the completeness check below runs against flushed
-state — a gap it still names afterward is a real miss to fix in this same
-pass, not a report line.
+**Step 6a — the batched Type 2 documentation harvest (David, 2026-08-20).**
+This pass is where subsystem docs and Manual chapters get written. Run
+`/document` once, covering every product feature merged since the last
+maintenance pass — its sources are the **harvest-notes comments on each
+feature's workstream issue** (posted at close-out) plus the merged diffs.
+Process PRs get no harvest. Type 1 learnings — anything that changes how we
+work — were already persisted the moment they were learned and are not
+re-harvested here.
 
-**Delivery route (David, 2026-08-15).** The records need an ordinary
-reviewed PR to reach `main` — this repo requires a PR before merging, and
-the ledger contract bans a standalone ledger-only PR the same way it
-always has. Two cases: **if any of my own *mergeable* PRs are open**, the
-flush commit rides one of them as a normal additional commit (any PR
-except the one a given record measures, per the loop-ledger's own rule —
-and **never a `[PLAN REVIEW]` PR**, which is closed without merging, so a
-record riding it would never reach `main` at all). **If none are
-open**, this pass opens one small `docs(maintenance): weekly digest` PR
-carrying the flush commit plus this week's `deferred-work.md` updates (the
-other docs-only exception in Boundaries below) — reviewed by Codex like any
-docs-only PR, continuing on consequence rather than a round cap (per
-`working-modes.md`'s *Docs-only loops continue on consequence, not
-count*), then self-merged under the general close-out rule once ready.
-Never skip straight to a direct push: that bypasses the Codex pass the
-ledger contract still requires.
+**Step 6b — process health, pulled from the GitHub record.** There is no
+ledger any more, so these are counted fresh each pass rather than read from
+stored records. From the merged-PR list for the window:
 
-**Step 6b — the digest.** **Build the closed-PR inventory and pass it — this step is required, not
-optional.** Since this PR retired CI's coverage gate, the digest's
-`--inventory` completeness check is the *only* remaining mechanism that
-notices a missing record; skipping it every week means coverage can rot
-indefinitely while the report keeps saying "not checked" and nobody notices.
-List closed PRs (`mcp__github__list_pull_requests`, `state: closed`,
-paginated in small batches) back through `FIRST_RECORDED_PR` in
-`loop-report.mjs` (read the constant rather than hardcoding it here — it moved
-once already when a late `[LEDGER]` PR landed rows during the cutover) —
-**not just the last maintenance window.** `missingRecords()` has no settling
-window (David, 2026-08-08) — a loop closed seconds ago is eligible to be
-flagged — so the risk isn't recency, it's an inventory that only covers the
-last 7 days and silently drops an older gap that opened before the lookback
-started; the "every closed loop has a record" line would then read as
-checked when only the last week actually was. Keep
-`number`/`title`/`closed_at`/`user.login` for each PR — write the array to a
-scratch JSON file and pass it as `--inventory <file>`. If GitHub access
-genuinely isn't available this run, say so explicitly in the report
-("completeness not checked — GitHub access unavailable") rather than
-silently running without `--inventory` and letting the section read as
-routine.
+- **Meta vs. product share.** How many merged PRs were product-facing versus
+  process/guard/docs-about-process. This is the number that started the
+  2026-08-20 review: it was running about 70% meta over three weeks.
+- **Rounds per loop.** From the PRs' own review history — how many product
+  loops ran, and how long each took.
+- **Adjudicator verdicts.** From `.agents/receipts/` (committed, so this is a
+  directory read): how many loops reached their budget, and what the
+  adjudicator decided. A run of `continue` verdicts would mean the adjudicator
+  is being talked into extensions, which is the mechanism failing in the way it
+  was built to resist.
+- **Guard incidents that needed David.** Rare by design; if it isn't rare, say
+  so.
 
-Run `node scripts/loop-report.mjs --inventory <file>` and **narrate the
-result to David in plain language** — a few sentences, not the raw tables.
-The script computes; this step interprets; David decides.
+**Step 6c — the "how are we doing" conversation.** Narrate the numbers in a few
+plain sentences — not tables — and open the question David actually wants
+answered: *are we doing better, and is there anything to improve?* Bring
+anything the week's loops suggest about the process itself: a budget that keeps
+being hit (a tier whose budget is wrong is a David conversation, not a silent
+adjustment), a decline pattern, a ceremony that looks mismatched to its
+artifact. **He is the verdict mechanism** — there is no trial window and no
+automatic consequence; these numbers exist so his call is informed rather than
+vibes-only. If he judges the apparatus is still costing more than it returns,
+the standing recommendation on file is the delete list from the #541 review.
 
-**Step 6c — the "how are we doing" conversation (David, 2026-08-15).** The
-narrated digest opens the weekly conversation David actually wants from the
-ledger: *how are we doing, and is there anything we can improve?* Beyond
-the numbers, bring anything the week's loops suggest about the process
-itself — a tripwire that keeps firing, a decline pattern, a ceremony that
-looks mismatched to its artifact class — as candidates, for him to engage
-with or skip. This conversation is the ledger's entire delivery surface
-now; a flush-and-digest with no interpretation is the measurement half
-shipping without the delivery half again.
-
-**Step 6d — the week's round-budget events (David, 2026-08-17).** The budget
-guard's receipts are committed, so this is a directory read, not a
-recollection. From `.agents/receipts/`, for loops that ran this week:
-
-- **Loops opened** — one line: how many budgets were declared, and their tier
-  mix. `node scripts/review-budget.mjs status --pr <n>` prints one loop's
-  state.
-- **Tripwires hit** — every loop that reached its cap. Read this from the
-  **extension receipts**, not from any round count: an extension exists if and
-  only if a tripwire fired, and unlike the ephemeral round-check receipts they
-  are committed and still present at flush time. This is the number worth
-  watching over time — a tier whose loops routinely trip is a tier whose
-  budget is wrong, and that is a David conversation, not a silent adjustment.
-- **Adjudication verdicts** — the `loop-extension-*` receipts, by verdict.
-  A run of `continue` verdicts means the adjudicator is being talked into
-  extensions, which would be the mechanism failing in the way it was built to
-  resist; `ship-with-gaps-recorded` is meant to dominate.
-- **Tier-2 escalations** — every loop that reached David. Rare by design; if
-  it isn't rare, say so.
-
-Feed all four into the 6c conversation rather than reporting them as a table.
-The question they answer is *are the budgets the right size*, and only David
-can settle that.
-
-This section exists because the measurement half shipped in PR #270 and the
-delivery half never did: for a year the answers sat in a file David doesn't
-open, and he discovered the records were duplicating by stumbling into it.
-**The digest is the product** — if it isn't narrated, the whole system is
-back to where it was.
-
-What to actually say:
-
-- **The headline, if there is one.** Churn moving, an unusually expensive
-  loop, a run of clean ones. If nothing moved, say that in one line.
-- **Anything actionable.** A deferral that has been open for weeks, a loop
-  whose adjudication tripped the disagreement gate, missing records piling
-  up. These are named individually in the digest precisely so they can be
-  acted on rather than counted.
-- **Honest uncertainty.** Below three qualifying loops the digest says "not
-  yet informative" — pass that through rather than dressing two data points
-  as a trend. The frozen ledger withdrew two such readings already.
-
-**Always run the digest, even on a week where nothing closed** — the
-data-health and completeness checks are all-time, not windowed, and this
-digest is now the only mechanism that ever notices a missing or stuck
-record. A quiet week with a real deferral or a growing missing-records list
-still has something to say; only the empty-volume commentary is skippable.
-Say "no loops closed this week" in one line and go straight to data health,
-rather than dropping the section entirely.
+Below three qualifying loops, say "not yet informative" rather than dressing two
+data points as a trend.
 
 ## 7. Replit commit review
 
@@ -458,7 +353,7 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   dependency merges, **with two narrow exceptions**: committing updates to
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
   (step 4) — recording a newly-parked item or updating an entry's status —
-  and committing the loop-ledger flush records (step 6a). Both are
+  and the batched documentation harvest (step 6a). Both are
   docs-only, zero behavior/dependency change, no PR ceremony, and match
   the tier table's "documentation is Sonnet-always, drift is
   self-catching" rationale. Neither is license to fix, refactor, or bump

@@ -413,10 +413,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   **Superseded again 2026-08-07** (plan-review PR #340): the markdown table
   is **frozen** at rows 1–46 and the `[LEDGER]` PR type is retired. New
   loops are recorded one JSON file per loop in
-  [`.agents/metrics/loops/`](../../.agents/metrics/loops/), blind
+  the loop-record store, blind
   adjudication now runs on a deterministic **sample of loops** (each still
   adjudicated over its full finding population), and the answers reach David
-  through a digest (`scripts/loop-report.mjs`, narrated by `/maintenance`)
+  through a digest (the loop-report digest, narrated by `/maintenance`)
   rather than sitting in a file he never opens. Coverage and permanence
   stopped being CI gates and became accepted, documented risks. Rationale,
   including why the sampling reversal does not reintroduce the bias defects
@@ -438,7 +438,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   `classifyCohort` no longer routes any non-plan-review PR carrying a
   markdown file to `prose/contract` by bare presence — it now weighs
   changed-line counts, so a code-majority mixed PR lands in `feature/code`
-  (see `cohortWeights` in `scripts/loop-metrics.mjs`); presence alone only
+  (see `cohortWeights` in the loop-metrics script); presence alone only
   decides when one side is entirely absent. **Resolved 2026-08-15, not by
   deciding this specific case but by retiring the cap it questioned:**
   #279 ran 32 rounds, about 12 past the ~20-round soft cap meant to

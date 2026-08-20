@@ -20,20 +20,20 @@ chapter → Cross-check → Report & commit.** The contract holds the substance
 no-empty-chapter quality bar, proportionality, boundaries). I don't restate it
 here.
 
-**The harvest is a standing dispatch BAR; the run/don't-run judgement is a
-standing dispatch MANDATE.** Pre-registered here in writing, per `CLAUDE.md`'s
-*Whether a judgement dispatches is fixed in advance* — not decided at dispatch
-time, and not removable mid-task.
+**This runs batched at `/maintenance`, not per merge (David, 2026-08-20).**
+One pass covers every product feature merged since the last maintenance run.
+Process PRs — guards, scripts, skills, contracts, process docs — get no harvest
+at all: anything worth keeping from those is a Type 1 learning, persisted the
+moment it was learned.
 
-- **The harvest never runs in a subagent.** Its richest source is the *build
-  session's* own decisions and rejected alternatives, which a cold worker does
-  not inherit; the work is enumeration from memory, and no dispatch package can
-  carry what has not been noticed yet.
-- **The judgement always dispatches, on Fable, whatever tier the session is**
-  (David, 2026-08-17). It is bounded: the merged diff, the decisions taken
-  **enumerated rather than summarized**, and the bar. The enumeration is the
-  part that matters — an omitted decision is invisible to the judge, and no
-  tier fixes that.
+**There is no run/don't-run judgement dispatch any more.** It existed to decide
+whether a single merge warranted the whole ceremony; with the ceremony batched
+and a harvest-notes comment posted at every close-out, there is nothing left to
+judge.
+
+**The harvest never runs in a subagent.** Its richest sources are the build
+sessions' own decisions and rejected alternatives, which a cold worker does not
+inherit.
 
 ## Trigger check (don't run the ceremony for a "remember this")
 

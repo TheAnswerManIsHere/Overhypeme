@@ -64,23 +64,23 @@ is **state**, not difficulty:
   enumeration from memory, and no dispatch package can carry what has not
   been noticed yet.
 
-  The **judgement** of whether to run a pass is the opposite: a standing
-  dispatch **mandate**, and since 2026-08-17 it goes to **Fable, whatever
-  tier the session is on**. The old "(and only when the session is below
-  Opus)" condition is retired — it would have given a degraded session the
-  stronger judgement and an Opus session the weaker one. See `CLAUDE.md`'s
-  *I proactively remind David to run `/document`* and *Whether a judgement
-  dispatches is fixed in advance*.
+  The run/don't-run **judgement** that used to dispatch here is **gone**
+  (David, 2026-08-20): the harvest is batched at `/maintenance` and every
+  close-out posts harvest notes, so there is no per-merge decision left to
+  judge.
 - **Not routable**: a review loop or any long-running stateful loop; anything
   whose judgment is mine under the 2026-08-15 adjudication rules; verification
   of my own work (barred by `CLAUDE.md`'s delegation caps).
 - **Why PR-watching specifically was considered and rejected.** It looks like
   the ideal candidate — high volume, mostly mechanical — but it carries
   per-round state (round number, cumulative-diff rule, declines and their
-  reasoning, resolved threads, finding-count and plan-growth tripwires) that a
-  subagent would re-establish on every webhook event, while my main loop stays
-  engaged anyway because the adjudication is mine. Plausibly *more* expensive
-  than simply watching on Opus, not less. Recorded here so it isn't re-proposed
+  reasoning, resolved threads) that a subagent would re-establish on every
+  webhook event, while my main loop stays engaged anyway. Plausibly *more*
+  expensive than simply watching on Opus, not less. **What IS dispatched is
+  the per-round adjudication itself** — one `review-loop-adjudicator` on
+  Fable, reading a script-generated record rather than this session's
+  context, which is the whole point: the value is the absence of my context,
+  not the presence of a worker. Recorded here so it isn't re-proposed
   as an obvious optimization.
 - **Announce every dispatch, in both directions.** The announce-don't-sneak
   rule was written for expensive escalations; it applies just as much to a

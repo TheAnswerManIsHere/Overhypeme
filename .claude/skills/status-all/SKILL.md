@@ -236,7 +236,7 @@ per-thread narration in the output.
 **Page `get_commits`, `get_review_comments`, `get_comments`, and
 `get_reviews` to exhaustion**, the same way Step 1 pages through issues —
 a review loop that's gone several rounds can exceed one page of any of
-these (see `scripts/loop-metrics.mjs`'s own pagination for real examples),
+these (the review-counting library's own pagination requirements are the same),
 and a single capped call can silently return an incomplete prefix that's
 missing the most recent commit, reply, or review. Since Step 4 picks the
 *latest* item across these collections, an incomplete page doesn't just
@@ -244,8 +244,7 @@ under-report — it can make an active workstream look stalled. `get_comments`
 matters here, not just for completeness: this repo's Codex loop delivers
 some events — a clean re-review pass, an `@codex review` trigger — as
 plain issue comments rather than inline review threads
-(`scripts/loop-metrics.mjs`'s own derivation has to handle this same
-shape). Skipping `get_comments` makes those events invisible, which can
+(`scripts/review-counting.mjs`'s own derivation handles this same shape). Skipping `get_comments` makes those events invisible, which can
 misreport who's actually holding a workstream. `get_reviews` matters for
 the other direction: a clean Codex pass delivered as a normal
 `pull_request_review` with **no** inline findings shows up in neither
@@ -289,7 +288,7 @@ through David's own GitHub account in this environment, not a separate
 bot identity.** Every reply, review comment, and commit I make in this
 repo appears under `TheAnswerManIsHere`'s login (confirmed by this very
 PR's own reply-thread history, and by the MCP fixture in
-`scripts/__tests__/loop-metrics.test.mjs`). Filtering "authored by David"
+`scripts/__tests__/review-loop-record.test.mjs`). Filtering "authored by David"
 by login alone therefore misclassifies every one of my own responses as
 David's — discarding real activity and reporting an active, answered
 thread as stalled, the opposite of what this filter exists to catch. Tell
