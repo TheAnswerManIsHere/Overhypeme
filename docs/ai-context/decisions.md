@@ -13,18 +13,21 @@
 
 ---
 
-### 2026-08-20 · #532's merge-bar collision recurred a fourth and fifth time on PR #534 — the closed-adjudication fallback has a fixed baseline, and once its one-time slot is spent, any later trailing commit needs a fresh round or an exact-sha revert
+### 2026-08-20 · #532's merge-bar collision recurred a fourth and fifth time on PR #534 — the closed-adjudication fallback has a fixed baseline, and once its one-time slot is spent, a trailing commit outside its bookkeeping paths needs a fresh round or an exact-SHA reset
 - **Decision:** no code change; recorded per #532's own "revisit if" (a fourth
   occurrence), which fired twice more in one PR. The two new occurrences
   surface a real gap in #539's closed-adjudication fallback
   (`checkAdjudicatedCodex` in `scripts/pr-ready.mjs`) that its own design
   didn't anticipate: the fallback's diff baseline
   (`record.sinceLastReview.head`) is fixed at whatever the PR's head was when
-  the mechanical record was generated. Any legitimate branch movement after
-  that — even movement required to resolve a real GitHub merge conflict —
-  invalidates the fallback for that PR, permanently: `review-budget.mjs`'s
-  own rule ("a second adjudication extension is never valid") means there is
-  no self-serve way to regenerate it once one adjudication has been spent.
+  the mechanical record was generated. The fallback's own bookkeeping-only-diff
+  check does tolerate later commits confined to the terminal adjudication
+  receipt and its cited record (that's how the fallback itself gets committed
+  after the baseline) — but any branch movement *outside* those two paths,
+  even movement required to resolve a real GitHub merge conflict, invalidates
+  it for that PR, permanently: `review-budget.mjs`'s own rule ("a second
+  adjudication extension is never valid") means there is no self-serve way to
+  regenerate it once one adjudication has been spent.
 - **First new occurrence.** PR #534 (a `/document` harvest) had a spent
   self-serve adjudication (`ship-with-gaps-recorded`) satisfying the merge
   bar via the fallback. Resolving a real conflict against `main` (which had
