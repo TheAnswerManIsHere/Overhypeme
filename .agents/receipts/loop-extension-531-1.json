@@ -1,0 +1,12 @@
+{
+  "pr": 531,
+  "kind": "adjudication",
+  "verdict": "ship-with-gaps-recorded",
+  "recordPath": ".agents/adjudications/531-1.json",
+  "reasoning": "The internal-tier budget of 3 rounds is fully spent (roundsSpent 3, no extensions) and the finding trend is flat-then-rising (2, 2, 3) at criticality 45 -- the shape of a loop that will keep producing findings, not one converging. All 7 findings are in-diff and all 7 threads are resolved, so the record names no unaddressed behavioral risk that would justify a continue; the only open question is that the fixes pushed since the last reviewed commit (8b0036e -> ff52049, scripts/review-budget.mjs +62/-8) have not themselves received a reviewer pass, and buying a round purely to re-verify fixes is exactly the locally-rational step that ran PR #488 to 22 rounds. This is guard/tooling infrastructure whose failure mode is a wrongly-permitted review post, not production misbehavior, so the default holds.",
+  "gaps": [
+    "The round-3 fixes (validate the remote URL used for pushes, read the configured remote name without splitting the ref, reject missing local-path remotes -- scripts/review-budget.mjs +62/-8 since commit 8b0036e) were pushed after the last completed reviewer pass and ship without reviewer verification.",
+    "The rounds show a progressively deepening durability-hardening theme (local branches -> local-backed remote-tracking refs -> local-path remotes); the record deliberately does not classify cause, so any residual variants of that class in review-budget.mjs's upstream-durability checks are unreviewed and should route to a follow-up issue rather than further rounds here."
+  ],
+  "decidedAt": "2026-08-20T14:19:24Z"
+}
