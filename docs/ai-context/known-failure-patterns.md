@@ -2491,9 +2491,104 @@ filename. When a check's subject is a file, ask whether you care about its
 existence or its contents; a check about authority almost always means
 contents.
 
+**Update (PR #531): the byte-comparison fix above was itself still a proxy.**
+Comparing bytes fixed *this* falsification but not the shape that produced it:
+the check still worked by reading the working tree and then reconciling it
+against git, which is the identical cache-coherence structure as *A persistent
+counter of state the source of truth already holds* above, one layer down —
+"the working tree" being a cache of "the commit." The fix was the same fix:
+deletion. `readDurableJson`/`listDurable` now read the budget and extensions
+**only** from `git show`/`git ls-tree` against the branch's remote-tracking
+ref; there is no working-tree read to reconcile because there is no second
+copy. Pinned by a test that disables both filesystem readers entirely and
+asserts the loop still loads. Same lesson, restated because it recurred one
+layer inward: a "durable" check built on comparing a local copy to the source
+of truth should usually just read the source of truth.
+
 **Related:** *Satisfying a lexical guard by changing a value's form, not its
 meaning* above is the mirror image — there the guard's subject is right and its
-matcher is evadable; here the matcher works perfectly on the wrong subject.
+matcher is evadable; here the matcher works perfectly on the wrong subject. *A
+predicate inferring an external property from local configuration accumulates
+exception clauses without bound* below is what happened next, when the deleted
+check's replacement (the git ref itself) turned out to have the same shape of
+problem one layer further out.
+
+## A predicate inferring an external property from local configuration accumulates exception clauses without bound
+
+**Looks like:** a check needs to know something true about the outside world —
+will this survive past the session, is this remote real, is this value what it
+claims to be — and answers it by reading local configuration that *usually*
+correlates with the real answer. The first version works. Review finds a
+counterexample; you add a clause. Review finds another; you add another
+clause. Each fix is locally correct and the check gets no closer to done,
+because the surface it is enumerating over is open: configuration is a
+*description*, and a description can diverge from reality in as many ways as
+there are ways to write it.
+
+**The tell:** more than one independent counterexample to the *same* predicate
+lands in a single review round. One counterexample is a bug. Three in one
+round, each defeating the predicate a different way, is the surface telling
+you it has no boundary.
+
+**The worked example.** PR #531 deleted a cache-coherence check (see *A
+"durable" or "committed" check that proves a proxy, not the property* above)
+and replaced it with `durableRef()`: infer whether a git ref will outlive this
+container by inspecting the branch's local upstream configuration.
+Round 1 found a local branch could masquerade as a remote-tracking one
+(`refs/remotes/` vs `refs/heads/`, indistinguishable once abbreviated) — fixed
+by checking the full ref. Round 2 found a remote's fetch URL could point
+locally while the ref still lived in `refs/remotes/` — fixed by resolving the
+URL. **Round 3 found three more, independently, in one pass:** a remote with a
+network fetch URL but a local `pushurl` (only the fetch URL was checked); a
+local-path remote whose backing repo had since been *deleted*, which made
+`durableRef()` treat it as durable — nonexistence was coded as "never local,"
+when it actually meant "the local copy is gone, which is exactly what durable
+was supposed to rule out"; and a remote name containing `/` breaking a naive
+`split("/")[0]` parse. At that point the fix stopped. The three findings were
+recorded as known gaps (tracked in #537) rather than patched, on the reasoning
+that a fourth clause would not be different in kind from the first three.
+
+**Why stopping was the right call, not merely the disciplined one.** A
+pre-registered flip condition from round 2's request said exactly this in
+advance: *"if round 3 finds a third variant of the same question, that is a
+signal the predicate is the wrong shape rather than incomplete."* Round 3
+supplied three, and the request for round 4 was never sent — the loop's own
+declared round budget was spent, so continuing would have meant a self-serve
+extension to patch a predicate already shown to be open-ended, which is a
+worse trade than shipping the known gaps (the code being replaced was *more*
+easily fooled than any of these three cases, by a plain uncommitted `HEAD`
+with no adversarial setup at all — so shipping with the gaps recorded was
+still a net hardening, not a regression). The better direction, named in #537
+but not yet built: stop asking git locally and prove durability from the
+GitHub snapshot this same module already captures for round-counting — an
+externally-verified fact instead of an inference from configuration that can
+be arranged, or simply happen, in ways nobody enumerated.
+
+**Avoid:**
+
+1. **When a check must know something is true of the outside world, ask
+   whether the check can observe that world directly** (an API response, a
+   captured snapshot) instead of inferring it from a local proxy that is
+   merely correlated with it. Local git config predicts durability; it is not
+   durability.
+2. **Count counterexamples per predicate, per round, not just findings per
+   round.** A stopping rule keyed to the total finding count can mask this —
+   3 findings against 3 *different* predicates is ordinary review; 3 findings
+   against the *same* predicate in one round is the open-surface signal, and
+   it can hide inside a total that looks unremarkable.
+3. **Pre-register the stopping threshold before the round that might trip
+   it**, the way #531's round-2 request did. Deciding "three is too many" in
+   the moment invites arguing yourself out of it; deciding it in advance and
+   then finding the round confirms it is a different, harder-to-rationalize
+   position to be in.
+
+**Related:** *A "durable" or "committed" check that proves a proxy, not the
+property* above is the single-clause version of this same mistake; this entry
+is what happens when the fix for that one is itself built on another local
+proxy. *A persistent counter of state the source of truth already holds* is
+the sibling failure at the opposite end — there the check under-trusted the
+authoritative source and kept a redundant local copy; here it over-trusts a
+local proxy for a property only the outside world can confirm.
 
 ## Building a second validator beside an existing one re-derives its gaps, not its answers
 

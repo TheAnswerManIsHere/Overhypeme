@@ -46,11 +46,24 @@ priorities (moderation speed, render/enrichment quality, video). See
   [`decisions.md`](./decisions.md) and
   [`CLAUDE.md`](../../CLAUDE.md)'s *Every review loop declares a round budget*
   rather than rederiving it.
+  **Superseded in part (2026-08-20, PR #531):** the working-tree read
+  `extensionDurability` did (proving the receipt on disk matched git) was
+  itself a cache-coherence check one layer down from the deleted round tally —
+  found via #526's 10 post-merge findings on `main`. Deleted; budget and
+  extension receipts are now read **only** from the branch's remote-tracking
+  ref, never the working tree, and must be pushed (not merely committed) to
+  grant anything. Two residual gaps in that read shipped deliberately and are
+  tracked in #537, along with the direction judged correct (prove durability
+  from the GitHub snapshot, not local git config). See the 2026-08-20 entry in
+  [`decisions.md`](./decisions.md).
   **Open:** #514 (an automatic Codex review can be in flight while the pending
   count reads 0 — bounded at one round of overshoot; the honest fix reaches
-  every PR in the repo) and #532 (the merge bar can require a pass the round
-  budget has no room for; it collided twice on this PR, and the mechanism has
-  no receipt kind that means "the merge gate required this").
+  every PR in the repo); #537 (the durability-check gaps above); and #532 (the
+  merge bar can require a pass the round budget has no room for). #532's own
+  "revisit if" was **a third occurrence**, and #531's merge hit exactly that —
+  resolved live via a fresh-context adjudication rather than a design pass, so
+  #532 itself is still open and now overdue for the design pass it always
+  called for.
 
 - **Cost-ledger provenance — `is_estimated`, Releases A and B** (2026-08-18,
   PRs #497 and #498, workstream #473). The spend ceiling only binds on what the

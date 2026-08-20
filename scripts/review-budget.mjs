@@ -411,6 +411,26 @@ export function nodeIo(root = REPO_ROOT) {
      * A local `git push` updates this ref itself, so a receipt committed and
      * pushed in-session is visible immediately with no fetch (measured
      * 2026-08-19).
+     *
+     * KNOWN GAPS, tracked in #537 rather than patched a fourth time. This
+     * function infers a property of the outside world (will this survive the
+     * container) from local git CONFIGURATION, and configuration is a
+     * description that can be wrong in unboundedly many ways. Three
+     * independent counterexamples surfaced in one review round (#531 round
+     * 3), which is the signal that stopped further patching here -- see
+     * "when a predicate keeps failing, stop patching it" in
+     * known-failure-patterns.md. Two fail OPEN (a receipt can be granted and
+     * later vanish): a remote with an ordinary network fetch URL but a local
+     * `pushurl` -- only the fetch URL is inspected here; and a local-path
+     * remote whose backing repository is later deleted -- `durableRef`
+     * returns `null` while it exists and accepts it once it is gone, which
+     * is backwards, since the ref was already written when the path existed.
+     * The third fails CLOSED (a legitimate loop is stranded, not bypassed): a
+     * remote name containing `/` breaks the `abbrev.split("/")[0]` parse a
+     * few lines below. #537 also records the direction judged likely correct:
+     * stop asking git locally and prove durability from the GitHub snapshot
+     * this module already captures for round-counting, rather than adding a
+     * fourth clause to this predicate.
      */
     durableRef() {
       let full;

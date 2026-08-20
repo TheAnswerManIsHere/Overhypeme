@@ -13,6 +13,70 @@
 
 ---
 
+### 2026-08-20 · The round-budget guard's durability check is deleted and rebuilt on the ref, not the working tree — and #532's merge-bar collision recurred a third time, resolved by the mechanism itself
+- **Decision:** `scripts/review-budget.mjs` no longer reads the budget or
+  extension receipts from the working tree at all. `readDurableJson`/
+  `listDurable` read them **only** from `git show`/`git ls-tree` against the
+  branch's remote-tracking ref. A budget or extension must now be committed
+  **and pushed** before it grants anything — committing alone is no longer
+  sufficient, which is a real behaviour change from #503's original design.
+  Merged as PR #531 (`f09a17e1`).
+- **Why:** the previous design (PR #503's `a19dc6a`, itself already a fix —
+  see the *"durable" check that proves a proxy* entry in
+  [`known-failure-patterns.md`](./known-failure-patterns.md)) read decisions
+  off the working tree and then separately proved those bytes matched git.
+  That proof was still a cache-coherence check one layer down from the
+  deleted round tally, and every finding against it (5 of #526's 10) was a
+  coherence failure — two reads that could disagree, the backing store
+  mis-identified, an escaping error path, bytes not comparable under
+  `core.autocrlf`, the budget left unchecked while extensions were checked.
+  Same diagnosis as the round tally, same fix: read the authoritative copy,
+  delete the reconciliation.
+- **Known gaps shipped deliberately, tracked in issue #537, not fixed
+  further.** `durableRef()` still infers durability from local git
+  *configuration* rather than an externally-verified fact, and review found
+  three independent counterexamples in one round: a remote with a local
+  `pushurl` behind a normal-looking fetch URL, a local-path remote that reads
+  as durable *after* its backing repo is deleted (backwards — nonexistence
+  was coded as "never local" instead of "the local copy is gone"), and a
+  remote name containing `/` breaking the naive parse. Three counterexamples
+  to one predicate in one round, not three different predicates, is what
+  stopped further patching — see *A predicate inferring an external property
+  from local configuration accumulates exception clauses without bound* in
+  `known-failure-patterns.md`. #537 also names the likely correct direction:
+  prove durability from the GitHub snapshot this module already captures for
+  round-counting, not from local git config at all. Still a net hardening —
+  the code being replaced accepted a plain uncommitted `HEAD` with no
+  adversarial setup required, which all three gaps need.
+- **#532's merge-bar collision recurred a third time, and #532's own "revisit
+  if" is now satisfied.** Merging #531 (needed to resolve a conflict against
+  #539, which landed on `main` while #531 was blocked on an unrelated CI
+  outage) moved its head commit past every existing Codex pass, while its
+  round budget was already fully spent — the identical structural collision
+  #532 describes, recurring for the third time on this same workstream.
+  Resolved by running the mechanism as designed rather than routing around
+  it: a fresh-context Fable adjudicator, fed only the mechanical record,
+  returned `ship-with-gaps-recorded`; that verdict plus its record were
+  committed as one bookkeeping-only commit, which #539's closed-adjudication
+  fallback (merged the same day, coincidentally addressing exactly this
+  class of collision) was able to verify satisfies the merge bar without a
+  further round. **#532 itself is still open** — this was the trigger for
+  its design pass, not the design pass. No receipt kind for "the merge gate
+  required this pass" exists yet; the workaround each time has been a
+  hand-authorized extension.
+- **Reference:** PR #531 (merged `f09a17e1`, base `main` at `94edcb4a`),
+  issues #526 (the 10 post-merge findings that started this), #537 (the two
+  deferred durability gaps + the read-from-snapshot direction), #532 (the
+  merge-bar collision, now on its third occurrence). `known-failure-patterns.md`'s
+  *A "durable" or "committed" check that proves a proxy, not the property*
+  (updated) and *A predicate inferring an external property from local
+  configuration accumulates exception clauses without bound* (new).
+- **Revisit if:** #537's durability gaps are exploited or nearly are (raise
+  urgency on the snapshot-based redesign), or #532's design pass keeps being
+  deferred past a fourth occurrence.
+
+---
+
 ### 2026-08-19 · Review loops get a mechanical round budget, counted fresh from GitHub
 - **Decision:** every review loop Claude Code drives declares a **round budget**
   before round 1 — 3 rounds for internal tooling/docs/guards, 5 for product
