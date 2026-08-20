@@ -1,7 +1,7 @@
 {
   "generator": "scripts/review-loop-record.mjs",
   "generatedAt": "2026-08-20T02:30:08.930Z",
-  "evidenceCapturedAt": "2026-08-20T02:40:00Z",
+  "evidenceCapturedAt": "2026-08-20T02:30:08.930Z",
   "pr": 534,
   "title": "/document harvest: the /document-harvest-overclaims-its-evidence pattern (#525/#513/#528)",
   "artifact": {

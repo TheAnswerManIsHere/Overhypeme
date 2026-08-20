@@ -2456,8 +2456,8 @@ claims made *about* the findings, against what verifying it would actually
 take. That applies to this entry's own three rounds of correction as much
 as to the harvests it describes. The actual per-claim check for the
 non-product-truth gap lives in
-[`documentation-workflow.md`](./documentation-workflow.md)'s Step 4 — six
-questions, one per failure kind in the table above, kept there rather than
+[`documentation-workflow.md`](./documentation-workflow.md)'s Step 4 — one
+question per failure kind in the table above, kept there rather than
 duplicated here so there's exactly one place to update when a question
 changes.
 
