@@ -2435,8 +2435,11 @@ corrected (round 2), and the correction needed a third pass (round 3) to
 fully hold, since causal-sounding language survived in the opening after
 the explicit denial was added here. **What actually generalizes across all
 seven instances is narrower: none of the six failure kinds above was asked
-about by the review process each harvest went through before it merged —
-and that's a real, specific gap, not "no verification happened."**
+about by the `/document` harvest's own pre-review Step 4 self-check, before
+the harvest was ever opened for review — the PR review that actually caught
+every one of these seven findings is not the gap; the author-side check that
+runs before a harvest ships is. That's a real, specific gap, not "no
+verification happened."**
 `documentation-workflow.md`'s Step 4 already catches duplicate homes,
 manual/ai-context contradictions, and invented **product** truth (an
 unverified product claim must carry *Needs David confirmation*) — that part
