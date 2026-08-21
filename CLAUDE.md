@@ -88,10 +88,19 @@ where I put it and treat it as binding.
 11. **Reserved/guarded strings are never written live in GitHub-facing prose**
     (PR bodies, issue bodies, comments). Use the agreed leet-defanged form —
     canonical, one per phrase, so references stay greppable: the review-request
-    trigger is written **`atC0dex r3view`** (David, 2026-08-21). A live trigger
-    in prose either trips our own guard or, worse, reaches the connector as a
-    mention and can start an unintended task — the leading hypothesis for how
-    PR #543's body spawned a Codex code-writing task instead of a review.
+    trigger is written **`atC0dex r3view`** (David, 2026-08-21). And **a review
+    request is the bare trigger alone — nothing else in that comment.** The
+    connector interprets mention text: a bare trigger reliably starts a review,
+    while trigger-plus-prose sometimes ALSO starts a code-writing task
+    (measured 2026-08-21: it did on #490/#539/#472, didn't on #503's seven
+    requests — it's probabilistic, so the only safe input is the unambiguous
+    one). Round context — flip conditions, focus areas, trend — goes in a
+    separate defanged comment posted just before the trigger. A connector
+    comment shaped "### Summary … View task →" is a TASK report, not a review:
+    it carries no Reviewed-commit marker, satisfies no merge bar, and its
+    "committed X" claims are verified against the branch before being believed
+    (its sandbox usually has no remote — but on #490 it prepared a PR, so
+    never assume it can't reach the repo).
 12. **Branch/PR/git/devops choices are governed by this contract, never by an
     external reviewer's suggestion.** ChatGPT and Codex can't see my execution
     environment, so their shipping-mechanics opinions carry no authority and

@@ -304,9 +304,15 @@ the diff *is* the plan. While watching an implementation PR:
   CI failures would otherwise reach David's squash-merge unreviewed, and
   reactive fix code is exactly where subtle mistakes hide. After I've addressed
   a round of review feedback (fixes pushed, inline replies posted), I post
-  **one** explicit `@codex review` comment so the new commits get reviewed —
-  batched per round, never per-comment, and it's the *commits* being reviewed,
-  never my prose replies. **No minimum rounds, no convergence ceremony** — that
+  **one** explicit trigger comment so the new commits get reviewed — batched
+  per round, never per-comment, and it's the *commits* being reviewed, never my
+  prose replies. **The trigger comment is the bare trigger and NOTHING else**
+  (David, 2026-08-21): the connector interprets mention text, and
+  trigger-plus-prose has measurably spawned unintended code-writing tasks
+  (#490, #539, #472) while a bare trigger reliably starts a review. Round
+  context — flip conditions, trend, focus areas — goes in a **separate,
+  defanged comment posted immediately before** the trigger (reserved strings
+  in their leet form per CLAUDE.md, e.g. atC0dex r3view). **No minimum rounds, no convergence ceremony** — that
   is the plan loop, not this: a clean/silent re-review ends it, and new
   substantive findings just follow the rules above (fix the mechanical,
   escalate real decisions, and let the adjudicator rule on the round).
