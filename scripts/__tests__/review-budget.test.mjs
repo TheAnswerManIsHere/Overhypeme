@@ -1488,3 +1488,18 @@ test("an in-budget internal round is allowed like any other declared loop", () =
   const io = fakeIo({ [budgetPath(1)]: budget(1, "internal"), [checkPath(1)]: check(1, 2) });
   assert.equal(judgeReviewRequest(post(1), io, NOW).blocked, false);
 });
+
+test("a standing terminal verdict refuses the next request MID-budget, not only at the cap (Codex, #553)", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1, "internal"),
+    [extensionPath(1, 1)]: json(shipped),
+    [RECORD(1)]: recordFile(1, 2),
+    [checkPath(1)]: check(1, 2), // 2 of 3 spent -- the allowance test alone would allow round 3
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true, "the verdict decides; nominal allowance must not override it");
+  assert.match(reason, /a terminal verdict is standing/);
+  assert.match(reason, /TERMINAL adjudication verdict is standing/);
+  assert.doesNotMatch(reason, /exceeds its declared budget/, "the head must state the real ground -- the budget is NOT exceeded here");
+});

@@ -207,7 +207,11 @@ the diff *is* the plan. While watching an implementation PR:
   trigger is what spawns unintended tasks. A per-round **stop** ends the
   loop right there: the verdict goes in a defanged comment and **no further
   trigger is posted** — the loop proceeds to close-out on the rounds already
-  returned. A **split-to-David** likewise posts no trigger; it goes to David
+  returned. **On an internal-tier loop a stop verdict ALSO writes the
+  committed `loop-extension-<pr>-<seq>.json` receipt, committed and
+  pushed** — the merge gate consumes it, and per-round-comment-only
+  delivery here would stop the loop while leaving the PR unmergeable,
+  recreating exactly the wedge the internal tier removes. A **split-to-David** likewise posts no trigger; it goes to David
   as a 🛑. **A round with no adjudication keeps the normal next-round
   trigger** — the first substantive round has no judge by design, and
   skip-on-clean dispatches none — so after that round's fixes are pushed,

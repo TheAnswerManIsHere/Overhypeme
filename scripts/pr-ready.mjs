@@ -462,6 +462,16 @@ export function checkCodex(issueComments, reviews, headSha = null) {
     // is accepted; a pass on any earlier commit means fixes were pushed on
     // top, and those need a requested round like always. Requires a headSha
     // to bind to -- with none supplied this stays the #487 failure, closed.
+    //
+    // DELIBERATELY TIER-BLIND (declined finding, #553 round 1): a clean
+    // pass covering the head is a complete review for ANY tier -- the
+    // budget's job is bounding ROUNDS, and a zero-request loop has none to
+    // bound. A product PR merging on a clean automatic pass with no
+    // declared budget satisfies the actual close-out bar (CI + review on
+    // head + threads), and the exposure is not new: David's own trigger
+    // posts were never guard-gated, so a no-budget pass-on-head could
+    // already mint READY before this path existed. The declare-before-round-1
+    // contract still binds the agent's OWN requests via the guard.
     const automatic = headSha ? passes.filter((p) => sameCommit(p.sha, headSha)) : [];
     if (automatic.length > 0) {
       return {
@@ -1312,9 +1322,28 @@ export function checkRail(prNumber, headSha, cwd) {
     return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the rail" };
   }
   if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
-  const last = extensions[extensions.length - 1];
+  // AT THE RAIL, A TRAILING INTERNAL TERMINAL RECEIPT DOES NOT SHADOW THE
+  // DAVID AUTHORIZATION BENEATH IT (Codex, #553 round 1). An
+  // adjudicatedStop tier is REQUIRED to commit its terminal ship verdict as
+  // a receipt, so after David's rail-reaching grant that receipt becomes
+  // the latest extension by construction -- and demanding a second,
+  // redundant David receipt for a loop he already authorized and whose last
+  // word is "ship" is the exact wedge shape this tier exists to remove.
+  // Only a SHIP verdict is looked through: split/escalate are blocked
+  // unconditionally above, and a `continue` receipt is refused for these
+  // tiers at validation. Tiers without adjudicatedStop keep the strict
+  // latest-must-be-david rule unchanged.
+  let idx = extensions.length - 1;
+  if (
+    TIERS[tier].adjudicatedStop === true &&
+    extensions[idx]?.kind === "adjudication" &&
+    extensions[idx]?.verdict === "ship-with-gaps-recorded"
+  ) {
+    idx -= 1;
+  }
+  const last = extensions[idx];
   if (last?.kind === "david") {
-    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest extension` };
+    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest granting extension` };
   }
   return {
     pass: false,

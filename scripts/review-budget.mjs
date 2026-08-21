@@ -1148,10 +1148,16 @@ function refusal(pr, state, spent, tiedCount = false) {
       `request is in fact still unanswered, this refusal is blocking a RETRY rather than a new round. Say so ` +
       `in the adjudication or to David; do not work around it.`
     : "";
-  const head =
-    `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
-    `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
-    `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).${tie}`;
+  // A standing terminal verdict can refuse MID-budget (internal tier), where
+  // "exceeds its declared budget" would be false -- the head states the real
+  // ground in that case rather than a wrong one. (Codex, #553 round 1.)
+  const head = terminalVerdictStanding(extensions)
+    ? `review round ${spent + 1} on PR #${pr} is refused with ${spent} of ${cap} rounds spent ` +
+      `(tier "${tier}" -- ${TIERS[tier].label}; counted from GitHub's own record of completed ` +
+      `reviewer passes; criticality ${budget.criticality}): a terminal verdict is standing.${tie}`
+    : `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
+      `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
+      `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).${tie}`;
 
   if (terminalVerdictStanding(extensions)) {
     return (
@@ -1314,6 +1320,18 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
   // so an extension must not activate early just because the round in flight
   // has not landed yet.
   const { delivered, pending, spent } = check.value;
+  // A STANDING TERMINAL VERDICT REFUSES THE NEXT REQUEST AT ANY ALLOWANCE
+  // (Codex, #553 round 1). The contract says a dispatched verdict DECIDES,
+  // and with the internal tier a terminal receipt can now stand MID-budget
+  // -- where the allowance test below would happily allow another round on
+  // the loop's remaining nominal allowance, directly contradicting the
+  // verdict it just committed to honoring. Product loops are unaffected in
+  // behavior (their terminal receipts only exist at exhaustion, where the
+  // allowance test fires anyway); this makes the rule hold everywhere the
+  // receipt can exist.
+  if (pending === 0 && terminalVerdictStanding(state.extensions)) {
+    return { blocked: true, reason: refusal(pr, state, spent, check.value.ambiguous === true) };
+  }
   if (pending === 0 && delivered >= allowance(state.tier, state.extensions, spent)) {
     // `ambiguous` rides along so the refusal can say WHY the count might be
     // one low: a same-second tie is counted as `pending: 0` (the
