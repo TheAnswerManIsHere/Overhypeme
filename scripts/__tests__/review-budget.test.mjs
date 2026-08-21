@@ -108,11 +108,11 @@ const check = (pr, spent, extra = {}) =>
  * The mechanical record an adjudication cites. It must show the loop AT its
  * cap, which is what proves the adjudication followed a fired tripwire.
  */
-const recordFile = (pr, passes = 5) =>
+const recordFile = (pr, passes = 5, distinct = passes) =>
   json({
     generator: "scripts/review-loop-record.mjs",
     pr,
-    rounds: { completedReviewerPasses: passes },
+    rounds: { completedReviewerPasses: passes, distinctReviewedCommits: distinct },
   });
 const RECORD = (pr) => `.agents/adjudications/${pr}-1.json`;
 
@@ -1470,7 +1470,7 @@ test("an internal terminal receipt's record floor is the dispatch point (2 passe
   // dispatched (it rules after a completed round beyond the first), so a
   // "stop" here would launder skipping the fix review entirely.
   assert.match(
-    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 1) }) }),
+    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 1, 2) }) }),
     /stage floor of 2 .*dispatch point/,
   );
 });
@@ -1502,4 +1502,40 @@ test("a standing terminal verdict refuses the next request MID-budget, not only 
   assert.match(reason, /a terminal verdict is standing/);
   assert.match(reason, /TERMINAL adjudication verdict is standing/);
   assert.doesNotMatch(reason, /exceeds its declared budget/, "the head must state the real ground -- the budget is NOT exceeded here");
+});
+
+
+test("a standing terminal verdict refuses even a pending-round retry (Codex, #553 round 2)", () => {
+  // A retry posts a fresh trigger and spawns a fresh round -- exactly what
+  // only a david-kind receipt may authorize once a terminal verdict stands.
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1, "internal"),
+    [extensionPath(1, 1)]: json(shipped),
+    [RECORD(1)]: recordFile(1, 2),
+    [checkPath(1)]: check(1, 3, { pending: 1, delivered: 2 }),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true, "pending must not convert a refused round into a permitted retry");
+  assert.match(reason, /TERMINAL adjudication verdict is standing/);
+});
+
+test("an internal terminal receipt needs 2 DISTINCT reviewed commits, not just 2 passes (Codex, #553 round 2)", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  // Two duplicate passes on the same commit: floor reached, fix round never happened.
+  assert.match(
+    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 2, 1) }) }),
+    /distinct reviewed commit/,
+  );
+  // The legitimate flow: round 1's commit and the fix commit.
+  assert.equal(
+    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 2, 2) }) }),
+    null,
+  );
+  // An older record without the field fails closed.
+  const legacy = json({ generator: "scripts/review-loop-record.mjs", pr: 1, rounds: { completedReviewerPasses: 2 } });
+  assert.match(
+    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: legacy }) }),
+    /distinct reviewed commit/,
+  );
 });

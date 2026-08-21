@@ -724,6 +724,25 @@ function validateRecordReference(pr, tier, recordPath, io, ref, preceding = [], 
   // having ruled on round 6. Every preceding extension is fully spent before
   // this one activates (see `allowance`'s staging), so the floor is the
   // allowance they establish. (Codex, #543.)
+  // For an internal terminal receipt, a bare pass COUNT cannot prove the
+  // fix round happened: two duplicate passes on the SAME commit (a repeated
+  // automatic or manually triggered pass -- #503 saw seven requests) reach
+  // the floor while the round-1 fixes were never reviewed at all. What
+  // distinguishes the legitimate flow is that the second pass covered a
+  // DIFFERENT commit -- the fix commit -- so the record must show at least
+  // two DISTINCT Reviewed-commit shas. Absent or malformed fails closed:
+  // an older record without the field cannot anchor this receipt.
+  // (Codex, #553 round 2.)
+  if (minPasses !== null) {
+    const distinct = parsed.value?.rounds?.distinctReviewedCommits;
+    if (!Number.isInteger(distinct) || distinct < 2) {
+      return (
+        `${recordPath} shows ${JSON.stringify(distinct)} distinct reviewed commit(s) -- an internal ` +
+        `terminal verdict needs at least 2 (round 1's commit and the fix commit), or the "fix round" ` +
+        `may be a duplicate pass on the same unfixed commit`
+      );
+    }
+  }
   const stageFloor = minPasses ?? allowance(tier, preceding, Number.MAX_SAFE_INTEGER);
   if (!Number.isInteger(passes) || passes < stageFloor) {
     return (
@@ -1321,15 +1340,18 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
   // has not landed yet.
   const { delivered, pending, spent } = check.value;
   // A STANDING TERMINAL VERDICT REFUSES THE NEXT REQUEST AT ANY ALLOWANCE
-  // (Codex, #553 round 1). The contract says a dispatched verdict DECIDES,
-  // and with the internal tier a terminal receipt can now stand MID-budget
-  // -- where the allowance test below would happily allow another round on
-  // the loop's remaining nominal allowance, directly contradicting the
-  // verdict it just committed to honoring. Product loops are unaffected in
-  // behavior (their terminal receipts only exist at exhaustion, where the
-  // allowance test fires anyway); this makes the rule hold everywhere the
-  // receipt can exist.
-  if (pending === 0 && terminalVerdictStanding(state.extensions)) {
+  // AND REGARDLESS OF `pending` (Codex, #553 rounds 1-2). The contract says
+  // a dispatched verdict DECIDES, and with the internal tier a terminal
+  // receipt can now stand MID-budget -- where the allowance test below would
+  // happily allow another round on the loop's remaining nominal allowance.
+  // The stalled-round retry exception does not apply either: a retry posts
+  // a fresh trigger and spawns a fresh round, which is exactly what only a
+  // "david"-kind receipt may authorize once a terminal verdict stands -- so
+  // a request racing in around the adjudication must not convert into a
+  // permitted retry. Product loops are unaffected in behavior (their
+  // terminal receipts only exist at exhaustion); this makes the rule hold
+  // everywhere the receipt can exist, in every pending state.
+  if (terminalVerdictStanding(state.extensions)) {
     return { blocked: true, reason: refusal(pr, state, spent, check.value.ambiguous === true) };
   }
   if (pending === 0 && delivered >= allowance(state.tier, state.extensions, spent)) {

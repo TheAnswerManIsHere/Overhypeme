@@ -235,7 +235,9 @@ separation aids review). Placement:
   ends the harvest-PR churn the batching exists to remove). The pass's harvest
   commit rides the maintenance docs PR alongside that week's
   `deferred-work.md` updates; it is an internal artifact, so it gets the
-  automatic Codex pass, one triage, and no re-requested rounds. **No
+  automatic Codex pass and one triage — and, when that pass finds something
+  and fixes are pushed, the internal review tier (declare, re-request,
+  strict adjudication; David 2026-08-21) rather than an unreviewed merge. **No
   per-feature harvest sub-issues**: the tracking is the harvest-notes comments
   already sitting on each feature's workstream issue, plus the maintenance
   report naming what was harvested. (The per-harvest sub-issue machinery below

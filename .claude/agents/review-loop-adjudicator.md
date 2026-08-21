@@ -65,7 +65,13 @@ carry the decision:
   Outside-diff findings mean the reviewer ran out of diff and started auditing
   the repo. That is closer to a convergence signal than to unfinished work.
 - `sinceLastReview` — what changed since the last completed reviewer pass,
-  classified `code` / `agent-contract` / `prose` / `record`.
+  classified `code` / `agent-contract` / `prose` / `record` — including
+  `patch`, the git-derived unified diff of that movement (capped, with
+  truncation stated). This is how you judge the internal rubric's "critical
+  flaw in the newly-pushed changes" question on the actual code rather than
+  filenames: the diff is source-derived evidence inside your one permitted
+  input, not context from the loop. A truncated or unavailable patch is
+  itself uncertainty — weigh it, don't fill it by inference.
 
 `territory.note` tells you what the record deliberately does **not** classify:
 the *cause* of each finding (new ground vs. repairing an earlier fix vs.

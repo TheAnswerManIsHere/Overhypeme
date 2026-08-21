@@ -231,8 +231,14 @@ the diff *is* the plan. While watching an implementation PR:
   oscillation diagnosis, criticality gate) is gone: 0-for-15 at stopping loops,
   and the budget plus this judge replaced it.
 
-  **Skip-on-clean:** a round with zero findings, or only unambiguous mechanical
-  nits, needs no adjudication — fix silently, one status line.
+  **Skip-on-clean:** a round with zero findings needs no adjudication — the
+  loop is ending on it. A round with only unambiguous mechanical nits still
+  fixes them silently with one status line, but **skip-on-clean never skips
+  a verdict that gates a further trigger**: on an internal loop pushed fixes
+  are always re-requested, so the adjudicator rules before that next trigger
+  like any other round — otherwise nit-only rounds would loop with no judge,
+  exactly what the after-every-round rule exists to prevent (Codex, #553
+  round 2).
 
   What still stops for a 🛑 whatever the adjudicator says: a genuine
   design/architecture/product decision, a scope addition, a split, a disclosure

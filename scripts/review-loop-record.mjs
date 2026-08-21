@@ -158,12 +158,33 @@ export function changesSince(since, head, { runGit = git } = {}) {
     });
 
   const behavioral = files.filter((f) => BEHAVIORAL_CLASSES.has(f.class));
+  // The mechanical patch itself, capped. The adjudicator's internal rubric
+  // asks "very high chance of a CRITICAL flaw in the newly-pushed changes",
+  // and filenames plus line counts cannot answer that -- while its no-context
+  // rule forbids reading anything but this record. A git-derived diff is not
+  // the loop's narration: it is source-derived evidence, exactly what the
+  // rule exists to protect. Capped so a giant merge cannot balloon the
+  // record; truncation is stated, never silent. (Codex, #553 round 2.)
+  const PATCH_CAP_CHARS = 60_000;
+  let patch;
+  try {
+    const raw = runGit(["diff", "--no-color", `${since}..${head}`]);
+    patch =
+      raw.length > PATCH_CAP_CHARS
+        ? raw.slice(0, PATCH_CAP_CHARS) +
+          `\n[TRUNCATED at ${PATCH_CAP_CHARS} chars of ${raw.length} -- the full diff exceeds the record cap; ` +
+          `weigh the truncation itself as uncertainty]`
+        : raw;
+  } catch {
+    patch = "[unavailable -- git diff failed; weigh the absence as uncertainty]";
+  }
   return {
     resolved: true,
     since,
     head,
     commits: Number(runGit(["rev-list", "--count", `${since}..${head}`])),
     files,
+    patch,
     behavioralFiles: behavioral.length,
     // The re-request rule's whole test, precomputed so the adjudicator does
     // not have to re-derive it from the file list.
@@ -332,6 +353,11 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
     budget,
     rounds: {
       completedReviewerPasses: passes.length,
+      // Distinct Reviewed-commit shas across completed passes. An internal
+      // terminal receipt requires >= 2: a bare pass count cannot tell a real
+      // fix round from a duplicate pass on the same unfixed commit.
+      // (Codex, #553 round 2.)
+      distinctReviewedCommits: new Set(passes.map((p) => p.commit).filter(Boolean)).size,
       byRound,
       trend: counts,
       totalFindings: total,

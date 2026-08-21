@@ -796,6 +796,20 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   // validateRecordReference applies when it first accepts the receipt.
   const cap =
     TIERS[tier].adjudicatedStop === true ? 2 : Number.isFinite(allowanceField) ? allowanceField : Infinity;
+  // Mirror of review-budget.mjs's distinct-commit rule (Codex, #553 round
+  // 2): two duplicate passes on the same commit reach the pass floor while
+  // the fix round never happened. Fails closed on records without the field.
+  if (TIERS[tier].adjudicatedStop === true) {
+    const distinct = record.rounds?.distinctReviewedCommits;
+    if (!Number.isInteger(distinct) || distinct < 2) {
+      return {
+        ok: false,
+        detail:
+          `${recordPath} shows ${JSON.stringify(distinct)} distinct reviewed commit(s) -- an internal ` +
+          `terminal verdict needs at least 2 (round 1's commit and the fix commit)`,
+      };
+    }
+  }
   if (!Number.isInteger(passes) || passes < cap) {
     return {
       ok: false,

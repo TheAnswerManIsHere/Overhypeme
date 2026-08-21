@@ -736,6 +736,7 @@ function record(pr, seq, {
   extensions = [],
   baseline,
   resolved = true,
+  distinctReviewedCommits = passes,
 } = {}) {
   const path = `.agents/adjudications/${pr}-${seq}.json`;
   const body = JSON.stringify({
@@ -744,7 +745,7 @@ function record(pr, seq, {
     generatedAt,
     evidenceCapturedAt,
     budget: { tier, pendingRequest, ambiguous, allowance: allowanceValue, extensions },
-    rounds: { completedReviewerPasses: passes },
+    rounds: { completedReviewerPasses: passes, distinctReviewedCommits },
     sinceLastReview: { resolved, head: baseline },
   });
   return { path, files: { [path]: body } };
@@ -1708,7 +1709,7 @@ test("adjudication: an internal-tier stop after only the automatic round is refu
   // skipping the fix review entirely.
   const { dir, commit } = tempRepo();
   const { head } = closedLoop(commit, 999, {
-    recordOpts: { tier: "internal", passes: 1, allowanceValue: 3 },
+    recordOpts: { tier: "internal", passes: 1, allowanceValue: 3, distinctReviewedCommits: 2 },
   });
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
@@ -1770,4 +1771,15 @@ test("Codex: the zero-request automatic-pass path is deliberately tier-blind (de
     HEAD,
   );
   assert.equal(res.pass, true);
+});
+
+
+test("adjudication: an internal stop with 2 duplicate passes on ONE commit is refused (Codex, #553 round 2)", () => {
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999, {
+    recordOpts: { tier: "internal", passes: 2, allowanceValue: 3, distinctReviewedCommits: 1 },
+  });
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /distinct reviewed commit/);
 });
