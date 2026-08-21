@@ -184,13 +184,13 @@ results are the record of what was true then.
 | Step | Status | Note |
 | --- | --- | --- |
 | 1 · Manual renders | Pass | |
-| 2 · Deep link | Fail | #551 — landed at chapter top, not the heading |
+| 2 · Deep link | Fail | #903 — landed at chapter top, not the heading |
 | 3 · Search | Pass | |
 | 4 · Deliberate absences | — | not yet run |
 
 **Setup I performed:** seeded `uat-tester` account; fact #4821
 **Teardown owed:** both, at end of run
-**Bugs filed:** #551 (major)
+**Bugs filed:** #903 (major)
 **Product notes:** none
 **Resume at:** step 4
 ```
