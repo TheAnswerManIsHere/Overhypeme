@@ -577,11 +577,12 @@ export function checkCodex(issueComments, reviews, headSha = null) {
  * locally-modified file matching the receipt's name must never be able to
  * mint a merge-ready verdict for a commit it was never actually part of.
  * (Codex, #539 round 1.) Only DIRECT children of `.agents/receipts/` count
- * (`git ls-tree` with no `-r`), and only canonically-numbered ones
- * (`String(Number(seq)) === seq`) -- both match exactly what
- * `review-budget.mjs`'s own `loadLoop` will and won't consume, so a receipt
- * this fallback would honor is one the guard's loop actually closed on.
- * (Codex, #539 round 2.)
+ * (`git ls-tree` with no `-r`), matching what `review-budget.mjs`'s own
+ * `loadLoop` consumes (Codex, #539 round 2) -- and a NON-CANONICALLY-named
+ * extension for this PR (zero-padded, non-round-trip) fails the whole check
+ * closed rather than being skipped, because `loadLoop` refuses the whole
+ * loop on such a name and a receipt this fallback honors must be one the
+ * guard's loop actually closed on. (Codex, #548.)
  *
  * THE DIFF BASELINE IS DERIVED FROM THE CITED RECORD, NEVER FROM A
  * SELF-DECLARED RECEIPT FIELD. The first version of this function had the
@@ -847,19 +848,23 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // not a real failure -- treated as zero candidates below.
   const lsOutput = git(["ls-tree", "--name-only", `${headSha}:${LOOP_RECEIPTS_DIR}`], cwd) ?? "";
   const prefix = `loop-extension-${prNumber}-`;
-  const candidates = lsOutput
-    .split("\n")
-    .filter(Boolean)
-    .map((base) => {
-      if (!base.startsWith(prefix) || !base.endsWith(".json")) return null;
-      const seqStr = base.slice(prefix.length, base.length - ".json".length);
-      // Canonical only: zero-padded or otherwise non-round-trip sequences are
-      // exactly what `loadLoop` rejects as a bad receipt.
-      if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) return null;
-      return { path: `${LOOP_RECEIPTS_DIR}/${base}`, seq: Number(seqStr) };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.seq - a.seq);
+  const candidates = [];
+  for (const base of lsOutput.split("\n").filter(Boolean)) {
+    if (!base.startsWith(prefix) || !base.endsWith(".json")) continue;
+    const seqStr = base.slice(prefix.length, base.length - ".json".length);
+    // A zero-padded or otherwise non-round-trip sequence is what `loadLoop`
+    // rejects as a bad receipt -- rejecting the WHOLE LOOP, not skipping the
+    // file. Silently dropping it here would let this fallback honor a chain
+    // the guard refuses, so it fails closed instead. (Codex, #548.)
+    if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) {
+      return {
+        pass: false,
+        detail: `${LOOP_RECEIPTS_DIR}/${base} is not a canonical extension name -- the guard refuses this loop outright, so no receipt in it can be honored`,
+      };
+    }
+    candidates.push({ path: `${LOOP_RECEIPTS_DIR}/${base}`, seq: Number(seqStr) });
+  }
+  candidates.sort((a, b) => b.seq - a.seq);
 
   if (!candidates.length) {
     return { pass: false, detail: `no committed, canonically-named loop-extension-${prNumber}-*.json receipt at ${headSha.slice(0, 7)}` };
@@ -1197,15 +1202,23 @@ export function checkRail(prNumber, headSha, cwd) {
 
   const lsOutput = git(["ls-tree", "--name-only", `${headSha}:${LOOP_RECEIPTS_DIR}`], cwd) ?? "";
   const prefix = `loop-extension-${prNumber}-`;
-  const extensionsRaw = lsOutput
-    .split("\n")
-    .filter((base) => base.startsWith(prefix) && base.endsWith(".json"))
-    .map((base) => {
-      const seqStr = base.slice(prefix.length, base.length - ".json".length);
-      if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) return null;
-      return { seq: Number(seqStr), base };
-    })
-    .filter(Boolean)
+  // A name matching this PR's extension prefix but NOT canonically numbered
+  // fails CLOSED, never silently dropped: `loadLoop` refuses the whole loop
+  // on such a name, so ignoring it here would let this check pass a chain
+  // the guard rejects. (Codex, #548.) Files that don't match the prefix at
+  // all (budgets, other PRs' receipts) are simply not this loop's.
+  const named = [];
+  for (const base of lsOutput.split("\n").filter((b) => b.startsWith(prefix) && b.endsWith(".json"))) {
+    const seqStr = base.slice(prefix.length, base.length - ".json".length);
+    if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) {
+      return {
+        pass: false,
+        detail: `${LOOP_RECEIPTS_DIR}/${base} is not a canonical extension name -- the guard refuses this loop outright, so the rail cannot be ruled out`,
+      };
+    }
+    named.push({ seq: Number(seqStr), base });
+  }
+  const extensionsRaw = named
     .sort((a, b) => a.seq - b.seq)
     .map(({ base }) => {
       const raw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/${base}`], cwd);
@@ -1234,6 +1247,25 @@ export function checkRail(prNumber, headSha, cwd) {
       return { pass: false, detail: `a committed extension receipt is invalid (${extError}) -- cannot rule out the rail` };
     }
     extensions.push(ext);
+  }
+
+  // A STANDING "split" OR "escalate" VERDICT BLOCKS READINESS OUTRIGHT,
+  // whatever the allowance. Those verdicts hand the PR to further human or
+  // agent action -- and this is the one check on evaluate()'s ALWAYS-RUN
+  // path, so it is where the rule must live: a live Codex pass posted after
+  // the terminal receipt skips `checkAdjudicatedCodex` entirely, and
+  // without this a below-rail allowance minted READY with the loop's own
+  // last word saying "do not merge yet". `ship-with-gaps-recorded` is
+  // deliberately not blocked here -- it IS a "this is ready" verdict, and
+  // the fallback path fully validates it. (Codex, #548.)
+  const standing = extensions[extensions.length - 1];
+  if (standing?.kind === "adjudication" && (standing.verdict === "split" || standing.verdict === "escalate")) {
+    return {
+      pass: false,
+      detail:
+        `a terminal adjudication verdict ("${standing.verdict}") is standing on this loop -- readiness cannot ` +
+        `be established, with or without a live pass, until a "david"-kind receipt reopens it`,
+    };
   }
 
   // Fully activated: what the allowance becomes once everything is spent.

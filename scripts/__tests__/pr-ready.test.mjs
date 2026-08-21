@@ -858,14 +858,14 @@ test("adjudication: a receipt nested in a subdirectory is invisible -- the guard
   assert.match(res.detail, /no committed, canonically-named/);
 });
 
-test("adjudication: a zero-padded sequence is rejected -- loadLoop treats it as a bad receipt, not a valid one", () => {
+test("adjudication: a zero-padded sequence fails the whole check closed -- loadLoop refuses the loop on it, so it is never merely skipped", () => {
   const { dir, commit } = tempRepo();
   const ext = extension(999, 1, { recordPath: ".agents/adjudications/999-1.json" });
   const zeroPadded = { ".agents/receipts/loop-extension-999-01.json": Object.values(ext.files)[0] };
   const head = commit(zeroPadded, "c1");
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /no committed, canonically-named/);
+  assert.match(res.detail, /not a canonical extension name/);
 });
 
 // ---------------------------------------------------------------------------
@@ -1589,6 +1589,54 @@ test("rail: an uncapped david grant as the latest extension still clears the rai
     ...railExt(999, 2, { kind: "david", grant: "uncapped", authorization: "keep going as long as it takes" }),
   }, "c1");
   assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("rail: a matching but noncanonically-named receipt fails closed instead of being skipped (Codex, #548)", () => {
+  // loadLoop refuses the whole loop on a zero-padded name; silently dropping
+  // it here passed a chain the guard rejects.
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 2, risk: "r" }),
+    ".agents/receipts/loop-extension-999-01.json": JSON.stringify({ pr: 999, kind: "david", grant: 1, authorization: "x" }),
+  }, "c1");
+  const res = checkRail(999, head, dir);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not a canonical extension name/);
+});
+
+test("rail: a standing split verdict blocks readiness even below the rail (Codex, #548)", () => {
+  // The live-pass path skips checkAdjudicatedCodex entirely, so this
+  // always-run check is where a standing split/escalate must bind.
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "split" }),
+  }, "c1");
+  const res = checkRail(999, head, dir);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /terminal adjudication verdict \("split"\) is standing/);
+});
+
+test("rail: a standing ship-with-gaps-recorded verdict does NOT block the rail check -- it is a ready verdict", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "ship-with-gaps-recorded" }),
+  }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("adjudication: a matching but noncanonically-named receipt fails the fallback closed (Codex, #548)", () => {
+  const { dir, commit } = tempRepo();
+  const { recordPath } = closedLoop(commit, 999);
+  const head = commit({
+    ".agents/receipts/loop-extension-999-01.json": JSON.stringify({ pr: 999, kind: "david", grant: 1, authorization: "x" }),
+  }, "c3 -- a zero-padded receipt lands");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not a canonical extension name/);
+  void recordPath;
 });
 
 test("rail: an adjudication receipt following a terminal verdict fails the rail check closed", () => {

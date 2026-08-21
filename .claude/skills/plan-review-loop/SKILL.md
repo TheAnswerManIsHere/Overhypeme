@@ -241,27 +241,27 @@ the disclosure check passes:
    minimum yields to the judge, never the reverse. After the adjudication (or
    on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
-   and — **only when the verdict was `continue`**, or the round was clean and
-   lenses remain — request the next round with a fresh explicit trigger
-   comment (bare trigger only, context separate and defanged). A **stop** or
-   **split-to-David** verdict posts no further trigger: stop ends the loop on
-   the rounds already returned, split goes to David as a 🛑 (Codex, #543
-   round 4).
+   and — **when the verdict was `continue`, or no adjudication was dispatched
+   for the round** (the first substantive round has no judge by design, and
+   skip-on-clean dispatches none) — request the next round with a fresh
+   explicit trigger comment (bare trigger only, context separate and
+   defanged). A **stop** or **split-to-David** verdict posts no further
+   trigger: stop ends the loop on the rounds already returned, split goes to
+   David as a 🛑 (Codex, #543 round 4; round-one carve-out Codex, #548).
    **Revisions are class-level, per
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)**:
    each reply names the finding's class and cites the sweep oracle
    (`grep`/`ls`/…) with its post-revision zero — a plan-file finding almost
    always has siblings (a term used inconsistently, a section pattern
    repeated) — and before each push I re-run every prior round's oracle so a
-   later revision can't reintroduce an earlier class. A finding with no
-   mechanical oracle, or a recurrence of a swept class, escalates per the
-   `model-routing` skill's structural triggers — **a one-shot Fable subagent,
-   whatever tier this loop is running at** (David, 2026-08-17), announced on
-   dispatch, with the recurrence flag still going in the check-in. This line
-   used to say the escalation was "usually moot" on an Opus loop; that is the
-   trigger-moots-itself failure Codex caught in `pr-watch` and `model-routing`
-   on PR #458, and it survived there because it never used the words those
-   fixes swept for.
+   later revision can't reintroduce an earlier class. **The finding-level
+   Fable dispatches that used to be cited here (oracle-less finding,
+   swept-class recurrence) are RETIRED (2026-08-20, PR #543)** — superseded
+   by the single external per-round adjudicator, per the `model-routing`
+   skill's supersession block; running per-finding dispatches alongside the
+   per-round judge re-creates the parallel self-refereeing the #541 review
+   deleted (Codex, #548). The recurrence flag still goes in the round's
+   record, where the adjudicator sees it.
    Codex is the independent technical reviewer. **Every substantive finding
    must be fixed, rebutted with repository evidence, or escalated to David —
    none may be silently ignored.** Codex does not settle architecture or

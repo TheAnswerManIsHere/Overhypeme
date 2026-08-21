@@ -195,7 +195,11 @@ the diff *is* the plan. While watching an implementation PR:
   loop right there: the verdict goes in a defanged comment and **no further
   trigger is posted** — the loop proceeds to close-out on the rounds already
   returned. A **split-to-David** likewise posts no trigger; it goes to David
-  as a 🛑. But a verdict at **budget exhaustion** is an
+  as a 🛑. **A round with no adjudication keeps the normal next-round
+  trigger** — the first substantive round has no judge by design, and
+  skip-on-clean dispatches none — so after that round's fixes are pushed,
+  the next bare trigger goes out as usual: the rule gates on verdicts that
+  exist, and the absence of a dispatch is not a stop (Codex, #548). But a verdict at **budget exhaustion** is an
   extension decision — **and it exists only on the product tier**: a
   `sensitive` loop at its 🛑-at-5 goes STRAIGHT to David with no adjudicator
   dispatch and no receipt written, because that tier has no self-serve stage
