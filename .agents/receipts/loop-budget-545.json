@@ -1,0 +1,8 @@
+{
+  "pr": 545,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 15,
+  "artifact": "Vendored agent-facing skill files (grilling, domain-modeling, prototype) + grill-me one-line repair",
+  "declaredAt": "2026-08-21T00:08:59.946Z"
+}
