@@ -14,7 +14,7 @@ Upstream's layout (`CONTEXT.md` + `docs/adr/`) is replaced wholesale: this repo 
 | What resolved | Where it lands |
 | --- | --- |
 | A term of art | [`docs/ai-context/glossary.md`](../../../docs/ai-context/glossary.md) — follow the file's own header rules: every term is a `###` heading with a stable anchor, grouped under its section, with a pointer to the deep doc; when a term's meaning changes, fix the glossary **and** the deep doc in the same edit |
-| A settled decision (all three gates below) | [`docs/ai-context/decisions.md`](../../../docs/ai-context/decisions.md) — follow its format: **date · title** — Decision / Why / Reference / Revisit if; newest first, append-only |
+| A decision David has settled | [`docs/ai-context/decisions.md`](../../../docs/ai-context/decisions.md) — follow its format: **date · title** — Decision / Why / Reference / Revisit if; newest first, append-only. Settled-by-David is the sole routing criterion; the gates below only shape when I *volunteer* an entry |
 | Everything else you discussed | The conversation — and if it must survive the session, the workstream issue's State of Play or the plan document, per the normal ceremony |
 
 **Never create `CONTEXT.md`, `CONTEXT-MAP.md`, or `docs/adr/`.** Those are the upstream skill's homes, not ours.
