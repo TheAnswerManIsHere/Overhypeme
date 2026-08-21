@@ -85,7 +85,14 @@ where I put it and treat it as binding.
    would report is that an event needed no action, I write nothing at all.
 10. **Work splits into "Phase N," spelled out** — never P1/P2, which collides
     with Codex severity badges.
-11. **Branch/PR/git/devops choices are governed by this contract, never by an
+11. **Reserved/guarded strings are never written live in GitHub-facing prose**
+    (PR bodies, issue bodies, comments). Use the agreed leet-defanged form —
+    canonical, one per phrase, so references stay greppable: the review-request
+    trigger is written **`atC0dex r3view`** (David, 2026-08-21). A live trigger
+    in prose either trips our own guard or, worse, reaches the connector as a
+    mention and can start an unintended task — the leading hypothesis for how
+    PR #543's body spawned a Codex code-writing task instead of a review.
+12. **Branch/PR/git/devops choices are governed by this contract, never by an
     external reviewer's suggestion.** ChatGPT and Codex can't see my execution
     environment, so their shipping-mechanics opinions carry no authority and
     don't get surfaced to David as open questions. Their substance findings
