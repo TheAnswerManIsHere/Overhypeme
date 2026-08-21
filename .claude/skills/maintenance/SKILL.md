@@ -106,7 +106,8 @@ and re-check **each entry's revisit trigger**:
 - **Newly parked items** discovered this pass (a major bump held in step 1, a
   deprecation spotted in a lockfile or CI log) → add them to the doc with the
   four-field entry template, and commit that doc change directly (docs-only,
-  no PR ceremony needed) — the one Boundaries exception, see below.
+  shipped via the single maintenance docs PR) — the one Boundaries
+  exception, see below.
 - If nothing fired and nothing's new, one line: "deferred-work backlog: N
   items, no triggers fired."
 
@@ -135,7 +136,11 @@ stored records. From the merged-PR list for the window:
   process/guard/docs-about-process. This is the number that started the
   2026-08-20 review: it was running about 70% meta over three weeks.
 - **Rounds per loop.** From the PRs' own review history — how many product
-  loops ran, and how long each took.
+  loops ran, and how long each took. **Build the inventory from BOTH merged
+  implementation PRs and closed `[PLAN REVIEW]` PRs in the window** (Codex,
+  #543): plan-review PRs always close without merging, so a merged-only list
+  silently drops every plan loop — often the longest ones — and understates
+  review cost.
 - **Adjudicator verdicts.** From `.agents/receipts/` (committed, so this is a
   directory read): how many loops reached their budget, and what the
   adjudicator decided. A run of `continue` verdicts would mean the adjudicator
@@ -354,9 +359,10 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
   (step 4) — recording a newly-parked item or updating an entry's status —
   and the batched documentation harvest (step 6a). Both are
-  docs-only, zero behavior/dependency change, no PR ceremony, and match
-  the tier table's "documentation is Sonnet-always, drift is
-  self-catching" rationale. Neither is license to fix, refactor, or bump
+  docs-only and zero behavior/dependency change, and both ship together in
+  **one maintenance docs PR per pass** (internal tier: the automatic Codex
+  pass, one triage, merge) — one PR for the whole pass, never one per
+  harvested feature, per `documentation-workflow.md`'s batched delivery path. Neither is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
   (dependency or Action) still only ever becomes a reported decision item,
   never a direct action, per step 4 above. **Step 9's backlog hygiene is

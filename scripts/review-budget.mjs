@@ -671,7 +671,7 @@ export function validateBudget(pr, receipt) {
  * likelier failures than the fabrication this module's header declines to
  * defend against.
  */
-function validateRecordReference(pr, tier, recordPath, io, ref) {
+function validateRecordReference(pr, tier, recordPath, io, ref, preceding = []) {
   // pr-ready.mjs's merge-gate fallback requires every recordPath to live
   // under ADJUDICATIONS_DIR (never trusting an arbitrary path), so a
   // receipt this guard accepts as closing the loop must be one that gate
@@ -698,16 +698,28 @@ function validateRecordReference(pr, tier, recordPath, io, ref) {
   }
   if (parsed.value?.pr !== pr) return `${recordPath} describes PR ${parsed.value?.pr}, not ${pr}`;
   const passes = parsed.value?.rounds?.completedReviewerPasses;
-  if (!Number.isInteger(passes) || passes < tierCap(tier)) {
+  // AGAINST THE ALLOWANCE THIS RECEIPT'S OWN STAGE STARTS AT, never the base
+  // tier cap. Repeat adjudications are valid as of 2026-08-20, and the base cap
+  // stopped being the right threshold the moment they were: a second receipt
+  // citing the record that answered the FIRST tripwire satisfies `>= tierCap`
+  // forever, and `allowance` then activates it at the second tripwire -- so one
+  // adjudication would silently cover two, and round 7 would open with nothing
+  // having ruled on round 6. Every preceding extension is fully spent before
+  // this one activates (see `allowance`'s staging), so the floor is the
+  // allowance they establish. (Codex, #543.)
+  const stageFloor = allowance(tier, preceding, Number.MAX_SAFE_INTEGER);
+  if (!Number.isInteger(passes) || passes < stageFloor) {
     return (
-      `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below tier ` +
-      `"${tier}"'s cap of ${tierCap(tier)} -- an adjudication must follow its tripwire, not precede it`
+      `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below this ` +
+      `receipt's own stage floor of ${stageFloor} for tier "${tier}" ` +
+      `(the allowance its ${preceding.length} preceding extension(s) establish) ` +
+      `-- an adjudication must follow the tripwire it answers, not an earlier one`
     );
   }
   return null;
 }
 
-export function validateExtension(pr, tier, receipt, { io, ref }) {
+export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }) {
   if (!receipt || typeof receipt !== "object") return "extension receipt is not an object";
   if (receipt.pr !== pr) return `extension receipt names PR ${receipt.pr}, not ${pr}`;
 
@@ -750,7 +762,7 @@ export function validateExtension(pr, tier, receipt, { io, ref }) {
     if (!Array.isArray(receipt.gaps)) {
       return "adjudication receipt must carry the adjudicator's `gaps` array, verbatim (empty is valid for a verdict with no known gaps)";
     }
-    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref);
+    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref, preceding);
     if (recordError) return recordError;
     if (receipt.verdict !== "continue") return null; // ship-with-gaps-recorded / split / escalate grant nothing further
     // The adjudicator owns the SIZE of an extension (David, 2026-08-20); the
@@ -877,7 +889,9 @@ export function loadLoop(pr, io) {
     if (parsed.state !== "ok") {
       return { problem: "bad-receipt", detail: `${rel} could not be read from ${ref} (${parsed.state}: ${parsed.error ?? "unreadable"})` };
     }
-    const error = validateExtension(pr, tier, parsed.value, { io, ref });
+    // Only the extensions already accepted, in sequence order: this receipt
+    // must answer the tripwire THEY establish, not an earlier one.
+    const error = validateExtension(pr, tier, parsed.value, { io, ref, preceding: extensions });
     if (error) return { problem: "bad-receipt", detail: `${rel} (in ${ref}): ${error}` };
     extensions.push({ seq, ...parsed.value });
   }

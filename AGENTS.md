@@ -138,20 +138,16 @@ working-modes.md.) Read
 contract of each and how to switch between them.
 
 **End-of-feature documentation.** Follow
-[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
-on **either** trigger (distinct from a one-off "remember this," which is
-immediate targeted persistence):
-
-- **David invokes `/document`** or asks to lock in a finished feature's learnings.
-- **The agent's own close-out judgement (David, 2026-08-15).** After merging a
-  task, judge whether it cleared that document's harvest bar and, if so, start
-  the pass **without asking**. This trigger has to be named here because this
-  file is the always-loaded entrypoint: a grant that exists only in the
-  workflow doc never fires, since nothing routes an agent there absent a
-  request. Enactment detail — how the judgement is made, and the rule that the
-  harvest itself never runs in a subagent — is each agent's own (Claude Code's
-  is in `CLAUDE.md`; as of 2026-08-17 the judgement dispatches unconditionally
-  to Fable and the tier guard that used to sit here is retired).
+[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md).
+**The per-merge close-out judgement is retired (David, 2026-08-20)** — the
+heavyweight harvest now runs **batched at `/maintenance`**, covering every
+product feature merged since the last pass, or whenever David asks. What
+close-out owes instead is cheap and unconditional: a **harvest-notes comment
+on the feature's workstream issue** — decisions and why, alternatives
+rejected, gotcha candidates — so the batched pass inherits the session's
+context. Process PRs get no harvest. This is distinct from a one-off
+"remember this" (immediate targeted persistence), which never waits for a
+batch.
 
 **Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
 has a GitHub issue as its spine, tracked on a private Project board and kept

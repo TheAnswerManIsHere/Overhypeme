@@ -93,8 +93,14 @@ production, in one sentence, pointing at real code. Requirements, all of them:
 - It must be **unaddressed**, not merely raised.
 - It must be in **this loop's territory**. A defect in code the diff never
   touched is a follow-up issue, not another round here.
-- If `sinceLastReview.proseOnly` is true or `sinceLastReview.noChange` is
-  true, there is nothing new to review and `continue` is wrong on its face.
+- **Only at an extension decision** (at or past the budget): if
+  `sinceLastReview.proseOnly` or `sinceLastReview.noChange` is true, a further
+  pass has nothing new to look at and `continue` is wrong on its face. **At a
+  per-round dispatch this test does not apply** (Codex, #543): you are
+  dispatched after a round's findings are triaged but before its fixes exist,
+  so `noChange` relative to the just-completed pass is the expected state at
+  that moment, not a stop signal. Judge a per-round continue/stop on the
+  findings, the trend, and the territory instead.
 
 **You size the grant** (David, 2026-08-20 — the old ceiling of 2 is gone): a
 push whose last round revealed a real problem may need three rounds, and a
@@ -123,8 +129,10 @@ loop at all.
   repo. Route them to follow-up issues; don't buy rounds with them.
 - **A large round count against a small artifact** is the #488 shape exactly.
   Compare `budget.roundsRequested` against `artifact` (files, added, removed).
-- **`sinceLastReview` showing only `prose` or `record` files** means the last
-  round changed nothing a reviewer can act on.
+- **`sinceLastReview` showing only `prose` or `record` files** — at an
+  extension decision — means the last round changed nothing a reviewer can act
+  on. (At a per-round dispatch the field describes the pre-fix state and
+  carries no such signal.)
 
 ## Output
 

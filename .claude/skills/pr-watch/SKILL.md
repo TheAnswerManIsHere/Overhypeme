@@ -185,8 +185,16 @@ the diff *is* the plan. While watching an implementation PR:
   of it; if I think it is wrong, that is a disagreement for David, not license
   to overrule.
 
-  The verdict goes in the re-request comment as **one line**, not a receipt
-  file — per-round receipts would rebuild the machinery this replaced. The
+  **Delivery depends on which decision this is** (Codex, #543). An ordinary
+  per-round verdict — the budget not yet spent — goes in the re-request
+  comment as **one line**, never a file: per-round receipts would rebuild the
+  machinery this replaced. But a verdict at **budget exhaustion** is an
+  extension decision, and the guard reads extensions only from committed
+  receipts — so that verdict is written to
+  `.agents/receipts/loop-extension-<pr>-<n>.json`, committed and pushed, per
+  the tripwire-1 refusal's own instructions. A comment-only exhaustion verdict
+  leaves the allowance unchanged: the guard blocks the next request and tells
+  you to run the adjudication you already ran. The
   self-refereeing that used to live here (count trend, growth tripwire,
   oscillation diagnosis, criticality gate) is gone: 0-for-15 at stopping loops,
   and the budget plus this judge replaced it.

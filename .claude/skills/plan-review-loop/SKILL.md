@@ -198,24 +198,26 @@ the disclosure check passes:
    `[PLAN REVIEW]` PR out of an implementation-PR Sonnet gate; that gate is
    retired, so there is nothing left to carve out of.
 3. **Trigger the first review explicitly.** I do **not** assume opening the PR
-   auto-triggers Codex — I post an explicit `@codex review` comment after
-   opening. I never treat a push, or webhook silence, as proof the current
+   auto-triggers Codex — I post an explicit trigger comment after opening
+   (**the bare trigger alone, nothing else in that comment** — per CLAUDE.md's
+   2026-08-21 rule; context goes in a separate defanged comment). I never treat a push, or webhook silence, as proof the current
    revision was reviewed.
 4. **Each round:** when Codex reviews, I fetch live PR state first (never act on
    the webhook text alone), confirm which revision it reviewed (compare against
    the current head), weigh every comment on plan *substance* — **and then, on
-   a substantive round, run the post-round adjudication before revising
-   anything (David, 2026-08-15, superseding the 2026-08-07 per-round David
-   check-in)**: the round record defined in
-   [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in)
-   (count + trend + bucket mix, per-finding nature / affected area / verdict,
-   the causal flag — new ground vs. repairing an earlier round's revision vs.
-   impossible-as-specified — the continue/stop decision with its flip
-   condition), kept in the findings ledger, with the judgment moments gated
-   by the adversarial subagent (`model-routing`'s structural triggers) and
-   noteworthy adjudications surfaced as 👀 FYIs. **The decision is mine;
-   what still goes to David mid-loop, as a 🛑, is only what the SOW gate
-   reserved**: a product/design fork, a scope addition, a split.
+   a substantive round beyond the first, dispatch the external adjudicator
+   (David, 2026-08-20 — the same rule as code loops; the self-policed
+   trend/bucket adjudication that used to live here is retired)**: triage each
+   finding (nature / affected area / verdict / causal flag) into the findings
+   ledger, generate the mechanical record
+   (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file>
+   --write`), and dispatch one `review-loop-adjudicator` on Fable with the
+   record as its only input. **Its verdict decides** continue/stop — the
+   decision is not mine — and goes in the ledger as one line. A plan loop
+   takes the tier of what it plans, so a product plan runs on the product
+   budget with the same tripwires. What goes to David mid-loop, as a 🛑,
+   whatever the adjudicator says, is what the SOW gate reserved: a
+   product/design fork, a scope addition, a split.
    **The round record carries the plan's line count next to the finding count
    (David, 2026-08-11)** — "round 3: 21 findings, 24 → 14 → 21; plan 1,370
    lines, +56% from round 1" — because the growth tripwire is the one a
@@ -236,7 +238,8 @@ the disclosure check passes:
    minimum-3-rounds rule in step 7 it proceeds straight to the next lens
    with a one-line status. After the adjudication (or on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
-   and request the next round with a fresh explicit `@codex review` comment.
+   and request the next round with a fresh explicit trigger comment (bare
+   trigger only, context separate and defanged).
    **Revisions are class-level, per
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)**:
    each reply names the finding's class and cites the sweep oracle

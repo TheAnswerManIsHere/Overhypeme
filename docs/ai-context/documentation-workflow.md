@@ -81,21 +81,29 @@ Worked classifier examples (a fresh agent should sort these without guessing):
 
 ## Step 1 — Harvest
 
-Gather candidate learnings, richest source first:
+**In the batched `/maintenance` pass (the normal case), first enumerate the
+window**: every product feature merged since the last maintenance pass, and
+for each one its **harvest-notes comment on the workstream issue** — the
+close-out bridge that carries the build session's context. The batch covers
+ALL of them; skipping a feature whose notes exist is a miss, not a judgment
+call (Codex, #543). Then, per feature, richest source first:
 
-1. **The build session** — decisions David made and the *why* behind them,
-   dead ends we hit and why we rejected them, behavior we discovered, scope we
-   deliberately cut.
-2. **The feature's diff** — `git diff origin/main...HEAD` on the feature
+1. **The harvest-notes comment** — decisions and why, alternatives rejected,
+   gotcha candidates, written while the build session still held them.
+2. **The build session itself, when this runs inside one** (a direct ad-hoc
+   invocation by David) — decisions and the *why* behind them, dead ends and
+   why we rejected them, behavior discovered, scope deliberately cut.
+3. **The feature's diff** — `git diff origin/main...HEAD` on the feature
    branch (or the merged PR's diff if the branch is gone). What changed in the
    system's actual shape, data flow, or source-of-truth boundaries?
-3. **The area's working-notes doc**, if one was kept during the build.
-4. **The plan doc + PR/bot-review discussion** — including a bot-review finding
+4. **The area's working-notes doc**, if one was kept during the build.
+5. **The plan doc + PR/bot-review discussion** — including a bot-review finding
    that revealed a real, generalizing pattern.
 
-If `/document` runs in a **fresh chat** with no build context, ask David which
-feature/PR to document (numbered options from recent merges) rather than
-reconstructing from a cold diff and guessing intent.
+The ask-David-which-feature question is reserved for a **direct ad-hoc
+invocation** in a fresh chat with no build context and no maintenance window
+to enumerate — never for the batched pass, which derives its coverage from
+the merged-PR list rather than a choice.
 
 **The bar for a durable learning:** *would a fresh agent or a new human
 collaborator need this to work in the area?* Qualifying kinds:
@@ -222,7 +230,17 @@ commits ambiguous truth:
 **Commit** as one docs-only commit (or a few, if ai-context vs. manual
 separation aids review). Placement:
 
-- **Default: assume the feature's PR is already merged.** David's stated
+- **The batched `/maintenance` pass (the normal case): one docs-only PR per
+  maintenance pass, not one per feature** (David, 2026-08-20 — this is what
+  ends the harvest-PR churn the batching exists to remove). The pass's harvest
+  commit rides the maintenance docs PR alongside that week's
+  `deferred-work.md` updates; it is an internal artifact, so it gets the
+  automatic Codex pass, one triage, and no re-requested rounds. **No
+  per-feature harvest sub-issues**: the tracking is the harvest-notes comments
+  already sitting on each feature's workstream issue, plus the maintenance
+  report naming what was harvested. (The per-harvest sub-issue machinery below
+  applies only to the standalone ad-hoc path.)
+- **Ad-hoc standalone invocation: assume the feature's PR is already merged.** David's stated
   workflow is that he only invokes `/document` once the work being documented
   has merged, so this is the default path, not a state you need to check for
   first: `git fetch origin main`, restart the branch fresh off `origin/main`
@@ -245,8 +263,12 @@ separation aids review). Placement:
 
 ## The harvest itself is a tracked workstream
 
-**Scope: this applies only to the default path above** (a new, standalone
-docs-only PR). The mid-build exception — committing to the feature's own
+**Scope: this applies only to the standalone ad-hoc path above** (a new,
+dedicated docs-only PR for one feature's harvest). **The batched
+`/maintenance` path is exempt** (David, 2026-08-20): its tracking is the
+harvest-notes comments on each feature's own workstream issue plus the
+maintenance report, and its delivery PR is the maintenance docs PR — no
+per-feature sub-issue, no separate subscription ceremony. The mid-build exception — committing to the feature's own
 still-open branch/PR — has no separate harvest PR at all; the feature's own
 workstream issue already covers it, and nothing below applies.
 

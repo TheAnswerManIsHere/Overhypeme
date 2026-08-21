@@ -400,7 +400,7 @@ test("an adjudication must FOLLOW its tripwire, proven by the record it cites", 
     [extensionPath(1, 1)]: json(adjudication(1)),
     [RECORD(1)]: recordFile(1, 1), // generated at 1 pass, cap is 5
   });
-  assert.match(loadLoop(1, early).detail, /below tier "product"'s cap of 5/);
+  assert.match(loadLoop(1, early).detail, /below this receipt's own stage floor of 5/);
 
   const atCap = fakeIo({
     [budgetPath(1)]: budget(1),
@@ -408,6 +408,32 @@ test("an adjudication must FOLLOW its tripwire, proven by the record it cites", 
     [RECORD(1)]: recordFile(1, 5),
   });
   assert.equal(loadLoop(1, atCap).problem, undefined, "generated at the cap is valid");
+});
+
+test("a second adjudication cannot reuse the first tripwire's record (Codex, #543)", () => {
+  // The repeat-grant hole: with repeat adjudications valid, a second receipt
+  // citing the record generated at the BASE cap (5 passes) would satisfy a
+  // >= tierCap check forever, and `allowance` would activate it at the second
+  // tripwire -- one adjudication silently covering two. The floor for receipt
+  // N is the allowance receipts 1..N-1 establish.
+  const reused = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 2 })),
+    [extensionPath(1, 2)]: json(adjudication(1, { grant: 2, recordPath: RECORD(1) })),
+    [RECORD(1)]: recordFile(1, 5), // proves the FIRST tripwire (5), not the second (7)
+  });
+  const res = loadLoop(1, reused);
+  assert.match(res.detail ?? "", /below this receipt's own stage floor of 7/);
+
+  // A second receipt citing a record generated at the SECOND tripwire is valid.
+  const fresh = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 2 })),
+    [extensionPath(1, 2)]: json(adjudication(1, { grant: 1, recordPath: ".agents/adjudications/1-2.json" })),
+    [RECORD(1)]: recordFile(1, 5),
+    [".agents/adjudications/1-2.json"]: recordFile(1, 7),
+  });
+  assert.equal(loadLoop(1, fresh).problem, undefined, "a record at the current allowance is valid");
 });
 
 // ---------------------------------------------------------------------------

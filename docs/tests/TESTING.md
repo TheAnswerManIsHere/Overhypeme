@@ -298,8 +298,9 @@ for the full topology.
   skipped for a docs-only PR. Every failure path falls back to running
   everything; push-to-main skips classification entirely.
 - **`Build`** — install, validate migration snapshots, the repo-health guards
-  (docs accuracy, codegen drift, loop-metrics, CI-classifier and Bash-guard
-  logic), and `pnpm run build` (typecheck + build). **Never** skipped.
+  (docs accuracy, codegen drift, CI-classifier and Bash-guard logic; the
+  loop-metrics guard was deleted with the loop ledger, 2026-08-20), and
+  `pnpm run build` (typecheck + build). **Never** skipped.
 - **`Test`** — the api-server suite against a real Postgres + pgvector service
   container, with `DATABASE_URL` set to `overhype_test`. The suite's own runner
   does all DB setup (per-worker clones); CI just supplies the database. This

@@ -451,6 +451,22 @@ GitHub's server-side ruleset rather than review depth.
 **Codex review of product code is unaffected and is not negotiable.** It is the
 safety net a non-code-reading product manager depends on.
 
+**The fix-round merge path (Codex, #543).** When the automatic pass finds a
+real defect and the fix is pushed, the head is no longer the reviewed commit —
+and the carve-out means no re-requested round, so the merge receipt refuses.
+Two bounded unwedges, in preference order, neither of which reopens a loop:
+
+1. **David posts the bare review trigger** (the guard gates only the agent's
+   tool calls, not his comments). One head-coverage pass lands, the agent
+   triages it once, and the merge proceeds normally.
+2. **Recut the PR**: push the fixes, close the wedged PR with a pointer, open
+   a fresh PR from the same branch — the automatic pass on open reviews the
+   entire fixed diff, which IS the head. Costs a PR number and a CI run,
+   needs no human, and keeps the one-automatic-pass shape exactly.
+
+Declining every finding needs neither: the original pass already covers the
+unchanged head.
+
 #### Product loops: a declared budget, then an external judge
 
 - **The budget is declared before round 1** — `product` (5 rounds) or

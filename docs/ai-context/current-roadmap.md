@@ -411,13 +411,15 @@ priorities (moderation speed, render/enrichment quality, video). See
   enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
   **Superseded again 2026-08-07** (plan-review PR #340): the markdown table
-  is **frozen** at rows 1–46 and the `[LEDGER]` PR type is retired. New
-  loops are recorded one JSON file per loop in
-  the loop-record store, blind
-  adjudication now runs on a deterministic **sample of loops** (each still
-  adjudicated over its full finding population), and the answers reach David
-  through a digest (the loop-report digest, narrated by `/maintenance`)
-  rather than sitting in a file he never opens. Coverage and permanence
+  is **frozen** at rows 1–46 and the `[LEDGER]` PR type is retired; new loops
+  were recorded one JSON file per loop, sampled for blind adjudication, and
+  delivered through a weekly digest.
+  **Superseded finally 2026-08-20 (issue #541): the loop-record store, the
+  blind-adjudication sampling, and the digest are DELETED.** Nothing records
+  loops any more; process-health numbers (meta-vs-product share, rounds per
+  loop, adjudicator verdicts) are computed fresh from the GitHub record at
+  each `/maintenance` pass. The frozen `loop-ledger.md` archive of rows 1–46
+  remains as historical data. Coverage and permanence
   stopped being CI gates and became accepted, documented risks. Rationale,
   including why the sampling reversal does not reintroduce the bias defects
   that removed the original within-loop sample, is in
