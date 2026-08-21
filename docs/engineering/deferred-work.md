@@ -1,8 +1,9 @@
 # Deferred Engineering Work
 
-Last maintenance pass: none yet under the 2026-08-20 contract — the next
-`/maintenance` run updates this line every pass (it is the durable window
-boundary the batched documentation harvest reads).
+Last maintenance pass: 2026-08-21 — see this pass's `docs(maintenance):` PR
+diff for what changed. The next `/maintenance` run updates this line every
+pass (it is the durable window boundary the batched documentation harvest
+reads).
 
 The single, durable home for engineering, security-hygiene, and maintenance
 work we have **consciously chosen not to do yet** — dependency bumps we've
@@ -875,6 +876,41 @@ re-gather it when the work is scheduled.
     suite has failed on `main` again since 2026-08-15, this graduates to a
     `/bugfix` task and this entry closes. If the window is clean, note it and
     keep this parked one more cycle.
+  - **2026-08-21 check: window clean for this specific suite.** No
+    `api-server test suite` step failure on `main` since 2026-08-15 — one run
+    (`32302373285`, 2026-08-19) *skipped* that step because its `Test` job was
+    cancelled upstream (see the sibling entry below), which is not the same
+    thing as the step failing. Stays parked one more cycle.
+
+- **`E2E Smoke`'s `Run route-load smoke suite` step failed twice on `main` in
+  one week (observed 2026-08-21 `/maintenance`).**
+  - **What.** `Build` run `32302373285` (commit `341e14b7`, PR #530's squash —
+    a `/document` harvest, docs-only) and run `32433248576` (commit
+    `b20f6d31`, PR #545's squash — `.claude/skills/` vendoring, no runtime
+    code) both failed at the `E2E Smoke` job's `Run route-load smoke suite`
+    step, roughly 27 hours apart. Neither commit plausibly changes route-load
+    behavior, so the failure is not caused by the commit under test — same
+    reasoning as the sibling api-server-suite entry above. A separate anomaly
+    in the same window: run `32302373285`'s `Test` job was `cancelled` after
+    its `Install PostgreSQL client 16` step ran ~19 minutes (versus its usual
+    ~9 seconds) before something cancelled it, skipping `Run api-server test
+    suite` rather than failing it — noted here because it's adjacent, not
+    because it's the same failure.
+  - **Why deferred now.** One occurrence isn't a pattern, but this is already
+    a *second* occurrence within a single maintenance window (not across
+    passes), on the same job and step, on two unrelated commits — a stronger
+    signal than the api-server entry had on its first observation. Diagnosing
+    a headless Playwright smoke failure needs the uploaded trace artifacts
+    from each run, which is real investigative work outside `/maintenance`'s
+    ops-only boundary.
+  - **Cost of waiting.** A red `main` on an unrelated PR costs a diagnosis
+    each time and erodes trust in the `E2E Smoke` signal specifically —
+    already worse than the api-server case, which is still at one.
+  - **Revisit trigger.** The next `/maintenance` pass: if `route-load smoke
+    suite` fails on `main` again, this graduates to a `/bugfix` task (pull the
+    trace artifacts from all occurrences first). Flagged as a decision item in
+    the 2026-08-21 report since two occurrences already exist — David may
+    choose to fast-track rather than wait for a third.
 
 ---
 
