@@ -185,12 +185,21 @@ the diff *is* the plan. While watching an implementation PR:
   of it; if I think it is wrong, that is a disagreement for David, not license
   to overrule.
 
-  **Delivery depends on which decision this is** (Codex, #543). An ordinary
-  per-round verdict — the budget not yet spent — goes as **one line in the
-  separate defanged context comment** that precedes the bare trigger, never a
-  file (per-round receipts would rebuild the machinery this replaced) and
-  never inside the trigger comment itself, which stays bare — prose beside
-  the trigger is what spawns unintended tasks (Codex, #543 round 2). But a verdict at **budget exhaustion** is an
+  **Delivery depends on the verdict, and only `continue` is followed by
+  another trigger** (Codex, #543 rounds 2 and 4). A per-round `continue` —
+  the budget not yet spent — goes as **one line in the separate defanged
+  context comment** that precedes the next bare trigger, never a file
+  (per-round receipts would rebuild the machinery this replaced) and never
+  inside the trigger comment itself, which stays bare — prose beside the
+  trigger is what spawns unintended tasks. A per-round **stop** ends the
+  loop right there: the verdict goes in a defanged comment and **no further
+  trigger is posted** — the loop proceeds to close-out on the rounds already
+  returned. A **split-to-David** likewise posts no trigger; it goes to David
+  as a 🛑. **A round with no adjudication keeps the normal next-round
+  trigger** — the first substantive round has no judge by design, and
+  skip-on-clean dispatches none — so after that round's fixes are pushed,
+  the next bare trigger goes out as usual: the rule gates on verdicts that
+  exist, and the absence of a dispatch is not a stop (Codex, #548). But a verdict at **budget exhaustion** is an
   extension decision — **and it exists only on the product tier**: a
   `sensitive` loop at its 🛑-at-5 goes STRAIGHT to David with no adjudicator
   dispatch and no receipt written, because that tier has no self-serve stage
@@ -221,37 +230,18 @@ the diff *is* the plan. While watching an implementation PR:
   oracle (`grep`/`ls`/`find`/one-liner) and its post-fix zero-hits result;
   when instance = class, the reply says so and that claim is the sweep.
   **Before every push of a fix round, I re-run all prior rounds' oracles**
-  so a later fix can't reintroduce an earlier class. And the **judgment
-  escalation is structural, not self-assessed** — three triggers, each a
-  fact about the situation rather than my own sense of ambiguity (they
-  supersede the older "when the triage feels ambiguous" call; full
-  mechanics in the `model-routing` skill):
-  1. **Any decline**: before posting it, a one-shot announced **Fable
-     subagent** gets the finding plus my refutation and argues the
-     finding's side; the decline posts only if it survives. A wrong
-     decline is the one verdict nothing downstream catches — Codex has
-     already fired, David doesn't read diffs.
-  2. **Any finding with no mechanical oracle** (step 2 of the shared
-     protocol came up empty): a pure-judgment finding, so its triage
-     verdict comes from the Fable subagent.
-  3. **Any recurrence of a swept class** (the shared protocol's process
-     failure): the class re-naming goes to the Fable subagent, and the
-     recurrence is called out in that round's record.
-  **All three triggers stay live whatever the main loop's tier — corrected
-  2026-08-15 (Codex, PR #458 round 1).** These lines used to call triggers
-  1–2's dispatch "redundant" on an Opus loop, which was harmless when Opus
-  loops were the exception and became dangerous once *every* loop was Opus:
-  read literally it retires trigger 1 entirely, and trigger 1 protects the
-  one verdict nothing downstream catches (a wrong decline resolves the
-  thread and no one sees it again). **The trigger was never about reaching a
-  stronger tier — it is about an independent challenge from a context that
-  did not produce the conclusion**, which a same-tier subagent supplies just
-  as well. Since 2026-08-17 the dispatch is *also* an escalation, because it
-  runs on Fable — so the announcement applies again — but the reasoning is
-  kept because the failure it guards against is a trigger quietly mooting
-  itself, which no tier arithmetic fixes. The sweep itself (name the class,
-  write the oracle, sweep to zero) and the recurrence round-record flag
-  apply throughout.
+  so a later fix can't reintroduce an earlier class.
+  **The three finding-level dispatch triggers that used to live here (any
+  decline, any oracle-less finding, any swept-class recurrence) are RETIRED
+  (2026-08-20, PR #543)** — superseded by the single external per-round
+  adjudicator, exactly as the `model-routing` skill records. Running
+  per-finding and per-decline Fable dispatches alongside the per-round judge
+  would re-create the parallel self-refereeing the #541 review deleted
+  (Codex, #543 round 4). Declines keep their full care without a dispatch:
+  each is a reasoned reply on the thread, and the adjudicator sees every
+  round's declined findings in the mechanical record. The sweep itself (name
+  the class, write the oracle, sweep to zero) and the recurrence
+  round-record flag apply throughout.
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class

@@ -45,7 +45,14 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS, allowance, railFor } from "./review-budget.mjs";
+import {
+  RECEIPTS_DIR as LOOP_RECEIPTS_DIR,
+  TIERS,
+  allowance,
+  railFor,
+  validateBudget,
+  validateExtension,
+} from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -556,22 +563,26 @@ export function checkCodex(issueComments, reviews, headSha = null) {
  * DECISION. `split` and `escalate` are not "this is ready" verdicts -- they
  * hand the PR to further human or agent action before anything should merge.
  * `continue` is excluded by construction: it grants more rounds rather than
- * closing the loop. And only the highest-numbered `loop-extension-<pr>-*`
- * receipt is ever consulted: a second *adjudication* is never valid
- * (`review-budget.mjs`'s own rule), but a later `david`-kind extension
- * reopening the loop after a ship verdict is, and this fallback must not
- * resurrect a verdict David has since superseded. (Codex, #539 round 1.)
+ * closing the loop. Only the highest-numbered `loop-extension-<pr>-*`
+ * receipt is ever HONORED -- a later `david`-kind extension reopening the
+ * loop after a ship verdict must not have its superseded verdict
+ * resurrected (Codex, #539 round 1) -- but the chain UNDER it is still
+ * validated: an adjudication that follows a non-continue adjudication is a
+ * chain `loadLoop` rejects ("only a `david`-kind receipt reopens the
+ * loop"), and this fallback refuses it too rather than accepting at merge
+ * time what the refusal layer forbids. (Codex, #543 round 4.)
  *
  * THE RECEIPT MUST BE COMMITTED, NOT MERELY PRESENT. Every read below goes
  * through `git show <sha>:<path>`, never the filesystem -- an untracked or
  * locally-modified file matching the receipt's name must never be able to
  * mint a merge-ready verdict for a commit it was never actually part of.
  * (Codex, #539 round 1.) Only DIRECT children of `.agents/receipts/` count
- * (`git ls-tree` with no `-r`), and only canonically-numbered ones
- * (`String(Number(seq)) === seq`) -- both match exactly what
- * `review-budget.mjs`'s own `loadLoop` will and won't consume, so a receipt
- * this fallback would honor is one the guard's loop actually closed on.
- * (Codex, #539 round 2.)
+ * (`git ls-tree` with no `-r`), matching what `review-budget.mjs`'s own
+ * `loadLoop` consumes (Codex, #539 round 2) -- and a NON-CANONICALLY-named
+ * extension for this PR (zero-padded, non-round-trip) fails the whole check
+ * closed rather than being skipped, because `loadLoop` refuses the whole
+ * loop on such a name and a receipt this fallback honors must be one the
+ * guard's loop actually closed on. (Codex, #548.)
  *
  * THE DIFF BASELINE IS DERIVED FROM THE CITED RECORD, NEVER FROM A
  * SELF-DECLARED RECEIPT FIELD. The first version of this function had the
@@ -798,7 +809,18 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
     return { ok: false, detail: `${recordPath}: sinceLastReview.head ${baseline.slice(0, 7)} does not resolve to a commit in this checkout` };
   }
 
-  return { ok: true, generatedAt, evidenceCapturedAt, baseline };
+  return {
+    ok: true,
+    generatedAt,
+    evidenceCapturedAt,
+    baseline,
+    // The extension history the record was generated against -- loadLoop's
+    // own validated chain at generation time, embedded as {kind, verdict,
+    // grant}. The fallback's terminal-verdict check reads it alongside the
+    // committed receipts so either view of a standing terminal verdict
+    // disqualifies a later adjudication candidate.
+    extensions: Array.isArray(record.budget?.extensions) ? record.budget.extensions : [],
+  };
 }
 
 export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = false, latestRequestAt = null } = {}) {
@@ -826,19 +848,23 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // not a real failure -- treated as zero candidates below.
   const lsOutput = git(["ls-tree", "--name-only", `${headSha}:${LOOP_RECEIPTS_DIR}`], cwd) ?? "";
   const prefix = `loop-extension-${prNumber}-`;
-  const candidates = lsOutput
-    .split("\n")
-    .filter(Boolean)
-    .map((base) => {
-      if (!base.startsWith(prefix) || !base.endsWith(".json")) return null;
-      const seqStr = base.slice(prefix.length, base.length - ".json".length);
-      // Canonical only: zero-padded or otherwise non-round-trip sequences are
-      // exactly what `loadLoop` rejects as a bad receipt.
-      if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) return null;
-      return { path: `${LOOP_RECEIPTS_DIR}/${base}`, seq: Number(seqStr) };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.seq - a.seq);
+  const candidates = [];
+  for (const base of lsOutput.split("\n").filter(Boolean)) {
+    if (!base.startsWith(prefix) || !base.endsWith(".json")) continue;
+    const seqStr = base.slice(prefix.length, base.length - ".json".length);
+    // A zero-padded or otherwise non-round-trip sequence is what `loadLoop`
+    // rejects as a bad receipt -- rejecting the WHOLE LOOP, not skipping the
+    // file. Silently dropping it here would let this fallback honor a chain
+    // the guard refuses, so it fails closed instead. (Codex, #548.)
+    if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) {
+      return {
+        pass: false,
+        detail: `${LOOP_RECEIPTS_DIR}/${base} is not a canonical extension name -- the guard refuses this loop outright, so no receipt in it can be honored`,
+      };
+    }
+    candidates.push({ path: `${LOOP_RECEIPTS_DIR}/${base}`, seq: Number(seqStr) });
+  }
+  candidates.sort((a, b) => b.seq - a.seq);
 
   if (!candidates.length) {
     return { pass: false, detail: `no committed, canonically-named loop-extension-${prNumber}-*.json receipt at ${headSha.slice(0, 7)}` };
@@ -897,6 +923,44 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   const recordCheck = validateAdjudicationRecord(prNumber, receipt.recordPath, headSha, cwd);
   if (!recordCheck.ok) {
     return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
+  }
+
+  // THE CHAIN UNDER THE CANDIDATE MUST BE ONE THE GUARD WOULD ACCEPT. Only
+  // the highest-sequence receipt is honored, but review-budget.mjs's rule is
+  // that after a terminal adjudication verdict ("split", "escalate",
+  // "ship-with-gaps-recorded") only a `david`-kind receipt may follow -- so
+  // an adjudication ship receipt committed after a standing terminal verdict
+  // is a chain `loadLoop` rejects at load, and honoring it here would let
+  // the merge gate accept what the refusal layer forbids. Replayed pairwise
+  // over the committed preceding receipts, and again over the record's own
+  // embedded extension history; either view showing an adjudication that
+  // follows a non-continue adjudication disqualifies the candidate.
+  // (Codex, #543 round 4, fixed forward post-merge.)
+  const preceding = [];
+  for (const { path } of [...candidates].sort((a, b) => a.seq - b.seq)) {
+    if (path === terminal.path) continue;
+    const precedingRaw = git(["show", `${headSha}:${path}`], cwd);
+    if (precedingRaw === null) {
+      return { pass: false, detail: `${path} is listed at ${headSha.slice(0, 7)} but its committed content could not be read` };
+    }
+    try {
+      preceding.push(JSON.parse(precedingRaw));
+    } catch (e) {
+      return { pass: false, detail: `${path}: unreadable or malformed JSON (${e.message}) -- the chain under the terminal receipt cannot be validated` };
+    }
+  }
+  for (const chain of [[...preceding, receipt], [...recordCheck.extensions, receipt]]) {
+    for (let i = 1; i < chain.length; i++) {
+      const prev = chain[i - 1];
+      if (chain[i]?.kind === "adjudication" && prev?.kind === "adjudication" && prev?.verdict !== "continue") {
+        return {
+          pass: false,
+          detail:
+            `${terminal.path}: a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- ` +
+            `a further adjudication receipt cannot follow it; only a "david"-kind receipt reopens the loop`,
+        };
+      }
+    }
   }
   if (decidedAt < recordCheck.generatedAt) {
     return {
@@ -1122,25 +1186,39 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
 export function checkRail(prNumber, headSha, cwd) {
   const budgetRaw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/loop-budget-${prNumber}.json`], cwd);
   if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the outer rail does not apply" };
-  let tier;
+  let budget;
   try {
-    tier = JSON.parse(budgetRaw).tier;
+    budget = JSON.parse(budgetRaw);
   } catch (e) {
     return { pass: false, detail: `committed budget receipt is unreadable (${e.message}) -- cannot rule out the rail` };
   }
-  if (!TIERS[tier]) return { pass: false, detail: `committed budget names unknown tier ${JSON.stringify(tier)}` };
+  // The guard's own validation, not a bare tier read: an unvalidated budget
+  // (wrong PR, tier/number mismatch) must not anchor a rail decision.
+  const budgetError = validateBudget(prNumber, budget);
+  if (budgetError) {
+    return { pass: false, detail: `committed budget receipt is invalid (${budgetError}) -- cannot rule out the rail` };
+  }
+  const tier = budget.tier;
 
   const lsOutput = git(["ls-tree", "--name-only", `${headSha}:${LOOP_RECEIPTS_DIR}`], cwd) ?? "";
   const prefix = `loop-extension-${prNumber}-`;
-  const extensions = lsOutput
-    .split("\n")
-    .filter((base) => base.startsWith(prefix) && base.endsWith(".json"))
-    .map((base) => {
-      const seqStr = base.slice(prefix.length, base.length - ".json".length);
-      if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) return null;
-      return { seq: Number(seqStr), base };
-    })
-    .filter(Boolean)
+  // A name matching this PR's extension prefix but NOT canonically numbered
+  // fails CLOSED, never silently dropped: `loadLoop` refuses the whole loop
+  // on such a name, so ignoring it here would let this check pass a chain
+  // the guard rejects. (Codex, #548.) Files that don't match the prefix at
+  // all (budgets, other PRs' receipts) are simply not this loop's.
+  const named = [];
+  for (const base of lsOutput.split("\n").filter((b) => b.startsWith(prefix) && b.endsWith(".json"))) {
+    const seqStr = base.slice(prefix.length, base.length - ".json".length);
+    if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) {
+      return {
+        pass: false,
+        detail: `${LOOP_RECEIPTS_DIR}/${base} is not a canonical extension name -- the guard refuses this loop outright, so the rail cannot be ruled out`,
+      };
+    }
+    named.push({ seq: Number(seqStr), base });
+  }
+  const extensionsRaw = named
     .sort((a, b) => a.seq - b.seq)
     .map(({ base }) => {
       const raw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/${base}`], cwd);
@@ -1150,13 +1228,54 @@ export function checkRail(prNumber, headSha, cwd) {
         return null;
       }
     });
-  if (extensions.some((e) => e === null)) {
+  if (extensionsRaw.some((e) => e === null)) {
     return { pass: false, detail: "a committed extension receipt is unreadable -- cannot rule out the rail" };
+  }
+
+  // EVERY receipt in the chain is validated with the guard's own rules
+  // before any arithmetic runs on it. Without this, a malformed receipt like
+  // `{"kind":"david"}` -- no grant, no authorization -- fed `allowance()` an
+  // `undefined` grant, the total went NaN, `NaN < rail` was false, and the
+  // bare last-kind check below then cleared the rail with no actual David
+  // authorization on record. Pure-validation mode (`io: null`) checks
+  // structure and the terminal-verdict chain rule, which is everything the
+  // rail decision rests on. (Codex, #543 round 4, fixed forward post-merge.)
+  const extensions = [];
+  for (const ext of extensionsRaw) {
+    const extError = validateExtension(prNumber, tier, ext, { io: null, ref: null, preceding: extensions });
+    if (extError) {
+      return { pass: false, detail: `a committed extension receipt is invalid (${extError}) -- cannot rule out the rail` };
+    }
+    extensions.push(ext);
+  }
+
+  // A STANDING "split" OR "escalate" VERDICT BLOCKS READINESS OUTRIGHT,
+  // whatever the allowance. Those verdicts hand the PR to further human or
+  // agent action -- and this is the one check on evaluate()'s ALWAYS-RUN
+  // path, so it is where the rule must live: a live Codex pass posted after
+  // the terminal receipt skips `checkAdjudicatedCodex` entirely, and
+  // without this a below-rail allowance minted READY with the loop's own
+  // last word saying "do not merge yet". `ship-with-gaps-recorded` is
+  // deliberately not blocked here -- it IS a "this is ready" verdict, and
+  // the fallback path fully validates it. (Codex, #548.)
+  const standing = extensions[extensions.length - 1];
+  if (standing?.kind === "adjudication" && (standing.verdict === "split" || standing.verdict === "escalate")) {
+    return {
+      pass: false,
+      detail:
+        `a terminal adjudication verdict ("${standing.verdict}") is standing on this loop -- readiness cannot ` +
+        `be established, with or without a live pass, until a "david"-kind receipt reopens it`,
+    };
   }
 
   // Fully activated: what the allowance becomes once everything is spent.
   const activated = allowance(tier, extensions, Number.MAX_SAFE_INTEGER);
   const rail = railFor(tier);
+  // Validation above makes NaN unreachable; this is the fail-closed backstop
+  // so any future gap in it blocks a merge instead of waving one through.
+  if (activated !== Infinity && !Number.isFinite(activated)) {
+    return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the rail" };
+  }
   if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
   const last = extensions[extensions.length - 1];
   if (last?.kind === "david") {
@@ -1206,6 +1325,7 @@ const LABEL = {
   codex: "Codex returned",
   threads: "Threads resolved",
   capture: "Evidence ordering",
+  rail: "Outer rail",
 };
 
 export function formatReceipt(receipt) {
