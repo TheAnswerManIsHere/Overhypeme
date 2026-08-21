@@ -68,12 +68,18 @@ I ship two things:
    PR number; `<FEATURE>` is a SCREAMING_SNAKE_CASE slug. The doc always
    lands on the same PR — never a separate later PR.
 
-   **A UAT gets an Artifact page (David, 2026-07-22).** When I deliver a
-   `docs/tests/UAT/PR<N>_*_UAT.md`, I also publish it as a private
-   **Artifact web page** — David works through it on an iPad while clicking
-   around the app, and a typeset page beats a raw `.md` for that. The
-   committed markdown stays the canonical, durable copy; the Artifact is a
-   reading surface, not a source of truth.
+   **The doc is a script I drive, not a page he reads (David, 2026-08-21).**
+   David works through it with me step by step via [`/uat`](../uat/SKILL.md),
+   so write it for that: **setup steps are mine to execute** — say what state
+   the app needs to be in, not "go create a test account" — except where a
+   step genuinely needs his admin session, which I can't hold. Everything
+   else is unchanged; the doc is still the canonical script and still his to
+   delete when he's done.
+
+   **No Artifact page (David, 2026-08-21 — retiring the 2026-07-22 rule).**
+   The Artifact existed as a reading surface for working through the doc
+   alone on an iPad; the `/uat` session replaced that job. Publish one only
+   if he asks for a solo run.
 
 A product-visible PR is **not** complete — and I don't present it to David
 as done — until the verification section has real content (or an explicit

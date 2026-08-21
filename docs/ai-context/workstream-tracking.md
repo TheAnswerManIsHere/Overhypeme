@@ -278,9 +278,15 @@ of the workstream issue's body, with these fields:
 in the same edit** — the two must never drift apart, since a label with a
 stale narrative behind it is worse than an honest gap. That means the same
 skills that own label transitions
-(`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`) own keeping this block
-current at those same trigger points. There is no separate maintainer
-beyond those four **for label-driven updates**.
+(`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`, `/uat`) own keeping
+this block current at those same trigger points. There is no separate
+maintainer beyond those five **for label-driven updates**.
+
+**`/uat` also writes mid-run, without a label change**, for the same reason
+`/handoff` does below: a run in progress changes what a cold reader needs to
+know (which step is next) while `stage:uat`/`waiting:david` stay exactly
+right. It keeps the `To resume` field pointed at the run record described in
+[`.claude/skills/uat/SKILL.md`](../../.claude/skills/uat/SKILL.md).
 
 **One writer updates this block without any label change: `/handoff`**
 (`.claude/skills/handoff/SKILL.md`, Claude-only). When a session's context is
@@ -340,6 +346,7 @@ work it's already doing — not as a separate reminder to go check the board:
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
 | `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
+| `/uat` | The exit from `stage:uat` — the one stage no agent could previously move, since only David could run it. On a clean run, `stage:close-out`. With any bug outstanding, `waiting:claude` (the next real action is a fix, not something David can click). Also owns the `Blocked by:` + failed-step record when a run finds a bug, executing `bugfix`'s intake contract at the earlier moment, while the context is still in front of it |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
 
 **Phase ownership rides the same trigger points**, with no new maintainer:
