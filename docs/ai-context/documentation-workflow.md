@@ -13,19 +13,34 @@ into an explicit fold-in pass, and it is how the human-facing
 [Overhype.me Manual](../manual/README.md) gets written, incrementally, one
 area at a time.
 
-**Who triggers it (David, 2026-08-15 — this used to read "David-triggered"):**
-either David, by asking, **or the agent itself**, by judging at close-out
-that a merged task cleared the harvest bar below. David explicitly retired
-the ask for Claude Code; the agent now decides and starts the pass on its
-own. What did *not* change: the bar, the sources, the routing rules, and the
-fact that the pass's output still goes to David as a report and a PR.
-Enactment detail — **how** the judgement is made, and the rule that the
-*harvest* never runs in a subagent — is each agent's own (Claude Code's is in
-`CLAUDE.md`). This deliberately names no tier or model: it said "the tier
-guard on the judgement" until 2026-08-17, which went stale the moment Claude
-Code retired that guard, and a shared contract that characterizes another
-agent's routing will keep going stale that way. It states only that the
-enactment exists and where to find it.
+**When it runs (David, 2026-08-20 — superseding the per-merge trigger):**
+**batched at `/maintenance`**, one pass covering every product feature merged
+since the last maintenance run. David can also invoke it directly whenever he
+wants. It no longer fires per merge, and there is no run/don't-run judgement:
+the per-merge ceremony was producing roughly a quarter of all merged PRs,
+several of them harvests of harvests.
+
+**Process PRs get no harvest.** Guards, scripts, skills, agent contracts and
+process documentation are excluded by class — anything durable they produce is
+a Type 1 learning (below), already persisted.
+
+**The bridge that makes batching safe: a harvest-notes comment at every
+close-out.** Before the batched pass exists to read them, each product feature's
+close-out posts a short comment on its workstream issue — decisions and why,
+alternatives rejected, gotcha candidates. Cheap, always, no PR. Without it a
+weekly pass would be reconstructing intent from cold diffs, which is exactly
+what this ceremony exists to avoid.
+
+**Two kinds of documentation, two schedules (David, 2026-08-20).** Keeping them
+apart is what lets the heavyweight half be batched safely:
+
+- **Type 1 — how we work together: immediate.** A new rule, a process gotcha, a
+  retired mistake — anything that changes how the agents operate — is persisted
+  the moment it is learned, into `CLAUDE.md`, `AGENTS.md`, `working-modes.md` or
+  `.agents/memory/`. This is the "remember this" mechanism (mechanism 1 below)
+  and it never waits for a batch.
+- **Type 2 — how the system works: batched.** Subsystem docs and Manual
+  chapters, harvested in the `/maintenance` pass described here.
 
 ## Relationship to the other two memory mechanisms
 
@@ -66,21 +81,29 @@ Worked classifier examples (a fresh agent should sort these without guessing):
 
 ## Step 1 — Harvest
 
-Gather candidate learnings, richest source first:
+**In the batched `/maintenance` pass (the normal case), first enumerate the
+window**: every product feature merged since the last maintenance pass, and
+for each one its **harvest-notes comment on the workstream issue** — the
+close-out bridge that carries the build session's context. The batch covers
+ALL of them; skipping a feature whose notes exist is a miss, not a judgment
+call (Codex, #543). Then, per feature, richest source first:
 
-1. **The build session** — decisions David made and the *why* behind them,
-   dead ends we hit and why we rejected them, behavior we discovered, scope we
-   deliberately cut.
-2. **The feature's diff** — `git diff origin/main...HEAD` on the feature
+1. **The harvest-notes comment** — decisions and why, alternatives rejected,
+   gotcha candidates, written while the build session still held them.
+2. **The build session itself, when this runs inside one** (a direct ad-hoc
+   invocation by David) — decisions and the *why* behind them, dead ends and
+   why we rejected them, behavior discovered, scope deliberately cut.
+3. **The feature's diff** — `git diff origin/main...HEAD` on the feature
    branch (or the merged PR's diff if the branch is gone). What changed in the
    system's actual shape, data flow, or source-of-truth boundaries?
-3. **The area's working-notes doc**, if one was kept during the build.
-4. **The plan doc + PR/bot-review discussion** — including a bot-review finding
+4. **The area's working-notes doc**, if one was kept during the build.
+5. **The plan doc + PR/bot-review discussion** — including a bot-review finding
    that revealed a real, generalizing pattern.
 
-If `/document` runs in a **fresh chat** with no build context, ask David which
-feature/PR to document (numbered options from recent merges) rather than
-reconstructing from a cold diff and guessing intent.
+The ask-David-which-feature question is reserved for a **direct ad-hoc
+invocation** in a fresh chat with no build context and no maintenance window
+to enumerate — never for the batched pass, which derives its coverage from
+the merged-PR list rather than a choice.
 
 **The bar for a durable learning:** *would a fresh agent or a new human
 collaborator need this to work in the area?* Qualifying kinds:
@@ -207,7 +230,17 @@ commits ambiguous truth:
 **Commit** as one docs-only commit (or a few, if ai-context vs. manual
 separation aids review). Placement:
 
-- **Default: assume the feature's PR is already merged.** David's stated
+- **The batched `/maintenance` pass (the normal case): one docs-only PR per
+  maintenance pass, not one per feature** (David, 2026-08-20 — this is what
+  ends the harvest-PR churn the batching exists to remove). The pass's harvest
+  commit rides the maintenance docs PR alongside that week's
+  `deferred-work.md` updates; it is an internal artifact, so it gets the
+  automatic Codex pass, one triage, and no re-requested rounds. **No
+  per-feature harvest sub-issues**: the tracking is the harvest-notes comments
+  already sitting on each feature's workstream issue, plus the maintenance
+  report naming what was harvested. (The per-harvest sub-issue machinery below
+  applies only to the standalone ad-hoc path.)
+- **Ad-hoc standalone invocation: assume the feature's PR is already merged.** David's stated
   workflow is that he only invokes `/document` once the work being documented
   has merged, so this is the default path, not a state you need to check for
   first: `git fetch origin main`, restart the branch fresh off `origin/main`
@@ -230,8 +263,12 @@ separation aids review). Placement:
 
 ## The harvest itself is a tracked workstream
 
-**Scope: this applies only to the default path above** (a new, standalone
-docs-only PR). The mid-build exception — committing to the feature's own
+**Scope: this applies only to the standalone ad-hoc path above** (a new,
+dedicated docs-only PR for one feature's harvest). **The batched
+`/maintenance` path is exempt** (David, 2026-08-20): its tracking is the
+harvest-notes comments on each feature's own workstream issue plus the
+maintenance report, and its delivery PR is the maintenance docs PR — no
+per-feature sub-issue, no separate subscription ceremony. The mid-build exception — committing to the feature's own
 still-open branch/PR — has no separate harvest PR at all; the feature's own
 workstream issue already covers it, and nothing below applies.
 

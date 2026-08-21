@@ -2050,7 +2050,7 @@ several. The failure is invisible at the point of use: a zero from "nothing
 happened" and a zero from "the thing happened somewhere I don't look" are the
 same zero.
 
-**The three live instances**, all in `scripts/loop-metrics.mjs`, all found on
+**The three live instances**, all in the loop-metrics script, all found on
 2026-08-15 during and immediately after the first `/maintenance` ledger flush:
 
 | Channel | What the collector reads | What it misses |
@@ -2069,7 +2069,7 @@ keep**, so the gap list is open-ended and will grow again whenever the
 connector changes its output shape.
 
 **Why it bites harder than an ordinary bug:** the undercount is *credible*.
-`loop-metrics.mjs` exists because recalled figures in this repo were wrong
+the loop-metrics script exists because recalled figures in this repo were wrong
 three times out of three, so a counted figure carries earned authority — and
 that authority transfers to the gaps. On the 2026-08-15 pass the `rounds: 0`
 on #414/#415/#416 was read as "these PRs were never reviewed," reported to
@@ -2111,7 +2111,7 @@ prose to correct**: the human note was written with context the collector
 never had.
 
 **Do not hand-fix the numbers.** The never-type-mechanical-values rule still
-governs — a hand-edited count is exactly the failure `loop-metrics.mjs` was
+governs — a hand-edited count is exactly the failure the loop-metrics script was
 built to prevent, and a corrected-by-hand record is indistinguishable from a
 fabricated one. Record the gap in the affected record's `notes` and leave the
 derived value alone, which is what #414, #415, #416 and #447 now do.
@@ -2122,10 +2122,9 @@ other — rather than documenting around them a third time. Per this repo's
 standing rule, a pattern that recurs graduates from a memory note to a
 deterministic check.
 
-**Overhype:** the store's own contract is
-[`.agents/metrics/loops/README.md`](../../.agents/metrics/loops/README.md); the
-ledger obligation that binds every agent is
-[`working-modes.md`](./working-modes.md#the-loop-ledger).
+**Overhype:** historical — the loop-record store, its contract, and the
+per-agent ledger obligation were all deleted 2026-08-20 (issue #541); the
+entry above remains as the record of the pattern, not a live pointer.
 
 ## A gate's precondition is treated as optional, so the gate silently doesn't run
 
@@ -2679,7 +2678,7 @@ lets `null` through into a dedupe key. Each landed as a review finding rather
 than as inherited code.
 
 **Why sharing helpers isn't enough.** `review-budget.mjs` *did* reuse
-`loop-metrics.mjs`'s counting functions — deliberately, and that part worked.
+the loop-metrics script's counting functions — deliberately, and that part worked.
 What did not transfer was the **validation posture**: the accumulated list of
 ways the snapshot can be wrong, which lives in neither a function nor a
 comment but in the shape of the older script's checks. Reuse moves answers;

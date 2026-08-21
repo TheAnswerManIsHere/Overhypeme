@@ -198,45 +198,51 @@ the disclosure check passes:
    `[PLAN REVIEW]` PR out of an implementation-PR Sonnet gate; that gate is
    retired, so there is nothing left to carve out of.
 3. **Trigger the first review explicitly.** I do **not** assume opening the PR
-   auto-triggers Codex — I post an explicit `@codex review` comment after
-   opening. I never treat a push, or webhook silence, as proof the current
+   auto-triggers Codex — I post an explicit trigger comment after opening
+   (**the bare trigger alone, nothing else in that comment** — per CLAUDE.md's
+   2026-08-21 rule; context goes in a separate defanged comment). I never treat a push, or webhook silence, as proof the current
    revision was reviewed.
 4. **Each round:** when Codex reviews, I fetch live PR state first (never act on
    the webhook text alone), confirm which revision it reviewed (compare against
    the current head), weigh every comment on plan *substance* — **and then, on
-   a substantive round, run the post-round adjudication before revising
-   anything (David, 2026-08-15, superseding the 2026-08-07 per-round David
-   check-in)**: the round record defined in
-   [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in)
-   (count + trend + bucket mix, per-finding nature / affected area / verdict,
-   the causal flag — new ground vs. repairing an earlier round's revision vs.
-   impossible-as-specified — the continue/stop decision with its flip
-   condition), kept in the findings ledger, with the judgment moments gated
-   by the adversarial subagent (`model-routing`'s structural triggers) and
-   noteworthy adjudications surfaced as 👀 FYIs. **The decision is mine;
-   what still goes to David mid-loop, as a 🛑, is only what the SOW gate
-   reserved**: a product/design fork, a scope addition, a split.
-   **The round record carries the plan's line count next to the finding count
-   (David, 2026-08-11)** — "round 3: 21 findings, 24 → 14 → 21; plan 1,370
-   lines, +56% from round 1" — because the growth tripwire is the one a
-   falling finding count conceals, and an unstated number is one I can talk
-   myself past. If growth has passed roughly +50% and the adjudicated kind
-   of growth is scope accretion, the conclusion is **stop and split — which
-   escalates to David**, not another round: per step 10's amendment,
-   everything added since round 1 is a split candidate regardless of review
-   status once the tripwire has fired, and each addition goes to David as a
-   **now / next / never** question per `CLAUDE.md`, defaulting to *next*.
-   The same framing applies to any single finding whose fix would introduce a
-   **new mechanism** — a table, a role, a config domain, an endpoint — whether
-   or not the tripwire has fired: the fix does not go in silently just because
-   a reviewer's finding motivated it. Depth-growth (the same coupled
-   mechanism getting more precise) resolves to cap-and-implement or continue,
-   which are my calls. Skip-on-clean applies: a
-   clean or trivial-nits-only round needs no adjudication — under the
-   minimum-3-rounds rule in step 7 it proceeds straight to the next lens
-   with a one-line status. After the adjudication (or on a clean round), I revise the plan
+   a substantive round beyond the first, dispatch the external adjudicator
+   (David, 2026-08-20 — the same rule as code loops; the self-policed
+   trend/bucket adjudication that used to live here is retired)**: triage each
+   finding (nature / affected area / verdict / causal flag) into the findings
+   ledger, generate the mechanical record
+   (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file>
+   --write`), and dispatch one `review-loop-adjudicator` on Fable with the
+   record as its only input. **Its verdict decides** continue/stop — the
+   decision is not mine — and goes in the findings ledger as one line for an
+   ordinary round. **At budget exhaustion the same rules as a code loop
+   apply** (Codex, #543 round 3): the verdict is an extension decision,
+   written to the committed `loop-extension-<pr>-<n>.json` receipt the guard
+   consumes and pushed — a ledger-only exhaustion verdict leaves the
+   allowance unchanged and the guard will demand the adjudication that
+   already ran. (Sensitive-tier plans have no self-serve stage: at 5 they go
+   straight to David.) A plan loop
+   takes the tier of what it plans, so a product plan runs on the product
+   budget with the same tripwires. What goes to David mid-loop, as a 🛑,
+   whatever the adjudicator says, is what the SOW gate reserved: a
+   product/design fork, a scope addition, a split.
+   **The findings ledger still reports the plan's line count next to the
+   finding count** ("round 3: 21 findings, 24 → 14 → 21; plan 1,370 lines,
+   +56% from round 1") — as **input to the external judge**, who is the one
+   weighing growth now; the old self-applied growth tripwire and its
+   depth-vs-accretion "my calls" are retired with the rest of the
+   self-refereeing (Codex, #543 round 2). What is NOT the judge's, because the
+   SOW gate reserved it for David: any finding whose fix would introduce a
+   **new mechanism** — a table, a role, a config domain, an endpoint — is a
+   scope addition and goes to him as a **now / next / never** question per
+   `CLAUDE.md`, defaulting to *next*, whatever the verdict says. Skip-on-clean
+   applies: a clean or trivial-nits-only round needs no adjudication and
+   proceeds to the next lens with a one-line status — but **a stop verdict
+   ends the loop even if step 7's three lenses haven't all run**; the lens
+   minimum yields to the judge, never the reverse. After the adjudication (or
+   on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
-   and request the next round with a fresh explicit `@codex review` comment.
+   and request the next round with a fresh explicit trigger comment (bare
+   trigger only, context separate and defanged).
    **Revisions are class-level, per
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)**:
    each reply names the finding's class and cites the sweep oracle
@@ -545,21 +551,11 @@ edit** — the block's `Stage`/`Waiting on`/`Last movement` fields, per
 `workstream-tracking.md`'s ownership rule. A label change with no matching
 narrative update is the exact drift that rule exists to prevent.
 
-**Reviewer efficacy is measured by the loop-metrics store**
-(`.agents/metrics/loops/<pr>.json`, one record per loop, written with
-`node scripts/loop-metrics.mjs --pr <n> --write`): every loop's rounds,
-findings, and self-inflicted share are recorded there, which is the evidence
-base for changing the reviewer or the ceremony. Records are not append-only —
-they can be edited or deleted in an ordinary commit, with PR review as the
-control and git history as the durable record (`decisions.md`, 2026-08-07) —
-so "recorded" here means durable via that control, not permanent by
-construction. The answers reach
-David through the digest (`node scripts/loop-report.mjs`, narrated by
-`/maintenance`), not by anyone reading records. `.agents/metrics/loop-ledger.md`
-is the frozen archive of the first 46 loops and is never appended to again.
-(This supersedes the original
-"first ~3 plans" calibration pilot — a dozen loops have run and the ledger
-measures them better than a one-time comparison would have.)
+**Reviewer efficacy is reviewed at `/maintenance`**, from the GitHub record
+rather than from a stored ledger (which was deleted 2026-08-20): meta-vs-product
+share, rounds per loop, adjudicator verdicts. That conversation with David is
+where the reviewer or the ceremony gets changed. `.agents/metrics/loop-ledger.md`
+remains as the frozen archive of the first 46 loops, never appended to.
 
 Hard boundaries:
 

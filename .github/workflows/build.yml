@@ -19,8 +19,7 @@ on:
 
 # A PR-triggered run is obsolete the moment another push lands on the same
 # PR — cancelling it loses no signal, just wall-clock and Actions minutes.
-# Every push-to-main run must complete, no exceptions — the ledger-debt
-# audit step only runs there. That ruled out `queue: max` (GitHub disallows
+# Every push-to-main run must complete, no exceptions. That ruled out `queue: max` (GitHub disallows
 # combining it with a `cancel-in-progress` that can evaluate true, which
 # ours does for PR events) as a way to protect queued push runs. Falling
 # back to `github.ref` for the group key was tried first and was WRONG: every
@@ -114,9 +113,10 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
 
-    # Explicit least-privilege. `pull-requests: read` is what the loop-ledger
-    # coverage guard needs to list closed PRs; every other step in this job
-    # only reads the checkout.
+    # Explicit least-privilege. `pull-requests: read` predates the deleted
+    # loop-ledger coverage guard; kept because narrowing a token during an
+    # unrelated change risks breaking a reader this comment doesn't know
+    # about, and read-only costs nothing.
     permissions:
       contents: read
       pull-requests: read
@@ -156,18 +156,11 @@ jobs:
       - name: Check manual tuning-language guard logic
         run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
 
-      # Also dependency-free. The loop ledger's whole premise is that counted
-      # numbers beat recalled ones, so its counting logic has to be provably
-      # right — an unverified derivation would carry exactly the false
-      # authority it exists to remove.
-      - name: Check loop-metrics derivation
-        run: node --test scripts/__tests__/loop-metrics.test.mjs
-
-      - name: Check loop-metrics guard logic
-        run: node --test scripts/__tests__/check-loop-metrics.test.mjs
-
-      - name: Check loop-report logic
-        run: node --test scripts/__tests__/loop-report.test.mjs
+      # The counting library stays on the enforcement path (round budget +
+      # adjudication records) after the ledger's deletion, so its derivation
+      # keeps provable coverage. (Codex, #543 round 3.)
+      - name: Check review-counting derivation
+        run: node --test scripts/__tests__/review-counting.test.mjs
 
       # The workstream board is only trustworthy if its columns match reality.
       # The label -> field mapping is the one place that can quietly drift (a
@@ -211,19 +204,6 @@ jobs:
       # asserted-not-asserted-about treatment as the guard above.
       - name: Check PR readiness receipts
         run: node --test scripts/__tests__/pr-ready.test.mjs
-
-      # Record validity, offline. Needs no token, no PR context, and no base
-      # diff, so it runs identically on a PR and on push-to-main.
-      #
-      # Coverage is deliberately NOT checked here (David, 2026-08-07). The old
-      # guard failed builds over missing rows, which coupled every unrelated
-      # PR to ledger state and still didn't put the gap in front of the person
-      # who could act on it. Missing records are now named in the digest
-      # `/maintenance` narrates — the surface David actually reads. That trades
-      # a red check nobody sees for a weekly report someone does, and accepts
-      # that tracking can lapse for a week. This is a tracking tool.
-      - name: Check loop-metrics store
-        run: node scripts/check-loop-metrics.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

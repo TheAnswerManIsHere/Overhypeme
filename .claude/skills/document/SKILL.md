@@ -20,20 +20,20 @@ chapter → Cross-check → Report & commit.** The contract holds the substance
 no-empty-chapter quality bar, proportionality, boundaries). I don't restate it
 here.
 
-**The harvest is a standing dispatch BAR; the run/don't-run judgement is a
-standing dispatch MANDATE.** Pre-registered here in writing, per `CLAUDE.md`'s
-*Whether a judgement dispatches is fixed in advance* — not decided at dispatch
-time, and not removable mid-task.
+**This runs batched at `/maintenance`, not per merge (David, 2026-08-20).**
+One pass covers every product feature merged since the last maintenance run.
+Process PRs — guards, scripts, skills, contracts, process docs — get no harvest
+at all: anything worth keeping from those is a Type 1 learning, persisted the
+moment it was learned.
 
-- **The harvest never runs in a subagent.** Its richest source is the *build
-  session's* own decisions and rejected alternatives, which a cold worker does
-  not inherit; the work is enumeration from memory, and no dispatch package can
-  carry what has not been noticed yet.
-- **The judgement always dispatches, on Fable, whatever tier the session is**
-  (David, 2026-08-17). It is bounded: the merged diff, the decisions taken
-  **enumerated rather than summarized**, and the bar. The enumeration is the
-  part that matters — an omitted decision is invisible to the judge, and no
-  tier fixes that.
+**There is no run/don't-run judgement dispatch any more.** It existed to decide
+whether a single merge warranted the whole ceremony; with the ceremony batched
+and a harvest-notes comment posted at every close-out, there is nothing left to
+judge.
+
+**The harvest never runs in a subagent.** Its richest sources are the build
+sessions' own decisions and rejected alternatives, which a cold worker does not
+inherit.
 
 ## Trigger check (don't run the ceremony for a "remember this")
 
@@ -57,9 +57,19 @@ Decide by what "this" refers to (contract's trigger table):
   asked to see routing first.
 - **Commit / PR discipline** — I follow the shared contract's placement rule
   (`documentation-workflow.md`, Step 5) exactly, so this stays a thin
-  enactment, not a second copy: **default to assuming the feature's PR is
-  already merged** (David's stated workflow — he invokes `/document` only
-  after the work has merged), so I don't spend a round-trip checking PR state
+  enactment, not a second copy. **Two delivery paths, split by how this was
+  invoked (Codex, #543 round 3):**
+  - **Batched at `/maintenance` (the normal case):** the whole window's
+    harvest — every feature, one pass — rides the **single maintenance docs
+    PR** alongside that pass's other doc updates. No per-feature branch, no
+    per-feature PR, no harvest sub-issue, no separate subscription: the
+    tracking is the harvest-notes comments already on each feature's
+    workstream issue. Internal tier — automatic pass, one triage, merge.
+    Everything below this bullet describes the AD-HOC path only.
+  - **Ad-hoc standalone invocation** (David asks for one feature directly):
+    **default to assuming the feature's PR is
+  already merged** (David's stated workflow),
+  so I don't spend a round-trip checking PR state
   first. I go straight to `git fetch origin main`, a fresh branch off
   `origin/main` created with **`-b` (never `-B`)**, and open a **new**, small
   docs-only PR for the harvest — never try to reuse or reopen the
@@ -75,11 +85,10 @@ Decide by what "this" refers to (contract's trigger table):
   the merged diffs, contradiction or duplication with existing docs; out of
   scope — prose style, structure preferences, completeness beyond the
   session's actual learnings.* Out-of-scope findings are declined against
-  the stated oracle in one triage pass; rounds continue only on
-  behavior-changing findings per `working-modes.md`'s consequence rule
-  (a polish-only round is convergence), and once the ready bar is met I
-  self-merge per CLAUDE.md's close-out contract — same-day
-  convergence-by-decline is the expected outcome, not a shortcut. I only
+  the stated oracle in one triage pass — a harvest is an internal artifact,
+  so the carve-out applies: the automatic pass, one triage, no re-requested
+  rounds — and once the ready bar is met I self-merge per CLAUDE.md's
+  close-out contract. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
   force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old

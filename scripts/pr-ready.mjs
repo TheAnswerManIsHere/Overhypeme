@@ -26,7 +26,7 @@
  * in this container (see .agents/memory/github-rest-api-blocked-from-bash.md
  * and the guard rule that now blocks the attempt). A plain Node process
  * therefore cannot call the MCP tools itself. The agent captures the pages and
- * passes them in -- the same adapter shape `loop-metrics.mjs --mcp-snapshot`
+ * passes them in -- the same adapter shape `review-counting.mjs`
  * already uses, and for the same reason.
  *
  * That means this script cannot stop me from fabricating a snapshot. It is not
@@ -45,7 +45,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS } from "./review-budget.mjs";
+import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS, allowance, railFor } from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -158,7 +158,7 @@ const REVIEW_REQUEST = /@codex\s+review/i;
 /**
  * The one thing the connector emits exactly ONCE per completed pass.
  *
- * Measured, not assumed: `loop-metrics.mjs` established this against #286,
+ * Measured, not assumed: `review-counting.mjs` established this against #286,
  * #288 and #290 -- three PRs whose rounds a human had independently narrated
  * -- and it is the only signal that agreed with all three. A pass that finds
  * something puts the marker in a `pull_request_review` body; a pass that finds
@@ -189,7 +189,7 @@ function fail(message) {
 /**
  * Refuse a snapshot that hasn't been paginated to completion.
  *
- * Same reasoning as `loop-metrics.mjs`'s equivalent: this process cannot page
+ * Same reasoning as `review-counting.mjs`'s equivalent: this process cannot page
  * the MCP tool itself, so the agent must attest that it did. A truncated
  * `reviewThreads` page is the dangerous one -- it drops unresolved threads,
  * which turns item 3 from a check into a rubber stamp on precisely the busy
@@ -592,11 +592,19 @@ export function checkCodex(issueComments, reviews, headSha = null) {
  * the declared tier's cap), this function also confirms the tier is
  * self-serve (`sensitive` never gets this fallback -- its tripwire is a
  * mandatory 🛑 to David, and a record or receipt claiming otherwise is
- * wrong on its face), that no request was still pending when the record was
- * generated, and that the record's own embedded extension history shows no
- * PRIOR adjudication -- a second one is never valid, so a record already
- * carrying one means this receipt cannot legitimately be a fresh one.
- * (Codex, #539 round 2.)
+ * wrong on its face), and that no request was still pending when the record
+ * was generated.
+ *
+ * IT DOES NOT COUNT PRIOR ADJUDICATIONS. It did until 2026-08-20, citing
+ * `review-budget.mjs`'s rule that a second adjudication is never valid --
+ * and that rule is gone: the adjudicator now runs after every round and may
+ * grant more than once, bounded by the outer rail rather than by a count. The
+ * check had to go with its own justification, and nothing was lost, because
+ * what makes a ship verdict terminal is the ACTIVE-ALLOWANCE test below
+ * (`passes >= record.budget.allowance` -- the tripwire actually fired, at
+ * whatever cap the loop had reached including earlier grants), not the
+ * absence of earlier adjudications. The anti-bypass property is unchanged and
+ * still comes from the ancestor-plus-exact-file bound below.
  *
  * THE ANCESTOR-PLUS-EXACT-FILE BOUND is what keeps this from becoming a
  * standing bypass. The record's baseline must be a real, resolvable ancestor
@@ -677,7 +685,7 @@ function latestReviewRequestAt(issueComments) {
  * deriving from it everything the old design took as separately
  * self-declared receipt fields: the tier, whether it's self-serve, the round
  * count against its cap, whether a request was still pending at generation,
- * whether a prior adjudication already occurred, and -- the diff baseline --
+ * and -- the diff baseline --
  * `sinceLastReview.head`, the PR head at the moment the record's analysis
  * was generated. Reads the record's committed content at the CURRENT head
  * (`headSha`), never a separately-cited commit: like the receipt itself, the
@@ -764,15 +772,6 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
         "comment and the last completed pass shared the same reported second, which is indeterminate, not resolved",
     };
   }
-  if ((record.budget?.extensions ?? []).some((e) => e.kind === "adjudication")) {
-    return {
-      ok: false,
-      detail:
-        `${recordPath}: budget.extensions already shows a prior adjudication -- a second adjudication is never ` +
-        "valid (review-budget.mjs's own rule), so this receipt cannot legitimately be one",
-    };
-  }
-
   const generatedAt = Date.parse(record.generatedAt ?? "");
   if (!Number.isFinite(generatedAt)) {
     return { ok: false, detail: `${recordPath}.generatedAt is missing or unparseable` };
@@ -1088,6 +1087,7 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
     codex,
     threads: checkThreads(snapshot.reviewThreads),
     capture: checkCapture(snapshot.capturedAt, codex.acceptedAt, now),
+    rail: checkRail(snapshot.pr.number, headSha, adjudicationOpts.cwd),
   };
   const ready = Object.values(items).every((i) => i.pass);
   const captureTimes = Object.values(snapshot.capturedAt ?? {}).map((v) => Date.parse(v ?? ""));
@@ -1103,6 +1103,71 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
     // `generatedAt` only says when this process ran. (Codex, #490.)
     evidenceAt: oldest.length ? new Date(Math.min(...oldest)).toISOString() : null,
     items,
+  };
+}
+
+/**
+ * The outer rail, enforced at merge time (Codex, #543 round 3).
+ *
+ * The contract says a loop whose allowance reaches 2x its declared budget
+ * goes to David REGARDLESS of verdict -- but without this check, a clean
+ * final pass (or a terminal ship receipt at rail allowance) satisfies the
+ * Codex item and the PR mints READY with David never consulted. Reads the
+ * committed budget receipt at the head; no budget (internal work, or no loop)
+ * means the rail does not apply. When the fully-activated allowance has
+ * reached the rail, only a loop whose LAST extension is a `david`-kind
+ * receipt is ready -- his authorization is the one thing the rail exists to
+ * guarantee.
+ */
+export function checkRail(prNumber, headSha, cwd) {
+  const budgetRaw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/loop-budget-${prNumber}.json`], cwd);
+  if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the outer rail does not apply" };
+  let tier;
+  try {
+    tier = JSON.parse(budgetRaw).tier;
+  } catch (e) {
+    return { pass: false, detail: `committed budget receipt is unreadable (${e.message}) -- cannot rule out the rail` };
+  }
+  if (!TIERS[tier]) return { pass: false, detail: `committed budget names unknown tier ${JSON.stringify(tier)}` };
+
+  const lsOutput = git(["ls-tree", "--name-only", `${headSha}:${LOOP_RECEIPTS_DIR}`], cwd) ?? "";
+  const prefix = `loop-extension-${prNumber}-`;
+  const extensions = lsOutput
+    .split("\n")
+    .filter((base) => base.startsWith(prefix) && base.endsWith(".json"))
+    .map((base) => {
+      const seqStr = base.slice(prefix.length, base.length - ".json".length);
+      if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) return null;
+      return { seq: Number(seqStr), base };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.seq - b.seq)
+    .map(({ base }) => {
+      const raw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/${base}`], cwd);
+      try {
+        return raw === null ? null : JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    });
+  if (extensions.some((e) => e === null)) {
+    return { pass: false, detail: "a committed extension receipt is unreadable -- cannot rule out the rail" };
+  }
+
+  // Fully activated: what the allowance becomes once everything is spent.
+  const activated = allowance(tier, extensions, Number.MAX_SAFE_INTEGER);
+  const rail = railFor(tier);
+  if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
+  const last = extensions[extensions.length - 1];
+  if (last?.kind === "david") {
+    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest extension` };
+  }
+  return {
+    pass: false,
+    detail:
+      `this loop's allowance has reached the outer rail (${rail} rounds -- 2x its declared budget), which goes ` +
+      `to David regardless of verdict; no "david"-kind receipt is the latest extension, so readiness cannot ` +
+      `be self-served`,
   };
 }
 

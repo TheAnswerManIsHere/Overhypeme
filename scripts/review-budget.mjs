@@ -35,8 +35,8 @@
  * So rounds are now COUNTED FRESH, the way `pr-ready.mjs` counts merge
  * readiness: the session captures a snapshot of the PR's reviews and issue
  * comments, `check` validates it (bound to this PR and repo, attested
- * complete, recent) and counts rounds with `loop-metrics.mjs`'s own
- * `reviewerPasses()` -- the same function the ledger uses -- plus at most one
+ * complete, recent) and counts rounds with `review-counting.mjs`'s own
+ * `reviewerPasses()` -- plus at most one
  * pending request visible in the comments themselves. The result is an
  * EPHEMERAL round-check receipt the PreToolUse hook demands, one post per
  * receipt. GitHub is the durable store; the receipt is evidence about a
@@ -111,7 +111,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { REVIEWER_LOGINS, normalizeLogin } from "./loop-metrics.mjs";
+import { REVIEWER_LOGINS, normalizeLogin } from "./review-counting.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -137,11 +137,21 @@ export const REPO_NAME = "Overhypeme";
 export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
 
 /**
- * Blast-radius tiers (David, 2026-08-17, issue #501).
+ * Blast-radius tiers (David, 2026-08-17, issue #501; revised 2026-08-20).
  *
  * `budget` is the round cap; `null` means uncapped by design. `escalateAt` is
  * where an uncapped tier still owes David a mandatory stop -- uncapped is not
  * unattended.
+ *
+ * THERE IS NO `internal` TIER (David, 2026-08-20, the tooling carve-out).
+ * Internal artifacts -- guards, scripts, skills, contracts, process docs --
+ * get the automatic Codex pass on PR-open, one triage, and no re-requested
+ * rounds at all. That is enforced by this file's existing posture rather than
+ * by a tier: internal work declares no budget, and no budget means no
+ * `@codex review` post. The carve-out exists because every runaway loop this
+ * repo has measured (#488's 22 rounds, #503, #531, #534, #539) was internal
+ * tooling being reviewed at product rigor -- including the loops spent
+ * reviewing THIS guard.
  *
  * `selfServe` is the tier's answer to "may the first tripwire be cleared by an
  * adjudicator instead of by David?" Sensitive work says no: on auth, payments
@@ -150,12 +160,6 @@ export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
  * one more thing decided in-house.
  */
 export const TIERS = {
-  internal: {
-    budget: 3,
-    escalateAt: null,
-    selfServe: true,
-    label: "internal tooling / docs / guards / agent contracts",
-  },
   product: {
     budget: 5,
     escalateAt: null,
@@ -173,8 +177,24 @@ export const TIERS = {
 /** The cap a tier enforces before any extension: its budget, or its 🛑 point. */
 export const tierCap = (tier) => TIERS[tier].budget ?? TIERS[tier].escalateAt;
 
-/** The most rounds one adjudication may ever grant. */
-export const MAX_ADJUDICATION_GRANT = 2;
+/**
+ * The outer rail on self-serve extension: twice the tier's declared budget.
+ *
+ * The adjudicator owns extension SIZE (David, 2026-08-20 -- a push whose last
+ * round revealed a real problem may need three rounds, not a fixed one), so
+ * the old `MAX_ADJUDICATION_GRANT = 2` ceiling is gone. What replaces it is an
+ * outer bound rather than a per-grant one: adjudicator grants may accumulate
+ * up to 2x the budget, and there they stop and the loop goes to David
+ * regardless of verdict.
+ *
+ * Why a rail at all, when the adjudicator's record is good: #488's post-mortem
+ * found that pure judgment, however well-positioned, failed to bound a loop --
+ * every round was locally rational. The adjudicator is 3-for-3, which is 3
+ * samples. With unlimited grant authority a pathological loop never
+ * mechanically reaches David; with the rail, the worst case of a wrong
+ * adjudicator is bounded at double cost.
+ */
+export const railFor = (tier) => tierCap(tier) * 2;
 
 /** Verdicts the adjudicator may return. Only `continue` grants rounds. */
 export const ADJUDICATION_VERDICTS = new Set(["ship-with-gaps-recorded", "split", "continue", "escalate"]);
@@ -651,7 +671,7 @@ export function validateBudget(pr, receipt) {
  * likelier failures than the fabrication this module's header declines to
  * defend against.
  */
-function validateRecordReference(pr, tier, recordPath, io, ref) {
+function validateRecordReference(pr, tier, recordPath, io, ref, preceding = []) {
   // pr-ready.mjs's merge-gate fallback requires every recordPath to live
   // under ADJUDICATIONS_DIR (never trusting an arbitrary path), so a
   // receipt this guard accepts as closing the loop must be one that gate
@@ -678,16 +698,28 @@ function validateRecordReference(pr, tier, recordPath, io, ref) {
   }
   if (parsed.value?.pr !== pr) return `${recordPath} describes PR ${parsed.value?.pr}, not ${pr}`;
   const passes = parsed.value?.rounds?.completedReviewerPasses;
-  if (!Number.isInteger(passes) || passes < tierCap(tier)) {
+  // AGAINST THE ALLOWANCE THIS RECEIPT'S OWN STAGE STARTS AT, never the base
+  // tier cap. Repeat adjudications are valid as of 2026-08-20, and the base cap
+  // stopped being the right threshold the moment they were: a second receipt
+  // citing the record that answered the FIRST tripwire satisfies `>= tierCap`
+  // forever, and `allowance` then activates it at the second tripwire -- so one
+  // adjudication would silently cover two, and round 7 would open with nothing
+  // having ruled on round 6. Every preceding extension is fully spent before
+  // this one activates (see `allowance`'s staging), so the floor is the
+  // allowance they establish. (Codex, #543.)
+  const stageFloor = allowance(tier, preceding, Number.MAX_SAFE_INTEGER);
+  if (!Number.isInteger(passes) || passes < stageFloor) {
     return (
-      `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below tier ` +
-      `"${tier}"'s cap of ${tierCap(tier)} -- an adjudication must follow its tripwire, not precede it`
+      `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below this ` +
+      `receipt's own stage floor of ${stageFloor} for tier "${tier}" ` +
+      `(the allowance its ${preceding.length} preceding extension(s) establish) ` +
+      `-- an adjudication must follow the tripwire it answers, not an earlier one`
     );
   }
   return null;
 }
 
-export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen, io, ref }) {
+export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }) {
   if (!receipt || typeof receipt !== "object") return "extension receipt is not an object";
   if (receipt.pr !== pr) return `extension receipt names PR ${receipt.pr}, not ${pr}`;
 
@@ -695,8 +727,17 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
     if (!TIERS[tier].selfServe) {
       return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
     }
-    if (adjudicationsAlreadySeen > 0) {
-      return "a SECOND adjudication extension is never valid (tier 2 is a hard stop to David, by design)";
+    // A TERMINAL verdict decides. Refusing the next post (the guard's own
+    // rule) is bypassable from this side: a later `continue` receipt would
+    // become the last extension and read as reopening the loop. So the
+    // receipt itself is invalid -- after a terminal adjudication, only a
+    // `david`-kind receipt may follow. (Codex, #543 round 3.)
+    const prev = preceding[preceding.length - 1];
+    if (prev && prev.kind === "adjudication" && prev.verdict !== "continue") {
+      return (
+        `a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- a further ` +
+        `adjudication receipt cannot follow it; only a "david"-kind receipt reopens the loop`
+      );
     }
     if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
       return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
@@ -733,11 +774,13 @@ export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen,
     if (!Array.isArray(receipt.gaps)) {
       return "adjudication receipt must carry the adjudicator's `gaps` array, verbatim (empty is valid for a verdict with no known gaps)";
     }
-    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref);
+    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref, preceding);
     if (recordError) return recordError;
     if (receipt.verdict !== "continue") return null; // ship-with-gaps-recorded / split / escalate grant nothing further
-    if (!Number.isInteger(receipt.grant) || receipt.grant < 1 || receipt.grant > MAX_ADJUDICATION_GRANT) {
-      return `a continue verdict grants 1-${MAX_ADJUDICATION_GRANT} rounds, not ${JSON.stringify(receipt.grant)}`;
+    // The adjudicator owns the SIZE of an extension (David, 2026-08-20); the
+    // bound is the outer rail in `allowance`, not a per-grant ceiling here.
+    if (!Number.isInteger(receipt.grant) || receipt.grant < 1) {
+      return `a continue verdict grants a positive integer of rounds, not ${JSON.stringify(receipt.grant)}`;
     }
     // The named risk is the entire justification for continuing. Without it a
     // continue verdict is "keep going" with no content, which is what the loop
@@ -849,7 +892,6 @@ export function loadLoop(pr, io) {
   }
 
   const extensions = [];
-  let adjudicationsSeen = 0;
   for (const { seq, name } of found) {
     const rel = `${RECEIPTS_DIR}/${name}`;
     // From the ref. There is no second read to disagree with this one, and no
@@ -859,9 +901,10 @@ export function loadLoop(pr, io) {
     if (parsed.state !== "ok") {
       return { problem: "bad-receipt", detail: `${rel} could not be read from ${ref} (${parsed.state}: ${parsed.error ?? "unreadable"})` };
     }
-    const error = validateExtension(pr, tier, parsed.value, { adjudicationsAlreadySeen: adjudicationsSeen, io, ref });
+    // Only the extensions already accepted, in sequence order: this receipt
+    // must answer the tripwire THEY establish, not an earlier one.
+    const error = validateExtension(pr, tier, parsed.value, { io, ref, preceding: extensions });
     if (error) return { problem: "bad-receipt", detail: `${rel} (in ${ref}): ${error}` };
-    if (parsed.value.kind === "adjudication") adjudicationsSeen += 1;
     extensions.push({ seq, ...parsed.value });
   }
 
@@ -893,6 +936,7 @@ export function allowance(tier, extensions, roundsSpent) {
   if (!Number.isInteger(roundsSpent) || roundsSpent < 0) {
     throw new Error(`allowance needs a non-negative integer roundsSpent, got ${JSON.stringify(roundsSpent)}`);
   }
+  const rail = railFor(tier);
   let total = tierCap(tier);
   for (const ext of extensions) {
     if (roundsSpent < total) break; // this stage is not exhausted yet
@@ -900,14 +944,34 @@ export function allowance(tier, extensions, roundsSpent) {
       if (ext.grant === "uncapped") return Infinity;
       total += ext.grant;
     } else if (ext.kind === "adjudication" && ext.verdict === "continue") {
-      total += ext.grant;
+      // Adjudicator grants accumulate, but never past the outer rail. David
+      // grants are not railed -- he is the authority the rail escalates TO.
+      total = Math.min(total + ext.grant, rail);
     }
   }
   return total;
 }
 
-/** Whether the loop has already spent its one self-serve extension. */
-const hasAdjudication = (extensions) => extensions.some((e) => e.kind === "adjudication");
+/**
+ * Whether self-serve extension is exhausted for this loop: the allowance has
+ * reached the outer rail, so only David can grant further rounds.
+ */
+const railReached = (tier, extensions, roundsSpent) => allowance(tier, extensions, roundsSpent) >= railFor(tier);
+
+/**
+ * Whether a TERMINAL adjudication verdict is standing: the highest-sequence
+ * extension is adjudication-kind with a non-continue verdict. The shared
+ * contract says a dispatched verdict DECIDES -- so a committed
+ * ship-with-gaps-recorded / split / escalate must not be answerable by simply
+ * running another self-serve adjudication until one says continue (Codex,
+ * #543 round 2). A later `david`-kind grant supersedes the terminal verdict
+ * and reopens the loop; only he can.
+ */
+const terminalVerdictStanding = (extensions) => {
+  if (!extensions.length) return false;
+  const last = extensions[extensions.length - 1];
+  return last.kind === "adjudication" && last.verdict !== "continue";
+};
 
 // ---------------------------------------------------------------------------
 // Counting rounds from evidence
@@ -1053,7 +1117,19 @@ function refusal(pr, state, spent, tiedCount = false) {
     `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
     `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).${tie}`;
 
-  if (!hasAdjudication(extensions) && TIERS[tier].selfServe) {
+  if (terminalVerdictStanding(extensions)) {
+    return (
+      `${head}\n` +
+      `TRIPWIRE 2 (hard stop). A TERMINAL adjudication verdict is standing on this loop ` +
+      `("${extensions[extensions.length - 1].verdict}", ${extensionPath(pr, extensions[extensions.length - 1].seq)}) ` +
+      `and a dispatched verdict decides -- another self-serve adjudication cannot overturn it. ` +
+      `Take this to David as a 🛑 NEED YOU; only a "david"-kind extension receipt reopens the loop. Record ` +
+      `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
+      `"authorization":"<his words>"}, then COMMIT AND PUSH it.`
+    );
+  }
+
+  if (TIERS[tier].selfServe && !railReached(tier, extensions, spent)) {
     return (
       `${head}\n` +
       `TRIPWIRE 1 (self-serve). Do NOT re-evaluate this in the loop's own context -- that is the ` +
@@ -1065,7 +1141,10 @@ function refusal(pr, state, spent, tiedCount = false) {
       `Give it the generated record and NOTHING else from this session. Fable spends at double Opus, so ` +
       `say out loud that you are dispatching it (the announce-don't-sneak rule in the model-routing skill).\n` +
       `  3. Write its verdict to ${extensionPath(pr, nextSeq)} ` +
-      `(ship-with-gaps-recorded | split | continue+grant<=${MAX_ADJUDICATION_GRANT}+risk | escalate). ` +
+      `(ship-with-gaps-recorded | split | continue+grant+risk | escalate). The adjudicator sizes its own ` +
+      `grant -- a push whose last round revealed a real problem may need more than one round -- bounded ` +
+      `only by the outer rail of ${railFor(tier)} rounds (2x the tier budget), where this loop goes to ` +
+      `David regardless of verdict. ` +
       `Every verdict -- not just "continue" -- must also carry \`recordPath\` (citing the exact record path ` +
       `step 1 printed) and \`decidedAt\` (an ISO timestamp of when THIS receipt is being written, not when ` +
       `the record was generated in step 1). Carry the adjudicator's own \`reasoning\` and \`gaps\` fields ` +
@@ -1074,13 +1153,18 @@ function refusal(pr, state, spent, tiedCount = false) {
       `recordPath, decidedAt, reasoning, or gaps closes this guard but can never satisfy pr-ready.mjs's ` +
       `merge gate. Then COMMIT AND PUSH it -- extensions are read from the remote-tracking ref, so an ` +
       `unpushed one grants nothing and this refusal will simply repeat.\n` +
-      `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard, and only once.`
+      `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard.`
     );
   }
 
   return (
     `${head}\n` +
-    `TRIPWIRE 2 (hard stop). The one self-serve extension is spent, and there is never a second one. ` +
+    `TRIPWIRE 2 (hard stop). ` +
+    (TIERS[tier].selfServe
+      ? `This loop has reached the outer rail of ${railFor(tier)} rounds (2x its declared budget), so ` +
+        `adjudicator extensions stop here: a loop needing this many rounds has a problem no extension ` +
+        `fixes. `
+      : `Tier "${tier}" has no self-serve stage -- its tripwire is a mandatory 🛑 to David. `) +
     `Take this to David as a 🛑 NEED YOU with the adjudication record pre-written as the options, and record ` +
     `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
     `"authorization":"<his words>"}, then COMMIT AND PUSH it -- extensions are read from the ` +
@@ -1135,10 +1219,16 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
     return {
       blocked: true,
       reason:
-        `no round budget declared for PR #${pr}. Declare it BEFORE round 1:\n` +
-        `  node scripts/review-budget.mjs declare --pr ${pr} --tier <internal|product|sensitive> ` +
+        `no round budget declared for PR #${pr}, so an @codex review re-request is refused.\n` +
+        `IF THIS IS INTERNAL TOOLING -- a guard, a script, a skill, CLAUDE.md, a process doc, a ` +
+        `harvest -- this refusal is the CORRECT outcome and needs no fix (David, 2026-08-20, the ` +
+        `tooling carve-out): internal artifacts get the automatic Codex pass on PR-open, one triage ` +
+        `pass, one-line declines, and no re-requested rounds. Triage what the automatic pass found ` +
+        `and merge. Do NOT declare a budget to get around this.\n` +
+        `IF THIS IS PRODUCT CODE, declare the budget BEFORE round 1:\n` +
+        `  node scripts/review-budget.mjs declare --pr ${pr} --tier <product|sensitive> ` +
         `--criticality <1-100> --artifact "<what is under review>"\n` +
-        `Tiers: internal=3 rounds, product=5, sensitive=uncapped with a mandatory 🛑 at 5. ` +
+        `Tiers: product=5 rounds, sensitive=uncapped with a mandatory 🛑 at 5. ` +
         `Commit the receipt and state the budget in the PR body too.`,
     };
   }
@@ -1168,10 +1258,10 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
   }
 
   // A RETRY OF A STALLED ROUND IS NOT A NEW ROUND, and refusing it was a real
-  // deadlock. With `spent = delivered + pending`, an internal loop sitting at
-  // 2 delivered + 1 stalled equals the cap, so the retry was refused -- while
-  // the documented recovery could not clear it either, since the adjudication
-  // record would show 2 completed passes against a required 3. A reviewer
+  // deadlock. With `spent = delivered + pending`, a loop sitting at
+  // cap-1 delivered + 1 stalled equals the cap, so the retry was refused --
+  // while the documented recovery could not clear it either, since the
+  // adjudication record would show fewer completed passes. A reviewer
   // outage at the cap became a hard stop until the original pass arrived or
   // David intervened. (Codex, #503 round 4.)
   //
@@ -1255,7 +1345,7 @@ export function parseArgs(argv) {
 }
 
 const USAGE = `usage:
-  review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> --criticality <1-100> --artifact "<text>"
+  review-budget.mjs declare --pr <n> --tier <product|sensitive> --criticality <1-100> --artifact "<text>"
   review-budget.mjs check   --pr <n> --mcp-snapshot <file>
   review-budget.mjs status  --pr <n> [--mcp-snapshot <file>]
 
@@ -1304,7 +1394,7 @@ function declare(flags, io) {
 
 /**
  * Snapshot requirements for counting rounds. Mirrors the posture of
- * `pr-ready.mjs`'s assertSnapshot and `loop-metrics.mjs`'s completeness
+ * `pr-ready.mjs`'s assertSnapshot and `review-counting.mjs`'s completeness
  * assertions: bound to THIS pr, both collections present and attested
  * complete, and shaped well enough that `reviewerPasses` cannot silently
  * undercount. (Codex, #503 round 3: an attested-complete snapshot whose
@@ -1449,7 +1539,7 @@ async function check(flags, io) {
     }
   }
 
-  const { reviewerPasses } = await import("./loop-metrics.mjs");
+  const { reviewerPasses } = await import("./review-counting.mjs");
   const counted = countRounds({
     reviewerPasses: reviewerPasses(snapshot.reviews, snapshot.issueComments),
     issueComments: snapshot.issueComments,

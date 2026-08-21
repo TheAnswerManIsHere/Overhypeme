@@ -295,20 +295,18 @@ the PR back only delays the review that catches things.
 The review-loop contract is shared and enacted elsewhere — **the mechanics
 live in the `pr-watch` skill** (which loads for any watched PR, bugfix or
 feature) **and in
-[`working-modes.md`](../../../docs/ai-context/working-modes.md)**: the
-post-round adjudication before any fixes are implemented (count + trend,
-causal flags, the continue/stop decision made in-loop via the adversarial
-subagent, product English on anything that reaches David — skip-on-clean), the
-class-sweep protocol (name the class, cite the mechanical oracle, sweep to
-zero, re-run prior rounds' oracles before every push), the criticality gate
-before every re-request, the fix / accept-and-document / escalate / decline
-triage (a decline posts only after surviving the Fable-subagent challenge),
-resolving each thread myself right after addressing it, per-round
-`@codex review` re-requests naming what the round closes, the
-cumulative-diff rule after 2+ fix rounds, breaking non-converging loops by
-diagnosis — oscillation or a genuinely contested fix, not a round count
-(David, 2026-08-15, superseding the earlier ~2-round figure) — and
-unsubscribing at merge/close. **Pointer, not a copy** —
+[`working-modes.md`](../../../docs/ai-context/working-modes.md)**, as revised
+2026-08-20: the declared budget (a product-code fix is a product loop, 5
+rounds), the **external adjudicator after every round beyond the first —
+its verdict decides; the in-loop continue/stop, criticality gate, count
+trend, oscillation diagnosis and Fable-challenged declines are all
+retired** (Codex, #543 round 3), the fix / accept-and-document / escalate
+triage stated per finding, the class-sweep protocol (name the class, cite
+the mechanical oracle, sweep to zero, re-run prior rounds' oracles before
+every push), resolving each thread myself right after addressing it,
+bare-trigger re-requests with context in a separate defanged comment,
+the cumulative-diff rule after 2+ fix rounds, and unsubscribing at
+merge/close. **Pointer, not a copy** —
 restating those mechanics here is how this section went stale once already
 (it carried a "never resolve threads" rule for two months after David
 reversed it, 2026-08-06).
@@ -327,18 +325,14 @@ What is *bugfix-specific* about the loop:
   (step 3, with its first-use caveat) — so no `@codex review` on open.
   (The plan-review loop needs an explicit trigger only because its PR
   *stays* a draft.)
-- **The criticality gate rates the artifact the fix touches — never the fact
-  that it's a fix.** A fix to product code passes the gate normally; a real
-  product fix is essentially never single-digit. But routed entry means a bug
-  can be *in the docs*: when the whole diff is agent-facing markdown or a
-  transient checklist, that artifact's rule governs — no round cap but
-  continuation gated on behavior-changing findings for markdown, and the
-  automatic first pass with no re-request for a transient checklist — per
-  `working-modes.md`'s *Docs-only loops continue on consequence, not
-  count* and the ceremony table, and the review
-  request states the docs-only light bar — exactly as if the same change had
-  arrived through feature mode. Entering through this mode never raises an
-  artifact's ceremony, and never lowers product code's.
+- **The artifact the fix touches picks the tier — never the fact that it's
+  a fix.** A fix to product code is a product loop (declared budget, external
+  adjudicator). But routed entry means a bug can be *in the docs*: when the
+  whole diff is agent-facing markdown or process tooling, the internal
+  carve-out governs — the automatic pass, one triage, no re-requested rounds
+  — exactly as if the same change had arrived through feature mode. Entering
+  through this mode never raises an artifact's ceremony, and never lowers
+  product code's.
 - **The re-reviewer's oracle is the bugfix oracle** (step 3), not a plan —
   it's what lets Codex ask "root cause or symptom-patch?" and "did this
   miss a caller?", so re-requests reference it the way feature loops

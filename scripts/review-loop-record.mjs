@@ -15,7 +15,7 @@
  * distinction: recalled numbers have been wrong 3 times out of 3, counted ones
  * right 3 out of 3 (see the loop-ledger contract in working-modes.md). Every
  * field below is derived from GitHub's own records or from git, and the
- * counting logic is `loop-metrics.mjs`'s -- the same functions the ledger uses,
+ * counting logic is `review-counting.mjs`'s -- the same functions the budget guard uses,
  * already hardened against the round-counting mistakes that cost that file
  * four rounds of review to find.
  *
@@ -28,7 +28,7 @@
  *   - TERRITORY is mechanical, and is derived here: a finding's file path
  *     against the PR's own changed-file list.
  *   - CAUSE is not. "Re-raised" and "wrong-fix" are prose conventions with no
- *     machine-readable marker, and `loop-metrics.mjs` refuses to regex them
+ *     machine-readable marker, and `review-counting.mjs` refuses to regex them
  *     for exactly that reason -- a regex over prose is a guess wearing the
  *     costume of a measurement. So this record reports cause as null and says
  *     why, rather than shipping a fabricated classification to the one reader
@@ -41,7 +41,7 @@
  * with the git-scoped GITHUB_TOKEN (measured 2026-08-16, see
  * .agents/memory/github-rest-api-blocked-from-bash.md). The session assembles
  * the snapshot through the MCP tools and passes the file, exactly as
- * `loop-metrics.mjs --mcp-snapshot` already requires -- and inherits that
+ * `review-counting.mjs`'s snapshot adapter already requires -- and inherits that
  * file's completeness assertions, which refuse a snapshot that was not
  * paginated to the end.
  */
@@ -59,7 +59,7 @@ import {
   artifactSize,
   REVIEWER_LOGINS,
   normalizeLogin,
-} from "./loop-metrics.mjs";
+} from "./review-counting.mjs";
 import { loadLoop, allowance, countRounds, tierCap, nodeIo, TIERS, REPO_OWNER, REPO_NAME } from "./review-budget.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -92,13 +92,19 @@ export function classifyPath(file) {
   if (/^(CLAUDE|AGENTS)\.md$/.test(file)) return "agent-contract";
   if (/^docs\/(ai-context|engineering)\//.test(file)) return "agent-contract";
   if (/^\.agents\//.test(file)) return "agent-contract";
+  // A plan under review IS the artifact of a [PLAN REVIEW] loop: revising it
+  // changes what gets built, which is as behavioral as a plan gets. Classing
+  // it "prose" made the adjudicator structurally unable to continue an
+  // unresolved plan review -- proseOnly read as nothing-to-review on the very
+  // file the loop exists to review. (Codex, #543 round 2.)
+  if (/^docs\/plans\//.test(file)) return "plan";
   if (/\.(md|txt)$/.test(file)) return "prose";
   if (/^docs\//.test(file)) return "prose";
   return "code";
 }
 
 /** Which classes count as a behavioural change for the re-request rule. */
-export const BEHAVIORAL_CLASSES = new Set(["code", "agent-contract"]);
+export const BEHAVIORAL_CLASSES = new Set(["code", "agent-contract", "plan"]);
 
 // ---------------------------------------------------------------------------
 // Git side: what changed since the last reviewed commit
@@ -321,7 +327,7 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
     pr,
     title: snapshot.pr?.title ?? null,
     // Counted, never recalled. Every number below comes from GitHub's records
-    // via loop-metrics.mjs's own counting functions.
+    // via review-counting.mjs's own counting functions.
     artifact: artifactSize(derived.files),
     budget,
     rounds: {
@@ -376,7 +382,7 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
     },
     provenance: {
       githubVia: "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
-      countingLogic: "scripts/loop-metrics.mjs",
+      countingLogic: "scripts/review-counting.mjs",
       caveat:
         "This record contains no narration from the loop it measures. If a field is unknown it says so; " +
         "nothing here is inferred from the session's own account of its rounds.",

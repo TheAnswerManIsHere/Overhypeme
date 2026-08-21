@@ -1,5 +1,9 @@
 # Deferred Engineering Work
 
+Last maintenance pass: none yet under the 2026-08-20 contract — the next
+`/maintenance` run updates this line every pass (it is the durable window
+boundary the batched documentation harvest reads).
+
 The single, durable home for engineering, security-hygiene, and maintenance
 work we have **consciously chosen not to do yet** — dependency bumps we've
 parked, deprecations we're carrying, cleanup we've postponed, toolchain debt.
@@ -852,7 +856,7 @@ re-gather it when the work is scheduled.
 
 - **The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`).**
   - **What.** `Build` run 31911725205 on commit `7e37cc8` (PR #451's squash —
-    a metrics-record-only change touching `.agents/metrics/loops/443.json`)
+    a metrics-record-only change touching a loop record)
     failed at the `Run api-server test suite` step. The two commits that
     followed it on `main` (`fac70e3`, `d8b7573`) ran the same job green with
     no fix in between, and a docs-only diff cannot break that suite, so the

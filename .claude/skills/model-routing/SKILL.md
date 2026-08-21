@@ -64,23 +64,23 @@ is **state**, not difficulty:
   enumeration from memory, and no dispatch package can carry what has not
   been noticed yet.
 
-  The **judgement** of whether to run a pass is the opposite: a standing
-  dispatch **mandate**, and since 2026-08-17 it goes to **Fable, whatever
-  tier the session is on**. The old "(and only when the session is below
-  Opus)" condition is retired — it would have given a degraded session the
-  stronger judgement and an Opus session the weaker one. See `CLAUDE.md`'s
-  *I proactively remind David to run `/document`* and *Whether a judgement
-  dispatches is fixed in advance*.
+  The run/don't-run **judgement** that used to dispatch here is **gone**
+  (David, 2026-08-20): the harvest is batched at `/maintenance` and every
+  close-out posts harvest notes, so there is no per-merge decision left to
+  judge.
 - **Not routable**: a review loop or any long-running stateful loop; anything
   whose judgment is mine under the 2026-08-15 adjudication rules; verification
   of my own work (barred by `CLAUDE.md`'s delegation caps).
 - **Why PR-watching specifically was considered and rejected.** It looks like
   the ideal candidate — high volume, mostly mechanical — but it carries
   per-round state (round number, cumulative-diff rule, declines and their
-  reasoning, resolved threads, finding-count and plan-growth tripwires) that a
-  subagent would re-establish on every webhook event, while my main loop stays
-  engaged anyway because the adjudication is mine. Plausibly *more* expensive
-  than simply watching on Opus, not less. Recorded here so it isn't re-proposed
+  reasoning, resolved threads) that a subagent would re-establish on every
+  webhook event, while my main loop stays engaged anyway. Plausibly *more*
+  expensive than simply watching on Opus, not less. **What IS dispatched is
+  the per-round adjudication itself** — one `review-loop-adjudicator` on
+  Fable, reading a script-generated record rather than this session's
+  context, which is the whole point: the value is the absence of my context,
+  not the presence of a worker. Recorded here so it isn't re-proposed
   as an obvious optimization.
 - **Announce every dispatch, in both directions.** The announce-don't-sneak
   rule was written for expensive escalations; it applies just as much to a
@@ -229,140 +229,19 @@ adds the second: the strongest available reader. Neither substitutes for the
 other, so a dispatch that reuses my own reasoning is not rescued by being on
 Fable.
 
-### Review-loop triage: the structural adjudication triggers (David, 2026-08-08, superseding the 2026-08-07 discretionary trigger; on Fable since 2026-08-17)
+### The review-loop dispatch triggers are RETIRED (2026-08-20, PR #543)
 
-The 2026-08-07 revision sanctioned a one-shot subagent for triage
-calls the driving agent judged ambiguous. The weak link was the judging:
-the cheap tier had to notice its own depth was insufficient, which is
-exactly the assessment a cheap tier is worst at. With the class-and-sweep
-protocol in place (`working-modes.md`'s *"A finding names an instance; the
-fix owes the class"*), the discretionary trigger is **superseded by three
-structural ones** — each a fact about the situation, not a self-assessment:
+Two sections lived here — the three structural adjudication triggers
+(any decline, any oracle-less finding, any swept-class recurrence) and the
+adversarial stopping-rule subagent. **Both are superseded by the single
+external per-round adjudicator** in `CLAUDE.md`'s *Review loops*: one
+`review-loop-adjudicator` on Fable after every substantive round beyond the
+first, record-only input, verdict decides. Running the old per-finding and
+per-decline dispatches alongside it would re-create the parallel
+self-refereeing the #541 review deleted (Codex, #543 round 3).
 
-1. **Any decline.** Before a decline posts, the Fable subagent gets the
-   finding plus my refutation and argues the finding's side; the decline
-   posts only if it survives. Rationale: a wrong fix or a wrong escalation
-   self-corrects downstream (Codex re-reviews, David tests the product); a
-   wrong decline resolves the thread and nothing catches it.
-2. **Any finding with no mechanical oracle.** If the sweep protocol's
-   "write a grep/ls one-liner for the class" step comes up empty, the
-   finding is pure judgment by construction, and its triage verdict comes
-   from the Fable subagent.
-3. **Any recurrence of a swept class.** A later round re-finding a class
-   that was already swept means the class was misnamed — the re-naming goes
-   to the Fable subagent, and the recurrence is flagged in that round's
-   record.
-
-Unchanged from 2026-08-07: one-shot, no session switch, no action from
-David, and the announce-don't-sneak rule — a subagent spending above the
-session's rate gets said out loud in the same breath as dispatching it.
-This is a sanctioned judgment escalation, not a verify-my-own-work
-subagent (which stays barred by CLAUDE.md's delegation caps).
-
-**All three triggers stay live regardless of the main loop's tier — corrected
-2026-08-15 (Codex, PR #458 round 1).** This paragraph used to say triggers
-1–2 were "moot" on loops already running at Opus. Under the old contract that
-was a harmless shorthand, because Opus loops were the exception; once *every*
-loop became Opus it would have silently retired the two triggers entirely —
-including trigger 1, which protects the one verdict nothing downstream
-catches. The 2026-08-17 move to Fable makes every dispatch an escalation
-again, so the announcement always applies; but the reasoning is recorded
-because it is the trigger-moots-itself failure that matters, not the tier
-arithmetic of any given month.
-
-### Stopping-rule decisions: the adversarial subagent (David, 2026-08-13)
-
-A fourth structural trigger, above the three. It reached for **Fable while
-the other three were on Opus** — because the failure it exists to catch had
-beaten Opus twice in one session, and both times Fable reversed it. Since
-2026-08-17 all four are on Fable, so this is no longer what distinguishes
-it; what still does is *when* it fires and that its prompt is adversarial.
-
-**Fires on the loop's judgment moments, never on its execution.** These are
-facts about the situation, not self-assessments:
-
-- a **growth tripwire** firing
-- a **rising finding count**, or an **oscillation signal** (a round dominated
-  by failures of the previous round's fixes)
-- any **split / cap-and-implement / stop** decision
-- any recommendation where a **flip condition cannot be named**, or where the
-  named flip condition is **already true** (`working-modes.md`'s post-round
-  adjudication)
-- **a round-budget tripwire-1 refusal** (David, 2026-08-17) — the guard in
-  `scripts/review-budget.mjs` blocking an `@codex review` post past its
-  declared budget. This one differs from the four above in *two* ways, and
-  both matter: it is fired by a **guard rather than by my own reading of the
-  round**, and it is dispatched as a **named agent type**
-  (`review-loop-adjudicator`) with a **script-generated record as its only
-  input** — no drafted decision of mine to argue against, because at this
-  tripwire there is deliberately nothing of mine for it to read. Same tier,
-  same reasoning, stricter isolation: the loop's own account of itself is the
-  thing that failed, so the adjudicator is given none of it. **Pass
-  `model: "fable"` on the dispatch** rather than relying on the agent's
-  frontmatter — per-invocation outranks frontmatter in the resolution order
-  above — and announce it like any Fable dispatch.
-
-**What gets dispatched:** my drafted decision *and* my reasoning — including
-every counter-argument in my own draft, verbatim — with the subagent
-prompted adversarially: *try to reverse this*. Not "review it," which
-invites agreement.
-
-**What comes back DECIDES (David, 2026-08-17).** The verdict is not a
-recommendation to weigh, and not one input among several. If the pass says
-reverse, I reverse; if it upholds, the decision stands as it upheld it. **I
-do not adopt the parts I find persuasive and set the rest aside** — that
-converts the strongest available reader into a rubber stamp for whatever I
-had already drafted, which is the failure the dispatch exists to prevent.
-Disagreeing with a verdict is a matter for David, never grounds to overrule
-it myself. The resident statement of this rule, and the story of my getting
-it backwards, are in `CLAUDE.md`.
-
-**As of 2026-08-15 this pass carries the decision weight the per-round
-David check-in used to.** Under the autonomy contract
-(`working-modes.md`'s *post-round adjudication*), what survives the
-adversarial pass *executes* — there is no banner waiting on David for
-continue/cap/stop calls. The surviving decision and what it overrode go
-into the loop's trail (an 👀 FYI when noteworthy, always the loop-close
-report); the reserved escalations — product/design forks, scope additions,
-splits, disclosure — still go to David as 🛑 banners, with this subagent's
-output attached.
-
-**Why Fable for judgement, and still not for the loop as a whole.** A planning
-loop is mostly execution-shaped — verifying findings against source, writing
-thread replies, editing markdown — and Opus does that well; Fable at 2× would
-buy nothing across it, which is why the 2026-08-17 change moved *adjudication*
-to Fable and left the main loop where it is. The judgment moments are perhaps
-2% of a loop's tokens and carry all of its consequence, and the failure mode
-there is *specifically* the one Fable corrects: applying a rule correctly to a
-situation that was never read. On PR #422 the Opus-drafted recommendation to
-split contained its own refutation as an appended caveat; Fable, given the
-same facts, reversed it. Same session, one round earlier: eight findings
-recommended for fixing, seven of them toolchain-catchable, and the reversal
-again came on Fable.
-
-**Subagent, not a session switch.** Only David can change the session model,
-and making him do it at every check-in puts the burden on the person this
-process exists to protect. One-shot dispatch, no action from him. The
-announce-don't-sneak rule applies with force here — Fable spends at double
-Opus, so dispatching it is said out loud in the same breath.
-
-**This is a sanctioned judgment escalation, not verify-my-own-work** — the
-same carve-out the other three triggers hold against `CLAUDE.md`'s delegation
-caps, and for the same reason: its value is a perspective my main loop
-provably cannot produce, which two reversals in one session establish rather
-than assume.
-
-**Dispatch it after triage but before implementing any fix, and in every
-case before pushing (David, 2026-08-15, PR #453) — never after the round's
-fixes are already committed and reviewed.** This is the ordering
-`working-modes.md`'s post-round adjudication and `plan-review-loop` already
-require, for the reason the ordering exists: a stop or cap verdict is
-supposed to prevent unnecessary fix work, which a "fix first, adjudicate
-after" sequence defeats before the adjudicator ever runs. Adjudicating
-after the round is already pushed and reviewed compounds the same mistake
-in the other direction: any gap the adjudicator finds then costs a whole
-extra commit and CI round-trip, instead of folding into the round's own
-commit. On PR #453 this cost one avoidable CI cycle — the adjudicator ran after round 3 had
-already been pushed and reviewed, found one small real gap, and the fix
-landed as a fourth commit instead of inside the third.
-
+What survives from those sections, because it is about dispatch hygiene
+rather than dispatch law: announce every dispatch out loud (Fable spends at
+double Opus); a dispatch that reuses my own reasoning is not rescued by the
+tier; and the adjudicator runs after triage but before fixes are implemented,
+so a stop verdict can still prevent unnecessary fix work.

@@ -172,49 +172,27 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
   not need to enumerate every edge case to be good enough.
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
-cost more than the defects they describe. This is the *depth* rule; the
-*continuation* rule for the same artifacts is consequence-based — a round
-earns a successor only if it surfaced behavior-changing defects (this
-file's "glaring issue" class), the re-request names the specific fixes it
-verifies, out-of-diff findings route to follow-up issues by default, and a
-third round fires the adversarial adjudication tripwire — defined in
-[`working-modes.md`](../ai-context/working-modes.md#docs-only-loops-continue-on-consequence-not-count-david-2026-08-15-superseding-the-2026-08-14-one-re-request-cap)
-(David, 2026-08-15, superseding the brief 2026-08-14 hard cap; PR #434's
-eight polish rounds and PR #449's behavior-changing second pass are the
-two calibration cases). The author's review request on a docs-only PR
-states this bar explicitly ("docs-only — light review per
-code-review.md"), so the reviewer calibrates from the request itself, not
-just from this file.
+cost more than the defects they describe. This is the *depth* rule. The
+*continuation* rule is the internal-tooling carve-out in the next paragraph
+— docs-only PRs are internal artifacts, so there is no successor-round
+procedure any more (the 2026-08-15 consequence-based continuation rule and
+its adjudication tripwire are superseded by the 2026-08-20 carve-out): one
+automatic pass, one triage, ship. The one path to a further pass is the
+fix-round merge path in
+[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)'s
+carve-out section, which exists for head coverage after real fixes, not for
+convergence.
 
-**Loop-ledger records get the same light bar, split by which half of the
-record a finding touches (David, 2026-08-11).** A `.agents/metrics/loops/
-<pr>.json` record has a mechanical half (`derive()`'s numbers) and a
-judgment half (hand-typed causes and prose explaining them — see
-`working-modes.md`'s *The loop ledger*). Only flag: **(a)** a mechanical
-value that's actually wrong — a causal count that doesn't sum to
-`findings`, a date/PR number/schema violation, anything `check-loop-metrics
-.mjs` would itself reject; or **(b)** a judgment claim that's factually
-wrong about what happened in the loop (e.g. claiming a finding was fixed
-when the diff shows it wasn't). **Not** a finding: a defensible read of an
-ambiguous rubric provision, or imprecise *phrasing* in the prose that
-explains a causal label which is itself correct — three review rounds on
-PR #406 were exactly this shape (the counts were right every round; only
-the wording justifying them kept getting relitigated), which is the
-concrete cost this carve-out exists to stop paying twice.
-
-**This bar, and the one-pass cap in `working-modes.md`'s ceremony table,
-apply only to findings on the ledger JSON file itself.** A ledger record
-routinely rides a carrier PR alongside unrelated product-code changes (it
-"rides any *mergeable* PR of mine except the one it measures — never a
-`[PLAN REVIEW]` PR" — see `working-modes.md`'s
-*The loop ledger*); those changes are reviewed to convergence as normal
-product code, exactly as if the ledger file weren't in the diff. The
-author's review request on a loop-ledger PR states this bar explicitly, and
-scopes it to the ledger file by name, so the reviewer never has to infer
-which files it covers ("ledger record — light review per code-review.md,
-mechanical-or-factual findings only, on `.agents/metrics/loops/<pr>.json`;
-other files in this PR get the normal review bar for their class"),
-matching the docs-only convention above.
+**Internal tooling gets the light bar too, and gets no re-requested rounds
+at all (David, 2026-08-20).** Guards, `scripts/`, skills, agent contracts,
+process docs and documentation harvests are reviewed once — the automatic
+pass when the PR opens — and then triaged and shipped. The reviewer should
+raise a genuine defect and skip prose, structure and completeness findings:
+the author will decline them in one line rather than spend a round, because
+the loops this repo has measured on that class were 22 rounds of correct
+findings against an artifact where none of them mattered. The full
+reasoning is in
+[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
 
 ## Runtime correctness
 

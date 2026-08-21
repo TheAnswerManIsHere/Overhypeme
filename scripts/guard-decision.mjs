@@ -1001,9 +1001,9 @@ function isRecursiveAndForced(args) {
  * meaningful. Deliberately not `node`/`python`: their URLs live inside a
  * script string, which is payload text, and judging payload text is the exact
  * defect this module was built to remove (a commit message may legitimately
- * mention a blocked URL). `node scripts/loop-metrics.mjs --pr N` is therefore
- * untouched -- correctly, since that script's own Node `fetch` reaches the
- * real API and fails loudly with 401 "Bad credentials" rather than silently.
+ * mention a blocked URL). A repo script that names the host in a flag is
+ * therefore untouched -- correctly, since Node `fetch` reaches the real API
+ * and fails loudly with 401 "Bad credentials" rather than silently.
  */
 const HTTP_FETCHERS = new Set(["curl", "wget"]);
 

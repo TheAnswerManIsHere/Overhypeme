@@ -12,6 +12,7 @@ import {
   checkCi,
   checkCodex,
   checkAdjudicatedCodex,
+  checkRail,
   isAncestor,
   checkThreads,
   evaluate,
@@ -693,8 +694,8 @@ test("evaluate: one failing item is enough for NOT READY", () => {
 // deliberately leaves it untracked to prove exactly that.
 // ---------------------------------------------------------------------------
 
-const TIER = "internal";
-const TIER_CAP = 3; // review-budget.mjs's TIERS.internal.budget -- kept in sync by the "unknown tier" test below noticing drift
+const TIER = "product";
+const TIER_CAP = 5; // review-budget.mjs's TIERS.product.budget -- kept in sync by the "unknown tier" test below noticing drift
 
 function tempRepo() {
   const dir = mkdtempSync(join(tmpdir(), "pr-ready-adjudication-"));
@@ -868,10 +869,10 @@ test("adjudication: a zero-padded sequence is rejected -- loadLoop treats it as 
 });
 
 // ---------------------------------------------------------------------------
-// Terminal-decision semantics (Codex, #539 round 1): a second adjudication is
-// never valid (review-budget.mjs's own rule), but a `david`-kind extension
-// reopening the loop after a ship verdict is -- and this fallback must not
-// resurrect a superseded ship verdict.
+// Terminal-decision semantics (Codex, #539 round 1): a `david`-kind extension
+// reopening the loop after a ship verdict means that verdict is superseded,
+// and this fallback must not resurrect it. (Repeat ADJUDICATIONS are valid as
+// of 2026-08-20 and are covered above.)
 // ---------------------------------------------------------------------------
 
 test("adjudication: a ship verdict superseded by a later (david) extension is not honored", () => {
@@ -1041,7 +1042,7 @@ test("adjudication: a record generated below the loop's active allowance is reje
   const head = commit({ ...rec.files, ...ext.files }, "c1");
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /below the loop's active allowance of 3/);
+  assert.match(res.detail, /below the loop's active allowance of 5/);
 });
 
 test("adjudication: a David-granted allowance ABOVE the base tier cap is honored -- reaching the base cap alone doesn't mean the tripwire fired (Codex, #539 round 3)", () => {
@@ -1069,7 +1070,7 @@ test("adjudication: a non-finite (uncapped) allowance is rejected, not treated a
     pr: 999,
     generatedAt: "2026-08-17T04:30:00Z",
     evidenceCapturedAt: "2026-08-17T04:28:00Z",
-    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: null, extensions: [] },
+    budget: { tier: "product", pendingRequest: false, ambiguous: false, allowance: null, extensions: [] },
     rounds: { completedReviewerPasses: 999 },
     sinceLastReview: { resolved: true, head: "a".repeat(40) },
   });
@@ -1104,20 +1105,42 @@ test("adjudication: a record with an AMBIGUOUS request/pass tie is rejected -- p
   assert.match(res.detail, /budget\.ambiguous is true/);
 });
 
-test("adjudication: a record whose own extension history already shows a PRIOR adjudication is rejected (Codex, #539 round 2)", () => {
-  // review-budget.mjs's own rule: a second adjudication is never valid. If
-  // the record cited by this ship verdict already shows one in its embedded
-  // budget.extensions, this receipt cannot legitimately be a fresh one.
+test("adjudication: a ship verdict AFTER an earlier continue grant is accepted (David, 2026-08-20)", () => {
+  // This rejected until 2026-08-20, on review-budget.mjs's rule that a second
+  // adjudication is never valid. That rule is gone -- the adjudicator runs
+  // after every round and may grant more than once -- so a loop that got one
+  // `continue` and later terminated with a ship verdict is the ORDINARY
+  // shape, not a forged receipt. The record's allowance reflects the earlier
+  // grant, and the passes must still have reached it.
   const { dir, commit } = tempRepo();
-  const rec = record(999, 1, {
-    baseline: "a".repeat(40),
-    extensions: [{ kind: "adjudication", verdict: "continue", grant: 2 }],
+  const { head } = closedLoop(commit, 999, {
+    recordOpts: {
+      extensions: [{ kind: "adjudication", verdict: "continue", grant: 2 }],
+      allowanceValue: TIER_CAP + 2,
+      passes: TIER_CAP + 2,
+    },
   });
-  const ext = extension(999, 1, { recordPath: rec.path });
-  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, true, res.detail);
+});
+
+test("adjudication: the ACTIVE allowance is what makes a ship verdict terminal, not the absence of earlier ones", () => {
+  // The check that replaced the prior-adjudication count. With an earlier
+  // +2 grant the loop's allowance is TIER_CAP+2, so a record generated at
+  // TIER_CAP passes is BELOW its own tripwire -- rounds were still available
+  // and nothing had fired. Without this, dropping the prior-adjudication
+  // check would have opened exactly the bypass it was credited with closing.
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999, {
+    recordOpts: {
+      extensions: [{ kind: "adjudication", verdict: "continue", grant: 2 }],
+      allowanceValue: TIER_CAP + 2,
+      passes: TIER_CAP,
+    },
+  });
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /already shows a prior adjudication/);
+  assert.match(res.detail, /below the loop's active allowance/);
 });
 
 test("adjudication: a record with no parseable evidenceCapturedAt is rejected (Codex, #539 round 3)", () => {
@@ -1128,7 +1151,7 @@ test("adjudication: a record with no parseable evidenceCapturedAt is rejected (C
     pr: 999,
     generatedAt: "2026-08-17T04:30:00Z",
     // evidenceCapturedAt omitted entirely
-    budget: { tier: "internal", pendingRequest: false, ambiguous: false, allowance: TIER_CAP, extensions: [] },
+    budget: { tier: "product", pendingRequest: false, ambiguous: false, allowance: TIER_CAP, extensions: [] },
     rounds: { completedReviewerPasses: TIER_CAP },
     sinceLastReview: { resolved: true, head: "a".repeat(40) },
   });
@@ -1427,4 +1450,58 @@ test("evaluate: a fresh @codex review request in the snapshot after adjudication
   assert.equal(receipt.items.codex.pass, false);
   assert.match(receipt.items.codex.detail, /a fresh review may have been asked for since the loop closed/);
   assert.equal(receipt.verdict, "NOT READY");
+});
+
+// ---------------------------------------------------------------------------
+// The outer rail at merge time (Codex, #543 round 3)
+// ---------------------------------------------------------------------------
+
+const railBudget = (pr) =>
+  JSON.stringify({ pr, tier: "product", budget: 5, criticality: 40, artifact: "x", declaredAt: "2026-08-17T00:00:00Z" });
+const railExt = (pr, seq, fields) => {
+  const path = `.agents/receipts/loop-extension-${pr}-${seq}.json`;
+  return { [path]: JSON.stringify({ pr, ...fields }) };
+};
+
+test("rail: no committed budget means the rail does not apply", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({ "a.txt": "1" }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("rail: an allowance at 2x the budget with no david receipt refuses readiness", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 3, risk: "r" }),
+    ...railExt(999, 2, { kind: "adjudication", verdict: "continue", grant: 4, risk: "r" }),
+  }, "c1");
+  const res = checkRail(999, head, dir);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /outer rail/);
+});
+
+test("rail: David's authorization as the latest extension clears the rail", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 5, risk: "r" }),
+    ...railExt(999, 2, { kind: "david", grant: 2, authorization: "keep going" }),
+  }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("rail: below the rail passes", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 2, risk: "r" }),
+  }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("rail: an unreadable committed budget fails closed", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({ ".agents/receipts/loop-budget-999.json": "{not json" }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, false);
 });

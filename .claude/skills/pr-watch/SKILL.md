@@ -40,20 +40,28 @@ status alone does not. The old tier gate happened to enforce this ordering as
 a side effect of making me wait — with the gate gone, the ordering has to be
 stated outright or it silently breaks.
 
-### Declare the round budget at loop start (David, 2026-08-17)
+### Internal tooling declares nothing and re-requests nothing (David, 2026-08-20)
 
-**Before round 1, in the same breath as subscribing**, this loop declares its
-round budget:
+**If this PR is internal — a guard, a script, a skill, an agent contract, a
+process doc, a documentation harvest — there is no budget, no adjudication, and
+no second round.** Codex's automatic pass on PR-open is the review: triage it
+once, decline out-of-scope findings in one line, and merge. The guard refuses an
+`@codex review` post with no declared budget, and on this class **that refusal
+is the intended outcome** — do not declare a budget to get around it.
+
+### Declare the round budget at loop start (product loops only)
+
+**Before round 1, in the same breath as subscribing**, a product loop declares
+its round budget:
 
 ```
-node scripts/review-budget.mjs declare --pr <n> --tier <internal|product|sensitive> \
+node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive> \
      --criticality <1-100> --artifact "<what is under review>"
 ```
 
-`internal` = 3 rounds (tooling, docs, guards, agent contracts), `product` = 5,
-`sensitive` = uncapped with a mandatory 🛑 at 5 (auth, payments, migrations).
-The tier picks the number; it is not a field to fill in. **Commit the receipt
-AND PUSH IT**, then **state the budget in the PR body**.
+`product` = 5 rounds, `sensitive` = uncapped with a mandatory 🛑 at 5 (auth,
+payments, migrations). The tier picks the number; it is not a field to fill in.
+**Commit the receipt AND PUSH IT**, then **state the budget in the PR body**.
 
 The push is not housekeeping — it is what makes the budget exist. Budgets and
 extensions are read from the branch's remote-tracking ref, never from the
@@ -106,10 +114,9 @@ asking, not a budget constraint.
 This is not optional and not a reminder: `.claude/guard.sh` refuses the
 **first** `@codex review` post until the budget receipt exists, refuses any
 post without current counted evidence, and refuses again at the budget. The
-full contract — the two tripwires, the fresh-context Fable adjudication, and
-the no-second-self-service-extension rule — is resident in `CLAUDE.md`'s
-*Every review loop declares a round budget*, because it has to hold whether or
-not this skill is loaded. What belongs here is the timing: **declare at loop
+full contract — the per-round adjudicator, the adjudicator-sized extension, and
+the 2x outer rail to David — is resident in `CLAUDE.md`'s *Review loops*
+section, because it has to hold whether or not this skill is loaded. What belongs here is the timing: **declare at loop
 start**, alongside the subscribe, and **check before each request**.
 
 I re-verify true PR state (threads + CI + mergeability) whenever a real
@@ -160,49 +167,52 @@ the diff *is* the plan. While watching an implementation PR:
   exit condition, **both caps** (3 consecutive no-ops; 6 wakes or 24 hours
   total), silent on no change **except a terminal wake** — is in `CLAUDE.md`'s
   *Scheduled self-check-ins*.
-- **Every substantive review round runs the post-round adjudication before
-  any fix is implemented (David, 2026-08-15 — superseding the 2026-08-07
-  per-round David check-in).** When a round's findings land, I triage first
-  and produce the round record defined in
-  [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-post-round-adjudication-david-2026-08-15-superseding-the-2026-08-07-per-round-check-in):
-  count + trend + bucket mix against prior rounds, each finding's nature /
-  affected area / verdict (fix, accept-and-document, escalate, decline) with
-  whether it's critical to the delivery, the causal flag (new ground vs.
-  repairing an earlier round's fix vs. impossible-as-specified), and the
-  continue/stop decision with its flip condition — **decided by me**, with
-  the judgment moments gated by the adversarial subagent and noteworthy
-  adjudications surfaced as 👀 FYIs. **The durable trail is a maintained PR
-  body section (David, 2026-08-15)** — unlike a plan-review PR, an
-  implementation PR has no findings-ledger section to hold this, and
-  per-comment thread replies can't carry an aggregate record, so I keep a
-  `## Review round ledger` section in the PR body (append-and-edit, same
-  pattern as `plan-review-loop`'s Findings ledger), updated in the same
-  push as each round's fix commits — never a standalone summary *comment*
-  (that rule is unchanged; this is the PR body, not a comment). If the loop
-  stops without a further re-request, this section is still what the
-  close-out report and any later audit read from — session context alone
-  isn't durable. What still stops for a 🛑: a genuine design/architecture/product decision
-  (the escalate rule below), a scope addition, a split. David gets the
-  whole decision trail in the merge report at close. **Anything that
-  reaches him is written in product English** per the contract's 2026-08-08
-  rule — David's four-question template, outcomes never mechanics; the
-  mechanics stay in the PR thread. **Skip-on-clean:** a round with zero
-  findings or only the unambiguous mechanical nits below needs no
-  adjudication — fix silently, one status line. **Model mechanics:** the
-  adjudication itself runs in my main loop, which is **Opus** (David,
-  2026-08-15 — the session tier is now a constant, so this no longer reads
-  "usually Sonnet"), but **every subagent it dispatches runs on Fable**
-  (David, 2026-08-17: *for judgements, I want the strongest possible
-  model*). So all four triggers are genuine escalations again, and each
-  dispatch carries the announce-don't-sneak line. Their value was never
-  only the tier — an independent challenge from a context that did not
-  produce the conclusion is the load-bearing half — but the tier is no
-  longer a reason to soften the framing. Subagent dispatch stays
-  **structural, not self-assessed**: the three triggers in the
-  sweep-protocol bullet below (any decline, any unmechanizable finding, any
-  recurrence of a swept class), plus the adversarial subagent on the
-  judgment moments, which now carries the decision weight the retired
-  check-in used to (see the `model-routing` skill).
+- **After every completed round beyond the first, the external adjudicator
+  decides (David, 2026-08-20).** Triage the round's findings first — nature,
+  affected area, verdict (fix / accept-and-document / escalate / decline), and
+  the causal flag (new ground vs. repairing an earlier round's fix vs.
+  impossible-as-specified). Then generate the mechanical record and dispatch:
+
+  ```
+  node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file> --write
+  ```
+
+  Dispatch **one** `review-loop-adjudicator` subagent **on Fable**, passing
+  `model: "fable"` explicitly (a per-invocation model outranks frontmatter),
+  and announce the dispatch. Its only input is that record — never this
+  session's prose, and never a case for continuing written by me. **Its verdict
+  decides**: continue, stop, or split-to-David. I do not weigh it or adopt part
+  of it; if I think it is wrong, that is a disagreement for David, not license
+  to overrule.
+
+  **Delivery depends on which decision this is** (Codex, #543). An ordinary
+  per-round verdict — the budget not yet spent — goes as **one line in the
+  separate defanged context comment** that precedes the bare trigger, never a
+  file (per-round receipts would rebuild the machinery this replaced) and
+  never inside the trigger comment itself, which stays bare — prose beside
+  the trigger is what spawns unintended tasks (Codex, #543 round 2). But a verdict at **budget exhaustion** is an
+  extension decision — **and it exists only on the product tier**: a
+  `sensitive` loop at its 🛑-at-5 goes STRAIGHT to David with no adjudicator
+  dispatch and no receipt written, because that tier has no self-serve stage
+  and `review-budget.mjs` would reject an adjudication receipt as
+  `bad-receipt`, wedging the loop (Codex, #543 round 3). On the product tier
+  the guard reads extensions only from committed receipts — so that verdict is written to
+  `.agents/receipts/loop-extension-<pr>-<n>.json`, committed and pushed, per
+  the tripwire-1 refusal's own instructions. A comment-only exhaustion verdict
+  leaves the allowance unchanged: the guard blocks the next request and tells
+  you to run the adjudication you already ran. The
+  self-refereeing that used to live here (count trend, growth tripwire,
+  oscillation diagnosis, criticality gate) is gone: 0-for-15 at stopping loops,
+  and the budget plus this judge replaced it.
+
+  **Skip-on-clean:** a round with zero findings, or only unambiguous mechanical
+  nits, needs no adjudication — fix silently, one status line.
+
+  What still stops for a 🛑 whatever the adjudicator says: a genuine
+  design/architecture/product decision, a scope addition, a split, a disclosure
+  question. Anything reaching David is written in product English — outcomes,
+  never mechanics; the mechanics stay in the PR thread.
+
 - **Every fix is class-level — the sweep protocol (David, 2026-08-08).** The
   shared contract is
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)'s
@@ -252,48 +262,25 @@ the diff *is* the plan. While watching an implementation PR:
   trade-off comment (which abstraction to use, whether to refactor more, a
   behavior change) goes to David via AskUserQuestion — I do **not** silently
   rewrite the design on a reviewer's say-so, even a bot's.
-- **Break non-converging loops — by diagnosis, not by count (David,
-  2026-08-15).** The signal is the bucket mix, not the round number: a round
-  dominated by failures of the previous round's fixes (oscillation), or a
-  fix that would be contested, ends the loop — I run the adversarial
-  adjudication and either ship what's sound, or escalate with the diagnosis
-  if the disagreement is substantive. A loop still yielding new ground in
-  the diff keeps running, however many rounds it takes; the criticality gate
-  keeps low-stakes artifacts from getting extra rounds at all.
+- **The adjudicator breaks non-converging loops, not a count.** A round
+  dominated by failures of the previous round's fixes, or a fix that would be
+  contested, is exactly what the mechanical record surfaces and what the
+  adjudicator rules on. A loop still yielding new ground keeps running to its
+  budget; past the budget the adjudicator sizes the extension, and the 2x rail
+  sends it to David.
 - **Reply inline on each comment's own thread — never a standalone summary.**
   When I act on (or decline) a reviewer comment (Codex or otherwise), I reply
   **directly on that specific comment's thread**, one reply per comment, saying
   what I did. I do **NOT** post a single new top-level PR comment summarizing
   several fixes — David tracks "is every issue addressed?" by seeing a reply on
   each thread, and a catch-all comment defeats that.
-- **The criticality gate fires before every re-request (David, 2026-08-08).**
-  Before posting any `@codex review`, I rate the artifact 1–100 on "what
-  breaks in production if this ships wrong" and say the number in the round
-  record and in the re-request comment itself. Single-digit artifacts
-  **never get a re-request** — transient
-  docs (handoff docs, legacy TEST_RUN checklists) get Codex's automatic
-  first pass, one triage,
-  and the loop is over, regardless of finding badges. The cap is on rounds,
-  never on fixes: that one triage still fixes anything safety-relevant
-  (an instruction that could touch live state breaks the verification
-  read-only contract and is a glaring issue). This gate exists
-  because PR #356 ran five rounds and 36 findings on a delete-after-one-use
-  checklist; the re-request bullet below applies only to artifacts that pass
-  this gate. On any **docs-only PR** that does warrant a review request, the
-  request itself states the light bar
-  ([`code-review.md`](../../../docs/engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08):
-  generally correct, glaring issues only, no grammar/count nits), the PR
-  body carries the **review-scope oracle** naming what review is for on
-  this artifact (`working-modes.md`'s 2026-08-15 rule), and out-of-scope or
-  pedantic findings that arrive anyway are declined against those stated
-  rules in one pass — convergence-by-decline is convergence for this class,
-  and same-day self-merge after it is the expected outcome. **Docs-loop
-  continuation is consequence-based, not capped (David, 2026-08-15)**: a
-  further round needs behavior-changing findings and a re-request naming
-  the specific fixes it verifies (a polish-only round is convergence), and
-  a third round fires the adversarial-adjudication tripwire — per
-  `working-modes.md`'s *Docs-only loops continue on consequence, not
-  count*.
+- **Internal artifacts get no re-request at all** (the carve-out at the top of
+  this skill). There is no criticality gate any more — the artifact's class
+  decides, not a rated number: internal means one automatic pass and done,
+  product means a declared budget and the adjudicator. A product PR's review
+  request names its pre-registered flip conditions (what finding, count, or
+  change of shape would end the loop) and confirms there has been a behavioral
+  change since the last reviewed commit.
 - **A "usage limits for security reviews" bounce is NOT a code-review
   outage — ignore it and request the code review (David, 2026-08-15,
   correcting the 2026-08-08 rule that used to live here).** Codex meters
@@ -320,12 +307,9 @@ the diff *is* the plan. While watching an implementation PR:
     termination would never fire and a high-stakes PR would wait forever.
     This is a real, separate case, and it is now a **full stop** rather than
     a stakes split (David, 2026-08-17): *"We'll have to pause our development
-    until the token limit resets. You'll need to fail loudly."* **The
-    2026-08-15 split — docs-only/low-criticality may proceed noting the skip
-    — is RETIRED.** Every PR gets a Codex review, and nothing merges until
-    it returns, whatever the PR's stakes; a criticality of 10 changes how
-    many rounds are worth requesting, never whether the first one has to
-    come back. One retry, then stop re-asking and raise it with David as a
+    until the token limit resets. You'll need to fail loudly."* **Every PR gets a Codex review, and nothing merges until
+    it returns, whatever the PR's stakes** — an internal PR gets exactly one
+    pass, but that one pass still has to come back. One retry, then stop re-asking and raise it with David as a
     🛑 banner with a push notification. **A security-limit bounce does not
     qualify.**
 - **Fix commits get re-reviewed — one `@codex review` per fix round (David,
@@ -334,12 +318,18 @@ the diff *is* the plan. While watching an implementation PR:
   CI failures would otherwise reach David's squash-merge unreviewed, and
   reactive fix code is exactly where subtle mistakes hide. After I've addressed
   a round of review feedback (fixes pushed, inline replies posted), I post
-  **one** explicit `@codex review` comment so the new commits get reviewed —
-  batched per round, never per-comment, and it's the *commits* being reviewed,
-  never my prose replies. **No minimum rounds, no convergence ceremony** — that
+  **one** explicit trigger comment so the new commits get reviewed — batched
+  per round, never per-comment, and it's the *commits* being reviewed, never my
+  prose replies. **The trigger comment is the bare trigger and NOTHING else**
+  (David, 2026-08-21): the connector interprets mention text, and
+  trigger-plus-prose has measurably spawned unintended code-writing tasks
+  (#490, #539, #472) while a bare trigger reliably starts a review. Round
+  context — flip conditions, trend, focus areas — goes in a **separate,
+  defanged comment posted immediately before** the trigger (reserved strings
+  in their leet form per CLAUDE.md, e.g. atC0dex r3view). **No minimum rounds, no convergence ceremony** — that
   is the plan loop, not this: a clean/silent re-review ends it, and new
   substantive findings just follow the rules above (fix the mechanical,
-  escalate real decisions, break on oscillation per the diagnosis rule).
+  escalate real decisions, and let the adjudicator rule on the round).
   **The old zero-risk exemption — a docs-only push or comment typo needing no
   re-review — is RETIRED (David, 2026-08-17).** Nothing merges without a
   completed pass covering the commit that would merge, so any push after a
@@ -349,15 +339,13 @@ the diff *is* the plan. While watching an implementation PR:
   judgement — `scripts/pr-ready.mjs` requires a `**Reviewed commit:**`
   announcement matching the head sha, so a push after the last pass simply
   fails the receipt.
-  **Two conditions gate every re-request, on top of the criticality gate
-  above (David, 2026-08-17 — the round-budget contract).**
+  **Two conditions gate every re-request (the round-budget contract).**
   1. **A behavioral change since the last reviewed commit.** No re-request
      buys a round with prose edits: `node scripts/review-loop-record.mjs`
      classifies the diff since the last reviewed commit and precomputes
      `proseOnly`. A **skill file, `CLAUDE.md`, or a `docs/ai-context/`
      contract counts as behavioral** — in this repo those change what
-     agents do — while comment wording, a UAT doc, and a ledger record do
-     not. (This composes with the retired exemption above rather than
+     agents do — while comment wording, and a UAT doc do not. (This composes with the no-exemption rule above rather than
      contradicting it: a prose-only push may not *buy a round*, and it also
      doesn't *escape review* — it simply waits and rides the next
      behavioral round, since the merge gate demands a pass covering the

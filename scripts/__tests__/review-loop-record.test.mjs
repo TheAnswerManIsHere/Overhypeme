@@ -36,7 +36,7 @@ test("assertAdjudicationSnapshot: a well-formed snapshot passes", () => {
 
 // ---------------------------------------------------------------------------
 // buildRecord: evidenceCapturedAt and budget.ambiguous, exercised end to end
-// against a minimal but real MCP snapshot shape (loop-metrics.mjs's own
+// against a minimal but real MCP snapshot shape (review-counting.mjs's own
 // assertions run inside fromMcp -- constructing a fixture that satisfies
 // them for real is worth more than hand-guessing the shape).
 // ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ const minimalSnapshot = ({ issueComments = [], reviews = [] } = {}) => ({
 // shape, so a minimal valid budgetState is constructed directly rather than
 // exercising the guard's own file discovery here (that's review-budget.test.mjs's job).
 const minimalBudgetState = () => ({
-  tier: "internal",
+  tier: "product",
   budget: { budget: 3, criticality: 10, artifact: "x" },
   extensions: [],
   nextSeq: 1,
