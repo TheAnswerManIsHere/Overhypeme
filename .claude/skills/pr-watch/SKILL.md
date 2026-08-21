@@ -186,9 +186,11 @@ the diff *is* the plan. While watching an implementation PR:
   to overrule.
 
   **Delivery depends on which decision this is** (Codex, #543). An ordinary
-  per-round verdict — the budget not yet spent — goes in the re-request
-  comment as **one line**, never a file: per-round receipts would rebuild the
-  machinery this replaced. But a verdict at **budget exhaustion** is an
+  per-round verdict — the budget not yet spent — goes as **one line in the
+  separate defanged context comment** that precedes the bare trigger, never a
+  file (per-round receipts would rebuild the machinery this replaced) and
+  never inside the trigger comment itself, which stays bare — prose beside
+  the trigger is what spawns unintended tasks (Codex, #543 round 2). But a verdict at **budget exhaustion** is an
   extension decision, and the guard reads extensions only from committed
   receipts — so that verdict is written to
   `.agents/receipts/loop-extension-<pr>-<n>.json`, committed and pushed, per

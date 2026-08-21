@@ -172,19 +172,16 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
   not need to enumerate every edge case to be good enough.
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
-cost more than the defects they describe. This is the *depth* rule; the
-*continuation* rule for the same artifacts is consequence-based — a round
-earns a successor only if it surfaced behavior-changing defects (this
-file's "glaring issue" class), the re-request names the specific fixes it
-verifies, out-of-diff findings route to follow-up issues by default, and a
-third round fires the adversarial adjudication tripwire — defined in
-[`working-modes.md`](../ai-context/working-modes.md#docs-only-loops-continue-on-consequence-not-count-david-2026-08-15-superseding-the-2026-08-14-one-re-request-cap)
-(David, 2026-08-15, superseding the brief 2026-08-14 hard cap; PR #434's
-eight polish rounds and PR #449's behavior-changing second pass are the
-two calibration cases). The author's review request on a docs-only PR
-states this bar explicitly ("docs-only — light review per
-code-review.md"), so the reviewer calibrates from the request itself, not
-just from this file.
+cost more than the defects they describe. This is the *depth* rule. The
+*continuation* rule is the internal-tooling carve-out in the next paragraph
+— docs-only PRs are internal artifacts, so there is no successor-round
+procedure any more (the 2026-08-15 consequence-based continuation rule and
+its adjudication tripwire are superseded by the 2026-08-20 carve-out): one
+automatic pass, one triage, ship. The one path to a further pass is the
+fix-round merge path in
+[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)'s
+carve-out section, which exists for head coverage after real fixes, not for
+convergence.
 
 **Internal tooling gets the light bar too, and gets no re-requested rounds
 at all (David, 2026-08-20).** Guards, `scripts/`, skills, agent contracts,

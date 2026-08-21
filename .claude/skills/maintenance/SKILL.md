@@ -120,9 +120,14 @@ and re-check **each entry's revisit trigger**:
 ## 6. Documentation harvest + process health
 
 **Step 6a — the batched Type 2 documentation harvest (David, 2026-08-20).**
-This pass is where subsystem docs and Manual chapters get written. Run
-`/document` once, covering every product feature merged since the last
-maintenance pass — its sources are the **harvest-notes comments on each
+This pass is where subsystem docs and Manual chapters get written. **The
+window boundary is mechanical, not recalled** (Codex, #543 round 2): the
+previous pass's own docs PR is the durable marker — list closed PRs whose
+title starts with `docs(maintenance):` and take the latest one's merge time
+as the window start. If none exists (first pass under this contract), fall
+back to the last 7 days and say so in the report rather than presenting the
+fallback as the real boundary. Run `/document` once, covering every product
+feature merged in that window — its sources are the **harvest-notes comments on each
 feature's workstream issue** (posted at close-out) plus the merged diffs.
 Process PRs get no harvest. Type 1 learnings — anything that changes how we
 work — were already persisted the moment they were learned and are not

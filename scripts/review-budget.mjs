@@ -946,6 +946,21 @@ export function allowance(tier, extensions, roundsSpent) {
  */
 const railReached = (tier, extensions, roundsSpent) => allowance(tier, extensions, roundsSpent) >= railFor(tier);
 
+/**
+ * Whether a TERMINAL adjudication verdict is standing: the highest-sequence
+ * extension is adjudication-kind with a non-continue verdict. The shared
+ * contract says a dispatched verdict DECIDES -- so a committed
+ * ship-with-gaps-recorded / split / escalate must not be answerable by simply
+ * running another self-serve adjudication until one says continue (Codex,
+ * #543 round 2). A later `david`-kind grant supersedes the terminal verdict
+ * and reopens the loop; only he can.
+ */
+const terminalVerdictStanding = (extensions) => {
+  if (!extensions.length) return false;
+  const last = extensions[extensions.length - 1];
+  return last.kind === "adjudication" && last.verdict !== "continue";
+};
+
 // ---------------------------------------------------------------------------
 // Counting rounds from evidence
 // ---------------------------------------------------------------------------
@@ -1089,6 +1104,18 @@ function refusal(pr, state, spent, tiedCount = false) {
     `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
     `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
     `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).${tie}`;
+
+  if (terminalVerdictStanding(extensions)) {
+    return (
+      `${head}\n` +
+      `TRIPWIRE 2 (hard stop). A TERMINAL adjudication verdict is standing on this loop ` +
+      `("${extensions[extensions.length - 1].verdict}", ${extensionPath(pr, extensions[extensions.length - 1].seq)}) ` +
+      `and a dispatched verdict decides -- another self-serve adjudication cannot overturn it. ` +
+      `Take this to David as a 🛑 NEED YOU; only a "david"-kind extension receipt reopens the loop. Record ` +
+      `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
+      `"authorization":"<his words>"}, then COMMIT AND PUSH it.`
+    );
+  }
 
   if (TIERS[tier].selfServe && !railReached(tier, extensions, spent)) {
     return (

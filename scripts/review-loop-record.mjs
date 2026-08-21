@@ -92,13 +92,19 @@ export function classifyPath(file) {
   if (/^(CLAUDE|AGENTS)\.md$/.test(file)) return "agent-contract";
   if (/^docs\/(ai-context|engineering)\//.test(file)) return "agent-contract";
   if (/^\.agents\//.test(file)) return "agent-contract";
+  // A plan under review IS the artifact of a [PLAN REVIEW] loop: revising it
+  // changes what gets built, which is as behavioral as a plan gets. Classing
+  // it "prose" made the adjudicator structurally unable to continue an
+  // unresolved plan review -- proseOnly read as nothing-to-review on the very
+  // file the loop exists to review. (Codex, #543 round 2.)
+  if (/^docs\/plans\//.test(file)) return "plan";
   if (/\.(md|txt)$/.test(file)) return "prose";
   if (/^docs\//.test(file)) return "prose";
   return "code";
 }
 
 /** Which classes count as a behavioural change for the re-request rule. */
-export const BEHAVIORAL_CLASSES = new Set(["code", "agent-contract"]);
+export const BEHAVIORAL_CLASSES = new Set(["code", "agent-contract", "plan"]);
 
 // ---------------------------------------------------------------------------
 // Git side: what changed since the last reviewed commit

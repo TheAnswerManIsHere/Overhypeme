@@ -218,25 +218,21 @@ the disclosure check passes:
    budget with the same tripwires. What goes to David mid-loop, as a 🛑,
    whatever the adjudicator says, is what the SOW gate reserved: a
    product/design fork, a scope addition, a split.
-   **The round record carries the plan's line count next to the finding count
-   (David, 2026-08-11)** — "round 3: 21 findings, 24 → 14 → 21; plan 1,370
-   lines, +56% from round 1" — because the growth tripwire is the one a
-   falling finding count conceals, and an unstated number is one I can talk
-   myself past. If growth has passed roughly +50% and the adjudicated kind
-   of growth is scope accretion, the conclusion is **stop and split — which
-   escalates to David**, not another round: per step 10's amendment,
-   everything added since round 1 is a split candidate regardless of review
-   status once the tripwire has fired, and each addition goes to David as a
-   **now / next / never** question per `CLAUDE.md`, defaulting to *next*.
-   The same framing applies to any single finding whose fix would introduce a
-   **new mechanism** — a table, a role, a config domain, an endpoint — whether
-   or not the tripwire has fired: the fix does not go in silently just because
-   a reviewer's finding motivated it. Depth-growth (the same coupled
-   mechanism getting more precise) resolves to cap-and-implement or continue,
-   which are my calls. Skip-on-clean applies: a
-   clean or trivial-nits-only round needs no adjudication — under the
-   minimum-3-rounds rule in step 7 it proceeds straight to the next lens
-   with a one-line status. After the adjudication (or on a clean round), I revise the plan
+   **The findings ledger still reports the plan's line count next to the
+   finding count** ("round 3: 21 findings, 24 → 14 → 21; plan 1,370 lines,
+   +56% from round 1") — as **input to the external judge**, who is the one
+   weighing growth now; the old self-applied growth tripwire and its
+   depth-vs-accretion "my calls" are retired with the rest of the
+   self-refereeing (Codex, #543 round 2). What is NOT the judge's, because the
+   SOW gate reserved it for David: any finding whose fix would introduce a
+   **new mechanism** — a table, a role, a config domain, an endpoint — is a
+   scope addition and goes to him as a **now / next / never** question per
+   `CLAUDE.md`, defaulting to *next*, whatever the verdict says. Skip-on-clean
+   applies: a clean or trivial-nits-only round needs no adjudication and
+   proceeds to the next lens with a one-line status — but **a stop verdict
+   ends the loop even if step 7's three lenses haven't all run**; the lens
+   minimum yields to the judge, never the reverse. After the adjudication (or
+   on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
    and request the next round with a fresh explicit trigger comment (bare
    trigger only, context separate and defanged).

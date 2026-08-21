@@ -765,6 +765,36 @@ test("adjudication grants accumulate up to the rail and no further", () => {
   assert.equal(allowance("product", extensions, 8), 10, "the second is clipped at the rail, not 12");
 });
 
+test("a standing terminal verdict routes to David, never to another self-serve adjudication (Codex, #543 round 2)", () => {
+  // A committed ship-with-gaps-recorded receipt is a decision, and a
+  // dispatched verdict decides. Without this, the tripwire-1 branch would
+  // offer a fresh adjudication that could return continue and overturn it.
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json(shipped),
+    [RECORD(1)]: recordFile(1, 5),
+    [checkPath(1)]: check(1, 5),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true);
+  assert.match(reason, /TERMINAL adjudication verdict is standing/);
+  assert.match(reason, /only a "david"-kind extension receipt reopens/);
+  assert.doesNotMatch(reason, /TRIPWIRE 1/);
+});
+
+test("a david grant after a terminal verdict reopens the loop", () => {
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json(shipped),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, authorization: "one more round" }),
+    [RECORD(1)]: recordFile(1, 5),
+    [checkPath(1)]: check(1, 5),
+  });
+  assert.equal(judgeReviewRequest(post(1), io, NOW).blocked, false);
+});
+
 test("David's authorization clears tripwire 2 past the rail", () => {
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
