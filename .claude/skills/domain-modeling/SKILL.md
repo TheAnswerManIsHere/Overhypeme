@@ -41,15 +41,17 @@ When David states how something works, check whether the code agrees. If you fin
 
 When a term is resolved, update the glossary right there. Don't batch these up: capture them as they happen. Keep definitions tight — one or two sentences, what the term IS, not what it does — and only terms specific to this product's context; general programming concepts don't belong even when the project uses them heavily.
 
-### Record decisions sparingly
+### Offer decision-log entries proactively — but the log's own bar is the only eligibility rule
 
-Only offer to record a decision when all three are true:
+The decision log's canonical bar is its own, set in [`decisions.md`](../../../docs/ai-context/decisions.md)'s header and the shared docs: it records decisions **David has actually settled**, and it binds every agent the same way. This skill adds a *prompting heuristic on top*, never a filter underneath: proactively **offer** to record a decision when all three are true —
 
 1. **Hard to reverse**: the cost of changing your mind later is meaningful
 2. **Surprising without context**: a future reader will wonder "why did they do it this way?"
 3. **The result of a real trade-off**: there were genuine alternatives and one was picked for specific reasons
 
-If any of the three is missing, skip it. And a decision lands in the log only once **David has actually settled it** in the conversation — the log records settled decisions, never my inferences about what he probably meant.
+When one is missing I don't volunteer an entry — but the gates never veto: anything David wants recorded, or that the shared contracts (the `/document` harvest bar, "remember this") route to the log, gets recorded regardless. A settled decision another agent would record under the shared rules never goes unrecorded because of this skill.
+
+Glossary and decision-log edits ship like any other docs change — committed on the current branch and its PR, never as a side channel.
 
 ## Source
 
