@@ -241,8 +241,12 @@ the disclosure check passes:
    minimum yields to the judge, never the reverse. After the adjudication (or
    on a clean round), I revise the plan
    file, push, reply inline on each comment's thread (never resolving threads),
-   and request the next round with a fresh explicit trigger comment (bare
-   trigger only, context separate and defanged).
+   and — **only when the verdict was `continue`**, or the round was clean and
+   lenses remain — request the next round with a fresh explicit trigger
+   comment (bare trigger only, context separate and defanged). A **stop** or
+   **split-to-David** verdict posts no further trigger: stop ends the loop on
+   the rounds already returned, split goes to David as a 🛑 (Codex, #543
+   round 4).
    **Revisions are class-level, per
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)**:
    each reply names the finding's class and cites the sweep oracle
