@@ -13,6 +13,42 @@
 
 ---
 
+### 2026-08-21 · aihero.dev skill set reviewed — main flow declined, wayfinder deferred, three primitives vendored (PR #545)
+- **Decision:** David reviewed Matt Pocock's aihero.dev skill set (25 skills,
+  [mattpocock/skills](https://github.com/mattpocock/skills), MIT) end to end
+  and settled four things at once: (1) the set's main flow (grill-with-docs →
+  to-spec → to-tickets → implement → code-review) is **not adopted**; (2)
+  **`/wayfinder` is deferred**, not rejected — see Revisit if; (3) exactly
+  three primitives — `grilling`, `domain-modeling`, `prototype` — were
+  vendored into `.claude/skills/` by **direct file copy, not the Claude Code
+  plugin**, alongside repairing `grill-me`'s dangling `/grilling` delegation
+  (open since PR #449); (4) `domain-modeling` is re-targeted at our canonical
+  homes — terms to `glossary.md`, decisions to this log with
+  **settled-by-David as the sole eligibility criterion** (upstream's
+  three-gate test survives only as a proactive-offer heuristic that never
+  vetoes) — and upstream's `CONTEXT.md` / `CONTEXT-MAP.md` / `docs/adr/*`
+  ADR system is **never to be created** in this repo (deliberately
+  nonexistent paths).
+- **Why:** The main flow is a parallel, less-developed version of the ceremony
+  already in place; adopting it would fork the source of truth and swap
+  stronger controls (Codex convergence, readiness receipts, workstream
+  tracking) for weaker equivalents. Wayfinder is the set's heaviest planning
+  flow while this repo's recurring failure has been over-ceremony, not
+  under-planning; its decision-map role is mostly covered by direction docs +
+  workstream issues, and its sharpest reported failure upstream (verbose
+  grilling causing decision fatigue) lands exactly on David's known pain
+  point. File copy rather than the plugin because the plugin installs all 25
+  skills read-only — including a `/handoff` that collides with this repo's
+  own `/handoff`.
+- **Reference:** PR #545 (workstream #544; harvest #546).
+  `.claude/skills/VENDORED_SKILLS_NOTICE.md` carries per-file
+  provenance and verbatim-vs-adapted status.
+- **Revisit if:** A launch-readiness effort outgrows ordinary
+  direction-doc-plus-conversation planning — that is the named trigger for
+  reconsidering `/wayfinder`.
+
+---
+
 ### 2026-08-20 · The review apparatus is cut back: internal tooling leaves the ceremony, the ledger and the self-refereeing tripwires are deleted, and an external judge decides every round
 - **Decision:** David mandated a meta-review (issue #541) asking whether the
   review-loop apparatus was "building something great or just engineering
@@ -71,40 +107,6 @@
   remove the budget guard, the merge receipt and the adjudicator — is on file
   as the next step if the remaining apparatus still costs more than it returns.
 ---
-
-### 2026-08-21 · aihero.dev skill set reviewed — main flow declined, wayfinder deferred, three primitives vendored (PR #545)
-- **Decision:** David reviewed Matt Pocock's aihero.dev skill set (25 skills,
-  [mattpocock/skills](https://github.com/mattpocock/skills), MIT) end to end
-  and settled four things at once: (1) the set's main flow (grill-with-docs →
-  to-spec → to-tickets → implement → code-review) is **not adopted**; (2)
-  **`/wayfinder` is deferred**, not rejected — see Revisit if; (3) exactly
-  three primitives — `grilling`, `domain-modeling`, `prototype` — were
-  vendored into `.claude/skills/` by **direct file copy, not the Claude Code
-  plugin**, alongside repairing `grill-me`'s dangling `/grilling` delegation
-  (open since PR #449); (4) `domain-modeling` is re-targeted at our canonical
-  homes — terms to `glossary.md`, decisions to this log with
-  **settled-by-David as the sole eligibility criterion** (upstream's
-  three-gate test survives only as a proactive-offer heuristic that never
-  vetoes) — and upstream's `CONTEXT.md` / `CONTEXT-MAP.md` / `docs/adr/*`
-  ADR system is **never to be created** in this repo (deliberately
-  nonexistent paths).
-- **Why:** The main flow is a parallel, less-developed version of the ceremony
-  already in place; adopting it would fork the source of truth and swap
-  stronger controls (Codex convergence, readiness receipts, workstream
-  tracking) for weaker equivalents. Wayfinder is the set's heaviest planning
-  flow while this repo's recurring failure has been over-ceremony, not
-  under-planning; its decision-map role is mostly covered by direction docs +
-  workstream issues, and its sharpest reported failure upstream (verbose
-  grilling causing decision fatigue) lands exactly on David's known pain
-  point. File copy rather than the plugin because the plugin installs all 25
-  skills read-only — including a `/handoff` that collides with this repo's
-  own `/handoff`.
-- **Reference:** PR #545 (workstream #544; harvest #546).
-  `.claude/skills/VENDORED_SKILLS_NOTICE.md` carries per-file
-  provenance and verbatim-vs-adapted status.
-- **Revisit if:** A launch-readiness effort outgrows ordinary
-  direction-doc-plus-conversation planning — that is the named trigger for
-  reconsidering `/wayfinder`.
 
 ### 2026-08-20 · #532's merge-bar collision recurred a fourth and fifth time on PR #534 — the closed-adjudication fallback has a fixed baseline, and once its one-time slot is spent, a trailing commit outside its bookkeeping paths needs a fresh round or an exact-SHA reset
 - **Decision:** no code change; recorded per #532's own "revisit if" (a fourth
@@ -1378,7 +1380,7 @@
   branch (commit `6a15e9d`; plan files never land on `main`), reviewed across four
   Codex rounds on the closed plan-review PR #340 (14 → 14 → 12 → 12 findings,
   48 fixed, 2 declined with recorded reasoning). Contract in
-  [`working-modes.md`](./working-modes.md#the-loop-ledger).
+  `working-modes.md`’s loop-ledger section (deleted 2026-08-20).
 - **Revisit if:** the digest goes unread for a month (the delivery half would
   have failed the same way the ledger's did, and the answer is a different
   surface, not more data); or missing records accumulate past a handful,
@@ -2200,7 +2202,7 @@
   Full-population adjudication deletes that whole class of defect and makes
   the disagreement gate exact instead of estimated.
 - **Reference:** PR #270. Full contract and rubric in
-  [`working-modes.md`](./working-modes.md#the-loop-ledger); the ledger itself,
+  `working-modes.md`’s loop-ledger section (deleted 2026-08-20); the ledger itself,
   including the seed rows and their provenance notes, at
   [`.agents/metrics/loop-ledger.md`](../../.agents/metrics/loop-ledger.md).
   PR #270's own row (16 review rounds, 34 findings, 64.7% self-inflicted,

@@ -1,5 +1,9 @@
 # Deferred Engineering Work
 
+Last maintenance pass: none yet under the 2026-08-20 contract — the next
+`/maintenance` run updates this line every pass (it is the durable window
+boundary the batched documentation harvest reads).
+
 The single, durable home for engineering, security-hygiene, and maintenance
 work we have **consciously chosen not to do yet** — dependency bumps we've
 parked, deprecations we're carrying, cleanup we've postponed, toolchain debt.

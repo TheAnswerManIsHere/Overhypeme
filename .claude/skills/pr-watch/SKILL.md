@@ -191,8 +191,12 @@ the diff *is* the plan. While watching an implementation PR:
   file (per-round receipts would rebuild the machinery this replaced) and
   never inside the trigger comment itself, which stays bare — prose beside
   the trigger is what spawns unintended tasks (Codex, #543 round 2). But a verdict at **budget exhaustion** is an
-  extension decision, and the guard reads extensions only from committed
-  receipts — so that verdict is written to
+  extension decision — **and it exists only on the product tier**: a
+  `sensitive` loop at its 🛑-at-5 goes STRAIGHT to David with no adjudicator
+  dispatch and no receipt written, because that tier has no self-serve stage
+  and `review-budget.mjs` would reject an adjudication receipt as
+  `bad-receipt`, wedging the loop (Codex, #543 round 3). On the product tier
+  the guard reads extensions only from committed receipts — so that verdict is written to
   `.agents/receipts/loop-extension-<pr>-<n>.json`, committed and pushed, per
   the tripwire-1 refusal's own instructions. A comment-only exhaustion verdict
   leaves the allowance unchanged: the guard blocks the next request and tells

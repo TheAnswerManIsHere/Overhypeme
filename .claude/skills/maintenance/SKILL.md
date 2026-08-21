@@ -124,8 +124,13 @@ This pass is where subsystem docs and Manual chapters get written. **The
 window boundary is mechanical, not recalled** (Codex, #543 round 2): the
 previous pass's own docs PR is the durable marker — list closed PRs whose
 title starts with `docs(maintenance):` and take the latest one's merge time
-as the window start. If none exists (first pass under this contract), fall
-back to the last 7 days and say so in the report rather than presenting the
+as the window start. **Every completed pass produces that marker, including
+a no-change pass** (Codex, #543 round 3): the pass always updates the
+`Last maintenance pass:` line in `deferred-work.md`, so even a week with
+nothing to harvest and nothing deferred still ships a one-line
+`docs(maintenance):` PR — that line IS the boundary the next pass reads.
+If no marker exists at all (first pass under this contract), fall back to
+the last 7 days and say so in the report rather than presenting the
 fallback as the real boundary. Run `/document` once, covering every product
 feature merged in that window — its sources are the **harvest-notes comments on each
 feature's workstream issue** (posted at close-out) plus the merged diffs.
@@ -146,10 +151,14 @@ stored records. From the merged-PR list for the window:
   #543): plan-review PRs always close without merging, so a merged-only list
   silently drops every plan loop — often the longest ones — and understates
   review cost.
-- **Adjudicator verdicts.** From `.agents/receipts/` (committed, so this is a
-  directory read): how many loops reached their budget, and what the
-  adjudicator decided. A run of `continue` verdicts would mean the adjudicator
-  is being talked into extensions, which is the mechanism failing in the way it
+- **Adjudicator verdicts — both kinds** (Codex, #543 round 3). Exhaustion
+  verdicts are the committed `.agents/receipts/` files (a directory read).
+  Ordinary per-round verdicts never become receipts by design — they live as
+  one-liners in each loop's defanged context comments and findings ledgers —
+  so read them from the window's PR histories, or the count will show zero
+  precisely when the judge is doing its best work (stopping loops before
+  their cap). A run of `continue` verdicts would mean the adjudicator is
+  being talked into extensions, which is the mechanism failing in the way it
   was built to resist.
 - **Guard incidents that needed David.** Rare by design; if it isn't rare, say
   so.

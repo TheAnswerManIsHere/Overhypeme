@@ -727,6 +727,18 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!TIERS[tier].selfServe) {
       return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
     }
+    // A TERMINAL verdict decides. Refusing the next post (the guard's own
+    // rule) is bypassable from this side: a later `continue` receipt would
+    // become the last extension and read as reopening the loop. So the
+    // receipt itself is invalid -- after a terminal adjudication, only a
+    // `david`-kind receipt may follow. (Codex, #543 round 3.)
+    const prev = preceding[preceding.length - 1];
+    if (prev && prev.kind === "adjudication" && prev.verdict !== "continue") {
+      return (
+        `a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- a further ` +
+        `adjudication receipt cannot follow it; only a "david"-kind receipt reopens the loop`
+      );
+    }
     if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
       return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }

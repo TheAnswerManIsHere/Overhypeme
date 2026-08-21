@@ -19,8 +19,7 @@ on:
 
 # A PR-triggered run is obsolete the moment another push lands on the same
 # PR — cancelling it loses no signal, just wall-clock and Actions minutes.
-# Every push-to-main run must complete, no exceptions — the ledger-debt
-# audit step only runs there. That ruled out `queue: max` (GitHub disallows
+# Every push-to-main run must complete, no exceptions. That ruled out `queue: max` (GitHub disallows
 # combining it with a `cancel-in-progress` that can evaluate true, which
 # ours does for PR events) as a way to protect queued push runs. Falling
 # back to `github.ref` for the group key was tried first and was WRONG: every
@@ -114,9 +113,10 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
 
-    # Explicit least-privilege. `pull-requests: read` is what the loop-ledger
-    # coverage guard needs to list closed PRs; every other step in this job
-    # only reads the checkout.
+    # Explicit least-privilege. `pull-requests: read` predates the deleted
+    # loop-ledger coverage guard; kept because narrowing a token during an
+    # unrelated change risks breaking a reader this comment doesn't know
+    # about, and read-only costs nothing.
     permissions:
       contents: read
       pull-requests: read
@@ -155,6 +155,12 @@ jobs:
 
       - name: Check manual tuning-language guard logic
         run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
+
+      # The counting library stays on the enforcement path (round budget +
+      # adjudication records) after the ledger's deletion, so its derivation
+      # keeps provable coverage. (Codex, #543 round 3.)
+      - name: Check review-counting derivation
+        run: node --test scripts/__tests__/review-counting.test.mjs
 
       # The workstream board is only trustworthy if its columns match reality.
       # The label -> field mapping is the one place that can quietly drift (a

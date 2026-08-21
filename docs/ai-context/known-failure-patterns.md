@@ -2122,10 +2122,9 @@ other — rather than documenting around them a third time. Per this repo's
 standing rule, a pattern that recurs graduates from a memory note to a
 deterministic check.
 
-**Overhype:** the store's own contract is
-the loop-record store; the
-ledger obligation that binds every agent is
-[`working-modes.md`](./working-modes.md#the-loop-ledger).
+**Overhype:** historical — the loop-record store, its contract, and the
+per-agent ledger obligation were all deleted 2026-08-20 (issue #541); the
+entry above remains as the record of the pattern, not a live pointer.
 
 ## A gate's precondition is treated as optional, so the gate silently doesn't run
 

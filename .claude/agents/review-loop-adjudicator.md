@@ -99,14 +99,17 @@ production, in one sentence, pointing at real code. Requirements, all of them:
 - It must be **unaddressed**, not merely raised.
 - It must be in **this loop's territory**. A defect in code the diff never
   touched is a follow-up issue, not another round here.
-- **Only at an extension decision** (at or past the budget): if
-  `sinceLastReview.proseOnly` or `sinceLastReview.noChange` is true, a further
-  pass has nothing new to look at and `continue` is wrong on its face. **At a
-  per-round dispatch this test does not apply** (Codex, #543): you are
-  dispatched after a round's findings are triaged but before its fixes exist,
-  so `noChange` relative to the just-completed pass is the expected state at
-  that moment, not a stop signal. Judge a per-round continue/stop on the
-  findings, the trend, and the territory instead.
+- **There is no separate noChange/proseOnly kill-rule** (Codex, #543 rounds
+  2-3 -- the first scoping of that rule created a paradox at exhaustion, where
+  the record is generated before the pending fixes exist and `noChange` is
+  structurally true at the very moment unaddressed findings most justify a
+  grant). The named-risk requirement above already does that rule's work: a
+  risk must be UNADDRESSED and BEHAVIORAL, so when the record shows no
+  unaddressed behavioral findings and the loop's last movement was prose-only,
+  no qualifying risk can be named and `continue` fails on the requirements
+  themselves. `sinceLastReview` is evidence for that judgment, not a
+  standalone gate -- and at any dispatch it describes the pre-fix state, so
+  read it accordingly.
 
 **You size the grant** (David, 2026-08-20 — the old ceiling of 2 is gone): a
 push whose last round revealed a real problem may need three rounds, and a
@@ -135,10 +138,10 @@ loop at all.
   repo. Route them to follow-up issues; don't buy rounds with them.
 - **A large round count against a small artifact** is the #488 shape exactly.
   Compare `budget.roundsRequested` against `artifact` (files, added, removed).
-- **`sinceLastReview` showing only `prose` or `record` files** — at an
-  extension decision — means the last round changed nothing a reviewer can act
-  on. (At a per-round dispatch the field describes the pre-fix state and
-  carries no such signal.)
+- **`sinceLastReview` showing only `prose` or `record` files** suggests the
+  loop's last movement gave a reviewer nothing to act on — weigh it against
+  whether unaddressed behavioral findings remain; it is never a standalone
+  stop or continue signal.
 
 ## Output
 

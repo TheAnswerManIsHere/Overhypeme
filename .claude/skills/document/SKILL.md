@@ -57,9 +57,19 @@ Decide by what "this" refers to (contract's trigger table):
   asked to see routing first.
 - **Commit / PR discipline** — I follow the shared contract's placement rule
   (`documentation-workflow.md`, Step 5) exactly, so this stays a thin
-  enactment, not a second copy: **default to assuming the feature's PR is
-  already merged** (David's stated workflow — he invokes `/document` only
-  after the work has merged), so I don't spend a round-trip checking PR state
+  enactment, not a second copy. **Two delivery paths, split by how this was
+  invoked (Codex, #543 round 3):**
+  - **Batched at `/maintenance` (the normal case):** the whole window's
+    harvest — every feature, one pass — rides the **single maintenance docs
+    PR** alongside that pass's other doc updates. No per-feature branch, no
+    per-feature PR, no harvest sub-issue, no separate subscription: the
+    tracking is the harvest-notes comments already on each feature's
+    workstream issue. Internal tier — automatic pass, one triage, merge.
+    Everything below this bullet describes the AD-HOC path only.
+  - **Ad-hoc standalone invocation** (David asks for one feature directly):
+    **default to assuming the feature's PR is
+  already merged** (David's stated workflow),
+  so I don't spend a round-trip checking PR state
   first. I go straight to `git fetch origin main`, a fresh branch off
   `origin/main` created with **`-b` (never `-B`)**, and open a **new**, small
   docs-only PR for the harvest — never try to reuse or reopen the
@@ -75,11 +85,10 @@ Decide by what "this" refers to (contract's trigger table):
   the merged diffs, contradiction or duplication with existing docs; out of
   scope — prose style, structure preferences, completeness beyond the
   session's actual learnings.* Out-of-scope findings are declined against
-  the stated oracle in one triage pass; rounds continue only on
-  behavior-changing findings per `working-modes.md`'s consequence rule
-  (a polish-only round is convergence), and once the ready bar is met I
-  self-merge per CLAUDE.md's close-out contract — same-day
-  convergence-by-decline is the expected outcome, not a shortcut. I only
+  the stated oracle in one triage pass — a harvest is an internal artifact,
+  so the carve-out applies: the automatic pass, one triage, no re-requested
+  rounds — and once the ready bar is met I self-merge per CLAUDE.md's
+  close-out contract. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
   force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old

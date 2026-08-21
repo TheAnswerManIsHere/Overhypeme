@@ -12,6 +12,7 @@ import {
   checkCi,
   checkCodex,
   checkAdjudicatedCodex,
+  checkRail,
   isAncestor,
   checkThreads,
   evaluate,
@@ -1449,4 +1450,58 @@ test("evaluate: a fresh @codex review request in the snapshot after adjudication
   assert.equal(receipt.items.codex.pass, false);
   assert.match(receipt.items.codex.detail, /a fresh review may have been asked for since the loop closed/);
   assert.equal(receipt.verdict, "NOT READY");
+});
+
+// ---------------------------------------------------------------------------
+// The outer rail at merge time (Codex, #543 round 3)
+// ---------------------------------------------------------------------------
+
+const railBudget = (pr) =>
+  JSON.stringify({ pr, tier: "product", budget: 5, criticality: 40, artifact: "x", declaredAt: "2026-08-17T00:00:00Z" });
+const railExt = (pr, seq, fields) => {
+  const path = `.agents/receipts/loop-extension-${pr}-${seq}.json`;
+  return { [path]: JSON.stringify({ pr, ...fields }) };
+};
+
+test("rail: no committed budget means the rail does not apply", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({ "a.txt": "1" }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("rail: an allowance at 2x the budget with no david receipt refuses readiness", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 3, risk: "r" }),
+    ...railExt(999, 2, { kind: "adjudication", verdict: "continue", grant: 4, risk: "r" }),
+  }, "c1");
+  const res = checkRail(999, head, dir);
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /outer rail/);
+});
+
+test("rail: David's authorization as the latest extension clears the rail", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 5, risk: "r" }),
+    ...railExt(999, 2, { kind: "david", grant: 2, authorization: "keep going" }),
+  }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("rail: below the rail passes", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 2, risk: "r" }),
+  }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, true);
+});
+
+test("rail: an unreadable committed budget fails closed", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({ ".agents/receipts/loop-budget-999.json": "{not json" }, "c1");
+  assert.equal(checkRail(999, head, dir).pass, false);
 });

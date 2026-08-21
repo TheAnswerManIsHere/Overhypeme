@@ -213,7 +213,14 @@ the disclosure check passes:
    (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file>
    --write`), and dispatch one `review-loop-adjudicator` on Fable with the
    record as its only input. **Its verdict decides** continue/stop — the
-   decision is not mine — and goes in the ledger as one line. A plan loop
+   decision is not mine — and goes in the findings ledger as one line for an
+   ordinary round. **At budget exhaustion the same rules as a code loop
+   apply** (Codex, #543 round 3): the verdict is an extension decision,
+   written to the committed `loop-extension-<pr>-<n>.json` receipt the guard
+   consumes and pushed — a ledger-only exhaustion verdict leaves the
+   allowance unchanged and the guard will demand the adjudication that
+   already ran. (Sensitive-tier plans have no self-serve stage: at 5 they go
+   straight to David.) A plan loop
    takes the tier of what it plans, so a product plan runs on the product
    budget with the same tripwires. What goes to David mid-loop, as a 🛑,
    whatever the adjudicator says, is what the SOW gate reserved: a

@@ -28,13 +28,13 @@ priorities (moderation speed, render/enrichment quality, video). See
   (2026-08-19, PR #503, workstream #501). PR #488 ran 22 Codex rounds on a
   ~10-line change: every round locally rational, and no event ever presenting
   the aggregate. The judgment-shaped stopping devices went 0-for-15 there, so
-  the stopping rule moved onto the action path. **Every review loop Claude Code
-  drives** now declares a budget before round 1 (3 internal / 5 product /
-  uncapped-with-🛑-at-5 for auth, payments, migrations) and `.claude/guard.sh`
-  **refuses the `@codex review` post** past it — released once by a
-  fresh-context Fable adjudication on the internal and product tiers, and
-  after that only by David; the sensitive tier skips self-serve entirely and
-  escalates straight to him. The ceremony is Claude Code's, since it posts the
+  the stopping rule moved onto the action path. **Superseded 2026-08-20 (issue #541): the `internal` tier is DELETED** —
+  internal artifacts declare no budget and get one automatic pass, no
+  re-requested rounds. What survives: **product loops** declare a 5-round
+  budget (sensitive: uncapped with a mandatory 🛑 at 5, no self-serve stage)
+  and the guard refuses the trigger post past it; a fresh-context Fable
+  adjudicator now rules after **every** round beyond the first and owns
+  extensions, bounded by a 2× outer rail that always goes to David. The ceremony is Claude Code's, since it posts the
   trigger and the guard is on its action path — it is not a rule for other
   agents' loops. Rounds are **counted fresh from a validated GitHub snapshot**,
   never stored: the first design's committed tally was a cache of state GitHub
@@ -406,7 +406,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   `[LEDGER]` PR carries them as a hard gate, and a push-to-`main` audit
   closes the exact mid-flight gap described above — reporting pending debt
   on every run and failing only once it goes overdue. See
-  [`working-modes.md`](./working-modes.md#the-loop-ledger) → *"A row ships
+  the retired loop-ledger contract (deleted 2026-08-20; see the supersession note below) → *"A row ships
   in a dedicated `[LEDGER]` PR."* Also recorded in the same window: David
   enabled Codex
   "Exhaustive code review" (2026-07-29), now a dated boundary in the ledger.
@@ -434,7 +434,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   boundary claim each drifted from the canonical ledger before landing);
   this bullet is deliberately kept to a shipped-slice summary from here on.
   See also [`decisions.md`](./decisions.md#2026-07-29--codex-exhaustive-code-review-on-review-trigger-stays-on-pr-open--and-the-switch-is-a-dated-boundary-in-the-ledger)
-  and [`working-modes.md`](./working-modes.md#the-loop-ledger). One thing
+  and the retired loop-ledger contract (deleted 2026-08-20; see the supersession note below). One thing
   surfaced here has since been fixed, and one is still open:
   **Fixed 2026-08-07** (same plan-review PR #340 as the freeze above):
   `classifyCohort` no longer routes any non-plan-review PR carrying a
@@ -456,7 +456,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   loop's full population — a deterministic **sample of loops** is
   adjudicated instead (each still over its own full finding population).
   The paragraph below is the historical record of what PR #270 built, not
-  the current contract; [`working-modes.md`](./working-modes.md#the-loop-ledger)
+  the current contract; the retired loop-ledger contract (deleted 2026-08-20; see the supersession note below)
   and [`decisions.md`](./decisions.md) are current. Both Claude Code and
   Codex used to append a row — mechanical columns machine-derived, judgment
   columns hand-entered and marked as such — every time a review loop closed,
@@ -465,7 +465,7 @@ priorities (moderation speed, render/enrichment quality, video). See
   PR's own 16-round, 34-finding loop produced its own row as the pipeline's
   first real acceptance test. See
   [`decisions.md`](./decisions.md#2026-07-27--the-loop-ledger-every-review-loop-gets-a-permanent-falsifiable-row--adjudicated-over-the-full-population-not-a-sample)
-  and [`working-modes.md`](./working-modes.md#the-loop-ledger).
+  and the retired loop-ledger contract (deleted 2026-08-20; see the supersession note below).
   **Open next step:** the ledger's designated acceptance test — a blind
   adjudication replay of PR #268's 40 findings, checked against its existing
   retrospective classification — hasn't run yet. Several other process

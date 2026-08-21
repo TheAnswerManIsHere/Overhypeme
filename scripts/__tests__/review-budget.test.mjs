@@ -783,6 +783,25 @@ test("a standing terminal verdict routes to David, never to another self-serve a
   assert.doesNotMatch(reason, /TRIPWIRE 1/);
 });
 
+test("an adjudication receipt AFTER a terminal verdict is invalid at load time (Codex, #543 round 3)", () => {
+  // The refusal-side rule alone was bypassable: a later continue receipt
+  // would become the last extension and read as reopening the loop. The
+  // receipt itself is rejected unless a david receipt intervened.
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  assert.match(
+    validateExtension(1, "product", adjudication(1), { io: null, preceding: [shipped] }),
+    /terminal adjudication verdict .* is standing/,
+  );
+  // With a david receipt between them, a fresh adjudication is valid again.
+  assert.equal(
+    validateExtension(1, "product", adjudication(1, { recordPath: RECORD(1) }), {
+      io: null,
+      preceding: [shipped, { pr: 1, kind: "david", grant: 2, authorization: "go" }],
+    }),
+    null,
+  );
+});
+
 test("a david grant after a terminal verdict reopens the loop", () => {
   const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
   const io = fakeIo({

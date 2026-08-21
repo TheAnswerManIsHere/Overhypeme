@@ -251,8 +251,11 @@ GitHub's server-side ruleset.
    --write`), never the loop's own prose and never a case for continuing
    written by me. It returns continue / stop / split-to-David, and **its verdict
    decides** — I don't weigh it or adopt the parts I like. The verdict is one
-   line in the re-request comment, not a file: per-round receipts would rebuild
-   the receipt machinery this replaced. The loop executes; the external judge
+   line in the **separate defanged context comment**, never in the trigger
+   comment (which stays bare, per interaction rule 11) and never a file:
+   per-round receipts would rebuild the receipt machinery this replaced. The
+   one exception is a verdict at budget exhaustion — an extension decision,
+   written to the committed receipt the guard consumes. The loop executes; the external judge
    judges. All in-loop self-refereeing is gone — the criticality gate, count
    trend, growth tripwire and oscillation diagnosis were 0-for-15 at stopping
    loops and the budget replaced them.

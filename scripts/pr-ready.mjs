@@ -45,7 +45,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS } from "./review-budget.mjs";
+import { RECEIPTS_DIR as LOOP_RECEIPTS_DIR, TIERS, allowance, railFor } from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -1087,6 +1087,7 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
     codex,
     threads: checkThreads(snapshot.reviewThreads),
     capture: checkCapture(snapshot.capturedAt, codex.acceptedAt, now),
+    rail: checkRail(snapshot.pr.number, headSha, adjudicationOpts.cwd),
   };
   const ready = Object.values(items).every((i) => i.pass);
   const captureTimes = Object.values(snapshot.capturedAt ?? {}).map((v) => Date.parse(v ?? ""));
@@ -1102,6 +1103,71 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
     // `generatedAt` only says when this process ran. (Codex, #490.)
     evidenceAt: oldest.length ? new Date(Math.min(...oldest)).toISOString() : null,
     items,
+  };
+}
+
+/**
+ * The outer rail, enforced at merge time (Codex, #543 round 3).
+ *
+ * The contract says a loop whose allowance reaches 2x its declared budget
+ * goes to David REGARDLESS of verdict -- but without this check, a clean
+ * final pass (or a terminal ship receipt at rail allowance) satisfies the
+ * Codex item and the PR mints READY with David never consulted. Reads the
+ * committed budget receipt at the head; no budget (internal work, or no loop)
+ * means the rail does not apply. When the fully-activated allowance has
+ * reached the rail, only a loop whose LAST extension is a `david`-kind
+ * receipt is ready -- his authorization is the one thing the rail exists to
+ * guarantee.
+ */
+export function checkRail(prNumber, headSha, cwd) {
+  const budgetRaw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/loop-budget-${prNumber}.json`], cwd);
+  if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the outer rail does not apply" };
+  let tier;
+  try {
+    tier = JSON.parse(budgetRaw).tier;
+  } catch (e) {
+    return { pass: false, detail: `committed budget receipt is unreadable (${e.message}) -- cannot rule out the rail` };
+  }
+  if (!TIERS[tier]) return { pass: false, detail: `committed budget names unknown tier ${JSON.stringify(tier)}` };
+
+  const lsOutput = git(["ls-tree", "--name-only", `${headSha}:${LOOP_RECEIPTS_DIR}`], cwd) ?? "";
+  const prefix = `loop-extension-${prNumber}-`;
+  const extensions = lsOutput
+    .split("\n")
+    .filter((base) => base.startsWith(prefix) && base.endsWith(".json"))
+    .map((base) => {
+      const seqStr = base.slice(prefix.length, base.length - ".json".length);
+      if (!/^\d+$/.test(seqStr) || String(Number(seqStr)) !== seqStr) return null;
+      return { seq: Number(seqStr), base };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.seq - b.seq)
+    .map(({ base }) => {
+      const raw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/${base}`], cwd);
+      try {
+        return raw === null ? null : JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    });
+  if (extensions.some((e) => e === null)) {
+    return { pass: false, detail: "a committed extension receipt is unreadable -- cannot rule out the rail" };
+  }
+
+  // Fully activated: what the allowance becomes once everything is spent.
+  const activated = allowance(tier, extensions, Number.MAX_SAFE_INTEGER);
+  const rail = railFor(tier);
+  if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
+  const last = extensions[extensions.length - 1];
+  if (last?.kind === "david") {
+    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest extension` };
+  }
+  return {
+    pass: false,
+    detail:
+      `this loop's allowance has reached the outer rail (${rail} rounds -- 2x its declared budget), which goes ` +
+      `to David regardless of verdict; no "david"-kind receipt is the latest extension, so readiness cannot ` +
+      `be self-served`,
   };
 }
 
