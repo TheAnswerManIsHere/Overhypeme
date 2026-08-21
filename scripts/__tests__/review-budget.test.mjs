@@ -652,6 +652,17 @@ test("no budget declared refuses the very first round", () => {
   assert.match(reason, /review-budget\.mjs declare/, "the refusal has to say what to do next");
 });
 
+test("the no-budget refusal explains the tooling carve-out rather than only demanding a budget", () => {
+  // David, 2026-08-20. On internal tooling this refusal IS the intended
+  // outcome, so a message that only says "declare a budget" would teach the
+  // exact workaround the carve-out exists to prevent.
+  const { reason } = judgeReviewRequest(post(1), fakeIo(), NOW);
+  assert.match(reason, /IF THIS IS INTERNAL TOOLING/);
+  assert.match(reason, /this refusal is the CORRECT outcome/);
+  assert.match(reason, /Do NOT declare a budget to get around this/);
+  assert.doesNotMatch(reason, /internal\|product\|sensitive/, "the internal tier no longer exists");
+});
+
 test("a declared budget with no round-check receipt still refuses", () => {
   const { blocked, reason } = judgeReviewRequest(post(1), fakeIo({ [budgetPath(1)]: budget(1) }), NOW);
   assert.equal(blocked, true);
