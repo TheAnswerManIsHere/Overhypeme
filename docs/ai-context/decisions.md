@@ -45,11 +45,7 @@
   provenance and verbatim-vs-adapted status.
 - **Revisit if:** A launch-readiness effort outgrows ordinary
   direction-doc-plus-conversation planning — that is the named trigger for
-  reconsidering `/wayfinder`. (Left deliberately open on #544, not settled
-  here: whether a no-PR `prototype/<slug>` branch class ever joins
-  CLAUDE.md's branch-exception list — with David as now/next/never; until
-  answered, a kept prototype branch carries a never-merge draft
-  `[PROTOTYPE]` PR.)
+  reconsidering `/wayfinder`.
 
 ### 2026-08-20 · #532's merge-bar collision recurred a fourth and fifth time on PR #534 — the closed-adjudication fallback has a fixed baseline, and once its one-time slot is spent, a trailing commit outside its bookkeeping paths needs a fresh round or an exact-SHA reset
 - **Decision:** no code change; recorded per #532's own "revisit if" (a fourth
