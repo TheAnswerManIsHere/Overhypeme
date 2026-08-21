@@ -209,28 +209,47 @@ never routed to a cheaper subagent. Mechanics: `plan-review-loop` skill.
 **Codex review of PRODUCT code is David's safety net. That is the one thing
 never in question.** Everything below governs what may be layered on top.
 
-### Internal tooling is carved out (David, 2026-08-20)
+### Internal tooling loops, strictly (David, 2026-08-21)
 
 Guards, `scripts/`, skills, this file, `docs/ai-context/` contracts, process
-docs and harvests get **the automatic Codex pass on PR-open, one triage pass,
-one-line declines, and nothing else** — no budget declaration, no receipts, no
-adjudication, no re-requested rounds, no harvest ceremony. This covers the
-apparatus's own code, so it can never again be its own biggest reviewer
-workload. The guard enforces it by refusing an `@codex review` post with no
-declared budget; on internal work that refusal is the correct outcome and I
-triage-and-merge rather than declaring a budget to get around it.
+docs and harvests run a **real review loop with a stricter judge** —
+superseding 2026-08-20's no-rounds carve-out, which made every fix round
+structurally unmergeable (measured on #551: the guard forbade the request
+the merge receipt demanded):
 
-Internal tooling ships with rougher edges as an accepted trade: its failure mode
-is wrongly-blocking, which announces itself, and `main`'s real protection is
-GitHub's server-side ruleset.
+- **A clean automatic pass is the whole ceremony.** Round 1 fires on
+  PR-open; when it finds nothing, there is no budget, no receipt, and no
+  adjudication — the merge receipt accepts the automatic pass covering the
+  head.
+- **Findings get fixed and the fixes get reviewed, always.** Declare
+  `--tier internal` and re-request; fixes no reviewer saw never merge.
+- **After every round beyond the first, the external adjudicator rules** —
+  same Fable dispatch and mechanical record as product, but the record's
+  tier selects the **internal rubric**: another round only for a very high
+  chance of a CRITICAL flaw in the newly-pushed changes (a destructive or
+  irreversible action, corruption of the receipt/tracking machinery, a
+  widening of my authority). Everything softer ships with gaps recorded,
+  and a terminal verdict is committed as a receipt the merge gate
+  consumes — mid-budget included, since stopping with the last mechanical
+  fixes unreviewed is this tier's designed ending.
+- **Hard cap 3 rounds, no self-serve extension** — at 3 the loop goes to
+  David, in person.
+
+What survives of the carve-out: one triage pass and one-line declines still
+govern engagement, harvests still get no harvest ceremony, and internal
+tooling still ships with rougher edges as an accepted trade — its failure
+mode is wrongly-blocking, which announces itself, and `main`'s real
+protection is GitHub's server-side ruleset.
 
 ### Product loops: budget, then an external judge
 
 1. **Declare the budget before round 1** — `product` (5 rounds) or `sensitive`
-   (uncapped, mandatory 🛑 at 5). The tier picks the number:
+   (uncapped, mandatory 🛑 at 5); internal tooling declares `internal` (hard
+   cap 3) at its first re-request rather than before round 1, per the section
+   above. The tier picks the number:
 
    ```
-   node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive> \
+   node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> \
         --criticality <1-100> --artifact "<what is under review>"
    ```
 

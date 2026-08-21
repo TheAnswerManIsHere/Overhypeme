@@ -143,15 +143,25 @@ export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
  * where an uncapped tier still owes David a mandatory stop -- uncapped is not
  * unattended.
  *
- * THERE IS NO `internal` TIER (David, 2026-08-20, the tooling carve-out).
- * Internal artifacts -- guards, scripts, skills, contracts, process docs --
- * get the automatic Codex pass on PR-open, one triage, and no re-requested
- * rounds at all. That is enforced by this file's existing posture rather than
- * by a tier: internal work declares no budget, and no budget means no
- * `@codex review` post. The carve-out exists because every runaway loop this
- * repo has measured (#488's 22 rounds, #503, #531, #534, #539) was internal
- * tooling being reviewed at product rigor -- including the loops spent
- * reviewing THIS guard.
+ * THE `internal` TIER LOOPS, STRICTLY (David, 2026-08-21, superseding the
+ * 2026-08-20 no-rounds carve-out). Internal artifacts -- guards, scripts,
+ * skills, contracts, process docs -- used to get the automatic pass and no
+ * re-requested rounds at all, which left every fix round structurally
+ * unreviewed and unmergeable against the head-commit bar (measured on #551).
+ * Now: fixes to round-1 findings are always re-reviewed; the adjudicator
+ * rules after every round beyond the first under a MUCH stricter rubric
+ * (another round only for a very high chance of CRITICAL flaws in the
+ * newly-pushed changes -- see review-loop-adjudicator.md); and the cap is a
+ * hard 3 with no self-serve extension, so at 3 the loop goes to David in
+ * person. `adjudicatedStop: true` is the tier's distinctive property: a
+ * TERMINAL adjudication verdict is written to a committed receipt
+ * mid-budget (product writes receipts only at the tripwire), because for
+ * this tier stopping with the last fixes unreviewed is the designed common
+ * ending and the merge gate consumes that receipt. What survives of the
+ * carve-out's reasoning (every measured runaway loop -- #488's 22 rounds,
+ * #503, #531, #534, #539 -- was internal tooling reviewed at product
+ * rigor): the strictness now lives in the adjudication rubric, not in
+ * refusing review to the fixes.
  *
  * `selfServe` is the tier's answer to "may the first tripwire be cleared by an
  * adjudicator instead of by David?" Sensitive work says no: on auth, payments
@@ -171,6 +181,13 @@ export const TIERS = {
     escalateAt: 5,
     selfServe: false,
     label: "auth / payments / migrations (uncapped, mandatory 🛑 at 5)",
+  },
+  internal: {
+    budget: 3,
+    escalateAt: null,
+    selfServe: false,
+    adjudicatedStop: true,
+    label: "internal tooling (hard cap 3, strict adjudication, no self-serve extension)",
   },
 };
 
@@ -671,7 +688,7 @@ export function validateBudget(pr, receipt) {
  * likelier failures than the fabrication this module's header declines to
  * defend against.
  */
-function validateRecordReference(pr, tier, recordPath, io, ref, preceding = []) {
+function validateRecordReference(pr, tier, recordPath, io, ref, preceding = [], { minPasses = null } = {}) {
   // pr-ready.mjs's merge-gate fallback requires every recordPath to live
   // under ADJUDICATIONS_DIR (never trusting an arbitrary path), so a
   // receipt this guard accepts as closing the loop must be one that gate
@@ -707,13 +724,16 @@ function validateRecordReference(pr, tier, recordPath, io, ref, preceding = []) 
   // having ruled on round 6. Every preceding extension is fully spent before
   // this one activates (see `allowance`'s staging), so the floor is the
   // allowance they establish. (Codex, #543.)
-  const stageFloor = allowance(tier, preceding, Number.MAX_SAFE_INTEGER);
+  const stageFloor = minPasses ?? allowance(tier, preceding, Number.MAX_SAFE_INTEGER);
   if (!Number.isInteger(passes) || passes < stageFloor) {
     return (
       `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below this ` +
       `receipt's own stage floor of ${stageFloor} for tier "${tier}" ` +
-      `(the allowance its ${preceding.length} preceding extension(s) establish) ` +
-      `-- an adjudication must follow the tripwire it answers, not an earlier one`
+      (minPasses !== null
+        ? `(the adjudicator's dispatch point: after a completed round beyond the first) ` +
+          `-- a terminal verdict must follow a completed fix round, not precede one`
+        : `(the allowance its ${preceding.length} preceding extension(s) establish) ` +
+          `-- an adjudication must follow the tripwire it answers, not an earlier one`)
     );
   }
   return null;
@@ -724,7 +744,19 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
   if (receipt.pr !== pr) return `extension receipt names PR ${receipt.pr}, not ${pr}`;
 
   if (receipt.kind === "adjudication") {
-    if (!TIERS[tier].selfServe) {
+    if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
+      return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
+    }
+    // A non-self-serve tier refuses adjudication receipts that would GRANT
+    // rounds -- that is what "no self-serve extension" means. A tier with
+    // `adjudicatedStop` (internal) additionally accepts TERMINAL verdicts as
+    // committed receipts, mid-budget included: a stop grants nothing, closes
+    // the loop, and is what the merge gate consumes for this tier's designed
+    // ending -- stopping with the last fixes unreviewed (David, 2026-08-21).
+    // `sensitive` has neither property: every adjudication receipt stays
+    // refused there, because its tripwire is David's in person.
+    const terminalStop = TIERS[tier].adjudicatedStop === true && receipt.verdict !== "continue";
+    if (!TIERS[tier].selfServe && !terminalStop) {
       return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
     }
     // A TERMINAL verdict decides. Refusing the next post (the guard's own
@@ -738,9 +770,6 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
         `a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- a further ` +
         `adjudication receipt cannot follow it; only a "david"-kind receipt reopens the loop`
       );
-    }
-    if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
-      return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }
     // Every verdict cites the mechanical record it ruled on -- not just
     // `continue`. pr-ready.mjs's merge-gate fallback derives its diff
@@ -774,7 +803,14 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!Array.isArray(receipt.gaps)) {
       return "adjudication receipt must carry the adjudicator's `gaps` array, verbatim (empty is valid for a verdict with no known gaps)";
     }
-    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref, preceding);
+    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref, preceding, {
+      // An internal-tier terminal verdict is legitimate after ANY completed
+      // round beyond the first (the adjudicator's dispatch point), not only
+      // at the tripwire -- the ordinary stage floor would demand the whole
+      // cap be spent before a stop could be recorded, which contradicts the
+      // tier's designed ending (David, 2026-08-21).
+      minPasses: terminalStop ? 2 : null,
+    });
     if (recordError) return recordError;
     if (receipt.verdict !== "continue") return null; // ship-with-gaps-recorded / split / escalate grant nothing further
     // The adjudicator owns the SIZE of an extension (David, 2026-08-20); the
@@ -1221,14 +1257,17 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
       reason:
         `no round budget declared for PR #${pr}, so an @codex review re-request is refused.\n` +
         `IF THIS IS INTERNAL TOOLING -- a guard, a script, a skill, CLAUDE.md, a process doc, a ` +
-        `harvest -- this refusal is the CORRECT outcome and needs no fix (David, 2026-08-20, the ` +
-        `tooling carve-out): internal artifacts get the automatic Codex pass on PR-open, one triage ` +
-        `pass, one-line declines, and no re-requested rounds. Triage what the automatic pass found ` +
-        `and merge. Do NOT declare a budget to get around this.\n` +
+        `harvest -- and round 1 (the automatic pass) found NOTHING, no request is needed: merge on ` +
+        `the automatic pass. If round 1 found things and the fixes are pushed, declare the ` +
+        `internal tier and re-request -- the fixes get reviewed (David, 2026-08-21, superseding ` +
+        `the 2026-08-20 no-rounds carve-out):\n` +
+        `  node scripts/review-budget.mjs declare --pr ${pr} --tier internal ` +
+        `--criticality <1-100> --artifact "<what is under review>"\n` +
         `IF THIS IS PRODUCT CODE, declare the budget BEFORE round 1:\n` +
         `  node scripts/review-budget.mjs declare --pr ${pr} --tier <product|sensitive> ` +
         `--criticality <1-100> --artifact "<what is under review>"\n` +
-        `Tiers: product=5 rounds, sensitive=uncapped with a mandatory 🛑 at 5. ` +
+        `Tiers: product=5 rounds; sensitive=uncapped, mandatory 🛑 at 5; internal=hard cap 3, ` +
+        `strict adjudication rubric, no self-serve extension. ` +
         `Commit the receipt and state the budget in the PR body too.`,
     };
   }
@@ -1345,7 +1384,7 @@ export function parseArgs(argv) {
 }
 
 const USAGE = `usage:
-  review-budget.mjs declare --pr <n> --tier <product|sensitive> --criticality <1-100> --artifact "<text>"
+  review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> --criticality <1-100> --artifact "<text>"
   review-budget.mjs check   --pr <n> --mcp-snapshot <file>
   review-budget.mjs status  --pr <n> [--mcp-snapshot <file>]
 

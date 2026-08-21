@@ -440,10 +440,39 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   const requests = issueComments
     .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
     .sort((a, b) => timeOf(a) - timeOf(b));
+
+  // A completed pass: connector-authored, carrying the marker, with the sha it
+  // reviewed. Computed before the zero-requests branch because the AUTOMATIC
+  // pass -- the connector reviews on PR open and on marking a draft ready,
+  // with no trigger comment at all -- is a complete round with no request to
+  // anchor to. No `commit_id` fallback -- GitHub sets that field on every
+  // review object, including status and error ones, so it promoted non-passes
+  // into this set. (Codex, #490.)
+  const passes = [...reviews, ...issueComments]
+    .filter((c) => authorOf(c) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(c)))
+    .map((c) => ({ at: timeOf(c), sha: (bodyOf(c).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? null }))
+    .filter((p) => p.sha);
+
   if (requests.length === 0) {
+    // ZERO REQUESTS IS A LEGITIMATE COMPLETE STATE when the automatic pass
+    // covers the exact head (David, 2026-08-21, with the internal review
+    // tier): a clean round 1 on an internal PR never posts a trigger, and
+    // demanding one manufactured the #551 deadlock -- the guard forbade the
+    // request the merge gate demanded. Only the marker binding to THIS head
+    // is accepted; a pass on any earlier commit means fixes were pushed on
+    // top, and those need a requested round like always. Requires a headSha
+    // to bind to -- with none supplied this stays the #487 failure, closed.
+    const automatic = headSha ? passes.filter((p) => sameCommit(p.sha, headSha)) : [];
+    if (automatic.length > 0) {
+      return {
+        pass: true,
+        detail: `automatic pass on ${headSha.slice(0, 7)} (no request -- the connector reviews on PR open); nothing pushed past it`,
+        acceptedAt: Math.max(...automatic.map((p) => p.at)),
+      };
+    }
     return {
       pass: false,
-      detail: "no `@codex review` request found -- the review loop was never started (this is the PR #487 failure)",
+      detail: "no `@codex review` request found and no automatic pass covers the head -- the review loop was never started (this is the PR #487 failure)",
     };
   }
 
@@ -457,15 +486,6 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   // stop. Same posture this file takes on every other second-resolution tie.
   // (Codex, #490 round 3.)
   const outage = codeReviewOutage(issueComments, reviews, requestedAt + 1);
-
-  // A completed pass: connector-authored, carrying the marker, with the sha it
-  // reviewed. No `commit_id` fallback -- GitHub sets that field on every review
-  // object, including status and error ones, so it promoted non-passes into
-  // this set. (Codex, #490.)
-  const passes = [...reviews, ...issueComments]
-    .filter((c) => authorOf(c) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(c)))
-    .map((c) => ({ at: timeOf(c), sha: (bodyOf(c).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? null }))
-    .filter((p) => p.sha);
 
   // The single element that must exist. Strict `>` on the ordering: GitHub
   // timestamps have second resolution, so a tie is treated as unanswered.
@@ -735,7 +755,12 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   if (!TIERS[tier]) {
     return { ok: false, detail: `${recordPath} names an unknown tier ${JSON.stringify(tier)}` };
   }
-  if (!TIERS[tier].selfServe) {
+  // `sensitive` never gets this fallback: its tripwire is David's, in
+  // person. `internal` (adjudicatedStop) does, by design -- its adjudicator
+  // may stop the loop mid-budget with the last fixes unreviewed, and this
+  // fallback is exactly how that verdict satisfies the merge gate (David,
+  // 2026-08-21). `product` qualifies through selfServe as before.
+  if (!TIERS[tier].selfServe && TIERS[tier].adjudicatedStop !== true) {
     return {
       ok: false,
       detail: `${recordPath}: tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, never an adjudication`,
@@ -753,14 +778,24 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   // means "cannot confirm the tripwire fired" and fails closed the same way.
   // (Codex, #539 round 3.)
   const allowanceField = record.budget?.allowance;
-  const cap = Number.isFinite(allowanceField) ? allowanceField : Infinity;
+  // For an adjudicatedStop tier the floor is the adjudicator's dispatch
+  // point -- after a completed round beyond the first -- because a
+  // mid-budget stop is that tier's designed ending, not a premature
+  // adjudication. Everyone else keeps the tripwire test: the record must
+  // show the loop at its active allowance. Same floors review-budget.mjs's
+  // validateRecordReference applies when it first accepts the receipt.
+  const cap =
+    TIERS[tier].adjudicatedStop === true ? 2 : Number.isFinite(allowanceField) ? allowanceField : Infinity;
   if (!Number.isInteger(passes) || passes < cap) {
     return {
       ok: false,
       detail:
-        `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below the ` +
-        `loop's active allowance of ${cap === Infinity ? JSON.stringify(allowanceField) : cap} -- an adjudication ` +
-        "must follow its tripwire, not precede it",
+        `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below ` +
+        (TIERS[tier].adjudicatedStop === true
+          ? `the adjudicator's dispatch floor of 2 (a completed round beyond the first) -- a terminal ` +
+            `verdict must follow a completed fix round, not precede one`
+          : `the loop's active allowance of ${cap === Infinity ? JSON.stringify(allowanceField) : cap} -- an adjudication ` +
+            "must follow its tripwire, not precede it"),
     };
   }
   if (record.budget?.pendingRequest !== false) {

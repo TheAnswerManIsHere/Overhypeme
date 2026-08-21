@@ -432,40 +432,47 @@ the agent driving the loop — was deleted on 2026-08-20.** Its measured record
 was 0-for-15 at stopping a loop, on product and meta loops alike. What replaces
 it is two mechanical things and one external judge.
 
-#### Internal tooling is carved out of review loops entirely (David, 2026-08-20)
+#### Internal tooling loops under a stricter judge (David, 2026-08-21)
 
 Guards, `scripts/`, skills, agent contracts (`CLAUDE.md`, `AGENTS.md`, these
-docs), process documentation and documentation harvests get **the automatic
-Codex pass when the PR opens, one triage pass, one-line declines, and nothing
-else.** No declared budget, no re-requested rounds, no adjudication, no
-receipts.
+docs), process documentation and documentation harvests run a **real review
+loop with the `internal` tier** — superseding 2026-08-20's total carve-out,
+whose no-re-requested-rounds rule made every fix round structurally
+unmergeable (the guard forbade the request the merge receipt demanded;
+measured on #551, and the "fix-round merge path" workarounds that used to
+sit here — David posting the trigger himself, or recutting the PR — are
+retired with it):
 
-This is the root-cause fix, not a convenience. Every runaway loop this repo has
-measured was internal tooling reviewed at product rigor: PR #488 ran 22 rounds
-on a ~10-line guard change, and the guard built to stop review churn became the
-repo's single largest source of it (#503, #526, #531, #534, #539). The accepted
-trade is that internal tooling ships with rougher edges — its failure mode is
-wrongly-blocking, which announces itself, and `main`'s real protection is
-GitHub's server-side ruleset rather than review depth.
+- **A clean automatic pass is the whole ceremony.** Round 1 fires on PR
+  open; finding nothing, it needs no budget, no receipts, no adjudication —
+  the merge receipt accepts an automatic pass covering the head.
+- **Findings get fixed and the fixes get reviewed, always.** The agent
+  declares `--tier internal` and re-requests; fixes no reviewer saw never
+  merge.
+- **After every round beyond the first the external adjudicator rules**,
+  same dispatch and mechanical record as product, but under the internal
+  rubric in `review-loop-adjudicator.md`: another round only for a **very
+  high chance of a critical flaw** in the newly-pushed changes — a
+  destructive or irreversible action, corruption of the receipt/tracking
+  machinery, a widening of agent authority. Ordinary correctness nits,
+  prose, structure, and mechanically-unreviewed fixes all ship with gaps
+  recorded. A terminal verdict is committed as a receipt the merge gate
+  consumes, mid-budget included — stopping with the last fixes unreviewed
+  is this tier's designed common ending.
+- **Hard cap 3 rounds, no self-serve extension:** at 3, the loop goes to
+  David in person.
 
-**Codex review of product code is unaffected and is not negotiable.** It is the
-safety net a non-code-reading product manager depends on.
+What the 2026-08-20 decision got right survives in the rubric, not in
+refusing review: every runaway loop this repo measured was internal tooling
+reviewed at product rigor (PR #488 ran 22 rounds on a ~10-line guard
+change; then #503, #526, #531, #534, #539), so the strictness now lives in
+the adjudicator's continuation bar, sized to a class of artifact whose
+failure mode is wrongly-blocking and whose real protection is GitHub's
+server-side ruleset. One triage pass and one-line declines still govern
+engagement.
 
-**The fix-round merge path (Codex, #543).** When the automatic pass finds a
-real defect and the fix is pushed, the head is no longer the reviewed commit —
-and the carve-out means no re-requested round, so the merge receipt refuses.
-Two bounded unwedges, in preference order, neither of which reopens a loop:
-
-1. **David posts the bare review trigger** (the guard gates only the agent's
-   tool calls, not his comments). One head-coverage pass lands, the agent
-   triages it once, and the merge proceeds normally.
-2. **Recut the PR**: push the fixes, close the wedged PR with a pointer, open
-   a fresh PR from the same branch — the automatic pass on open reviews the
-   entire fixed diff, which IS the head. Costs a PR number and a CI run,
-   needs no human, and keeps the one-automatic-pass shape exactly.
-
-Declining every finding needs neither: the original pass already covers the
-unchanged head.
+**Codex review of product code is unaffected and is not negotiable.** It is
+the safety net a non-code-reading product manager depends on.
 
 #### Product loops: a declared budget, then an external judge
 

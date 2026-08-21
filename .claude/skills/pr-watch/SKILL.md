@@ -40,14 +40,25 @@ status alone does not. The old tier gate happened to enforce this ordering as
 a side effect of making me wait — with the gate gone, the ordering has to be
 stated outright or it silently breaks.
 
-### Internal tooling declares nothing and re-requests nothing (David, 2026-08-20)
+### Internal tooling loops on the internal tier (David, 2026-08-21)
 
 **If this PR is internal — a guard, a script, a skill, an agent contract, a
-process doc, a documentation harvest — there is no budget, no adjudication, and
-no second round.** Codex's automatic pass on PR-open is the review: triage it
-once, decline out-of-scope findings in one line, and merge. The guard refuses an
-`@codex review` post with no declared budget, and on this class **that refusal
-is the intended outcome** — do not declare a budget to get around it.
+process doc, a documentation harvest — the loop runs, strictly** (superseding
+2026-08-20's no-second-round rule, which left every fix round unmergeable):
+
+- **Clean automatic pass on PR-open → merge on it.** No budget, no receipts,
+  no adjudication; the merge receipt accepts an automatic pass covering the
+  head.
+- **The pass found things → triage once, decline out-of-scope findings in
+  one line, fix the rest, push — then declare `--tier internal` and
+  re-request.** Fixes no reviewer saw never merge.
+- **After every round beyond the first, dispatch the adjudicator** exactly
+  as a product loop does — the record's tier makes it apply the internal
+  rubric (continue only for a very high chance of a CRITICAL flaw in the
+  newly-pushed changes). A terminal verdict is written to a committed,
+  pushed `loop-extension-<pr>-<seq>.json` receipt — mid-budget included;
+  the merge gate consumes it.
+- **Hard cap 3, no self-serve extension** — at 3, 🛑 David.
 
 ### Declare the round budget at loop start (product loops only)
 
@@ -55,12 +66,14 @@ is the intended outcome** — do not declare a budget to get around it.
 its round budget:
 
 ```
-node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive> \
+node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> \
      --criticality <1-100> --artifact "<what is under review>"
 ```
 
 `product` = 5 rounds, `sensitive` = uncapped with a mandatory 🛑 at 5 (auth,
-payments, migrations). The tier picks the number; it is not a field to fill in.
+payments, migrations), `internal` = hard cap 3 (declared at the first
+re-request, not before round 1 — see the internal-tier section above). The
+tier picks the number; it is not a field to fill in.
 **Commit the receipt AND PUSH IT**, then **state the budget in the PR body**.
 
 The push is not housekeeping — it is what makes the budget exist. Budgets and
@@ -264,13 +277,15 @@ the diff *is* the plan. While watching an implementation PR:
   what I did. I do **NOT** post a single new top-level PR comment summarizing
   several fixes — David tracks "is every issue addressed?" by seeing a reply on
   each thread, and a catch-all comment defeats that.
-- **Internal artifacts get no re-request at all** (the carve-out at the top of
-  this skill). There is no criticality gate any more — the artifact's class
-  decides, not a rated number: internal means one automatic pass and done,
-  product means a declared budget and the adjudicator. A product PR's review
-  request names its pre-registered flip conditions (what finding, count, or
-  change of shape would end the loop) and confirms there has been a behavioral
-  change since the last reviewed commit.
+- **Internal artifacts re-request only for pushed fixes, and continue only
+  on the strict rubric** (the internal-tier section at the top of this
+  skill). There is no criticality gate any more — the artifact's class
+  decides, not a rated number: internal means the automatic pass, re-review
+  of fixes, and the strict adjudicator; product means a declared budget and
+  the standard adjudicator. Every review request, either tier, names its
+  pre-registered flip conditions (what finding, count, or change of shape
+  would end the loop) and confirms there has been a behavioral change since
+  the last reviewed commit.
 - **A "usage limits for security reviews" bounce is NOT a code-review
   outage — ignore it and request the code review (David, 2026-08-15,
   correcting the 2026-08-08 rule that used to live here).** Codex meters

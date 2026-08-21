@@ -329,8 +329,10 @@ What is *bugfix-specific* about the loop:
   a fix.** A fix to product code is a product loop (declared budget, external
   adjudicator). But routed entry means a bug can be *in the docs*: when the
   whole diff is agent-facing markdown or process tooling, the internal
-  carve-out governs — the automatic pass, one triage, no re-requested rounds
-  — exactly as if the same change had arrived through feature mode. Entering
+  tier governs (David, 2026-08-21) — the automatic pass, one triage,
+  fix rounds re-reviewed under the strict internal adjudication rubric,
+  hard cap 3 — exactly as if the same change had arrived through feature
+  mode. Entering
   through this mode never raises an artifact's ceremony, and never lowers
   product code's.
 - **The re-reviewer's oracle is the bugfix oracle** (step 3), not a plan —
