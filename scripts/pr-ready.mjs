@@ -592,11 +592,19 @@ export function checkCodex(issueComments, reviews, headSha = null) {
  * the declared tier's cap), this function also confirms the tier is
  * self-serve (`sensitive` never gets this fallback -- its tripwire is a
  * mandatory 🛑 to David, and a record or receipt claiming otherwise is
- * wrong on its face), that no request was still pending when the record was
- * generated, and that the record's own embedded extension history shows no
- * PRIOR adjudication -- a second one is never valid, so a record already
- * carrying one means this receipt cannot legitimately be a fresh one.
- * (Codex, #539 round 2.)
+ * wrong on its face), and that no request was still pending when the record
+ * was generated.
+ *
+ * IT DOES NOT COUNT PRIOR ADJUDICATIONS. It did until 2026-08-20, citing
+ * `review-budget.mjs`'s rule that a second adjudication is never valid --
+ * and that rule is gone: the adjudicator now runs after every round and may
+ * grant more than once, bounded by the outer rail rather than by a count. The
+ * check had to go with its own justification, and nothing was lost, because
+ * what makes a ship verdict terminal is the ACTIVE-ALLOWANCE test below
+ * (`passes >= record.budget.allowance` -- the tripwire actually fired, at
+ * whatever cap the loop had reached including earlier grants), not the
+ * absence of earlier adjudications. The anti-bypass property is unchanged and
+ * still comes from the ancestor-plus-exact-file bound below.
  *
  * THE ANCESTOR-PLUS-EXACT-FILE BOUND is what keeps this from becoming a
  * standing bypass. The record's baseline must be a real, resolvable ancestor
@@ -677,7 +685,7 @@ function latestReviewRequestAt(issueComments) {
  * deriving from it everything the old design took as separately
  * self-declared receipt fields: the tier, whether it's self-serve, the round
  * count against its cap, whether a request was still pending at generation,
- * whether a prior adjudication already occurred, and -- the diff baseline --
+ * and -- the diff baseline --
  * `sinceLastReview.head`, the PR head at the moment the record's analysis
  * was generated. Reads the record's committed content at the CURRENT head
  * (`headSha`), never a separately-cited commit: like the receipt itself, the
@@ -764,15 +772,6 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
         "comment and the last completed pass shared the same reported second, which is indeterminate, not resolved",
     };
   }
-  if ((record.budget?.extensions ?? []).some((e) => e.kind === "adjudication")) {
-    return {
-      ok: false,
-      detail:
-        `${recordPath}: budget.extensions already shows a prior adjudication -- a second adjudication is never ` +
-        "valid (review-budget.mjs's own rule), so this receipt cannot legitimately be one",
-    };
-  }
-
   const generatedAt = Date.parse(record.generatedAt ?? "");
   if (!Number.isFinite(generatedAt)) {
     return { ok: false, detail: `${recordPath}.generatedAt is missing or unparseable` };

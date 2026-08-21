@@ -707,7 +707,7 @@ function validateRecordReference(pr, tier, recordPath, io, ref) {
   return null;
 }
 
-export function validateExtension(pr, tier, receipt, { adjudicationsAlreadySeen, io, ref }) {
+export function validateExtension(pr, tier, receipt, { io, ref }) {
   if (!receipt || typeof receipt !== "object") return "extension receipt is not an object";
   if (receipt.pr !== pr) return `extension receipt names PR ${receipt.pr}, not ${pr}`;
 
@@ -868,7 +868,6 @@ export function loadLoop(pr, io) {
   }
 
   const extensions = [];
-  let adjudicationsSeen = 0;
   for (const { seq, name } of found) {
     const rel = `${RECEIPTS_DIR}/${name}`;
     // From the ref. There is no second read to disagree with this one, and no
@@ -878,9 +877,8 @@ export function loadLoop(pr, io) {
     if (parsed.state !== "ok") {
       return { problem: "bad-receipt", detail: `${rel} could not be read from ${ref} (${parsed.state}: ${parsed.error ?? "unreadable"})` };
     }
-    const error = validateExtension(pr, tier, parsed.value, { adjudicationsAlreadySeen: adjudicationsSeen, io, ref });
+    const error = validateExtension(pr, tier, parsed.value, { io, ref });
     if (error) return { problem: "bad-receipt", detail: `${rel} (in ${ref}): ${error}` };
-    if (parsed.value.kind === "adjudication") adjudicationsSeen += 1;
     extensions.push({ seq, ...parsed.value });
   }
 
