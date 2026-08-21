@@ -24,13 +24,17 @@ session replaced it. If he ever wants one for a solo run he asks.
 
 An invocation may name a PR, an issue, or nothing.
 
-1. **Find the candidate docs** — `docs/tests/UAT/PR<N>_*_UAT.md`. Every file
-   still present is by definition unfinished (David deletes them on
-   completion), so the surviving set *is* the pending queue.
-2. **Check for an interrupted run first.** Read the workstream issue's
-   comments for a `## UAT run` record (section 5) whose verdict is
-   `in progress`. If one exists, offer to **resume at its recorded step**
-   rather than starting over — that record is the whole reason it exists.
+1. **Find the candidate docs on current `origin/main` — not in my checkout.**
+   `git fetch origin main`, then list `docs/tests/UAT/PR<N>_*_UAT.md` as of
+   `origin/main`. Every file still present *there* is unfinished, because
+   David's deletion is what completes one. My working tree is the wrong
+   oracle in both directions: an older branch still carries docs he already
+   deleted (so I'd offer a finished run), and a stale checkout misses one
+   that just merged.
+2. **Check for an interrupted run first.** Read the workstream issue body for
+   a `## UAT run` section (section 5) whose verdict is `in progress`. If one
+   exists, offer to **resume at its recorded step** — and re-do any setup it
+   records as owed (section 2), since a paused run tears its setup down.
 3. **One candidate → start it. Several → ask which**, one numbered question.
    **None → say so** and don't invent a run.
 
@@ -46,17 +50,25 @@ narrative preamble is mine to have read, not his to sit through.
 known state, confirming the Repl is synced and the app is up. He should
 arrive at step 1 with the app already in the state the test needs.
 
-Three rules, because setup writes to the live app:
+Four rules, because setup writes to the live app:
 
 - **Name what I created, out loud, in the preview.** Test data that nobody
   labelled as test data is indistinguishable from real content the moment
   the session ends. Say "I created fact #4821 and user `uat-tester`" so he
   can recognise them later.
-- **Capture the restore path before the write, and do the teardown at the
-  end of the run** — the same discipline
+- **Capture the restore path before the write.** The same discipline
   [`test-run-contract.md`](../../../docs/tests/test-run-contract.md) puts on
-  a live-environment write. If something can't be cleanly undone, say so
+  any live-environment write. If something can't be cleanly undone, say so
   *before* doing it and let him decide.
+- **Teardown runs before the run stops — at the end, and equally before a
+  pause.** This is not a tidiness rule, it's a production-safety one: real
+  UAT scripts put the live app into deliberately wrong states, and
+  `PR443_BUDGET_GATE_FAIL_CLOSED_UAT.md` is the worked example — it lowers
+  `budget_limit_legendary_usd`, the **real** Legendary spend limit, and puts
+  it back at the end. A run paused mid-bugfix can sit for days, so a pause
+  that skipped teardown would leave production mis-configured for exactly
+  that long. Tear down, record in the run what setup is owed on resume, and
+  re-create it when he comes back.
 - **Say plainly what I can't set up.** I have no admin session — every
   `/admin/*` route answers *Access Denied* to me, which is the same
   limitation that made admin click-throughs UAT-shaped in the first place.
@@ -97,7 +109,7 @@ question is a real one — did the result differ from what was expected, or
 was it just slow, ugly, or awkward? — and the answer often splits the step:
 record it honestly as partial ("1–2 fine, 3 wrong") rather than flattening
 it into one Pass or one Fail. A multi-part step is allowed to have a
-multi-part result; the roll-up in section 5 handles it.
+multi-part result; the roll-up in section 6 handles it.
 
 **Two reports that are not step failures**, and mis-filing them is expensive
 in both directions:
@@ -109,9 +121,15 @@ in both directions:
   [`working-modes.md`](../../../docs/ai-context/working-modes.md) arriving
   in a testing session, and treating it as a bug is how a design decision
   gets fixed without ever being decided.
-- **The doc's expected result is wrong.** My error, not the product's. Mark
-  the step **Skipped — doc wrong**, note the correction, and fix the doc as
-  part of close-out.
+- **The doc's expected result is wrong.** My error, not the product's — and
+  **the step still has to be run against the corrected expectation, in this
+  run, before it counts as anything.** Mark it `Skipped — doc wrong`, say
+  what the expectation should have been, and **re-present the step
+  immediately**. A wrong oracle that merely gets skipped lets a real
+  regression pass as a clean acceptance, because section 6 counts a
+  reasoned Skip toward `Accepted` — the product was never actually checked.
+  Fixing the doc file itself happens at close-out; re-running the step
+  happens now.
 
 ## 4. When a step fails — file it now, then ask
 
@@ -132,11 +150,12 @@ In order, in the same turn:
    by classifying anything. **This is not the fix tier**: the tier is
    diagnosis's job in the bugfix session, and pre-empting it here would put
    a guess where a classification belongs.
-3. **Run the disclosure check** before opening anything public — this repo
+3. **Run the disclosure check** before writing anything public — this repo
    is public, and a UAT failure can be exactly the kind of thing that must
    not become a public issue
    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#disclosure-check-before-the-workstream-issue-opens)).
-   If it fails, private draft Project item, and say so plainly.
+   If it fails, **the whole run goes private from that moment** — see
+   *The private path* below, and do not write the symptom anywhere public.
 4. **File the bug** — check the backlog for a match and promote it rather
    than duplicating, per [`bugfix`](../bugfix/SKILL.md) step 1. New issues
    open with `stage:coding`, `waiting:claude`, `mode:bugfix` and a State of
@@ -145,34 +164,69 @@ In order, in the same turn:
    ends up in.
 5. **Record the way back, in the same edit** — `Blocked by: #<bug>` on this
    workstream, plus a State of Play line naming **which step failed**. This
-   is what makes resumption "step 4" instead of a full re-run. `bugfix`
-   step 1 owns this contract; I'm executing it at the earlier moment,
-   because I'm the one holding the context. Mirror the `waiting:` flip onto
-   the parent if this workstream is a phase sub-issue.
+   is what makes resumption "step 4" instead of a full re-run, and it goes
+   in now, at intake, because a session that ends before it is written loses
+   the link entirely. `bugfix` step 1 owns this contract; I'm executing it
+   at the earlier moment, because I'm the one holding the context.
 6. **Hand him a paste-ready prompt** for a fresh session, naming the issue
    number so that session works the filed bug instead of opening a second
    one for the same defect.
+
+**The `waiting:` flip is NOT part of intake — it happens when the run
+actually stops** (section 6). `bugfix` step 1 flips the interrupted
+workstream to `waiting:claude` because by the time *it* runs, the UAT is
+interrupted by definition. Here it may not be: if David says continue, he is
+still the holder and the next real action is still his click, so
+`stage:uat`/`waiting:david` stays exactly right. Flipping at intake would
+also mirror the wrong holder onto a phased parent and hide an active,
+David-held run from `/status-all`. What goes in at intake is the `Blocked
+by:` link and the failed-step line — the crash-critical parts. The label is
+display state, and it costs nothing to set it once, correctly, at the end.
 
 **Then ask: continue or pause?** His call, every time. Continuing is often
 worth it — it banks two or three more bugs that can be fixed in parallel
 instead of serially — but a Blocked step or a showstopper usually means
 there's nothing left worth testing, and I say so rather than making him
-work it out. The run record persists either way, so pausing costs nothing.
+work it out. **A pause is a stop: tear the setup down first** (section 2),
+and record what's owed on resume.
 
 **Never diagnose the bug inside the UAT session.** Not even when the cause
 looks obvious. Diagnosis belongs to the bugfix session with a real branch
 and a real review; guessing at it here spends his testing time and produces
 a root cause nobody reviewed.
 
-## 5. The run record — durable, batched, resumable at the step
+### The private path
 
-State lives on the **workstream issue**, as a comment, because that is
-already what survives a session ending and what a cold session reads. Not
-in the chat, not in a file, not in my head.
+When the disclosure check rejects a failure, the descent-stack machinery
+cannot be used as written — a private draft Project item **has no issue
+number**, so there is no `#N` for a `Blocked by:` marker or for the handoff
+prompt, and the run record itself would leak the symptom on a public issue.
+So, from that moment:
 
-**One comment per run.** A re-run after fixes is a new record
-(`## UAT run 2 — …`), not an edit of the old one — the previous run's
-results are the record of what was true then.
+- **The bug becomes a private draft Project item**, per CLAUDE.md's
+  disclosure rule, with a short stable reference of my choosing
+  (`UAT-<PR>-<step>`) written into the item.
+- **The run record moves private too**, onto that item. The public
+  workstream issue keeps only a **content-free pointer**:
+  `Blocked by: private tracking (UAT-472-2)` and a State of Play line saying
+  which step failed **without saying how**. That reads as prose rather than
+  the anchored `Blocked by: #N` marker, so it does not gate automatically —
+  which means I say so plainly to David rather than assuming the stack pops
+  on its own.
+- **I tell him the automation doesn't cover this path**, in the same breath,
+  because a silent downgrade from mechanical to manual tracking is how a
+  sensitive bug gets forgotten.
+
+## 5. The run record — mutable, batched, resumable at the step
+
+State lives on the **workstream issue body**, as a `## UAT run` section
+alongside State of Play. **The body, not a comment, and that's a mechanical
+constraint rather than a preference:** the available GitHub tools can
+*create* a comment (`add_issue_comment`) but cannot *edit* one, while
+`issue_write` updates the body freely. A record that has to be rewritten at
+every checkpoint therefore cannot live in a comment — it would either freeze
+after setup or fan out into a dozen comments, and a resuming session would
+have no reliable way to tell which is current.
 
 ```markdown
 ## UAT run — PR #472 · Admin help system
@@ -188,8 +242,8 @@ results are the record of what was true then.
 | 3 · Search | Pass | |
 | 4 · Deliberate absences | — | not yet run |
 
-**Setup I performed:** seeded `uat-tester` account; fact #4821
-**Teardown owed:** both, at end of run
+**Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
+2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
 **Resume at:** step 4
@@ -198,10 +252,15 @@ results are the record of what was true then.
 **Write it on the moments that matter, not every turn:** once after setup
 (so the record exists before anything can be lost), on every non-pass, on
 pause, at the end, and every fifth step through a clean stretch. A record
-written every turn costs a round trip per step and buys nothing a
-five-step gap doesn't.
+written every turn costs a round trip per step and buys nothing a five-step
+gap doesn't.
 
-**Update the State of Play's `To resume` field to point at it**, per
+**At the end of a run, post the final record once as a comment** — that's
+the permanent, immutable history — and clear the body section so the next
+run starts clean. A re-run after fixes is a fresh `## UAT run 2 — …`
+section, never an edit of a previous run's results.
+
+**Keep the State of Play's `To resume` field pointed at it**, per
 [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md).
 That field is what a cold session actually reads first.
 
@@ -212,18 +271,42 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step Pass (or Skipped with a stated reason) |
+| **Accepted** | Every step Pass (or Skipped with a stated reason, the doc-wrong case having been re-run per section 3) |
 | **Accepted with issues** | Failures exist, all minor/cosmetic, David says ship it |
 | **Blocked** | A showstopper, or too much untestable to call it |
 
 Then, in one edit:
 
 - **Do the teardown** I owe, and confirm it in the record.
-- **Set the labels once, correctly, from the outcome.** `Accepted` →
-  `stage:close-out`. Anything with an outstanding bug → `waiting:claude`,
-  because the next real action is a fix, not something David can click.
-  Leaving it at `waiting:david` is what makes `/status-all` show a
-  mechanically non-actionable UAT under NEEDS YOU.
+- **Set the labels from the verdict**, and update the **State of Play block
+  in the same edit** — Stage, Waiting on, Last movement, and the narrative,
+  not just `To resume`. `workstream-tracking.md` requires the block and the
+  labels to move together, and a clean run that left the body saying "UAT,
+  waiting on David" while the labels said close-out would be exactly the
+  drift that rule exists to prevent.
+
+| Verdict | Stage | Waiting | The bugs |
+| --- | --- | --- | --- |
+| **Accepted** | `close-out` | `claude` | none |
+| **Accepted with issues** | `close-out` | `claude` | **de-linked** — remove their `Blocked by:` markers; they are tracked independently now |
+| **Blocked** | stays `uat` | `claude` | stay linked; the run resumes after the fix |
+
+  **`Accepted with issues` really does reach close-out.** Every failure in a
+  run has already produced an outstanding bug, so a blanket "any outstanding
+  bug means hold at `uat`" rule would make this verdict unreachable —
+  David could explicitly say ship the cosmetic ones and the workstream would
+  sit at `uat` forever, with the bugs still blocking it. Him accepting the
+  run is exactly what converts those bugs from blockers into ordinary
+  independently-tracked work.
+
+- **If this workstream is a phase sub-issue and the verdict reached
+  close-out, do the parent edits too** — tick this phase's line in the
+  parent's Phases checklist, re-point the parent's `waiting:`, and move the
+  parent to `stage:close-out` if this was the last phase. `pr-watch`
+  normally owns those edits at the moment a phase reaches `stage:close-out`,
+  but it finished when the PR merged and nothing wakes it again — so if I
+  skip them, nothing performs them and `/next` keeps treating a finished
+  phase as active.
 - **Log product notes as backlog issues** (`queue:`), separately from bugs.
 - **Fix the doc** if a step's expected result was wrong.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
