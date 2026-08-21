@@ -31,6 +31,17 @@ An invocation may name a PR, an issue, or nothing.
    oracle in both directions: an older branch still carries docs he already
    deleted (so I'd offer a finished run), and a stale checkout misses one
    that just merged.
+
+   **Then filter by lifecycle: offer only docs whose workstream is at
+   `stage:uat`.** A doc's presence on `main` proves its PR merged, nothing
+   more — `pr-watch` deliberately holds a workstream at `stage:test-run`
+   while post-merge verification is pending or failed, and offering that doc
+   would start David testing a build the lifecycle is withholding. Resolve
+   each candidate's workstream issue (the doc names its PR; the PR body
+   names the issue) and check the label. A doc whose workstream isn't at
+   `stage:uat` is listed as "not ready — held at <stage>", never offered as
+   startable; David can override explicitly, and that override goes in the
+   run record.
 2. **Check for an interrupted run first.** Read the workstream issue body for
    a `## UAT run` section (section 5) whose verdict is `in progress`. If one
    exists, offer to **resume at its recorded step** — and re-do any setup it
@@ -56,10 +67,17 @@ Four rules, because setup writes to the live app:
   labelled as test data is indistinguishable from real content the moment
   the session ends. Say "I created fact #4821 and user `uat-tester`" so he
   can recognise them later.
-- **Capture the restore path before the write.** The same discipline
+- **Capture the restore path before the write — and write it down before
+  the write, too.** The same discipline
   [`test-run-contract.md`](../../../docs/tests/test-run-contract.md) puts on
-  any live-environment write. If something can't be cleanly undone, say so
-  *before* doing it and let him decide.
+  any live-environment write, plus a durability rule: the planned mutation
+  and the captured original value go into the issue-body run record
+  **before** the first live write, not after setup completes. Written
+  after, a crash between the mutation and the checkpoint loses both the
+  original value and the teardown obligation — for a budget-limit change,
+  that's production misconfigured indefinitely with no record of what to
+  restore. If something can't be cleanly undone, say so *before* doing it
+  and let him decide.
 - **Teardown runs before the run stops — at the end, and equally before a
   pause.** This is not a tidiness rule, it's a production-safety one: real
   UAT scripts put the live app into deliberately wrong states, and
@@ -206,8 +224,17 @@ So, from that moment:
 - **The bug becomes a private draft Project item**, per CLAUDE.md's
   disclosure rule, with a short stable reference of my choosing
   (`UAT-<PR>-<step>`) written into the item.
-- **The run record moves private too**, onto that item. The public
-  workstream issue keeps only a **content-free pointer**:
+- **The run record goes manual, and I say so.** A draft Project item is
+  write-only to me — no available tool reads or writes Projects v2 item
+  fields (`workstream-tracking.md`), so it cannot hold a record I checkpoint
+  and rediscover. On the private path the live record is therefore
+  maintained **in the session and handed to David at every checkpoint
+  moment** (the same moments section 5 names): a compact copy in chat that
+  he can paste into the private item himself, and that a resuming session
+  asks him for. Resumability degrades from mechanical to David-carried on
+  exactly this path — an accepted cost of not leaking the symptom, stated
+  out loud at the moment it starts, never silently.
+- **The public workstream issue keeps only a content-free pointer**:
   `Blocked by: private tracking (UAT-472-2)` and a State of Play line saying
   which step failed **without saying how**. That reads as prose rather than
   the anchored `Blocked by: #N` marker, so it does not gate automatically —
@@ -255,10 +282,15 @@ pause, at the end, and every fifth step through a clean stretch. A record
 written every turn costs a round trip per step and buys nothing a five-step
 gap doesn't.
 
-**At the end of a run, post the final record once as a comment** — that's
-the permanent, immutable history — and clear the body section so the next
-run starts clean. A re-run after fixes is a fresh `## UAT run 2 — …`
-section, never an edit of a previous run's results.
+**An ACCEPTED run finalizes; a BLOCKED run stays live.** On either accepted
+verdict, post the final record once as a comment — the permanent, immutable
+history — and clear the body section so the next run starts clean. A
+**Blocked** run does neither: its `## UAT run` section stays in the body
+with verdict `blocked — resumes after #<bug>`, because that section is the
+only thing section 1's resume path searches; finalizing it would make a
+cold `/uat` start a fresh run instead of resuming at the recorded step with
+the owed setup. A re-run after an accepted-with-issues ship is a fresh
+`## UAT run 2 — …` section, never an edit of a previous run's results.
 
 **Keep the State of Play's `To resume` field pointed at it**, per
 [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md).
@@ -271,9 +303,12 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step Pass (or Skipped with a stated reason, the doc-wrong case having been re-run per section 3) |
-| **Accepted with issues** | Failures exist, all minor/cosmetic, David says ship it |
-| **Blocked** | A showstopper, or too much untestable to call it |
+| **Accepted** | Every step executed and Passed. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. The doc-wrong case counts only re-run per section 3 |
+| **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
+| **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
+
+A run that stops with required coverage unexecuted and no decision from him
+isn't a verdict at all — it's a pause, and the record stays `in progress`.
 
 Then, in one edit:
 
@@ -287,9 +322,9 @@ Then, in one edit:
 
 | Verdict | Stage | Waiting | The bugs |
 | --- | --- | --- | --- |
-| **Accepted** | `close-out` | `claude` | none |
-| **Accepted with issues** | `close-out` | `claude` | **de-linked** — remove their `Blocked by:` markers; they are tracked independently now |
-| **Blocked** | stays `uat` | `claude` | stay linked; the run resumes after the fix |
+| **Accepted** | `close-out`, then `done` when nothing remains (below) | `claude` | none |
+| **Accepted with issues** | same as Accepted | `claude` | **de-linked** — remove their `Blocked by:` markers; they are tracked independently now |
+| **Blocked** | stays `uat` | `claude` — **recording the prior holder** (`was waiting:david, mid-UAT`) in the same State of Play line, exactly as `bugfix` intake does: `pr-watch`'s blocker-pop restores a holder only from that stashed value, so without it the workstream stays agent-held after the fix instead of returning to David | stay linked; the run resumes after the fix |
 
   **`Accepted with issues` really does reach close-out.** Every failure in a
   run has already produced an outstanding bug, so a blanket "any outstanding
@@ -299,6 +334,15 @@ Then, in one edit:
   run is exactly what converts those bugs from blockers into ordinary
   independently-tracked work.
 
+- **On an accepted verdict, drive close-out to done rather than parking
+  there.** An accepted UAT is the last David-gate; what remains of close-out
+  is mine (the harvest-notes comment for a product feature, any outstanding
+  item the State of Play lists). Do what remains, and when nothing is left,
+  set `stage:done` and close the issue — David's deletion of the UAT file
+  is his personal done-list, not a lifecycle gate, and nothing wakes an
+  agent when he does it. Only when a real close-out item genuinely can't be
+  finished now does the workstream sit at `stage:close-out`, with that item
+  named in the State of Play.
 - **If this workstream is a phase sub-issue and the verdict reached
   close-out, do the parent edits too** — tick this phase's line in the
   parent's Phases checklist, re-point the parent's `waiting:`, and move the
@@ -307,7 +351,12 @@ Then, in one edit:
   but it finished when the PR merged and nothing wakes it again — so if I
   skip them, nothing performs them and `/next` keeps treating a finished
   phase as active.
-- **Log product notes as backlog issues** (`queue:`), separately from bugs.
+- **Log product notes as backlog issues with complete backlog labels** —
+  a concrete priority (`queue:now` / `queue:next` / `queue:later` — ask
+  David which, he's right there; default `queue:next` if he waves it off)
+  plus a `mode:` label and **no** `stage:` label, per
+  `workstream-tracking.md`'s backlog contract. A bare `queue:` shorthand
+  creates an item `/next` can't rank and the board can't display.
 - **Fix the doc** if a step's expected result was wrong.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
   he can do next. He deletes the UAT doc himself — I don't, and I don't

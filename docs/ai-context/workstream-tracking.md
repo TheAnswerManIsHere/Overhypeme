@@ -282,19 +282,18 @@ skills that own label transitions
 this block current at those same trigger points. There is no separate
 maintainer beyond those five **for label-driven updates**.
 
-**`/uat` also writes mid-run, without a label change**, for the same reason
-`/handoff` does below: a run in progress changes what a cold reader needs to
-know (which step is next) while `stage:uat`/`waiting:david` stay exactly
-right. It keeps the `To resume` field pointed at the run record described in
-[`.claude/skills/uat/SKILL.md`](../../.claude/skills/uat/SKILL.md).
-
-**One writer updates this block without any label change: `/handoff`**
-(`.claude/skills/handoff/SKILL.md`, Claude-only). When a session's context is
+**Exactly two writers update this block without any label change:
+`/handoff` and `/uat`.** `/handoff`
+(`.claude/skills/handoff/SKILL.md`, Claude-only): when a session's context is
 moved to a fresh session, the narrative changes while `stage:` and `waiting:`
 deliberately do not — the holder is `claude` before and after, and a handoff
-is not a lifecycle transition. This is consistent with the rule above rather
-than an exception to it: the rule binds a label change to a block update, not
-the reverse. (The old fifth maintainer — the `test-run-completion.yml`
+is not a lifecycle transition. `/uat`
+([`.claude/skills/uat/SKILL.md`](../../.claude/skills/uat/SKILL.md)): a run
+in progress changes what a cold reader needs to know (which step is next,
+what setup is owed) while `stage:uat`/`waiting:david` stay exactly right,
+so it maintains the body's `## UAT run` section and the `To resume` field
+mid-run. Both are consistent with the rule above rather than exceptions to
+it: the rule binds a label change to a block update, not the reverse. (The old fifth maintainer — the `test-run-completion.yml`
 Action, which owned the deletion-of-a-TEST_RUN-doc transition — is retired
 with the TEST_RUN file pattern, 2026-08-15: `pr-watch`'s close-out sequence
 owns that transition now.)
