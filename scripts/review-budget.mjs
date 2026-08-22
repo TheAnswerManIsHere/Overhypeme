@@ -749,21 +749,23 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
       return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }
-    // A non-self-serve tier refuses adjudication receipts that could let the
-    // loop proceed -- its tripwire is David's, in person. Two verdicts are
-    // exempt, and the direction of travel is the whole test: `split` and
-    // `escalate` make a PR LESS mergeable, never more. `checkRail` blocks
-    // readiness outright on a standing one, and it reads only committed
-    // receipts -- so with no receipt written, an internal loop the judge
-    // handed to David could still mint READY on its reviewed head and pass
-    // the merge hook (Codex, #553 round 4). Persisting a block is the
-    // opposite of the deleted `adjudicatedStop` carve-out, which made an
-    // UNREVIEWED head mergeable; blocks are always safe to add.
-    // `ship-with-gaps-recorded` stays refused here and needs no receipt: it
-    // means mergeable, and the ordinary path already covers a reviewed head.
-    const blockingVerdict = receipt.verdict === "split" || receipt.verdict === "escalate";
-    if (!TIERS[tier].selfServe && !blockingVerdict) {
-      return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication (only "split"/"escalate", which block readiness rather than grant rounds, may be recorded)`;
+    // A non-self-serve tier refuses EVERY adjudication receipt: its tripwire
+    // is David's, in person.
+    //
+    // REVERTED (David, 2026-08-22): #553 round 4 asked for mid-budget
+    // `split`/`escalate` receipts so `checkRail` could see them, and round 5
+    // showed why that shape does not work -- `validateRecordReference` holds
+    // every receipt to the exhaustion floor, so a blocking verdict recorded
+    // before exhaustion is rejected as malformed, `loadLoop` then fails on
+    // it, and NOT EVEN A DAVID GRANT can reopen that loop. Exempting
+    // blocking verdicts from the floor would rebuild the `minPasses`
+    // machinery this PR deleted, so the carve-out is reverted instead and
+    // the visibility gap is recorded: a standing `split`/`escalate` on a
+    // tier that writes no receipt is not machine-visible to the readiness
+    // gate. It is covered by process rather than mechanism -- both verdicts
+    // go to David as a 🛑 by construction, and READY is not a merge.
+    if (!TIERS[tier].selfServe) {
+      return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
     }
     // A TERMINAL verdict decides. Refusing the next post (the guard's own
     // rule) is bypassable from this side: a later `continue` receipt would

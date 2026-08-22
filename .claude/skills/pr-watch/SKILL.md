@@ -218,15 +218,18 @@ the diff *is* the plan. While watching an implementation PR:
   trigger is what spawns unintended tasks. A per-round **stop** ends the
   loop right there: the verdict goes in a defanged comment and **no further
   trigger is posted** — the loop proceeds to close-out on the rounds already
-  returned. (Under the write-gate rule an ordinary
-  stop precedes any new commit, so the head is already reviewed and no
-  receipt is written for it — the 2026-08-21 internal stop-receipt is gone.)
-  **But a `split` or `escalate` verdict ALWAYS writes its committed, pushed
-  receipt, on every tier** — those hand the work to David, and `checkRail`
-  reads only committed receipts, so a comment-only escalate would let the
-  readiness gate mint READY on a PR its own last verdict says not to merge
-  (Codex, #553 round 4). Persisting a block is the opposite of the deleted
-  stop-receipt, which unwedged an unreviewed head. A **split-to-David** likewise posts no trigger; it goes to David
+  returned. (Under the write-gate rule a stop
+  precedes any new commit, so the head is already reviewed and no receipt is
+  written for it — the 2026-08-21 internal stop-receipt is gone; the only
+  committed verdict receipt is the product tier's at exhaustion.)
+  **Known gap, recorded rather than fixed (#553 rounds 4–5):** a standing
+  `split`/`escalate` on a tier that writes no receipt is invisible to
+  `checkRail`, so the readiness gate can mint READY on a PR whose own last
+  verdict handed it to David. Making those receipts mid-budget was tried and
+  reverted — every receipt is held to the exhaustion floor, so a blocking one
+  written earlier is rejected as malformed and **not even a David grant can
+  reopen that loop**. Covered by process instead: both verdicts go to David
+  as a 🛑 by construction, and READY is not a merge. A **split-to-David** likewise posts no trigger; it goes to David
   as a 🛑. **A round with no adjudication keeps the normal next-round
   trigger** — rounds 1 and 2 have no judge by design (measured: zero clean
   round 1s and three round-2 convergences in the ledger's 41 reviewed

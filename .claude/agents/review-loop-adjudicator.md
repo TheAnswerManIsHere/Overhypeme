@@ -97,14 +97,19 @@ carry the decision:
 - `territory` — findings whose file is inside this PR's diff vs. outside it.
   Outside-diff findings mean the reviewer ran out of diff and started auditing
   the repo. That is closer to a convergence signal than to unfinished work.
+- **`artifact.patch` — THE CODE YOUR DECISION IS ABOUT.** The reviewed
+  `base...head` diff: what this round's findings actually point at, and the
+  field to read when the rubric asks whether a finding describes a critical
+  flaw. It is source-derived evidence inside your one permitted input, not
+  context from the loop. Capped, with truncation stated; a truncated or
+  unavailable patch is itself uncertainty — weigh it, don't fill it by
+  inference.
 - `sinceLastReview` — what changed since the last completed reviewer pass,
-  classified `code` / `agent-contract` / `prose` / `record` — including
-  `patch`, the git-derived unified diff of that movement (capped, with
-  truncation stated). This is how you judge the internal rubric's "critical
-  flaw in the newly-pushed changes" question on the actual code rather than
-  filenames: the diff is source-derived evidence inside your one permitted
-  input, not context from the loop. A truncated or unavailable patch is
-  itself uncertainty — weigh it, don't fill it by inference.
+  classified `code` / `agent-contract` / `prose` / `record`. **Its `patch` is
+  normally EMPTY and that means nothing is wrong**: you are dispatched after
+  a completed pass on the current head, so there is usually no movement since
+  it. Never read an empty `sinceLastReview.patch` as "no code to worry
+  about" — `artifact.patch` above is the one that carries the code.
 
 `territory.note` tells you what the record deliberately does **not** classify:
 the *cause* of each finding (new ground vs. repairing an earlier fix vs.
@@ -197,8 +202,8 @@ nothing softer:
 
 The bar is deliberately double: the flaw must be in that critical class
 **and** the record must support a very high chance it is actually present —
-`sinceLastReview` showing behavioral changes in guard or receipt code is
-support; a hunch that markdown *might* be misread is not. Ordinary
+`artifact.patch` showing the finding's claim in real guard or receipt code
+is support; a hunch that markdown *might* be misread is not. Ordinary
 correctness bugs of ordinary consequence, prose drift, structure, naming,
 and unreviewed-but-mechanical fixes all fail this bar: return
 `ship-with-gaps-recorded` and list them as gaps. An internal round is only
