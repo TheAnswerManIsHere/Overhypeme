@@ -94,8 +94,10 @@ applies only when a moderator Concept is present.
 against a styled text-to-image render, then check the `none` style.
 
 **Expect:** i2i uses "Reimagine this…" phrasing; t2i uses the declarative
-form; the `none` style shows a "Default for Nano Banana 2:
-Photorealistic" default line.
+form; and with the `none` style the `RENDER STYLE:` line reads
+"Photorealistic rendering: true-to-life materials and textures, realistic
+optical detail, and the clarity of a high-quality photograph."
+
 
 ## Regression
 

@@ -94,9 +94,11 @@ Save.
   (with a clear message); a live "N / max" counter in the editor is a
   follow-up.
 - **The §21 numbers** (the exact Concept / additions size limits) are set
-  from a measurement and were approved before merge (engine ceiling raised
-  to 6000 chars — NB2's real context window is ~131K tokens, so the
-  original 4000 was editorial discipline, not a capacity limit). If a limit
+  from a measurement and were approved before merge (this PR raised the
+  engine ceiling from 4000 to 6000 chars; it is **6900** today, raised
+  again since to fund the dedicated bubble pool — NB2's real context window
+  is ~131K tokens, so none of these were capacity limits, just editorial
+  discipline). If a limit
   feels too tight or loose in practice, it's a one-line tuning change.
 - **Look-style copy is not admin-editable** (it ships via migration), so
   there's no style-copy save form to test.

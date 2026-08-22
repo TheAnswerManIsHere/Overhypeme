@@ -24,9 +24,9 @@ a silent save, and not a generic "Save failed" error.
 **Do:** Read the modal that appeared in step 1.
 
 **Expect:** it shows the old wording (struck through) → new wording, and a
-consequence list mentioning: existing memes keep the old wording, the
-fact's taxonomy will be marked stale for review, and (if this fact has
-variants) that its variants will be marked stale.
+consequence list mentioning that existing memes keep the old wording and
+that the fact's taxonomy will be marked stale for review. It says nothing
+about variants — a root re-word deliberately doesn't touch them.
 
 ### 3. A wrong confirmation phrase leaves the button disabled
 
@@ -54,8 +54,7 @@ reason blank (or under 10 characters).
 **Do:** Click "Change the text".
 
 **Expect:** the modal closes, a green "Saved" confirmation shows, and the
-fact now displays the new wording. If it had variants, the message says how
-many were marked stale.
+fact now displays the new wording.
 
 ### 7. The edit is recorded in history
 
@@ -99,21 +98,17 @@ in step 10, and try to production-approve it right away.
 images; you cannot production-approve it until fresh prep + Visual Concept
 complete.
 
-### 12. A live root fact can't be re-worded while a variant is mid-review
+### 12. A variant mid-review does not block the root fact's re-word
 
 **Do:** Find a live root fact that has a variant currently in review (or
-send a variant back to review), then try to edit the root's text and
-confirm.
+send a variant back to review), then edit the root's text and confirm it.
 
-**Expect:** instead of saving, a message says the parent can't be
-re-worded while a variant is mid-review, naming the blocking variant.
+**Expect:** the edit saves normally. Nothing blocks it and nothing warns
+about the variant — a variant's enrichment depends only on its own text.
 
-### 13. Resolving the blocking variant unblocks the root edit
-
-**Do:** Resolve or finish the blocking variant from step 12, then repeat
-the root fact's text edit.
-
-**Expect:** the root edit works normally.
+**Note:** this step tested the opposite when the doc was written. PR #256
+(Variant Independence) deliberately removed that coupling, so the old
+expectation would now fail through no fault of the product.
 
 ## Regression
 
