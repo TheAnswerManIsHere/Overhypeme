@@ -38,9 +38,10 @@ the right thing to the person reading them.
 
 - [claude] Confirm the app is up before you start. There's no feature
   flag — it's live everywhere once merged and synced.
-- [claude] In Admin → Config, note the current value of
+- [david] In Admin → Config, note the current value of
   `budget_limit_legendary_usd` (the **real** Legendary spend limit), then
-  set it to `0.01` for steps 4 and 5.
+  set it to `0.01` for steps 4 and 5. This is admin-gated setup: I hold no
+  admin session, so it's yours to do, not mine.
 - [david] Have ready a **Legendary** account and your **admin** account.
   **Not a plain registered account** — image and video generation are both
   switched off for `registered` in the current permission grid, entirely
@@ -52,10 +53,11 @@ the right thing to the person reading them.
   didn't touch (found while building this UAT, tracked separately) — so it
   won't respond to the tiny limit set above, and step 1 already covers it
   for the "nothing regressed" check.
-- [restore] `budget_limit_legendary_usd` — restore to the value captured
-  in the setup step above. This is the **real** Legendary spend limit, so
-  the captured number is the only correct one; do not restore to a default
-  or a remembered value.
+- [restore] `budget_limit_legendary_usd` — restore to the value noted in
+  the setup step above. This is the **real** Legendary spend limit, so
+  that captured number is the only correct one; do not restore to a
+  default or a remembered value. Admin-gated like the setup above, so
+  David's to execute.
 
 ## Steps
 

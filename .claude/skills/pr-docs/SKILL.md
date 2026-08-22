@@ -79,8 +79,9 @@ I ship two things:
    David works through it with me step by step via [`/uat`](../uat/SKILL.md),
    so write it for that: **setup is mine to execute** — the `[claude]` lines
    in the format — and `[david]` is reserved for what only his own session or
-   device can do. The doc is still the canonical script and still his to
-   delete when he's done.
+   device can do, admin-gated setup included (I hold no admin session; see
+   `/uat` section 2). The doc is still the canonical script;
+   **I delete it once he confirms the run complete** (David, 2026-08-22).
 
    **No Artifact page (David, 2026-08-21 — retiring the 2026-07-22 rule).**
    The Artifact existed as a reading surface for working through the doc

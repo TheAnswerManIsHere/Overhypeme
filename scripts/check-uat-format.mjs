@@ -131,9 +131,15 @@ export function scanDoc(filename, text) {
   // saying why. The reason is worth allowing: a bare `None.` reads as an
   // oversight and invites a later editor to "fix" it with filler, which is
   // the padding this escape exists to avoid.
+  //
+  // The escape covers ONLY a section with no headings at all -- "None." plus
+  // a later ### heading is not a legitimate use of it (a heading after
+  // "None." is exactly the drift a stray edit would introduce, and /uat
+  // would enumerate it as a step with no oracle behind it), so that shape
+  // still runs the normal heading checks. (Codex, #561 round 2.)
   const isNone = (start) => {
     const body = sectionBody(start).filter(([, l]) => l.trim());
-    return body.length > 0 && body[0][1].trim().startsWith("None.");
+    return body.length > 0 && body[0][1].trim().startsWith("None.") && headings(start).length === 0;
   };
 
   const checkIds = (start, label, pattern, render, allowNone = false) => {

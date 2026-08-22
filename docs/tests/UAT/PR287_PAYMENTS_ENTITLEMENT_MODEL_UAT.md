@@ -241,36 +241,7 @@ is permanent.
 
 **Expect:** Goes to Legendary members.
 
-### 29. The subscription panel admits when it isn't sure
-
-**Do:** Watch for the case where Cancel, Reactivate, or Switch to Annual
-is accepted by Stripe but our own records fail to refresh in the moment.
-This is rare — it needs our refresh to fail while Stripe's call succeeds —
-so you mostly won't see it naturally.
-
-**Expect:** An amber notice appears above the membership card explaining
-the change was accepted by the payment provider but our records haven't
-caught up yet, alongside the normal success message for cancel/reactivate
-(the cancellation is real). It disappears on its own within a minute or
-two once records catch up. You should not see a red error (the change did
-go through), the panel silently showing stale details with no warning, or
-the amber notice still sitting there after the card visibly shows the new
-state.
-
-### 30. Buttons refuse to act on a subscription you weren't shown
-
-**Do:** Watch for the case where you have more than one subscription and
-the one shown on screen has since been cancelled at Stripe's end. This is
-hard to stage deliberately — don't go out of your way to force it.
-
-**Expect:** You get a plain refusal — *"Your subscription details have
-changed since this page loaded. Refresh and try again — nothing was
-modified."* — rather than the action being applied to the wrong
-subscription. Nothing is changed by the refused click; refreshing and
-clicking again then does exactly what it says. If you ever see that
-message and something *did* change, that's a serious bug.
-
-### 31. A member with failing payment can now cancel
+### 29. A member with failing payment can now cancel
 
 **Do:** As a member whose payment is failing (in the 14-day grace
 window), try to cancel your subscription.
@@ -278,7 +249,7 @@ window), try to cancel your subscription.
 **Expect:** You can now cancel it — previously the person actively being
 chased for payment was the one person unable to stop it.
 
-### 32. The convergence strip reads healthy under normal conditions
+### 30. The convergence strip reads healthy under normal conditions
 
 **Do:** Go to Admin → Refunds & Disputes and look at the status strip at
 the top.
@@ -286,35 +257,35 @@ the top.
 **Expect:** Grey text reading "Healthy · last converged N ago" — not
 alarming.
 
-### 33. The convergence strip is honest right after a deploy
+### 31. The convergence strip is honest right after a deploy
 
 **Do:** Look at the status strip right after a deploy.
 
 **Expect:** "Not yet run · waiting Nm since start" — honest, not a fake
 "healthy".
 
-### 34. The convergence strip refreshes itself
+### 32. The convergence strip refreshes itself
 
 **Do:** Watch the status strip for 30+ seconds without reloading.
 
 **Expect:** It refreshes itself every 30 seconds; you never need to
 reload.
 
-### 35. The pending-convergence count is shown
+### 33. The pending-convergence count is shown
 
 **Do:** Check the pending-convergence count on the status strip.
 
 **Expect:** "No users pending convergence" normally, or a number if some
 users are lagging.
 
-### 36. An amber convergence strip is a label problem, not an access one
+### 34. An amber convergence strip is a label problem, not an access one
 
 **Do:** If the status strip ever turns amber, note what it's telling you.
 
 **Expect:** It means stored tiers are drifting — access is still correct,
 this is a label problem, not an access problem.
 
-### 37. A partial refund is labelled and does not remove access
+### 35. A partial refund is labelled and does not remove access
 
 **Do:** If you have a partial refund, find it in the Admin → Refunds &
 Disputes list.
@@ -377,6 +348,26 @@ them would have handed Legendary back based on a stale local row.
 **Expect:** Works; picking "Legendary" gives them a recorded admin grant.
 
 ## Not bugs
+- **Two race conditions are watch-for-if-you-see-it, not required steps**
+  (moved out of the numbered steps — they cannot be honestly required when
+  the doc's own text itself says not to try to force them):
+  - *The amber "not sure yet" notice.* If Cancel, Reactivate, or Switch to
+    Annual is accepted by Stripe while our own records fail to refresh in
+    the same moment (rare — it needs both to happen at once), an amber
+    notice should appear above the membership card saying the change was
+    accepted but our records haven't caught up, alongside the normal
+    success message. It should clear itself within a minute or two.
+    Never a red error for it (the change did go through), the panel
+    silently showing stale details, or the notice outliving the card's
+    own update.
+  - *A refused click on a since-changed subscription.* If you have more
+    than one subscription and the one shown has since been cancelled at
+    Stripe's end (hard to stage on purpose — don't try), a button should
+    refuse with *"Your subscription details have changed since this page
+    loaded. Refresh and try again — nothing was modified."* rather than
+    acting on the wrong subscription. If you ever see that message and
+    something changed anyway, that's a real bug worth reporting even
+    outside a UAT run.
 
 - **The customer portal still uses Stripe's default configuration.**
   Setting an explicit one is a separate PR, deliberately — it is

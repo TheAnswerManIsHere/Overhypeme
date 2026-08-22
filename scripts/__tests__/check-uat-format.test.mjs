@@ -206,3 +206,13 @@ test("a filename outside PR<N>_<FEATURE>_UAT.md is a finding, not a silent pass"
   assert.ok(scanDoc("docs/tests/UAT/PR999_FEATURE.md", doc()).some((p) => p.includes("filename must match")));
   assert.deepEqual(scanDoc("docs/tests/UAT/PR999_TWO_WORD_FEATURE_UAT.md", doc({ title: "# PR #999 — Two Word Feature — UAT" })), []);
 });
+
+test('a heading after "None." is validated normally, not silently exempted', () => {
+  // "None." only means "there are no headings here" -- once one exists, it
+  // is a real step /uat will enumerate, so it needs a real Do/Expect like
+  // any other. (Codex, #561 round 2.)
+  const withHeading = ["None. Nothing intended.", "", "### broken heading with no body"].join("\n");
+  const found = scanDoc(NAME, doc({ regression: withHeading }));
+  assert.ok(found.length > 0, "a heading after None. must still be checked");
+  assert.ok(found.some((p) => p.includes("Do:") || p.includes("Expect:")));
+});

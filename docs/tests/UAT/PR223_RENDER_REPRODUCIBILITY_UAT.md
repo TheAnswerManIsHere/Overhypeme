@@ -49,12 +49,20 @@ display name exactly as stored.
 (e.g. "David Franklin The Third"), then generate a meme.
 
 **Expect:** the render completes normally and the caption shows the full
-name you set, exactly ("David Franklin The Third"). The image model itself
-only receives your first name — that's not independently visible on the
-rendered image, but the caption staying full-length confirms the split is
-working.
+name you set, exactly ("David Franklin The Third"). The caption is
+independent of what the image model receives either way, so this alone
+does not prove the split — step 3b is what actually checks it.
 
-### 4. A disabled style is rejected, not silently dropped
+### 4. The compiled prompt itself only carries the first name
+
+**Do:** As admin, open the fact you just generated a meme for in
+Admin → Facts, and expand its **Runtime Compiled Prompt Preview**.
+
+**Expect:** the identity/reference section of the compiled prompt names
+only your first name ("David"), not the full display name — this is the
+actual oracle for the split; step 3's caption is a red herring for it.
+
+### 5. A disabled style is rejected, not silently dropped
 
 **Do:** As admin, deactivate a look-style, then try to generate a meme
 selecting that style.
@@ -62,7 +70,7 @@ selecting that style.
 **Expect:** a clear "style unavailable" rejection — not enqueued — instead
 of the old behavior where it quietly rendered with no style at all.
 
-### 5. Re-enabling the style lets the same generate succeed
+### 6. Re-enabling the style lets the same generate succeed
 
 **Do:** Re-enable the style you deactivated in step 4, then repeat the same
 generate.

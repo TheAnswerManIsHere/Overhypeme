@@ -92,8 +92,9 @@ first line, optionally followed by a sentence saying why.
 - **`[david]`** — only his own session or device can do it: signing in as
   himself, using a real phone, a live Stripe account. Keep these few; each
   one is friction he has to supply.
-- **`[restore]`** — what gets put back. Required whenever a `[claude]` line
-  changed live state. It names **what** to restore and says the original was
+- **`[restore]`** — what gets put back. Required whenever a `[claude]` or
+  `[david]` line changed live state — admin-gated setup is his, so its
+  restore is too. It names **what** to restore and says the original was
   captured before the write: `budget_limit_legendary_usd — restore to the
   value captured before step 1's change`.
 
