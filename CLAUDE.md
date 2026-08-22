@@ -442,8 +442,9 @@ Codex catch *broken*; David's UAT catches *wrong*, after the sync.
 5. **Post the harvest-notes comment** on the workstream issue (product PRs).
 6. **Merge report to David**: both SHAs, verification results, and the UAT
    handoff naming what to go click — plus the reminder that `/uat` walks him
-   through it rather than leaving him to the doc. Push notification. **Nothing follows the
-   merge report** — it is the message that hands the turn back.
+   through it rather than leaving him to the doc. Push notification.
+   **Nothing follows the merge report** — it is the message that hands the
+   turn back.
 
 **Carve-outs that still wait for David's click:** any PR that **widens my own
 guardrails or authority** — `.claude/guard.sh`, `.claude/settings.json`
