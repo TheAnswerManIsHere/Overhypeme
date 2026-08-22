@@ -13,8 +13,8 @@ record, the bug intake, and the way back.
 
 **What has not changed:** the doc is still written per
 [`pr-docs`](../pr-docs/SKILL.md), still lands on its PR before merge, still
-David's own to-do list, and **he still deletes it himself** when he's done
-with it. I never delete a UAT doc.
+David's own to-do list, and **I delete it once he confirms the run
+complete** (David, 2026-08-22) — see section 6.
 
 **The UAT doc is no longer published as an Artifact page (David,
 2026-08-21).** That reading surface existed because he was reading alone; the
@@ -362,11 +362,9 @@ Then, in one edit:
   there.** An accepted UAT is the last David-gate; what remains of close-out
   is mine (the harvest-notes comment for a product feature, any outstanding
   item the State of Play lists). Do what remains, and when nothing is left,
-  set `stage:done` and close the issue — David's deletion of the UAT file
-  is his personal done-list, not a lifecycle gate, and nothing wakes an
-  agent when he does it. Only when a real close-out item genuinely can't be
-  finished now does the workstream sit at `stage:close-out`, with that item
-  named in the State of Play.
+  set `stage:done` and close the issue. Only when a real close-out item
+  genuinely can't be finished now does the workstream sit at
+  `stage:close-out`, with that item named in the State of Play.
 - **If this workstream is a phase sub-issue and the verdict reached
   close-out, do the parent edits too** — tick this phase's line in the
   parent's Phases checklist, re-point the parent's `waiting:`, and move the
@@ -382,9 +380,22 @@ Then, in one edit:
   `workstream-tracking.md`'s backlog contract. A bare `queue:` shorthand
   creates an item `/next` can't rank and the board can't display.
 - **Fix the doc** if a step's expected result was wrong.
+- **Delete the UAT doc once he confirms the run is complete** (David,
+  2026-08-22). Deletion is the default, in the same close-out, so
+  `docs/tests/UAT/` never accumulates finished tests and a surviving file
+  always means a run still owed — which is exactly what section 1's
+  discovery assumes. It is a better signal than it was: it used to lag
+  behind a manual click, so a completed run could sit there looking
+  startable for days.
+
+  **The one reason to keep one is content, not sentiment:** a doc that is
+  the only written description of some behavior. That is a gap in the
+  Manual, not a reason to hoard a test — harvest the description into the
+  right chapter, say I've done so, then delete the doc. "It might be useful
+  later" is not a reason; a re-run of a merged PR's UAT is written fresh
+  from current behavior, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next. He deletes the UAT doc himself — I don't, and I don't
-  ask him to.
+  he can do next, and that the doc is gone.
 
 ## Notification discipline during a run (David, 2026-08-21)
 

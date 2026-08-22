@@ -63,7 +63,8 @@ I ship two things:
    step shape (`Do:` / `Expect:`), regression IDs and the deliberate
    omissions all live there rather than being restated here. **This half is unchanged and deliberately
    file-based**: the UAT files are David's own to-do list, and **he deletes
-   each one himself** when he completes it — I never delete a UAT doc.
+   I delete it** once he confirms the run complete (David, 2026-08-22), so
+   the directory never accumulates finished tests.
 
    Because the PR number is in the filename, the UAT doc follows the
    **PR-first** flow: open the PR with a "Docs pending" placeholder note,

@@ -212,7 +212,7 @@ guard), but they run in CI, not here.
   their results forever, and there is nothing to delete on a pass. The UAT
   half of the old pairing is unchanged and deliberately file-based:
   `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` is David's own to-do list, and
-  **he deletes each one himself** when he completes it — the agent never
+  **the agent deletes it** once he confirms the run complete — the agent never
   does. A mutating one-time deploy step (the third permitted write shape
   above) is executed by the driving agent through the connector at
   close-out, clearly labeled in the section as a mutating action with its

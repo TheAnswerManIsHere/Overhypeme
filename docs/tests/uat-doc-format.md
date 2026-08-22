@@ -155,6 +155,8 @@ the same PR before merge. See
 [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md). `/uat` **consumes** this
 format and never authors it.
 
-**David deletes a UAT doc himself when he has completed it.** A surviving file
-in `docs/tests/UAT/` means the run is still owed — which is why the format has
-to stay drivable for as long as the file lives.
+**A UAT doc is deleted when David confirms its run is complete** (David,
+2026-08-22) — by `/uat`, in the same close-out, unless it carries behavior
+recorded nowhere else, which gets harvested into the Manual first. A surviving
+file in `docs/tests/UAT/` therefore means the run is still owed, which is why
+the format has to stay drivable for as long as the file lives.
