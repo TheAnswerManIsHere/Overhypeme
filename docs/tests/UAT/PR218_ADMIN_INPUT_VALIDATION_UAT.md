@@ -1,74 +1,116 @@
-# PR218 — Admin Input Validation (C9) — UAT
+# PR #218 — Admin Input Validation — UAT
 
-In-app acceptance test for David. This hardens a handful of **admin-panel**
-actions so they reject malformed or oversized input instead of trusting it. The
-headline is a real bug fix: the video-style **preview-GIF upload** could be
-tricked into writing a file to the wrong place. Everything here is admin-only
-and, for normal use, **invisible** — valid actions behave exactly as before.
-
-The transient engineering checklist was deleted after execution; see the
-[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
-result.
-
-## What changed, in plain terms
+This hardens a handful of **admin-panel** actions so they reject
+malformed or oversized input instead of trusting it. The headline is a
+real bug fix: the video-style **preview-GIF upload** could be tricked
+into writing a file to the wrong place. Everything here is admin-only
+and, for normal use, **invisible** — valid actions behave exactly as
+before.
 
 Four admin endpoints now check their input:
 
-1. **Video-style preview-GIF upload** — the style's id is now restricted to a
-   safe format before it's used to name the stored file. (Previously a
-   crafted id could escape the intended folder — the actual security fix here.)
-2. **Bulk fact import (paste list)** — now capped at **1000 facts per import**.
-3. **Bulk fact import (CSV)** — now capped at **~2 MB / 2000 rows per import**.
-4. **Admin "set password"** — now requires a properly-formatted email.
+- **Video-style preview-GIF upload** — the style's id is now restricted
+  to a safe format before it's used to name the stored file. (Previously
+  a crafted id could escape the intended folder — the actual security fix
+  here.)
+- **Bulk fact import (paste list)** — now capped at **1000 facts per
+  import**.
+- **Bulk fact import (CSV)** — now capped at **~2 MB / 2000 rows per
+  import**.
+- **Admin "set password"** — now requires a properly-formatted email.
 
-## How to check it (in the admin panel)
+## Setup
 
-Everything valid should work **exactly as today**:
+- [david] Sign in as an admin.
 
-1. **Video styles still work.** Edit a video style, upload a preview GIF, save.
-   It still saves and shows the preview. (The id restriction only blocks
-   malformed ids you'd never type by hand.)
-2. **Fact import still works.** Import a normal batch of facts (paste list and
-   CSV). Still imports.
-3. **Set-password still works.** Use the admin set-password action with a real
-   email address. Still works.
+## Steps
 
-New guard rails you *can* trigger on purpose:
+### 1. Video styles still work
 
-4. **Huge import is refused.** Try importing **more than 1000 facts** at once
-   (or a CSV over ~2000 rows / 2 MB) → you get a clear "too many / invalid
-   input" error instead of it grinding. Split into smaller batches — that
-   still works.
-5. **Bad email is refused.** Admin set-password with an obviously invalid email
-   (e.g. `notanemail`) → rejected with a validation error.
+**Do:** Edit a video style, upload a preview GIF, and save.
 
-## What you should NOT see
+**Expect:** it still saves and shows the preview. (The id restriction
+only blocks malformed ids you'd never type by hand.)
 
-- Any **valid** admin action behaving differently than before.
-- A normal-size import or a real preview-GIF upload getting rejected.
-- Any change outside the admin panel (this PR touches only admin endpoints).
+### 2. Paste-list fact import still works
 
-## Regression smoke table
+**Do:** Import a normal batch of facts using the paste-list import.
 
-| Admin action | Expect |
-|--------------|--------|
-| Upload a preview GIF to a video style | Saves, preview shows (as today) |
-| Import a normal batch of facts (list + CSV) | Imports (as today) |
-| Set a user's password with a real email | Works (as today) |
-| Import **>1000** facts / a huge CSV | Rejected with a clear error (split it) |
-| Set-password with a malformed email | Rejected with a validation error |
+**Expect:** it still imports.
 
-## Known non-bugs / limitations
+### 3. CSV fact import still works
 
-- **This is a focused pass, not every admin field.** I hardened the genuinely
-  risky inputs (the path-traversal fix, the bulk-import caps, and the
-  API-key-reachable set-password). Lower-risk field-length tidying across the
-  rest of the admin panel is a tracked follow-up — nothing you'll notice.
-- **The import caps are generous.** 1000 facts / 2000 CSV rows per call is well
-  above a normal batch; if you ever hit them, just import in chunks.
+**Do:** Import a normal batch of facts using the CSV import.
+
+**Expect:** it still imports.
+
+### 4. Set-password still works
+
+**Do:** Use the admin "set password" action with a real email address.
+
+**Expect:** it still works.
+
+### 5. A huge paste-list import is refused
+
+**Do:** Try importing more than 1000 facts at once via paste list.
+
+**Expect:** a clear "too many / invalid input" error instead of it
+grinding through. Splitting into smaller batches still works.
+
+### 6. A huge CSV import is refused
+
+**Do:** Try importing a CSV over ~2000 rows or ~2 MB.
+
+**Expect:** a clear "too many / invalid input" error instead of it
+grinding through. Splitting into smaller batches still works.
+
+### 7. A bad email on set-password is refused
+
+**Do:** Use the admin set-password action with an obviously invalid
+email (e.g. `notanemail`).
+
+**Expect:** rejected with a validation error.
+
+## Regression
+
+### R1. Upload a preview GIF to a video style
+
+**Do:** Upload a preview GIF to a video style and save.
+
+**Expect:** saves, preview shows (as today).
+
+### R2. Import a normal batch of facts
+
+**Do:** Import a normal batch of facts via both paste list and CSV.
+
+**Expect:** imports (as today).
+
+### R3. Set a user's password with a real email
+
+**Do:** Set a user's password using a real email address.
+
+**Expect:** works (as today).
+
+### R4. Import an oversized batch
+
+**Do:** Import more than 1000 facts, or a CSV over the size/row cap.
+
+**Expect:** rejected with a clear error (split it).
+
+### R5. Set-password with a malformed email
+
+**Do:** Set-password with a malformed email address.
+
+**Expect:** rejected with a validation error.
+
+## Not bugs
+
+- **This is a focused pass, not every admin field.** The genuinely risky
+  inputs were hardened (the path-traversal fix, the bulk-import caps, and
+  the API-key-reachable set-password). Lower-risk field-length tidying
+  across the rest of the admin panel is a tracked follow-up — nothing
+  you'll notice.
+- **The import caps are generous.** 1000 facts / 2000 CSV rows per call
+  is well above a normal batch; if you ever hit them, just import in
+  chunks.
 - **No user-facing change.** Nothing outside the admin panel is affected.
-
-## If something's wrong
-
-Tell me which admin action, what you entered, and the exact error text — and if
-a *valid* action got rejected, that's a bound set too tight and I'll loosen it.

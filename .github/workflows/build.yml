@@ -173,6 +173,20 @@ jobs:
       - name: Check contract-consistency guard logic
         run: node --test scripts/__tests__/check-contract-consistency.test.mjs
 
+      # /uat drives a run by enumerating "### " headings inside "## Steps" and
+      # "## Regression". That rule is only safe if every doc has that shape.
+      # The docs used to carry six-plus conventions for the regression section
+      # alone and 11 had no numbered steps, which made inferring coverage
+      # impossible and produced the worst failure available: pass every feature
+      # step, declare Accepted, never run the sweep. The format is defined in
+      # docs/tests/uat-doc-format.md; this keeps it true.
+      # STRUCTURE ONLY — it cannot tell a good "Expect:" from a vague one.
+      - name: Check UAT doc format
+        run: node scripts/check-uat-format.mjs
+
+      - name: Check UAT format guard logic
+        run: node --test scripts/__tests__/check-uat-format.test.mjs
+
       # The counting library stays on the enforcement path (round budget +
       # adjudication records) after the ledger's deletion, so its derivation
       # keeps provable coverage. (Codex, #543 round 3.)

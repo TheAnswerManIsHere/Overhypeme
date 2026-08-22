@@ -1,96 +1,149 @@
-# PR228 — Approved Fact Text Lock — UAT (in-app acceptance)
+# PR #228 — Approved Fact Text Lock — UAT
 
-> Click-through acceptance test for David. The intent: **an approved fact's text
-> can't be changed casually** — it takes a deliberate, warned, recorded action —
-> while a brand-new fact still in first-time review stays freely editable.
+The intent: an approved fact's text can't be changed casually — it takes a
+deliberate, warned, recorded action — while a brand-new fact still in
+first-time review stays freely editable.
 
-All steps are in the **Admin → Facts** page (and one in **Moderation**). You need
-an admin login.
+## Setup
 
-## Part A — Editing an APPROVED (live) fact's text is gated (~4 min)
+- [david] Sign in as admin. Checks are in **Admin → Facts**, with one in
+  **Moderation**.
 
-1. Open **Admin → Facts**, pick any **live** fact, and click into it.
-2. In the **Text** box, change the wording. Click **Save Changes**.
-   **Expect:** a red-bordered **"Change approved fact text"** modal appears — NOT a
-   silent save, and NOT a generic "Save failed" error.
-3. Read the modal. It shows the **old wording (struck through) → new wording**, and a
-   consequence list. **Expect** the list to mention: existing memes keep the old wording,
-   the fact's taxonomy will be marked stale for review, and (if this fact has variants)
-   that its variants will be marked stale.
-4. Try to confirm without doing anything — the **Change the text** button is disabled.
-   - Type something *other* than the exact phrase → still disabled.
-   - Type the exact phrase `CHANGE APPROVED FACT TEXT` but leave the reason blank (or under
-     10 characters) → still disabled.
-   - Type the exact phrase **and** a real reason → the button enables.
-5. Click **Change the text**.
-   **Expect:** the modal closes, a green "Saved" confirmation shows, and the fact now
-   displays the new wording. If it had variants, the message says how many were marked
-   stale.
-6. Scroll down to **Approved text edit history** and expand it.
-   **Expect:** your edit is listed — who, when, old → new wording, and the reason you typed.
+## Steps
 
-## Part B — A non-text edit is NOT gated (~1 min)
+### 1. Editing an approved fact's text triggers a warning modal
 
-1. On a live fact, change only a non-text field (e.g. toggle Active, or edit the use-case),
-   leaving the **Text** unchanged. Save.
-   **Expect:** it saves immediately with **no** warning modal. The gate is only for a real
-   text change.
+**Do:** Open Admin → Facts, click into any live fact, change the wording in
+the Text box, and click Save Changes.
 
-## Part C — Cancelling leaves your work intact (~1 min)
+**Expect:** a red-bordered "Change approved fact text" modal appears — not
+a silent save, and not a generic "Save failed" error.
 
-1. Edit a live fact's text, click **Save Changes**, and when the modal appears click
-   **Cancel**.
-   **Expect:** the modal closes, nothing is saved, and your edited text is **still in the
-   box** (your draft isn't thrown away). You can edit more or Discard.
+### 2. The modal names the consequences
 
-## Part D — A brand-new fact in first-time review edits freely (~3 min)
+**Do:** Read the modal that appeared in step 1.
 
-> This is the "staging" case — a submission you provisionally accepted that has **not**
-> been production-approved yet.
+**Expect:** it shows the old wording (struck through) → new wording, and a
+consequence list mentioning that existing memes keep the old wording and
+that the fact's taxonomy will be marked stale for review. It says nothing
+about variants — a root re-word deliberately doesn't touch them.
 
-1. In **Moderation**, provisionally accept a fresh submission so it enters prep, and let it
-   reach the **Visual Concept** step.
-2. Go to **Admin → Facts**, find that (inactive) staging fact, and edit its **Text**. Save.
-   **Expect:** **no** dire-warning modal — it just saves. The message notes that prep is
-   restarting.
-3. Back in **Moderation**, that review should be back at the **prep** stage, re-running
-   enrichment and images. **Expect** you cannot production-approve it until fresh prep +
-   Visual Concept complete.
+### 3. A wrong confirmation phrase leaves the button disabled
 
-## Part E — Parent with a variant mid-review is protected (~2 min)
+**Do:** In the modal, type something other than the exact phrase `CHANGE
+APPROVED FACT TEXT` into the confirmation field.
 
-1. Find a live **root** fact that has a **variant currently in review** (or send a variant
-   back to review).
-2. Try to edit the **root's** text and confirm.
-   **Expect:** instead of saving, a message says the parent can't be re-worded while a
-   variant is mid-review, naming the blocking variant. Resolve/finish the variant, then the
-   root edit works.
+**Expect:** the "Change the text" button stays disabled.
 
-## Regression smoke (nothing else broke)
+### 4. A short or missing reason leaves the button disabled
 
-| Check | Expect |
-|---|---|
-| Provisionally accept a new submission | Prep starts as before (enrichment + images) |
-| Production-approve a finished fact | Approves and goes live as before |
-| Send a live fact back to review (refresh) | Works as before |
-| Edit a fact's enrichment/taxonomy (not text) | Saves as before, no text modal |
+**Do:** Type the exact phrase `CHANGE APPROVED FACT TEXT`, but leave the
+reason blank (or under 10 characters).
 
-## Known non-bugs (don't report these)
+**Expect:** the "Change the text" button stays disabled.
 
-- **Existing memes keep the old wording** after a text edit — that's expected; their caption
-  is baked into the rendered image. The warning says so.
-- After a confirmed edit, the fact shows as **stale for reprocess** in Taxonomy Health —
-  that's intended; send it back to review to refresh its taxonomy against the new wording.
-- A first-time staging text edit **restarting prep** (re-running enrichment/images) is
-  intended, not a regression.
-- The `*_TEST_RUN.md` sibling doc may be deleted after Replit runs it — that's expected;
-  this UAT is the durable half.
+### 5. The exact phrase plus a real reason enables the button
 
-## Bug report template
+**Do:** Type the exact phrase `CHANGE APPROVED FACT TEXT` and a real reason
+(10 or more characters).
 
-```
-Where (which part A–E + fact id):
-What I did:
-What I expected:
-What happened instead (+ any modal text / error):
-```
+**Expect:** the "Change the text" button enables.
+
+### 6. Confirming the change saves it and shows the new wording
+
+**Do:** Click "Change the text".
+
+**Expect:** the modal closes, a green "Saved" confirmation shows, and the
+fact now displays the new wording.
+
+### 7. The edit is recorded in history
+
+**Do:** Scroll down to "Approved text edit history" on the fact and expand
+it.
+
+**Expect:** your edit is listed — who, when, old → new wording, and the
+reason you typed.
+
+### 8. A non-text edit is not gated
+
+**Do:** On a live fact, change only a non-text field (e.g. toggle Active,
+or edit the use-case), leaving the Text unchanged, and Save.
+
+**Expect:** it saves immediately with no warning modal — the gate is only
+for a real text change.
+
+### 9. Cancelling the modal preserves your draft
+
+**Do:** Edit a live fact's text, click Save Changes, and when the modal
+appears click Cancel.
+
+**Expect:** the modal closes, nothing is saved, and your edited text is
+still in the box — you can edit more or discard it.
+
+### 10. A brand-new (staging) fact's text edits freely
+
+**Do:** In Moderation, provisionally accept a fresh submission so it enters
+prep and reaches the Visual Concept step; then go to Admin → Facts, find
+that inactive staging fact, edit its Text, and Save.
+
+**Expect:** no dire-warning modal — it just saves, and the message notes
+that prep is restarting.
+
+### 11. A restarted staging fact re-enters prep and blocks approval
+
+**Do:** Back in Moderation, check that review's stage after the text edit
+in step 10, and try to production-approve it right away.
+
+**Expect:** the review is back at the prep stage, re-running enrichment and
+images; you cannot production-approve it until fresh prep + Visual Concept
+complete.
+
+### 12. A variant mid-review does not block the root fact's re-word
+
+**Do:** Find a live root fact that has a variant currently in review (or
+send a variant back to review), then edit the root's text and confirm it.
+
+**Expect:** the edit saves normally. Nothing blocks it and nothing warns
+about the variant — a variant's enrichment depends only on its own text.
+
+**Note:** this step tested the opposite when the doc was written. PR #256
+(Variant Independence) deliberately removed that coupling, so the old
+expectation would now fail through no fault of the product.
+
+## Regression
+
+### R1. Provisionally accepting a new submission still starts prep
+
+**Do:** Provisionally accept a new submission.
+
+**Expect:** prep starts as before (enrichment + images).
+
+### R2. Production-approving a finished fact still works
+
+**Do:** Production-approve a finished fact.
+
+**Expect:** it approves and goes live as before.
+
+### R3. Sending a live fact back to review still works
+
+**Do:** Send a live fact back to review (refresh).
+
+**Expect:** it works as before.
+
+### R4. Editing a fact's enrichment/taxonomy (not text) still saves plainly
+
+**Do:** Edit a fact's enrichment or taxonomy without touching the Text
+field, and Save.
+
+**Expect:** it saves as before, with no text modal.
+
+## Not bugs
+
+- **Existing memes keep the old wording** after a text edit — that's
+  expected; their caption is baked into the rendered image. The warning
+  says so.
+- After a confirmed edit, the fact shows as **stale for reprocess** in
+  Taxonomy Health — that's intended; send it back to review to refresh its
+  taxonomy against the new wording.
+- A first-time staging text edit **restarting prep** (re-running
+  enrichment/images) is intended, not a regression.

@@ -55,11 +55,18 @@ I ship two things:
    or "restore" a deleted one.
 
 2. **`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`** — the in-app, click-through
-   acceptance test for David. Written for the end user: where to click, what
-   to expect vs. not expect, regression smoke table, a bug-report template,
-   and known non-bug limitations. **This half is unchanged and deliberately
-   file-based**: the UAT files are David's own to-do list, and **he deletes
-   each one himself** when he completes it — I never delete a UAT doc.
+   acceptance test for David, written to
+   [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md). **That
+   format is mandatory and it is not a style preference**: `/uat` drives the
+   run by enumerating `### ` headings inside `## Steps` and `## Regression`,
+   so a doc outside the format is a doc that cannot be driven. Setup lines,
+   step shape (`Do:` / `Expect:`), regression IDs and the deliberate
+   omissions all live there rather than being restated here. **This half
+   stays file-based, but ownership of deletion changed (David, 2026-08-22):
+   I delete a UAT doc once he confirms the run complete**, in the same
+   close-out, rather than waiting on his own click — so the directory
+   never accumulates finished tests. See `/uat` for the one exception
+   (content worth harvesting first).
 
    Because the PR number is in the filename, the UAT doc follows the
    **PR-first** flow: open the PR with a "Docs pending" placeholder note,
@@ -70,11 +77,11 @@ I ship two things:
 
    **The doc is a script I drive, not a page he reads (David, 2026-08-21).**
    David works through it with me step by step via [`/uat`](../uat/SKILL.md),
-   so write it for that: **setup steps are mine to execute** — say what state
-   the app needs to be in, not "go create a test account" — except where a
-   step genuinely needs his admin session, which I can't hold. Everything
-   else is unchanged; the doc is still the canonical script and still his to
-   delete when he's done.
+   so write it for that: **setup is mine to execute** — the `[claude]` lines
+   in the format — and `[david]` is reserved for what only his own session or
+   device can do, admin-gated setup included (I hold no admin session; see
+   `/uat` section 2). The doc is still the canonical script;
+   **I delete it once he confirms the run complete** (David, 2026-08-22).
 
    **No Artifact page (David, 2026-08-21 — retiring the 2026-07-22 rule).**
    The Artifact existed as a reading surface for working through the doc
@@ -84,9 +91,10 @@ I ship two things:
 A product-visible PR is **not** complete — and I don't present it to David
 as done — until the verification section has real content (or an explicit
 "none needed") and the UAT doc exists and is linked, unless the
-ship-the-UI-surface exception applies. For the UAT's structure, match the
-most recent surviving `docs/tests/UAT/PR<N>_…_UAT.md` — that half is
-durable, so there is always a live example. (Pure infra/refactor with zero
+ship-the-UI-surface exception applies. For the UAT's structure, follow
+[`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md) — **not** the
+nearest surviving doc, which is how six competing conventions accumulated in
+the first place. (Pure infra/refactor with zero
 observable behavior can use a single short verification note in the PR body
 instead, per the ship-the-UI-surface exception.)
 

@@ -1,0 +1,8 @@
+{
+  "pr": 561,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 45,
+  "artifact": "The UAT doc format, its CI validator, deletion-on-confirm authority, and all 25 UAT docs regenerated to the format",
+  "declaredAt": "2026-08-22T16:55:00.721Z"
+}

@@ -13,8 +13,8 @@ record, the bug intake, and the way back.
 
 **What has not changed:** the doc is still written per
 [`pr-docs`](../pr-docs/SKILL.md), still lands on its PR before merge, still
-David's own to-do list, and **he still deletes it himself** when he's done
-with it. I never delete a UAT doc.
+David's own to-do list, and **I delete it once he confirms the run
+complete** (David, 2026-08-22) — see section 6.
 
 **The UAT doc is no longer published as an Artifact page (David,
 2026-08-21).** That reading surface existed because he was reading alone; the
@@ -26,8 +26,9 @@ An invocation may name a PR, an issue, or nothing.
 
 1. **Find the candidate docs on current `origin/main` — not in my checkout.**
    `git fetch origin main`, then list `docs/tests/UAT/PR<N>_*_UAT.md` as of
-   `origin/main`. Every file still present *there* is unfinished, because
-   David's deletion is what completes one. My working tree is the wrong
+   `origin/main`. Every file still present *there* is unfinished — deletion
+   on his confirmation (section 6) is what completes one. My working tree
+   is the wrong
    oracle in both directions: an older branch still carries docs he already
    deleted (so I'd offer a finished run), and a stale checkout misses one
    that just merged.
@@ -50,8 +51,8 @@ An invocation may name a PR, an issue, or nothing.
    **None → say so** and don't invent a run.
 
 Then give him a **three-line preview before step 1**, never the whole doc:
-how many steps, what I'm setting up for him (section 2), and anything he
-needs on hand — an admin login, a phone, a fresh browser tab. The doc's
+how many steps and how many regression checks, what I'm setting up for him
+(section 2), and anything he needs on hand — an admin login, a phone, a fresh browser tab. The doc's
 narrative preamble is mine to have read, not his to sit through.
 
 ## 2. Setup is mine, and so is putting it back
@@ -98,6 +99,28 @@ and it is a **deliberately mutating** action — scope it explicitly, or Replit
 Agent will helpfully build a feature instead.
 
 ## 3. The walkthrough — one step, minimal context, cheap pass
+
+**The step list is a lookup, not a judgment.** Every UAT doc is written to
+[`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md), which exists so
+this is true:
+
+> A step is any `### ` heading inside `## Steps` or `## Regression`, in
+> document order. Nothing else in the file is a step.
+
+So enumerate once at the start, say both counts in the preview ("7 steps, then
+4 regression checks"), and present them in order — the regression checks are
+steps in every sense that matters here: presented, recorded, and counted
+toward the verdict in section 6. There is nothing to infer and nothing to
+classify; if a doc doesn't parse this way it is not in the format, and the
+answer is to fix the doc, not to guess.
+
+**That determinism is the point, and it was bought the hard way.** The first
+version of this skill tried to infer coverage from whatever shape a doc
+happened to have. It couldn't — six-plus conventions for the regression
+section, eleven docs with no numbered steps — and the failure mode was the
+worst available: pass every feature step, declare `Accepted`, never run the
+sweep. A false pass makes this session *worse* than the file it replaced.
+Hence one format, one rule (David, 2026-08-22; #554, #560).
 
 **One step per turn.** What to do, what to expect, nothing else. Not the
 next step, not the section after, not the reasoning behind the expectation
@@ -268,12 +291,14 @@ have no reliable way to tell which is current.
 | 2 · Deep link | Fail | #903 — landed at chapter top, not the heading |
 | 3 · Search | Pass | |
 | 4 · Deliberate absences | — | not yet run |
+| R1 · Sidebar unchanged | — | not yet run |
+| R2 · Admin on a phone | — | not yet run |
 
 **Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
-**Resume at:** step 4
+**Resume at:** step 4 (4 of 6 remaining, R1–R2 included)
 ```
 
 **Write it on the moments that matter, not every turn:** once after setup
@@ -303,7 +328,7 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step executed and Passed. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. The doc-wrong case counts only re-run per section 3 |
+| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks included**. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The doc-wrong case counts only re-run per section 3 |
 | **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
 | **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
 
@@ -338,11 +363,9 @@ Then, in one edit:
   there.** An accepted UAT is the last David-gate; what remains of close-out
   is mine (the harvest-notes comment for a product feature, any outstanding
   item the State of Play lists). Do what remains, and when nothing is left,
-  set `stage:done` and close the issue — David's deletion of the UAT file
-  is his personal done-list, not a lifecycle gate, and nothing wakes an
-  agent when he does it. Only when a real close-out item genuinely can't be
-  finished now does the workstream sit at `stage:close-out`, with that item
-  named in the State of Play.
+  set `stage:done` and close the issue. Only when a real close-out item
+  genuinely can't be finished now does the workstream sit at
+  `stage:close-out`, with that item named in the State of Play.
 - **If this workstream is a phase sub-issue and the verdict reached
   close-out, do the parent edits too** — tick this phase's line in the
   parent's Phases checklist, re-point the parent's `waiting:`, and move the
@@ -358,9 +381,22 @@ Then, in one edit:
   `workstream-tracking.md`'s backlog contract. A bare `queue:` shorthand
   creates an item `/next` can't rank and the board can't display.
 - **Fix the doc** if a step's expected result was wrong.
+- **Delete the UAT doc once he confirms the run is complete** (David,
+  2026-08-22). Deletion is the default, in the same close-out, so
+  `docs/tests/UAT/` never accumulates finished tests and a surviving file
+  always means a run still owed — which is exactly what section 1's
+  discovery assumes. It is a better signal than it was: it used to lag
+  behind a manual click, so a completed run could sit there looking
+  startable for days.
+
+  **The one reason to keep one is content, not sentiment:** a doc that is
+  the only written description of some behavior. That is a gap in the
+  Manual, not a reason to hoard a test — harvest the description into the
+  right chapter, say I've done so, then delete the doc. "It might be useful
+  later" is not a reason; a re-run of a merged PR's UAT is written fresh
+  from current behavior, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next. He deletes the UAT doc himself — I don't, and I don't
-  ask him to.
+  he can do next, and that the doc is gone.
 
 ## Notification discipline during a run (David, 2026-08-21)
 

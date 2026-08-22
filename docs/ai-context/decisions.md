@@ -978,6 +978,11 @@
      file itself was a relic of the pre-connector, David-as-courier era.)
      UAT docs are deliberately untouched: they are David's personal done
      list, file-based on purpose, and only he deletes them.
+     **Superseded 2026-08-22** on the second half only: the docs stay
+     file-based, but `/uat` deletes one once David confirms its run
+     complete, rather than waiting on a manual click. The reasoning that
+     survived is the file's *signal* — a surviving doc means a run still
+     owed — which a synchronous deletion makes more reliable, not less.
   6. **Docs-only loops continue on consequence, not count.** The
      2026-08-14 hard cap (first pass + one re-request) lasted a day:
      David flagged it as count-thinking in a contract that had just

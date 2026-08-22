@@ -7,95 +7,174 @@ be dependent upon their parents for any metadata."* A variant now has its own
 memes, its own visual taxonomy/enrichment, its own Visual Concept, its own
 stock/AI images — none of it borrowed from or blocked by its root anymore.
 
-Companion engineering checklist:
-the transient engineering checklist (deleted after execution) and the
-[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md).
+## Setup
 
-## What to expect
+None.
+
+## Steps
 
 ### 1. A variant with no images of its own now shows none — not the root's
-- Find (or create) a variant of a fact that has Pexels/AI-meme images, where
-  the **variant itself** has never generated its own.
-- ✅ The variant's fact page / meme builder shows **no stock/AI images** for
-  it, instead of silently displaying the root's. This is the correct,
-  intended behavior now — it means the variant hasn't been backfilled yet
-  (see item 4), not that something is broken.
 
-### 2. A variant can generate its own images and AI memes
-- Open a **variant** (not a root) in the admin Facts editor.
-- ✅ The "Pexels Image Pipeline" panel is now visible and usable for a
-  variant — it used to be hidden entirely, root-only.
-- Click "Refresh images" on a variant. ✅ It succeeds and generates the
-  variant's **own** stock images, independent of its root's.
-- As a legendary user, try generating an AI meme background for a variant
-  fact. ✅ It's accepted and generates — previously rejected with "AI meme
-  generation only supported on root facts."
+**Do:** Find (or create) a variant of a fact whose root has Pexels/AI-meme
+images, but which itself has never generated its own images, and open its
+fact page / meme builder.
 
-### 3. Editing a root's text no longer touches its variants
-- Edit a root fact's text (with the confirmation phrase) while one of its
-  variants has an unresolved review or an active enrichment job in flight.
-- ✅ The root edit goes through immediately — it's no longer blocked waiting
-  on the variant.
-- ✅ The variant's own enrichment/`stale_for_reprocess` state is **untouched**
-  by the root edit (previously, a confirmed root edit would mark every child
-  variant stale, forcing them to re-enrich for no reason).
+**Expect:** No stock/AI images show for the variant — not the root's. This
+is correct, intended behavior: it means the variant hasn't been backfilled
+yet (see step 8), not that something is broken.
 
-### 4. Bulk Media Backfill — new admin panel (Taxonomy Health page)
-- Go to Admin → Taxonomy Health. ✅ A new **"Bulk Media Backfill"** section
-  appears near the top, with three buttons: **Backfill images**, **Backfill
-  Pexels**, **Backfill AI memes**. It's visible regardless of which health
-  card filter is selected.
-- Click **Backfill images**. ✅ A confirmation dialog appears; confirming
-  enqueues durable jobs for every active fact (root or variant) missing
-  images, and a live status line shows "N of M done" as jobs complete.
-- ✅ Re-clicking the same button while jobs are still running is safe —
-  already-queued facts dedupe onto their existing job rather than
-  double-running.
-- Try **Backfill AI memes** the same way. ✅ Same confirm → enqueue → live
-  status pattern (this one calls paid OpenAI/fal.ai APIs, so the confirmation
-  message says so).
+### 2. A variant's Pexels panel is now visible in the Facts editor
 
-### 5. Bulk send-back now reaches roots with active variants
-- Find a root fact that's **stale for reprocess** (Taxonomy Health → "Stale
-  for reprocess" card) **and** has an active variant.
-- Previously: "Send back to review" on that root would fail with "This fact
-  has active variants. Refresh the variants individually instead of the
-  root."
-- ✅ Now it succeeds — sending a root back to review no longer requires
-  touching its variants first, since the root's refresh can no longer
-  invalidate them.
-- ✅ "Send next 50 stale" (the corpus-wide bulk button) now picks up roots
-  with active variants too, instead of silently skipping them forever.
+**Do:** Open a variant (not a root) in the admin Facts editor.
 
-### 6. Repeated-failure protection (only observable if a fact genuinely keeps
-failing send-back — most testers won't hit this naturally)
-- If a fact's send-back has failed 3 times in a row, ✅ its Taxonomy Health
-  row shows a **"3 failed attempts"** badge next to the send-back button, and
-  it's no longer picked up by "Send next 50 stale" automatically.
-- ✅ You can still deliberately retry it: check its row's box and use "Send
-  selected" — that's the only way to clear the flag, and it works normally
-  (no special rejection).
-- ✅ If a "Send next 50 stale" run leaves any facts excluded this way, the
-  status line calls it out explicitly ("N fact(s) excluded after repeated
-  failures — investigate before considering the migration complete") so it's
-  never silently missed.
+**Expect:** The "Pexels Image Pipeline" panel is visible and usable for the
+variant — previously it was hidden entirely, root-only.
 
-## Regression smoke table
+### 3. A variant can refresh its own images
 
-| Area | Expected |
-|---|---|
-| Root fact images, memes, enrichment | Unchanged — still works exactly as before |
-| Public fact feed / detail for root facts | Unchanged |
-| Send-back to review for a root with NO variants | Unchanged |
-| Single-fact "Refresh images" on a root | Unchanged |
-| Facts editor for a root fact | Unchanged |
+**Do:** Click "Refresh images" on the variant from the previous step.
 
-## Known non-bugs / limitations
+**Expect:** It succeeds and generates the variant's own stock images,
+independent of its root's.
+
+### 4. A variant can generate its own AI meme background
+
+**Do:** As a legendary user, try generating an AI meme background for a
+variant fact.
+
+**Expect:** It's accepted and generates — previously rejected with "AI meme
+generation only supported on root facts."
+
+### 5. Editing a root's text no longer blocks on its variants
+
+**Do:** Edit a root fact's text (with the confirmation phrase) while one of
+its variants has an unresolved review or an active enrichment job in flight.
+
+**Expect:** The root edit goes through immediately — it's no longer blocked
+waiting on the variant.
+
+### 6. Editing a root's text no longer marks its variants stale
+
+**Do:** After the edit in the previous step, check the variant's own
+enrichment / `stale_for_reprocess` state.
+
+**Expect:** It is untouched by the root edit. Previously, a confirmed root
+edit would mark every child variant stale, forcing them to re-enrich for no
+reason.
+
+### 7. Bulk Media Backfill panel is on Taxonomy Health
+
+**Do:** Go to Admin → Taxonomy Health.
+
+**Expect:** A new "Bulk Media Backfill" section appears near the top, with
+three buttons: Backfill images, Backfill Pexels, Backfill AI memes. It's
+visible regardless of which health card filter is selected.
+
+### 8. Backfill images enqueues durable jobs
+
+**Do:** Click "Backfill images".
+
+**Expect:** A confirmation dialog appears; confirming enqueues durable jobs
+for every active fact (root or variant) missing images, and a live status
+line shows "N of M done" as jobs complete.
+
+### 9. Re-clicking Backfill images while jobs run is safe
+
+**Do:** Re-click "Backfill images" while jobs from the previous step are
+still running.
+
+**Expect:** It's safe — already-queued facts dedupe onto their existing job
+rather than double-running.
+
+### 10. Backfill AI memes follows the same pattern
+
+**Do:** Click "Backfill AI memes" and confirm.
+
+**Expect:** The same confirm → enqueue → live status pattern as Backfill
+images; the confirmation message notes this one calls paid OpenAI/fal.ai
+APIs.
+
+### 11. A root with an active variant can be sent back to review
+
+**Do:** Find a root fact that's stale for reprocess (Taxonomy Health →
+"Stale for reprocess" card) and has an active variant, then click "Send
+back to review" on that root.
+
+**Expect:** It succeeds — sending a root back to review no longer requires
+touching its variants first, since the root's refresh can no longer
+invalidate them. (Previously this failed with "This fact has active
+variants. Refresh the variants individually instead of the root.")
+
+### 12. Bulk send-back now picks up roots with active variants
+
+**Do:** Click "Send next 50 stale" (the corpus-wide bulk button).
+
+**Expect:** It now picks up roots with active variants too, instead of
+silently skipping them forever.
+
+### 13. Repeated-failure protection flags a fact after 3 failures
+
+**Do:** Find a fact whose send-back has failed 3 times in a row (uncommon
+in normal use — most testers won't hit this naturally) and look at its
+Taxonomy Health row.
+
+**Expect:** It shows a "3 failed attempts" badge next to the send-back
+button, and it's no longer picked up by "Send next 50 stale" automatically.
+
+### 14. A flagged fact can still be retried deliberately
+
+**Do:** Check that fact's row box and use "Send selected".
+
+**Expect:** It works normally, with no special rejection — this is the only
+way to clear the flag.
+
+### 15. Bulk send-back reports any facts it excluded
+
+**Do:** Run "Send next 50 stale" when it would exclude any facts under
+repeated-failure protection.
+
+**Expect:** The status line calls it out explicitly ("N fact(s) excluded
+after repeated failures — investigate before considering the migration
+complete") so it's never silently missed.
+
+## Regression
+
+### R1. Root fact images, memes, and enrichment are unchanged
+
+**Do:** Check images, memes, and enrichment for a root fact.
+
+**Expect:** Unchanged — still works exactly as before.
+
+### R2. The public fact feed / detail page for roots is unchanged
+
+**Do:** View the public feed and detail page for a root fact.
+
+**Expect:** Unchanged.
+
+### R3. Send-back for a root with no variants is unchanged
+
+**Do:** Send a root fact with no variants back to review.
+
+**Expect:** Unchanged.
+
+### R4. Single-fact "Refresh images" on a root is unchanged
+
+**Do:** Click "Refresh images" on a single root fact (not the bulk panel).
+
+**Expect:** Unchanged.
+
+### R5. The Facts editor for a root fact is unchanged
+
+**Do:** Open the Facts editor for a root fact.
+
+**Expect:** Unchanged.
+
+## Not bugs
 
 - **A variant may show no images until you (or a bulk backfill) explicitly
   generate them.** This is the correct, intended change — a variant no
   longer silently borrows its root's images. Run "Backfill images" /
-  "Backfill Pexels" from the new Bulk Media Backfill panel to catch existing
+  "Backfill Pexels" from the Bulk Media Backfill panel to catch existing
   variants up.
 - **The v6→v7 enrichment prompt-version bump** means every fact — root or
   variant — is now "stale for reprocess" until it's sent back through
@@ -104,15 +183,7 @@ failing send-back — most testers won't hit this naturally)
   `failed: 0`, `eligibleRemaining: 0`, **and** `repeatedFailureCount: 0` (or
   every flagged fact has been manually investigated via "Send selected") —
   all four together, not just the first three.
-- **`factActivation.ts`'s reparenting guard is unchanged** — you still can't
-  reparent a fact that itself has active children without deactivating them
-  first. That's a structural rule (don't strand grandchildren), not part of
-  this fix.
-
-## Bug report template
-
-> **Where:** (page / admin panel)
-> **Did:** (steps)
-> **Expected:** (what should happen per above)
-> **Got:** (what actually happened)
-> **Fact id (if any):**
+- **`factActivation.ts`'s reparenting guard is unchanged** — you still
+  can't reparent a fact that itself has active children without
+  deactivating them first. That's a structural rule (don't strand
+  grandchildren), not part of this fix.

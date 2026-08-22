@@ -1,93 +1,130 @@
-# PR214 — Stripe Membership Price Allowlist (C6) — UAT
+# PR #214 — Stripe Membership Price Allowlist — UAT
 
-In-app acceptance test for David. This makes **only real membership purchases
-grant Legendary**. Before, the server would hand out Legendary for *any*
-successful payment — so once you start selling things that aren't membership
-(render credits, merch), someone could buy the cheap thing, or craft a request
-for any active price, and still get upgraded. Now the server checks that the
-product you paid for is explicitly marked as a membership product.
+This makes **only real membership purchases grant Legendary**. Before, the
+server would hand out Legendary for *any* successful payment — so once we
+start selling things that aren't membership (render credits, merch),
+someone could buy the cheap thing, or craft a request for any active
+price, and still get upgraded. Now the server checks that the product you
+paid for is explicitly marked as a membership product.
 
-The transient engineering checklist was deleted after execution; see the
-[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md) for its recorded
-result.
+"This purchase makes you Legendary" is now decided by a **tag on the
+product in Stripe**, not by "did any payment succeed." A product grants
+Legendary **only** if it has the metadata **`overhype_membership = true`**.
+Anything without that tag is just a normal payment — it takes the money
+and does **not** upgrade the tier. This is enforced everywhere a purchase
+can grant Legendary: starting checkout, switching plans, the
+instant-upgrade on the success page, and the Stripe webhook.
 
-## What changed, in plain terms
+## Setup
 
-"This purchase makes you Legendary" is now decided by a **tag on the product in
-Stripe**, not by "did any payment succeed." A product grants Legendary **only**
-if it has the metadata **`overhype_membership = true`**. Anything without that
-tag is just a normal payment — it takes the money and does **not** upgrade the
-tier.
+- [david] In the Stripe dashboard, open each membership product (monthly
+  plan, annual plan, Legendary-for-Life) — not the price — and add the
+  metadata `overhype_membership = true`. Do this in both **test** and
+  **live** mode; they're separate catalogs. A membership product missing
+  the tag will not grant Legendary when bought.
+- [david] **Every purchase, plan switch, refund and dispute in this run
+  uses Stripe test mode and the test card `4242 4242 4242 4242`.** Nothing
+  in this doc is a live transaction — steps 1, 2, 5 and 6, and R1, R2, R5
+  and R6, all rely on this even where they don't repeat it.
 
-This is enforced everywhere a purchase can grant Legendary: starting checkout,
-switching plans, the instant-upgrade on the success page, and the Stripe
-webhook.
+## Steps
 
-## One-time setup in Stripe (do this first)
+### 1. Membership purchase still works
 
-For each **membership** product in Stripe — your monthly plan, annual plan, and
-Legendary-for-Life — open the **product** (not the price) in the Stripe
-dashboard and add metadata:
+**Do:** As a registered account, buy your monthly (or annual, or
+Legendary-for-Life) plan with the Stripe test card `4242 4242 4242 4242`.
 
-```
-overhype_membership = true
-```
+**Expect:** you land on the profile page as **Legendary**, just like
+today.
 
-Do this in **both test and live mode** (they're separate catalogs). If a
-membership product is missing the tag, buying it will **not** grant Legendary —
-so verify all three before considering this live. (This is the intended
-fail-closed behavior: no tag = not membership.)
+### 2. Plan switch still works
 
-## How to check it (Stripe **test mode**)
+**Do:** As a monthly member, switch to the annual plan.
 
-1. **Membership still works.** As a registered account, buy your monthly (or
-   annual, or Legendary-for-Life) plan with a Stripe test card
-   (`4242 4242 4242 4242`). → You land on the profile page as **Legendary**,
-   just like today.
-2. **Plan switch still works.** As a monthly member, switch to the annual plan.
-   → Succeeds and stays Legendary.
-3. **A non-membership product does NOT upgrade.** In Stripe test mode, make a
-   throwaway product **without** the `overhype_membership` tag (a $1 "test
-   item"). Try to check out with its price. → Checkout is **refused** ("not a
-   membership plan"); if a payment somehow completes for it, the account stays
-   at its current tier — **not** Legendary.
-4. **Refund / dispute behavior unchanged.** Refunding a membership purchase
-   still downgrades to registered; disputes still revoke — exactly as before.
+**Expect:** the switch succeeds and you stay Legendary.
 
-## What you should NOT see
+### 3. A non-membership product refuses checkout
 
-- A non-membership purchase upgrading anyone to Legendary.
-- A membership purchase (with the tag set) **failing** to upgrade — if that
-  happens, the product is missing its `overhype_membership = true` tag; add it.
-- Any change to refunds, disputes, cancellations, or renewal emails.
+**Do:** In Stripe test mode, create a throwaway product **without** the
+`overhype_membership` tag (a $1 "test item") and try to check out with
+its price.
 
-## Regression smoke table
+**Expect:** checkout is **refused** ("not a membership plan").
 
-| Action (test mode) | Expect |
-|--------------------|--------|
-| Buy monthly / annual / lifetime (tagged) | Legendary granted, as today |
-| Switch monthly → annual (tagged) | Succeeds, stays Legendary |
-| Check out an **untagged** product | Refused ("not a membership plan") |
-| Untagged payment somehow completes | Tier unchanged (no Legendary) |
-| Refund a membership purchase | Downgrade to registered, as today |
-| Open a dispute | Legendary revoked, as today |
+### 4. A non-membership payment that completes anyway does not upgrade
 
-## Known non-bugs / limitations
+**Do:** If a payment for the untagged test item from step 3 somehow
+completes, check that account's tier.
 
-- **The `MEMBERSHIP_PRICE_IDS` value in your Replit config is now unused.**
-  Nothing reads it anymore — this PR uses the Stripe product tag instead. It's
-  harmless to leave, but you may want to **delete it** so it doesn't look like a
-  live setting. I left your `.replit` untouched; removing it is your call.
-- **Render credits / merch aren't buyable yet.** `POST /stripe/checkout` is
-  membership-only for now by design. When we build non-membership purchases,
-  they'll get their own flow — and because the tag check lives at the grant
-  layer, those purchases will never accidentally grant Legendary.
-- **The tag is the source of truth.** Adding a new membership price later just
-  means tagging its product `overhype_membership = true` in Stripe — no code
-  change, no redeploy.
+**Expect:** the account stays at its current tier — **not** Legendary.
 
-## If something's wrong
+### 5. Refund still downgrades
 
-Tell me: which step, what you expected, what happened, and (if a purchase) the
-Stripe **test-mode** checkout/session id from the dashboard so I can trace it.
-Don't paste live-mode payment ids into chat.
+**Do:** Refund a membership purchase.
+
+**Expect:** the account downgrades to registered, exactly as before.
+
+### 6. A dispute still revokes
+
+**Do:** Open a dispute on a membership purchase.
+
+**Expect:** Legendary is revoked, exactly as before.
+
+## Regression
+
+### R1. Buy a tagged membership product
+
+**Do:** Buy monthly, annual, or lifetime (tagged with
+`overhype_membership = true`).
+
+**Expect:** Legendary granted, as today.
+
+### R2. Switch between tagged membership plans
+
+**Do:** Switch monthly → annual (both tagged).
+
+**Expect:** succeeds, stays Legendary.
+
+### R3. Check out an untagged product
+
+**Do:** Check out a product without the `overhype_membership` tag.
+
+**Expect:** refused ("not a membership plan").
+
+### R4. An untagged payment somehow completes
+
+**Do:** Let an untagged payment complete outside the normal checkout
+flow.
+
+**Expect:** tier unchanged (no Legendary).
+
+### R5. Refund a membership purchase
+
+**Do:** Refund a membership purchase.
+
+**Expect:** downgrade to registered, as today.
+
+### R6. Open a dispute
+
+**Do:** Open a dispute on a membership purchase.
+
+**Expect:** Legendary revoked, as today.
+
+## Not bugs
+
+- **The `MEMBERSHIP_PRICE_IDS` value in your Replit config is now
+  unused.** Nothing reads it anymore — this PR uses the Stripe product
+  tag instead. It's harmless to leave, but you may want to **delete it**
+  so it doesn't look like a live setting. `.replit` was left untouched;
+  removing it is your call.
+- **Render credits / merch aren't buyable yet.** `POST /stripe/checkout`
+  is membership-only for now by design. When non-membership purchases are
+  built, they'll get their own flow — and because the tag check lives at
+  the grant layer, those purchases will never accidentally grant
+  Legendary.
+- **The tag is the source of truth.** Adding a new membership price later
+  just means tagging its product `overhype_membership = true` in Stripe —
+  no code change, no redeploy.
+- **If a tagged membership purchase fails to upgrade,** the product is
+  missing its `overhype_membership = true` tag — that's a setup gap in
+  Stripe, not a code bug. Add the tag.

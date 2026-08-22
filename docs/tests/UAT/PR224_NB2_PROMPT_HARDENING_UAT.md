@@ -1,103 +1,109 @@
-# PR224 — NB2 prompt hardening · UAT (click-through)
+# PR #224 — NB2 prompt hardening — UAT
 
-What this PR changes, in product terms: the image-render pipeline now **fails
-loudly and specifically instead of quietly degrading**, and moderator visual
-editing has a **real budget** so an over-long Visual Concept can't silently push
-the safety guardrails out of the prompt. Plus a cosmetic cleanup: the built-in
-style descriptions are trimmed to tighter, cleaner copy.
+The image-render pipeline now **fails loudly and specifically instead of
+quietly degrading**, and moderator visual editing has a **real budget** so
+an over-long Visual Concept can't silently push the safety guardrails out
+of the prompt. Plus a cosmetic cleanup: the built-in style descriptions are
+trimmed to tighter, cleaner copy.
 
-Most of this is backend correctness. The two things you can directly see:
-(1) saving an over-long Visual Concept now gives a clear error, and (2) a render
-that deterministically can't succeed now shows a specific failure instead of
-spinning or silently producing a degraded image.
+Before this PR, if a prompt got too long the compiler chopped the end
+off — and the safety guardrails (the "don't bake in caption text / keep
+violence non-graphic" constraints) live at the end, so they were the first
+thing silently dropped. Now the compiler never drops them: either the
+content fits, or the render fails loudly. Combined with the save-time
+budget, a moderator can't accidentally author a Concept that pushes the
+guardrails out.
 
-## Where to go
+## Setup
 
-1. Admin → the **enrichment / Visual Concept editor** for a fact (and the same
-   editor on a **review candidate**).
-2. Admin → generate/render a meme to watch render status.
-3. (Cosmetic) Admin → the **style picker** — the built-in style descriptions.
+- [david] Sign in as admin — every check below is in the admin console
+  (the Visual Concept editor, a render trigger, and the style picker).
+- [claude] Confirm a fact exists you can edit the Visual Concept for, and a
+  review candidate is available in the enrichment queue (Visual Concept
+  editing applies to both).
 
-## The happy path
+## Steps
 
-- **Normal Visual Concepts save fine.** A typical Concept (a few sentences) and
-  normal visual guidance (a handful of role bindings / required details) save
-  with no change from before.
-- **Renders still work end-to-end.** A valid fact renders as before; the trimmed
-  style copy produces the same style looks (cinematic still looks cinematic,
-  anime still looks anime — the descriptions are just shorter and cleaner).
+### 1. An over-long Visual Concept is rejected on raw length
 
-## What you can see change
+**Do:** Paste a Visual Concept longer than ~1500 characters and click Save.
 
-- **Over-long Visual Concept → a clear save error.** Paste a very long Visual
-  Concept (more than ~1500 characters), or one stuffed with many `{NAME}` tokens,
-  and Save. You get a specific rejection explaining it's over the prompt budget
-  (raw length, or "expands to up to N characters once names are filled in"),
-  instead of it saving and then quietly breaking the render. Trim it and it
-  saves.
-- **Too much visual guidance → a clear save error.** If your role bindings +
-  required details + composition + additions together get very large, Save
-  reports the combined guidance is over budget. Individual normal entries are
-  fine; it's the *aggregate* that's capped.
-- **Deterministic render failures are specific, not silent.** If a render can't
-  succeed for a fixed reason (corrupt frozen data, a leaked personalization
-  token, or content that can't fit the prompt), the render now fails **fast**
-  with a specific reason instead of retrying forever or shipping a degraded
-  image. Transient hiccups (a model timeout) still retry as before.
+**Expect:** a specific rejection explaining it's over the prompt budget by
+raw length, instead of it saving and quietly breaking the render.
 
-## The safety guarantee (why this PR matters)
+### 2. A Visual Concept that expands over budget via tokens is rejected
 
-Before, if a prompt got too long, the compiler chopped the end off — and the
-safety guardrails (the "don't bake in caption text / keep violence non-graphic"
-constraints) live at the end, so they were the first thing silently dropped.
-Now the compiler never drops them: either the content fits, or the render fails
-loudly. Combined with the save-time budget, a moderator can't accidentally
-author a Concept that pushes the guardrails out.
+**Do:** Paste a Visual Concept stuffed with many `{NAME}` tokens (short raw
+length, but large once names are filled in) and click Save.
 
-## Regression smoke table
+**Expect:** a specific rejection saying it "expands to up to N characters
+once names are filled in."
 
-| Action | Expect |
-| --- | --- |
-| Save a normal Visual Concept | Saves fine |
-| Save a Concept > ~1500 chars | Clear "over budget" rejection |
-| Save a Concept with many `{NAME}` tokens (short raw, huge rendered) | Clear "expands to…" rejection |
-| Pile on role bindings + details + additions | Clear aggregate "over budget" rejection |
-| Render a valid fact (any style) | Renders as before; style look unchanged |
-| A deterministically-broken render | Fails fast with a specific reason (not endless spin) |
-| Built-in style descriptions | Shorter, cleaner copy; same visual result |
+### 3. Trimming an over-budget Concept lets it save
 
-## What should NOT happen
+**Do:** Trim either over-budget Concept from step 1 or step 2 back under
+budget and Save again.
 
-- A normal-length Concept should **not** be rejected.
-- A render should **not** silently drop the "no caption text / non-graphic
-  violence" guardrails to fit — it fails loudly instead.
-- A transient model/network hiccup should **not** be treated as a permanent
-  failure — it still retries.
-- Selecting a built-in style should **not** change the style's look (only the
-  description text is shorter).
+**Expect:** it saves normally.
 
-## Known non-bugs (out of scope)
+### 4. Excessive aggregate visual guidance is rejected
 
-- **No in-editor character counter yet.** The budget is enforced on Save (with a
-  clear message); a live "N / max" counter in the editor is a follow-up.
-- **The §21 numbers** (the exact Concept / additions size limits) are set from a
-  measurement and were approved before merge (engine ceiling raised to 6000
-  chars — NB2's real context window is ~131K tokens, so the original 4000 was
-  editorial discipline, not a capacity limit) — if a limit feels too tight or
-  loose in practice, it's a one-line tuning change.
-- **Look-style copy is not admin-editable** (it ships via migration), so there's
-  no style-copy save form to test.
+**Do:** Add role bindings, required details, composition notes, and
+additions together until the combined total is very large, then Save.
 
-## Bug report template
+**Expect:** a specific rejection reporting the *combined* guidance is over
+budget. Individual normal entries are fine on their own — it's the
+aggregate that's capped.
 
-```
-Where (Visual Concept save / render failure / style picker):
-Fact or review id:
-What I entered / did:
-What I expected:
-What happened (screenshot of the error or render status):
-```
+### 5. A deterministically-broken render fails fast with a specific reason
 
-See the engineering checklist + the §21 numbers table in
-the transient engineering checklist (deleted after execution) and the
-[checklist handoff](./CLAUDE_CHECKLIST_HANDOFF_2026-08-09.md).
+**Do:** Trigger a render that can't succeed for a fixed reason — corrupt
+frozen data, a leaked personalization token, or content that can't fit the
+prompt.
+
+**Expect:** it fails fast with a specific reason instead of retrying
+forever or shipping a degraded image.
+
+### 6. Built-in style descriptions are shorter but look the same
+
+**Do:** Open the style picker and read the built-in style descriptions,
+then render using one of them (e.g. cinematic or anime).
+
+**Expect:** the copy is shorter and cleaner, but the rendered style look is
+unchanged from before.
+
+## Regression
+
+### R1. A normal Visual Concept still saves fine
+
+**Do:** Enter a typical Visual Concept (a few sentences) with normal visual
+guidance (a handful of role bindings / required details) on a fact, and
+Save.
+
+**Expect:** it saves with no change from before.
+
+### R2. A valid fact still renders end-to-end
+
+**Do:** Render a valid fact, any style.
+
+**Expect:** it renders as before.
+
+## Not bugs
+
+- **No in-editor character counter yet.** The budget is enforced on Save
+  (with a clear message); a live "N / max" counter in the editor is a
+  follow-up.
+- **The §21 numbers** (the exact Concept / additions size limits) are set
+  from a measurement and were approved before merge (this PR raised the
+  engine ceiling from 4000 to 6000 chars; it is **6900** today, raised
+  again since to fund the dedicated bubble pool — NB2's real context window
+  is ~131K tokens, so none of these were capacity limits, just editorial
+  discipline). If a limit
+  feels too tight or loose in practice, it's a one-line tuning change.
+- **Look-style copy is not admin-editable** (it ships via migration), so
+  there's no style-copy save form to test.
+- **A transient render hiccup (e.g. a model timeout) still retries
+  automatically** rather than being treated as a permanent failure. This
+  isn't independently forceable in this UAT — if you happen to see a
+  render retry after a blip, that's expected, not the new fast-fail
+  behavior kicking in.
