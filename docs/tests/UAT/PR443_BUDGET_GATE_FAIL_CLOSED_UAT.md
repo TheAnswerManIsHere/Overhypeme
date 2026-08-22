@@ -4,117 +4,117 @@ Your in-app acceptance test, David.
 
 **Why this exists.** The budget gate decides how much a user may spend on
 fal.ai generation. If the gate's *own lookup* failed — a transient database
-hiccup while reading the limit or summing what the user had already spent —
-it answered **"allowed, with an infinite limit"** and let the generation
-through. Not a delay, not a retry: the spend ceiling simply stopped existing
-for as long as the failure lasted, silently, with only a warning in the logs.
+hiccup while reading the limit or summing what the user had already spent
+— it answered **"allowed, with an infinite limit"** and let the generation
+through. Not a delay, not a retry: the spend ceiling simply stopped
+existing for as long as the failure lasted, silently, with only a warning
+in the logs.
 
-It was the only permission check in the codebase that behaved this way. Every
-other gate in the system denies when it can't get an answer. This one granted.
+It was the only permission check in the codebase that behaved this way.
+Every other gate in the system denies when it can't get an answer. This
+one granted.
 
-**The fix in one line:** a gate that cannot determine your spend now refuses
-the generation and says "try again", instead of quietly waving it through.
+**The fix in one line:** a gate that cannot determine your spend now
+refuses the generation and says "try again", instead of quietly waving it
+through.
 
-**What this is NOT:** it does not change anyone's budget, limit, or what they
-can generate normally. If nothing is broken, nobody should notice any
+**What this is NOT:** it does not change anyone's budget, limit, or what
+they can generate normally. If nothing is broken, nobody should notice any
 difference — which is most of what this UAT is checking.
 
-## Before you start
+**What isn't testable by clicking:** the failure this PR actually fixes
+isn't reachable from the app — reproducing it means making the database
+fail *during* the budget lookup, and deliberately breaking the database on
+the Repl to see it would be a worse idea than the bug. That half is
+covered by automated tests instead, and I verified they genuinely detect
+it: I temporarily put the old fail-open behavior back and re-ran the
+suite — three of the new tests failed and the rest passed — then restored
+the fix and they all passed again. What steps 1–6 below check is the part
+automated tests can't fully speak for: that the ordinary paid paths still
+behave normally for real users, and that the two different refusals say
+the right thing to the person reading them.
 
-- No feature flag. It's live everywhere once merged and synced.
-- You'll want a **Legendary** account and your **admin** account. **Not a plain
-  registered account** — image and video generation are both switched off for
-  `registered` in the current permission grid, entirely unrelated to this PR.
-  A registered account would get blocked before ever reaching the code below,
-  and you'd wrongly read that as a regression.
-- A couple of checks use **Admin → Config** to set a deliberately tiny budget
-  limit. **Note the starting values before you change them, and put them back
-  when you're done** — these are the real limits.
-- The key involved is `budget_limit_legendary_usd`.
-- **For sections 2 and 3, generate using a reference photo, not the standard
-  no-reference "AI meme image" flow.** The standard flow doesn't go through
-  the budget gate at all — a separate, pre-existing gap this PR didn't touch
-  (found while building this UAT, tracked separately) — so it won't respond
-  to the tiny limit you set below, and section 1 already covers it for the
-  "nothing regressed" check.
+## Setup
 
-## The main event
+- [claude] Confirm the app is up before you start. There's no feature
+  flag — it's live everywhere once merged and synced.
+- [claude] In Admin → Config, note the current value of
+  `budget_limit_legendary_usd` (the **real** Legendary spend limit), then
+  set it to `0.01` for steps 4 and 5.
+- [david] Have ready a **Legendary** account and your **admin** account.
+  **Not a plain registered account** — image and video generation are both
+  switched off for `registered` in the current permission grid, entirely
+  unrelated to this PR. A registered account would get blocked before ever
+  reaching the code below, and you'd wrongly read that as a regression.
+- [david] For steps 4 and 5, generate using a reference photo, not the
+  standard no-reference "AI meme image" flow. The standard flow doesn't go
+  through the budget gate at all — a separate, pre-existing gap this PR
+  didn't touch (found while building this UAT, tracked separately) — so it
+  won't respond to the tiny limit set above, and step 1 already covers it
+  for the "nothing regressed" check.
+- [restore] `budget_limit_legendary_usd` — restore to the value captured
+  in the setup step above. This is the **real** Legendary spend limit, so
+  the captured number is the only correct one; do not restore to a default
+  or a remembered value.
 
-### 1. Normal generation is completely unaffected
+## Steps
 
-This is the most important section, and the most boring. The fix touches the
-code path in front of *every* paid generation, so the first thing to establish
-is that the ordinary path still works.
+### 1. The standard AI meme image path is unaffected
 
-- Log in as your **Legendary** account with budget remaining.
-- Generate an **AI meme image** (the standard path).
-  - ✅ It generates exactly as before. No new error, no new delay.
-- Generate one using a **reference photo** (the PuLID / face path).
-  - ✅ Same — generates normally.
-- Generate a **video**.
-  - ✅ Same — starts and completes normally.
+**Do:** Log in as your Legendary account with budget remaining, and
+generate an **AI meme image** (the standard, no-reference path).
 
-If any of these now fails where it used to work, stop and report it. That would
-mean the gate is denying when it should be allowing, which is the one way this
-fix could do real harm.
+**Expect:** It generates exactly as before — no new error, no new delay.
 
-### 2. Being genuinely out of budget still says "out of budget"
+### 2. Reference-photo (PuLID) generation still works
 
-The fix introduces a second, different failure ("I couldn't check") next to the
-existing one ("you're over your limit"). They must not get confused with each
-other — telling someone to go buy more credit when the database hiccuped would
-be worse than the bug being fixed.
+**Do:** Generate a meme image using a **reference photo** (the PuLID /
+face path).
 
-- As **admin**, go to **Admin → Config**. Note the current value of
-  `budget_limit_legendary_usd`, then set it to something tiny — `0.01`.
-- In another browser/incognito, as your **Legendary** account, try to generate
-  an AI meme image **using a reference photo**.
-  - ✅ You're refused, and the message is about **being over budget** — the
-    usual out-of-budget wording, pointing you at upgrading.
-  - ✅ It is *not* a "try again" message, and *not* a generic server error.
-- Try a **video** generation too.
-  - ✅ Same: refused as over budget, with the upgrade path.
-- **Put `budget_limit_legendary_usd` back to its original value.**
-  - ✅ Generation works again.
+**Expect:** Generates normally, same as before.
 
-### 3. Admins are still exempt
+### 3. Video generation still works
 
-Admins bypass the spend ceiling deliberately. Worth one pass to confirm the fix
-didn't catch them in it.
+**Do:** Generate a **video**.
 
-- With `budget_limit_legendary_usd` still set low (or set it low again), log
-  in as **admin** and generate an AI meme image **using a reference photo**.
-  - ✅ It generates. Admins are exempt from budget limits, and still are.
-- **Put the limit back** when you're done.
+**Expect:** Starts and completes normally. If any of steps 1–3 now fails
+where it used to work, that's the one way this fix could do real
+harm — the gate denying when it should allow.
 
-## What is not in this UAT, and why
+### 4. Being genuinely out of budget still says "out of budget" — image
 
-**The failure this PR actually fixes is not clickable.** Reproducing it means
-making the database fail *during* the budget lookup — there's no way to trigger
-that from the app, and deliberately breaking the database on the Repl to see it
-would be a worse idea than the bug.
+**Do:** In another browser/incognito, as your Legendary account (with
+`budget_limit_legendary_usd` set to `0.01` from Setup), try to generate an
+AI meme image **using a reference photo**.
 
-So that half is covered by automated tests instead, and I verified they
-genuinely detect it: I temporarily put the old fail-open behavior back and
-re-ran the suite — three of the new tests failed and the rest passed, then I
-restored the fix and they all passed again. That's the evidence that the gate
-now denies rather than grants, that no permissive fallback can creep back in,
-and that a gate failure isn't swallowed by the pricing error handler the way it
-would have been before.
+**Expect:** You're refused, and the message is about **being over
+budget** — the usual out-of-budget wording, pointing you at upgrading.
+It is *not* a "try again" message, and *not* a generic server error.
 
-What *you're* checking in sections 1–3 is the part automated tests can't fully
-speak for: that the ordinary paid paths still behave normally for real users,
-and that the two different refusals say the right thing to the person reading
-them.
+### 5. Being genuinely out of budget still says "out of budget" — video
 
-**Also not in this UAT: the standard no-reference "AI meme image" path never
-had a budget gate to fail closed.** Found while writing this doc, not by this
-PR's original scope — it's a separate gap (a live, unlimited-spend path), not
-another instance of the fail-open bug this PR fixes, so fixing it belongs to
-its own issue rather than growing this one.
+**Do:** With the limit still at `0.01`, try a **video** generation too.
 
-## If something fails
+**Expect:** Same as step 4: refused as over budget, with the upgrade path.
 
-Tell me what you saw and which section. A failure here is a **follow-up
-bugfix**, not a reason to revert the merge — and production is untouched either
-way, since publishing is a separate step we haven't started using.
+### 6. Admins are still exempt
+
+**Do:** With `budget_limit_legendary_usd` still set low, log in as
+**admin** and generate an AI meme image **using a reference photo**.
+
+**Expect:** It generates. Admins are exempt from budget limits, and still
+are.
+
+## Regression
+
+None. Steps 1 and 2 are the regression sweep for this PR — they exercise the
+two generation paths at a normal limit before anything is lowered, which is
+exactly what a budget-gate change could break.
+
+## Not bugs
+
+- **The standard no-reference "AI meme image" path never had a budget gate
+  to fail closed.** Found while writing this doc, not by this PR's
+  original scope — it's a separate, live, unlimited-spend gap, not another
+  instance of the fail-open bug this PR fixes, so fixing it belongs to its
+  own issue rather than growing this one.

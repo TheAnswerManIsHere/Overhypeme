@@ -83,8 +83,8 @@ his decision rather than a gap.>
 filename (`PR<N>_<FEATURE>_UAT.md`, SCREAMING_SNAKE slug), and the two must
 agree.
 
-**`## Setup`** — every line is one of exactly three tags, or the single word
-`None.`
+**`## Setup`** — every line is one of exactly three tags, or `None.` on the
+first line, optionally followed by a sentence saying why.
 
 - **`[claude]`** — mine to execute before he starts. Seeding rows, putting
   config in a known state, confirming the Repl is synced. Anything mechanical
@@ -93,9 +93,17 @@ agree.
   himself, using a real phone, a live Stripe account. Keep these few; each
   one is friction he has to supply.
 - **`[restore]`** — what gets put back. Required whenever a `[claude]` line
-  changed live state, and it names the original value, not just the
-  intention: `budget_limit_legendary_usd → 2500.00 (captured before the
-  write)`.
+  changed live state. It names **what** to restore and says the original was
+  captured before the write: `budget_limit_legendary_usd — restore to the
+  value captured before step 1's change`.
+
+  **It must not name the value itself.** A doc is written before the run, so
+  it cannot know what the live setting will be; a number written here is a
+  guess, and restoring a live limit to a guessed number is worse than not
+  restoring it at all. The captured value belongs in the run record, which
+  is written at run time and is where `/uat` reads it back from. (This rule
+  exists because the first version of this spec demanded the value, and a
+  conversion duly invented one from a seed file.)
 
 **`## Steps`** — the feature under test. One `### <n>. <title>` per step,
 numbered from 1, each with exactly one **Do:** and one **Expect:**.
@@ -118,6 +126,12 @@ recorded, and counted toward the verdict.
 - Include one only if this PR could plausibly have broken it. A regression
   check nobody believes in gets skipped, and a habit of skipping is what the
   format exists to prevent.
+- **A PR that genuinely couldn't break anything writes `None.`** — the same
+  escape the Setup section has, and a sentence after it saying why is
+  encouraged, because a bare `None.` reads as an oversight. The section stays required so its absence is
+  never ambiguous, but an empty sweep is a legitimate answer and saying so
+  beats padding. (Also learned the hard way: requiring a non-empty sweep made
+  three conversions invent checks nobody had written.)
 
 **`## Not bugs`** — known limitations, out-of-scope oddities, anything that
 looks wrong and isn't. Bullets, no steps. This is what stops David reporting

@@ -94,7 +94,7 @@ export function scanDoc(filename, text) {
     ([, l]) => l.trim() && !/^\s/.test(l),
   );
   if (setup.length) {
-    const onlyNone = setup.length === 1 && setup[0][1].trim() === "None.";
+    const onlyNone = setup[0][1].trim().startsWith("None.");
     if (!onlyNone) {
       for (const [n, l] of setup) {
         const t = l.trim();
@@ -113,9 +113,25 @@ export function scanDoc(filename, text) {
       .filter(([, l]) => /^### /.test(l))
       .map(([n, l]) => [n, l.replace(/^### /, "")]);
 
-  const checkIds = (start, label, pattern, render) => {
+  // `None.` is a legitimate body for `## Regression`: a PR that genuinely
+  // couldn't break anything says so rather than padding the sweep. The
+  // section stays required so its absence is never ambiguous. `## Steps` has
+  // no such escape -- a UAT with nothing to test is not a UAT.
+  // `None.` on the first non-blank line, optionally followed by a sentence
+  // saying why. The reason is worth allowing: a bare `None.` reads as an
+  // oversight and invites a later editor to "fix" it with filler, which is
+  // the padding this escape exists to avoid.
+  const isNone = (start) => {
+    const body = sectionBody(start).filter(([, l]) => l.trim());
+    return body.length > 0 && body[0][1].trim().startsWith("None.");
+  };
+
+  const checkIds = (start, label, pattern, render, allowNone = false) => {
+    if (allowNone && isNone(start)) return [];
     const hs = headings(start);
-    if (start !== -1 && hs.length === 0) say(`"${label}" contains no ### headings`);
+    if (start !== -1 && hs.length === 0) {
+      say(`"${label}" contains no ### headings${allowNone ? ' (use the single line "None." if this PR could not break anything)' : ""}`);
+    }
     hs.forEach(([n, h], i) => {
       const m = pattern.exec(h);
       if (!m) {
@@ -130,7 +146,7 @@ export function scanDoc(filename, text) {
   };
 
   const steps = checkIds(at("## Steps"), "## Steps", /^(\d+)\.\s+\S/, (i) => `${i}.`);
-  const regs = checkIds(at("## Regression"), "## Regression", /^R(\d+)\.\s+\S/, (i) => `R${i}.`);
+  const regs = checkIds(at("## Regression"), "## Regression", /^R(\d+)\.\s+\S/, (i) => `R${i}.`, true);
 
   // --- every step carries exactly one Do and one Expect -------------------
   // A step with two Do/Expect pairs is a compound step: the driver presents

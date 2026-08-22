@@ -173,3 +173,27 @@ test("uatFiles enumerates the UAT directory and skips README", () => {
   assert.ok(files.every((f) => f.startsWith(`${UAT_DIR}/`) && f.endsWith(".md")));
   assert.ok(!files.some((f) => f.endsWith("README.md")));
 });
+
+test('"None." is a legitimate Regression body, but not a legitimate Steps body', () => {
+  // A PR that genuinely couldn't break anything says so rather than padding
+  // the sweep. Requiring a non-empty sweep made three conversions invent
+  // checks nobody had written — the guard should not recreate that pressure.
+  assert.deepEqual(scanDoc(NAME, doc({ regression: "None." })), []);
+  assert.ok(
+    scanDoc(NAME, doc({ steps: "None." })).some((p) => p.includes("no ### headings")),
+    "a UAT with nothing to test is not a UAT",
+  );
+});
+
+test("an empty Regression section names the None. escape in its message", () => {
+  const found = scanDoc(NAME, doc({ regression: "Some prose, no headings." }));
+  assert.ok(found.some((p) => p.includes('"None."')));
+});
+
+test('"None." may carry a reason after it, in either escapable section', () => {
+  // A bare "None." reads as an oversight and invites a later editor to fill
+  // it with padding, which is what the escape exists to prevent.
+  const withReason = "None. Steps 1 and 2 are the sweep for this PR.";
+  assert.deepEqual(scanDoc(NAME, doc({ regression: withReason })), []);
+  assert.deepEqual(scanDoc(NAME, doc({ setup: withReason })), []);
+});
