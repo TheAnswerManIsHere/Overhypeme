@@ -38,17 +38,19 @@ before treating it as a finding.
   database: `docs/tests/Replit/PR425_ADMIN_PERMISSIONS_CORE_TEST_RUN.md`.
 - [claude] Confirm the app is up before step 1. There's no feature flag —
   it's live everywhere.
-- [claude] In Admin → Features, confirm (or reset) the baseline before the
-  run: `custom_avatar` checked for both **Admin** and **Legendary**;
-  `video_generation` checked for both **Legendary** and **Admin**.
+- [claude] In Admin → Features, capture the current checked state of
+  `custom_avatar` (Admin, Legendary) and `video_generation` (Legendary,
+  Admin) before touching anything, then set all four to checked — the
+  steps below need that starting state to demonstrate the uncheck/recheck
+  behavior meaningfully.
 - [david] Have ready: your **admin** account, a **plain registered**
   account, a private/incognito window for the logged-out checks, and — if
   you have one — a genuinely **Legendary** (paid) account for step 4.
-- [restore] `custom_avatar` and `video_generation` left **checked** for
-  Admin and Legendary when the run ends or pauses. Steps 2–5 and 22–23
-  toggle these cells off and back on as part of the test; if the run stops
-  mid-step, re-check whichever cell was left unchecked before handing the
-  doc back.
+- [restore] All four cells restored to the state captured above, not to
+  "checked" — if any was intentionally off before the run, this run must
+  not leave it on. Note that step 4 unchecks `custom_avatar` for Admin and
+  nothing later in the steps re-checks it, so this restore step is load-
+  bearing even on a clean pass, not only on a stop mid-step.
 
 ## Steps
 

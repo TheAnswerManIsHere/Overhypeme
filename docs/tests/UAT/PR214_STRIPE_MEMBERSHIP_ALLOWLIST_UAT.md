@@ -22,6 +22,10 @@ instant-upgrade on the success page, and the Stripe webhook.
   metadata `overhype_membership = true`. Do this in both **test** and
   **live** mode; they're separate catalogs. A membership product missing
   the tag will not grant Legendary when bought.
+- [david] **Every purchase, plan switch, refund and dispute in this run
+  uses Stripe test mode and the test card `4242 4242 4242 4242`.** Nothing
+  in this doc is a live transaction — steps 1, 2, 5 and 6, and R1, R2, R5
+  and R6, all rely on this even where they don't repeat it.
 
 ## Steps
 

@@ -61,10 +61,12 @@ I ship two things:
    run by enumerating `### ` headings inside `## Steps` and `## Regression`,
    so a doc outside the format is a doc that cannot be driven. Setup lines,
    step shape (`Do:` / `Expect:`), regression IDs and the deliberate
-   omissions all live there rather than being restated here. **This half is unchanged and deliberately
-   file-based**: the UAT files are David's own to-do list, and **he deletes
-   I delete it** once he confirms the run complete (David, 2026-08-22), so
-   the directory never accumulates finished tests.
+   omissions all live there rather than being restated here. **This half
+   stays file-based, but ownership of deletion changed (David, 2026-08-22):
+   I delete a UAT doc once he confirms the run complete**, in the same
+   close-out, rather than waiting on his own click — so the directory
+   never accumulates finished tests. See `/uat` for the one exception
+   (content worth harvesting first).
 
    Because the PR number is in the filename, the UAT doc follows the
    **PR-first** flow: open the PR with a "Docs pending" placeholder note,

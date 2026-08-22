@@ -197,3 +197,12 @@ test('"None." may carry a reason after it, in either escapable section', () => {
   assert.deepEqual(scanDoc(NAME, doc({ regression: withReason })), []);
   assert.deepEqual(scanDoc(NAME, doc({ setup: withReason })), []);
 });
+
+test("a filename outside PR<N>_<FEATURE>_UAT.md is a finding, not a silent pass", () => {
+  // A doc can be structurally perfect and still never be offered for a run:
+  // /uat discovers candidates by globbing this exact filename shape. (Codex,
+  // #561 round 1.)
+  assert.ok(scanDoc("docs/tests/UAT/foo.md", doc()).some((p) => p.includes("filename must match")));
+  assert.ok(scanDoc("docs/tests/UAT/PR999_FEATURE.md", doc()).some((p) => p.includes("filename must match")));
+  assert.deepEqual(scanDoc("docs/tests/UAT/PR999_TWO_WORD_FEATURE_UAT.md", doc({ title: "# PR #999 — Two Word Feature — UAT" })), []);
+});

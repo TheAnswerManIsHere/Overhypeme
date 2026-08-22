@@ -26,8 +26,9 @@ An invocation may name a PR, an issue, or nothing.
 
 1. **Find the candidate docs on current `origin/main` — not in my checkout.**
    `git fetch origin main`, then list `docs/tests/UAT/PR<N>_*_UAT.md` as of
-   `origin/main`. Every file still present *there* is unfinished, because
-   David's deletion is what completes one. My working tree is the wrong
+   `origin/main`. Every file still present *there* is unfinished — deletion
+   on his confirmation (section 6) is what completes one. My working tree
+   is the wrong
    oracle in both directions: an older branch still carries docs he already
    deleted (so I'd offer a finished run), and a stale checkout misses one
    that just merged.

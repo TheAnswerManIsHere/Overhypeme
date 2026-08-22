@@ -51,9 +51,19 @@ export function scanDoc(filename, text) {
   const lines = text.split("\n");
   const say = (msg) => problems.push(msg);
 
-  // --- title, and agreement with the filename -----------------------------
+  // --- filename shape, and the title's agreement with it ------------------
+  // /uat discovers candidates by globbing PR<N>_*_UAT.md (uat-doc-format.md
+  // and the /uat skill both require this exact shape). A doc that passes
+  // every structural check below but sits outside that pattern -- a typo,
+  // or a file the format's own filter (.md, not README.md) still admits --
+  // would validate clean here and never be offered for a run. (Codex, #561
+  // round 1.)
+  const base = basename(filename);
+  const fileMatch = /^PR(\d+)_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_UAT\.md$/.exec(base);
+  if (!fileMatch) {
+    say(`filename must match "PR<N>_<FEATURE>_UAT.md" (SCREAMING_SNAKE feature) -- got "${base}"`);
+  }
   const title = lines.find((l) => l.startsWith("# "));
-  const fileMatch = /^PR(\d+)_/.exec(basename(filename));
   const titleMatch = title && /^# PR #(\d+) — .+ — UAT\s*$/.exec(title);
   if (!titleMatch) {
     say('first heading must be exactly "# PR #<N> — <Feature> — UAT"');
