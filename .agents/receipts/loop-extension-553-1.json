@@ -1,0 +1,7 @@
+{
+  "pr": 553,
+  "kind": "david",
+  "grant": 3,
+  "authorization": "David, 2026-08-22, answering the 🛑 with option 1: \"Authorise one more review round.\" ONE round is what he granted. The number 3 is the arithmetic that delivers exactly that and nothing more: this loop has spent 5 rounds against an internal cap of 3, and allowance() adds a grant to the CAP rather than to the rounds already spent (3 + 3 = 6), so allowance becomes 6, round 6 is permitted (delivered 5 < 6) and round 7 is refused (delivered 6 >= 6). Verified against the live functions before writing this, both directions. A grant of 1 or 2 would have left the allowance below the rounds already spent and authorized nothing. This deferral is gap 5 of 6 in .agents/adjudications/553-1.json; the receipt states the arithmetic explicitly so nobody later reads \"grant: 3\" as three authorized rounds.",
+  "createdAt": "2026-08-22T04:45:00.000Z"
+}

@@ -432,40 +432,64 @@ the agent driving the loop — was deleted on 2026-08-20.** Its measured record
 was 0-for-15 at stopping a loop, on product and meta loops alike. What replaces
 it is two mechanical things and one external judge.
 
-#### Internal tooling is carved out of review loops entirely (David, 2026-08-20)
+#### The write-gate rule: code written is code reviewed (David, 2026-08-22)
+
+**Every tier.** The adjudicator rules *before* code is written, not after it
+is pushed:
+
+1. A round returns findings.
+2. The adjudicator rules **write** or **stop**.
+3. **Write** → the fixes are pushed, and another review round is *automatic
+   and mandatory*. Back to 1.
+4. **Stop** → the loop ends there, on a head the last round already reviewed.
+
+Two invariants follow, and they are the reason for the shape: **no commit
+ever merges unreviewed**, and **a loop always terminates on a reviewed
+head**, because a stop precedes the existence of any new commit. The exit
+ramp from eternal looping is the judge refusing to write — never anyone
+skipping the review of something written.
+
+This supersedes the 2026-08-21 internal tier's ending, which deliberately
+stopped with the last fixes unreviewed and carried machinery to make that
+mergeable (a mid-budget terminal receipt, a distinct-commit proof, a rail
+look-through). All of it is deleted rather than repaired: it existed to make
+an unreviewed head safe, and an unreviewed head is now never mergeable. The
+older "fix-round merge path" workarounds (David posting the trigger himself, <!-- retired-ok -->
+recutting the PR) stay retired for the same reason.
+
+**The cost, chosen rather than discovered:** fixing even a typo costs a full
+round. So the adjudicator's question is not "another round?" but **"is this
+finding worth writing code for at all?"** — and on internal tooling most are
+not.
+
+#### Internal tooling: the strict rubric
 
 Guards, `scripts/`, skills, agent contracts (`CLAUDE.md`, `AGENTS.md`, these
-docs), process documentation and documentation harvests get **the automatic
-Codex pass when the PR opens, one triage pass, one-line declines, and nothing
-else.** No declared budget, no re-requested rounds, no adjudication, no
-receipts.
+docs), process documentation and documentation harvests run the loop above
+with the `internal` tier:
 
-This is the root-cause fix, not a convenience. Every runaway loop this repo has
-measured was internal tooling reviewed at product rigor: PR #488 ran 22 rounds
-on a ~10-line guard change, and the guard built to stop review churn became the
-repo's single largest source of it (#503, #526, #531, #534, #539). The accepted
-trade is that internal tooling ships with rougher edges — its failure mode is
-wrongly-blocking, which announces itself, and `main`'s real protection is
-GitHub's server-side ruleset rather than review depth.
+- **A clean automatic pass is the whole ceremony.** Round 1 fires on PR
+  open; finding nothing, it needs no budget, no receipts, no adjudication —
+  the merge receipt accepts an automatic pass covering the head.
+- **Findings go to the adjudicator**, which decides whether they are worth
+  writing for, under the internal rubric in `review-loop-adjudicator.md`:
+  write only for a **very high chance of a critical flaw** — a destructive
+  or irreversible action, corruption of the receipt/tracking machinery, a
+  widening of agent authority. Ordinary correctness nits, prose and
+  structure ship with gaps recorded.
+- **Hard cap 3 rounds, no self-serve extension:** at 3, the loop goes to
+  David in person.
 
-**Codex review of product code is unaffected and is not negotiable.** It is the
-safety net a non-code-reading product manager depends on.
+What the 2026-08-20 decision got right survives in the rubric, not in
+refusing review: every runaway loop this repo measured was internal tooling
+reviewed at product rigor (PR #488 ran 22 rounds on a ~10-line guard
+change; then #503, #526, #531, #534, #539), so the strictness lives in the
+write decision, sized to a class of artifact whose failure mode is
+wrongly-blocking and whose real protection is GitHub's server-side ruleset.
+One triage pass and one-line declines still govern engagement.
 
-**The fix-round merge path (Codex, #543).** When the automatic pass finds a
-real defect and the fix is pushed, the head is no longer the reviewed commit —
-and the carve-out means no re-requested round, so the merge receipt refuses.
-Two bounded unwedges, in preference order, neither of which reopens a loop:
-
-1. **David posts the bare review trigger** (the guard gates only the agent's
-   tool calls, not his comments). One head-coverage pass lands, the agent
-   triages it once, and the merge proceeds normally.
-2. **Recut the PR**: push the fixes, close the wedged PR with a pointer, open
-   a fresh PR from the same branch — the automatic pass on open reviews the
-   entire fixed diff, which IS the head. Costs a PR number and a CI run,
-   needs no human, and keeps the one-automatic-pass shape exactly.
-
-Declining every finding needs neither: the original pass already covers the
-unchanged head.
+**Codex review of product code is unaffected and is not negotiable.** It is
+the safety net a non-code-reading product manager depends on.
 
 #### Product loops: a declared budget, then an external judge
 
@@ -475,19 +499,25 @@ unchanged head.
   loop is out of rounds. Rounds are **counted fresh from GitHub every time**,
   never stored: a committed tally is a cache of state GitHub already holds, and
   it failed exactly that way when it was tried.
-- **After every completed round beyond the first, an external adjudicator reads
-  the loop and decides** (David, 2026-08-20). Its only input is the
-  script-generated mechanical record (`scripts/review-loop-record.mjs`), never
-  the loop's own prose and never a case for continuing written by the agent
-  driving it. It returns continue / stop / split-to-David, and **its verdict
-  decides** — the agent does not weigh it or adopt part of it. A judge that
-  costs a few thousand tokens and prevents one unnecessary round pays for
-  itself several times over, so the cheap thing and the correct thing agree
-  here.
+- **From round 3 onward, the external adjudicator rules on any round that
+  returned findings — before anything is written for them** (David,
+  2026-08-22, superseding the 2026-08-20 beyond-the-first cadence). Rounds
+  1–2 findings are triaged and written for by default: the loop ledger's 41
+  reviewed loops contain zero clean round 1s and three round-2 convergences,
+  so a judge there only ever says "write", and round 3 heads the measured
+  runaway tail (26 of 41 loops ran 4+ rounds) — the one place a dispatch
+  changes outcomes. A clean or all-declined round at any point ends the loop
+  with no dispatch: nothing was written, so the head is already reviewed.
+  The judge's only input is the script-generated mechanical record
+  (`scripts/review-loop-record.mjs`), never the loop's own prose and never a
+  case for continuing written by the agent driving it. It returns continue /
+  stop / split-to-David, and **its verdict decides** — the agent does not
+  weigh it or adopt part of it.
 - **At exhaustion the adjudicator owns the extension, including its size**,
-  naming the specific unaddressed behavioral risk it covers. The common case is
-  that the last round's fixes are unreviewed — always true when a budget runs
-  out — and that flag is in the record.
+  naming the specific unaddressed behavioral risk it covers. ("The last
+  round's fixes are unreviewed" is no longer that risk: under the write-gate
+  rule the round reviewing any pushed fixes has already run before the judge
+  is asked.)
 - **The outer rail is 2x the declared budget.** There the loop goes to David
   regardless of verdict: a loop needing that many rounds has a problem no
   extension fixes. The rail exists because pure judgment, however
@@ -597,9 +627,15 @@ does not make that call for itself — self-policing is precisely what the
 What still stops the loop for David, whatever the adjudicator says: a genuine
 product or design fork, a scope addition, a split, or a disclosure question.
 
-A clean round, or one carrying only trivial nits (a typo, a dead import, lint),
-needs no adjudication — handle it silently and note one status line so the
-discipline stays visible.
+A round with **no findings** — or whose findings are all reasoned declines,
+so nothing gets written — needs no adjudication: the loop ends on the head
+that round reviewed. Note one status line so the discipline stays visible.
+
+**Trivial nits no longer skip the judge** (David, 2026-08-22, the write-gate
+rule). Before round 3 they are simply fixed like any finding, and from round
+3 onward writing for them is the decision the judge exists to make: under
+this rule a typo fix costs a full mandatory review round, so "it's only a
+nit" is precisely the trade the loop must not settle for itself.
 
 **Scope: every review loop** — plan review and code review, feature and bugfix,
 whichever agent is driving it. Plan-review loops take the tier of what they are

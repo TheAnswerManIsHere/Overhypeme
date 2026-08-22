@@ -209,28 +209,65 @@ never routed to a cheaper subagent. Mechanics: `plan-review-loop` skill.
 **Codex review of PRODUCT code is David's safety net. That is the one thing
 never in question.** Everything below governs what may be layered on top.
 
-### Internal tooling is carved out (David, 2026-08-20)
+### The write-gate rule (David, 2026-08-22) — every tier
+
+**If code was written, it gets reviewed. The loop stops when the adjudicator
+refuses to write more, never after a push.** Stated as the sequence: a round
+returns findings → the adjudicator rules *write* or *stop* → if write, the
+fixes are pushed and **another review round is automatic and mandatory** → if
+stop, the loop ends right there, on a head the last round already reviewed.
+
+Two invariants, and they are the point: **no commit ever merges unreviewed**,
+and **a loop always terminates on a reviewed head** — because the stop happens
+before any new commit exists. The exit ramp from eternal looping is the judge
+refusing to *write*; it is never anyone skipping the review of something
+written.
+
+This supersedes the 2026-08-21 design, whose internal tier deliberately ended
+with the last fixes unreviewed and carried machinery to make that mergeable (a
+mid-budget terminal receipt, a distinct-commit proof, a rail look-through).
+All of it is deleted rather than fixed: it existed to make an unreviewed head
+safe, and an unreviewed head is now simply never mergeable.
+
+**What this costs, chosen rather than discovered:** fixing even a typo costs a
+full round. So the adjudicator's real question is no longer "another round?"
+but **"is this finding worth writing code for at all?"** — and on internal
+tooling most are not. They ship as recorded gaps.
+
+### Internal tooling: the strict rubric
 
 Guards, `scripts/`, skills, this file, `docs/ai-context/` contracts, process
-docs and harvests get **the automatic Codex pass on PR-open, one triage pass,
-one-line declines, and nothing else** — no budget declaration, no receipts, no
-adjudication, no re-requested rounds, no harvest ceremony. This covers the
-apparatus's own code, so it can never again be its own biggest reviewer
-workload. The guard enforces it by refusing an `@codex review` post with no
-declared budget; on internal work that refusal is the correct outcome and I
-triage-and-merge rather than declaring a budget to get around it.
+docs and harvests run the loop above with the **`internal` tier**:
 
-Internal tooling ships with rougher edges as an accepted trade: its failure mode
-is wrongly-blocking, which announces itself, and `main`'s real protection is
-GitHub's server-side ruleset.
+- **A clean automatic pass is the whole ceremony.** Round 1 fires on PR-open;
+  finding nothing, it needs no budget, no receipt, no adjudication — the merge
+  receipt accepts an automatic pass covering the head.
+- **Rounds 1–2 findings are triaged and written for**, then re-requested —
+  the same cadence as every tier (below); declare `--tier internal` at the
+  first re-request.
+- **Round 3's findings go to the adjudicator, before anything is written.**
+  The record's tier selects the **internal rubric**: write only for a very
+  high chance of a CRITICAL flaw (a destructive or irreversible action,
+  corruption of the receipt/tracking machinery, a widening of my authority).
+  Everything softer ships with gaps recorded. On this tier round 3 is also
+  the cap, so a `continue` there is functionally a 🛑 to David.
+- **Hard cap 3 rounds, no self-serve extension** — at 3 the loop goes to
+  David, in person.
+
+One triage pass and one-line declines still govern engagement, harvests still
+get no harvest ceremony, and internal tooling still ships with rougher edges as
+an accepted trade — its failure mode is wrongly-blocking, which announces
+itself, and `main`'s real protection is GitHub's server-side ruleset.
 
 ### Product loops: budget, then an external judge
 
 1. **Declare the budget before round 1** — `product` (5 rounds) or `sensitive`
-   (uncapped, mandatory 🛑 at 5). The tier picks the number:
+   (uncapped, mandatory 🛑 at 5); internal tooling declares `internal` (hard
+   cap 3) at its first re-request rather than before round 1, per the section
+   above. The tier picks the number:
 
    ```
-   node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive> \
+   node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> \
         --criticality <1-100> --artifact "<what is under review>"
    ```
 
@@ -243,8 +280,18 @@ GitHub's server-side ruleset.
    tally is a cache of state GitHub already holds, and it failed exactly that
    way when it was tried.
 
-2. **After every completed round beyond the first, dispatch the external
-   adjudicator** (David, 2026-08-20) — agent type `review-loop-adjudicator`,
+2. **From round 3 onward, dispatch the external adjudicator on any round
+   that returned findings — before anything is written for them** (David,
+   2026-08-22, superseding the 2026-08-20 beyond-the-first cadence). Rounds
+   1–2 findings are triaged and written for by default, because the judge
+   would have nothing to decide there: the loop ledger's 41 reviewed loops
+   contain **zero clean round 1s** and three round-2 convergences, so a
+   dispatch before round 3 only ever says "write" — the dead criticality
+   gate reborn. Round 3 heads the measured runaway tail (26 of 41 loops ran
+   4+ rounds), which is exactly where the one dispatch pays. A clean or
+   all-declined round at any point ends the loop with no dispatch — nothing
+   was written, so the head is already reviewed. Dispatch mechanics: agent
+   type `review-loop-adjudicator`,
    **on Fable**, passing `model: "fable"` explicitly since a per-invocation
    model outranks frontmatter. Its only input is the script-generated record
    (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file>
@@ -253,17 +300,22 @@ GitHub's server-side ruleset.
    decides** — I don't weigh it or adopt the parts I like. The verdict is one
    line in the **separate defanged context comment**, never in the trigger
    comment (which stays bare, per interaction rule 11) and never a file:
-   per-round receipts would rebuild the receipt machinery this replaced. The
-   one exception is a verdict at budget exhaustion — an extension decision,
-   written to the committed receipt the guard consumes. The loop executes; the external judge
+   per-round receipts would rebuild the receipt machinery this replaced.
+   The one exception is a verdict at budget exhaustion — an extension
+   decision, written to the committed receipt the guard consumes. (The
+   internal-tier mid-budget receipt added on 2026-08-21 is gone with the
+   write-gate rule: a stop now precedes any new commit, so there is no
+   unreviewed head for a receipt to unwedge.) The loop executes; the external judge
    judges. All in-loop self-refereeing is gone — the criticality gate, count
    trend, growth tripwire and oscillation diagnosis were 0-for-15 at stopping
    loops and the budget replaced them.
 
 3. **At budget exhaustion the adjudicator owns the extension**, including its
-   size, naming the specific unaddressed behavioral risk it covers. The common
-   case is the head commit being unreviewed — the last round's fixes are always
-   unreviewed when the budget runs out — and that flag is in the record.
+   size, naming the specific unaddressed behavioral risk it covers — an
+   *actual* one, in this loop's territory. "The last round's fixes are
+   unreviewed" is no longer available as that risk and no such flag exists in
+   the record: under the write-gate rule the round reviewing any pushed fixes
+   has already run before the judge is dispatched.
    **Outer rail: 2× the declared budget.** There, the loop goes to David as a 🛑
    regardless of verdict, because a loop needing that many rounds has a problem
    no extension fixes. Sensitive tier has no self-serve stage at all.
@@ -285,6 +337,11 @@ GitHub's server-side ruleset.
 6. **I resolve each review thread myself once addressed** — a pushed fix with
    the commit, or a reasoned decline — right after posting that reply, never in
    a batch. No standalone summary comment in place of per-thread replies.
+   **Every reply carries `Class:` / `Oracle:` / `Result:`** — the command ran
+   before the reply was written, and its real output is transcribed. A reply
+   missing those lines is malformed and doesn't get posted; declines included,
+   because declining without an oracle asserts the class is empty without
+   looking. Shape and the two escape valves: `pr-watch`.
 
 ### Watching the PRs I open
 

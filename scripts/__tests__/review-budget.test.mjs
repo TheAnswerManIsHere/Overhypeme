@@ -170,11 +170,20 @@ test("only this repo's loops are budgeted", () => {
 // ---------------------------------------------------------------------------
 
 test("the tiers are the ones the contract declares", () => {
-  assert.equal(TIERS.internal, undefined, "the internal tier was deleted by the tooling carve-out (2026-08-20)");
   assert.equal(tierCap("product"), 5);
   assert.equal(tierCap("sensitive"), 5, "uncapped, but the mandatory stop is at 5");
   assert.equal(TIERS.sensitive.budget, null);
   assert.equal(TIERS.sensitive.selfServe, false, "auth/payments/migrations never self-serve their tripwire");
+  // The internal tier: hard cap 3, no self-serve extension. At 3 the loop
+  // goes to David in person.
+  assert.equal(tierCap("internal"), 3, "the hard cap David set: at 3, the loop goes to him in person");
+  assert.equal(TIERS.internal.selfServe, false, "no self-serve extension -- the cap IS the bring-David-in point");
+  // The write-gate rule (David, 2026-08-22) deleted `adjudicatedStop`: no tier
+  // commits a terminal receipt mid-budget, because no loop may end on an
+  // unreviewed head for such a receipt to unwedge.
+  for (const tier of Object.keys(TIERS)) {
+    assert.equal(TIERS[tier].adjudicatedStop, undefined, `${tier} must not carry the deleted adjudicatedStop property`);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -678,15 +687,17 @@ test("no budget declared refuses the very first round", () => {
   assert.match(reason, /review-budget\.mjs declare/, "the refusal has to say what to do next");
 });
 
-test("the no-budget refusal explains the tooling carve-out rather than only demanding a budget", () => {
-  // David, 2026-08-20. On internal tooling this refusal IS the intended
-  // outcome, so a message that only says "declare a budget" would teach the
-  // exact workaround the carve-out exists to prevent.
+test("the no-budget refusal routes internal tooling to the internal tier, not around review", () => {
+  // David, 2026-08-21, superseding the 2026-08-20 no-rounds carve-out: fixes
+  // to round-1 findings get reviewed, so the refusal must teach the internal
+  // declaration -- while still saying a CLEAN automatic pass needs no request
+  // at all, which is the half of the carve-out that survives.
   const { reason } = judgeReviewRequest(post(1), fakeIo(), NOW);
   assert.match(reason, /IF THIS IS INTERNAL TOOLING/);
-  assert.match(reason, /this refusal is the CORRECT outcome/);
-  assert.match(reason, /Do NOT declare a budget to get around this/);
-  assert.doesNotMatch(reason, /internal\|product\|sensitive/, "the internal tier no longer exists");
+  assert.match(reason, /round 1 \(the automatic pass\) found NOTHING, no request is needed/);
+  assert.match(reason, /--tier internal/);
+  assert.match(reason, /internal=hard cap 3/);
+  assert.doesNotMatch(reason, /Do NOT declare a budget/, "the old carve-out's instruction must be gone, not merely contradicted");
 });
 
 test("a declared budget with no round-check receipt still refuses", () => {
@@ -1426,3 +1437,54 @@ test("a record with no stable id is rejected, not silently deduplicated", () => 
     ),
   );
 });
+
+// ---------------------------------------------------------------------------
+// The internal tier loops, strictly (David, 2026-08-21)
+// ---------------------------------------------------------------------------
+
+
+test("the internal tier refuses EVERY adjudication receipt -- continue and terminal alike", () => {
+  // Under the write-gate rule a stop precedes any new commit, so the head is
+  // already reviewed and the ordinary merge path applies: there is nothing
+  // for a committed terminal receipt to unwedge, and the cap stays David's.
+  assert.match(validateExtension(1, "internal", adjudication(1), { io: null }), /no self-serve extension/);
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  assert.match(validateExtension(1, "internal", shipped, { io: null }), /no self-serve extension/);
+});
+
+
+
+test("an internal continue at the cap has nowhere to go but David -- the refusal says so", () => {
+  const io = fakeIo({ [budgetPath(1)]: budget(1, "internal"), [checkPath(1)]: check(1, 3) });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true);
+  assert.match(reason, /tier "internal"/);
+  assert.match(reason, /TRIPWIRE 2 \(hard stop\)/);
+  assert.match(reason, /mandatory 🛑 to David/);
+});
+
+test("an in-budget internal round is allowed like any other declared loop", () => {
+  const io = fakeIo({ [budgetPath(1)]: budget(1, "internal"), [checkPath(1)]: check(1, 2) });
+  assert.equal(judgeReviewRequest(post(1), io, NOW).blocked, false);
+});
+
+test("a standing terminal verdict refuses even a pending-round retry (Codex, #553 round 2)", () => {
+  // A retry posts a fresh trigger and spawns a fresh round -- exactly what
+  // only a david-kind receipt may authorize once a terminal verdict stands,
+  // so `pending` must not convert a refused round into a permitted retry.
+  // Pinned on the product tier: under the write-gate rule (David,
+  // 2026-08-22) that is the only tier whose loop commits terminal receipts
+  // at all, and its own MID-budget case cannot arise -- a terminal receipt
+  // requires the record to show the loop already at its cap.
+  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json(shipped),
+    [RECORD(1)]: recordFile(1, 5),
+    [checkPath(1)]: check(1, 6, { pending: 1, delivered: 5 }),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true);
+  assert.match(reason, /TERMINAL adjudication verdict is standing/);
+});
+

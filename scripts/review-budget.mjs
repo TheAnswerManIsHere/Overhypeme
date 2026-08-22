@@ -143,15 +143,31 @@ export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
  * where an uncapped tier still owes David a mandatory stop -- uncapped is not
  * unattended.
  *
- * THERE IS NO `internal` TIER (David, 2026-08-20, the tooling carve-out).
- * Internal artifacts -- guards, scripts, skills, contracts, process docs --
- * get the automatic Codex pass on PR-open, one triage, and no re-requested
- * rounds at all. That is enforced by this file's existing posture rather than
- * by a tier: internal work declares no budget, and no budget means no
- * `@codex review` post. The carve-out exists because every runaway loop this
- * repo has measured (#488's 22 rounds, #503, #531, #534, #539) was internal
- * tooling being reviewed at product rigor -- including the loops spent
- * reviewing THIS guard.
+ * THE WRITE-GATE RULE (David, 2026-08-22). The adjudicator decides BEFORE
+ * code is written, not after it is pushed: a round returns findings, the
+ * judge rules "write code for these" or "record them as gaps and stop", and
+ * **any commit that does get written is unconditionally reviewed by another
+ * round.** Two invariants follow, and they are the whole point: no commit
+ * ever merges unreviewed, and a loop always terminates on a reviewed head
+ * (because the stop happens before a new commit exists). The exit ramp from
+ * eternal looping is the judge refusing to WRITE -- never anyone skipping
+ * the review of something written.
+ *
+ * This replaced an earlier design (2026-08-21) whose internal tier ended by
+ * stopping with the last fixes unreviewed, carried by an `adjudicatedStop` <!-- retired-ok -->
+ * property, a mid-budget terminal receipt the merge gate consumed, and a
+ * distinct-commit proof. All of that existed to make an unreviewed head
+ * safe; under the write-gate rule an unreviewed head is simply never
+ * mergeable, so the machinery is gone rather than fixed.
+ *
+ * THE `internal` TIER still exists and is still strict: it is the rubric
+ * the adjudicator applies (write another round only for a very high chance
+ * of a CRITICAL flaw -- see review-loop-adjudicator.md), with a hard cap of
+ * 3 and no self-serve extension, so at 3 the loop goes to David in person.
+ * What it no longer is: an exemption from reviewing what was written. Every
+ * measured runaway loop (#488's 22 rounds, #503, #531, #534, #539) was
+ * internal tooling reviewed at product rigor, and the strictness that
+ * answers it lives in the write decision, not in skipping review.
  *
  * `selfServe` is the tier's answer to "may the first tripwire be cleared by an
  * adjudicator instead of by David?" Sensitive work says no: on auth, payments
@@ -171,6 +187,12 @@ export const TIERS = {
     escalateAt: 5,
     selfServe: false,
     label: "auth / payments / migrations (uncapped, mandatory 🛑 at 5)",
+  },
+  internal: {
+    budget: 3,
+    escalateAt: null,
+    selfServe: false,
+    label: "internal tooling (hard cap 3, strict write-gate adjudication, no self-serve extension)",
   },
 };
 
@@ -724,6 +746,24 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
   if (receipt.pr !== pr) return `extension receipt names PR ${receipt.pr}, not ${pr}`;
 
   if (receipt.kind === "adjudication") {
+    if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
+      return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
+    }
+    // A non-self-serve tier refuses EVERY adjudication receipt: its tripwire
+    // is David's, in person.
+    //
+    // REVERTED (David, 2026-08-22): #553 round 4 asked for mid-budget
+    // `split`/`escalate` receipts so `checkRail` could see them, and round 5
+    // showed why that shape does not work -- `validateRecordReference` holds
+    // every receipt to the exhaustion floor, so a blocking verdict recorded
+    // before exhaustion is rejected as malformed, `loadLoop` then fails on
+    // it, and NOT EVEN A DAVID GRANT can reopen that loop. Exempting
+    // blocking verdicts from the floor would rebuild the `minPasses` <!-- retired-ok -->
+    // machinery this PR deleted, so the carve-out is reverted instead and
+    // the visibility gap is recorded: a standing `split`/`escalate` on a
+    // tier that writes no receipt is not machine-visible to the readiness
+    // gate. It is covered by process rather than mechanism -- both verdicts
+    // go to David as a 🛑 by construction, and READY is not a merge.
     if (!TIERS[tier].selfServe) {
       return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
     }
@@ -738,9 +778,6 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
         `a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- a further ` +
         `adjudication receipt cannot follow it; only a "david"-kind receipt reopens the loop`
       );
-    }
-    if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
-      return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }
     // Every verdict cites the mechanical record it ruled on -- not just
     // `continue`. pr-ready.mjs's merge-gate fallback derives its diff
@@ -1112,10 +1149,16 @@ function refusal(pr, state, spent, tiedCount = false) {
       `request is in fact still unanswered, this refusal is blocking a RETRY rather than a new round. Say so ` +
       `in the adjudication or to David; do not work around it.`
     : "";
-  const head =
-    `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
-    `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
-    `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).${tie}`;
+  // A standing terminal verdict can refuse MID-budget (internal tier), where
+  // "exceeds its declared budget" would be false -- the head states the real
+  // ground in that case rather than a wrong one. (Codex, #553 round 1.)
+  const head = terminalVerdictStanding(extensions)
+    ? `review round ${spent + 1} on PR #${pr} is refused with ${spent} of ${cap} rounds spent ` +
+      `(tier "${tier}" -- ${TIERS[tier].label}; counted from GitHub's own record of completed ` +
+      `reviewer passes; criticality ${budget.criticality}): a terminal verdict is standing.${tie}`
+    : `review round ${spent + 1} on PR #${pr} exceeds its declared budget ` +
+      `(tier "${tier}" -- ${TIERS[tier].label}; ${spent} of ${cap} rounds already spent, counted from ` +
+      `GitHub's own record of completed reviewer passes; criticality ${budget.criticality}).${tie}`;
 
   if (terminalVerdictStanding(extensions)) {
     return (
@@ -1221,14 +1264,17 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
       reason:
         `no round budget declared for PR #${pr}, so an @codex review re-request is refused.\n` +
         `IF THIS IS INTERNAL TOOLING -- a guard, a script, a skill, CLAUDE.md, a process doc, a ` +
-        `harvest -- this refusal is the CORRECT outcome and needs no fix (David, 2026-08-20, the ` +
-        `tooling carve-out): internal artifacts get the automatic Codex pass on PR-open, one triage ` +
-        `pass, one-line declines, and no re-requested rounds. Triage what the automatic pass found ` +
-        `and merge. Do NOT declare a budget to get around this.\n` +
+        `harvest -- and round 1 (the automatic pass) found NOTHING, no request is needed: merge on ` +
+        `the automatic pass. If round 1 found things and the fixes are pushed, declare the ` +
+        `internal tier and re-request -- the fixes get reviewed (David, 2026-08-21, superseding ` +
+        `the 2026-08-20 no-rounds carve-out):\n` +
+        `  node scripts/review-budget.mjs declare --pr ${pr} --tier internal ` +
+        `--criticality <1-100> --artifact "<what is under review>"\n` +
         `IF THIS IS PRODUCT CODE, declare the budget BEFORE round 1:\n` +
         `  node scripts/review-budget.mjs declare --pr ${pr} --tier <product|sensitive> ` +
         `--criticality <1-100> --artifact "<what is under review>"\n` +
-        `Tiers: product=5 rounds, sensitive=uncapped with a mandatory 🛑 at 5. ` +
+        `Tiers: product=5 rounds; sensitive=uncapped, mandatory 🛑 at 5; internal=hard cap 3, ` +
+        `strict adjudication rubric, no self-serve extension. ` +
         `Commit the receipt and state the budget in the PR body too.`,
     };
   }
@@ -1275,6 +1321,21 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
   // so an extension must not activate early just because the round in flight
   // has not landed yet.
   const { delivered, pending, spent } = check.value;
+  // A STANDING TERMINAL VERDICT REFUSES THE NEXT REQUEST AT ANY ALLOWANCE
+  // AND REGARDLESS OF `pending` (Codex, #553 rounds 1-2). The contract says
+  // a dispatched verdict DECIDES, and with the internal tier a terminal
+  // receipt can now stand MID-budget -- where the allowance test below would
+  // happily allow another round on the loop's remaining nominal allowance.
+  // The stalled-round retry exception does not apply either: a retry posts
+  // a fresh trigger and spawns a fresh round, which is exactly what only a
+  // "david"-kind receipt may authorize once a terminal verdict stands -- so
+  // a request racing in around the adjudication must not convert into a
+  // permitted retry. Product loops are unaffected in behavior (their
+  // terminal receipts only exist at exhaustion); this makes the rule hold
+  // everywhere the receipt can exist, in every pending state.
+  if (terminalVerdictStanding(state.extensions)) {
+    return { blocked: true, reason: refusal(pr, state, spent, check.value.ambiguous === true) };
+  }
   if (pending === 0 && delivered >= allowance(state.tier, state.extensions, spent)) {
     // `ambiguous` rides along so the refusal can say WHY the count might be
     // one low: a same-second tie is counted as `pending: 0` (the
@@ -1345,7 +1406,7 @@ export function parseArgs(argv) {
 }
 
 const USAGE = `usage:
-  review-budget.mjs declare --pr <n> --tier <product|sensitive> --criticality <1-100> --artifact "<text>"
+  review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> --criticality <1-100> --artifact "<text>"
   review-budget.mjs check   --pr <n> --mcp-snapshot <file>
   review-budget.mjs status  --pr <n> [--mcp-snapshot <file>]
 

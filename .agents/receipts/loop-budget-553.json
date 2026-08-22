@@ -1,0 +1,8 @@
+{
+  "pr": 553,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 70,
+  "artifact": "The write-gate rule across CLAUDE.md, working-modes, pr-watch, plan-review-loop, the adjudicator contract, review-budget.mjs, pr-ready.mjs, review-loop-record.mjs, plus the contract-consistency CI guard",
+  "declaredAt": "2026-08-22T04:30:28.264Z"
+}

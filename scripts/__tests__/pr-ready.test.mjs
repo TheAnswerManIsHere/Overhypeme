@@ -1653,3 +1653,94 @@ test("rail: an adjudication receipt following a terminal verdict fails the rail 
   assert.equal(res.pass, false);
   assert.match(res.detail, /terminal adjudication verdict/);
 });
+
+// ---------------------------------------------------------------------------
+// The internal review tier (David, 2026-08-21): a clean automatic pass and an
+// adjudicated mid-budget stop are both legitimate complete states.
+// ---------------------------------------------------------------------------
+
+test("Codex: an automatic pass covering the head passes with zero requests", () => {
+  // The connector reviews on PR open with no trigger comment. Demanding a
+  // request here manufactured the #551 deadlock: the guard forbade the
+  // request the merge gate demanded.
+  const res = checkCodex(
+    [comment(CODEX_BOT, "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `" + HEAD + "`", "2026-08-17T04:10:00Z")],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /automatic pass/);
+});
+
+test("Codex: zero requests and a pass on an EARLIER commit stays the #487 failure", () => {
+  // Fixes were pushed past the automatic pass -- those need a requested
+  // round, exactly as before.
+  const res = checkCodex(
+    [comment(CODEX_BOT, "**Reviewed commit:** `" + "b".repeat(40) + "`", "2026-08-17T04:10:00Z")],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no automatic pass covers the head/);
+});
+
+test("Codex: zero requests with no head sha to bind to stays failed -- the automatic path never fails open", () => {
+  const res = checkCodex(
+    [comment(CODEX_BOT, "**Reviewed commit:** `" + HEAD + "`", "2026-08-17T04:10:00Z")],
+    [],
+    null,
+  );
+  assert.equal(res.pass, false);
+});
+
+
+
+
+test("rail: with NO David authorization beneath it, a trailing ship receipt still fails the rail", () => {
+  // The look-through is one receipt deep and only over a ship verdict -- a
+  // loop that reached the rail without David stays his to release.
+  const { dir, commit } = tempRepo();
+  const budgetFile = {
+    ".agents/receipts/loop-budget-999.json": JSON.stringify({
+      pr: 999, tier: "product", budget: 5, criticality: 30, artifact: "test", declaredAt: "2026-08-21T00:00:00Z",
+    }),
+  };
+  const rec = record(999, 1, { tier: "product", passes: 5, allowanceValue: 5, baseline: "a".repeat(40) });
+  const adj = {
+    ".agents/receipts/loop-extension-999-1.json": JSON.stringify({
+      pr: 999, kind: "adjudication", verdict: "continue", grant: 5, risk: "real behavioral risk",
+      recordPath: rec.path, decidedAt: "2026-08-21T00:05:00Z", reasoning: "r", gaps: [],
+    }),
+  };
+  const head = commit({ ...budgetFile, ...adj, ...rec.files, "a.txt": "x" }, "c1");
+  const res = checkRail(999, head, dir);
+  assert.equal(res.pass, false, "product at the rail with an adjudication as latest extension must not self-serve");
+});
+
+test("Codex: the zero-request automatic-pass path is deliberately tier-blind (declined finding, #553)", () => {
+  // A clean pass covering the head is a complete review for ANY tier; the
+  // budget bounds ROUNDS, and a zero-request loop has none to bound. Pinned
+  // so the decline is durable rather than re-litigated.
+  const res = checkCodex(
+    [comment(CODEX_BOT, "**Reviewed commit:** `" + HEAD + "`", "2026-08-17T04:10:00Z")],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, true);
+});
+
+
+
+test("adjudication: the internal tier gets NO merge-gate fallback (David, 2026-08-22)", () => {
+  // Under the write-gate rule an internal loop stops before writing, so its
+  // head is already reviewed and the ordinary path applies -- there is no
+  // unreviewed head for a receipt to unwedge, and accepting one here would
+  // reopen exactly the bypass the rule closes.
+  const { dir, commit } = tempRepo();
+  const { head } = closedLoop(commit, 999, {
+    recordOpts: { tier: "internal", passes: 3, allowanceValue: 3 },
+  });
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no self-serve extension/);
+});

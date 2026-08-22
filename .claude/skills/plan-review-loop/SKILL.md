@@ -205,10 +205,13 @@ the disclosure check passes:
    revision was reviewed.
 4. **Each round:** when Codex reviews, I fetch live PR state first (never act on
    the webhook text alone), confirm which revision it reviewed (compare against
-   the current head), weigh every comment on plan *substance* — **and then, on
-   a substantive round beyond the first, dispatch the external adjudicator
-   (David, 2026-08-20 — the same rule as code loops; the self-policed
-   trend/bucket adjudication that used to live here is retired)**: triage each
+   the current head), weigh every comment on plan *substance* — **and then, from
+   round 3 onward on any round with findings, dispatch the external
+   adjudicator BEFORE revising anything** (David, 2026-08-22 — the
+   write-gate rule, same as code loops: "update the plan" is this loop's
+   "write code", and the judge rules before the write, never after the
+   push; the self-policed trend/bucket adjudication that used to live here
+   stays retired): triage each
    finding (nature / affected area / verdict / causal flag) into the findings
    ledger, generate the mechanical record
    (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file>
@@ -236,19 +239,24 @@ the disclosure check passes:
    **new mechanism** — a table, a role, a config domain, an endpoint — is a
    scope addition and goes to him as a **now / next / never** question per
    `CLAUDE.md`, defaulting to *next*, whatever the verdict says. Skip-on-clean
-   applies: a clean or trivial-nits-only round needs no adjudication and
-   proceeds to the next lens with a one-line status — but **a stop verdict
-   ends the loop even if step 7's three lenses haven't all run**; the lens
-   minimum yields to the judge, never the reverse. After the adjudication (or
-   on a clean round), I revise the plan
-   file, push, reply inline on each comment's thread (never resolving threads),
-   and — **when the verdict was `continue`, or no adjudication was dispatched
-   for the round** (the first substantive round has no judge by design, and
-   skip-on-clean dispatches none) — request the next round with a fresh
-   explicit trigger comment (bare trigger only, context separate and
-   defanged). A **stop** or **split-to-David** verdict posts no further
-   trigger: stop ends the loop on the rounds already returned, split goes to
-   David as a 🛑 (Codex, #543 round 4; round-one carve-out Codex, #548).
+   applies: a clean round needs no adjudication — nothing gets revised, so
+   the plan stands at the revision that round reviewed — and proceeds to
+   the next lens with a one-line status. Rounds 1–2 findings are revised
+   for by default, no judge (measured across the ledger's 41 reviewed
+   loops: round 1 was never clean and only three loops converged at round
+   2). But **a stop verdict ends the loop even if step 7's three lenses
+   haven't all run**; the lens minimum yields to the judge, never the
+   reverse. **On "write"** — rounds 1–2 by default, round 3 onward only on
+   a `continue` verdict — I revise the plan file, push, reply inline on
+   each comment's thread (never resolving threads), and request the next
+   round with a fresh explicit trigger comment (bare trigger only, context
+   separate and defanged): **that round is mandatory — a pushed revision is
+   a reviewed revision, and no unreviewed revision ever reaches David's
+   approval.** A **stop** or **split-to-David** verdict revises NOTHING and
+   posts no further trigger: on stop, the plan goes to David exactly as the
+   last round reviewed it, with the remaining findings recorded in the
+   ledger as open items for his approval call; split goes to David as a 🛑
+   (Codex, #543 round 4; round-one carve-out Codex, #548).
    **Revisions are class-level, per
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)**:
    each reply names the finding's class and cites the sweep oracle
@@ -352,22 +360,17 @@ the disclosure check passes:
 8. **Escalate, don't absorb, real product decisions.** If Codex raises a genuine
    product/design fork, it goes to David as a numbered question — the loop never
    settles product intent on its own.
-9. **No round-count cap — the judgment rubric is the whole stopping rule
-   (David, 2026-08-15, superseding the ~20-round check-in of 2026-07-25).**
-   Genuinely substantive, narrowing findings can legitimately run past a
-   handful of rounds (PR #252 stayed productive past round 23), and a
-   round count was never the decision variable — the bucket mix, the
-   tripwires, and the criticality gate are. What replaces the old cap is
-   not "run forever": every round's adjudication already asks whether the
-   loop should continue, and two situations force the full adversarial
-   adjudication regardless of trend — the SAME category of finding
-   resurfacing without narrowing (oscillation or a failed sweep), and a
-   flat substantive disagreement between Codex and me (a decline that
-   doesn't survive, or a finding neither fixable nor refutable, escalates —
-   that was always David's). A long loop that keeps yielding new ground is
-   the loop working; a short loop that is mostly self-repair stops. Round
-   counts still get recorded and reported in the loop-close trail, so David
-   can see the cost even though it no longer drives the decision.
+9. **The stopping rule is the declared budget plus the external judge —
+   nothing self-policed (revised 2026-08-22; the 2026-08-15 judgment
+   rubric's bucket mix, tripwires and criticality gate were retired
+   2026-08-20 at 0-for-15).** The loop declares its tier's budget like any
+   code loop, the write-gate adjudicator rules from round 3 onward on
+   whether another revision gets written at all, and exhaustion runs the
+   same extension machinery as code loops. What was always David's stays
+   his: a flat substantive disagreement between Codex and me — a decline
+   that doesn't survive, or a finding neither fixable nor refutable —
+   escalates to him whatever the verdict. Round counts are still recorded
+   and reported in the loop-close trail, so he can see the cost.
 10. **Split foreseeably multi-subsystem plans into parallel review PRs
     up front, not retroactively (David, 2026-07-25).** If I can tell before
     opening the review PR that a plan spans genuinely independent
@@ -423,9 +426,8 @@ the disclosure check passes:
     *now vs. next* question for each forked-out piece goes to David per
     `CLAUDE.md`.
 11. **Close out — the two ways a loop ends, not just convergence.** Step 7's
-    convergence criteria are one route to close-out; the adjudicated stop
-    from the post-round adjudication (oscillation, or a stop/cap call
-    surviving the adversarial subagent) is the other, and both close the
+    convergence criteria are one route to close-out; the write-gate
+    adjudicator's stop verdict is the other, and both close the
     PR the same way below — a stop is not stuck between "not converged
     enough to close" and "not clean enough to request another round." On
     an adjudicated stop: don't request a further round (more prose rounds
