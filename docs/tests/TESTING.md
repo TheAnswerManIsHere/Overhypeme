@@ -337,8 +337,11 @@ environment-parity bug, not a flake.
 
 Product-visible behavior needs a click-through check against intent (David tests
 the product, not the diff). "Done" = the intended behavior can be exercised in the
-app. In **feature mode**, Claude Code additionally ships paired `TEST_RUN` + `UAT`
-docs per PR by default (see `CLAUDE.md` for when/naming and
+app. **A UAT doc has one mandatory shape** —
+[`uat-doc-format.md`](uat-doc-format.md) — because `/uat` drives the run by
+enumerating its steps, so a doc outside the format is a doc that cannot be
+driven. In **feature mode**, Claude Code additionally ships paired `TEST_RUN` +
+`UAT` docs per PR by default (see `CLAUDE.md` for when/naming and
 [`test-run-contract.md`](test-run-contract.md) for what the `TEST_RUN` must
 contain — it verifies only what Replit's live environment can verify, not what
 already passed pre-merge). **In bugfix mode the pairing is conditional, not a
