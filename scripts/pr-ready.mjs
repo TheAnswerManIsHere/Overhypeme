@@ -766,11 +766,12 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
     return { ok: false, detail: `${recordPath} names an unknown tier ${JSON.stringify(tier)}` };
   }
   // `sensitive` never gets this fallback: its tripwire is David's, in
-  // person. `internal` (adjudicatedStop) does, by design -- its adjudicator
-  // may stop the loop mid-budget with the last fixes unreviewed, and this
-  // fallback is exactly how that verdict satisfies the merge gate (David,
-  // 2026-08-21). `product` qualifies through selfServe as before.
-  if (!TIERS[tier].selfServe && TIERS[tier].adjudicatedStop !== true) {
+  // person. Neither does `internal` any more (David, 2026-08-22, the
+  // write-gate rule): its stop happens BEFORE a new commit exists, so the
+  // head is already reviewed and the ordinary merge path applies -- there is
+  // no unreviewed head for a receipt to unwedge, and the 2026-08-21 carve-out
+  // that let one through is gone rather than fixed.
+  if (!TIERS[tier].selfServe) {
     return {
       ok: false,
       detail: `${recordPath}: tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, never an adjudication`,
@@ -788,38 +789,14 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   // means "cannot confirm the tripwire fired" and fails closed the same way.
   // (Codex, #539 round 3.)
   const allowanceField = record.budget?.allowance;
-  // For an adjudicatedStop tier the floor is the adjudicator's dispatch
-  // point -- after a completed round beyond the first -- because a
-  // mid-budget stop is that tier's designed ending, not a premature
-  // adjudication. Everyone else keeps the tripwire test: the record must
-  // show the loop at its active allowance. Same floors review-budget.mjs's
-  // validateRecordReference applies when it first accepts the receipt.
-  const cap =
-    TIERS[tier].adjudicatedStop === true ? 2 : Number.isFinite(allowanceField) ? allowanceField : Infinity;
-  // Mirror of review-budget.mjs's distinct-commit rule (Codex, #553 round
-  // 2): two duplicate passes on the same commit reach the pass floor while
-  // the fix round never happened. Fails closed on records without the field.
-  if (TIERS[tier].adjudicatedStop === true) {
-    const distinct = record.rounds?.distinctReviewedCommits;
-    if (!Number.isInteger(distinct) || distinct < 2) {
-      return {
-        ok: false,
-        detail:
-          `${recordPath} shows ${JSON.stringify(distinct)} distinct reviewed commit(s) -- an internal ` +
-          `terminal verdict needs at least 2 (round 1's commit and the fix commit)`,
-      };
-    }
-  }
+  const cap = Number.isFinite(allowanceField) ? allowanceField : Infinity;
   if (!Number.isInteger(passes) || passes < cap) {
     return {
       ok: false,
       detail:
-        `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below ` +
-        (TIERS[tier].adjudicatedStop === true
-          ? `the adjudicator's dispatch floor of 2 (a completed round beyond the first) -- a terminal ` +
-            `verdict must follow a completed fix round, not precede one`
-          : `the loop's active allowance of ${cap === Infinity ? JSON.stringify(allowanceField) : cap} -- an adjudication ` +
-            "must follow its tripwire, not precede it"),
+        `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below the ` +
+        `loop's active allowance of ${cap === Infinity ? JSON.stringify(allowanceField) : cap} -- an adjudication ` +
+        "must follow its tripwire, not precede it",
     };
   }
   if (record.budget?.pendingRequest !== false) {
@@ -1336,28 +1313,13 @@ export function checkRail(prNumber, headSha, cwd) {
     return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the rail" };
   }
   if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
-  // AT THE RAIL, A TRAILING INTERNAL TERMINAL RECEIPT DOES NOT SHADOW THE
-  // DAVID AUTHORIZATION BENEATH IT (Codex, #553 round 1). An
-  // adjudicatedStop tier is REQUIRED to commit its terminal ship verdict as
-  // a receipt, so after David's rail-reaching grant that receipt becomes
-  // the latest extension by construction -- and demanding a second,
-  // redundant David receipt for a loop he already authorized and whose last
-  // word is "ship" is the exact wedge shape this tier exists to remove.
-  // Only a SHIP verdict is looked through: split/escalate are blocked
-  // unconditionally above, and a `continue` receipt is refused for these
-  // tiers at validation. Tiers without adjudicatedStop keep the strict
-  // latest-must-be-david rule unchanged.
-  let idx = extensions.length - 1;
-  if (
-    TIERS[tier].adjudicatedStop === true &&
-    extensions[idx]?.kind === "adjudication" &&
-    extensions[idx]?.verdict === "ship-with-gaps-recorded"
-  ) {
-    idx -= 1;
-  }
-  const last = extensions[idx];
+  // The look-through added on 2026-08-21 for a trailing internal terminal
+  // receipt is gone with the receipt itself (David, 2026-08-22): under the
+  // write-gate rule no tier commits a terminal receipt mid-budget, so
+  // nothing can shadow a David authorization at the rail.
+  const last = extensions[extensions.length - 1];
   if (last?.kind === "david") {
-    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest granting extension` };
+    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest extension` };
   }
   return {
     pass: false,

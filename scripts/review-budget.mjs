@@ -143,25 +143,31 @@ export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
  * where an uncapped tier still owes David a mandatory stop -- uncapped is not
  * unattended.
  *
- * THE `internal` TIER LOOPS, STRICTLY (David, 2026-08-21, superseding the
- * 2026-08-20 no-rounds carve-out). Internal artifacts -- guards, scripts,
- * skills, contracts, process docs -- used to get the automatic pass and no
- * re-requested rounds at all, which left every fix round structurally
- * unreviewed and unmergeable against the head-commit bar (measured on #551).
- * Now: fixes to round-1 findings are always re-reviewed; the adjudicator
- * rules after every round beyond the first under a MUCH stricter rubric
- * (another round only for a very high chance of CRITICAL flaws in the
- * newly-pushed changes -- see review-loop-adjudicator.md); and the cap is a
- * hard 3 with no self-serve extension, so at 3 the loop goes to David in
- * person. `adjudicatedStop: true` is the tier's distinctive property: a
- * TERMINAL adjudication verdict is written to a committed receipt
- * mid-budget (product writes receipts only at the tripwire), because for
- * this tier stopping with the last fixes unreviewed is the designed common
- * ending and the merge gate consumes that receipt. What survives of the
- * carve-out's reasoning (every measured runaway loop -- #488's 22 rounds,
- * #503, #531, #534, #539 -- was internal tooling reviewed at product
- * rigor): the strictness now lives in the adjudication rubric, not in
- * refusing review to the fixes.
+ * THE WRITE-GATE RULE (David, 2026-08-22). The adjudicator decides BEFORE
+ * code is written, not after it is pushed: a round returns findings, the
+ * judge rules "write code for these" or "record them as gaps and stop", and
+ * **any commit that does get written is unconditionally reviewed by another
+ * round.** Two invariants follow, and they are the whole point: no commit
+ * ever merges unreviewed, and a loop always terminates on a reviewed head
+ * (because the stop happens before a new commit exists). The exit ramp from
+ * eternal looping is the judge refusing to WRITE -- never anyone skipping
+ * the review of something written.
+ *
+ * This replaced an earlier design (2026-08-21) whose internal tier ended by
+ * stopping with the last fixes unreviewed, carried by an `adjudicatedStop`
+ * property, a mid-budget terminal receipt the merge gate consumed, and a
+ * distinct-commit proof. All of that existed to make an unreviewed head
+ * safe; under the write-gate rule an unreviewed head is simply never
+ * mergeable, so the machinery is gone rather than fixed.
+ *
+ * THE `internal` TIER still exists and is still strict: it is the rubric
+ * the adjudicator applies (write another round only for a very high chance
+ * of a CRITICAL flaw -- see review-loop-adjudicator.md), with a hard cap of
+ * 3 and no self-serve extension, so at 3 the loop goes to David in person.
+ * What it no longer is: an exemption from reviewing what was written. Every
+ * measured runaway loop (#488's 22 rounds, #503, #531, #534, #539) was
+ * internal tooling reviewed at product rigor, and the strictness that
+ * answers it lives in the write decision, not in skipping review.
  *
  * `selfServe` is the tier's answer to "may the first tripwire be cleared by an
  * adjudicator instead of by David?" Sensitive work says no: on auth, payments
@@ -186,8 +192,7 @@ export const TIERS = {
     budget: 3,
     escalateAt: null,
     selfServe: false,
-    adjudicatedStop: true,
-    label: "internal tooling (hard cap 3, strict adjudication, no self-serve extension)",
+    label: "internal tooling (hard cap 3, strict write-gate adjudication, no self-serve extension)",
   },
 };
 
@@ -688,7 +693,7 @@ export function validateBudget(pr, receipt) {
  * likelier failures than the fabrication this module's header declines to
  * defend against.
  */
-function validateRecordReference(pr, tier, recordPath, io, ref, preceding = [], { minPasses = null } = {}) {
+function validateRecordReference(pr, tier, recordPath, io, ref, preceding = []) {
   // pr-ready.mjs's merge-gate fallback requires every recordPath to live
   // under ADJUDICATIONS_DIR (never trusting an arbitrary path), so a
   // receipt this guard accepts as closing the loop must be one that gate
@@ -724,35 +729,13 @@ function validateRecordReference(pr, tier, recordPath, io, ref, preceding = [], 
   // having ruled on round 6. Every preceding extension is fully spent before
   // this one activates (see `allowance`'s staging), so the floor is the
   // allowance they establish. (Codex, #543.)
-  // For an internal terminal receipt, a bare pass COUNT cannot prove the
-  // fix round happened: two duplicate passes on the SAME commit (a repeated
-  // automatic or manually triggered pass -- #503 saw seven requests) reach
-  // the floor while the round-1 fixes were never reviewed at all. What
-  // distinguishes the legitimate flow is that the second pass covered a
-  // DIFFERENT commit -- the fix commit -- so the record must show at least
-  // two DISTINCT Reviewed-commit shas. Absent or malformed fails closed:
-  // an older record without the field cannot anchor this receipt.
-  // (Codex, #553 round 2.)
-  if (minPasses !== null) {
-    const distinct = parsed.value?.rounds?.distinctReviewedCommits;
-    if (!Number.isInteger(distinct) || distinct < 2) {
-      return (
-        `${recordPath} shows ${JSON.stringify(distinct)} distinct reviewed commit(s) -- an internal ` +
-        `terminal verdict needs at least 2 (round 1's commit and the fix commit), or the "fix round" ` +
-        `may be a duplicate pass on the same unfixed commit`
-      );
-    }
-  }
-  const stageFloor = minPasses ?? allowance(tier, preceding, Number.MAX_SAFE_INTEGER);
+  const stageFloor = allowance(tier, preceding, Number.MAX_SAFE_INTEGER);
   if (!Number.isInteger(passes) || passes < stageFloor) {
     return (
       `${recordPath} was generated with ${JSON.stringify(passes)} completed reviewer passes, below this ` +
       `receipt's own stage floor of ${stageFloor} for tier "${tier}" ` +
-      (minPasses !== null
-        ? `(the adjudicator's dispatch point: after a completed round beyond the first) ` +
-          `-- a terminal verdict must follow a completed fix round, not precede one`
-        : `(the allowance its ${preceding.length} preceding extension(s) establish) ` +
-          `-- an adjudication must follow the tripwire it answers, not an earlier one`)
+      `(the allowance its ${preceding.length} preceding extension(s) establish) ` +
+      `-- an adjudication must follow the tripwire it answers, not an earlier one`
     );
   }
   return null;
@@ -766,16 +749,14 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
       return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }
-    // A non-self-serve tier refuses adjudication receipts that would GRANT
-    // rounds -- that is what "no self-serve extension" means. A tier with
-    // `adjudicatedStop` (internal) additionally accepts TERMINAL verdicts as
-    // committed receipts, mid-budget included: a stop grants nothing, closes
-    // the loop, and is what the merge gate consumes for this tier's designed
-    // ending -- stopping with the last fixes unreviewed (David, 2026-08-21).
-    // `sensitive` has neither property: every adjudication receipt stays
-    // refused there, because its tripwire is David's in person.
-    const terminalStop = TIERS[tier].adjudicatedStop === true && receipt.verdict !== "continue";
-    if (!TIERS[tier].selfServe && !terminalStop) {
+    // A non-self-serve tier refuses every adjudication receipt: its tripwire
+    // is David's, in person. Under the write-gate rule (David, 2026-08-22)
+    // the internal tier needs no exception here -- a stop happens BEFORE a
+    // new commit exists, so the head is already reviewed and the ordinary
+    // merge path works without a receipt to unwedge it. The `adjudicatedStop`
+    // carve-out that used to sit here existed only to make an unreviewed
+    // head mergeable, which the rule now forbids outright.
+    if (!TIERS[tier].selfServe) {
       return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
     }
     // A TERMINAL verdict decides. Refusing the next post (the guard's own
@@ -822,14 +803,7 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!Array.isArray(receipt.gaps)) {
       return "adjudication receipt must carry the adjudicator's `gaps` array, verbatim (empty is valid for a verdict with no known gaps)";
     }
-    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref, preceding, {
-      // An internal-tier terminal verdict is legitimate after ANY completed
-      // round beyond the first (the adjudicator's dispatch point), not only
-      // at the tripwire -- the ordinary stage floor would demand the whole
-      // cap be spent before a stop could be recorded, which contradicts the
-      // tier's designed ending (David, 2026-08-21).
-      minPasses: terminalStop ? 2 : null,
-    });
+    const recordError = validateRecordReference(pr, tier, receipt.recordPath, io, ref, preceding);
     if (recordError) return recordError;
     if (receipt.verdict !== "continue") return null; // ship-with-gaps-recorded / split / escalate grant nothing further
     // The adjudicator owns the SIZE of an extension (David, 2026-08-20); the

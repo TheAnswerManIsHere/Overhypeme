@@ -209,37 +209,52 @@ never routed to a cheaper subagent. Mechanics: `plan-review-loop` skill.
 **Codex review of PRODUCT code is David's safety net. That is the one thing
 never in question.** Everything below governs what may be layered on top.
 
-### Internal tooling loops, strictly (David, 2026-08-21)
+### The write-gate rule (David, 2026-08-22) — every tier
+
+**If code was written, it gets reviewed. The loop stops when the adjudicator
+refuses to write more, never after a push.** Stated as the sequence: a round
+returns findings → the adjudicator rules *write* or *stop* → if write, the
+fixes are pushed and **another review round is automatic and mandatory** → if
+stop, the loop ends right there, on a head the last round already reviewed.
+
+Two invariants, and they are the point: **no commit ever merges unreviewed**,
+and **a loop always terminates on a reviewed head** — because the stop happens
+before any new commit exists. The exit ramp from eternal looping is the judge
+refusing to *write*; it is never anyone skipping the review of something
+written.
+
+This supersedes the 2026-08-21 design, whose internal tier deliberately ended
+with the last fixes unreviewed and carried machinery to make that mergeable (a
+mid-budget terminal receipt, a distinct-commit proof, a rail look-through).
+All of it is deleted rather than fixed: it existed to make an unreviewed head
+safe, and an unreviewed head is now simply never mergeable.
+
+**What this costs, chosen rather than discovered:** fixing even a typo costs a
+full round. So the adjudicator's real question is no longer "another round?"
+but **"is this finding worth writing code for at all?"** — and on internal
+tooling most are not. They ship as recorded gaps.
+
+### Internal tooling: the strict rubric
 
 Guards, `scripts/`, skills, this file, `docs/ai-context/` contracts, process
-docs and harvests run a **real review loop with a stricter judge** —
-superseding 2026-08-20's no-rounds carve-out, which made every fix round
-structurally unmergeable (measured on #551: the guard forbade the request
-the merge receipt demanded):
+docs and harvests run the loop above with the **`internal` tier**:
 
-- **A clean automatic pass is the whole ceremony.** Round 1 fires on
-  PR-open; when it finds nothing, there is no budget, no receipt, and no
-  adjudication — the merge receipt accepts the automatic pass covering the
-  head.
-- **Findings get fixed and the fixes get reviewed, always.** Declare
-  `--tier internal` and re-request; fixes no reviewer saw never merge.
-- **After every round beyond the first, the external adjudicator rules** —
-  same Fable dispatch and mechanical record as product, but the record's
-  tier selects the **internal rubric**: another round only for a very high
-  chance of a CRITICAL flaw in the newly-pushed changes (a destructive or
-  irreversible action, corruption of the receipt/tracking machinery, a
-  widening of my authority). Everything softer ships with gaps recorded,
-  and a terminal verdict is committed as a receipt the merge gate
-  consumes — mid-budget included, since stopping with the last mechanical
-  fixes unreviewed is this tier's designed ending.
+- **A clean automatic pass is the whole ceremony.** Round 1 fires on PR-open;
+  finding nothing, it needs no budget, no receipt, no adjudication — the merge
+  receipt accepts an automatic pass covering the head.
+- **Findings go to the adjudicator, which decides whether they're worth
+  writing for.** Declare `--tier internal` and dispatch; the record's tier
+  selects the **internal rubric**: write only for a very high chance of a
+  CRITICAL flaw (a destructive or irreversible action, corruption of the
+  receipt/tracking machinery, a widening of my authority). Everything softer
+  ships with gaps recorded.
 - **Hard cap 3 rounds, no self-serve extension** — at 3 the loop goes to
   David, in person.
 
-What survives of the carve-out: one triage pass and one-line declines still
-govern engagement, harvests still get no harvest ceremony, and internal
-tooling still ships with rougher edges as an accepted trade — its failure
-mode is wrongly-blocking, which announces itself, and `main`'s real
-protection is GitHub's server-side ruleset.
+One triage pass and one-line declines still govern engagement, harvests still
+get no harvest ceremony, and internal tooling still ships with rougher edges as
+an accepted trade — its failure mode is wrongly-blocking, which announces
+itself, and `main`'s real protection is GitHub's server-side ruleset.
 
 ### Product loops: budget, then an external judge
 
@@ -273,11 +288,11 @@ protection is GitHub's server-side ruleset.
    line in the **separate defanged context comment**, never in the trigger
    comment (which stays bare, per interaction rule 11) and never a file:
    per-round receipts would rebuild the receipt machinery this replaced.
-   Exactly two exceptions write a committed receipt, because a guard or
-   gate consumes them: a verdict at budget exhaustion (an extension
-   decision), and **a terminal verdict on an internal-tier loop, at any
-   point** — the merge gate reads that receipt, and skipping it recreates
-   the unmergeable-head state the tier exists to fix. The loop executes; the external judge
+   The one exception is a verdict at budget exhaustion — an extension
+   decision, written to the committed receipt the guard consumes. (The
+   internal-tier mid-budget receipt added on 2026-08-21 is gone with the
+   write-gate rule: a stop now precedes any new commit, so there is no
+   unreviewed head for a receipt to unwedge.) The loop executes; the external judge
    judges. All in-loop self-refereeing is gone — the criticality gate, count
    trend, growth tripwire and oscillation diagnosis were 0-for-15 at stopping
    loops and the budget replaced them.

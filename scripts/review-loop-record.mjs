@@ -353,11 +353,6 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
     budget,
     rounds: {
       completedReviewerPasses: passes.length,
-      // Distinct Reviewed-commit shas across completed passes. An internal
-      // terminal receipt requires >= 2: a bare pass count cannot tell a real
-      // fix round from a duplicate pass on the same unfixed commit.
-      // (Codex, #553 round 2.)
-      distinctReviewedCommits: new Set(passes.map((p) => p.commit).filter(Boolean)).size,
       byRound,
       trend: counts,
       totalFindings: total,

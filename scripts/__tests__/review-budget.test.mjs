@@ -108,11 +108,11 @@ const check = (pr, spent, extra = {}) =>
  * The mechanical record an adjudication cites. It must show the loop AT its
  * cap, which is what proves the adjudication followed a fired tripwire.
  */
-const recordFile = (pr, passes = 5, distinct = passes) =>
+const recordFile = (pr, passes = 5) =>
   json({
     generator: "scripts/review-loop-record.mjs",
     pr,
-    rounds: { completedReviewerPasses: passes, distinctReviewedCommits: distinct },
+    rounds: { completedReviewerPasses: passes },
   });
 const RECORD = (pr) => `.agents/adjudications/${pr}-1.json`;
 
@@ -174,14 +174,16 @@ test("the tiers are the ones the contract declares", () => {
   assert.equal(tierCap("sensitive"), 5, "uncapped, but the mandatory stop is at 5");
   assert.equal(TIERS.sensitive.budget, null);
   assert.equal(TIERS.sensitive.selfServe, false, "auth/payments/migrations never self-serve their tripwire");
-  // David, 2026-08-21, superseding the 2026-08-20 deletion: internal loops
-  // again, strictly -- hard cap 3, no self-serve extension, and the
-  // adjudicatedStop property that lets a terminal verdict close it mid-budget.
+  // The internal tier: hard cap 3, no self-serve extension. At 3 the loop
+  // goes to David in person.
   assert.equal(tierCap("internal"), 3, "the hard cap David set: at 3, the loop goes to him in person");
   assert.equal(TIERS.internal.selfServe, false, "no self-serve extension -- the cap IS the bring-David-in point");
-  assert.equal(TIERS.internal.adjudicatedStop, true, "terminal verdicts commit mid-budget for the merge gate");
-  assert.equal(TIERS.product.adjudicatedStop, undefined, "product receipts stay tripwire-only");
-  assert.equal(TIERS.sensitive.adjudicatedStop, undefined, "sensitive never takes an adjudicated stop");
+  // The write-gate rule (David, 2026-08-22) deleted `adjudicatedStop`: no tier
+  // commits a terminal receipt mid-budget, because no loop may end on an
+  // unreviewed head for such a receipt to unwedge.
+  for (const tier of Object.keys(TIERS)) {
+    assert.equal(TIERS[tier].adjudicatedStop, undefined, `${tier} must not carry the deleted adjudicatedStop property`);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1440,40 +1442,17 @@ test("a record with no stable id is rejected, not silently deduplicated", () => 
 // The internal tier loops, strictly (David, 2026-08-21)
 // ---------------------------------------------------------------------------
 
-test("an internal TERMINAL adjudication receipt is valid -- adjudicatedStop, mid-budget by design", () => {
+
+test("the internal tier refuses EVERY adjudication receipt -- continue and terminal alike", () => {
+  // Under the write-gate rule a stop precedes any new commit, so the head is
+  // already reviewed and the ordinary merge path applies: there is nothing
+  // for a committed terminal receipt to unwedge, and the cap stays David's.
+  assert.match(validateExtension(1, "internal", adjudication(1), { io: null }), /no self-serve extension/);
   const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
-  assert.equal(validateExtension(1, "internal", shipped, { io: null }), null);
+  assert.match(validateExtension(1, "internal", shipped, { io: null }), /no self-serve extension/);
 });
 
-test("an internal continue receipt stays refused -- the cap is the bring-David-in point", () => {
-  assert.match(
-    validateExtension(1, "internal", adjudication(1), { io: null }),
-    /no self-serve extension/,
-    "adjudicatedStop admits stops, never grants; a continue receipt would be a self-serve extension",
-  );
-});
 
-test("a sensitive terminal receipt stays refused -- adjudicatedStop is internal-only", () => {
-  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
-  assert.match(validateExtension(1, "sensitive", shipped, { io: null }), /no self-serve extension/);
-});
-
-test("an internal terminal receipt's record floor is the dispatch point (2 passes), not the cap", () => {
-  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
-  // After round 2 (the automatic pass + one requested fix round): valid --
-  // stopping with the last fixes unreviewed is this tier's designed ending.
-  assert.equal(
-    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 2) }) }),
-    null,
-  );
-  // After only the automatic round: the adjudicator was never legitimately
-  // dispatched (it rules after a completed round beyond the first), so a
-  // "stop" here would launder skipping the fix review entirely.
-  assert.match(
-    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 1, 2) }) }),
-    /stage floor of 2 .*dispatch point/,
-  );
-});
 
 test("an internal continue at the cap has nowhere to go but David -- the refusal says so", () => {
   const io = fakeIo({ [budgetPath(1)]: budget(1, "internal"), [checkPath(1)]: check(1, 3) });
@@ -1489,53 +1468,23 @@ test("an in-budget internal round is allowed like any other declared loop", () =
   assert.equal(judgeReviewRequest(post(1), io, NOW).blocked, false);
 });
 
-test("a standing terminal verdict refuses the next request MID-budget, not only at the cap (Codex, #553)", () => {
-  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
-  const io = fakeIo({
-    [budgetPath(1)]: budget(1, "internal"),
-    [extensionPath(1, 1)]: json(shipped),
-    [RECORD(1)]: recordFile(1, 2),
-    [checkPath(1)]: check(1, 2), // 2 of 3 spent -- the allowance test alone would allow round 3
-  });
-  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
-  assert.equal(blocked, true, "the verdict decides; nominal allowance must not override it");
-  assert.match(reason, /a terminal verdict is standing/);
-  assert.match(reason, /TERMINAL adjudication verdict is standing/);
-  assert.doesNotMatch(reason, /exceeds its declared budget/, "the head must state the real ground -- the budget is NOT exceeded here");
-});
-
-
 test("a standing terminal verdict refuses even a pending-round retry (Codex, #553 round 2)", () => {
   // A retry posts a fresh trigger and spawns a fresh round -- exactly what
-  // only a david-kind receipt may authorize once a terminal verdict stands.
+  // only a david-kind receipt may authorize once a terminal verdict stands,
+  // so `pending` must not convert a refused round into a permitted retry.
+  // Pinned on the product tier: under the write-gate rule (David,
+  // 2026-08-22) that is the only tier whose loop commits terminal receipts
+  // at all, and its own MID-budget case cannot arise -- a terminal receipt
+  // requires the record to show the loop already at its cap.
   const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
   const io = fakeIo({
-    [budgetPath(1)]: budget(1, "internal"),
+    [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(shipped),
-    [RECORD(1)]: recordFile(1, 2),
-    [checkPath(1)]: check(1, 3, { pending: 1, delivered: 2 }),
+    [RECORD(1)]: recordFile(1, 5),
+    [checkPath(1)]: check(1, 6, { pending: 1, delivered: 5 }),
   });
   const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
-  assert.equal(blocked, true, "pending must not convert a refused round into a permitted retry");
+  assert.equal(blocked, true);
   assert.match(reason, /TERMINAL adjudication verdict is standing/);
 });
 
-test("an internal terminal receipt needs 2 DISTINCT reviewed commits, not just 2 passes (Codex, #553 round 2)", () => {
-  const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
-  // Two duplicate passes on the same commit: floor reached, fix round never happened.
-  assert.match(
-    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 2, 1) }) }),
-    /distinct reviewed commit/,
-  );
-  // The legitimate flow: round 1's commit and the fix commit.
-  assert.equal(
-    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: recordFile(1, 2, 2) }) }),
-    null,
-  );
-  // An older record without the field fails closed.
-  const legacy = json({ generator: "scripts/review-loop-record.mjs", pr: 1, rounds: { completedReviewerPasses: 2 } });
-  assert.match(
-    validateExtension(1, "internal", shipped, { io: fakeIo({ [RECORD(1)]: legacy }) }),
-    /distinct reviewed commit/,
-  );
-});

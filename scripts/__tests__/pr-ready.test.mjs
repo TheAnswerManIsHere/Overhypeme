@@ -736,7 +736,6 @@ function record(pr, seq, {
   extensions = [],
   baseline,
   resolved = true,
-  distinctReviewedCommits = passes,
 } = {}) {
   const path = `.agents/adjudications/${pr}-${seq}.json`;
   const body = JSON.stringify({
@@ -745,7 +744,7 @@ function record(pr, seq, {
     generatedAt,
     evidenceCapturedAt,
     budget: { tier, pendingRequest, ambiguous, allowance: allowanceValue, extensions },
-    rounds: { completedReviewerPasses: passes, distinctReviewedCommits },
+    rounds: { completedReviewerPasses: passes },
     sinceLastReview: { resolved, head: baseline },
   });
   return { path, files: { [path]: body } };
@@ -1694,51 +1693,8 @@ test("Codex: zero requests with no head sha to bind to stays failed -- the autom
   assert.equal(res.pass, false);
 });
 
-test("adjudication: an internal-tier stop qualifies mid-budget -- passes 2 of cap 3", () => {
-  const { dir, commit } = tempRepo();
-  const { head } = closedLoop(commit, 999, {
-    recordOpts: { tier: "internal", passes: 2, allowanceValue: 3 },
-  });
-  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
-  assert.equal(res.pass, true, res.detail);
-});
 
-test("adjudication: an internal-tier stop after only the automatic round is refused", () => {
-  // passes: 1 means the adjudicator's dispatch point (a completed round
-  // beyond the first) was never reached -- honoring this would launder
-  // skipping the fix review entirely.
-  const { dir, commit } = tempRepo();
-  const { head } = closedLoop(commit, 999, {
-    recordOpts: { tier: "internal", passes: 1, allowanceValue: 3, distinctReviewedCommits: 2 },
-  });
-  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
-  assert.equal(res.pass, false);
-  assert.match(res.detail, /dispatch floor of 2/);
-});
 
-test("rail: a trailing internal terminal receipt does not shadow David's rail authorization (Codex, #553)", () => {
-  // David grants the internal loop up to its rail (3 + 3 = 6 = 2x budget);
-  // the authorized round runs; the adjudicator ships; the mandatory terminal
-  // receipt lands LAST. Demanding a second David receipt here would be a
-  // redundant ask for a loop he already authorized whose last word is "ship".
-  const { dir, commit } = tempRepo();
-  const budgetFile = {
-    ".agents/receipts/loop-budget-999.json": JSON.stringify({
-      pr: 999, tier: "internal", budget: 3, criticality: 30, artifact: "test", declaredAt: "2026-08-21T00:00:00Z",
-    }),
-  };
-  const rec = record(999, 2, { tier: "internal", passes: 4, allowanceValue: 6, baseline: "a".repeat(40) });
-  const david = {
-    ".agents/receipts/loop-extension-999-1.json": JSON.stringify({
-      pr: 999, kind: "david", grant: 3, authorization: "keep going",
-    }),
-  };
-  const ship = extension(999, 2, { recordPath: rec.path });
-  const head = commit({ ...budgetFile, ...david, ...rec.files, ...ship.files, "a.txt": "x" }, "c1");
-  const res = checkRail(999, head, dir);
-  assert.equal(res.pass, true, res.detail);
-  assert.match(res.detail, /David's authorization is the loop's latest granting extension/);
-});
 
 test("rail: with NO David authorization beneath it, a trailing ship receipt still fails the rail", () => {
   // The look-through is one receipt deep and only over a ship verdict -- a
@@ -1774,12 +1730,17 @@ test("Codex: the zero-request automatic-pass path is deliberately tier-blind (de
 });
 
 
-test("adjudication: an internal stop with 2 duplicate passes on ONE commit is refused (Codex, #553 round 2)", () => {
+
+test("adjudication: the internal tier gets NO merge-gate fallback (David, 2026-08-22)", () => {
+  // Under the write-gate rule an internal loop stops before writing, so its
+  // head is already reviewed and the ordinary path applies -- there is no
+  // unreviewed head for a receipt to unwedge, and accepting one here would
+  // reopen exactly the bypass the rule closes.
   const { dir, commit } = tempRepo();
   const { head } = closedLoop(commit, 999, {
-    recordOpts: { tier: "internal", passes: 2, allowanceValue: 3, distinctReviewedCommits: 1 },
+    recordOpts: { tier: "internal", passes: 3, allowanceValue: 3 },
   });
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /distinct reviewed commit/);
+  assert.match(res.detail, /no self-serve extension/);
 });

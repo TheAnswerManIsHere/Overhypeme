@@ -432,44 +432,61 @@ the agent driving the loop — was deleted on 2026-08-20.** Its measured record
 was 0-for-15 at stopping a loop, on product and meta loops alike. What replaces
 it is two mechanical things and one external judge.
 
-#### Internal tooling loops under a stricter judge (David, 2026-08-21)
+#### The write-gate rule: code written is code reviewed (David, 2026-08-22)
+
+**Every tier.** The adjudicator rules *before* code is written, not after it
+is pushed:
+
+1. A round returns findings.
+2. The adjudicator rules **write** or **stop**.
+3. **Write** → the fixes are pushed, and another review round is *automatic
+   and mandatory*. Back to 1.
+4. **Stop** → the loop ends there, on a head the last round already reviewed.
+
+Two invariants follow, and they are the reason for the shape: **no commit
+ever merges unreviewed**, and **a loop always terminates on a reviewed
+head**, because a stop precedes the existence of any new commit. The exit
+ramp from eternal looping is the judge refusing to write — never anyone
+skipping the review of something written.
+
+This supersedes the 2026-08-21 internal tier's ending, which deliberately
+stopped with the last fixes unreviewed and carried machinery to make that
+mergeable (a mid-budget terminal receipt, a distinct-commit proof, a rail
+look-through). All of it is deleted rather than repaired: it existed to make
+an unreviewed head safe, and an unreviewed head is now never mergeable. The
+older "fix-round merge path" workarounds (David posting the trigger himself,
+recutting the PR) stay retired for the same reason.
+
+**The cost, chosen rather than discovered:** fixing even a typo costs a full
+round. So the adjudicator's question is not "another round?" but **"is this
+finding worth writing code for at all?"** — and on internal tooling most are
+not.
+
+#### Internal tooling: the strict rubric
 
 Guards, `scripts/`, skills, agent contracts (`CLAUDE.md`, `AGENTS.md`, these
-docs), process documentation and documentation harvests run a **real review
-loop with the `internal` tier** — superseding 2026-08-20's total carve-out,
-whose no-re-requested-rounds rule made every fix round structurally
-unmergeable (the guard forbade the request the merge receipt demanded;
-measured on #551, and the "fix-round merge path" workarounds that used to
-sit here — David posting the trigger himself, or recutting the PR — are
-retired with it):
+docs), process documentation and documentation harvests run the loop above
+with the `internal` tier:
 
 - **A clean automatic pass is the whole ceremony.** Round 1 fires on PR
   open; finding nothing, it needs no budget, no receipts, no adjudication —
   the merge receipt accepts an automatic pass covering the head.
-- **Findings get fixed and the fixes get reviewed, always.** The agent
-  declares `--tier internal` and re-requests; fixes no reviewer saw never
-  merge.
-- **After every round beyond the first the external adjudicator rules**,
-  same dispatch and mechanical record as product, but under the internal
-  rubric in `review-loop-adjudicator.md`: another round only for a **very
-  high chance of a critical flaw** in the newly-pushed changes — a
-  destructive or irreversible action, corruption of the receipt/tracking
-  machinery, a widening of agent authority. Ordinary correctness nits,
-  prose, structure, and mechanically-unreviewed fixes all ship with gaps
-  recorded. A terminal verdict is committed as a receipt the merge gate
-  consumes, mid-budget included — stopping with the last fixes unreviewed
-  is this tier's designed common ending.
+- **Findings go to the adjudicator**, which decides whether they are worth
+  writing for, under the internal rubric in `review-loop-adjudicator.md`:
+  write only for a **very high chance of a critical flaw** — a destructive
+  or irreversible action, corruption of the receipt/tracking machinery, a
+  widening of agent authority. Ordinary correctness nits, prose and
+  structure ship with gaps recorded.
 - **Hard cap 3 rounds, no self-serve extension:** at 3, the loop goes to
   David in person.
 
 What the 2026-08-20 decision got right survives in the rubric, not in
 refusing review: every runaway loop this repo measured was internal tooling
 reviewed at product rigor (PR #488 ran 22 rounds on a ~10-line guard
-change; then #503, #526, #531, #534, #539), so the strictness now lives in
-the adjudicator's continuation bar, sized to a class of artifact whose
-failure mode is wrongly-blocking and whose real protection is GitHub's
-server-side ruleset. One triage pass and one-line declines still govern
-engagement.
+change; then #503, #526, #531, #534, #539), so the strictness lives in the
+write decision, sized to a class of artifact whose failure mode is
+wrongly-blocking and whose real protection is GitHub's server-side ruleset.
+One triage pass and one-line declines still govern engagement.
 
 **Codex review of product code is unaffected and is not negotiable.** It is
 the safety net a non-code-reading product manager depends on.

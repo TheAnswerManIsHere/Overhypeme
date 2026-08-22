@@ -40,24 +40,28 @@ status alone does not. The old tier gate happened to enforce this ordering as
 a side effect of making me wait — with the gate gone, the ordering has to be
 stated outright or it silently breaks.
 
-### Internal tooling loops on the internal tier (David, 2026-08-21)
+### The write-gate rule, and the internal tier (David, 2026-08-22)
 
-**If this PR is internal — a guard, a script, a skill, an agent contract, a
-process doc, a documentation harvest — the loop runs, strictly** (superseding
-2026-08-20's no-second-round rule, which left every fix round unmergeable):
+**Any commit I push gets a review round. The loop stops when the adjudicator
+refuses to write more — never after a push.** So the order is: round returns
+findings → **dispatch the adjudicator BEFORE writing anything** → on *write*,
+push the fixes and re-request (that round is mandatory, not optional); on
+*stop*, the loop is over and the head is already reviewed. This supersedes
+2026-08-21's mid-budget terminal receipt, which existed to make an unreviewed
+head mergeable and is gone with it.
+
+**If this PR is internal** — a guard, a script, a skill, an agent contract, a
+process doc, a documentation harvest:
 
 - **Clean automatic pass on PR-open → merge on it.** No budget, no receipts,
   no adjudication; the merge receipt accepts an automatic pass covering the
   head.
-- **The pass found things → triage once, decline out-of-scope findings in
-  one line, fix the rest, push — then declare `--tier internal` and
-  re-request.** Fixes no reviewer saw never merge.
-- **After every round beyond the first, dispatch the adjudicator** exactly
-  as a product loop does — the record's tier makes it apply the internal
-  rubric (continue only for a very high chance of a CRITICAL flaw in the
-  newly-pushed changes). A terminal verdict is written to a committed,
-  pushed `loop-extension-<pr>-<seq>.json` receipt — mid-budget included;
-  the merge gate consumes it.
+- **The pass found things → triage once, decline out-of-scope findings in one
+  line, then declare `--tier internal` and dispatch the adjudicator on what
+  remains.** It rules under the internal rubric: write only for a very high
+  chance of a CRITICAL flaw. Everything softer ships as recorded gaps — a
+  finding I would have "just fixed" now costs a full round, and that is the
+  trade being made deliberately.
 - **Hard cap 3, no self-serve extension** — at 3, 🛑 David.
 
 ### Declare the round budget at loop start (product loops only)
@@ -231,14 +235,12 @@ the diff *is* the plan. While watching an implementation PR:
   oscillation diagnosis, criticality gate) is gone: 0-for-15 at stopping loops,
   and the budget plus this judge replaced it.
 
-  **Skip-on-clean:** a round with zero findings needs no adjudication — the
-  loop is ending on it. A round with only unambiguous mechanical nits still
-  fixes them silently with one status line, but **skip-on-clean never skips
-  a verdict that gates a further trigger**: on an internal loop pushed fixes
-  are always re-requested, so the adjudicator rules before that next trigger
-  like any other round — otherwise nit-only rounds would loop with no judge,
-  exactly what the after-every-round rule exists to prevent (Codex, #553
-  round 2).
+  **Skip-on-clean:** a round with **zero findings** needs no adjudication —
+  there is nothing to write, and the loop ends on it. That is the only skip.
+  A round with findings always gets the verdict first, however mechanical
+  they look: under the write-gate rule writing code is what commits me to
+  another round, so "it's only a nit" is precisely the judgment the external
+  judge exists to make instead of me.
 
   What still stops for a 🛑 whatever the adjudicator says: a genuine
   design/architecture/product decision, a scope addition, a split, a disclosure
