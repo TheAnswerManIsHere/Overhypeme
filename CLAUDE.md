@@ -242,12 +242,15 @@ docs and harvests run the loop above with the **`internal` tier**:
 - **A clean automatic pass is the whole ceremony.** Round 1 fires on PR-open;
   finding nothing, it needs no budget, no receipt, no adjudication — the merge
   receipt accepts an automatic pass covering the head.
-- **Findings go to the adjudicator, which decides whether they're worth
-  writing for.** Declare `--tier internal` and dispatch; the record's tier
-  selects the **internal rubric**: write only for a very high chance of a
-  CRITICAL flaw (a destructive or irreversible action, corruption of the
-  receipt/tracking machinery, a widening of my authority). Everything softer
-  ships with gaps recorded.
+- **Rounds 1–2 findings are triaged and written for**, then re-requested —
+  the same cadence as every tier (below); declare `--tier internal` at the
+  first re-request.
+- **Round 3's findings go to the adjudicator, before anything is written.**
+  The record's tier selects the **internal rubric**: write only for a very
+  high chance of a CRITICAL flaw (a destructive or irreversible action,
+  corruption of the receipt/tracking machinery, a widening of my authority).
+  Everything softer ships with gaps recorded. On this tier round 3 is also
+  the cap, so a `continue` there is functionally a 🛑 to David.
 - **Hard cap 3 rounds, no self-serve extension** — at 3 the loop goes to
   David, in person.
 
@@ -308,9 +311,11 @@ itself, and `main`'s real protection is GitHub's server-side ruleset.
    loops and the budget replaced them.
 
 3. **At budget exhaustion the adjudicator owns the extension**, including its
-   size, naming the specific unaddressed behavioral risk it covers. The common
-   case is the head commit being unreviewed — the last round's fixes are always
-   unreviewed when the budget runs out — and that flag is in the record.
+   size, naming the specific unaddressed behavioral risk it covers — an
+   *actual* one, in this loop's territory. "The last round's fixes are
+   unreviewed" is no longer available as that risk and no such flag exists in
+   the record: under the write-gate rule the round reviewing any pushed fixes
+   has already run before the judge is dispatched.
    **Outer rail: 2× the declared budget.** There, the loop goes to David as a 🛑
    regardless of verdict, because a loop needing that many rounds has a problem
    no extension fixes. Sensitive tier has no self-serve stage at all.

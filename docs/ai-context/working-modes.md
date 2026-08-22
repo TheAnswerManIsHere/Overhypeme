@@ -627,9 +627,15 @@ does not make that call for itself — self-policing is precisely what the
 What still stops the loop for David, whatever the adjudicator says: a genuine
 product or design fork, a scope addition, a split, or a disclosure question.
 
-A clean round, or one carrying only trivial nits (a typo, a dead import, lint),
-needs no adjudication — handle it silently and note one status line so the
-discipline stays visible.
+A round with **no findings** — or whose findings are all reasoned declines,
+so nothing gets written — needs no adjudication: the loop ends on the head
+that round reviewed. Note one status line so the discipline stays visible.
+
+**Trivial nits no longer skip the judge** (David, 2026-08-22, the write-gate
+rule). Before round 3 they are simply fixed like any finding, and from round
+3 onward writing for them is the decision the judge exists to make: under
+this rule a typo fix costs a full mandatory review round, so "it's only a
+nit" is precisely the trade the loop must not settle for itself.
 
 **Scope: every review loop** — plan review and code review, feature and bugfix,
 whichever agent is driving it. Plan-review loops take the tier of what they are

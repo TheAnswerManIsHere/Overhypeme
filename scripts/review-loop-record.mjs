@@ -123,6 +123,46 @@ function git(args, { cwd = REPO_ROOT } = {}) {
  * strongest argument for stopping, so reporting it because a sha lookup failed
  * would be the most consequential possible false statement in this record.
  */
+export const PATCH_CAP_CHARS = 60_000;
+
+/**
+ * A capped, git-derived unified diff for `range`, or a stated reason it is
+ * absent. Never silent: truncation and failure both say so, because the
+ * adjudicator is told to weigh missing evidence as uncertainty rather than
+ * fill it by inference. (Codex, #553 rounds 2 and 4.)
+ */
+export function cappedDiff(runGit, range) {
+  try {
+    const raw = runGit(["diff", "--no-color", range]);
+    if (raw.length <= PATCH_CAP_CHARS) return raw;
+    return (
+      raw.slice(0, PATCH_CAP_CHARS) +
+      `\n[TRUNCATED at ${PATCH_CAP_CHARS} chars of ${raw.length} -- the full diff exceeds the record cap; ` +
+      `weigh the truncation itself as uncertainty]`
+    );
+  } catch {
+    return `[unavailable -- git diff ${range} failed; weigh the absence as uncertainty]`;
+  }
+}
+
+/**
+ * The diff of the artifact under review: `base...head`, the PR's own change.
+ *
+ * THIS, not `sinceLastReview.patch`, is the code the current round's findings
+ * are about -- and under the write-gate rule it is the ONLY one that can be
+ * (Codex, #553 round 4). The judge is now dispatched after a completed pass
+ * on the current head, so `lastReviewedCommit === head` and the
+ * since-last-review diff is empty by construction: exactly when the rubric
+ * asks "is there a critical flaw here", the old field showed nothing.
+ * Three-dot so a base-branch merge does not drag in changes reviewed on main.
+ */
+export function artifactDiff(base, head, { runGit = git } = {}) {
+  if (!base || !head) {
+    return "[unavailable -- the snapshot carries no base or head sha; weigh the absence as uncertainty]";
+  }
+  return cappedDiff(runGit, `${base}...${head}`);
+}
+
 export function changesSince(since, head, { runGit = git } = {}) {
   if (!since) {
     return { resolved: false, reason: "no reviewed commit found in the snapshot (no completed reviewer pass yet)" };
@@ -158,26 +198,7 @@ export function changesSince(since, head, { runGit = git } = {}) {
     });
 
   const behavioral = files.filter((f) => BEHAVIORAL_CLASSES.has(f.class));
-  // The mechanical patch itself, capped. The adjudicator's internal rubric
-  // asks "very high chance of a CRITICAL flaw in the newly-pushed changes",
-  // and filenames plus line counts cannot answer that -- while its no-context
-  // rule forbids reading anything but this record. A git-derived diff is not
-  // the loop's narration: it is source-derived evidence, exactly what the
-  // rule exists to protect. Capped so a giant merge cannot balloon the
-  // record; truncation is stated, never silent. (Codex, #553 round 2.)
-  const PATCH_CAP_CHARS = 60_000;
-  let patch;
-  try {
-    const raw = runGit(["diff", "--no-color", `${since}..${head}`]);
-    patch =
-      raw.length > PATCH_CAP_CHARS
-        ? raw.slice(0, PATCH_CAP_CHARS) +
-          `\n[TRUNCATED at ${PATCH_CAP_CHARS} chars of ${raw.length} -- the full diff exceeds the record cap; ` +
-          `weigh the truncation itself as uncertainty]`
-        : raw;
-  } catch {
-    patch = "[unavailable -- git diff failed; weigh the absence as uncertainty]";
-  }
+  const patch = cappedDiff(runGit, `${since}..${head}`);
   return {
     resolved: true,
     since,
@@ -274,7 +295,7 @@ export function lastReviewedCommit(passes) {
 // Assembly
 // ---------------------------------------------------------------------------
 
-export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }) {
+export function buildRecord({ pr, snapshot, derived, budgetState, changes, artifactPatch = null, now }) {
   const passes = reviewerPasses(derived.reviews, derived.issueComments);
   const byRound = findingsByRound(derived.reviews, derived.comments, derived.issueComments);
   const counts = byRound.map((r) => r.findings);
@@ -349,7 +370,17 @@ export function buildRecord({ pr, snapshot, derived, budgetState, changes, now }
     title: snapshot.pr?.title ?? null,
     // Counted, never recalled. Every number below comes from GitHub's records
     // via review-counting.mjs's own counting functions.
-    artifact: artifactSize(derived.files),
+    artifact: {
+      ...artifactSize(derived.files),
+      // The reviewed code itself. `sinceLastReview.patch` is movement AFTER
+      // the last pass -- empty whenever the judge is dispatched per the
+      // write-gate rule -- so the findings' own subject lives here.
+      patch: artifactPatch,
+      patchNote:
+        "base...head: the artifact this round's findings are about. This is the diff to read when the " +
+        "rubric asks whether a finding describes a critical flaw. `sinceLastReview.patch` is separate and " +
+        "is normally empty under the write-gate rule, since the judge rules on an already-reviewed head.",
+    },
     budget,
     rounds: {
       completedReviewerPasses: passes.length,
@@ -543,6 +574,7 @@ function main() {
     lastReviewedCommit(reviewerPasses(derived.reviews, derived.issueComments)),
     snapshot.pr?.head?.sha ?? null,
   );
+  const artifactPatch = artifactDiff(snapshot.pr?.base?.sha ?? null, snapshot.pr?.head?.sha ?? null);
 
   const record = buildRecord({
     pr,
@@ -550,6 +582,7 @@ function main() {
     derived,
     budgetState,
     changes,
+    artifactPatch,
     now: new Date().toISOString(),
   });
 

@@ -749,15 +749,21 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
       return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }
-    // A non-self-serve tier refuses every adjudication receipt: its tripwire
-    // is David's, in person. Under the write-gate rule (David, 2026-08-22)
-    // the internal tier needs no exception here -- a stop happens BEFORE a
-    // new commit exists, so the head is already reviewed and the ordinary
-    // merge path works without a receipt to unwedge it. The `adjudicatedStop`
-    // carve-out that used to sit here existed only to make an unreviewed
-    // head mergeable, which the rule now forbids outright.
-    if (!TIERS[tier].selfServe) {
-      return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
+    // A non-self-serve tier refuses adjudication receipts that could let the
+    // loop proceed -- its tripwire is David's, in person. Two verdicts are
+    // exempt, and the direction of travel is the whole test: `split` and
+    // `escalate` make a PR LESS mergeable, never more. `checkRail` blocks
+    // readiness outright on a standing one, and it reads only committed
+    // receipts -- so with no receipt written, an internal loop the judge
+    // handed to David could still mint READY on its reviewed head and pass
+    // the merge hook (Codex, #553 round 4). Persisting a block is the
+    // opposite of the deleted `adjudicatedStop` carve-out, which made an
+    // UNREVIEWED head mergeable; blocks are always safe to add.
+    // `ship-with-gaps-recorded` stays refused here and needs no receipt: it
+    // means mergeable, and the ordinary path already covers a reviewed head.
+    const blockingVerdict = receipt.verdict === "split" || receipt.verdict === "escalate";
+    if (!TIERS[tier].selfServe && !blockingVerdict) {
+      return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication (only "split"/"escalate", which block readiness rather than grant rounds, may be recorded)`;
     }
     // A TERMINAL verdict decides. Refusing the next post (the guard's own
     // rule) is bypassable from this side: a later `continue` receipt would
