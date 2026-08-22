@@ -50,9 +50,10 @@ An invocation may name a PR, an issue, or nothing.
    **None → say so** and don't invent a run.
 
 Then give him a **three-line preview before step 1**, never the whole doc:
-how many steps, what I'm setting up for him (section 2), and anything he
-needs on hand — an admin login, a phone, a fresh browser tab. The doc's
-narrative preamble is mine to have read, not his to sit through.
+how many steps *and how many smoke rows* (section 3 counts both as steps),
+what I'm setting up for him (section 2), and anything he needs on hand — an
+admin login, a phone, a fresh browser tab. The doc's narrative preamble is
+mine to have read, not his to sit through.
 
 ## 2. Setup is mine, and so is putting it back
 
@@ -98,6 +99,33 @@ and it is a **deliberately mutating** action — scope it explicitly, or Replit
 Agent will helpfully build a feature instead.
 
 ## 3. The walkthrough — one step, minimal context, cheap pass
+
+**What counts as a step, decided once and up front.** The run's steps are
+the doc's **numbered steps** *plus* **every row of its regression smoke
+table** — the `## What should NOT have changed` sweep that
+[`pr-docs`](../pr-docs/SKILL.md) requires every UAT doc to carry. Both are
+required coverage; only one of them is numbered.
+
+That distinction is the whole reason this paragraph exists. Section 6 rolls
+the verdict up from *steps*, so if the smoke rows aren't steps, a run can
+present every numbered step, pass them all, and report a clean `Accepted`
+while the sidebar, the mobile drawer, sign-out and the authorization check
+were never looked at. The failure is silent and it lands on exactly the
+regressions the sweep exists to catch — the one way this session could be
+*worse* than the markdown file it replaced (#554, found by review of the
+first version).
+
+So: enumerate both when the run starts, and say how many there are in the
+preview ("7 steps, then a 6-row sweep"). Present the smoke rows **last**,
+after the feature steps, one per turn like any other step — they are quick
+by design, and a "still fine" is a Pass. A row that turns out not to be
+checkable in this environment is a Skip like any other, which means David
+has to call it not-applicable himself; a row I quietly drop is the bug this
+rule fixes.
+
+**A doc with no smoke table adds nothing** — the older docs predate the
+requirement. Say so in the preview rather than inventing a sweep, and don't
+let its absence become a reason to skip one where it exists.
 
 **One step per turn.** What to do, what to expect, nothing else. Not the
 next step, not the section after, not the reasoning behind the expectation
@@ -268,12 +296,18 @@ have no reliable way to tell which is current.
 | 2 · Deep link | Fail | #903 — landed at chapter top, not the heading |
 | 3 · Search | Pass | |
 | 4 · Deliberate absences | — | not yet run |
+| S1 · Sidebar items + order | — | not yet run |
+| S2 · Moderation pending badge | — | not yet run |
+| S3 · Sidebar collapse | — | not yet run |
+| S4 · Admin on a phone | — | not yet run |
+| S5 · View Site / Sign Out | — | not yet run |
+| S6 · Non-admin hits /admin/help | — | not yet run |
 
 **Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
-**Resume at:** step 4
+**Resume at:** step 4 (then the 6-row sweep, S1–S6)
 ```
 
 **Write it on the moments that matter, not every turn:** once after setup
@@ -303,7 +337,7 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step executed and Passed. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. The doc-wrong case counts only re-run per section 3 |
+| **Accepted** | Every step executed and Passed — **steps as section 3 defines them, so the regression smoke rows count and a run that never swept them is not `Accepted`.** A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. The doc-wrong case counts only re-run per section 3 |
 | **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
 | **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
 
