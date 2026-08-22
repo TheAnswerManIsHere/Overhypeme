@@ -13,7 +13,8 @@ they won't generate a social-media preview card.
 
 ## Setup
 
-- [david] Sign in as a legendary account. Only legendary accounts can mark
+- [david] Sign in as a legendary account — the tier that holds
+  `meme_private_visibility` by default. Accounts with that entitlement mark
   a meme private, and step 1 needs that account's session.
 
 ## Steps
@@ -114,9 +115,11 @@ still loads fast (cached) — exactly as before.
 - **A private meme whose creator's account was deleted becomes
   admin-only.** With no owner left, only an admin can view it —
   intended (fail-safe).
-- **Only legendary accounts can make memes private** in the first place
-  (that's the existing product rule; unchanged here). Everyone else's
-  memes are public.
+- **Who can make a meme private is set in Admin → Features, not hardcoded.**
+  When this PR shipped it was a legendary-only product rule; it is now the
+  `meme_private_visibility` entitlement in the permission grid, so granting
+  it to another tier genuinely unlocks the control. Legendary still has it
+  by default, which is why the steps below use a legendary account.
 - **The CDN/edge cache fix for private images depends on the Cloudflare
   worker being redeployed.** The app itself already marks private images
   "do not cache"; the edge fully honors it after the worker's next

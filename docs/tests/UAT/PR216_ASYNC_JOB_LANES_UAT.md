@@ -7,8 +7,13 @@ makes fast jobs wait in line behind slow ones.
 Every kind of background job — cheap database updates and slow AI/image
 renders — used to share one worker that processed them in one queue. A
 5-millisecond "Send back to review" could get stuck behind a minute-long
-image render that happened to be ahead of it. Now there are three separate
-lanes that run independently, so a cheap job never waits on a slow one.
+image render that happened to be ahead of it. Now the lanes run
+independently, so a cheap job never waits on a slow one.
+
+**This PR introduced three lanes — `fast`, `render` and `bulk` — and the
+steps below test those three.** There are five now (`pexels` and
+`ai_meme_backfill` were added later, each with its own poll interval); the
+isolation this PR built is unchanged, so the steps still hold.
 
 This is the exact behavior you reported on **Taxonomy Health "Send back to
 review"** and on the **moderation "test render."**
