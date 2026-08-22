@@ -35,10 +35,11 @@ Two things this does **not** change:
   precondition removes a step before the approval prompt, not the meaning of
   approval: the harness prompt is not David's approval, and neither is Codex
   convergence.
-- **UAT docs still get Artifact pages** — see the `pr-docs` skill. That rule
-  was written in the same breath as the plan rule but is independent of it: a
-  UAT is a click-through David works from in the app, not a specification
-  under review.
+- **UAT docs are unaffected by the plan rule** — see the `pr-docs` skill. The
+  two were written in the same breath but are independent: a UAT is a
+  click-through David works from in the app, not a specification under
+  review. (UAT Artifact pages are separately retired, David 2026-08-21 — the
+  `/uat` session replaced that reading surface.)
 
 Where the plan file lives: `docs/plans/` on a **never-merged** plan-review
 branch — `plan-review/<slug>` for the ordinary single-PR loop, and additionally

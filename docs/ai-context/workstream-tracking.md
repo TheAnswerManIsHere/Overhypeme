@@ -278,17 +278,22 @@ of the workstream issue's body, with these fields:
 in the same edit** — the two must never drift apart, since a label with a
 stale narrative behind it is worse than an honest gap. That means the same
 skills that own label transitions
-(`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`) own keeping this block
-current at those same trigger points. There is no separate maintainer
-beyond those four **for label-driven updates**.
+(`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`, `/uat`) own keeping
+this block current at those same trigger points. There is no separate
+maintainer beyond those five **for label-driven updates**.
 
-**One writer updates this block without any label change: `/handoff`**
-(`.claude/skills/handoff/SKILL.md`, Claude-only). When a session's context is
+**Exactly two writers update this block without any label change:
+`/handoff` and `/uat`.** `/handoff`
+(`.claude/skills/handoff/SKILL.md`, Claude-only): when a session's context is
 moved to a fresh session, the narrative changes while `stage:` and `waiting:`
 deliberately do not — the holder is `claude` before and after, and a handoff
-is not a lifecycle transition. This is consistent with the rule above rather
-than an exception to it: the rule binds a label change to a block update, not
-the reverse. (The old fifth maintainer — the `test-run-completion.yml`
+is not a lifecycle transition. `/uat`
+([`.claude/skills/uat/SKILL.md`](../../.claude/skills/uat/SKILL.md)): a run
+in progress changes what a cold reader needs to know (which step is next,
+what setup is owed) while `stage:uat`/`waiting:david` stay exactly right,
+so it maintains the body's `## UAT run` section and the `To resume` field
+mid-run. Both are consistent with the rule above rather than exceptions to
+it: the rule binds a label change to a block update, not the reverse. (The old fifth maintainer — the `test-run-completion.yml`
 Action, which owned the deletion-of-a-TEST_RUN-doc transition — is retired
 with the TEST_RUN file pattern, 2026-08-15: `pr-watch`'s close-out sequence
 owns that transition now.)
@@ -340,6 +345,7 @@ work it's already doing — not as a separate reminder to go check the board:
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
 | `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
+| `/uat` | The exit from `stage:uat` — the one stage no agent could previously move, since only David could run it. `Accepted` and `Accepted with issues` both reach `stage:close-out` (his acceptance is what converts that run's bugs from blockers into independently-tracked work); a `Blocked` run holds at `stage:uat`. `waiting:claude` either way — the next real action is a fix or a close-out, not something David can click. Also owns the `Blocked by:` + failed-step record at the moment a run finds a bug, executing `bugfix`'s intake contract earlier, while the context is still in front of it — but **not** the `waiting:` flip, which waits until the run actually stops, since a run David chooses to continue is still David-held |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
 
 **Phase ownership rides the same trigger points**, with no new maintainer:
@@ -351,6 +357,7 @@ work it's already doing — not as a separate reminder to go check the board:
 | A phase's PR is under active review (each `waiting:` toggle) | `pr-watch` | Mirrors the same toggle onto the **parent's** `waiting:`, in the same edit — a phased parent's `waiting:` tracks whoever holds the *active* phase at every step, not just at close-out |
 | A phase's PR closes out | `pr-watch` | Ticks that phase's checkbox in the parent, and re-points the parent's `waiting:` at the next phase (`waiting:claude` if the next phase hasn't opened) |
 | The last phase closes out | `pr-watch` | Moves the **parent** straight to `stage:close-out` — per-phase UAT already covered verification, so there is no separate whole-feature UAT gate to enter |
+| **A phase that held at `stage:uat` is accepted** | **`/uat`** | The same two rows above, performed by `/uat` instead — tick the phase's checkbox, re-point the parent's `waiting:`, and move the parent to `stage:close-out` if this was the last phase. `pr-watch` cannot: it finished when the PR merged, and a UAT acceptance is not a PR event, so nothing wakes it again. Without this the parent keeps a finished phase marked active and `/next` recommends it |
 
 A phase sub-issue is a workstream issue like any other — it carries the
 same three label prefixes and its own State of Play block, because a phase

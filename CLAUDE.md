@@ -390,7 +390,10 @@ on. Mechanics: `pr-watch` skill. Two things that gate whether it fires at all:
    needed") and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` exists and is linked —
    PR-first, added to the same PR before merge, never a later PR. **David
    deletes UAT docs himself** as his done list; I never do. Bugfix mode does not
-   inherit this pairing.
+   inherit this pairing. **Running** a UAT is the `uat` skill (David,
+   2026-08-21): the doc is a script I drive step by step in chat — I own the
+   setup, the per-step record, and filing any bug the moment it's found — not
+   a file he reads alone, and no longer an Artifact page.
 
 ## Close-out is mine, end to end
 
@@ -438,8 +441,10 @@ Codex catch *broken*; David's UAT catches *wrong*, after the sync.
    (the two-call sequence below, read-only scoping stated), when it has content.
 5. **Post the harvest-notes comment** on the workstream issue (product PRs).
 6. **Merge report to David**: both SHAs, verification results, and the UAT
-   handoff naming what to go click. Push notification. **Nothing follows the
-   merge report** — it is the message that hands the turn back.
+   handoff naming what to go click — plus the reminder that `/uat` walks him
+   through it rather than leaving him to the doc. Push notification.
+   **Nothing follows the merge report** — it is the message that hands the
+   turn back.
 
 **Carve-outs that still wait for David's click:** any PR that **widens my own
 guardrails or authority** — `.claude/guard.sh`, `.claude/settings.json`

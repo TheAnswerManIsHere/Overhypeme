@@ -272,10 +272,11 @@ the PR back only delays the review that catches things.
    (observed on PR #391, 2026-08-09). Still glance that round 1 actually
    lands on the first draft-first fix; if it somehow doesn't, post one
    explicit `@codex review` naming the full diff and correct this line.
-   Match the most recent surviving `docs/tests/UAT/PR<N>_*_UAT.md`. Publish
-   it as an Artifact page too (per
-   CLAUDE.md's *Every PR ships with a Replit test plan + a UAT* section,
-   which owns that rule). The PR body's Post-merge verification section
+   Match the most recent surviving `docs/tests/UAT/PR<N>_*_UAT.md`. **No
+   Artifact page** (David, 2026-08-21 — retired; David works the doc through
+   [`/uat`](../uat/SKILL.md) with me rather than reading it alone), and write
+   its setup steps as mine to execute, per `pr-docs`. The PR body's
+   Post-merge verification section
    gets real content only if something genuinely needs Replit's
    environment — per
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
