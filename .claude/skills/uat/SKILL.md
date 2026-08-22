@@ -115,13 +115,19 @@ regressions the sweep exists to catch — the one way this session could be
 *worse* than the markdown file it replaced (#554, found by review of the
 first version).
 
-So: enumerate both when the run starts, and say how many there are in the
-preview ("7 steps, then a 6-row sweep"). Present the smoke rows **last**,
+So: enumerate both when the run starts, and say how many of each there are
+in the preview — counted from the doc in front of me, never from memory or
+from another doc's shape. Present the smoke rows **last**,
 after the feature steps, one per turn like any other step — they are quick
-by design, and a "still fine" is a Pass. A row that turns out not to be
-checkable in this environment is a Skip like any other, which means David
-has to call it not-applicable himself; a row I quietly drop is the bug this
-rule fixes.
+by design, and a "still fine" is a Pass. **A row he can't check is
+`Blocked`, not `Skipped`** — the status table below already draws that line
+("*couldn't* do it … precondition absent"), and it matters here because a
+Skip counts toward `Accepted` while a Blocked does not. A missing phone or
+a second account is exactly the case section 6 warns must not skip its way
+to a clean run, so it takes the status that can't. `Skipped` stays what it
+is everywhere else: David deliberately declaring the row not applicable.
+Either way the row is presented — a row I quietly drop is the bug this rule
+fixes.
 
 **A doc with no smoke table adds nothing** — the older docs predate the
 requirement. Say so in the preview rather than inventing a sweep, and don't
@@ -301,13 +307,14 @@ have no reliable way to tell which is current.
 | S3 · Sidebar collapse | — | not yet run |
 | S4 · Admin on a phone | — | not yet run |
 | S5 · View Site / Sign Out | — | not yet run |
-| S6 · Non-admin hits /admin/help | — | not yet run |
+| S6 · Any other admin screen | — | not yet run |
+| S7 · Non-admin hits /admin/help | — | not yet run |
 
 **Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
-**Resume at:** step 4 (then the 6-row sweep, S1–S6)
+**Resume at:** step 4 (then the 7-row sweep, S1–S7)
 ```
 
 **Write it on the moments that matter, not every turn:** once after setup
