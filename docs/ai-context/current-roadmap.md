@@ -33,8 +33,10 @@ priorities (moderation speed, render/enrichment quality, video). See
   re-requested rounds. What survives: **product loops** declare a 5-round
   budget (sensitive: uncapped with a mandatory 🛑 at 5, no self-serve stage)
   and the guard refuses the trigger post past it; a fresh-context Fable
-  adjudicator now rules after **every** round beyond the first and owns
-  extensions, bounded by a 2× outer rail that always goes to David. The ceremony is Claude Code's, since it posts the
+  adjudicator rules **from round 3 onward, before any code is written for a
+  round's findings** (David, 2026-08-22 — the write-gate rule: what it
+  decides is whether to WRITE, and any commit written gets a mandatory
+  review round), and owns extensions, bounded by a 2× outer rail that always goes to David. The ceremony is Claude Code's, since it posts the
   trigger and the guard is on its action path — it is not a rule for other
   agents' loops. Rounds are **counted fresh from a validated GitHub snapshot**,
   never stored: the first design's committed tally was a cache of state GitHub

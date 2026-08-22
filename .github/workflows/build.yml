@@ -156,6 +156,23 @@ jobs:
       - name: Check manual tuning-language guard logic
         run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
 
+      # This repo states most working rules twice by design (CLAUDE.md and
+      # docs/ai-context/ at different altitudes, the skills restating the
+      # mechanics), so replacing a rule means sweeping every copy. PR #553
+      # replaced the review-loop stopping rule three times in one day and left
+      # ten stale statements behind — five the review found, five more a manual
+      # sweep found afterwards, including the adjudicator agent's own
+      # frontmatter. Every one was a fixed string, so per
+      # docs/ai-context/decisions.md this is a check rather than another
+      # promise to sweep carefully.
+      # LEXICAL ONLY — green means no TRACKED retired phrase is stated as live,
+      # not that the contracts agree with each other.
+      - name: Check contract consistency (no retired rule stated as live)
+        run: node scripts/check-contract-consistency.mjs
+
+      - name: Check contract-consistency guard logic
+        run: node --test scripts/__tests__/check-contract-consistency.test.mjs
+
       # The counting library stays on the enforcement path (round budget +
       # adjudication records) after the ledger's deletion, so its derivation
       # keeps provable coverage. (Codex, #543 round 3.)

@@ -173,25 +173,25 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
 cost more than the defects they describe. This is the *depth* rule. The
-*continuation* rule is the internal-tooling carve-out in the next paragraph
-— docs-only PRs are internal artifacts, so there is no successor-round
-procedure any more (the 2026-08-15 consequence-based continuation rule and
-its adjudication tripwire are superseded by the 2026-08-20 carve-out): one
-automatic pass, one triage, ship. The one path to a further pass is the
-fix-round merge path in
+*continuation* rule is the internal tier (David, 2026-08-21, superseding
+the 2026-08-20 no-rounds carve-out): a clean automatic pass is the whole
+ceremony, but when the pass finds a real defect the pushed fixes are
+re-reviewed under the internal tier, with the external adjudicator's strict
+rubric deciding continuation and a hard cap of 3 rounds — see
 [`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)'s
-carve-out section, which exists for head coverage after real fixes, not for
-convergence.
+internal-tier section. The retired fix-round merge-path workarounds no
+longer apply.
 
-**Internal tooling gets the light bar too, and gets no re-requested rounds
-at all (David, 2026-08-20).** Guards, `scripts/`, skills, agent contracts,
-process docs and documentation harvests are reviewed once — the automatic
-pass when the PR opens — and then triaged and shipped. The reviewer should
-raise a genuine defect and skip prose, structure and completeness findings:
-the author will decline them in one line rather than spend a round, because
-the loops this repo has measured on that class were 22 rounds of correct
-findings against an artifact where none of them mattered. The full
-reasoning is in
+**Internal tooling gets the light bar too, and loops only for its fixes
+(David, 2026-08-21).** Guards, `scripts/`, skills, agent contracts,
+process docs and documentation harvests are reviewed by the automatic pass
+when the PR opens; a clean pass ships, and findings get one triage with
+one-line declines. What changed from 2026-08-20: fixes that get pushed are
+re-requested under the internal tier rather than merged unreviewed. The
+reviewer should still raise genuine defects and skip prose, structure and
+completeness findings: the loops this repo measured on that class were 22
+rounds of correct findings against an artifact where none of them
+mattered. The full reasoning is in
 [`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
 
 ## Runtime correctness

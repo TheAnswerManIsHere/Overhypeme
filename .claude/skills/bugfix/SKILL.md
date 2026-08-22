@@ -296,8 +296,10 @@ The review-loop contract is shared and enacted elsewhere — **the mechanics
 live in the `pr-watch` skill** (which loads for any watched PR, bugfix or
 feature) **and in
 [`working-modes.md`](../../../docs/ai-context/working-modes.md)**, as revised
-2026-08-20: the declared budget (a product-code fix is a product loop, 5
-rounds), the **external adjudicator after every round beyond the first —
+2026-08-22: the declared budget (a product-code fix is a product loop, 5
+rounds), the **write-gate rule — the external adjudicator rules from round 3
+onward on whether to WRITE for a round's findings, before anything is
+written, and any commit that does get written gets a mandatory review round;
 its verdict decides; the in-loop continue/stop, criticality gate, count
 trend, oscillation diagnosis and Fable-challenged declines are all
 retired** (Codex, #543 round 3), the fix / accept-and-document / escalate
@@ -329,8 +331,10 @@ What is *bugfix-specific* about the loop:
   a fix.** A fix to product code is a product loop (declared budget, external
   adjudicator). But routed entry means a bug can be *in the docs*: when the
   whole diff is agent-facing markdown or process tooling, the internal
-  carve-out governs — the automatic pass, one triage, no re-requested rounds
-  — exactly as if the same change had arrived through feature mode. Entering
+  tier governs (David, 2026-08-21) — the automatic pass, one triage,
+  fix rounds re-reviewed under the strict internal adjudication rubric,
+  hard cap 3 — exactly as if the same change had arrived through feature
+  mode. Entering
   through this mode never raises an artifact's ceremony, and never lowers
   product code's.
 - **The re-reviewer's oracle is the bugfix oracle** (step 3), not a plan —

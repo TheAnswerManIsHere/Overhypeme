@@ -440,10 +440,49 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   const requests = issueComments
     .filter((c) => authorOf(c) !== CODEX_BOT && REVIEW_REQUEST.test(bodyOf(c)))
     .sort((a, b) => timeOf(a) - timeOf(b));
+
+  // A completed pass: connector-authored, carrying the marker, with the sha it
+  // reviewed. Computed before the zero-requests branch because the AUTOMATIC
+  // pass -- the connector reviews on PR open and on marking a draft ready,
+  // with no trigger comment at all -- is a complete round with no request to
+  // anchor to. No `commit_id` fallback -- GitHub sets that field on every
+  // review object, including status and error ones, so it promoted non-passes
+  // into this set. (Codex, #490.)
+  const passes = [...reviews, ...issueComments]
+    .filter((c) => authorOf(c) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(c)))
+    .map((c) => ({ at: timeOf(c), sha: (bodyOf(c).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? null }))
+    .filter((p) => p.sha);
+
   if (requests.length === 0) {
+    // ZERO REQUESTS IS A LEGITIMATE COMPLETE STATE when the automatic pass
+    // covers the exact head (David, 2026-08-21, with the internal review
+    // tier): a clean round 1 on an internal PR never posts a trigger, and
+    // demanding one manufactured the #551 deadlock -- the guard forbade the
+    // request the merge gate demanded. Only the marker binding to THIS head
+    // is accepted; a pass on any earlier commit means fixes were pushed on
+    // top, and those need a requested round like always. Requires a headSha
+    // to bind to -- with none supplied this stays the #487 failure, closed.
+    //
+    // DELIBERATELY TIER-BLIND (declined finding, #553 round 1): a clean
+    // pass covering the head is a complete review for ANY tier -- the
+    // budget's job is bounding ROUNDS, and a zero-request loop has none to
+    // bound. A product PR merging on a clean automatic pass with no
+    // declared budget satisfies the actual close-out bar (CI + review on
+    // head + threads), and the exposure is not new: David's own trigger
+    // posts were never guard-gated, so a no-budget pass-on-head could
+    // already mint READY before this path existed. The declare-before-round-1
+    // contract still binds the agent's OWN requests via the guard.
+    const automatic = headSha ? passes.filter((p) => sameCommit(p.sha, headSha)) : [];
+    if (automatic.length > 0) {
+      return {
+        pass: true,
+        detail: `automatic pass on ${headSha.slice(0, 7)} (no request -- the connector reviews on PR open); nothing pushed past it`,
+        acceptedAt: Math.max(...automatic.map((p) => p.at)),
+      };
+    }
     return {
       pass: false,
-      detail: "no `@codex review` request found -- the review loop was never started (this is the PR #487 failure)",
+      detail: "no `@codex review` request found and no automatic pass covers the head -- the review loop was never started (this is the PR #487 failure)",
     };
   }
 
@@ -457,15 +496,6 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   // stop. Same posture this file takes on every other second-resolution tie.
   // (Codex, #490 round 3.)
   const outage = codeReviewOutage(issueComments, reviews, requestedAt + 1);
-
-  // A completed pass: connector-authored, carrying the marker, with the sha it
-  // reviewed. No `commit_id` fallback -- GitHub sets that field on every review
-  // object, including status and error ones, so it promoted non-passes into
-  // this set. (Codex, #490.)
-  const passes = [...reviews, ...issueComments]
-    .filter((c) => authorOf(c) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(c)))
-    .map((c) => ({ at: timeOf(c), sha: (bodyOf(c).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? null }))
-    .filter((p) => p.sha);
 
   // The single element that must exist. Strict `>` on the ordering: GitHub
   // timestamps have second resolution, so a tie is treated as unanswered.
@@ -735,6 +765,12 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   if (!TIERS[tier]) {
     return { ok: false, detail: `${recordPath} names an unknown tier ${JSON.stringify(tier)}` };
   }
+  // `sensitive` never gets this fallback: its tripwire is David's, in
+  // person. Neither does `internal` any more (David, 2026-08-22, the
+  // write-gate rule): its stop happens BEFORE a new commit exists, so the
+  // head is already reviewed and the ordinary merge path applies -- there is
+  // no unreviewed head for a receipt to unwedge, and the 2026-08-21 carve-out
+  // that let one through is gone rather than fixed.
   if (!TIERS[tier].selfServe) {
     return {
       ok: false,
@@ -1277,6 +1313,10 @@ export function checkRail(prNumber, headSha, cwd) {
     return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the rail" };
   }
   if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
+  // The look-through added on 2026-08-21 for a trailing internal terminal
+  // receipt is gone with the receipt itself (David, 2026-08-22): under the
+  // write-gate rule no tier commits a terminal receipt mid-budget, so
+  // nothing can shadow a David authorization at the rail.
   const last = extensions[extensions.length - 1];
   if (last?.kind === "david") {
     return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest extension` };

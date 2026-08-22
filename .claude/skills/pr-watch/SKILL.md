@@ -40,14 +40,34 @@ status alone does not. The old tier gate happened to enforce this ordering as
 a side effect of making me wait — with the gate gone, the ordering has to be
 stated outright or it silently breaks.
 
-### Internal tooling declares nothing and re-requests nothing (David, 2026-08-20)
+### The write-gate rule, and the internal tier (David, 2026-08-22)
 
-**If this PR is internal — a guard, a script, a skill, an agent contract, a
-process doc, a documentation harvest — there is no budget, no adjudication, and
-no second round.** Codex's automatic pass on PR-open is the review: triage it
-once, decline out-of-scope findings in one line, and merge. The guard refuses an
-`@codex review` post with no declared budget, and on this class **that refusal
-is the intended outcome** — do not declare a budget to get around it.
+**Any commit I push gets a review round. The loop stops when the adjudicator
+refuses to write more — never after a push.** So the order is: round returns
+findings → **dispatch the adjudicator BEFORE writing anything** → on *write*,
+push the fixes and re-request (that round is mandatory, not optional); on
+*stop*, the loop is over and the head is already reviewed. This supersedes
+2026-08-21's mid-budget terminal receipt, which existed to make an unreviewed
+head mergeable and is gone with it.
+
+**If this PR is internal** — a guard, a script, a skill, an agent contract, a
+process doc, a documentation harvest:
+
+- **Clean automatic pass on PR-open → merge on it.** No budget, no receipts,
+  no adjudication; the merge receipt accepts an automatic pass covering the
+  head.
+- **Rounds 1–2: the pass found things → triage once, decline out-of-scope
+  findings in one line, fix the rest, push — then declare `--tier internal`
+  and re-request.** No judge yet: the ledger says these rounds always carry
+  findings worth writing for, and the mandatory re-review of the push is
+  the write-gate working.
+- **Round 3's findings → the adjudicator, before anything is written.** On
+  this tier the entry point IS the cap decision: it rules under the internal
+  rubric (write only for a very high chance of a CRITICAL flaw — and a
+  fourth round means 🛑 David, since the cap is 3 with no self-serve
+  extension), or everything ships as recorded gaps on the round-3-reviewed
+  head.
+- **Hard cap 3, no self-serve extension** — at 3, 🛑 David.
 
 ### Declare the round budget at loop start (product loops only)
 
@@ -55,12 +75,14 @@ is the intended outcome** — do not declare a budget to get around it.
 its round budget:
 
 ```
-node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive> \
+node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> \
      --criticality <1-100> --artifact "<what is under review>"
 ```
 
 `product` = 5 rounds, `sensitive` = uncapped with a mandatory 🛑 at 5 (auth,
-payments, migrations). The tier picks the number; it is not a field to fill in.
+payments, migrations), `internal` = hard cap 3 (declared at the first
+re-request, not before round 1 — see the internal-tier section above). The
+tier picks the number; it is not a field to fill in.
 **Commit the receipt AND PUSH IT**, then **state the budget in the PR body**.
 
 The push is not housekeeping — it is what makes the budget exist. Budgets and
@@ -167,8 +189,10 @@ the diff *is* the plan. While watching an implementation PR:
   exit condition, **both caps** (3 consecutive no-ops; 6 wakes or 24 hours
   total), silent on no change **except a terminal wake** — is in `CLAUDE.md`'s
   *Scheduled self-check-ins*.
-- **After every completed round beyond the first, the external adjudicator
-  decides (David, 2026-08-20).** Triage the round's findings first — nature,
+- **From round 3 onward, the external adjudicator decides whether to WRITE
+  for a round's findings — before anything is written (David, 2026-08-22).**
+  Rounds 1–2 are written for by default; a round with no findings (or all
+  declines) needs no verdict at all. Triage the round's findings first — nature,
   affected area, verdict (fix / accept-and-document / escalate / decline), and
   the causal flag (new ground vs. repairing an earlier round's fix vs.
   impossible-as-specified). Then generate the mechanical record and dispatch:
@@ -194,11 +218,24 @@ the diff *is* the plan. While watching an implementation PR:
   trigger is what spawns unintended tasks. A per-round **stop** ends the
   loop right there: the verdict goes in a defanged comment and **no further
   trigger is posted** — the loop proceeds to close-out on the rounds already
-  returned. A **split-to-David** likewise posts no trigger; it goes to David
+  returned. (Under the write-gate rule a stop
+  precedes any new commit, so the head is already reviewed and no receipt is
+  written for it — the 2026-08-21 internal stop-receipt is gone; the only
+  committed verdict receipt is the product tier's at exhaustion.)
+  **Known gap, recorded rather than fixed (#553 rounds 4–5):** a standing
+  `split`/`escalate` on a tier that writes no receipt is invisible to
+  `checkRail`, so the readiness gate can mint READY on a PR whose own last
+  verdict handed it to David. Making those receipts mid-budget was tried and
+  reverted — every receipt is held to the exhaustion floor, so a blocking one
+  written earlier is rejected as malformed and **not even a David grant can
+  reopen that loop**. Covered by process instead: both verdicts go to David
+  as a 🛑 by construction, and READY is not a merge. A **split-to-David** likewise posts no trigger; it goes to David
   as a 🛑. **A round with no adjudication keeps the normal next-round
-  trigger** — the first substantive round has no judge by design, and
-  skip-on-clean dispatches none — so after that round's fixes are pushed,
-  the next bare trigger goes out as usual: the rule gates on verdicts that
+  trigger** — rounds 1 and 2 have no judge by design (measured: zero clean
+  round 1s and three round-2 convergences in the ledger's 41 reviewed
+  loops), and a zero-findings round dispatches none — so after those
+  rounds' fixes are pushed, the next bare trigger goes out as usual (it is
+  mandatory: pushed code is reviewed code): the rule gates on verdicts that
   exist, and the absence of a dispatch is not a stop (Codex, #548). But a verdict at **budget exhaustion** is an
   extension decision — **and it exists only on the product tier**: a
   `sensitive` loop at its 🛑-at-5 goes STRAIGHT to David with no adjudicator
@@ -214,8 +251,13 @@ the diff *is* the plan. While watching an implementation PR:
   oscillation diagnosis, criticality gate) is gone: 0-for-15 at stopping loops,
   and the budget plus this judge replaced it.
 
-  **Skip-on-clean:** a round with zero findings, or only unambiguous mechanical
-  nits, needs no adjudication — fix silently, one status line.
+  **Skip-on-clean:** a round with **zero findings** (or whose findings are
+  all reasoned declines — nothing gets written) needs no adjudication: the
+  loop ends on the head that round reviewed. From round 3 onward, a round
+  with findings gets the verdict before anything is written, however
+  mechanical the findings look — under the write-gate rule writing code is
+  what commits me to another round, so "it's only a nit" is precisely the
+  judgment the external judge exists to make instead of me.
 
   What still stops for a 🛑 whatever the adjudicator says: a genuine
   design/architecture/product decision, a scope addition, a split, a disclosure
@@ -242,6 +284,42 @@ the diff *is* the plan. While watching an implementation PR:
   round's declined findings in the mechanical record. The sweep itself (name
   the class, write the oracle, sweep to zero) and the recurrence
   round-record flag apply throughout.
+- **A reply with no oracle in it is malformed (David, 2026-08-22).** The sweep
+  protocol above has been written down since 2026-08-08 and I kept not doing
+  it: on PR #553 I posted 20+ thread replies across five rounds citing **zero**
+  oracles. The replies read as thorough — they named the class, described what
+  I had checked, argued the fix was complete — and not one of them ran a
+  command. That is the failure mode this rule exists to make impossible:
+  **prose that sounds thorough is not an oracle that ran.**
+
+  So the reply is not a paragraph that *should mention* a sweep. It has a
+  shape, and a reply missing any line of it does not get posted:
+
+  ```
+  Class: <what the whole class of this finding is>
+  Oracle: `<the exact command>`
+  Result: <its output — a count, or "0 matches">
+  ```
+
+  Three things follow from that, and they are the point:
+
+  1. **The command runs before the reply is written**, not after. The Result
+     line is transcribed from real output; there is no version of this rule
+     where I predict what the grep would say.
+  2. **If I cannot write the command, I have not understood the finding.** An
+     unwritable oracle is a signal to go back to the code, not a licence to
+     reply in prose. If the class genuinely has no mechanical oracle (a design
+     judgement, a naming preference), the reply says *that* on the Oracle
+     line — `Oracle: none — <why this class is not mechanically enumerable>` —
+     which is a claim I can be held to, unlike silence.
+  3. **`instance = class` is still an oracle line**, not an exemption: the
+     Oracle line carries the command that proves the class has exactly one
+     member, and Result carries its `1`.
+
+  This applies to **every** thread reply — fixes, declines, and "no change
+  needed" alike. A decline especially: declining without an oracle is
+  asserting the class is empty without looking.
+
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class
@@ -264,13 +342,15 @@ the diff *is* the plan. While watching an implementation PR:
   what I did. I do **NOT** post a single new top-level PR comment summarizing
   several fixes — David tracks "is every issue addressed?" by seeing a reply on
   each thread, and a catch-all comment defeats that.
-- **Internal artifacts get no re-request at all** (the carve-out at the top of
-  this skill). There is no criticality gate any more — the artifact's class
-  decides, not a rated number: internal means one automatic pass and done,
-  product means a declared budget and the adjudicator. A product PR's review
-  request names its pre-registered flip conditions (what finding, count, or
-  change of shape would end the loop) and confirms there has been a behavioral
-  change since the last reviewed commit.
+- **Internal artifacts re-request only for pushed fixes, and continue only
+  on the strict rubric** (the internal-tier section at the top of this
+  skill). There is no criticality gate any more — the artifact's class
+  decides, not a rated number: internal means the automatic pass, re-review
+  of fixes, and the strict adjudicator; product means a declared budget and
+  the standard adjudicator. Every review request, either tier, names its
+  pre-registered flip conditions (what finding, count, or change of shape
+  would end the loop) and confirms there has been a behavioral change since
+  the last reviewed commit.
 - **A "usage limits for security reviews" bounce is NOT a code-review
   outage — ignore it and request the code review (David, 2026-08-15,
   correcting the 2026-08-08 rule that used to live here).** Codex meters

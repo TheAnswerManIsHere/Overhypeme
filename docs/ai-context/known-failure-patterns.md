@@ -2515,9 +2515,11 @@ retry's pass lands — because nothing was written down to be wrong.
    round count, which was evidence. The line between the two is the whole rule:
    evidence is session-local and re-derivable; a decision is not.
 3. **Treat "most of this round's findings are about the last round's fixes" as
-   a design signal, not a diligence signal.** This repo's oscillation rule
-   already says reassess rather than patch again; this pattern is the most
-   common thing that rule is pointing at.
+   a design signal, not a diligence signal.** The self-policed oscillation
+   rule this used to cite was retired in 2026-08-20 at 0-for-15; what carries
+   the signal now is the external adjudicator, which sees the same shape in
+   the mechanical record and answers the sharper question — whether writing
+   more code for these findings is worth another round at all.
 
 **Related:** *A derived metric that silently undercounts because its collector
 only reads one delivery channel* above is the opposite failure — there the
