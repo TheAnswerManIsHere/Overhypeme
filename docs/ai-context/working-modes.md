@@ -454,7 +454,7 @@ stopped with the last fixes unreviewed and carried machinery to make that
 mergeable (a mid-budget terminal receipt, a distinct-commit proof, a rail
 look-through). All of it is deleted rather than repaired: it existed to make
 an unreviewed head safe, and an unreviewed head is now never mergeable. The
-older "fix-round merge path" workarounds (David posting the trigger himself,
+older "fix-round merge path" workarounds (David posting the trigger himself, <!-- retired-ok -->
 recutting the PR) stay retired for the same reason.
 
 **The cost, chosen rather than discovered:** fixing even a typo costs a full

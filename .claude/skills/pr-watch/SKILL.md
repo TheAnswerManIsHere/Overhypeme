@@ -284,6 +284,42 @@ the diff *is* the plan. While watching an implementation PR:
   round's declined findings in the mechanical record. The sweep itself (name
   the class, write the oracle, sweep to zero) and the recurrence
   round-record flag apply throughout.
+- **A reply with no oracle in it is malformed (David, 2026-08-22).** The sweep
+  protocol above has been written down since 2026-08-08 and I kept not doing
+  it: on PR #553 I posted 20+ thread replies across five rounds citing **zero**
+  oracles. The replies read as thorough — they named the class, described what
+  I had checked, argued the fix was complete — and not one of them ran a
+  command. That is the failure mode this rule exists to make impossible:
+  **prose that sounds thorough is not an oracle that ran.**
+
+  So the reply is not a paragraph that *should mention* a sweep. It has a
+  shape, and a reply missing any line of it does not get posted:
+
+  ```
+  Class: <what the whole class of this finding is>
+  Oracle: `<the exact command>`
+  Result: <its output — a count, or "0 matches">
+  ```
+
+  Three things follow from that, and they are the point:
+
+  1. **The command runs before the reply is written**, not after. The Result
+     line is transcribed from real output; there is no version of this rule
+     where I predict what the grep would say.
+  2. **If I cannot write the command, I have not understood the finding.** An
+     unwritable oracle is a signal to go back to the code, not a licence to
+     reply in prose. If the class genuinely has no mechanical oracle (a design
+     judgement, a naming preference), the reply says *that* on the Oracle
+     line — `Oracle: none — <why this class is not mechanically enumerable>` —
+     which is a claim I can be held to, unlike silence.
+  3. **`instance = class` is still an oracle line**, not an exemption: the
+     Oracle line carries the command that proves the class has exactly one
+     member, and Result carries its `1`.
+
+  This applies to **every** thread reply — fixes, declines, and "no change
+  needed" alike. A decline especially: declining without an oracle is
+  asserting the class is empty without looking.
+
 - **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
   await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
   brief note; I don't narrate every round. CI failures and nits of this class

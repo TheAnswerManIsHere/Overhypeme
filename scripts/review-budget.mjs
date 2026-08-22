@@ -154,7 +154,7 @@ export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
  * the review of something written.
  *
  * This replaced an earlier design (2026-08-21) whose internal tier ended by
- * stopping with the last fixes unreviewed, carried by an `adjudicatedStop`
+ * stopping with the last fixes unreviewed, carried by an `adjudicatedStop` <!-- retired-ok -->
  * property, a mid-budget terminal receipt the merge gate consumed, and a
  * distinct-commit proof. All of that existed to make an unreviewed head
  * safe; under the write-gate rule an unreviewed head is simply never
@@ -758,7 +758,7 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     // every receipt to the exhaustion floor, so a blocking verdict recorded
     // before exhaustion is rejected as malformed, `loadLoop` then fails on
     // it, and NOT EVEN A DAVID GRANT can reopen that loop. Exempting
-    // blocking verdicts from the floor would rebuild the `minPasses`
+    // blocking verdicts from the floor would rebuild the `minPasses` <!-- retired-ok -->
     // machinery this PR deleted, so the carve-out is reverted instead and
     // the visibility gap is recorded: a standing `split`/`escalate` on a
     // tier that writes no receipt is not machine-visible to the readiness

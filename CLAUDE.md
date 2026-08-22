@@ -337,6 +337,11 @@ itself, and `main`'s real protection is GitHub's server-side ruleset.
 6. **I resolve each review thread myself once addressed** — a pushed fix with
    the commit, or a reasoned decline — right after posting that reply, never in
    a batch. No standalone summary comment in place of per-thread replies.
+   **Every reply carries `Class:` / `Oracle:` / `Result:`** — the command ran
+   before the reply was written, and its real output is transcribed. A reply
+   missing those lines is malformed and doesn't get posted; declines included,
+   because declining without an oracle asserts the class is empty without
+   looking. Shape and the two escape valves: `pr-watch`.
 
 ### Watching the PRs I open
 
