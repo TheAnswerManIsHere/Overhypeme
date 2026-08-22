@@ -166,6 +166,9 @@ field yet — a known, separate gap this PR doesn't touch.
 
 ## Not bugs
 
-- **Video memes still have no visibility control** (checked in R1). That
-  flow's backend accepts no privacy field at all, so every video meme is
-  public. It isn't part of this fix and is tracked separately.
+- **Video memes still have no visibility control in the wizard** (checked
+  in R1). When this PR shipped the video backend accepted no privacy field
+  at all; it does now — `routes/videos.ts` takes `isPrivate` and enforces
+  the `meme_private_visibility` entitlement — but the wizard's video step
+  still exposes no control, so R1's result is unchanged. What moved is the
+  reason, not the outcome.
