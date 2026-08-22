@@ -1,0 +1,8 @@
+{
+  "pr": 560,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 45,
+  "artifact": "The /uat step definition: numbered steps plus the regression smoke rows, and the acceptance rule pointed at it",
+  "declaredAt": "2026-08-22T05:49:47.399Z"
+}
