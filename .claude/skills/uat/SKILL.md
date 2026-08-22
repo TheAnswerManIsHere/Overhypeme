@@ -50,8 +50,8 @@ An invocation may name a PR, an issue, or nothing.
    **None → say so** and don't invent a run.
 
 Then give him a **three-line preview before step 1**, never the whole doc:
-how many steps, what I'm setting up for him (section 2), and anything he
-needs on hand — an admin login, a phone, a fresh browser tab. The doc's
+how many steps and how many regression checks, what I'm setting up for him
+(section 2), and anything he needs on hand — an admin login, a phone, a fresh browser tab. The doc's
 narrative preamble is mine to have read, not his to sit through.
 
 ## 2. Setup is mine, and so is putting it back
@@ -98,6 +98,28 @@ and it is a **deliberately mutating** action — scope it explicitly, or Replit
 Agent will helpfully build a feature instead.
 
 ## 3. The walkthrough — one step, minimal context, cheap pass
+
+**The step list is a lookup, not a judgment.** Every UAT doc is written to
+[`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md), which exists so
+this is true:
+
+> A step is any `### ` heading inside `## Steps` or `## Regression`, in
+> document order. Nothing else in the file is a step.
+
+So enumerate once at the start, say both counts in the preview ("7 steps, then
+4 regression checks"), and present them in order — the regression checks are
+steps in every sense that matters here: presented, recorded, and counted
+toward the verdict in section 6. There is nothing to infer and nothing to
+classify; if a doc doesn't parse this way it is not in the format, and the
+answer is to fix the doc, not to guess.
+
+**That determinism is the point, and it was bought the hard way.** The first
+version of this skill tried to infer coverage from whatever shape a doc
+happened to have. It couldn't — six-plus conventions for the regression
+section, eleven docs with no numbered steps — and the failure mode was the
+worst available: pass every feature step, declare `Accepted`, never run the
+sweep. A false pass makes this session *worse* than the file it replaced.
+Hence one format, one rule (David, 2026-08-22; #554, #560).
 
 **One step per turn.** What to do, what to expect, nothing else. Not the
 next step, not the section after, not the reasoning behind the expectation
@@ -268,12 +290,14 @@ have no reliable way to tell which is current.
 | 2 · Deep link | Fail | #903 — landed at chapter top, not the heading |
 | 3 · Search | Pass | |
 | 4 · Deliberate absences | — | not yet run |
+| R1 · Sidebar unchanged | — | not yet run |
+| R2 · Admin on a phone | — | not yet run |
 
 **Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
-**Resume at:** step 4
+**Resume at:** step 4 (4 of 6 remaining, R1–R2 included)
 ```
 
 **Write it on the moments that matter, not every turn:** once after setup
@@ -303,7 +327,7 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step executed and Passed. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. The doc-wrong case counts only re-run per section 3 |
+| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks included**. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The doc-wrong case counts only re-run per section 3 |
 | **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
 | **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
 
