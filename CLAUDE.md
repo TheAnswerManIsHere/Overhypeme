@@ -277,8 +277,18 @@ itself, and `main`'s real protection is GitHub's server-side ruleset.
    tally is a cache of state GitHub already holds, and it failed exactly that
    way when it was tried.
 
-2. **After every completed round beyond the first, dispatch the external
-   adjudicator** (David, 2026-08-20) — agent type `review-loop-adjudicator`,
+2. **From round 3 onward, dispatch the external adjudicator on any round
+   that returned findings — before anything is written for them** (David,
+   2026-08-22, superseding the 2026-08-20 beyond-the-first cadence). Rounds
+   1–2 findings are triaged and written for by default, because the judge
+   would have nothing to decide there: the loop ledger's 41 reviewed loops
+   contain **zero clean round 1s** and three round-2 convergences, so a
+   dispatch before round 3 only ever says "write" — the dead criticality
+   gate reborn. Round 3 heads the measured runaway tail (26 of 41 loops ran
+   4+ rounds), which is exactly where the one dispatch pays. A clean or
+   all-declined round at any point ends the loop with no dispatch — nothing
+   was written, so the head is already reviewed. Dispatch mechanics: agent
+   type `review-loop-adjudicator`,
    **on Fable**, passing `model: "fable"` explicitly since a per-invocation
    model outranks frontmatter. Its only input is the script-generated record
    (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file>

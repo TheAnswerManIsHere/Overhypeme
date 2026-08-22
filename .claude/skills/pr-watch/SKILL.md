@@ -56,12 +56,17 @@ process doc, a documentation harvest:
 - **Clean automatic pass on PR-open → merge on it.** No budget, no receipts,
   no adjudication; the merge receipt accepts an automatic pass covering the
   head.
-- **The pass found things → triage once, decline out-of-scope findings in one
-  line, then declare `--tier internal` and dispatch the adjudicator on what
-  remains.** It rules under the internal rubric: write only for a very high
-  chance of a CRITICAL flaw. Everything softer ships as recorded gaps — a
-  finding I would have "just fixed" now costs a full round, and that is the
-  trade being made deliberately.
+- **Rounds 1–2: the pass found things → triage once, decline out-of-scope
+  findings in one line, fix the rest, push — then declare `--tier internal`
+  and re-request.** No judge yet: the ledger says these rounds always carry
+  findings worth writing for, and the mandatory re-review of the push is
+  the write-gate working.
+- **Round 3's findings → the adjudicator, before anything is written.** On
+  this tier the entry point IS the cap decision: it rules under the internal
+  rubric (write only for a very high chance of a CRITICAL flaw — and a
+  fourth round means 🛑 David, since the cap is 3 with no self-serve
+  extension), or everything ships as recorded gaps on the round-3-reviewed
+  head.
 - **Hard cap 3, no self-serve extension** — at 3, 🛑 David.
 
 ### Declare the round budget at loop start (product loops only)
@@ -211,15 +216,16 @@ the diff *is* the plan. While watching an implementation PR:
   trigger is what spawns unintended tasks. A per-round **stop** ends the
   loop right there: the verdict goes in a defanged comment and **no further
   trigger is posted** — the loop proceeds to close-out on the rounds already
-  returned. **On an internal-tier loop a stop verdict ALSO writes the
-  committed `loop-extension-<pr>-<seq>.json` receipt, committed and
-  pushed** — the merge gate consumes it, and per-round-comment-only
-  delivery here would stop the loop while leaving the PR unmergeable,
-  recreating exactly the wedge the internal tier removes. A **split-to-David** likewise posts no trigger; it goes to David
+  returned. (Under the write-gate rule a stop
+  precedes any new commit, so the head is already reviewed and no receipt
+  is written for it — the 2026-08-21 internal stop-receipt is gone; the
+  only committed verdict receipt is the product tier's at exhaustion.) A **split-to-David** likewise posts no trigger; it goes to David
   as a 🛑. **A round with no adjudication keeps the normal next-round
-  trigger** — the first substantive round has no judge by design, and
-  skip-on-clean dispatches none — so after that round's fixes are pushed,
-  the next bare trigger goes out as usual: the rule gates on verdicts that
+  trigger** — rounds 1 and 2 have no judge by design (measured: zero clean
+  round 1s and three round-2 convergences in the ledger's 41 reviewed
+  loops), and a zero-findings round dispatches none — so after those
+  rounds' fixes are pushed, the next bare trigger goes out as usual (it is
+  mandatory: pushed code is reviewed code): the rule gates on verdicts that
   exist, and the absence of a dispatch is not a stop (Codex, #548). But a verdict at **budget exhaustion** is an
   extension decision — **and it exists only on the product tier**: a
   `sensitive` loop at its 🛑-at-5 goes STRAIGHT to David with no adjudicator
@@ -235,12 +241,13 @@ the diff *is* the plan. While watching an implementation PR:
   oscillation diagnosis, criticality gate) is gone: 0-for-15 at stopping loops,
   and the budget plus this judge replaced it.
 
-  **Skip-on-clean:** a round with **zero findings** needs no adjudication —
-  there is nothing to write, and the loop ends on it. That is the only skip.
-  A round with findings always gets the verdict first, however mechanical
-  they look: under the write-gate rule writing code is what commits me to
-  another round, so "it's only a nit" is precisely the judgment the external
-  judge exists to make instead of me.
+  **Skip-on-clean:** a round with **zero findings** (or whose findings are
+  all reasoned declines — nothing gets written) needs no adjudication: the
+  loop ends on the head that round reviewed. From round 3 onward, a round
+  with findings gets the verdict before anything is written, however
+  mechanical the findings look — under the write-gate rule writing code is
+  what commits me to another round, so "it's only a nit" is precisely the
+  judgment the external judge exists to make instead of me.
 
   What still stops for a 🛑 whatever the adjudicator says: a genuine
   design/architecture/product decision, a scope addition, a split, a disclosure

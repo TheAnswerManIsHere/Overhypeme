@@ -499,19 +499,25 @@ the safety net a non-code-reading product manager depends on.
   loop is out of rounds. Rounds are **counted fresh from GitHub every time**,
   never stored: a committed tally is a cache of state GitHub already holds, and
   it failed exactly that way when it was tried.
-- **After every completed round beyond the first, an external adjudicator reads
-  the loop and decides** (David, 2026-08-20). Its only input is the
-  script-generated mechanical record (`scripts/review-loop-record.mjs`), never
-  the loop's own prose and never a case for continuing written by the agent
-  driving it. It returns continue / stop / split-to-David, and **its verdict
-  decides** — the agent does not weigh it or adopt part of it. A judge that
-  costs a few thousand tokens and prevents one unnecessary round pays for
-  itself several times over, so the cheap thing and the correct thing agree
-  here.
+- **From round 3 onward, the external adjudicator rules on any round that
+  returned findings — before anything is written for them** (David,
+  2026-08-22, superseding the 2026-08-20 beyond-the-first cadence). Rounds
+  1–2 findings are triaged and written for by default: the loop ledger's 41
+  reviewed loops contain zero clean round 1s and three round-2 convergences,
+  so a judge there only ever says "write", and round 3 heads the measured
+  runaway tail (26 of 41 loops ran 4+ rounds) — the one place a dispatch
+  changes outcomes. A clean or all-declined round at any point ends the loop
+  with no dispatch: nothing was written, so the head is already reviewed.
+  The judge's only input is the script-generated mechanical record
+  (`scripts/review-loop-record.mjs`), never the loop's own prose and never a
+  case for continuing written by the agent driving it. It returns continue /
+  stop / split-to-David, and **its verdict decides** — the agent does not
+  weigh it or adopt part of it.
 - **At exhaustion the adjudicator owns the extension, including its size**,
-  naming the specific unaddressed behavioral risk it covers. The common case is
-  that the last round's fixes are unreviewed — always true when a budget runs
-  out — and that flag is in the record.
+  naming the specific unaddressed behavioral risk it covers. ("The last
+  round's fixes are unreviewed" is no longer that risk: under the write-gate
+  rule the round reviewing any pushed fixes has already run before the judge
+  is asked.)
 - **The outer rail is 2x the declared budget.** There the loop goes to David
   regardless of verdict: a loop needing that many rounds has a problem no
   extension fixes. The rail exists because pure judgment, however

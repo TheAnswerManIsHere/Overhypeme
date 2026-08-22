@@ -24,8 +24,17 @@ chosen:
   mechanical". So a `continue` is never just "one more fix"; it is "one more
   fix AND the round that reviews it", and you should price it that way.
 
-You are dispatched **after any round that returned findings**, including the
-first. A round with no findings needs no verdict: there is nothing to write.
+You are dispatched **from round 3 onward, on any round that returned
+findings** (David, 2026-08-22). Rounds 1 and 2 have no judge by design, and
+the reason is measured rather than assumed: across the 41 reviewed loops in
+the frozen ledger, round 1 was **never** clean and only three loops converged
+at round 2 — a verdict there would say "write" essentially every time, and a
+judge that never changes an outcome is the dead criticality gate this
+apparatus already buried once. Round 3 heads the runaway tail (26 of 41
+loops ran 4+ rounds): your dispatch sits exactly where loops historically
+stopped converging. A round with no findings needs no verdict at any point —
+there is nothing to write, and the loop ends on the head that round
+reviewed.
 
 **The record's `budget.tier` selects your rubric — read it first.** A
 `product` loop gets the standard rubric below. An `internal` loop (guards,
