@@ -59,13 +59,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // /storage/upload-avatar endpoint will accept.
 const FIXTURE_PATH = path.join(__dirname, "fixtures", "upload-2400x1600.jpg");
 
-/** Run a SQL statement against the local Helium dev DB. */
+/**
+ * Run a SQL statement against the dev database.
+ *
+ * CI and any other non-Replit environment address Postgres through
+ * DATABASE_URL; the Replit dev box has no such variable and reaches its
+ * database by fixed host instead, so that stays the fallback.
+ */
 function dbExec(sql: string): string {
-  return execFileSync(
-    "psql",
-    ["-h", "helium", "-U", "postgres", "-d", "heliumdb", "-At", "-c", sql],
-    { env: { ...process.env, PGPASSWORD: "password" }, encoding: "utf8" },
-  );
+  const url = process.env["DATABASE_URL"];
+  const target = url
+    ? [url]
+    : ["-h", "helium", "-U", "postgres", "-d", "heliumdb"];
+  return execFileSync("psql", [...target, "-At", "-c", sql], {
+    env: { ...process.env, PGPASSWORD: process.env["PGPASSWORD"] ?? "password" },
+    encoding: "utf8",
+  });
 }
 
 function escSql(s: string): string {

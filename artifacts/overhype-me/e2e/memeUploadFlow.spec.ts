@@ -50,11 +50,22 @@ const RATIO_TOLERANCE = 0.02;
 function dbExec(sql: string): string {
   // Uses psql from the host (already provisioned in the Replit env).
   // Avoids adding pg as a runtime dep just for a single UPDATE.
-  return execFileSync(
-    "psql",
-    ["-h", "helium", "-U", "postgres", "-d", "heliumdb", "-At", "-c", sql],
-    { env: { ...process.env, PGPASSWORD: "password" }, encoding: "utf8" },
-  );
+  //
+  // CI and any other non-Replit environment address Postgres through
+  // DATABASE_URL; the Replit dev box has no such variable and reaches its
+  // database by fixed host instead, so that stays the fallback.
+  return execFileSync("psql", psqlArgs(sql), {
+    env: { ...process.env, PGPASSWORD: process.env["PGPASSWORD"] ?? "password" },
+    encoding: "utf8",
+  });
+}
+
+function psqlArgs(sql: string): string[] {
+  const url = process.env["DATABASE_URL"];
+  const target = url
+    ? [url]
+    : ["-h", "helium", "-U", "postgres", "-d", "heliumdb"];
+  return [...target, "-At", "-c", sql];
 }
 
 /**
