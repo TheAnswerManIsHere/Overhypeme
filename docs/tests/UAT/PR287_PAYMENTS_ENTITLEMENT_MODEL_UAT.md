@@ -70,7 +70,7 @@ recorded with amount and currency on the Membership screen.
 ### 5. Granting Legendary for Life makes the user Legendary
 
 **Do:** Go to Admin → Users, pick a registered user, open Membership, and
-click "Grant Legendary for Life".
+click "Grant" in the "Legendary for Life" section.
 
 **Expect:** The user becomes Legendary.
 
