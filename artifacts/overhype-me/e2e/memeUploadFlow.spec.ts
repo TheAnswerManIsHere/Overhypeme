@@ -132,6 +132,13 @@ test.describe("Meme upload + render pipeline", () => {
     });
     await ensureJsonOk("register", register);
 
+    // Registering succeeds without a CSRF header because there is no session
+    // cookie yet for the double-submit check to apply to. Every write below
+    // runs inside that new session and does need one.
+    const csrfToken = (await context.cookies()).find(c => c.name === "csrf_token")?.value;
+    expect(csrfToken, "registering should leave a csrf_token cookie").toBeTruthy();
+    const csrf = { "x-csrf-token": csrfToken! };
+
     // 2. Promote to legendary tier so the upload path is allowed.
     dbExec(
       `UPDATE users SET membership_tier='legendary' WHERE email='${email.replace(/'/g, "''")}';`,
@@ -174,7 +181,7 @@ test.describe("Meme upload + render pipeline", () => {
     //    The session cookie is carried automatically by context.request.
     const jpegBuffer = readFileSync(FIXTURE_PATH);
     const uploadRes = await context.request.post("/api/storage/upload-meme", {
-      headers: { "content-type": "image/jpeg" },
+      headers: { "content-type": "image/jpeg", ...csrf },
       data: jpegBuffer,
     });
     const uploadBody = (await ensureJsonOk("upload-meme", uploadRes)) as {
@@ -190,6 +197,7 @@ test.describe("Meme upload + render pipeline", () => {
     //    and verify the rendered output dimensions match the chosen aspect.
     for (const aspect of ASPECTS) {
       const createRes = await context.request.post("/api/memes", {
+        headers: csrf,
         data: {
           factId,
           imageSource: { type: "upload", uploadKey: uploadBody.objectPath },
