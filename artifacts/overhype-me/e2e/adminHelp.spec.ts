@@ -16,6 +16,14 @@ import { expect, test, type Page } from "@playwright/test";
 const CHAPTER = "11-admin-console";
 const FRAGMENT = "managing-people";
 
+/**
+ * The manual has twelve numbered chapters. Asserted as a COUNT of chapter
+ * links in the nav rather than as a list of titles: a dropped chapter is the
+ * failure PR472 step 1 exists to catch, while a retitled one is ordinary
+ * editing that should not turn this red. (Codex, #563 round 5.)
+ */
+const CHAPTER_COUNT = 12;
+
 async function loginAsAdmin(page: Page) {
   const login = await page.context().request.post("/api/auth/dev-admin-login");
   expect(login.ok(), `dev-admin-login should be 200, got ${login.status()}`).toBe(true);
@@ -35,8 +43,15 @@ test.describe("Admin · Help", () => {
     await expect(main.locator("table").first()).toBeVisible();
     await expect(main.getByText(/^\|.*\|$/m)).toHaveCount(0);
 
-    // The chapter list is navigable, not just printed.
-    await expect(page.getByRole("link", { name: /Admin Console/i }).first()).toBeVisible();
+    // The WHOLE chapter list is navigable, not just one named chapter: a
+    // front page missing eleven of twelve would satisfy a spot-check.
+    const chapterNav = page.getByRole("navigation", { name: /Manual chapters/i });
+    await expect(chapterNav).toBeVisible();
+    await expect(
+      chapterNav.locator('a[href*="/admin/help/"]'),
+      "every numbered chapter should be linked from the nav",
+    ).toHaveCount(CHAPTER_COUNT);
+
     await expect(page.getByTestId("help-search-input")).toBeVisible();
   });
 
@@ -81,9 +96,22 @@ test.describe("Admin · Help", () => {
     expect(box!.y, `the heading should not be scrolled off the top (y=${box!.y})`).toBeGreaterThan(-1);
   });
 
-  // PR472 step 13.
-  test("a stale bookmark fails tidily rather than blankly", async ({ page }) => {
+  // PR472 step 13. "Tidily" is the recovery, not just the absence of a blank
+  // page -- a panel that says "No such chapter" and strands the reader is not
+  // what the step asks for, and asserting only the container would pass if the
+  // way back disappeared. (Codex, #563 round 5.)
+  test("a stale bookmark fails tidily, with a way back", async ({ page }) => {
     await page.goto("/admin/help/99-no-such-chapter", { waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("help-not-found")).toBeVisible({ timeout: 30_000 });
+    const panel = page.getByTestId("help-not-found");
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(panel.getByText(/No such chapter/i)).toBeVisible();
+
+    const back = panel.locator('a[href$="/admin/help"]');
+    await expect(back, "the panel should offer a link back to the manual").toHaveCount(1);
+    await back.click();
+    await expect(
+      page.getByRole("heading", { name: /The Overhype\.me Manual/i }),
+      "following it should reach the manual front page",
+    ).toBeVisible({ timeout: 30_000 });
   });
 });

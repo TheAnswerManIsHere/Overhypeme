@@ -18,11 +18,28 @@ import { expect, test, type Page } from "@playwright/test";
 const LANES = ["fast", "render", "bulk", "pexels", "ai_meme_backfill"] as const;
 
 /**
- * Queues that exist by registration rather than by having run. PR288 step 6
- * is precisely that a never-run queue is listed rather than omitted, so these
- * are the rows that prove it on a fresh database.
+ * EVERY queue the worker registers, not a sample. PR288 step 5 is that the
+ * page lists every registered queue and step 6 that a never-run one still
+ * appears -- and a spot-check of three cannot fail when a fourth silently
+ * stops being rendered, which is the failure those steps exist to catch.
+ *
+ * Asserted as an exact set, so adding a queue breaks this test on purpose:
+ * a new entry in the registry is a deliberate change and should require a
+ * deliberate line here. (Codex, #563 round 5.)
  */
-const NEVER_RUN_QUEUES = ["projection_repair", "fact_send_back", "image_generation"] as const;
+const REGISTERED_QUEUES = [
+  "email",
+  "enrichment",
+  "fact_ai_meme_backfill",
+  "fact_enrichment_backfill",
+  "fact_pexels",
+  "fact_send_back",
+  "fact_visual_concepts",
+  "image_generation",
+  "image_prompt_generation",
+  "projection_repair",
+  "review_render_scenarios_prepare",
+] as const;
 
 async function gotoQueueHealth(page: Page) {
   const resp = await page.goto("/admin/queue-health", { waitUntil: "domcontentloaded" });
@@ -41,27 +58,24 @@ test.describe("Admin · Queue Health", () => {
   test("shows one card per worker lane, each with its own liveness verdict", async ({ page }) => {
     await gotoQueueHealth(page);
 
-    // Each lane is named once, in its own card.
+    // Scoped to each lane's own card, NOT counted at page level. Page-level
+    // totals of five verdicts and five detail lines stay five if one card
+    // loses its verdict while another renders two -- which is exactly the
+    // per-card invariant this test claims to check. (Codex, #563 round 5.)
     for (const lane of LANES) {
+      const card = page
+        .locator("div.bg-card")
+        .filter({ has: page.getByText(lane, { exact: true }) });
+      await expect(card, `lane "${lane}" should have exactly one card`).toHaveCount(1);
       await expect(
-        page.getByText(lane, { exact: true }),
-        `lane "${lane}" should be named on the page`,
-      ).toBeVisible();
+        card.getByText(/^(Scheduling|Not scheduling)$/),
+        `lane "${lane}" should carry exactly one liveness verdict`,
+      ).toHaveCount(1);
+      await expect(
+        card.getByText(/live instances? · last fire .* ago · \d+ in flight/),
+        `lane "${lane}" should carry exactly one detail line`,
+      ).toHaveCount(1);
     }
-
-    // Counted at page level rather than traversed from each card: the verdict
-    // and the detail line are siblings inside the card, so a card-scoped
-    // locator has to guess which ancestor is "the card". Counting proves the
-    // same thing -- one verdict and one detail line per lane, no more -- and
-    // does not depend on the markup's nesting.
-    await expect(
-      page.getByText(/^(Scheduling|Not scheduling)$/),
-      "every lane should state whether it is being scheduled",
-    ).toHaveCount(LANES.length);
-    await expect(
-      page.getByText(/live instances? · last fire .* ago · \d+ in flight/),
-      "every lane should report instances, last fire and in-flight count",
-    ).toHaveCount(LANES.length);
   });
 
   // PR288 step 3. The summary exists so a stalled lane is called out in words
@@ -76,7 +90,13 @@ test.describe("Admin · Queue Health", () => {
   test("lists every registered queue, including ones that have never run", async ({ page }) => {
     await gotoQueueHealth(page);
     await expect(page.getByRole("heading", { name: /^Queues$/i })).toBeVisible();
-    for (const queue of NEVER_RUN_QUEUES) {
+
+    // Every registered queue, and NOTHING BUT those: the count catches a row
+    // disappearing, the names catch the wrong one disappearing. Each queue is
+    // an expandable row, which is the only aria-expanded control on the page.
+    const rows = page.locator("button[aria-expanded]");
+    await expect(rows, "one row per registered queue, no more").toHaveCount(REGISTERED_QUEUES.length);
+    for (const queue of REGISTERED_QUEUES) {
       await expect(
         page.getByText(queue, { exact: true }),
         `queue "${queue}" should be listed even though it has never run`,

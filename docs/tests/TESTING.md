@@ -159,7 +159,14 @@ Locally (both servers already running, e.g. via Replit's workflows):
 
 ```sh
 pnpm --filter @workspace/overhype-me run e2e:smoke
+pnpm --filter @workspace/overhype-me run e2e:surfaces
 ```
+
+Both, because CI runs both. `e2e:smoke` is the route-load suite; `e2e:surfaces`
+is the admin-surface suite drained out of the UAT documents (Queue Health and
+Admin Help). They are separate scripts rather than one so a red build names
+which suite broke — but a developer following this page should exercise
+everything the gate does, or the local check quietly covers less than CI.
 
 Outside Replit (CI, or a bare Claude Code environment) there's no platform
 path-router splitting `/api` from the SPA, so two env-gated escape hatches in
