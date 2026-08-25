@@ -610,74 +610,99 @@ describe("candidate override writes", () => {
 // `seedReadyRefreshCycle` deliberately leaves the candidate scene-less, so a
 // cycle that has NOT been through authorConceptForCycle is the blank case.
 describe("candidate saves require a non-empty Visual Concept", () => {
-  it("PATCH refuses a blank concept, whitespace, an empty scaffold, and a genuinely absent override — and persists nothing", async () => {
-    const fact = await seedActiveFact();
-    const { reviewId, candidateVersionId } = await seedConceptLessRefreshCycle(fact);
-    const app = makeApp();
+  // Each refused payload gets its OWN candidate, and persistence is asserted
+  // immediately after its own request — never once at the end of a shared
+  // sequence. (Codex, #567 round 3; David ruled to apply this.)
+  //
+  // The candidate deliberately carries a SAVED concept, authored through the real
+  // PATCH route. That is what makes "persists nothing" falsifiable at all: the
+  // PATCH gate reads the SUBMITTED concept, so the candidate's own state is free,
+  // and starting concept-BEARING means a regression that writes before refusing
+  // visibly destroys a real concept. Starting concept-less — as the shared-candidate
+  // version did — made a refused write indistinguishable from the initial state for
+  // the absent-override payload, and `fact_enrichment_versions` has no `updated_at`
+  // to fall back on, so nothing else would have caught it.
+  //
+  // Stage stays the job-produced `concept_review`: authoring a concept does not
+  // advance the cycle, so this keeps round 2's Step-2 coverage rather than
+  // trading it back for Step 3.
+  const REFUSED_CONCEPT_PAYLOADS: {
+    label: string;
+    build: (effective: FactEnrichment) => Record<string, unknown>;
+  }[] = [
+    {
+      label: "a blank concept",
+      build: (e) => ({ ...e, visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "" } }),
+    },
+    {
+      // Whitespace is not a concept — the gate trims before testing.
+      label: "a whitespace-only concept",
+      build: (e) => ({ ...e, visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "   \n\t  " } }),
+    },
+    {
+      label: "a present-but-empty override scaffold",
+      build: (e) => ({ ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE } }),
+    },
+    {
+      // A distinct branch from the scaffold above: that one is a truthy object, so
+      // a guard regressed to `submittedVso && !submittedVso.coreSceneOverride?.trim()`
+      // would still refuse it while accepting a schema-valid request that omits the
+      // optional property outright. (Codex, #567 round 1.)
+      label: "a genuinely absent override",
+      build: (e) => {
+        const { visualPromptStrategyOverride: _omitted, ...withoutConcept } = e;
+        return withoutConcept;
+      },
+    },
+  ];
 
-    const resolved = await request(app)
-      .get(`/admin/reviews/${reviewId}/candidate-enrichment-resolved`)
-      .set("authorization", `Bearer ${adminSid}`);
-    const effective = resolved.body.effective as FactEnrichment;
+  for (const payload of REFUSED_CONCEPT_PAYLOADS) {
+    it(`PATCH refuses ${payload.label}, and that refused save persists nothing`, async () => {
+      const fact = await seedActiveFact();
+      const { reviewId, candidateVersionId } = await seedConceptLessRefreshCycle(fact);
+      const app = makeApp();
 
-    const [beforeRow] = await db.select().from(factEnrichmentVersionsTable)
-      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
-    const conceptBefore = (beforeRow.enrichment as FactEnrichment).visualPromptStrategyOverride ?? null;
+      // Author a real concept through the real save path, so there is something
+      // a refused write could destroy.
+      await authorConceptForCycle(reviewId, candidateVersionId);
 
-    const blank = await request(app)
-      .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: { ...effective, visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "" } } });
-    assert.equal(blank.status, 400, JSON.stringify(blank.body));
-    assert.equal(blank.body.error, "visual_concept_required");
+      const [beforeRow] = await db.select().from(factEnrichmentVersionsTable)
+        .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+      const conceptBefore = (beforeRow.enrichment as FactEnrichment).visualPromptStrategyOverride ?? null;
+      assert.ok(
+        conceptBefore?.coreSceneOverride?.trim(),
+        "precondition: the candidate must hold a real concept for this assertion to have teeth",
+      );
 
-    // Whitespace is not a concept — the gate trims before testing.
-    const whitespace = await request(app)
-      .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: { ...effective, visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "   \n\t  " } } });
-    assert.equal(whitespace.status, 400, JSON.stringify(whitespace.body));
-    assert.equal(whitespace.body.error, "visual_concept_required");
+      const resolved = await request(app)
+        .get(`/admin/reviews/${reviewId}/candidate-enrichment-resolved`)
+        .set("authorization", `Bearer ${adminSid}`);
+      const effective = resolved.body.effective as FactEnrichment;
 
-    // A present-but-empty override scaffold is refused.
-    const emptyScaffold = await request(app)
-      .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: { ...effective, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE } } });
-    assert.equal(emptyScaffold.status, 400, JSON.stringify(emptyScaffold.body));
-    assert.equal(emptyScaffold.body.error, "visual_concept_required");
+      const res = await request(app)
+        .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({ enrichment: payload.build(effective) });
+      assert.equal(res.status, 400, JSON.stringify(res.body));
+      assert.equal(res.body.error, "visual_concept_required");
 
-    // ...and so is GENUINELY omitting the optional property, which is a distinct
-    // branch: the scaffold above is a truthy object, so a guard that regressed to
-    // `submittedVso && !submittedVso.coreSceneOverride?.trim()` would still refuse
-    // it while accepting a schema-valid request that leaves the property out.
-    // Deleting the key is the only payload that protects that branch. (Codex #567.)
-    const { visualPromptStrategyOverride: _omitted, ...effectiveWithoutConcept } = effective;
-    const absent = await request(app)
-      .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: effectiveWithoutConcept });
-    assert.equal(absent.status, 400, JSON.stringify(absent.body));
-    assert.equal(absent.body.error, "visual_concept_required");
-
-    // None of the four refused saves may have written any part of its payload:
-    // the candidate's persisted concept must be byte-identical to the snapshot
-    // taken before them. (The candidate legitimately carries the AI baseline's
-    // scene — the point is that the REFUSED payloads did not replace it.)
-    const [candidate] = await db.select().from(factEnrichmentVersionsTable)
-      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
-    const saved = candidate.enrichment as FactEnrichment;
-    assert.deepEqual(
-      saved.visualPromptStrategyOverride ?? null,
-      conceptBefore,
-      "a refused save must persist nothing — the candidate's concept must be untouched",
-    );
-    assert.deepEqual(
-      saved.visualPromptStrategyOverride?.requiredVisualDetails ?? [],
-      [],
-      `the refused payload's own fields (${JSON.stringify(VSO_FIXTURE.requiredVisualDetails)}) must not have leaked in`,
-    );
-  });
+      // Immediately, on this payload's own candidate — no later request can mask
+      // a write, and no other payload can restore the state this one changed.
+      const [afterRow] = await db.select().from(factEnrichmentVersionsTable)
+        .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+      const after = afterRow.enrichment as FactEnrichment;
+      assert.deepEqual(
+        after.visualPromptStrategyOverride ?? null,
+        conceptBefore,
+        `a refused save must persist nothing — ${payload.label} must not have replaced the saved concept`,
+      );
+      assert.deepEqual(
+        afterRow.visualOverride,
+        beforeRow.visualOverride,
+        "the canonical visual_override column must be untouched too",
+      );
+    });
+  }
 
   it("PUT /candidate-overrides refuses a tracked-override write on a concept-less candidate, and writes no override", async () => {
     const fact = await seedActiveFact();
