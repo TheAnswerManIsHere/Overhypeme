@@ -338,10 +338,44 @@ recalled will not fire; this one fires against an artifact, at the moment a
 sentence claiming completeness is written.
 
 **The operational test, applied to any such sentence: *where is this
-enforced?*** A satisfying answer points at a runnable oracle, or at the line of
-the design that makes the violation impossible — a table row, a predicate, a
-type. An unsatisfying answer points at another sentence in the plan. If the
-answer is a sentence, either add the construct or downgrade the claim.
+enforced?*** A satisfying answer points at one of exactly two things, and both
+have a failure mode the rule has to name, because the plan that prompted this
+rule hit both.
+
+**An oracle — run, recorded, and reconciled.** *Naming* a search is not
+carrying one. The first row of the table above had an oracle: it was run, and
+its output was misread, because the class it searched for still needed a human
+judgment to sort the results. So the requirement is three things, not one: the
+oracle is **executed against the revision under review**, its **actual output
+is recorded** in the plan, and the plan **states how that output maps to the
+claim** — which hits it counts, which it excludes, and why the partition needs
+no interpretation. An oracle whose results a careful reader could sort two
+different ways has not established anything.
+
+**A construct — in the implementation, not in the plan.** A construct is a
+predicate, a type, a schema constraint, or a runtime refusal that will exist in
+the shipped system and make the violation impossible. **A table in a plan is
+not a construct.** That distinction is the whole third row of the table above:
+revision 2 of the Stripe plan carried a resolution table whose row read
+`| fake | Fake driver |`, and "the fake is CI-only" was true nowhere except in
+the surrounding prose. A table earns the claim only when each row names the
+concrete mechanism that enforces it — and then the row is judged by that
+mechanism, never by being tabular. Formatting is not enforcement.
+
+An unsatisfying answer points at another sentence in the plan. If the answer is
+a sentence, either add the construct or downgrade the claim.
+
+**This rule does not license implementation detail in a plan, and does not
+collide with the specification test below.** The two govern different
+questions. The specification test governs *what a plan says*: leave out
+anything the compiler, the test suite, or diff review would catch. This rule
+governs *whether a property may be stated as settled at all*. Satisfying it
+takes one clause naming the mechanism — "refused at boot when the mirror is
+non-empty" — not the code that implements it. Where a claim's only enforcement
+would be a test or a type, the plan still does not specify the test or the
+type; it names the property, says a check enforces it, and leaves the shape of
+the check to the diff. A plan that starts describing the assertion has stopped
+satisfying this rule and started violating the other one.
 
 **"Unsupported by convention" is not "unreachable by construction," and the gap
 between them is where these defects live.** A property that holds only because

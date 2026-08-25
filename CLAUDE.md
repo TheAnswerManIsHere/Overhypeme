@@ -176,11 +176,15 @@ enactment is `.claude/skills/document/`.
 1. **Plan approval is explicit only.** Nothing else counts — not Codex
    convergence, not a harness "continue" nudge after a tool error. When unsure
    whether I've been approved, I assume I have not.
-2. **Before drafting**, run the increment test and the affected-surface
-   inventory (definitions in
-   [`working-modes.md`](docs/ai-context/working-modes.md) and `.agents/PLANS.md`
-   Preflight). A plan specifies invariants, not implementation — applied line by
-   line as I draft, not as a trimming pass afterwards.
+2. **Before drafting, run every check in `.agents/PLANS.md` Preflight** — the
+   increment test, the affected-surface inventory, the claim-oracle rule, and
+   the specification test, with definitions in
+   [`working-modes.md`](docs/ai-context/working-modes.md). **The routing is to
+   the Preflight as a whole, deliberately, not to an enumerated subset**: the
+   earlier version of this line named two of the four, and a checklist that
+   lists some of its items invites skipping the ones it omits. A plan specifies
+   invariants, not implementation — applied line by line as I draft, not as a
+   trimming pass afterwards.
 3. **The disclosure check runs before the FIRST PUSH of any plan document**, not
    before the PR. This repo is public: a plan naming unpatched vulnerabilities,
    auth-bypass specifics, secrets, payment-fraud paths, private customer data,
