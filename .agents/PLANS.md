@@ -40,6 +40,15 @@ scope call to judgment/escalation, exactly as the class-sweep protocol does
 at fix time. What is not acceptable is running a nominal search that does not
 find every instance and then claiming inventory-backed scope.
 
+**Then, for every sentence claiming a set is complete, a behavior inert, or a
+state unreachable, apply the claim-oracle rule** —
+[`working-modes.md`](../docs/ai-context/working-modes.md#a-completeness-claim-carries-its-oracle-or-it-is-not-a-claim-david-2026-08-25):
+*where is this enforced?* A runnable oracle or a construct in the design
+(a table row, a predicate, a type) ⇒ keep the claim and cite what enforces it;
+another sentence in the plan ⇒ add the construct or write it as an open
+uncertainty instead of a Settled Decision. "Unsupported by convention" is not
+"unreachable by construction" — say which one you have.
+
 **Then, for every line you write below, apply the specification test** —
 [`working-modes.md`](../docs/ai-context/working-modes.md#a-plan-specifies-invariants-not-implementation-david-2026-08-12):
 *if the plan never mentioned this, what would catch it?* Compiler, test

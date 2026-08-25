@@ -307,6 +307,56 @@ Naming a field a mode does not have is not a wording slip: it leaves the
 exception unrecordable, or drags the fix into a ceremony that mode exists to
 skip. Both failures shipped in this section's first two drafts.
 
+### A completeness claim carries its oracle, or it is not a claim (David, 2026-08-25)
+
+**A plan may assert that a set is complete, that a behavior is inert, or that a
+state is unreachable only when one of two things holds: a mechanical oracle
+enumerates the class, or a construct in the design enforces the property.
+Prose is neither.** Where neither is available, the property is written as an
+open uncertainty and does not become a Settled Decision.
+
+This is the affected-surface inventory's rule generalised past inventories. The
+inventory section already requires a mechanical oracle for a *pattern being
+changed*; this extends the same requirement to every load-bearing property a
+plan states about the world — because those are what a reviewer, and later an
+implementer, take as given without re-deriving.
+
+**The evidence is PR #568, which produced the same failure three rounds
+running** — and the third instance is why this is a rule rather than a note:
+
+| Claim | Basis | Outcome |
+| --- | --- | --- |
+| "The credential class has exactly one member" | asserted from a search whose output was mis-read | wrong — three members |
+| "The sync surface is four methods" | asserted from call sites | wrong — twelve, via an interface satisfied by assignment rather than by an explicit call |
+| "The fake is CI-only" / "the toggle is inert under fake" | asserted in prose, enforced nowhere | wrong — the design permitted exactly what the document forbade |
+
+The plan had already *recorded* the round-1 lesson in its own text — "an
+inventory whose class definition requires a judgment call at classification
+time is not mechanical" — and then made two further unbacked claims on the same
+page. **Writing a lesson down is not a control.** A rule that only fires when
+recalled will not fire; this one fires against an artifact, at the moment a
+sentence claiming completeness is written.
+
+**The operational test, applied to any such sentence: *where is this
+enforced?*** A satisfying answer points at a runnable oracle, or at the line of
+the design that makes the violation impossible — a table row, a predicate, a
+type. An unsatisfying answer points at another sentence in the plan. If the
+answer is a sentence, either add the construct or downgrade the claim.
+
+**"Unsupported by convention" is not "unreachable by construction," and the gap
+between them is where these defects live.** A property that holds only because
+nobody has yet set the variable, run the command, or clicked the toggle is a
+habit, not an invariant, and a plan that calls it an invariant has mis-stated
+its own safety. When the distinction is genuinely load-bearing — a safety
+property, a security boundary — say which of the two you have.
+
+**Why this is cheap to comply with.** Most completeness claims in a plan are
+not load-bearing and can simply be dropped to ordinary description. The rule
+bites only on the ones a reviewer would rely on, which is precisely the set
+worth the cost of an oracle. And an oracle written at plan time costs seconds;
+the same gap found at review time costs a round, and found after merge costs
+whatever the property was protecting.
+
 ### A plan specifies invariants, not implementation (David, 2026-08-12)
 
 **The test, applied to any line you are about to write into a plan: if the
