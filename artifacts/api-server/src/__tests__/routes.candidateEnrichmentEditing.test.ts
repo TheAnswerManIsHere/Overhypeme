@@ -580,7 +580,7 @@ describe("candidate override writes", () => {
 // `seedReadyRefreshCycle` deliberately leaves the candidate scene-less, so a
 // cycle that has NOT been through authorConceptForCycle is the blank case.
 describe("candidate saves require a non-empty Visual Concept", () => {
-  it("PATCH refuses a blank concept, a whitespace-only one, and an absent override — and persists nothing", async () => {
+  it("PATCH refuses a blank concept, whitespace, an empty scaffold, and a genuinely absent override — and persists nothing", async () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
     const app = makeApp();
@@ -609,15 +609,28 @@ describe("candidate saves require a non-empty Visual Concept", () => {
     assert.equal(whitespace.status, 400, JSON.stringify(whitespace.body));
     assert.equal(whitespace.body.error, "visual_concept_required");
 
-    // Omitting the override entirely must be refused too, not read as "unchanged".
-    const absent = await request(app)
+    // A present-but-empty override scaffold is refused.
+    const emptyScaffold = await request(app)
       .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
       .set("authorization", `Bearer ${adminSid}`)
       .send({ enrichment: { ...effective, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE } } });
+    assert.equal(emptyScaffold.status, 400, JSON.stringify(emptyScaffold.body));
+    assert.equal(emptyScaffold.body.error, "visual_concept_required");
+
+    // ...and so is GENUINELY omitting the optional property, which is a distinct
+    // branch: the scaffold above is a truthy object, so a guard that regressed to
+    // `submittedVso && !submittedVso.coreSceneOverride?.trim()` would still refuse
+    // it while accepting a schema-valid request that leaves the property out.
+    // Deleting the key is the only payload that protects that branch. (Codex #567.)
+    const { visualPromptStrategyOverride: _omitted, ...effectiveWithoutConcept } = effective;
+    const absent = await request(app)
+      .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ enrichment: effectiveWithoutConcept });
     assert.equal(absent.status, 400, JSON.stringify(absent.body));
     assert.equal(absent.body.error, "visual_concept_required");
 
-    // None of the three refused saves may have written any part of its payload:
+    // None of the four refused saves may have written any part of its payload:
     // the candidate's persisted concept must be byte-identical to the snapshot
     // taken before them. (The candidate legitimately carries the AI baseline's
     // scene — the point is that the REFUSED payloads did not replace it.)
