@@ -18,6 +18,22 @@
  * not belong in a public repo, and matching the provider fails closed for any
  * future Neon database.
  *
+ * It validates the EFFECTIVE libpq target, not the URI's authority and path.
+ * A connection URI may carry connection parameters in its query string, and
+ * they win over the parts they duplicate, so
+ * `postgres://localhost/overhype_test?host=prod.neon.tech&dbname=neondb`
+ * reads as safe on `URL.hostname`/`URL.pathname` while psql connects to
+ * production. Measured, not assumed:
+ *
+ *   psql ".../overhype_test"                -> current_database() = overhype_test
+ *   psql ".../overhype_test?dbname=postgres" -> current_database() = postgres
+ *   psql ".../overhype_test?host=nonexistent.invalid"
+ *        -> could not translate host name "nonexistent.invalid"
+ *
+ * `hostaddr` and `service` are refused outright rather than resolved: the first
+ * is a numeric address that cannot be matched against name markers, the second
+ * names a target in an external file this cannot read. (Codex, #563 round 2.)
+ *
  * Consequence worth stating: the legacy Replit fallback these specs used to be
  * pinned to targets `heliumdb`, which IS protected — so that path now refuses
  * too. That is the guard working rather than a regression. On Replit, point
@@ -48,8 +64,20 @@ export function productionDbRefusal(
   let host: string;
   try {
     const parsed = new URL(url);
-    name = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
-    host = parsed.hostname;
+    const q = parsed.searchParams;
+    if (q.has("service")) {
+      return 'DATABASE_URL sets "service=", which resolves its target from a connection-service file this guard cannot read — refusing.';
+    }
+    if (q.has("hostaddr")) {
+      return 'DATABASE_URL sets "hostaddr=", a numeric address that cannot be matched against host markers — refusing.';
+    }
+    // libpq takes the LAST occurrence of a repeated parameter.
+    const last = (k: string): string | undefined => {
+      const all = q.getAll(k);
+      return all.length ? all[all.length - 1] : undefined;
+    };
+    name = last("dbname") ?? decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+    host = last("host") ?? parsed.hostname;
   } catch {
     return "could not parse DATABASE_URL — refusing to proceed.";
   }

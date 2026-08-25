@@ -9,7 +9,10 @@ export default defineConfig({
     globals: true,
     // The e2e/ directory contains Playwright specs (run via `pnpm run e2e`),
     // not vitest tests; exclude them so `vitest run` doesn't pick them up.
-    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"],
+    // Scoped to *.spec.ts rather than the whole directory: e2e/ also holds
+    // plain modules, and their unit tests belong to vitest. playwright.config
+    // narrows its own testMatch to *.spec.ts for the same split.
+    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**/*.spec.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
