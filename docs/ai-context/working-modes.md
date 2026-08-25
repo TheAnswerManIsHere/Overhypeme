@@ -371,11 +371,32 @@ questions. The specification test governs *what a plan says*: leave out
 anything the compiler, the test suite, or diff review would catch. This rule
 governs *whether a property may be stated as settled at all*. Satisfying it
 takes one clause naming the mechanism — "refused at boot when the mirror is
-non-empty" — not the code that implements it. Where a claim's only enforcement
-would be a test or a type, the plan still does not specify the test or the
-type; it names the property, says a check enforces it, and leaves the shape of
-the check to the diff. A plan that starts describing the assertion has stopped
-satisfying this rule and started violating the other one.
+non-empty" — not the code that implements it. A plan that starts describing the
+assertion has stopped satisfying this rule and started violating the other one.
+
+**But "a check enforces it" is not a free pass, and a test is not a construct.**
+A construct *prevents* the state; a test *detects* it, after the fact and only
+if someone writes it. So a claim whose only backing is a future test is not
+settled by naming that test — it is written as **checked**, not as *cannot*,
+and the plan says which it has. The difference is not pedantry: "the fake
+cannot reach a real database" and "a test would catch the fake reaching a real
+database" license completely different downstream reasoning, and it was the
+first that this repo's Stripe plan kept asserting on the strength of the second.
+
+The two paths therefore answer different questions, and neither substitutes for
+the other:
+
+- **The oracle path is for claims about what the repository contains today** —
+  and must be run today, with the output recorded and mapped. A search that
+  will be run later establishes nothing now.
+- **The construct path is for claims about the system being built** — and the
+  named mechanism must be one that makes the violation impossible when it
+  exists: a predicate, a type, a schema constraint, a runtime refusal. A guard
+  that fails the build qualifies for claims about repository contents, because
+  it stops the violating state from landing; it says nothing about runtime.
+
+Everything else — a test, a review step, a convention, a comment asking future
+editors to be careful — supports "we would find out", never "it cannot happen".
 
 **"Unsupported by convention" is not "unreachable by construction," and the gap
 between them is where these defects live.** A property that holds only because

@@ -53,7 +53,9 @@ else ⇒ add the construct or write the property as an open uncertainty rather
 than a Settled Decision. "Unsupported by convention" is not "unreachable by
 construction" — say which one you have. Naming the mechanism in a clause
 satisfies this without specifying it, which is what keeps it clear of the
-specification test below.
+specification test below. **A test is not a construct** — it detects rather
+than prevents, so a property backed only by a future test is written as
+*checked*, never as *cannot*.
 
 **Then, for every line you write below, apply the specification test** —
 [`working-modes.md`](../docs/ai-context/working-modes.md#a-plan-specifies-invariants-not-implementation-david-2026-08-12):
