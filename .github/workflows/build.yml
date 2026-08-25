@@ -595,6 +595,11 @@ jobs:
       - name: Run route-load smoke suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:smoke
 
+      # Admin surfaces drained out of the UAT documents. Its own step, so a red
+      # build names which suite broke; shares the trace upload below.
+      - name: Run admin-surface suite
+        run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:surfaces
+
       - name: Upload traces on failure
         if: failure()
         uses: actions/upload-artifact@v6

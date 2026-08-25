@@ -70,7 +70,7 @@ recorded with amount and currency on the Membership screen.
 ### 5. Granting Legendary for Life makes the user Legendary
 
 **Do:** Go to Admin → Users, pick a registered user, open Membership, and
-click "Grant Legendary for Life".
+click "Grant" in the "Legendary for Life" section.
 
 **Expect:** The user becomes Legendary.
 
@@ -302,11 +302,14 @@ remove the member's access — only a full refund does.
 **Expect:** Completely unchanged — this PR does not touch the catalog
 display path.
 
-### R2. A non-membership checkout does not grant Legendary
+### R2. A non-membership checkout is refused outright
 
-**Do:** Checkout for a non-membership product, if you have one.
+**Do:** Try to check out with a non-membership price, if you have one.
 
-**Expect:** Completes, and does not grant Legendary.
+**Expect:** It is refused with *"Invalid price: not a membership plan"* —
+no Stripe Checkout Session is created at all. It does not complete. (The
+deeper case, where a non-membership payment lands anyway and the grant
+layer still refuses to upgrade, is PR214's doc.)
 
 ### R3. Cancelling a subscription still shows the period-end message
 

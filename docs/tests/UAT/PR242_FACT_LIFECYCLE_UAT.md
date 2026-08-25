@@ -99,8 +99,8 @@ queue at Stage 1."
 
 **Do:** Go to Admin → Reviews and find the review from step 10.
 
-**Expect:** the fact is there at Stage 1 prep (enrichment running again),
-reusing the same fact id — not a duplicate.
+**Expect:** the review is listed as "AI prep running" (enrichment running
+again), reusing the same fact id — not a duplicate.
 
 ### 12. A second resubmit while one is in progress is rejected
 
