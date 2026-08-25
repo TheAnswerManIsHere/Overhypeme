@@ -49,7 +49,12 @@ const FACT_PREFIX = "t-routes-admin-fact-";
 
 function makeApp(): Express {
   const app = express();
-  app.use(express.json());
+  // Mirror the real server's body limit (app.ts: express.json({ limit: "2mb" })).
+  // Bare express.json() defaults to 100 KB, which is BELOW the 2 MB contract
+  // /admin/facts/import-csv advertises — so on the default this harness answers
+  // a large-but-legal import with 413 before the route's own caps are ever
+  // reached, and no test of those caps can mean anything.
+  app.use(express.json({ limit: "2mb" }));
   app.use(authMiddleware);
   app.use(adminRouter);
   return app;
@@ -100,6 +105,31 @@ async function createTestFact(
     enrichment: active ? buildPlaceholderFactEnrichment() : undefined,
   }).returning({ id: factsTable.id });
   return fact!.id;
+}
+
+/**
+ * A fact in the state the activation guard actually meets: one that WAS live and
+ * has been deactivated, so it still carries the Visual Concept it was activated
+ * with. `createTestFact({ isActive: false })` omits enrichment entirely, which is
+ * a different row — a guard that rejected only CONCEPT-LESS inactive facts would
+ * satisfy that fixture while letting an ordinary deactivated fact walk straight
+ * back into production. (Codex, #567 round 2.)
+ *
+ * Deactivating after insert is exactly what the product does; the Phase 2 CHECK
+ * constrains active rows only, so the concept survives the flip.
+ */
+async function createDeactivatedFact(text: string): Promise<number> {
+  const id = await createTestFact(text);
+  await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, id));
+  const [row] = await db.select({ isActive: factsTable.isActive, enrichment: factsTable.enrichment })
+    .from(factsTable).where(eq(factsTable.id, id));
+  assert.equal(row.isActive, false, "precondition: the fact must be deactivated");
+  assert.ok(
+    (row.enrichment as { visualPromptStrategyOverride?: { coreSceneOverride?: string } } | null)
+      ?.visualPromptStrategyOverride?.coreSceneOverride?.trim(),
+    "precondition: a deactivated fact must RETAIN its Visual Concept, or this fixture is not the real state",
+  );
+  return id;
 }
 
 // ── Shared test state ─────────────────────────────────────────────────────────
@@ -672,6 +702,80 @@ describe("PATCH /admin/facts/:id", () => {
     const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootId, childId]));
     for (const r of rows) assert.equal(r.isActive, false);
   });
+
+  // ── Activation is moderation-only ──────────────────────────────────────────
+  //
+  // A content-safety invariant, not a tidiness one. The admin Active toggle may
+  // DEACTIVATE a fact (covered above), but a false→true flip here would bypass
+  // the entire production gate approveForProduction/activateFact enforce — the
+  // Visual Concept check, active-root parent revalidation, the pending_reviews
+  // transition, production-approval recording and submitter notification. A
+  // regression would silently let a deactivated fact go live around moderation,
+  // which is precisely the failure nothing would have noticed before these.
+  it("rejects flipping an INACTIVE fact to active — activation is moderation-only", async () => {
+    const inactiveFact = await createDeactivatedFact(`${FACT_PREFIX}${randomUUID()} deactivated, wants back live`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${inactiveFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ isActive: true });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
+
+    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, inactiveFact));
+    assert.equal(row.isActive, false, "the fact must still be inactive — activation must not have been written");
+  });
+
+  // The guard returns before ANY write, so it rejects the whole request rather
+  // than the isActive field alone. Without this, a guard that dropped isActive
+  // and carried on would still pass the assertion above.
+  it("rejects the whole request — a field sent alongside the activation attempt is not written either", async () => {
+    const inactiveFact = await createDeactivatedFact(`${FACT_PREFIX}${randomUUID()} activation with a passenger field`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${inactiveFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ isActive: true, upvotes: 4242 });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
+
+    const [row] = await db.select({ isActive: factsTable.isActive, upvotes: factsTable.upvotes }).from(factsTable).where(eq(factsTable.id, inactiveFact));
+    assert.equal(row.isActive, false, "the fact must still be inactive");
+    assert.notEqual(row.upvotes, 4242, "the co-submitted field must not have been written either");
+  });
+
+  // A PATCH carrying `text` forks into confirmedFactTextEdit.ts — the same
+  // second write path that used to apply `parentId` unguarded (Codex round 6).
+  // The activation guard sits ahead of that fork, and this is what holds it
+  // there.
+  it("rejects flipping an INACTIVE fact to active when text is also present (text-edit path)", async () => {
+    const original = `${FACT_PREFIX}${randomUUID()} inactive, activation via text path`;
+    const inactiveFact = await createDeactivatedFact(original);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${inactiveFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: original, isActive: true });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
+
+    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, inactiveFact));
+    assert.equal(row.isActive, false, "the fact must still be inactive — the text path must not activate either");
+  });
+
+  // The deliberate no-op half of the rule: asserting isActive=true on a fact
+  // that is ALREADY active is not an activation, so it is dropped rather than
+  // rejected. This is what stops the guard from breaking an ordinary admin save
+  // that round-trips the fact's current state.
+  it("accepts isActive=true on an ALREADY-ACTIVE fact as a harmless no-op", async () => {
+    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} already active, asserted active`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${activeFact}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ isActive: true, upvotes: 7 });
+    assert.equal(res.status, 200);
+
+    const [row] = await db.select({ isActive: factsTable.isActive, upvotes: factsTable.upvotes }).from(factsTable).where(eq(factsTable.id, activeFact));
+    assert.equal(row.isActive, true, "the fact must still be active");
+    assert.equal(row.upvotes, 7, "the rest of the request must still have been applied");
+  });
 });
 
 // ── POST /admin/facts/:id/variants ────────────────────────────────────────────
@@ -784,6 +888,65 @@ describe("POST /admin/facts/import-csv", () => {
 
     const factRows = await db.select().from(factsTable).where(eq(factsTable.text, expectedText));
     assert.equal(factRows.length, 0, "bulk CSV import must not write the fact directly");
+  });
+
+  // ── The 2000-row cap ───────────────────────────────────────────────────────
+  //
+  // The ADJACENT cap — the ≤2 MB byte limit on the raw string — is already
+  // covered (admin.validation.security.test.ts, via ImportCsvBody). That is
+  // exactly what made this hole read as covered at a glance: two caps guarding
+  // the same endpoint, one proven and one not.
+  //
+  // The over-cap rows are deliberately VALID templates. Invalid ones would have
+  // queued nothing whether the cap fired or not, which would make the
+  // "queued nothing" assertion below unfalsifiable — it would still pass if the
+  // cap were moved AFTER the queue write. Valid rows mean that assertion can
+  // only hold because the request was rejected before any row was processed.
+  // The at-cap row below is invalid on purpose for the opposite reason: it only
+  // needs to be COUNTED (the cap is applied to the split lines, before any
+  // validation runs), and staying invalid keeps 2000 rows out of the database.
+  const overCapMarker = randomUUID();
+
+  it("rejects an import of more than 2000 rows, by ROW COUNT and not by byte size", async () => {
+    const rows = Array.from(
+      { length: 2001 },
+      (_, i) => `${FACT_PREFIX}${overCapMarker}-${i} {Subj} keeps it locked in {POSS} back yard.`,
+    );
+    const csv = rows.join("\n");
+    // Pin that this is the row cap firing and not the 2 MB byte cap: the
+    // payload has to be comfortably inside the byte limit for the assertion
+    // below to mean anything.
+    assert.ok(
+      Buffer.byteLength(csv, "utf8") < 2_000_000,
+      "the over-cap payload must stay well under the 2 MB byte limit, or this proves the wrong cap",
+    );
+
+    const res = await request(makeApp())
+      .post("/admin/facts/import-csv")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ csv });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /Too many rows \(2001\); import at most 2000 per call/);
+    assert.equal(res.body.success, undefined, "an over-cap import must not report partial success");
+
+    // Rejected up front, so not one row of this batch was processed. Scoped to
+    // this test's own marker, so it asserts nothing about the rest of the DB.
+    const queued = await db
+      .select({ id: pendingReviewsTable.id })
+      .from(pendingReviewsTable)
+      .where(like(pendingReviewsTable.submittedText, `%${overCapMarker}%`));
+    assert.equal(queued.length, 0, "an over-cap import must queue nothing at all");
+  });
+
+  it("accepts an import of exactly 2000 rows — the cap is inclusive", async () => {
+    const rows = Array.from({ length: 2000 }, (_, i) => `bad token {FOO} ${randomUUID()} row ${i}`);
+    const res = await request(makeApp())
+      .post("/admin/facts/import-csv")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ csv: rows.join("\n") });
+    assert.equal(res.status, 200, "exactly 2000 rows is at the cap, not over it");
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.failed.length, 2000, "all 2000 rows must have been processed, not truncated");
   });
 });
 

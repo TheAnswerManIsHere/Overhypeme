@@ -182,6 +182,72 @@ async function authorConceptForCycle(reviewId: number, candidateVersionId: numbe
   assert.equal(res.status, 200, `authorConceptForCycle: ${JSON.stringify(res.body)}`);
 }
 
+/**
+ * A refresh cycle whose candidate is GENUINELY concept-less, in the stage that
+ * state really occurs in.
+ *
+ * Built entirely through the supported writers (Codex, #567 round 2):
+ *   - `clearOverrides: true` makes `sendFactBackToReview` seed the candidate's
+ *     `visualOverride` as null itself, instead of the test reaching in and
+ *     clearing the column afterwards. Doing it by hand produced a row the normal
+ *     writer cannot produce — `visualOverride` empty while `enrichment` still
+ *     carried the scene — which violates the canonicality invariant this file
+ *     header states, and would have failed a correct refactor that read the
+ *     concept from the effective blob.
+ *   - a scene-less classifier result keeps `enrichment.visualPromptStrategyOverride`
+ *     empty too, so BOTH persisted representations agree.
+ *
+ * Stage: the candidate job leaves a cycle in `concept_review` (Step 2), which is
+ * where a concept-less candidate is actually edited — a fact cannot reach
+ * `production_review` without an approved non-empty concept. `canEditRefreshCandidate`
+ * permits both stages, so a gate enforced only in Step 3 would leave the primary
+ * Visual Concept editor unprotected; these fixtures therefore default to Step 2
+ * and one test pins Step 3 explicitly.
+ */
+async function seedConceptLessRefreshCycle(
+  fact: { id: number },
+  opts: { stage?: "concept_review" | "production_review" } = {},
+): Promise<{ reviewId: number; candidateVersionId: number }> {
+  const { reviewId, candidateVersionId } = await sendFactBackToReview({
+    factId: fact.id,
+    adminId,
+    clearOverrides: true,
+  });
+  const result = await runEnrichmentForCandidateVersion(candidateVersionId, {
+    classify: async () => ({
+      ...REFRESHED_AI_BASELINE,
+      visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE },
+    }) as FactEnrichment,
+  });
+  assert.equal(result.ok, true);
+
+  const stage = opts.stage ?? "concept_review";
+  if (stage !== "concept_review") {
+    await db.update(pendingReviewsTable).set({ workflowStage: stage })
+      .where(eq(pendingReviewsTable.id, reviewId));
+  }
+
+  // Preconditions: the gate's own inputs really are empty, and they AGREE — so a
+  // 400 below can only come from the gate, and the row is one the product can
+  // actually hold.
+  const [seeded] = await db.select({
+    visualOverride: factEnrichmentVersionsTable.visualOverride,
+    enrichment: factEnrichmentVersionsTable.enrichment,
+  }).from(factEnrichmentVersionsTable).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+  assert.ok(
+    !(seeded.visualOverride as { coreSceneOverride?: string } | null)?.coreSceneOverride?.trim(),
+    "precondition: the candidate must have no persisted Visual Concept",
+  );
+  assert.ok(
+    !(seeded.enrichment as FactEnrichment | null)?.visualPromptStrategyOverride?.coreSceneOverride?.trim(),
+    "precondition: enrichment must agree with visualOverride — canonicality holds",
+  );
+  const [rev] = await db.select({ stage: pendingReviewsTable.workflowStage })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+  assert.equal(rev.stage, stage, "precondition: the cycle must sit in the stage under test");
+  return { reviewId, candidateVersionId };
+}
+
 /** The live fact's refresh-protected fields, for byte-identical comparisons. */
 async function factSnapshot(factId: number) {
   const [f] = await db.select({
@@ -528,5 +594,226 @@ describe("candidate override writes", () => {
     const [candidate] = await db.select().from(factEnrichmentVersionsTable)
       .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
     assert.equal(candidate.status, "promoted");
+  });
+});
+
+// ── The blocking Visual Concept gate, on every candidate SAVE path ────────────
+//
+// A moderator save must carry a non-empty Visual Concept. Three separate write
+// paths enforce it — the PATCH gates on the SUBMITTED concept, the PUT and
+// DELETE on the PERSISTED one — and until these ran, none of the three had a
+// prover. The gate is load-bearing in the fixtures above (every write test calls
+// authorConceptForCycle precisely because these endpoints refuse a concept-less
+// candidate), which is exactly how a gate can be relied on everywhere and
+// asserted nowhere.
+//
+// `seedReadyRefreshCycle` deliberately leaves the candidate scene-less, so a
+// cycle that has NOT been through authorConceptForCycle is the blank case.
+describe("candidate saves require a non-empty Visual Concept", () => {
+  // Each refused payload gets its OWN candidate, and persistence is asserted
+  // immediately after its own request — never once at the end of a shared
+  // sequence. (Codex, #567 round 3; David ruled to apply this.)
+  //
+  // The candidate deliberately carries a SAVED concept, authored through the real
+  // PATCH route. That is what makes "persists nothing" falsifiable at all: the
+  // PATCH gate reads the SUBMITTED concept, so the candidate's own state is free,
+  // and starting concept-BEARING means a regression that writes before refusing
+  // visibly destroys a real concept. Starting concept-less — as the shared-candidate
+  // version did — made a refused write indistinguishable from the initial state for
+  // the absent-override payload, and `fact_enrichment_versions` has no `updated_at`
+  // to fall back on, so nothing else would have caught it.
+  //
+  // Stage stays the job-produced `concept_review`: authoring a concept does not
+  // advance the cycle, so this keeps round 2's Step-2 coverage rather than
+  // trading it back for Step 3.
+  const REFUSED_CONCEPT_PAYLOADS: {
+    label: string;
+    build: (effective: FactEnrichment) => Record<string, unknown>;
+  }[] = [
+    {
+      label: "a blank concept",
+      build: (e) => ({ ...e, visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "" } }),
+    },
+    {
+      // Whitespace is not a concept — the gate trims before testing.
+      label: "a whitespace-only concept",
+      build: (e) => ({ ...e, visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "   \n\t  " } }),
+    },
+    {
+      label: "a present-but-empty override scaffold",
+      build: (e) => ({ ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE } }),
+    },
+    {
+      // A distinct branch from the scaffold above: that one is a truthy object, so
+      // a guard regressed to `submittedVso && !submittedVso.coreSceneOverride?.trim()`
+      // would still refuse it while accepting a schema-valid request that omits the
+      // optional property outright. (Codex, #567 round 1.)
+      label: "a genuinely absent override",
+      build: (e) => {
+        const { visualPromptStrategyOverride: _omitted, ...withoutConcept } = e;
+        return withoutConcept;
+      },
+    },
+  ];
+
+  for (const payload of REFUSED_CONCEPT_PAYLOADS) {
+    it(`PATCH refuses ${payload.label}, and that refused save persists nothing`, async () => {
+      const fact = await seedActiveFact();
+      const { reviewId, candidateVersionId } = await seedConceptLessRefreshCycle(fact);
+      const app = makeApp();
+
+      // Author a real concept through the real save path, so there is something
+      // a refused write could destroy.
+      await authorConceptForCycle(reviewId, candidateVersionId);
+
+      const [beforeRow] = await db.select().from(factEnrichmentVersionsTable)
+        .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+      const conceptBefore = (beforeRow.enrichment as FactEnrichment).visualPromptStrategyOverride ?? null;
+      assert.ok(
+        conceptBefore?.coreSceneOverride?.trim(),
+        "precondition: the candidate must hold a real concept for this assertion to have teeth",
+      );
+
+      const resolved = await request(app)
+        .get(`/admin/reviews/${reviewId}/candidate-enrichment-resolved`)
+        .set("authorization", `Bearer ${adminSid}`);
+      const effective = resolved.body.effective as FactEnrichment;
+
+      const res = await request(app)
+        .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({ enrichment: payload.build(effective) });
+      assert.equal(res.status, 400, JSON.stringify(res.body));
+      assert.equal(res.body.error, "visual_concept_required");
+
+      // Immediately, on this payload's own candidate — no later request can mask
+      // a write, and no other payload can restore the state this one changed.
+      const [afterRow] = await db.select().from(factEnrichmentVersionsTable)
+        .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+      const after = afterRow.enrichment as FactEnrichment;
+      assert.deepEqual(
+        after.visualPromptStrategyOverride ?? null,
+        conceptBefore,
+        `a refused save must persist nothing — ${payload.label} must not have replaced the saved concept`,
+      );
+      assert.deepEqual(
+        afterRow.visualOverride,
+        beforeRow.visualOverride,
+        "the canonical visual_override column must be untouched too",
+      );
+    });
+  }
+
+  it("PUT /candidate-overrides refuses a tracked-override write on a concept-less candidate, and writes no override", async () => {
+    const fact = await seedActiveFact();
+    const { reviewId } = await seedConceptLessRefreshCycle(fact);
+    const app = makeApp();
+
+    const res = await request(app)
+      .put(`/admin/reviews/${reviewId}/candidate-overrides`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ path: "/overhypeFit", value: "questionable", reason: "should not land" });
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(res.body.error, "visual_concept_required");
+
+    const resolved = await request(app)
+      .get(`/admin/reviews/${reviewId}/candidate-enrichment-resolved`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(
+      "/overhypeFit" in (resolved.body.overrides as Record<string, unknown>),
+      false,
+      "the refused override must not have been written",
+    );
+  });
+
+  it("DELETE /candidate-overrides refuses a reset on a concept-less candidate — a reset is still a save", async () => {
+    const fact = await seedActiveFact();
+    const { reviewId } = await seedConceptLessRefreshCycle(fact);
+    const app = makeApp();
+
+    // This candidate carries no overrides, and that is not a gap in the fixture:
+    // `clearOverrides: true` is the ONLY supported way to a concept-less
+    // candidate, and it clears the override seed in the same write. A
+    // concept-less candidate that still holds overrides is not a state the
+    // product can reach, so asserting "the reset removed nothing" here would be
+    // comparing {} to {} — true whether or not the gate ran. What IS under test
+    // is that the gate refuses the request at all, on both reset shapes.
+    const resetAll = await request(app)
+      .delete(`/admin/reviews/${reviewId}/candidate-overrides`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(resetAll.status, 400, JSON.stringify(resetAll.body));
+    assert.equal(resetAll.body.error, "visual_concept_required");
+
+    const resetOne = await request(app)
+      .delete(`/admin/reviews/${reviewId}/candidate-overrides?path=/overhypeFit`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(resetOne.status, 400, JSON.stringify(resetOne.body));
+    assert.equal(resetOne.body.error, "visual_concept_required");
+  });
+
+  // Everything above runs in `concept_review` (Step 2), where a concept-less
+  // candidate actually lives. `canEditRefreshCandidate` also permits Step 3, so
+  // this pins the other editable stage: a gate enforced in only one of them
+  // would leave the other's editor unprotected. (Codex, #567 round 2.)
+  it("holds in production_review too, not only in the concept_review stage", async () => {
+    const fact = await seedActiveFact();
+    const { reviewId } = await seedConceptLessRefreshCycle(fact, { stage: "production_review" });
+    const app = makeApp();
+
+    const resolved = await request(app)
+      .get(`/admin/reviews/${reviewId}/candidate-enrichment-resolved`)
+      .set("authorization", `Bearer ${adminSid}`);
+    const effective = resolved.body.effective as FactEnrichment;
+
+    const patch = await request(app)
+      .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ enrichment: { ...effective, visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "" } } });
+    assert.equal(patch.status, 400, JSON.stringify(patch.body));
+    assert.equal(patch.body.error, "visual_concept_required");
+
+    const put = await request(app)
+      .put(`/admin/reviews/${reviewId}/candidate-overrides`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ path: "/overhypeFit", value: "questionable" });
+    assert.equal(put.status, 400, JSON.stringify(put.body));
+    assert.equal(put.body.error, "visual_concept_required");
+
+    const del = await request(app)
+      .delete(`/admin/reviews/${reviewId}/candidate-overrides`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(del.status, 400, JSON.stringify(del.body));
+    assert.equal(del.body.error, "visual_concept_required");
+  });
+
+  // The gate sits AFTER the write-guard and tracked-field checks so it never
+  // shadows them. Without this, moving it to the top of the handler — the
+  // obvious "fail fast" refactor — would still pass every assertion above while
+  // silently changing which error a moderator sees.
+  it("does not shadow the tracked-field check: a tracked change on a concept-less candidate reports the tracked field", async () => {
+    const fact = await seedActiveFact();
+    const { reviewId } = await seedConceptLessRefreshCycle(fact);
+    const app = makeApp();
+
+    const resolved = await request(app)
+      .get(`/admin/reviews/${reviewId}/candidate-enrichment-resolved`)
+      .set("authorization", `Bearer ${adminSid}`);
+    const effective = resolved.body.effective as FactEnrichment;
+
+    const res = await request(app)
+      .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({
+        enrichment: {
+          ...effective,
+          overhypeFit: "questionable",
+          visualPromptStrategyOverride: { ...VSO_FIXTURE, coreSceneOverride: "" },
+        },
+      });
+    assert.equal(res.status, 400);
+    assert.ok(
+      Array.isArray(res.body.trackedPaths) && res.body.trackedPaths.includes("/overhypeFit"),
+      `tracked-field check must win over the concept gate, got: ${JSON.stringify(res.body)}`,
+    );
   });
 });
