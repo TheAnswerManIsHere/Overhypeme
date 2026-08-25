@@ -5,9 +5,6 @@ const baseURL = process.env["E2E_BASE_URL"]
 
 export default defineConfig({
   testDir: "./e2e",
-  // Playwright's default testMatch takes *.test.ts too, which would collect the
-  // vitest unit tests that live beside these specs. Specs only.
-  testMatch: "**/*.spec.ts",
   timeout: 120_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
