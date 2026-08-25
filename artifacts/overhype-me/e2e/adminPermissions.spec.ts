@@ -10,7 +10,8 @@
  * photo upload through object storage — and stay manual.
  *
  * Covered here:
- *   - steps 6, 7  — Exit Admin leaves admin mode, and the way back stays visible
+ *   - steps 6, 7  — Exit Admin leaves admin mode, drops the Admin row's
+ *                   entitlements, and leaves the way back visible
  *   - step  8     — /admin while previewing explains itself instead of refusing
  *   - step  9     — Resume admin restores the console
  *   - steps 1-3   — the Admin grid row grants a capability the account's own
@@ -22,10 +23,11 @@
  *     object storage. This file proves the same MECHANISM on a different
  *     feature key (`fact_submit_captcha_bypass`); `custom_avatar`'s own wiring
  *     is not covered here.
- *   - Step 6's "the site reloads as a registered user would see it" is only
- *     covered for the admin console (step 8's test). There is no admin
- *     affordance in the site chrome to assert against, and the Legendary-feature
- *     half is steps 10/12, which need a fact and a photo.
+ *   - Step 6 says "the site reloads as a registered user would see it". What is
+ *     asserted is that the resolver's answer for this session becomes the
+ *     non-admin answer AND that one gated product surface (`/submit`) follows.
+ *     That is the substance of the step, but it is not every surface: the
+ *     Legendary-feature half is steps 10/12, which need a fact and a photo.
  *   - Steps 22/23's downstream refusal (video generation) needs the builder;
  *     and their real bug was re-seeding on server RESTART, which a browser
  *     cannot exercise at all.
@@ -38,9 +40,13 @@
  *      on the first poll. The four visibility assertions were falsified by
  *      breaking their locators instead, which is the product failure they
  *      actually guard: the affordance is missing from the page.
- *   2. No assertion depends on database state. Where a grid value matters the
- *      test SETS it first rather than assuming the migration's default, so a
- *      dev stack with a previously-toggled grid does not fail this closed.
+ *   2. No assertion depends on database state it did not establish. Every grid
+ *      value this file reads is SET by the test first, and restored afterwards
+ *      to the value the test found — never to a hardcoded default, which would
+ *      silently enable a permission an operator had deliberately turned off.
+ *      The two account-row facts the file cannot set (the stored tier and
+ *      `captchaVerified`) are asserted as explicit, self-explaining
+ *      preconditions rather than assumed. See `establishGridPremise`.
  */
 
 import { expect, test, type Page } from "@playwright/test";
@@ -52,8 +58,18 @@ import { expect, test, type Page } from "@playwright/test";
  */
 const FEATURE = "fact_submit_captcha_bypass";
 
-/** The seeded admin's STORED tier — the whole point is that it is not `admin`. */
-const STORED_TIER = "registered";
+/** Its `displayName` in the grid, which is what the cell's `title` is built from. */
+const FEATURE_LABEL = "Skip Captcha on Fact Submission";
+
+/** One grid cell as this test found it, so `afterEach` can put it back. */
+interface CapturedCell {
+  tier: string;
+  featureKey: string;
+  enabled: boolean;
+}
+
+/** Reset per test by the beforeEach below; drained by the afterEach. */
+let captured: CapturedCell[] = [];
 
 async function loginAsAdmin(page: Page) {
   const login = await page.context().request.post("/api/auth/dev-admin-login");
@@ -67,17 +83,76 @@ async function csrfToken(page: Page): Promise<string> {
   return cookie!.value;
 }
 
+/** The whole grid, keyed `tier:featureKey`. */
+async function readGrid(page: Page): Promise<Map<string, boolean>> {
+  const res = await page.context().request.get("/api/admin/feature-flags");
+  expect(res.ok(), `GET feature-flags should be 200, got ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { permissions: CapturedCell[] };
+  return new Map(body.permissions.map((p) => [`${p.tier}:${p.featureKey}`, p.enabled]));
+}
+
 /**
- * Sets one grid cell through the same route the admin console uses. Used to
- * ESTABLISH preconditions and to restore afterwards — never to stand in for the
- * UI click that the test itself is about.
+ * Sets one grid cell through the same route the admin console uses, recording
+ * what it found the FIRST time it touches that cell so the afterEach can put
+ * exactly that back.
+ *
+ * Restoring to a captured value rather than to `true` is the point: `TESTING.md`
+ * tells developers to run this suite against a retained stack, where a
+ * permission may be off deliberately. Unconditionally re-enabling it there
+ * would change a live operational permission and leave a misleading audit row.
+ * (Codex, #570 round 1.)
  */
 async function setGridCell(page: Page, tier: string, featureKey: string, enabled: boolean) {
+  const key = `${tier}:${featureKey}`;
+  if (!captured.some((c) => `${c.tier}:${c.featureKey}` === key)) {
+    const before = (await readGrid(page)).get(key);
+    expect(before, `the grid should have a ${key} row to restore`).toBeDefined();
+    captured.push({ tier, featureKey, enabled: before! });
+  }
   const res = await page.context().request.patch("/api/admin/feature-flags", {
     headers: { "X-CSRF-Token": await csrfToken(page) },
     data: { tier, featureKey, enabled },
   });
-  expect(res.ok(), `PATCH feature-flags ${featureKey}/${tier}=${enabled} -> ${res.status()}`).toBe(true);
+  expect(res.ok(), `PATCH feature-flags ${key}=${enabled} -> ${res.status()}`).toBe(true);
+}
+
+/**
+ * Establishes, by construction, the premise both entitlement tests rest on:
+ * this account's OWN tier does not grant `FEATURE`, and the Admin row does.
+ * Without it, an entitlement being granted would not distinguish "granted by
+ * the Admin row" from "granted by the tier", and the tests would prove nothing
+ * about the column at all.
+ *
+ * The account's stored tier is read rather than assumed to be `registered`: on
+ * a retained stack `seed-dev-admin.ts` is a no-op for an existing bootstrap
+ * admin, whose tier may be anything. (Codex, #570 round 1.)
+ *
+ * Returns the stored tier so callers can name it in failure messages.
+ */
+async function establishGridPremise(page: Page): Promise<string> {
+  const state = await readAuthState(page);
+
+  // If the account's stored tier were literally `admin`, "the Admin row grants
+  // what the tier does not" is not a distinction this account can demonstrate,
+  // and no arrangement of the grid would make it one.
+  expect(
+    state.membershipTier,
+    "this suite needs a bootstrap admin whose STORED tier is not itself `admin`",
+  ).not.toBe("admin");
+
+  // `/submit` hides its captcha gate when EITHER the entitlement or the
+  // account's own onboarding flag says so (`SubmitFact.tsx:69`), so the DOM
+  // half of these tests can only observe the entitlement while this is false.
+  // Asserted rather than assumed, so a retained stack fails with this sentence
+  // instead of with a confusing count mismatch.
+  expect(
+    state.captchaVerified,
+    "this suite needs an admin that has NOT completed captcha onboarding, or the /submit gate cannot observe the entitlement",
+  ).toBe(false);
+
+  await setGridCell(page, state.membershipTier, FEATURE, false);
+  await setGridCell(page, "admin", FEATURE, true);
+  return state.membershipTier;
 }
 
 /**
@@ -103,19 +178,38 @@ function consoleRail(page: Page) {
 }
 
 test.describe("Admin · permissions core", () => {
-  test.beforeEach(async ({ page }) => loginAsAdmin(page));
+  test.beforeEach(async ({ page }) => {
+    captured = [];
+    await loginAsAdmin(page);
+  });
 
-  // PR425 steps 6 and 7. Both directions in one test on purpose: a page that
-  // rendered BOTH buttons, or neither, is the failure these two steps exist to
-  // catch, and either would satisfy a one-sided check.
-  test("Exit Admin leaves admin mode, and the way back is always visible", async ({ page }) => {
+  /**
+   * PR425 steps 6 and 7.
+   *
+   * The button flip is asserted in both directions on purpose: a page that
+   * rendered BOTH controls, or neither, is the failure these two steps exist to
+   * catch, and either would satisfy a one-sided check.
+   *
+   * But the flip alone is presentation. Step 6 promises the SITE changes, and a
+   * regression where preview swapped the buttons while the resolver kept
+   * applying the Admin row would have passed a button-only test. So this also
+   * asserts a real product entitlement is withdrawn in the same preview
+   * session — at the resolver, and on a gated product surface. (Codex, #570
+   * round 1.)
+   */
+  test("Exit Admin drops the Admin row's entitlements, and leaves a way back", async ({ page }) => {
+    const storedTier = await establishGridPremise(page);
+
     await page.goto("/profile", { waitUntil: "domcontentloaded" });
-
     const exit = page.getByRole("button", { name: /Exit Admin/i });
     const resume = page.getByRole("button", { name: /Resume Admin/i });
 
     await expect(exit, "an admin in admin mode should be offered the way out").toBeVisible({ timeout: 30_000 });
     await expect(resume, "...and not simultaneously the way back in").toHaveCount(0);
+    expect(
+      (await readAuthState(page)).allowed,
+      `in admin mode the Admin row should grant ${FEATURE}, which tier "${storedTier}" does not`,
+    ).toBe(true);
 
     await exit.click();
 
@@ -124,6 +218,18 @@ test.describe("Admin · permissions core", () => {
     // that the way out stopped rendering.
     await expect(resume, "leaving admin mode must leave a way back").toBeVisible({ timeout: 30_000 });
     await expect(exit, "...and the way out should be gone").toHaveCount(0);
+
+    // Step 6's substance. The resolver half...
+    expect(
+      (await readAuthState(page)).allowed,
+      "previewing as a user must actually withdraw the Admin row's entitlements, not just relabel the button",
+    ).toBe(false);
+
+    // ...and the product half, on a surface a user would actually meet.
+    await expect(
+      await captchaGate(page),
+      "a previewing admin should meet the same submission gate a registered member meets",
+    ).toHaveCount(1);
   });
 
   // PR425 step 8 — and step 11, which asks the same question of the same
@@ -184,25 +290,17 @@ test.describe("Admin · permissions core", () => {
    * PR425 steps 1, 2 and 3 — the headline. Before this PR the Admin column
    * rendered and nothing read it.
    *
-   * The account's stored tier is `registered`, for which this feature is OFF,
-   * so a granted capability can only have come from the Admin row. That premise
-   * is asserted rather than assumed: without it, the captcha being hidden would
-   * not distinguish "granted by the Admin row" from "granted by the tier", and
-   * the test would prove nothing about the column at all.
-   *
    * The revoke and the restore are done by CLICKING the Features screen, which
    * is the other half of the PR ("the Features screen is now real"). Only the
-   * initial precondition is set through the API.
+   * premise is set through the API.
    */
   test("the Admin grid row grants a capability the account's own tier does not", async ({ page }) => {
-    await expandFeatureGrid(page);
-    await setGridCell(page, "admin", FEATURE, true);
+    const storedTier = await establishGridPremise(page);
 
-    // Premise, checked in the browser: stored tier is `registered`, and the
-    // capability is nonetheless granted.
-    const before = await readAuthState(page);
-    expect(before.membershipTier, "the seeded admin's STORED tier").toBe(STORED_TIER);
-    expect(before.allowed, `${FEATURE} should be granted via the Admin row`).toBe(true);
+    expect(
+      (await readAuthState(page)).allowed,
+      `${FEATURE} should be granted via the Admin row, since tier "${storedTier}" is set off`,
+    ).toBe(true);
 
     // Step 1 — the capability is real on the gated surface.
     await expect(await captchaGate(page), "an entitled account should not be gated").toHaveCount(0);
@@ -248,13 +346,49 @@ test.describe("Admin · permissions core", () => {
     ).toHaveCount(0);
   });
 
-  // Leaves the grid as this file found it even if a test above failed part-way.
-  // The grid is shared mutable state; a dirty cell would fail the NEXT run
-  // closed, which is exactly the class of flake #563 round 7 removed.
+  // Puts every cell this test touched back to the value it found, even if the
+  // test failed part-way. The grid is shared mutable state; a dirty cell would
+  // fail the NEXT run closed, which is the class of flake #563 round 7 removed.
   test.afterEach(async ({ page }) => {
-    await setGridCell(page, "admin", FEATURE, true).catch(() => {});
+    for (const cell of captured.reverse()) {
+      await page.context().request
+        .patch("/api/admin/feature-flags", {
+          headers: { "X-CSRF-Token": await csrfToken(page) },
+          data: { tier: cell.tier, featureKey: cell.featureKey, enabled: cell.enabled },
+        })
+        .catch(() => {});
+    }
+    captured = [];
   });
 });
+
+/** The `/submit` captcha gate — visible only when the account lacks the bypass. */
+async function captchaGate(page: Page) {
+  await page.goto("/submit", { waitUntil: "domcontentloaded" });
+  // Gate on the form itself before counting, so an unrendered page cannot read
+  // as "no captcha gate".
+  await expect(page.getByRole("heading", { name: /Submit a fact/i })).toBeVisible({ timeout: 30_000 });
+  return page.getByText("Quick Verification");
+}
+
+/** What the server currently believes about this session, read from the page. */
+async function readAuthState(
+  page: Page,
+): Promise<{ membershipTier: string; captchaVerified: boolean; allowed: boolean }> {
+  // The relative URL below needs a document on the app's origin to resolve
+  // against; a helper called before the first navigation would otherwise fail
+  // on about:blank rather than on anything to do with the assertion.
+  if (!page.url().startsWith("http")) await page.goto("/", { waitUntil: "domcontentloaded" });
+  return page.evaluate(async (feature) => {
+    const res = await fetch("/api/auth/user", { credentials: "include" });
+    const body = await res.json();
+    return {
+      membershipTier: body.user?.membershipTier,
+      captchaVerified: body.user?.captchaVerified === true,
+      allowed: body.entitlements?.[feature]?.allowed === true,
+    };
+  }, FEATURE);
+}
 
 /**
  * Makes the Feature Permission Grid render expanded on every subsequent load.
@@ -273,31 +407,6 @@ async function expandFeatureGrid(page: Page) {
   });
 }
 
-/** The `/submit` captcha gate — visible only when the account lacks the bypass. */
-async function captchaGate(page: Page) {
-  await page.goto("/submit", { waitUntil: "domcontentloaded" });
-  // Gate on the form itself before counting, so an unrendered page cannot read
-  // as "no captcha gate".
-  await expect(page.getByRole("heading", { name: /Submit a fact/i })).toBeVisible({ timeout: 30_000 });
-  return page.getByText("Quick Verification");
-}
-
-/** What the server currently believes about this session, read from the page. */
-async function readAuthState(page: Page): Promise<{ membershipTier: string; allowed: boolean }> {
-  // The relative URL below needs a document on the app's origin to resolve
-  // against; a helper called before the first navigation would otherwise fail
-  // on about:blank rather than on anything to do with the assertion.
-  if (!page.url().startsWith("http")) await page.goto("/", { waitUntil: "domcontentloaded" });
-  return page.evaluate(async (feature) => {
-    const res = await fetch("/api/auth/user", { credentials: "include" });
-    const body = await res.json();
-    return {
-      membershipTier: body.user?.membershipTier,
-      allowed: body.entitlements?.[feature]?.allowed === true,
-    };
-  }, FEATURE);
-}
-
 /**
  * Clicks one cell of the Feature Permission Grid for the Admin column.
  * `intent` is the action the cell currently offers, which is also how the grid
@@ -305,30 +414,40 @@ async function readAuthState(page: Page): Promise<{ membershipTier: string; allo
  * currently ON and turns it off.
  */
 async function toggleGridCellInUi(page: Page, intent: "enable" | "disable") {
+  await expandFeatureGrid(page);
   await page.goto("/admin/features", { waitUntil: "domcontentloaded" });
 
-  // The grid must be expanded before any cell exists. Toggling it by clicking
-  // the section header is a race — `count()` does not retry, so a check that
-  // runs before the fetch resolves reads "collapsed" and the click CLOSES an
-  // already-open grid. `expandFeatureGrid` seeds the CollapsibleSection's
-  // localStorage key instead, which it reads once at mount, so the section is
-  // open on arrival every time.
   const label = intent === "disable" ? "Disable" : "Enable";
   const cell = page
-    .locator(`button[title="${label} Skip Captcha on Fact Submission for Admin"]`)
+    .locator(`button[title="${label} ${FEATURE_LABEL} for Admin"]`)
     .filter({ visible: true });
 
   // Exactly one INTERACTIVE cell per feature/tier. The page renders a desktop
   // table and a mobile card stack from the same data, so both carry the title —
   // an unfiltered locator matches two and a `.first()` would quietly pick one.
   await expect(cell, `exactly one visible "${label}" cell for the Admin column`).toHaveCount(1);
-  await cell.click();
 
-  // The write is optimistic in the UI; wait for the cell to actually flip to the
-  // opposite affordance so a failed PATCH cannot be mistaken for a success.
+  // `toggle()` sets the new value in React state BEFORE awaiting its PATCH
+  // (features.tsx:99), so the title flips optimistically and a title-only wait
+  // is satisfied while the write is still in flight — navigating then races or
+  // aborts it. Wait for the response itself. (Codex, #570 round 1.)
+  const patched = page.waitForResponse(
+    (r) => r.url().includes("/api/admin/feature-flags") && r.request().method() === "PATCH",
+    { timeout: 30_000 },
+  );
+  await cell.click();
+  const response = await patched;
+  expect(response.status(), `the grid write should succeed, got ${response.status()}`).toBe(200);
+
+  // And for the cell to leave its `saving` state, which is what re-enables the
+  // button — so the UI has observed the same success, not just the network.
   const flipped = intent === "disable" ? "Enable" : "Disable";
+  const after = page
+    .locator(`button[title="${flipped} ${FEATURE_LABEL} for Admin"]`)
+    .filter({ visible: true });
   await expect(
-    page.locator(`button[title="${flipped} Skip Captcha on Fact Submission for Admin"]`).filter({ visible: true }),
+    after,
     "the cell should flip to the opposite affordance once the write lands",
   ).toHaveCount(1, { timeout: 30_000 });
+  await expect(after, "and should not still be saving").toBeEnabled({ timeout: 30_000 });
 }
