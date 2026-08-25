@@ -1,0 +1,6 @@
+{
+  "pr": 563,
+  "kind": "david",
+  "grant": 1,
+  "authorization": "Option 1 -- authorise round 8, with a stopping rule: unless round 8 finds something actually wrong in CI, we ship regardless of what it says"
+}

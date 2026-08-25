@@ -135,13 +135,18 @@ test.describe("Admin · Queue Health", () => {
       ).toHaveCount(1);
     }
 
-    // The "including ones that have never run" half of the name (PR288 step 6),
-    // which nothing checked: a never-run queue is one whose counters are all
-    // zero, and it must still be rendered rather than filtered out as empty.
-    await expect(
-      rows.filter({ hasText: /0 queued · 0 working · 0 done · 0 failed · 24h: 0 done \/ 0 failed/ }),
-      "a queue that has never run should still be listed",
-    ).not.toHaveCount(0);
+    // PR288 step 6 -- "including ones that have never run" -- is carried by the
+    // inventory assertion above, not by a separate check. A page that derived
+    // its rows from the jobs table rather than the registry would OMIT a queue
+    // that has never run, and both the named row and the count of exactly
+    // eleven would fail. So step 6 is already encoded.
+    //
+    // An earlier version of this test asserted a row with all-zero counters
+    // directly. That added no coverage and one false-failure mode: it fails
+    // CLOSED on any stack with retained jobs -- which TESTING.md:158-169
+    // explicitly tells developers to run this suite against -- and it
+    // contradicted this file's own header rule about not depending on other
+    // tests' leavings. (Codex, #563 round 7.)
   });
 
   // PR288 R5 has route-level auth tests; this is the UI half — the console
