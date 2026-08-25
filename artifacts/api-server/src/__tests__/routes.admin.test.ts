@@ -107,6 +107,31 @@ async function createTestFact(
   return fact!.id;
 }
 
+/**
+ * A fact in the state the activation guard actually meets: one that WAS live and
+ * has been deactivated, so it still carries the Visual Concept it was activated
+ * with. `createTestFact({ isActive: false })` omits enrichment entirely, which is
+ * a different row — a guard that rejected only CONCEPT-LESS inactive facts would
+ * satisfy that fixture while letting an ordinary deactivated fact walk straight
+ * back into production. (Codex, #567 round 2.)
+ *
+ * Deactivating after insert is exactly what the product does; the Phase 2 CHECK
+ * constrains active rows only, so the concept survives the flip.
+ */
+async function createDeactivatedFact(text: string): Promise<number> {
+  const id = await createTestFact(text);
+  await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, id));
+  const [row] = await db.select({ isActive: factsTable.isActive, enrichment: factsTable.enrichment })
+    .from(factsTable).where(eq(factsTable.id, id));
+  assert.equal(row.isActive, false, "precondition: the fact must be deactivated");
+  assert.ok(
+    (row.enrichment as { visualPromptStrategyOverride?: { coreSceneOverride?: string } } | null)
+      ?.visualPromptStrategyOverride?.coreSceneOverride?.trim(),
+    "precondition: a deactivated fact must RETAIN its Visual Concept, or this fixture is not the real state",
+  );
+  return id;
+}
+
 // ── Shared test state ─────────────────────────────────────────────────────────
 
 let adminSid: string;
@@ -688,7 +713,7 @@ describe("PATCH /admin/facts/:id", () => {
   // regression would silently let a deactivated fact go live around moderation,
   // which is precisely the failure nothing would have noticed before these.
   it("rejects flipping an INACTIVE fact to active — activation is moderation-only", async () => {
-    const inactiveFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} deactivated, wants back live`, { isActive: false });
+    const inactiveFact = await createDeactivatedFact(`${FACT_PREFIX}${randomUUID()} deactivated, wants back live`);
     const res = await request(makeApp())
       .patch(`/admin/facts/${inactiveFact}`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -704,7 +729,7 @@ describe("PATCH /admin/facts/:id", () => {
   // than the isActive field alone. Without this, a guard that dropped isActive
   // and carried on would still pass the assertion above.
   it("rejects the whole request — a field sent alongside the activation attempt is not written either", async () => {
-    const inactiveFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} activation with a passenger field`, { isActive: false });
+    const inactiveFact = await createDeactivatedFact(`${FACT_PREFIX}${randomUUID()} activation with a passenger field`);
     const res = await request(makeApp())
       .patch(`/admin/facts/${inactiveFact}`)
       .set("authorization", `Bearer ${adminSid}`)
@@ -723,7 +748,7 @@ describe("PATCH /admin/facts/:id", () => {
   // there.
   it("rejects flipping an INACTIVE fact to active when text is also present (text-edit path)", async () => {
     const original = `${FACT_PREFIX}${randomUUID()} inactive, activation via text path`;
-    const inactiveFact = await createTestFact(original, { isActive: false });
+    const inactiveFact = await createDeactivatedFact(original);
     const res = await request(makeApp())
       .patch(`/admin/facts/${inactiveFact}`)
       .set("authorization", `Bearer ${adminSid}`)
