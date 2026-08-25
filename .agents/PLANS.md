@@ -40,6 +40,23 @@ scope call to judgment/escalation, exactly as the class-sweep protocol does
 at fix time. What is not acceptable is running a nominal search that does not
 find every instance and then claiming inventory-backed scope.
 
+**Then, for every sentence claiming a set is complete, a behavior inert, or a
+state unreachable, apply the claim-oracle rule** —
+[`working-modes.md`](../docs/ai-context/working-modes.md#a-completeness-claim-carries-its-oracle-or-it-is-not-a-claim-david-2026-08-25):
+*where is this enforced?* Two answers satisfy it. An **oracle** — executed
+against this revision, its real output recorded, and the plan stating how that
+output maps to the claim; naming a search is not running one, and an output a
+careful reader could sort two ways establishes nothing. Or a **construct** —
+a predicate, type, schema constraint, or runtime refusal *in the shipped
+system*; a table row in the plan is prose in a grid, not a construct. Anything
+else ⇒ add the construct or write the property as an open uncertainty rather
+than a Settled Decision. "Unsupported by convention" is not "unreachable by
+construction" — say which one you have. Naming the mechanism in a clause
+satisfies this without specifying it, which is what keeps it clear of the
+specification test below. **A test is not a construct** — it detects rather
+than prevents, so a property backed only by a future test is written as
+*checked*, never as *cannot*.
+
 **Then, for every line you write below, apply the specification test** —
 [`working-modes.md`](../docs/ai-context/working-modes.md#a-plan-specifies-invariants-not-implementation-david-2026-08-12):
 *if the plan never mentioned this, what would catch it?* Compiler, test

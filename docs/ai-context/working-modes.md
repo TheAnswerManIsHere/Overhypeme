@@ -307,6 +307,111 @@ Naming a field a mode does not have is not a wording slip: it leaves the
 exception unrecordable, or drags the fix into a ceremony that mode exists to
 skip. Both failures shipped in this section's first two drafts.
 
+### A completeness claim carries its oracle, or it is not a claim (David, 2026-08-25)
+
+**A plan may assert that a set is complete, that a behavior is inert, or that a
+state is unreachable only when one of two things holds: a mechanical oracle
+enumerates the class, or a construct in the design enforces the property.
+Prose is neither.** Where neither is available, the property is written as an
+open uncertainty and does not become a Settled Decision.
+
+This is the affected-surface inventory's rule generalised past inventories. The
+inventory section already requires a mechanical oracle for a *pattern being
+changed*; this extends the same requirement to every load-bearing property a
+plan states about the world — because those are what a reviewer, and later an
+implementer, take as given without re-deriving.
+
+**The evidence is PR #568, which produced the same failure three rounds
+running** — and the third instance is why this is a rule rather than a note:
+
+| Claim | Basis | Outcome |
+| --- | --- | --- |
+| "The credential class has exactly one member" | asserted from a search whose output was mis-read | wrong — three members |
+| "The sync surface is four methods" | asserted from call sites | wrong — twelve, via an interface satisfied by assignment rather than by an explicit call |
+| "The fake is CI-only" / "the toggle is inert under fake" | asserted in prose, enforced nowhere | wrong — the design permitted exactly what the document forbade |
+
+The plan had already *recorded* the round-1 lesson in its own text — "an
+inventory whose class definition requires a judgment call at classification
+time is not mechanical" — and then made two further unbacked claims on the same
+page. **Writing a lesson down is not a control.** A rule that only fires when
+recalled will not fire; this one fires against an artifact, at the moment a
+sentence claiming completeness is written.
+
+**The operational test, applied to any such sentence: *where is this
+enforced?*** A satisfying answer points at one of exactly two things, and both
+have a failure mode the rule has to name, because the plan that prompted this
+rule hit both.
+
+**An oracle — run, recorded, and reconciled.** *Naming* a search is not
+carrying one. The first row of the table above had an oracle: it was run, and
+its output was misread, because the class it searched for still needed a human
+judgment to sort the results. So the requirement is three things, not one: the
+oracle is **executed against the revision under review**, its **actual output
+is recorded** in the plan, and the plan **states how that output maps to the
+claim** — which hits it counts, which it excludes, and why the partition needs
+no interpretation. An oracle whose results a careful reader could sort two
+different ways has not established anything.
+
+**A construct — in the implementation, not in the plan.** A construct is a
+predicate, a type, a schema constraint, or a runtime refusal that will exist in
+the shipped system and make the violation impossible. **A table in a plan is
+not a construct.** That distinction is the whole third row of the table above:
+revision 2 of the Stripe plan carried a resolution table whose row read
+`| fake | Fake driver |`, and "the fake is CI-only" was true nowhere except in
+the surrounding prose. A table earns the claim only when each row names the
+concrete mechanism that enforces it — and then the row is judged by that
+mechanism, never by being tabular. Formatting is not enforcement.
+
+An unsatisfying answer points at another sentence in the plan. If the answer is
+a sentence, either add the construct or downgrade the claim.
+
+**This rule does not license implementation detail in a plan, and does not
+collide with the specification test below.** The two govern different
+questions. The specification test governs *what a plan says*: leave out
+anything the compiler, the test suite, or diff review would catch. This rule
+governs *whether a property may be stated as settled at all*. Satisfying it
+takes one clause naming the mechanism — "refused at boot when the mirror is
+non-empty" — not the code that implements it. A plan that starts describing the
+assertion has stopped satisfying this rule and started violating the other one.
+
+**But "a check enforces it" is not a free pass, and a test is not a construct.**
+A construct *prevents* the state; a test *detects* it, after the fact and only
+if someone writes it. So a claim whose only backing is a future test is not
+settled by naming that test — it is written as **checked**, not as *cannot*,
+and the plan says which it has. The difference is not pedantry: "the fake
+cannot reach a real database" and "a test would catch the fake reaching a real
+database" license completely different downstream reasoning, and it was the
+first that this repo's Stripe plan kept asserting on the strength of the second.
+
+The two paths therefore answer different questions, and neither substitutes for
+the other:
+
+- **The oracle path is for claims about what the repository contains today** —
+  and must be run today, with the output recorded and mapped. A search that
+  will be run later establishes nothing now.
+- **The construct path is for claims about the system being built** — and the
+  named mechanism must be one that makes the violation impossible when it
+  exists: a predicate, a type, a schema constraint, a runtime refusal. A guard
+  that fails the build qualifies for claims about repository contents, because
+  it stops the violating state from landing; it says nothing about runtime.
+
+Everything else — a test, a review step, a convention, a comment asking future
+editors to be careful — supports "we would find out", never "it cannot happen".
+
+**"Unsupported by convention" is not "unreachable by construction," and the gap
+between them is where these defects live.** A property that holds only because
+nobody has yet set the variable, run the command, or clicked the toggle is a
+habit, not an invariant, and a plan that calls it an invariant has mis-stated
+its own safety. When the distinction is genuinely load-bearing — a safety
+property, a security boundary — say which of the two you have.
+
+**Why this is cheap to comply with.** Most completeness claims in a plan are
+not load-bearing and can simply be dropped to ordinary description. The rule
+bites only on the ones a reviewer would rely on, which is precisely the set
+worth the cost of an oracle. And an oracle written at plan time costs seconds;
+the same gap found at review time costs a round, and found after merge costs
+whatever the property was protecting.
+
 ### A plan specifies invariants, not implementation (David, 2026-08-12)
 
 **The test, applied to any line you are about to write into a plan: if the
