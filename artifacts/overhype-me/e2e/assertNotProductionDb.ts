@@ -34,6 +34,15 @@
  * is a numeric address that cannot be matched against name markers, the second
  * names a target in an external file this cannot read. (Codex, #563 round 2.)
  *
+ * Every comparison is case-insensitive, on both sides. Hostnames are
+ * case-insensitive by definition, so `EP-Z.NEON.TECH` resolves to the same
+ * server as `ep-z.neon.tech` and must refuse identically. Database names are
+ * NOT case-insensitive in PostgreSQL, so folding them is a deliberate
+ * over-refusal: it can only ever refuse more, never less, and a guard that
+ * waves through `NEONDB` because of its casing is worthless. The configured
+ * markers are folded too, so a mixed-case TEST_DB_PROTECTED_NAMES entry
+ * behaves like a lowercase one. (Codex, #563 round 3.)
+ *
  * Consequence worth stating: the legacy Replit fallback these specs used to be
  * pinned to targets `heliumdb`, which IS protected — so that path now refuses
  * too. That is the guard working rather than a regression. On Replit, point
@@ -83,16 +92,21 @@ export function productionDbRefusal(
   }
   if (!name) return "no database name in DATABASE_URL — refusing to proceed.";
 
+  // Folded once, here, so no comparison below can forget to. The originals are
+  // kept for the messages, which should echo what the operator actually typed.
+  const foldedName = name.toLowerCase();
+  const foldedHost = host.toLowerCase();
+
   for (const p of [...PROTECTED_NAMES, ...split(env["TEST_DB_PROTECTED_NAMES"])]) {
-    if (name === p) {
+    if (foldedName === p.toLowerCase()) {
       return `database "${name}" is a protected live database (heliumdb=dev, neondb=production) — refusing. Point DATABASE_URL at the test database instead.`;
     }
   }
-  if (name.includes("prod")) {
+  if (foldedName.includes("prod")) {
     return `database name "${name}" looks like production (contains "prod") — refusing.`;
   }
   for (const p of [...PROTECTED_HOSTS, ...split(env["TEST_DB_PROTECTED_HOSTS"])]) {
-    if (host.includes(p)) {
+    if (foldedHost.includes(p.toLowerCase())) {
       return `host "${host}" matches a protected marker ("${p}") — refusing.`;
     }
   }

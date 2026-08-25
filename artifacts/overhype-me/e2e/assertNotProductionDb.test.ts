@@ -28,6 +28,15 @@ const REFUSE: Array<[string, string | undefined, NodeJS.ProcessEnv?]> = [
   ["?hostaddr=, which cannot be matched by name", "postgres://u:p@localhost/overhype_test?hostaddr=1.2.3.4"],
   ["?service=, resolved from a file we cannot read", "postgres://u:p@localhost/overhype_test?service=prod"],
   ["a repeated ?dbname=, where libpq takes the last", "postgres://u:p@localhost/x?dbname=overhype_test&dbname=neondb"],
+  // Casing: hostnames are case-insensitive by definition, and a guard that
+  // waves through NEONDB on spelling alone is worthless. (Codex, #563 round 3.)
+  ["an uppercase Neon host in the query", "postgresql://u:p@localhost/overhype_test?host=EP-Z.NEON.TECH"],
+  ["an uppercase Neon host in the authority", "postgresql://u:p@EP-Z.NEON.TECH/overhype_test"],
+  ["a mixed-case Neon host", "postgresql://u:p@Ep-Z.Neon.Tech/overhype_test"],
+  ["an uppercase protected name", "postgres://u:p@h/NEONDB"],
+  ["a mixed-case protected name", "postgres://u:p@h/HeliumDb"],
+  ["a mixed-case prod substring", "postgres://u:p@h/App_PROD_db"],
+  ["an uppercase name via ?dbname=", "postgres://u:p@localhost/overhype_test?dbname=NeonDB"],
 ];
 
 const ALLOW: Array<[string, string]> = [
@@ -36,6 +45,9 @@ const ALLOW: Array<[string, string]> = [
   ["a per-worker clone", "postgres://u:p@helium/heliumdb_w_3"],
   ["a test database with sslmode", "postgres://u:p@localhost/overhype_test?sslmode=require"],
   ["?dbname= redirecting TO the test database", "postgres://u:p@localhost/whatever?dbname=overhype_test"],
+  // Folding must not start refusing legitimate targets: an uppercase test
+  // database is still a test database.
+  ["an uppercase test database name", "postgres://u:p@localhost/OVERHYPE_TEST"],
 ];
 
 describe("productionDbRefusal", () => {
