@@ -4,6 +4,15 @@
 **Ceremony:** feature mode, full ceremony + payments specialist review.
 **Criticality:** 75 — product code in the payment path, shipped to production.
 
+> **Revision 4, after round 3 returned three findings.** From round 3 the write-gate
+> rule applies: the findings went to the external adjudicator **before** anything was
+> written for them, and its verdict was *continue* with no budget extension. All three
+> are upheld. The largest is that revision 3's disposability construct proved the wrong
+> property — an **empty** database is not a **disposable** one, and the check contradicted
+> itself across restarts. Ownership replaces emptiness. Two further corrections: the
+> refusal is placed where it can actually stop the process, and the live-API door gets a
+> real end-to-end check, reversing a decline I made in round 1 on evidence I did not have.
+>
 > **Revision 3, after round 2 returned three findings and the loop stopped a second
 > time — on the flip condition reserved for a third incomplete class.** David's answer
 > was to change the rule rather than patch the instance: `working-modes.md` now carries
@@ -90,20 +99,33 @@ proves itself by wiring one existing, already-complete suite.
    claimed was unreachable. **Two conditions now gate the fake, and both are checked at
    boot:**
 
-   - **An explicit declaration.** The environment must separately declare its database
-     disposable — a second variable, not inferred from a database name, a hostname, or a
-     `CI` flag. Naming is implementation; the invariant is that the declaration is a
-     positive statement the environment makes, never something the code guesses.
-   - **A verification that cannot be lied to.** The fake refuses to boot if the `stripe.*`
-     mirror tables already contain rows. A false declaration is therefore inert rather than
-     destructive: CI's service-container database is created fresh each run and is empty;
-     the Repl's carries the real test-account mirror and would refuse.
+   **Revision 3 answered this with an emptiness check, and round 3 showed that proves the
+   wrong property.** An empty database is not a disposable one: a newly provisioned or
+   freshly reset persistent database passes, the fake seeds rows into it, and on the next
+   restart those same rows make it *fail* — so the mechanism established neither
+   disposability nor a repeatable boot. Emptiness is a property of a moment; ownership is a
+   property of the database.
 
-   The declaration alone would be a promise; the emptiness check alone would permit a fake
-   boot against an incidentally-empty real database. Together they enforce the property the
-   decision was always about — **fake rows never land in a database anyone cares about** —
-   without inferring danger from a value, which is the failure mode recorded from the
-   deleted `assertNotProductionDb.ts`.
+   **The construct is mutual, exclusive, and recorded rather than inferred:**
+
+   - **The database records which driver owns it.** On first fake boot — with the explicit
+     declaration present and the `stripe.*` mirror empty — the fake marks the database as
+     fake-owned. The mark is data in the database, not a guess about its name, host, or
+     connection string.
+   - **The fake accepts only an empty database or one already marked fake-owned.** That is
+     what makes a second boot work: seeded rows plus the mark are the expected state, not a
+     violation. CI is idempotent across restarts.
+   - **The live driver refuses a fake-owned database outright.** This is the half revision 3
+     lacked entirely, and it is what actually protects real data: a database that has ever
+     held fabricated rows can never afterwards be used against real Stripe.
+   - **An explicit declaration is still required** for that first capture — a positive
+     statement the environment makes, never something the code infers.
+
+   The property this enforces is the one the decision was always about, and it is now stated
+   as what the construct actually guarantees: **fake rows and real rows can never occupy the
+   same database, in either order.** Nothing here inspects a value to guess whether a
+   database is safe, which remains the failure recorded from the deleted
+   `assertNotProductionDb.ts`.
 2. **The driver setting is three-state, with no implicit default in either direction**
    (David, 2026-08-25, revising the earlier default-to-fake decision):
 
@@ -174,21 +196,23 @@ reading the results cannot go wrong.
 
 Every load-bearing claim in this document, with what enforces it. The rule
 ([`working-modes.md`](../ai-context/working-modes.md#a-completeness-claim-carries-its-oracle-or-it-is-not-a-claim-david-2026-08-25))
-is that a completeness, inertness, or unreachability claim must point at a runnable oracle or a
-construct in the design — never at another sentence in the plan.
+is that a completeness, inertness, or unreachability claim must point at an oracle **run, with
+its output recorded and mapped to the claim**, or at a construct **in the shipped system** —
+never at another sentence in the plan, and never at a table row, which is prose in a grid.
+Rows below therefore carry their oracle's actual result, not just its command.
 
 | Claim | What enforces it | Status |
 | --- | --- | --- |
-| Three sites read a Stripe credential value | `git grep -n "process\.env\.STRIPE" -- '*.ts' '*.tsx' ':!*__tests__*'`, whose output partitions itself into value-reads and `!!` presence checks | Oracle |
-| One site constructs a Stripe connection | `git grep -n "new Stripe("` | Oracle |
-| The sync contract has twelve members | `git grep -n "SyncRunnerDriver"` for the interface, plus `git grep -nE "interface [A-Z][A-Za-z]*Driver"` to confirm **no second** structurally-typed driver contract exists | Oracle, and the second oracle is the one revision 2 lacked |
+| Three sites read a Stripe credential value | `git grep -n "process\.env\.STRIPE" -- '*.ts' '*.tsx' ':!*__tests__*'` → **18 hits: 4 value-reads, 14 `!!` presence checks.** Of the 4: `stripeClient.ts:35-36`, `:47-48`, `:50-51` are credentials; `index.ts:107-108` is an account id. The partition is syntactic (`!!` or not), so it needs no interpretation | Oracle, run and mapped |
+| One site constructs a Stripe connection | `git grep -n "new Stripe("` → **1 hit, `stripeClient.ts:76`** | Oracle, run and mapped |
+| The sync contract has twelve members | `git grep -n "SyncRunnerDriver"` → `stripeSyncRunner.ts:187`, **9 members**; plus 3 direct call sites = 12. `git grep -nE "interface [A-Z][A-Za-z]*Driver"` → **1 hit, the same interface**, so no second structurally-typed contract exists | Oracle, run and mapped — the second oracle is the one revision 2 lacked |
 | No credential is readable under the fake | The fake driver module does not import the credential functions, and the CI guard fails the build on any credential read outside the live driver | Construct + guard |
-| The fake cannot run against a database anyone cares about | Explicit disposability declaration **and** a boot-time refusal when the `stripe.*` mirror is non-empty (settled decision 1) | Construct — was prose in revision 2, which is the defect round 2 found |
+| Fake rows and real rows can never occupy the same database, in either order | Recorded ownership: the fake accepts only an empty or fake-marked database and marks it on first boot; **the live driver refuses a fake-marked database** (settled decision 1). Checked in an awaited boot phase that terminates the process on failure | Construct — revision 3's emptiness check proved the wrong property and is replaced |
 | The mode toggle cannot change under the fake | Writes to `stripe_live_mode` are refused while the fake driver is active | Construct — was a false "inert" claim in revision 2 |
 | No external party can deliver an event under the fake | `/api/stripe/webhook` and its raw-body parser and rate-limit exemption are not registered | Construct |
 | ~~No event can enter the system by any path under the fake~~ | **Nothing. The claim was false** — `/admin/stripe/test-event` (`admin.ts:3464`) calls `processEventDirectly`, which routes through the same domain switch as real webhooks | **Withdrawn and restated.** Found by this audit, before the reviewer reached it |
-| The driver is selected from the environment alone, never from a database value | Resolution reads `process.env` only and lives in `bootChecks.ts`, whose import graph deliberately reaches no database module — so a database value is not available to it at the point of decision | Construct |
-| Production cannot boot on a non-live driver | The resolution table's production row, checked in `bootChecks.ts` before the database-backed module graph loads | Construct |
+| The driver is selected from the environment alone, never from a database value | The CI guard asserts `bootChecks.ts`'s import closure reaches no database module, so the property survives a future import rather than resting on the file's comment asking editors to preserve it | Construct — **self-caught**: revision 3 cited the comment, which is a convention, not a mechanism |
+| Production cannot boot on a non-live driver | A refusal in `bootChecks.ts`, evaluated before the database-backed module graph loads; the resolution table documents it but does not enforce it | Construct |
 | The mirror-mixing defect is unreachable | Downstream of the disposability constructs above; **not** independently enforced, and it was "unreachable by convention" in revision 2 | Construct, inherited — stated as derived rather than primary |
 
 **Two properties are deliberately *not* claimed**, because nothing here enforces them and the
@@ -284,9 +308,28 @@ value* — which the design enforces, and which a test can check directly.
 4. **The fake writes to the `stripe.*` mirror tables**, so the Membership screen, the
    convergence strip and `syncStatusSummary` work unmodified against it.
 
-5. **Resolution is pure environment reading**, so the refusal lives in `bootChecks.ts`
-   beside the IP-salt assertion, before the database-backed module graph loads.
-   `bootChecks.ts`'s minimal import graph is preserved: this touches `process.env` only.
+5. **Two refusals, in two places, because they need different things — and the second one's
+   placement is load-bearing.**
+
+   The **environment refusal** (unrecognised value; production without `live`) is pure
+   `process.env` reading, so it lives in `bootChecks.ts` beside the IP-salt assertion, before
+   the database-backed module graph loads. `bootChecks.ts`'s minimal import graph is
+   preserved: this touches `process.env` only.
+
+   The **ownership refusal** needs database access and therefore cannot live there. Round 3
+   established that its natural home would defeat it: `initStripe()` wraps everything in a
+   broad `try/catch` that logs *"Stripe init failed — continuing without payments"*, and
+   `index.ts:408` launches it as `initStripe().catch(...)` under a comment reading
+   *"Non-blocking background tasks — failures are logged but never crash the server."* A
+   refusal placed there is not a refusal; it is a log line, and the server still becomes
+   healthy while the fake proceeds.
+
+   **The invariant, stated because nothing else would catch its loss: the ownership check
+   runs in an awaited boot phase, before the server accepts connections, and its failure
+   terminates the process.** It is not inside `initStripe()`'s catch and is not
+   fire-and-forget. Its negative test asserts **process startup failure**, not that a helper
+   function rejected — a helper that rejects into a swallowed catch is exactly the passing
+   test that would have hidden this.
 
 6. **Under the fake driver there is no *external* event ingress, and exactly one
    admin-authenticated one.** The `/api/stripe/webhook` route is not registered — along with
@@ -339,15 +382,17 @@ ephemeral test database. That is true of CI and false of the Repl, which uses `h
 false premise reshaped the increment.
 
 Revision 2 answered it with a policy — "the fake is CI-only" — and round 2 found that nothing
-enforced the policy. **Revision 3 answers it with the two boot conditions in settled decision 1**:
-an explicit disposability declaration, plus a mirror-emptiness check that makes a false
-declaration inert. Combined with settled decision 4 — no control routes ship this increment —
-the exposure is closed at both ends.
+enforced the policy. Revision 3 answered it with an emptiness check, and round 3 found that
+emptiness is not disposability. **Revision 4 answers it with recorded ownership** (settled
+decision 1): a database is fake-owned or real, the fake refuses one it does not own, and the
+live driver refuses one the fake does. Combined with settled decision 4 — no control routes
+ship this increment — the exposure is closed at both ends.
 
 Round 1's finding that `listProductsWithPrices` filters `livemode` without `_account_id`
 (`stripeStorage.ts:186-200`) is therefore **unreachable by construction rather than by
 convention**, and the distinction is the whole point: it needs fake rows and real rows in one
-database, which the emptiness check refuses at boot. It remains a **standing constraint on the
+database, and ownership makes that state unreachable **in both directions** rather than only
+at the moment of a fake boot. It remains a **standing constraint on the
 follow-up plan**, which reintroduces the possibility the moment it lets the fake run anywhere
 persistent, along with round 1's observation that the existing post-sync cleanup deletes other
 accounts' catalog rows.
@@ -357,6 +402,11 @@ accounts' catalog rows.
 A check failing the build if the inventory stops being true: a Stripe connection constructed
 outside the live driver, or **any** `STRIPE_*` credential value read outside it. The guard
 covers all three credential classes, not just the secret key — the specific gap round 1 found.
+
+It also asserts that **`bootChecks.ts`'s import closure reaches no database module**. That
+property is what keeps driver selection environment-only, and revision 3 cited the file's
+comment asking editors to preserve it — a convention, which is precisely what the claim-oracle
+rule rejects. One more assertion in a guard being written anyway converts it to a construct.
 This is the repo's standing response to a recurring failure pattern: a deterministic check
 rather than a better memory note.
 
@@ -446,11 +496,14 @@ The general invariant, not the example, with negative cases:
 3. **No external event ingress under the fake:** a request to `/api/stripe/webhook` reaches no
    handler when the fake driver is active, including with a well-formed `stripe-signature`
    header, and the route's raw-body parser and rate-limit exemption are absent with it.
-4. **The disposability constructs, both halves** (settled decision 1): the fake refuses to boot
-   without the explicit declaration; and, with the declaration present, it refuses when the
-   `stripe.*` mirror already contains rows. The second is the one that makes a false
-   declaration inert, so it gets the negative case — a seeded mirror plus a declaration must
-   still refuse.
+4. **The ownership construct, all four directions** (settled decision 1), each asserting
+   **process startup failure** rather than a helper rejection — a helper that rejects into a
+   swallowed catch is the passing test that would have hidden round 3's finding:
+   (a) fake without the declaration on an unmarked empty database refuses;
+   (b) fake on an unmarked **non-empty** database refuses;
+   (c) fake on a **fake-marked** database boots — the repeatable-restart case revision 3 broke;
+   (d) **live on a fake-marked database refuses** — the direction that actually protects real
+   data, and the one revision 3 did not have at all.
 5. **The mode toggle is frozen under the fake:** a write to `stripe_live_mode` is refused while
    the fake driver is active, and the refusal does not fire under the live driver.
 6. **The CI guard's own negative test** — a deliberately planted second connection site, and a
@@ -462,12 +515,24 @@ The general invariant, not the example, with negative cases:
    existing, already-complete suite, and this increment's proof. Its known transient-label
    race is next-plan scope; if it proves flaky when wired it is left unwired, **never**
    weakened or skipped to get green.
-9. **Live-driver verification, outside CI:** a bounded post-merge check on the Repl with
-   `STRIPE_DRIVER=live` against real test-mode Stripe, confirming boot, correct account
-   selection, managed-webhook signature handling, and backfill. This is what protects the
-   *Must Not Change* production invariants through the extraction, and it is distinct from
-   the deferred parity harness. It runs through the Replit connector at close-out, read-only,
-   and is recorded in the PR's Post-merge verification section.
+9. **Live-driver verification, outside CI — both doors.** A bounded post-merge check on the
+   Repl with `STRIPE_DRIVER=live` against real test-mode Stripe, confirming boot, correct
+   account selection, managed-webhook signature handling, and backfill. It runs through the
+   Replit connector at close-out and is recorded in the PR's Post-merge verification section.
+
+   **Plus one real payment flow, driven end to end in the UAT.** Revision 3 stopped at the
+   sync door and declined this; round 3 supplied the evidence that decline lacked.
+   `routes/stripe.ts` reaches `getUncachableStripeClient()` at nine call sites — checkout,
+   portal, receipt, confirmation, cancellation, reactivation, plan switching — and **not one
+   of them is exercised by anything else in this plan.** The fake's E2E suite and the
+   type-level interface checks can all stay green while the extraction breaks every
+   customer-facing live operation, because the raw-client door is where the extraction
+   actually moves code.
+
+   That flow is a mutation against the test account, which is why it belongs in David's UAT
+   rather than the read-only post-merge check, and it is deliberately *one* flow: enough to
+   prove the raw client is constructed and used correctly after extraction, not a payment
+   regression suite. Distinct from the deferred parity harness, and outside CI.
 10. **Billing-page truthfulness across all three driver states** — `live`, `fake`, and absent —
     asserting that live-only setup guidance is not presented as a fault in the two states where
     the configuration is deliberately unused.
@@ -486,14 +551,17 @@ Revision 1 would have made the first production boot fatal on a variable nothing
    it. Provably inert for production.
 5. Add driver resolution and the boot refusal to `bootChecks.ts`, with the resolution matrix
    test.
-6. Add the two disposability conditions gating `fake` — the explicit declaration and the
-   mirror-emptiness refusal — with their negative tests.
+6. Add the ownership construct — the declaration, the fake's accept-if-empty-or-marked rule,
+   the marking on first fake boot, and the live driver's refusal of a marked database — in an
+   **awaited boot phase that terminates the process on failure**, outside `initStripe()`'s
+   catch, with the four startup-failure tests.
 7. Build the fake: the full sync surface, the API surface, mirror-table seeding, loud failure
    for unimplemented operations.
 8. Refuse `stripe_live_mode` writes while the fake driver is active.
 9. Make webhook-route registration conditional on the resolved driver, together with its
    raw-body parser and rate-limit exemption.
-10. Add the CI guard and its negative tests.
+10. Add the CI guard and its negative tests, including the `bootChecks.ts` import-closure
+    assertion.
 11. Make the Billing page truthful in all three driver states.
 12. Set `STRIPE_DRIVER=fake` and the disposability declaration in the `e2e-smoke` job, and wire
     `adminBillingSync.spec.ts`.
@@ -506,7 +574,8 @@ Steps 3–5 are separable and land production-inert; that is the seam if this is
 | --- | --- |
 | **Deploying the refusal before the variable is set takes production down** | Steps 1–2 precede every code step; the PR's verification section confirms both environments carry the value before merge |
 | **The fake drifts from production Stripe** | The compiler pins the shape; reusing `SyncRunnerDriver` extends that to the admin sync paths; the fake speaks Stripe's own types against one pinned API version. The residual gap is named and covered by reconciliation plus the live-driver verification |
-| **The fake reaches production, or a real database** | Production refuses without an explicit `live`; the fake is CI-only by decision; and no default selects it anywhere |
+| **The fake reaches production, or a real database** | Production refuses without an explicit `live`; no default selects the fake anywhere; and recorded ownership makes the two kinds of database mutually exclusive in both directions, so a database that has held fabricated rows can never later serve real Stripe |
+| **A refusal is written where it cannot refuse** | The ownership check is awaited and fatal, outside `initStripe()`'s swallowed catch and its fire-and-forget launch; its tests assert process startup failure, not helper rejection |
 | **A property is asserted in prose and enforced nowhere** | The claim audit above, run under the claim-oracle rule, with each row naming its oracle or construct. This risk is not hypothetical — it produced three of round 1 and round 2's findings, and the audit caught a fourth |
 | **A future call site opens a second door, or reads a credential outside the driver** | The CI guard, covering all three credential classes, with negative tests proving it fails |
 | **Extraction silently changes production behavior** | Step 4 is deliberately inert and reviewed as such; timeouts and retry bounds are named in *Must Not Change* because `membershipTiming.ts` derives the lease floor from them; testing-plan item 7 verifies the live path against real test-mode Stripe |
