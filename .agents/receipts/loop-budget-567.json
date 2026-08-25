@@ -1,0 +1,8 @@
+{
+  "pr": 567,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 25,
+  "artifact": "Tests for three untested product invariants (activation-is-moderation-only, blank Visual Concept blocked on Save, 2000-row CSV import cap). Two test files, no product code.",
+  "declaredAt": "2026-08-25T21:44:16.150Z"
+}
