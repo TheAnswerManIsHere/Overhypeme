@@ -2,388 +2,378 @@
 
 **Workstream:** [#566](https://github.com/TheAnswerManIsHere/Overhypeme/issues/566)
 **Ceremony:** feature mode, full ceremony + payments specialist review.
-**Criticality:** 75 — product code in the payment path, and the artifact is a
-privilege-and-money boundary that ships to production.
+**Criticality:** 75 — product code in the payment path, shipped to production.
+
+> **Revision 2, after round 1 returned ten findings and the loop stopped on a
+> pre-registered flip condition.** Round 1 established that revision 1's inventory was
+> incomplete in two classes and that its design was blind to two pieces of existing
+> machinery. The increment was re-cut with David rather than patched. What changed:
+> the fake is **CI-only**; the driver setting is **three-state**, with no implicit
+> default in either direction; the **control channel and all event injection are
+> deferred** to the follow-up plan; and the fake implements the **complete** sync
+> contract the admin routes require, not the four methods revision 1 counted.
 
 ---
 
 ## Problem
 
-Nothing payment-shaped can be tested in CI, because there is no way to exercise
-Stripe without touching a real Stripe account. Roughly 52 manual test steps are
-blocked behind this (40 in PR287 Payments entitlements, 12 in PR276 Sync status),
-which is more than every other automation opportunity in the repo combined.
+Nothing payment-shaped can be tested in CI, because there is no way to exercise Stripe
+without touching a real Stripe account. Roughly 52 manual test steps are blocked behind
+this — more than every other automation opportunity in the repo combined.
 
-The obvious fix — give CI a test-mode Stripe key — was tried on PR #563 and
-reverted, and must not be re-proposed. Two independent reasons, the second of
-which is the real design constraint:
+Giving CI a test-mode key was tried on PR #563 and reverted, and is not re-proposed.
+`docs/tests/TESTING.md` forbids real credentials outright, but the binding constraint is
+sharper: `index.ts`'s `initStripe()` calls `findOrCreateManagedWebhook()` and
+`syncBackfill({object: "all"})` **at boot**, before any test runs. A server that starts
+holding a key mutates that account whether or not a test touches payments, and the
+`stripe_live_mode` flag does not help — it selects which environment variable is read, so
+a secret misbound to a live key means Stripe follows the key.
 
-1. `docs/tests/TESTING.md` requires external services including Stripe to be
-   stubbed or disabled, with no real credentials and no network.
-2. **The danger is at boot, not in the tests.** `artifacts/api-server/src/index.ts`
-   calls `findOrCreateManagedWebhook()` and `syncBackfill({object: "all"})` during
-   `initStripe()`, before any test runs. A server that starts holding a key mutates
-   the account that key points at, whether or not a single test touches payments.
-   The `stripe_live_mode` flag does not protect against this: it only selects
-   *which environment variable is read*, so a secret misbound to a live key means
-   Stripe follows the key.
-
-Any seam that sits around test call sites is therefore insufficient. It has to sit
-above boot.
+Any seam around test call sites is therefore insufficient. It has to sit above boot.
 
 ## Direction
 
-**There is no direction document for this, and this plan does not create one.**
-The end state lives in issue #566: payment behavior provable in CI without a Stripe
-account. Stating that explicitly rather than leaving the field blank, per the
-template.
+**No direction document exists for this work, and this plan does not create one.** The
+end state lives in issue #566: payment behavior provable in CI without a Stripe account.
 
-What this increment makes true: **the api-server can boot and run against a
-hand-written fake Stripe, chosen explicitly from the environment, and in that
-configuration no code path can read a Stripe credential.**
+What this increment makes true: **CI can boot the real server against a hand-written fake
+Stripe, and no configuration of any environment can reach a live Stripe account without
+explicitly saying so.**
 
 ## Product Intent
 
-A misconfiguration produces a refusal or an inert fake — never a silent connection
-to a live account. A Stripe key that leaks into CI by any route is *unusable*,
-because in a fake-driver configuration the code that reads credentials is not
-reachable at all.
+A misconfiguration produces a refusal or an inert server — never a silent connection to a
+live account, and never fake payment data written into a real database. A Stripe key that
+leaks into CI is unusable, because in a fake configuration the code that reads credentials
+is unreachable.
 
-The second half of the prize — converting the ~52 blocked manual steps into
-automated coverage — is deliberately **not** in this plan (see *Scope boundaries*).
-This increment ships with one existing suite wired as its proof.
+This increment ships **no new event-injection surface at all** (settled decision 4). It
+proves itself by wiring one existing, already-complete suite.
 
 ## Must Not Change
 
-1. **Production behavior against real Stripe.** The live path keeps its current
-   semantics, including the bounded request timeout and retry count that
-   `membershipTiming.ts` derives the entitlement-lease floor from.
-2. **Webhook signature verification on the live path.** The fake must not weaken,
-   bypass, or share code with live signature verification.
-3. **The entitlement derivation rules.** `membershipState.ts` and the tier
-   derivation are untouched; this plan changes where Stripe *data* comes from,
-   never what the app concludes from it.
-4. **The live/test mode toggle** keeps its current meaning and storage.
-5. **No database schema change**, and no new source of truth for membership.
+1. **Production behavior against real Stripe**, including the bounded request timeout and
+   retry count that `membershipTiming.ts` derives the entitlement-lease floor from.
+2. **Webhook signature verification on the live path** — not weakened, bypassed, or
+   shared with the fake.
+3. **The entitlement derivation rules** in `membershipState.ts`. This increment changes
+   where Stripe data comes from, never what the app concludes from it.
+4. **The live/test mode toggle's** meaning and storage.
+5. **The Repl's behavior.** It keeps using real test-mode Stripe exactly as today; the
+   only change is that it must now say so explicitly.
+6. **The existing `POST /admin/stripe/test-event` route and its Billing-page trigger**
+   stay exactly as they are this round (settled decision 6).
+7. No database schema change, and no new source of truth for membership.
 
 ## Settled Decisions
 
-1. **A missing driver setting selects the fake, not the real Stripe** (David,
-   2026-08-25). Nothing silently connects; the setting must say `live` to connect.
-2. **…except in production, where the fake refuses to run** (self-review on Fable,
-   accepted by David, 2026-08-25). A fake Stripe running in production would not
-   stop checkout — it would hand out Legendary for free and the entitlement
-   machinery would faithfully grant it. That failure is quieter and worse than an
-   outage, so production must carry the explicit `live` setting or refuse to boot.
-   This mirrors `devAdminLogin.ts`, where production wins over the flag.
-3. **A hand-written fake**, not `stripe-mock` and not recorded fixtures (David,
-   2026-08-25). Only a hand-written fake can be *driven* — a test can cause a
-   refund or a chargeback — and only it can populate the mirrored tables the app
-   actually reads from. A mock server is faithful in shape but cannot be made to
-   emit a chargeback; recordings can only replay scenarios someone already captured
-   against a real account.
-4. **The test-only control channel is not registered when the driver is live**
-   (David, 2026-08-25) — absent, not merely permission-gated.
-5. **The control channel asks the driver whether it is fake; it does not run its own
-   environment check** (self-review on Fable). One predicate, so two checks cannot
-   drift apart — which is the failure class that killed the deleted
-   `assertNotProductionDb.ts` guard.
-6. **The driver is selected from the environment alone, never from the database.**
-   A stored value must never be able to select which Stripe the server talks to.
-7. **The parity harness — running the same scenarios against real test-mode Stripe
-   — is deferred to the follow-up plan** (David, 2026-08-25), where there will be
-   enough scenarios for it to be worth running.
+1. **The fake is CI-only** (David, 2026-08-25, re-cut). Revision 1 made fake the
+   non-production default, which would have booted the Repl on a fake Stripe against
+   `heliumdb` — the real dev database — mixing fabricated rows with the real test-account
+   mirror. CI's database is genuinely ephemeral; the Repl's is not. Confining the fake to
+   the environment we provision removes that hazard by construction rather than managing it.
+2. **The driver setting is three-state, with no implicit default in either direction**
+   (David, 2026-08-25, revising the earlier default-to-fake decision):
 
-### The affected-surface inventory
+   | `STRIPE_DRIVER` | Outcome |
+   | --- | --- |
+   | unset | **Stripe does not initialise at all** — payments are off, as CI behaves today |
+   | `fake` | Fake driver |
+   | `live` | Live driver |
+   | anything else | **Refuse to boot** |
 
-The class is *every path that can obtain a Stripe connection or read a Stripe
-credential*. Oracles run over the tracked set (`git grep -n`), and the results are
-what this plan's scope is drawn from:
+   Plus: **production refuses to boot unless the value is explicitly `live`.** Both
+   drivers now require an explicit positive signal, which is truer to the fail-closed
+   lesson than a default in either direction. Default-to-fake bought zero-config CI, and
+   under decision 1 that benefit is gone — we write CI's environment ourselves.
+3. **A hand-written fake**, not `stripe-mock` and not recorded fixtures (David) — only a
+   hand-written fake can populate the mirrored tables the read path uses, and only it can
+   later be driven to produce events the follow-up plan needs.
+4. **No control channel and no event ingress in this increment** (David, 2026-08-25,
+   re-cut). The whole event-injection surface moves to the follow-up plan, where the
+   blocked payment steps actually need it. Under the fake driver there is therefore **no
+   way for an event to enter the system at all**: the public webhook route is not
+   registered, and no control routes exist. This deletes revision 1's forged-webhook risk,
+   its refund-semantics exposure, and its scope creep rather than mitigating them.
+5. **The driver is selected from the environment alone, never from the database.**
+6. **The existing `/admin/stripe/test-event` route is left untouched this round** (David,
+   2026-08-25). It is `requireAdmin`-gated and is a tool David uses from the Billing page
+   on the Repl; retiring it here would silently remove that. Migrating it behind the
+   driver predicate belongs with the follow-up plan that builds the real control channel.
+7. **The parity harness is deferred** to the follow-up plan (David).
 
-| Oracle | Result |
+### The affected-surface inventory (re-run for revision 2)
+
+Revision 1's inventory was wrong, and the correction is the reason this document exists.
+Its error was not a missed search — it was **mis-classifying its own search output**:
+`getStripeWebhookSecret()` appeared in the results and was counted as harmless because the
+class had been framed as "secret keys" rather than "credential values."
+
+The class is restated to remove that judgment step: *every site that reads the **value** of
+a `STRIPE_*` environment variable, and every site that constructs a Stripe connection.*
+
+| Oracle (tracked set) | Result |
 | --- | --- |
-| `git grep -n "new Stripe(" -- '*.ts' '*.tsx' '*.mjs' '*.js'` | **one** hit: `stripeClient.ts:76` |
-| `git grep -nE "(import\|require).*['\"]stripe['\"]" -- '*.ts' '*.tsx'` | one **value** import (`stripeClient.ts:1`); every other hit is `import type`, erased at compile and unable to construct |
-| `git grep -n "stripe-replit-sync" -- '*.ts' '*.mjs' '*.json'` | two construction/entry sites: `stripeClient.ts:107` (`StripeSync`) and `index.ts:77` (`runMigrations`) |
-| `git grep -nE "STRIPE_(SECRET\|PUBLISHABLE\|WEBHOOK_SECRET\|ACCOUNT_ID)"` | exactly **one** reader of a secret *value*: `getCredentials()` in `stripeClient.ts`. Every other hit is a presence boolean (`!!`, `index.ts` boot warnings, `admin.ts` config summary, `billing.tsx` labels) or an account id, never a secret value |
+| `git grep -n "process\.env\.STRIPE" -- '*.ts' '*.tsx' ':!*__tests__*'` | 18 hits. **Four** read a value; the other fourteen are `!!` presence booleans (`index.ts` boot warnings, `admin.ts` config summary) that never expose the value |
+| — of those, credential values | **three sites, all in `stripeClient.ts`**: webhook signing secret (`:35-36`), secret key (`:47-48`), publishable key (`:50-51`) |
+| — of those, non-credential values | **one site**: `index.ts:107-108` reads `STRIPE_ACCOUNT_ID_{LIVE,TEST}`, an account identifier rather than a secret |
+| `git grep -n "new Stripe(" -- '*.ts' '*.tsx' '*.mjs' '*.js'` | one hit, `stripeClient.ts:76` |
+| `git grep -nE "(import\|require).*['\"]stripe['\"]"` | one **value** import (`stripeClient.ts:1`); all others `import type`, erased at compile |
+| `git grep -n "stripe-replit-sync"` | two entry sites: `stripeClient.ts:107` (`StripeSync`), `index.ts:77` (`runMigrations`, database-only) |
+| `git grep -n "SyncRunnerDriver"` | `stripeSyncRunner.ts:187` — a **nine-member** interface the admin sync routes pass `getStripeSync()` into |
 
-Two consequences the plan depends on:
+**The sync surface is twelve members, not four.** Revision 1 counted call sites of the form
+`sync.method(...)` and so saw only `getAccountId`, `processWebhook`, `syncBackfill` and
+`findOrCreateManagedWebhook`. It missed that `/admin/stripe/sync` and `/admin/stripe/full-sync`
+pass the sync object into `runScopedSync`/`runFullSync`, which require `SyncRunnerDriver`:
+`getAccountId` plus `syncProducts`, `syncPrices`, `syncPlans`, `syncCustomers`,
+`syncSubscriptions`, `syncInvoices`, `syncCharges`, `syncPaymentMethods`.
 
-- **The connection class has exactly two members**, both already inside
-  `stripeClient.ts`, plus one adjacent DB-only member (`runMigrations`, which takes
-  a `databaseUrl` and performs no Stripe network I/O).
-- **The credential-read class has exactly one member.** Routing that single
-  function behind the live driver therefore captures 100% of secret reads. The
-  safe-by-construction claim is a search result, not an assertion.
+This matters beyond completeness: `adminBillingSync.spec.ts` — the suite this increment
+nominates as its own proof — drives the Billing page's *Sync Stripe data* control, so a fake
+missing those methods could not have run the one test that was supposed to demonstrate it.
 
-Because this is a one-time snapshot of a property that must stay true, the plan
-adds a CI guard (below) so the inventory is enforced rather than remembered.
+**The general lesson, recorded because it is the actual defect:** an inventory whose class
+definition requires a judgment call at classification time is not mechanical. The oracle must
+partition its own output. Both corrections above come from restating the class so that
+reading the results cannot go wrong.
 
 ## Repo Context Inspected
 
-- `artifacts/api-server/src/lib/stripeClient.ts` — the whole current seam.
-- `artifacts/api-server/src/index.ts` — `initStripe()` boot sequence and the
-  Stripe env presence warnings.
-- `artifacts/api-server/src/lib/bootChecks.ts` — the pre-module-graph assertion
-  precedent, and why it must stay import-ordered and DB-free.
-- `artifacts/api-server/src/lib/devAdminLogin.ts` + `src/app.ts` — the fail-closed
-  predicate and conditional-registration precedent this plan copies.
-- `artifacts/api-server/src/lib/webhookHandlers.ts`, `stripeSyncRunner.ts`,
-  `stripeStorage.ts`, `membershipState.ts`, `entitlementVerification.ts`.
-- `artifacts/api-server/src/routes/admin.ts`, `routes/stripe.ts`.
-- `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`,
-  `src/pages/admin/syncStatusSummary.ts`.
-- `.github/workflows/build.yml` — the `e2e-smoke` job and its dev-stack launch.
-- `docs/tests/TESTING.md`, `docs/ai-context/security-model.md`,
-  `docs/ai-context/membership-entitlements.md`,
-  `docs/ai-context/stripe-payments-audit-brief.md`, `working-modes.md`.
+`stripeClient.ts` (the whole seam), `index.ts` (`initStripe`, boot warnings, account check),
+`bootChecks.ts` (the pre-module-graph assertion precedent), `devAdminLogin.ts` + `app.ts`
+(fail-closed predicate, conditional registration, and the webhook route's raw-body and
+rate-limit exemptions), `stripeSyncRunner.ts` (`SyncRunnerDriver`), `stripeStorage.ts`
+(`listProductsWithPrices` and the mirror reads), `webhookHandlers.ts`, `membershipState.ts`,
+`routes/admin.ts` (sync, config-summary and test-event routes), `routes/stripe.ts`,
+`e2e/adminBillingSync.spec.ts`, `.github/workflows/build.yml` (`e2e-smoke`), and
+`docs/tests/TESTING.md`, `docs/ai-context/replit-environment.md`,
+`docs/ai-context/membership-entitlements.md`, `docs/ai-context/security-model.md`.
 
 ## Current Behavior
 
-`stripeClient.ts` exposes two doors to the outside world — `getUncachableStripeClient()`
-(a raw `Stripe` SDK client) and `getStripeSync()` (a `StripeSync` from
-`stripe-replit-sync`) — plus credential and mode helpers. `getCredentials()` picks a
-key by the `stripe_live_mode` config value and throws when the mode's key is absent.
+`stripeClient.ts` exposes two doors — `getUncachableStripeClient()` (raw SDK) and
+`getStripeSync()` (`StripeSync`) — plus the credential and mode helpers. At boot,
+`initStripe()` runs the sync library's migrations, builds the sync client, registers the
+managed webhook, compares the connected account against `STRIPE_ACCOUNT_ID_*`, and starts a
+full backfill — all inside one try/catch that logs *"Stripe init failed — continuing without
+payments."*
 
-At boot, `initStripe()` runs the sync library's migrations, builds the sync client,
-registers the managed webhook against the site URL, compares the connected account
-against `STRIPE_ACCOUNT_ID_*`, and kicks off a full backfill. The whole function is
-wrapped in try/catch, so a missing credential is logged as *"Stripe init failed —
-continuing without payments."*
+**In CI today that is exactly what happens:** `e2e-smoke` sets no Stripe variables, so
+payments never initialise. CI is already safe, and blind. The risk arrives the moment someone
+makes it useful. This plan's job is to make *useful* and *safe* the same setting.
 
-**In CI today, that is exactly what happens.** The `e2e-smoke` job sets no Stripe
-variables, so payments never initialise. CI is therefore already safe — and blind.
-The risk does not exist yet; it arrives the moment someone tries to make CI useful.
-This plan's job is to make *useful* and *safe* the same setting rather than opposed
-ones.
-
-Most of what the app reads about subscriptions, customers, prices and products comes
-from the `stripe.*` mirror tables that `stripe-replit-sync` maintains in Postgres,
-not from live API calls. That is what makes a hand-written fake tractable: for the
-read path it has to populate tables, not impersonate a REST API.
+Most subscription, customer, price and product reads come from the `stripe.*` mirror tables
+that `stripe-replit-sync` maintains in Postgres, not from live API calls — which is what makes
+a hand-written fake tractable: for the read path it populates tables rather than impersonating
+a REST API.
 
 ## Source-of-Truth Analysis
 
-| Concept | Source of truth | Effect of this plan |
+| Concept | Source of truth | Effect |
 | --- | --- | --- |
-| Which Stripe the server talks to | **New:** the `STRIPE_DRIVER` environment variable, resolved once at boot | New concept; no existing source to conflict with |
-| Which credential the live driver reads | `stripe_live_mode` config row (unchanged) | Unchanged, and now explicitly subordinate — it is only consulted by the live driver |
-| Stripe object state (subscriptions, customers, prices, products) | The `stripe.*` mirror tables | Unchanged. The fake writes to the same tables the real sync writes to, so readers cannot tell which driver filled them |
+| Which Stripe the server talks to | **New:** `STRIPE_DRIVER`, resolved once at boot from the environment | New concept; nothing existing to conflict with |
+| Which credential the live driver reads | `stripe_live_mode` config row | Unchanged, and now explicitly subordinate — consulted only by the live driver |
+| Stripe object state | The `stripe.*` mirror tables | Unchanged. The fake writes where the real sync writes, so readers cannot tell them apart |
 | Membership tier / entitlement | `membershipState.ts` derivation | Unchanged |
-| Whether the test control channel exists | The resolved driver (single predicate) | New, deliberately derived rather than independently computed |
 
-**No new source of truth for membership is created.** The fake is a new *producer*
-of data into an existing store, exactly where the real sync already writes.
+**No new source of truth for membership.** The fake is a new producer into an existing store.
 
-The two switches and their relationship, stated because leaving it implicit is where
-a future change gets confused: **the driver decides whether Stripe is real; the
-live/test toggle decides which real account.** Under the fake driver the toggle is
-inert. The toggle can never select the driver.
+**The two switches, stated because leaving it implicit is where a later change goes wrong:**
+the driver decides whether Stripe is real; the live/test toggle decides *which real account*.
+Under the fake the toggle is inert. The toggle can never select the driver, and no database
+value can.
 
 ## Proposed Design
 
-**One interface, two implementations, selected once at boot.**
+**One interface, two implementations, resolved once at boot from the environment.**
 
-1. **`StripeDriver`** — an interface covering both doors: the Stripe API surface the
-   app actually uses, and the sync surface (`findOrCreateManagedWebhook`,
-   `syncBackfill`, `getAccountId`, `processWebhook`).
+1. **`StripeDriver`** covers both doors: the Stripe API surface the app uses, and the full
+   twelve-member sync surface — `SyncRunnerDriver`'s nine members plus
+   `findOrCreateManagedWebhook`, `syncBackfill` and `processWebhook`. The sync half
+   **reuses the existing `SyncRunnerDriver` contract** rather than declaring a second,
+   narrower one; a fake that satisfies `StripeDriver` is by construction usable by
+   `runScopedSync` and `runFullSync`.
 
-2. **The API surface is expressed in Stripe's own SDK types**, narrowed to the
-   operations in use, so the real client satisfies it by assignment and the fake is
-   type-checked against Stripe's real shapes. This is what makes drift a build
-   failure rather than a discovery: a new production call site must widen the
-   interface, which obliges the fake to implement it, or the build breaks. Call
-   sites keep calling `stripe.subscriptions.retrieve(...)` and do not change.
+2. **The API surface is expressed in Stripe's own SDK types**, narrowed to the operations in
+   use, so the real client satisfies it by assignment and the fake is type-checked against
+   Stripe's real shapes. Call sites do not change. This is what makes drift a build failure:
+   a new production call must widen the interface, which obliges the fake to implement it.
 
-3. **The live driver is the only code that can read credentials.** `getCredentials()`
-   becomes reachable from the live driver's construction path alone; the fake driver
-   module does not import it, and the CI guard keeps it that way.
+3. **All three credential reads move behind the live driver** — secret, publishable, and
+   webhook signing secret. The fake driver module imports none of them.
 
-4. **The fake writes to the `stripe.*` mirror tables** so every existing reader —
-   the Membership screen, the convergence strip, `syncStatusSummary` — works
-   unmodified against it.
+4. **The fake writes to the `stripe.*` mirror tables**, so the Membership screen, the
+   convergence strip and `syncStatusSummary` work unmodified against it.
 
-5. **Resolution is pure environment reading**, which lets the refusal live in
-   `bootChecks.ts` alongside the IP-salt assertion, before the database-backed module
-   graph loads. `bootChecks.ts`'s minimal import graph is preserved: driver
-   resolution touches `process.env` only.
+5. **Resolution is pure environment reading**, so the refusal lives in `bootChecks.ts`
+   beside the IP-salt assertion, before the database-backed module graph loads.
+   `bootChecks.ts`'s minimal import graph is preserved: this touches `process.env` only.
 
-### Resolution and the refusal
+6. **Under the fake driver there is no event ingress.** The `/api/stripe/webhook` route is
+   not registered — along with its raw-body parser and rate-limit exemption, which are keyed
+   to the same path — and this increment adds no control routes. An event cannot enter the
+   system by any path.
 
-`STRIPE_DRIVER` takes `live` or `fake`. Resolution is total — every input maps to a
-defined outcome, and two of them are refusals:
+7. **Operations the fake does not implement fail loudly.** Where the increment does not
+   exercise an API operation, the fake raises a clearly-labelled error rather than returning
+   plausible data, so a CI run can never pass against behavior that was never built.
 
-| Environment | `STRIPE_DRIVER` | Outcome |
-| --- | --- | --- |
-| Production | `live` | Live driver |
-| Production | unset or `fake` | **Refuse to boot** (settled decision 2) |
-| Non-production | unset or `fake` | Fake driver |
-| Non-production | `live` | Live driver |
-| Any | unrecognised value | **Refuse to boot** |
+### Fail-closed resolution
 
-Production is identified the same way `devAdminLogin.ts` identifies it, so the two
+The table in settled decision 2 is **total** — every input maps to a defined outcome, and two
+are refusals. Production is identified exactly as `devAdminLogin.ts` identifies it, so the two
 predicates cannot disagree about what production means.
 
-The invariant worth stating, because nothing else would catch its loss: **there is no
-input under which a fake-driver configuration reads a Stripe credential, and no input
-under which an absent or unparseable setting yields a live connection.**
+The invariants worth stating, because nothing else would catch their loss:
 
-### The control channel
+- **No input causes a fake-driver configuration to read a Stripe credential.**
+- **No absent or unparseable setting yields a live connection** — absence yields no Stripe
+  at all, and an unrecognised value yields a refusal.
+- **No fake-driver configuration accepts an inbound Stripe event.**
 
-Test-only HTTP routes that let a test cause Stripe events — a refund, a dispute
-opened and closed, a subscription change. Three invariants:
+Nothing infers safety from inspecting a key prefix, a hostname, or a connection string — the
+lesson recorded from the deleted `assertNotProductionDb.ts`, which was bypassed three ways
+across four review rounds. The environment must *say* which driver it wants.
 
-1. **Registered only when the resolved driver is the fake**, asked of the driver
-   itself (settled decision 5). When live, the routes do not exist — a request 404s
-   because there is no handler, not because a check denied it.
-2. **Events enter through the real webhook handling path.** The control channel
-   causes an event; `webhookHandlers.ts` translates it exactly as it would translate
-   a delivered webhook. Otherwise the tests would prove the fake works rather than
-   proving the app works, forfeiting the reason the channel exists.
-3. **It cannot be reached in production even if the driver were somehow fake**,
-   because that configuration refuses to boot first.
+### Why the persistent-database risk is gone rather than managed
 
-Why this is not a fraud path, stated so a reviewer does not have to infer it: the
-channel exists only where Stripe is fake, and where Stripe is fake there is no money
-and no real customer — an entitlement it grants is an entitlement in an ephemeral
-test database.
-
-### Keeping the fake honest
-
-Three mechanisms, in increasing cost, plus one honest limit:
-
-1. **The compiler pins the shape** (above) — the fake cannot silently fall behind the
-   operations production uses.
-2. **The fake speaks Stripe's own types**, with the API version read from one shared
-   constant both drivers use, so an SDK upgrade that renames or removes a field
-   becomes a compile error inside the fake at upgrade time.
-3. **Event payloads are seeded from sanitized captures of real test-mode events**,
-   then parameterised — rather than invented, which is where a plausible-but-never-sent
-   field would come from.
-4. **The limit:** none of this proves *real Stripe* still behaves as captured. That
-   is what production reconciliation against authoritative Stripe state and David's
-   UAT against real test-mode Stripe are for. CI's job is catching our regressions
-   between those reality checks, not replacing them. The parity harness that would
-   narrow this gap is deferred (settled decision 7).
+Revision 1 argued the control channel was harmless because a granted entitlement lands in an
+ephemeral test database. That is true of CI and false of the Repl, which uses `heliumdb`. Under
+decision 1 the fake exists only where the database really is ephemeral, and under decision 4
+this increment grants no entitlements at all. Round 1's finding about `listProductsWithPrices`
+filtering `livemode` without `_account_id` is therefore **not reachable by this increment** —
+it needs fake rows and real rows in one database, which no supported configuration now
+produces. It is recorded here as a **standing constraint on the follow-up plan**, which will
+reintroduce the possibility the moment it lets the fake run anywhere persistent.
 
 ### The CI guard
 
-A check that fails the build if the inventory above stops being true: a Stripe
-connection constructed outside the live driver, or a Stripe secret value read outside
-the credential function. This is the repo's standing response to a recurring failure
-pattern — a deterministic check rather than a better memory note — and it is what
-converts a one-time search result into a durable property.
+A check failing the build if the inventory stops being true: a Stripe connection constructed
+outside the live driver, or **any** `STRIPE_*` credential value read outside it. The guard
+covers all three credential classes, not just the secret key — the specific gap round 1 found.
+This is the repo's standing response to a recurring failure pattern: a deterministic check
+rather than a better memory note.
+
+### Keeping the fake honest
+
+1. **The compiler pins the shape** — the fake cannot fall behind the operations production
+   uses, and reusing `SyncRunnerDriver` means the admin sync paths are covered by the same
+   guarantee.
+2. **The fake speaks Stripe's own types**, with the API version read from the single constant
+   both drivers use, so an SDK upgrade that renames or removes a field is a compile error
+   inside the fake at upgrade time.
+3. **The limit, stated rather than papered over:** none of this proves *real Stripe* still
+   behaves as captured. Production reconciliation against authoritative Stripe state and the
+   live-driver verification below cover that; the parity harness that would narrow it further
+   is deferred.
 
 ## Data Model and Migration Impact
 
-**None.** No schema change, no backfill, no new tables. The `stripe.*` mirror tables
-are created by `stripe-replit-sync`'s own migrations, which already run at boot and
-are database-only (they take a `databaseUrl` and perform no Stripe network I/O), so
-they continue to run under both drivers and the mirror tables exist either way.
+**None.** No schema change, no backfill, no new tables. The `stripe.*` mirror tables are
+created by `stripe-replit-sync`'s own migrations, which are database-only and continue to run
+under both drivers.
 
 ## Runtime Behavior
 
-**Production (live driver):** unchanged in every respect — same boot sequence, same
-webhook registration, same backfill, same timeouts and retry bounds.
+**Production (live driver):** unchanged in every respect — same boot sequence, webhook
+registration, backfill, timeouts and retry bounds.
 
-**CI and local development (fake driver):** the server boots fully. Webhook
-registration and account lookup are satisfied in-process without network. The
-backfill seeds a deterministic baseline into the mirror tables instead of pulling
-from Stripe. Payment and membership routes work end to end against that data.
+**The Repl (live driver, real test-mode Stripe):** unchanged behavior; the environment must now
+carry `STRIPE_DRIVER=live`.
 
-**Misconfigured production:** refuses to boot, with a message naming the variable to
-set.
+**CI (fake driver):** the server boots fully. Webhook registration and account lookup are
+satisfied in-process without network; the backfill seeds a deterministic baseline into the
+mirror tables. The admin sync screens and sync-status surfaces work end to end. No inbound
+event path exists.
 
-**Edge cases the design must answer:** an unrecognised setting value; the driver
-being asked for before boot resolution has run; a live-mode toggle flipped while the
-fake driver is active (inert, per the two-switch statement above); and the existing
-cache invalidation path (`invalidateStripeSync`) continuing to behave under both
-drivers.
+**Any environment with the setting absent:** Stripe does not initialise; payments are off and
+the rest of the app runs — today's CI behavior, now reached deliberately rather than by a
+credential lookup failing inside a try/catch.
+
+**Misconfigured production, or any unrecognised value:** refuses to boot, naming the variable.
 
 ## Admin/User UX Impact
 
-No new user-facing surface, and no change to the Membership screen, the convergence
-strip, or the admin billing screen — they read the mirror tables and cannot tell
-which driver filled them, which is the point.
+No change to the Membership screen, the convergence strip, or the admin billing screen's
+existing controls — they read the mirror tables and cannot tell which driver filled them.
 
-One admin-visible honesty question: the admin billing screen currently reports Stripe
-env-var presence. Under the fake driver those checks describe a configuration that is
-not in use. **The screen must say which driver is active** rather than presenting
-credential checks as though they governed. This is the smallest change that keeps the
-screen truthful; anything larger is next-plan scope.
+The admin billing screen currently reports Stripe env-var presence; under a fake or absent
+driver those checks describe a configuration that is not in use, so **the screen must state
+which driver is active**. Smallest change that keeps it truthful.
 
 ## Security, Permissions, and Validation
 
-- The refusal is a **boot-time assertion**, evaluated before the database-backed
-  module graph, in the module that already exists for exactly this ordering reason.
-- **Gate on an explicit positive signal, never on inferring danger from a value** —
-  the lesson recorded from the deleted `assertNotProductionDb.ts`, which tried to
-  infer safety from a connection string and was bypassed three ways across four
-  review rounds. Nothing here inspects a key's prefix or a hostname to guess whether
-  it is safe; the environment must *say* `live`.
-- **One predicate, consulted everywhere.** Driver resolution, control-channel
-  registration, and the admin screen's driver display all read the same resolved
-  value — the `devAdminLogin.ts` shape, and the direct answer to the drift failure
-  class.
-- The control channel is **unregistered**, not merely denied, under the live driver.
-- Live webhook signature verification is untouched and shares no code with the fake's
-  event path.
+- The refusal is a **boot-time assertion** evaluated before the database-backed module graph,
+  in the module that exists for exactly that ordering reason.
+- **Gate on an explicit positive signal, never on inferring danger from a value.**
+- **One predicate, consulted everywhere** — resolution, webhook-route registration, and the
+  admin screen's driver display all read the same resolved value. This is the
+  `devAdminLogin.ts` shape and the direct answer to the drift failure class.
+- **No new privileged surface ships in this increment** (settled decision 4), so the
+  entitlement-granting risk revision 1 carried does not exist here. The follow-up plan
+  inherits, as named constraints: admin authorization on every control route, an
+  authenticity mechanism for any fake event path, and the account-isolation question above.
+- Live webhook signature verification is untouched and shares no code with the fake.
 
 ## Testing Plan
 
-The general invariant, not the example — with negative cases:
+The general invariant, not the example, with negative cases:
 
-1. **Driver resolution matrix**, modelled on
-   `localAuth.devAdminLogin.security.test.ts`: every row of the resolution table
-   above, including both refusals and the unrecognised-value case.
-2. **Credential unreachability:** under the fake driver, with Stripe secrets present
-   in the environment, no Stripe credential is read and no connection is attempted.
-   This is the plan's central claim and it gets a direct test rather than resting on
-   the guard alone.
-3. **The CI guard's own negative test** — a deliberately planted second connection
-   site must fail it. A guard that has never been observed failing is not known to
-   work.
-4. **Webhook translation through the control channel:** a refund revokes entitlement;
-   a dispute lost disqualifies permanently; the derivation continues to hold that a
-   cancelled subscription plus a lifetime purchase stays Legendary. These exercise
-   the plumbing that #562's analysis identified as having no coverage, through the
-   real handler path.
-5. **`adminBillingSync.spec.ts` wired into the `e2e-smoke` job** with the fake driver
-   selected — the existing, already-complete suite that proves the fake is usable.
-   *Its known transient-label race is explicitly next-plan scope (issue #566); if it
-   proves flaky when wired, it is quarantined by not wiring it, never by weakening
-   the assertion.*
-6. **Production-refusal test:** a production-identified environment without the
-   explicit live setting fails to boot.
+1. **Driver resolution matrix**, modelled on `localAuth.devAdminLogin.security.test.ts`:
+   every row of the table in settled decision 2, both refusals, the unset case, and the
+   production-without-`live` refusal.
+2. **Credential unreachability:** under the fake driver, with all six Stripe secrets present
+   in the environment, no credential value is read and no connection is attempted. This is the
+   plan's central claim and gets a direct test rather than resting on the guard.
+3. **No event ingress under the fake:** a request to `/api/stripe/webhook` reaches no handler
+   when the fake driver is active.
+4. **The CI guard's own negative test** — a deliberately planted second connection site, and a
+   planted read of each of the three credential classes, must each fail it. A guard never
+   observed failing is not known to work.
+5. **The fake satisfies `SyncRunnerDriver`** — a type-level and behavioral check that scoped
+   and full sync both run against it, which is what item 6 depends on.
+6. **`adminBillingSync.spec.ts` wired into `e2e-smoke`** with `STRIPE_DRIVER=fake` — the
+   existing, already-complete suite, and this increment's proof. Its known transient-label
+   race is next-plan scope; if it proves flaky when wired it is left unwired, **never**
+   weakened or skipped to get green.
+7. **Live-driver verification, outside CI:** a bounded post-merge check on the Repl with
+   `STRIPE_DRIVER=live` against real test-mode Stripe, confirming boot, correct account
+   selection, managed-webhook signature handling, and backfill. This is what protects the
+   *Must Not Change* production invariants through the extraction, and it is distinct from
+   the deferred parity harness. It runs through the Replit connector at close-out, read-only,
+   and is recorded in the PR's Post-merge verification section.
 
-Runners per `docs/tests/TESTING.md`: `pnpm --filter @workspace/api-server test` for
-the suites above, and the `e2e-smoke` job's Playwright steps for the wired spec.
+Runners: `pnpm --filter @workspace/api-server test`; the `e2e-smoke` Playwright steps.
 
 ## Implementation Steps
 
-1. Define the driver interface in Stripe's own types, narrowed to the operations the
-   inventory found in use.
-2. Extract the current behavior into the live driver, moving `getCredentials()` behind
-   it. No behavior change; this step should be provably inert for production.
-3. Add driver resolution and the boot refusal to `bootChecks.ts`, with the resolution
-   matrix test.
-4. Build the fake driver: sync surface, API surface, mirror-table seeding.
-5. Add the control channel, registered off the driver predicate, routing events through
-   `webhookHandlers.ts`.
-6. Add the CI guard and its negative test.
-7. Make the admin billing screen state the active driver.
-8. Set the fake driver in the `e2e-smoke` job and wire `adminBillingSync.spec.ts`.
+**Rollout ordering is load-bearing, and steps 1–2 must land before the refusal ships.**
+Revision 1 would have made the first production boot fatal on a variable nothing set.
 
-Steps 1–3 are separable from 4–8 and land production-inert; if the plan is to be
-split for review, that is the seam.
+1. **Set `STRIPE_DRIVER=live` in production's environment** and confirm it is present.
+2. **Set `STRIPE_DRIVER=live` on the Repl** and confirm it is present.
+3. Define `StripeDriver`, reusing `SyncRunnerDriver` for the sync half.
+4. Extract current behavior into the live driver, moving all three credential reads behind
+   it. Provably inert for production.
+5. Add driver resolution and the boot refusal to `bootChecks.ts`, with the resolution matrix
+   test.
+6. Build the fake: the full sync surface, the API surface, mirror-table seeding, loud failure
+   for unimplemented operations.
+7. Make webhook-route registration conditional on the resolved driver.
+8. Add the CI guard and its negative tests.
+9. Make the admin billing screen state the active driver.
+10. Set `STRIPE_DRIVER=fake` in the `e2e-smoke` job and wire `adminBillingSync.spec.ts`.
+
+Steps 3–5 are separable and land production-inert; that is the seam if this is split.
 
 ## Risks and Mitigations
 
 | Risk | Mitigation |
 | --- | --- |
-| **The fake drifts from production Stripe** | The compiler pins the shape; the fake speaks Stripe's own types against one pinned API version; payloads seeded from real captures. The residual gap is named honestly above and covered by reconciliation and UAT, with parity deferred |
-| **The fake reaches production** | Production refuses to boot without an explicit `live` setting (settled decision 2) — the amendment that exists precisely because this risk's real cost is free memberships, not an outage |
-| **A future call site opens a second door** | The CI guard, with a negative test proving it fails |
-| **The control channel becomes reachable somewhere it shouldn't be** | Unregistered rather than denied; derived from one predicate; and unreachable in production because that configuration refuses to boot |
-| **Tests pass against the fake while the app is broken against real Stripe** | Events flow through the real webhook handler path, so the translation logic under test is production's. What remains is the named limit above |
-| **Extracting the live driver silently changes production behavior** | Step 2 is deliberately inert and reviewed as such; timeouts and retry bounds are called out in *Must Not Change* because `membershipTiming.ts` derives the entitlement-lease floor from them |
+| **Deploying the refusal before the variable is set takes production down** | Steps 1–2 precede every code step; the PR's verification section confirms both environments carry the value before merge |
+| **The fake drifts from production Stripe** | The compiler pins the shape; reusing `SyncRunnerDriver` extends that to the admin sync paths; the fake speaks Stripe's own types against one pinned API version. The residual gap is named and covered by reconciliation plus the live-driver verification |
+| **The fake reaches production, or a real database** | Production refuses without an explicit `live`; the fake is CI-only by decision; and no default selects it anywhere |
+| **A future call site opens a second door, or reads a credential outside the driver** | The CI guard, covering all three credential classes, with negative tests proving it fails |
+| **Extraction silently changes production behavior** | Step 4 is deliberately inert and reviewed as such; timeouts and retry bounds are named in *Must Not Change* because `membershipTiming.ts` derives the lease floor from them; testing-plan item 7 verifies the live path against real test-mode Stripe |
+| **The follow-up plan reintroduces what this one removed** | The account-isolation constraint, control-route authorization, and event authenticity are recorded above as named inheritances rather than left to be rediscovered |
