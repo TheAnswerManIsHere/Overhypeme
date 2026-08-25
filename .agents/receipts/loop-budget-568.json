@@ -1,0 +1,8 @@
+{
+  "pr": 568,
+  "tier": "sensitive",
+  "budget": null,
+  "criticality": 75,
+  "artifact": "Plan: Stripe driver seam — fail-closed driver selection, hand-written fake, test-only control channel (payment path)",
+  "declaredAt": "2026-08-25T21:58:02.491Z"
+}
