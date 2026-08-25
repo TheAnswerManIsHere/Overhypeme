@@ -526,6 +526,14 @@ jobs:
 
     env:
       DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
+      # adminBillingSync drives a real POST /api/admin/stripe/sync. Which Stripe
+      # account that reaches is decided by the stripe_live_mode config row, which
+      # defaults to "false" on this job's fresh database -- so this suite can only
+      # ever hit the test-mode account, whatever these hold. Both are required:
+      # getCredentials() throws if either the secret or the publishable key is
+      # absent (artifacts/api-server/src/lib/stripeClient.ts:56-65).
+      STRIPE_SECRET_KEY_TEST: ${{ secrets.STRIPE_SECRET_KEY_TEST }}
+      STRIPE_PUBLISHABLE_KEY_TEST: ${{ secrets.STRIPE_PUBLISHABLE_KEY_TEST }}
 
     steps:
       - name: Check out code
@@ -594,6 +602,11 @@ jobs:
 
       - name: Run route-load smoke suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:smoke
+
+      # Kept a separate step from the smoke suite so a failure names which of the
+      # two broke. Both feed the trace upload below.
+      - name: Run billing-sync suite
+        run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:billing
 
       - name: Upload traces on failure
         if: failure()
