@@ -579,9 +579,18 @@ jobs:
       # isDevAdminLoginEnabled() is fail-closed and this is an ephemeral CI
       # database. Vite's /api proxy defaults to localhost:8080 off-Replit
       # (vite.config.ts), standing in for Replit's path router.
+      #
+      # ALLOWED_ORIGINS is what lets a browser test CLICK something. The app's
+      # origin allowlist (app.ts parseAllowedOrigins) is empty off-Replit, so
+      # every browser-initiated mutation 403s "Origin not allowed" — the
+      # request context Playwright uses for setup sends no Origin header and is
+      # unaffected, which is why the read-only suites never hit this. Naming
+      # the Vite origin here makes CI behave as a real deployment does, where
+      # that origin is allowed.
       - name: Start dev stack (api-server + Vite)
         run: |
           (cd artifacts/api-server && PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=ci-smoke-dummy \
+            ALLOWED_ORIGINS=http://localhost:5173 \
             pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &)
           (cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ \
             pnpm exec vite > /tmp/vite.log 2>&1 &)
