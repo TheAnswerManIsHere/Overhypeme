@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { assertNotProductionDb } from "./assertNotProductionDb";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = path.join(__dirname, "fixtures", "upload-2400x1600.jpg");
@@ -48,24 +49,15 @@ const ASPECTS: ReadonlyArray<{
 const RATIO_TOLERANCE = 0.02;
 
 function dbExec(sql: string): string {
-  // Uses psql from the host (already provisioned in the Replit env).
-  // Avoids adding pg as a runtime dep just for a single UPDATE.
-  //
-  // CI and any other non-Replit environment address Postgres through
-  // DATABASE_URL; the Replit dev box has no such variable and reaches its
-  // database by fixed host instead, so that stays the fallback.
-  return execFileSync("psql", psqlArgs(sql), {
+  // Uses psql from the host. Avoids adding pg as a runtime dep for a single
+  // UPDATE. This mutates rows, so it refuses a live database first -- the
+  // same rule the repo's DB test runners apply via assert_not_production.
+  const url = process.env["DATABASE_URL"];
+  assertNotProductionDb(url);
+  return execFileSync("psql", [url!, "-At", "-c", sql], {
     env: { ...process.env, PGPASSWORD: process.env["PGPASSWORD"] ?? "password" },
     encoding: "utf8",
   });
-}
-
-function psqlArgs(sql: string): string[] {
-  const url = process.env["DATABASE_URL"];
-  const target = url
-    ? [url]
-    : ["-h", "helium", "-U", "postgres", "-d", "heliumdb"];
-  return [...target, "-At", "-c", sql];
 }
 
 /**

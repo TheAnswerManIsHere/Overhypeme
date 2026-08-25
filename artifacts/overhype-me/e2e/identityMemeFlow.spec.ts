@@ -52,6 +52,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { assertNotProductionDb } from "./assertNotProductionDb";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Re-use the existing 2400×1600 JPEG fixture as both a profile-photo and
@@ -60,18 +61,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = path.join(__dirname, "fixtures", "upload-2400x1600.jpg");
 
 /**
- * Run a SQL statement against the dev database.
+ * Run a SQL statement against the test database.
  *
- * CI and any other non-Replit environment address Postgres through
- * DATABASE_URL; the Replit dev box has no such variable and reaches its
- * database by fixed host instead, so that stays the fallback.
+ * This mutates rows (tier changes, user creation), so it refuses a live
+ * database first -- the same rule the repo's DB test runners apply via
+ * assert_not_production.
  */
 function dbExec(sql: string): string {
   const url = process.env["DATABASE_URL"];
-  const target = url
-    ? [url]
-    : ["-h", "helium", "-U", "postgres", "-d", "heliumdb"];
-  return execFileSync("psql", [...target, "-At", "-c", sql], {
+  assertNotProductionDb(url);
+  return execFileSync("psql", [url!, "-At", "-c", sql], {
     env: { ...process.env, PGPASSWORD: process.env["PGPASSWORD"] ?? "password" },
     encoding: "utf8",
   });
