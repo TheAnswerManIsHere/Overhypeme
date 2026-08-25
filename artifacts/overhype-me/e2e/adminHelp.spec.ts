@@ -66,12 +66,18 @@ test.describe("Admin · Help", () => {
     // that moment measures the nav and nothing else.
     await expect(main.locator(`#${FRAGMENT}`)).toBeVisible({ timeout: 30_000 });
 
+    // Scoped to the chapter body. <main> also contains the chapter nav, which
+    // has headings and list items of its own -- so a chapter that rendered
+    // nothing at all could have satisfied every count below.
+    const body = main.locator("article");
+    await expect(body, "the chapter should render in an article").toHaveCount(1);
+
     // toHaveCount retries; `expect(await locator.count())` does not, and would
     // race the same import all over again.
-    await expect(main.locator("h2"), "a chapter should have section headings").not.toHaveCount(0);
-    await expect(main.locator("h3"), "a chapter should have sub-headings").not.toHaveCount(0);
-    await expect(main.locator("li"), "a chapter should render list items").not.toHaveCount(0);
-    await expect(main.getByText(/^#{1,6}\s/m), "no raw markdown heading markers").toHaveCount(0);
+    await expect(body.locator("h2"), "a chapter should have section headings").not.toHaveCount(0);
+    await expect(body.locator("h3"), "a chapter should have sub-headings").not.toHaveCount(0);
+    await expect(body.locator("li"), "a chapter should render list items").not.toHaveCount(0);
+    await expect(body.getByText(/^#{1,6}\s/m), "no raw markdown heading markers").toHaveCount(0);
   });
 
   // PR472 step 3 — the cold-load path, which is the one that used to break.
@@ -85,14 +91,36 @@ test.describe("Admin · Help", () => {
 
     // Settle any post-mount scrolling before measuring.
     await page.waitForTimeout(1_500);
+
+    // A scroll must actually have HAPPENED. Position alone only catches this
+    // because #managing-people sits below the fold in today's chapter 11 -- move
+    // it up, or point this at a shorter chapter, and "never scrolled" would pass
+    // while looking identical. Note the window does NOT scroll here: the admin
+    // console scrolls an inner pane, so window.scrollY stays 0 either way.
+    const scrolled = await heading.evaluate((el) => {
+      for (let n = el.parentElement; n; n = n.parentElement) {
+        const style = getComputedStyle(n);
+        if (/(auto|scroll)/.test(style.overflowY) && n.scrollHeight > n.clientHeight + 4) {
+          return n.scrollTop;
+        }
+      }
+      return window.scrollY;
+    });
+    expect(
+      scrolled,
+      `the scrolling pane should have moved off its top (scrollTop=${scrolled})`,
+    ).toBeGreaterThan(0);
+
+    // ...and it must have landed ON the heading, near the top of the pane
+    // rather than merely somewhere on screen.
     const box = await heading.boundingBox();
     expect(box, "the target heading should have a layout box").not.toBeNull();
     const viewport = page.viewportSize();
     expect(viewport, "viewport size should be known").not.toBeNull();
     expect(
       box!.y,
-      `the heading should be parked in view, not below the fold (y=${box!.y}, viewport=${viewport!.height})`,
-    ).toBeLessThan(viewport!.height);
+      `the heading should be parked near the top (y=${box!.y}, viewport=${viewport!.height})`,
+    ).toBeLessThan(viewport!.height / 2);
     expect(box!.y, `the heading should not be scrolled off the top (y=${box!.y})`).toBeGreaterThan(-1);
   });
 

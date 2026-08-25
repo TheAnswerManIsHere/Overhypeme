@@ -67,12 +67,24 @@ test.describe("Admin · Queue Health", () => {
         .locator("div.bg-card")
         .filter({ has: page.getByText(lane, { exact: true }) });
       await expect(card, `lane "${lane}" should have exactly one card`).toHaveCount(1);
+      // The HEALTHY verdict specifically, not "either verdict". Accepting both
+      // meant an inverted card-level status passed while the aggregate summary
+      // -- rendered independently, on another page load -- still read all-clear,
+      // which is exactly the disagreement these two tests exist to catch.
+      // (Codex, #563 round 6.)
       await expect(
-        card.getByText(/^(Scheduling|Not scheduling)$/),
-        `lane "${lane}" should carry exactly one liveness verdict`,
+        card.getByText(/^Scheduling$/),
+        `lane "${lane}" should report Scheduling on a healthy stack`,
       ).toHaveCount(1);
       await expect(
-        card.getByText(/live instances? · last fire .* ago · \d+ in flight/),
+        card.getByText(/^Not scheduling$/),
+        `lane "${lane}" should not also carry the stalled verdict`,
+      ).toHaveCount(0);
+      // Anchored, and the instance count is part of the shape: the unanchored
+      // form matched a substring and never checked that a number preceded
+      // "live instance" at all.
+      await expect(
+        card.getByText(/^\d+ live instances? · last fire .+ ago · \d+ in flight$/),
         `lane "${lane}" should carry exactly one detail line`,
       ).toHaveCount(1);
     }
@@ -82,8 +94,24 @@ test.describe("Admin · Queue Health", () => {
   // rather than by colour alone; on a healthy stack it is the all-clear form.
   test("summarises lane liveness in words above the cards", async ({ page }) => {
     await gotoQueueHealth(page);
-    await expect(page.getByText(/All five lanes are being scheduled\. Last checked /)).toBeVisible();
+    const summary = page.getByText(/All five lanes are being scheduled\. Last checked .+/);
+    await expect(summary).toBeVisible();
     await expect(page.getByText(/not being scheduled by any live worker/)).toHaveCount(0);
+
+    // "Above the cards" is half the point -- the summary exists so the state is
+    // readable before scanning five cards -- and the name claimed it while
+    // nothing checked it. Asserted as real layout order.
+    const firstCard = page
+      .locator("div.bg-card")
+      .filter({ has: page.getByText(LANES[0], { exact: true }) });
+    const summaryBox = await summary.boundingBox();
+    const cardBox = await firstCard.boundingBox();
+    expect(summaryBox, "the summary should have a layout box").not.toBeNull();
+    expect(cardBox, "the lane cards should have a layout box").not.toBeNull();
+    expect(
+      summaryBox!.y,
+      `the summary (y=${summaryBox!.y}) should sit above the lane cards (y=${cardBox!.y})`,
+    ).toBeLessThan(cardBox!.y);
   });
 
   // PR288 steps 5 and 6.
@@ -97,11 +125,23 @@ test.describe("Admin · Queue Health", () => {
     const rows = page.locator("button[aria-expanded]");
     await expect(rows, "one row per registered queue, no more").toHaveCount(REGISTERED_QUEUES.length);
     for (const queue of REGISTERED_QUEUES) {
+      // Scoped to the rows, and matched exactly. A page-level search would be
+      // satisfied by the name appearing anywhere -- and "enrichment" is a
+      // substring of "fact_enrichment_backfill", so a loose match would let one
+      // row stand in for two.
       await expect(
-        page.getByText(queue, { exact: true }),
-        `queue "${queue}" should be listed even though it has never run`,
-      ).toBeVisible();
+        rows.filter({ has: page.getByText(queue, { exact: true }) }),
+        `queue "${queue}" should have exactly one row`,
+      ).toHaveCount(1);
     }
+
+    // The "including ones that have never run" half of the name (PR288 step 6),
+    // which nothing checked: a never-run queue is one whose counters are all
+    // zero, and it must still be rendered rather than filtered out as empty.
+    await expect(
+      rows.filter({ hasText: /0 queued · 0 working · 0 done · 0 failed · 24h: 0 done \/ 0 failed/ }),
+      "a queue that has never run should still be listed",
+    ).not.toHaveCount(0);
   });
 
   // PR288 R5 has route-level auth tests; this is the UI half — the console
@@ -109,6 +149,9 @@ test.describe("Admin · Queue Health", () => {
   test("renders inside the admin console for an admin", async ({ page }) => {
     await gotoQueueHealth(page);
     await expect(page.getByText(/Access Denied/i)).toHaveCount(0);
+    // Both halves: the console rail around it, AND the page's own heading. The
+    // rail alone would still render if the page content failed entirely.
     await expect(page.getByRole("link", { name: /Queue Health/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Queue Health$/i })).toBeVisible();
   });
 });
