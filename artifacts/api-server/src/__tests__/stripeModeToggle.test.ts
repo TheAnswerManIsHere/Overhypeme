@@ -36,8 +36,8 @@ import {
 } from "../lib/stripeAccountGuard.js";
 import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import {
-  SYNC_MODE_RECHECK_MS,
   __discardedBuildsForTests,
+  __expireModeRecheckForTests,
   __endCachedSyncForTests,
   __setRawClientFactoryForTests,
   getStripeSync,
@@ -510,11 +510,22 @@ describe("the construction boundary is mode-coherent", () => {
     assert.equal(__strictModeReadsForTests(), readsAfterBuild);
 
     // Once the interval elapses the row is consulted, and the stale sync is
-    // replaced rather than handed out again.
-    await new Promise((r) => setTimeout(r, SYNC_MODE_RECHECK_MS + 20));
+    // replaced rather than handed out again. The interval is expired directly
+    // rather than slept out: a five-second sleep in a suite that runs in under
+    // thirty is waste, and it makes the assertion depend on wall-clock timing
+    // rather than on the behaviour under test.
+    __expireModeRecheckForTests();
     const second = await getStripeSync();
     assert.notEqual(second, first, "a sync for the superseded mode must not be reused past the interval");
     assert.ok(__strictModeReadsForTests() > readsAfterBuild, "the row must actually have been read");
+
+    // `first` was replaced, not disposed — production defers disposal of
+    // previously cached instances — so THIS TEST must end its pool. Leaving it
+    // open leaks two connections per run into a suite that runs four shards
+    // against one server, and a test that leaks connections is a test that will
+    // eventually fail something else.
+    await (first as unknown as { postgresClient?: { pool?: { end?: () => Promise<void> } } })
+      .postgresClient?.pool?.end?.();
   });
 
   it("test 5b / test 9 — a build whose generation is stale is discarded and its pool is ENDED", async () => {

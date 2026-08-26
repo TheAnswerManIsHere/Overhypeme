@@ -289,6 +289,17 @@ export function __discardedBuildsForTests(): { count: number; lastPoolEnded: boo
  * this increment took only the disposal of a build its OWN generation check
  * creates and then rejects.
  */
+/**
+ * Test seam: make the next `getStripeSync()` re-read the stored mode, without
+ * a test having to sleep out `SYNC_MODE_RECHECK_MS` in real time.
+ *
+ * A five-second sleep in a suite that runs in under thirty is both waste and a
+ * timing dependency — the kind that passes on one machine and not another.
+ */
+export function __expireModeRecheckForTests(): void {
+  lastStrictModeReadAt = 0;
+}
+
 export async function __endCachedSyncForTests(): Promise<void> {
   lastStrictModeReadAt = 0;
   const current = stripeSync;
