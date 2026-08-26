@@ -1,6 +1,6 @@
 {
   "generator": "scripts/review-loop-record.mjs",
-  "generatedAt": "2026-08-26T23:17:36.524Z",
+  "generatedAt": "2026-08-26T23:29:49.526Z",
   "evidenceCapturedAt": "2026-08-26T23:17:16Z",
   "pr": 577,
   "title": "Refuse to boot against the wrong Stripe account (#571)",
@@ -35,7 +35,7 @@
       },
       {
         "round": 2,
-        "submitted_at": "2026-08-26T23:13:30Z",
+        "submitted_at": "2026-08-26T23:13:29Z",
         "source": "review",
         "findings": 3
       }
@@ -80,7 +80,7 @@
         "excerpt": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Retry initialization until the webhook setup succeeds**\n\nWhen boot verification is initially pending and a later retry verifies the account, this is the only automatic initialization attempt; setting `initializationStarted` before migrations, sync construction, and webhook registration means any transient failu"
       },
       {
-        "threadId": "PRRT_r3_1",
+        "threadId": "PRRT_kwDOR3LTYs6cpPK3",
         "path": "artifacts/api-server/src/lib/stripeClient.ts",
         "line": 113,
         "resolved": null,
@@ -89,7 +89,7 @@
         "excerpt": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Bind test-event gating to the client mode**\n\nWhen a mode toggle is handled by another autoscale instance, `/admin/stripe/test-event` can still pass its cached `getConfigStringRaw` test-mode check while this constructor's strict read selects the newly active live mode. The route then either creates a real live-a"
       },
       {
-        "threadId": "PRRT_r3_2",
+        "threadId": "PRRT_kwDOR3LTYs6cpPKt",
         "path": "artifacts/overhype-me/src/pages/admin/StripeVerificationStatus.tsx",
         "line": 107,
         "resolved": null,
@@ -98,7 +98,7 @@
         "excerpt": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Reject poll samples for a different stored mode**\n\nWhen another admin or browser changes `stripe_live_mode` while this page remains open, later polls can return a snapshot for the new mode while `expectedMode` and the surrounding toggle still describe the old one. Only the initial seed is mode-checked; this pat"
       },
       {
-        "threadId": "PRRT_r3_3",
+        "threadId": "PRRT_kwDOR3LTYs6cpPKy",
         "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.ts",
         "line": 82,
         "resolved": null,
