@@ -9,11 +9,22 @@
  * `ariaLabel` promising a menu that could not open. Profile.tsx's own
  * comment recorded that it never mounted, back at PR #425's round 6.
  *
- * Every item it held is reachable on the Profile page the avatar now opens,
- * with ONE exception recorded on #565: "Invite friends" opened a global
- * `ShareModal` with no fact context, and no other surface offers that. That
- * gap is not created by this deletion — the menu never rendered, so the entry
- * point has been unreachable all along — but it is real and wants a home.
+ * Five of its seven items are on the Profile page the avatar now opens, in
+ * BOTH the desktop and mobile action blocks: Edit Profile, Admin Panel,
+ * Exit/Resume Admin, Forget Me, Sign Out. The other two are not universally
+ * reachable, and neither gap is created by this deletion — the menu never
+ * rendered, so both have been unreachable all along. Recorded on #565:
+ *
+ *   - **Membership** (`/pricing`) is on Profile's DESKTOP block only, behind
+ *     `!isLegendaryMember` — so an existing Legendary member has no link on
+ *     desktop, and no one has one below the `md` breakpoint at all.
+ *   - **Invite friends** opened a global `ShareModal` with no fact context.
+ *     No other surface offers that; `FactActionCluster` mounts the same modal
+ *     but only ever to share one fact.
+ *
+ * Do not read this file as saying every former destination is exposed on
+ * Profile. It is not, and an earlier revision of this comment said so
+ * wrongly. (Codex, #576 round 1.)
  */
 
 import { useAuth } from "@workspace/replit-auth-web";

@@ -98,9 +98,11 @@ export default function Profile() {
   // preview-aware effective one. Round 6 of PR #425's review found this page
   // aliasing `isRealAdmin` to `role === "admin"`, which meant every admin
   // control here — including the only way to leave view-as-user mode — vanished
-  // the moment an admin turned preview on. This page carries the ONLY
-  // Exit/Resume Admin control in the product: the header avatar navigates
-  // here rather than opening a menu (#565).
+  // the moment an admin turned preview on. This page carries the PUBLIC-SITE
+  // Exit/Resume Admin control -- the header avatar navigates here rather than
+  // opening a menu (#565). It is not the only one: AdminLayout's "Viewing as
+  // a user" panel renders its own Resume admin button on every /admin route,
+  // backed by the same toggle endpoint.
   const isRealAdmin = realRole === "admin";
   const isAdminModeOn = role === "admin";
   const queryClient = useQueryClient();

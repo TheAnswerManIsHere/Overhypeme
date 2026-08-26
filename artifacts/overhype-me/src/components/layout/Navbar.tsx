@@ -217,9 +217,11 @@ export function Navbar() {
 
             {/* Avatar / login — chrome contains navigation only; SHARE / SUBMIT
                 / LEGENDARY no longer live here. The avatar opens Profile,
-                which carries Edit Profile, Membership, Admin Panel,
-                Exit/Resume Admin, Forget Me and Sign Out; Submit lives on
-                /library. (There is no avatar dropdown — see AccountMenu.tsx.) */}
+                which carries Edit Profile, Admin Panel, Exit/Resume Admin,
+                Forget Me and Sign Out in both layouts — Membership only on
+                desktop and only for non-Legendary members; Submit lives on
+                /library. (There is no avatar dropdown — see AccountMenu.tsx
+                for the two destinations Profile does not cover.) */}
             <div className="flex items-center gap-3">
               {!authLoading && (isAuthenticated ? (
                 <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} onClick={() => setLocation("/profile")} />
