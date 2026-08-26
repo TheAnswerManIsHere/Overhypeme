@@ -63,11 +63,12 @@ process doc, a documentation harvest:
   the write-gate working.
 - **Round 3's findings → the adjudicator, before anything is written.** On
   this tier the entry point IS the cap decision: it rules under the internal
-  rubric (write only for a very high chance of a CRITICAL flaw — and a
-  fourth round means 🛑 David, since the cap is 3 with no self-serve
-  extension), or everything ships as recorded gaps on the round-3-reviewed
-  head.
-- **Hard cap 3, no self-serve extension** — at 3, 🛑 David.
+  rubric (write only for a very high chance of a CRITICAL flaw), or
+  everything ships as recorded gaps on the round-3-reviewed head.
+- **Budget 3, two-tier tripwire like every tier** (David, 2026-08-26): the
+  adjudicator's grants self-serve to at most round 6, where the David gate
+  stands — a fresh Fable recommendation goes to David, and only his receipt
+  moves the loop.
 
 ### Declare the round budget at loop start (product loops only)
 
@@ -79,9 +80,10 @@ node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive|intern
      --criticality <1-100> --artifact "<what is under review>"
 ```
 
-`product` = 5 rounds, `sensitive` = uncapped with a mandatory 🛑 at 5 (auth,
-payments, migrations), `internal` = hard cap 3 (declared at the first
-re-request, not before round 1 — see the internal-tier section above). The
+`product` = 5 rounds, `sensitive` = 5 (auth, payments, migrations),
+`internal` = 3 (declared at the first re-request, not before round 1 — see
+the internal-tier section above). Every tier runs the same two-tier
+tripwire past its budget (David, 2026-08-26). The
 tier picks the number; it is not a field to fill in.
 **Commit the receipt AND PUSH IT**, then **state the budget in the PR body**.
 
@@ -136,8 +138,9 @@ asking, not a budget constraint.
 This is not optional and not a reminder: `.claude/guard.sh` refuses the
 **first** `@codex review` post until the budget receipt exists, refuses any
 post without current counted evidence, and refuses again at the budget. The
-full contract — the per-round adjudicator, the adjudicator-sized extension, and
-the 2x outer rail to David — is resident in `CLAUDE.md`'s *Review loops*
+full contract — the per-round adjudicator, the adjudicator-sized extension
+inside the 3-round leash, and the David gate at budget + leash — is resident
+in `CLAUDE.md`'s *Review loops*
 section, because it has to hold whether or not this skill is loaded. What belongs here is the timing: **declare at loop
 start**, alongside the subscribe, and **check before each request**.
 
@@ -237,14 +240,13 @@ the diff *is* the plan. While watching an implementation PR:
   rounds' fixes are pushed, the next bare trigger goes out as usual (it is
   mandatory: pushed code is reviewed code): the rule gates on verdicts that
   exist, and the absence of a dispatch is not a stop (Codex, #548). But a verdict at **budget exhaustion** is an
-  extension decision — **and it exists only on the product tier**: a
-  `sensitive` loop at its 🛑-at-5 goes STRAIGHT to David with no adjudicator
-  dispatch and no receipt written, because that tier has no self-serve stage
-  and `review-budget.mjs` would reject an adjudication receipt as
-  `bad-receipt`, wedging the loop (Codex, #543 round 3). On the product tier
-  the guard reads extensions only from committed receipts — so that verdict is written to
+  extension decision, on every tier (David, 2026-08-26 — sensitive and
+  internal loops write adjudication receipts like product ones now). The
+  guard reads extensions only from committed receipts — so that verdict is written to
   `.agents/receipts/loop-extension-<pr>-<n>.json`, committed and pushed, per
-  the tripwire-1 refusal's own instructions. A comment-only exhaustion verdict
+  the tripwire-1 refusal's own instructions; at a **David gate** the same
+  receipt is committed as the recommendation and David's answer follows it
+  as a `david`-kind receipt. A comment-only exhaustion verdict
   leaves the allowance unchanged: the guard blocks the next request and tells
   you to run the adjudication you already ran. The
   self-refereeing that used to live here (count trend, growth tripwire,

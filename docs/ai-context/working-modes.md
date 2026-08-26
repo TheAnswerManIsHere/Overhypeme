@@ -582,8 +582,9 @@ with the `internal` tier:
   or irreversible action, corruption of the receipt/tracking machinery, a
   widening of agent authority. Ordinary correctness nits, prose and
   structure ship with gaps recorded.
-- **Hard cap 3 rounds, no self-serve extension:** at 3, the loop goes to
-  David in person.
+- **Budget 3, the same two-tier tripwire as every tier** (David, 2026-08-26,
+  superseding straight-to-David-at-3): the adjudicator's grants self-serve
+  to at most round 6, where the David gate stands.
 
 What the 2026-08-20 decision got right survives in the rubric, not in
 refusing review: every runaway loop this repo measured was internal tooling
@@ -599,7 +600,7 @@ the safety net a non-code-reading product manager depends on.
 #### Product loops: a declared budget, then an external judge
 
 - **The budget is declared before round 1** — `product` (5 rounds) or
-  `sensitive` (uncapped, mandatory 🛑 to David at 5) — and enforced by
+  `sensitive` (5 rounds; auth/payments/migrations) — and enforced by
   `scripts/review-budget.mjs`, which refuses the `@codex review` post when the
   loop is out of rounds. Rounds are **counted fresh from GitHub every time**,
   never stored: a committed tally is a cache of state GitHub already holds, and
@@ -623,11 +624,19 @@ the safety net a non-code-reading product manager depends on.
   round's fixes are unreviewed" is no longer that risk: under the write-gate
   rule the round reviewing any pushed fixes has already run before the judge
   is asked.)
-- **The outer rail is 2x the declared budget.** There the loop goes to David
-  regardless of verdict: a loop needing that many rounds has a problem no
-  extension fixes. The rail exists because pure judgment, however
-  well-positioned, is what failed to bound #488 — every round there was locally
-  rational.
+- **The David gate stands at budget + 3, on every tier** (David, 2026-08-26,
+  superseding the 2x-budget hard stop and sensitive's mandatory stop at 5).
+  Adjudicator grants self-serve at most that 3-round leash. At the gate a
+  fresh Fable adjudication runs and its verdict goes to David as a 🛑 — his
+  call on the recommendation — instead of taking effect on its own; his
+  answer is the committed `david`-kind receipt (a grant opens exactly those
+  rounds, default another 3-round leash with the gate repeating where it
+  runs out; 0 endorses stopping). The gate exists because pure judgment,
+  however well-positioned, is what failed to bound #488 — every round there
+  was locally rational.
+- **A product decision skips the leash entirely.** A product-shaped blocker —
+  the adjudicator's `escalate`, or the loop's own recognition that a finding
+  is product-not-mechanical — goes to David immediately, at any round.
 - **No re-request without a behavioral change since the last reviewed commit.**
   A skill file, `CLAUDE.md`, or a context contract counts as behavioral, because
   in this repo those change what agents do.

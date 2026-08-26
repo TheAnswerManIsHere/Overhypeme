@@ -630,16 +630,15 @@ export function checkCodex(issueComments, reviews, headSha = null) {
  * every adjudication verdict, not just `continue` (this file's stakes are
  * different: honoring the receipt is what unblocks a merge). Beyond what
  * `validateRecordReference` checks there (generator, PR, round count against
- * the declared tier's cap), this function also confirms the tier is
- * self-serve (`sensitive` never gets this fallback -- its tripwire is a
- * mandatory 🛑 to David, and a record or receipt claiming otherwise is
- * wrong on its face), and that no request was still pending when the record
- * was generated.
+ * the declared tier's cap), this function also confirms that no request was
+ * still pending when the record was generated. Every tier's receipts get
+ * this fallback as of the two-tier tripwire (David, 2026-08-26): sensitive
+ * and internal loops now write adjudication receipts like product ones.
  *
  * IT DOES NOT COUNT PRIOR ADJUDICATIONS. It did until 2026-08-20, citing
  * `review-budget.mjs`'s rule that a second adjudication is never valid --
  * and that rule is gone: the adjudicator now runs after every round and may
- * grant more than once, bounded by the outer rail rather than by a count. The
+ * grant more than once, bounded by the David-gate leash rather than by a count. The
  * check had to go with its own justification, and nothing was lost, because
  * what makes a ship verdict terminal is the ACTIVE-ALLOWANCE test below
  * (`passes >= record.budget.allowance` -- the tripwire actually fired, at
@@ -764,18 +763,6 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   const tier = record.budget?.tier;
   if (!TIERS[tier]) {
     return { ok: false, detail: `${recordPath} names an unknown tier ${JSON.stringify(tier)}` };
-  }
-  // `sensitive` never gets this fallback: its tripwire is David's, in
-  // person. Neither does `internal` any more (David, 2026-08-22, the
-  // write-gate rule): its stop happens BEFORE a new commit exists, so the
-  // head is already reviewed and the ordinary merge path applies -- there is
-  // no unreviewed head for a receipt to unwedge, and the 2026-08-21 carve-out
-  // that let one through is gone rather than fixed.
-  if (!TIERS[tier].selfServe) {
-    return {
-      ok: false,
-      detail: `${recordPath}: tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, never an adjudication`,
-    };
   }
   const passes = record.rounds?.completedReviewerPasses;
   // The ACTIVE allowance, not the tier's base cap: if David granted extra
@@ -1207,21 +1194,24 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
 }
 
 /**
- * The outer rail, enforced at merge time (Codex, #543 round 3).
+ * The David gate, enforced at merge time (Codex, #543 round 3; re-sited by
+ * the two-tier tripwire, David, 2026-08-26).
  *
- * The contract says a loop whose allowance reaches 2x its declared budget
- * goes to David REGARDLESS of verdict -- but without this check, a clean
- * final pass (or a terminal ship receipt at rail allowance) satisfies the
+ * The contract says a loop whose allowance reaches its budget plus the
+ * self-serve leash (plus any earlier David grants) goes to David REGARDLESS
+ * of the adjudicator's recommendation -- but without this check, a clean
+ * final pass (or a terminal ship receipt at gate allowance) satisfies the
  * Codex item and the PR mints READY with David never consulted. Reads the
- * committed budget receipt at the head; no budget (internal work, or no loop)
- * means the rail does not apply. When the fully-activated allowance has
- * reached the rail, only a loop whose LAST extension is a `david`-kind
- * receipt is ready -- his authorization is the one thing the rail exists to
- * guarantee.
+ * committed budget receipt at the head; no budget (internal work merged on
+ * a clean automatic pass, or no loop) means the gate does not apply. When
+ * the fully-activated allowance has reached the gate, only a loop whose
+ * LAST extension is a `david`-kind receipt is ready -- a grant reopens the
+ * loop, a grant of 0 endorses the stop, and either way his consultation is
+ * the one thing the gate exists to guarantee.
  */
 export function checkRail(prNumber, headSha, cwd) {
   const budgetRaw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/loop-budget-${prNumber}.json`], cwd);
-  if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the outer rail does not apply" };
+  if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the David gate does not apply" };
   let budget;
   try {
     budget = JSON.parse(budgetRaw);
@@ -1306,27 +1296,27 @@ export function checkRail(prNumber, headSha, cwd) {
 
   // Fully activated: what the allowance becomes once everything is spent.
   const activated = allowance(tier, extensions, Number.MAX_SAFE_INTEGER);
-  const rail = railFor(tier);
+  const rail = railFor(tier, extensions);
   // Validation above makes NaN unreachable; this is the fail-closed backstop
   // so any future gap in it blocks a merge instead of waving one through.
   if (activated !== Infinity && !Number.isFinite(activated)) {
-    return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the rail" };
+    return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the David gate" };
   }
-  if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
+  if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round David gate` };
   // The look-through added on 2026-08-21 for a trailing internal terminal
   // receipt is gone with the receipt itself (David, 2026-08-22): under the
   // write-gate rule no tier commits a terminal receipt mid-budget, so
-  // nothing can shadow a David authorization at the rail.
+  // nothing can shadow a David authorization at the gate.
   const last = extensions[extensions.length - 1];
   if (last?.kind === "david") {
-    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest extension` };
+    return { pass: true, detail: `allowance reached the ${rail}-round David gate and David's authorization is the loop's latest extension` };
   }
   return {
     pass: false,
     detail:
-      `this loop's allowance has reached the outer rail (${rail} rounds -- 2x its declared budget), which goes ` +
-      `to David regardless of verdict; no "david"-kind receipt is the latest extension, so readiness cannot ` +
-      `be self-served`,
+      `this loop's allowance has reached the David gate (${rail} rounds -- its budget plus the self-serve ` +
+      `leash plus any earlier David grants), which goes to David regardless of the adjudicator's ` +
+      `recommendation; no "david"-kind receipt is the latest extension, so readiness cannot be self-served`,
   };
 }
 
@@ -1365,7 +1355,7 @@ const LABEL = {
   codex: "Codex returned",
   threads: "Threads resolved",
   capture: "Evidence ordering",
-  rail: "Outer rail",
+  rail: "David gate",
 };
 
 export function formatReceipt(receipt) {

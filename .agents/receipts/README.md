@@ -110,7 +110,10 @@ simply one of the passes.
   "risk": "<the named unaddressed behavioral risk>",
   "recordPath": ".agents/adjudications/503-1.json", "createdAt": "…" }
 
-// loop-extension-<pr>-2.json — COMMITTED. Tripwire 2, David only. Never a second adjudication.
+// loop-extension-<pr>-2.json — COMMITTED. Tripwire 2 (the David gate): the fresh
+// Fable recommendation is committed as an adjudication receipt first (granting
+// nothing at the gate), then David's decision as a david-kind receipt — a grant
+// opens exactly those rounds, 0 endorses stopping.
 { "pr": 503, "kind": "david", "grant": 3, "authorization": "<his words>", "createdAt": "…" }
 
 // loop-round-check-<pr>.json — EPHEMERAL, gitignored, one post per receipt.
@@ -125,8 +128,10 @@ simply one of the passes.
 // posts issued in one turn run as two processes.
 ```
 
-Tiers: `internal` = 3 rounds, `product` = 5, `sensitive` = uncapped with a
-mandatory 🛑 to David at 5 (and no self-serve extension at all).
+Tiers: `internal` = 3 rounds, `product` = 5, `sensitive` = 5
+(auth/payments/migrations). Every tier runs the same two-tier tripwire
+(David, 2026-08-26): Fable adjudication from the budget, a 3-round self-serve
+leash past it, then the David gate — repeating wherever a David grant runs out.
 
 ## Fail-closed, everywhere
 

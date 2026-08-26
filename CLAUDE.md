@@ -253,10 +253,10 @@ docs and harvests run the loop above with the **`internal` tier**:
   The record's tier selects the **internal rubric**: write only for a very
   high chance of a CRITICAL flaw (a destructive or irreversible action,
   corruption of the receipt/tracking machinery, a widening of my authority).
-  Everything softer ships with gaps recorded. On this tier round 3 is also
-  the cap, so a `continue` there is functionally a 🛑 to David.
-- **Hard cap 3 rounds, no self-serve extension** — at 3 the loop goes to
-  David, in person.
+  Everything softer ships with gaps recorded.
+- **Budget 3, two-tier tripwire like every tier** (David, 2026-08-26,
+  superseding straight-to-David-at-3): the adjudicator's grants self-serve
+  to at most round 6, where the David gate stands.
 
 One triage pass and one-line declines still govern engagement, harvests still
 get no harvest ceremony, and internal tooling still ships with rougher edges as
@@ -266,9 +266,9 @@ itself, and `main`'s real protection is GitHub's server-side ruleset.
 ### Product loops: budget, then an external judge
 
 1. **Declare the budget before round 1** — `product` (5 rounds) or `sensitive`
-   (uncapped, mandatory 🛑 at 5); internal tooling declares `internal` (hard
-   cap 3) at its first re-request rather than before round 1, per the section
-   above. The tier picks the number:
+   (5 rounds; auth/payments/migrations); internal tooling declares `internal`
+   (3 rounds) at its first re-request rather than before round 1, per the
+   section above. The tier picks the number:
 
    ```
    node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> \
@@ -305,8 +305,9 @@ itself, and `main`'s real protection is GitHub's server-side ruleset.
    line in the **separate defanged context comment**, never in the trigger
    comment (which stays bare, per interaction rule 11) and never a file:
    per-round receipts would rebuild the receipt machinery this replaced.
-   The one exception is a verdict at budget exhaustion — an extension
-   decision, written to the committed receipt the guard consumes. (The
+   The one exception is a verdict at a tripwire — the extension decision at
+   budget exhaustion, and the recommendation committed at a David gate —
+   written to the committed receipt the guard consumes. (The
    internal-tier mid-budget receipt added on 2026-08-21 is gone with the
    write-gate rule: a stop now precedes any new commit, so there is no
    unreviewed head for a receipt to unwedge.) The loop executes; the external judge
@@ -320,9 +321,18 @@ itself, and `main`'s real protection is GitHub's server-side ruleset.
    unreviewed" is no longer available as that risk and no such flag exists in
    the record: under the write-gate rule the round reviewing any pushed fixes
    has already run before the judge is dispatched.
-   **Outer rail: 2× the declared budget.** There, the loop goes to David as a 🛑
-   regardless of verdict, because a loop needing that many rounds has a problem
-   no extension fixes. Sensitive tier has no self-serve stage at all.
+   **The David gate: budget + 3 rounds, on every tier** (David, 2026-08-26,
+   superseding the 2×-budget hard stop and sensitive's stop-for-him-at-5).
+   Adjudicator grants self-serve at most that 3-round leash; at the gate the
+   same fresh Fable adjudication runs and its verdict goes to David as a 🛑 —
+   his call on its recommendation, with a push notification — rather than
+   taking effect on its own. His answer is the `david`-kind receipt: a grant
+   opens exactly that many more rounds (default: another 3-round leash, the
+   gate repeating where it runs out), 0 endorses stopping. **The exception
+   that skips the leash entirely: a product decision.** A product-shaped
+   blocker — the adjudicator's `escalate`, or my own recognition that a
+   finding is product-not-mechanical — goes to David immediately, at any
+   round, and is never ground through mechanically.
 
 4. **No re-request without a behavioral change since the last reviewed
    commit** — a skill file, this file, or a `docs/ai-context/` contract counts

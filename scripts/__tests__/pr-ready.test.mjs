@@ -1056,18 +1056,18 @@ test("adjudication: an unknown tier in the record is rejected", () => {
   assert.match(res.detail, /unknown tier/);
 });
 
-test("adjudication: the SENSITIVE tier is never honored, however clean the record otherwise looks (Codex, #539 round 2)", () => {
-  // sensitive.selfServe is false -- its tripwire is a mandatory 🛑 to David,
-  // and review-budget.mjs itself rejects every adjudication receipt for this
-  // tier. A record or receipt claiming otherwise must never satisfy the
-  // merge gate either.
+test("adjudication: the SENSITIVE tier gets the merge-gate fallback like every tier (David, 2026-08-26)", () => {
+  // Under the two-tier tripwire sensitive loops write adjudication receipts
+  // like product ones, so a fully valid closed loop on this tier satisfies
+  // the fallback. (Supersedes the 2026-08-22 never-honored rule, which
+  // rested on sensitive having no adjudication receipts at all.)
   const { dir, commit } = tempRepo();
-  const rec = record(999, 1, { tier: "sensitive", passes: 5, baseline: "a".repeat(40) });
-  const ext = extension(999, 1, { recordPath: rec.path });
-  const head = commit({ ...rec.files, ...ext.files }, "c1");
+  const { head } = closedLoop(commit, 999, {
+    recordOpts: { tier: "sensitive", passes: 5, allowanceValue: 5 },
+  });
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
-  assert.equal(res.pass, false);
-  assert.match(res.detail, /no self-serve extension/);
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /bookkeeping-only/);
 });
 
 test("adjudication: a record generated below the loop's active allowance is rejected -- adjudication must follow its tripwire", () => {
@@ -1515,7 +1515,7 @@ test("rail: no committed budget means the rail does not apply", () => {
   assert.equal(checkRail(999, head, dir).pass, true);
 });
 
-test("rail: an allowance at 2x the budget with no david receipt refuses readiness", () => {
+test("rail: an allowance at the David gate (budget + leash) with no david receipt refuses readiness", () => {
   const { dir, commit } = tempRepo();
   const head = commit({
     ".agents/receipts/loop-budget-999.json": railBudget(999),
@@ -1524,7 +1524,7 @@ test("rail: an allowance at 2x the budget with no david receipt refuses readines
   }, "c1");
   const res = checkRail(999, head, dir);
   assert.equal(res.pass, false);
-  assert.match(res.detail, /outer rail/);
+  assert.match(res.detail, /David gate \(8 rounds/);
 });
 
 test("rail: David's authorization as the latest extension clears the rail", () => {
@@ -1731,16 +1731,16 @@ test("Codex: the zero-request automatic-pass path is deliberately tier-blind (de
 
 
 
-test("adjudication: the internal tier gets NO merge-gate fallback (David, 2026-08-22)", () => {
-  // Under the write-gate rule an internal loop stops before writing, so its
-  // head is already reviewed and the ordinary path applies -- there is no
-  // unreviewed head for a receipt to unwedge, and accepting one here would
-  // reopen exactly the bypass the rule closes.
+test("adjudication: the internal tier gets the merge-gate fallback like every tier (David, 2026-08-26)", () => {
+  // The two-tier tripwire means internal loops write adjudication receipts
+  // at their cap too, so the receipt-plus-record bookkeeping commit needs
+  // the same fallback product loops get. (Supersedes the 2026-08-22
+  // exclusion, which rested on internal writing no receipts at all.)
   const { dir, commit } = tempRepo();
   const { head } = closedLoop(commit, 999, {
     recordOpts: { tier: "internal", passes: 3, allowanceValue: 3 },
   });
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
-  assert.equal(res.pass, false);
-  assert.match(res.detail, /no self-serve extension/);
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /bookkeeping-only/);
 });

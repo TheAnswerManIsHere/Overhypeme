@@ -13,6 +13,50 @@
 
 ---
 
+### 2026-08-26 · The two-tier tripwire: a Fable recommendation at budget + 3-round leash, then the David gate — on every tier, with a product-decision fast path
+- **Decision:** David replaced the review-loop stopping shape end to end.
+  Tripwire 1 stays at each tier's declared budget (product 5, sensitive 5,
+  internal 3) and stays the Fable adjudicator's, but its `continue` grants now
+  self-serve at most a **3-round leash** past the budget. At budget + leash
+  stands the **David gate**: the same fresh Fable adjudication runs first and
+  its verdict is committed as the *recommendation*, granting nothing by
+  itself; David reviews it and his `david`-kind receipt decides — a grant
+  opens exactly those rounds (default another 3-round leash, the gate
+  repeating wherever his grant runs out), and a new **grant of 0** endorses
+  stopping while durably recording that he was consulted. This supersedes
+  three older shapes at once: the 2x-budget hard-stop rail, sensitive's
+  uncapped-with-a-mandatory-stop-at-5 (sensitive now declares budget 5 and
+  runs the same tripwires — David chose to include it explicitly), and
+  internal's straight-to-David hard cap at 3 (internal now leashes to 6 under
+  its strict rubric, David gating at 6). The `selfServe` and `escalateAt`
+  tier properties are deleted. **The exception that skips the leash: a
+  product decision.** A product-shaped blocker — the adjudicator's
+  `escalate`, or the loop's own recognition that a finding is
+  product-not-mechanical — goes to David immediately, at any round, and at
+  tripwire 1 a product-shaped blocker routes to him instead of into the
+  self-serve leash.
+- **Why:** The old tier-2 shapes stopped the loop dead to wait for David even
+  when the remaining findings were purely mechanical — the exact class of
+  decision the Fable adjudicator was added to make. Two tiers of tripwire
+  keep the judgment where it pays: Fable owns mechanical-convergence calls up
+  to a bounded leash, David is consulted every three rounds past the budget
+  with a fresh recommendation in hand rather than a bare "we're out of
+  rounds", and product questions never wait for a round count at all. The
+  leash replaces the 2x rail because "double the budget" measured nothing —
+  three rounds is the cadence David actually wants to be consulted at.
+- **Reference:** the `claude/two-tier-tripwire-fable-n0woib` PR (this
+  change); `scripts/review-budget.mjs` (`LEASH`, `staged`, the tripwire
+  refusal texts), `scripts/pr-ready.mjs` (`checkRail` → the David gate at
+  merge time), `.claude/agents/review-loop-adjudicator.md` (gate dispatch =
+  recommendation; sensitive rubric note; escalate-on-product mandatory).
+- **Revisit if:** David gates fire so often that he is effectively back in
+  every loop (the leash is too short for real convergence tails), or a
+  measured loop shows Fable extending mechanically past round counts David
+  would have stopped — either way the leash length and the gate cadence are
+  his dials, not the loop's.
+
+---
+
 ### 2026-08-21 · aihero.dev skill set reviewed — main flow declined, wayfinder deferred, three primitives vendored (PR #545)
 - **Decision:** David reviewed Matt Pocock's aihero.dev skill set (25 skills,
   [mattpocock/skills](https://github.com/mattpocock/skills), MIT) end to end

@@ -47,8 +47,8 @@
  *   .agents/receipts/loop-budget-<pr>.json      the budget, declared before round 1
  *   .agents/receipts/loop-extension-<pr>-N.json an extension, from adjudication or David
  *
- * Both are committed: "no second self-service extension, ever" has to survive
- * the container, or tripwire 2 never fires.
+ * Both are committed: which David gates have already been passed, and what he
+ * granted at each, has to survive the container, or tripwire 2 never fires.
  *
  * AND BOTH ARE READ FROM THE COMMIT, NEVER FROM THE WORKING TREE (#526).
  * The distinction above was always declared and, for a while, only half
@@ -84,9 +84,14 @@
  *      this loop's prose -- a same-context "pause and re-evaluate" is the
  *      criticality gate again, and the criticality gate went 0-for-15. A
  *      `continue` verdict must cite a record generated AT the cap, so an
- *      adjudication cannot precede the tripwire it answers.
- *   3. EXTENSION EXHAUSTED (tier-2 tripwire). Hard stop to David. There is
- *      **no second self-service extension, ever.**
+ *      adjudication cannot precede the tripwire it answers. Adjudicator
+ *      grants self-serve at most one LEASH (3 rounds) past the budget.
+ *   3. DAVID GATE (tier-2 tripwire), at budget + leash and again each time a
+ *      David grant is spent. The same fresh Fable adjudication runs first --
+ *      committed as the RECOMMENDATION David reviews, granting nothing by
+ *      itself -- and only a `david`-kind receipt (his decision, quoted)
+ *      reopens the loop or endorses the stop. (David, 2026-08-26,
+ *      superseding the 2026-08-20 2x-budget hard stop.)
  *
  * WHAT IT DELIBERATELY DOES NOT DO
  * --------------------------------
@@ -137,11 +142,12 @@ export const REPO_NAME = "Overhypeme";
 export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
 
 /**
- * Blast-radius tiers (David, 2026-08-17, issue #501; revised 2026-08-20).
+ * Blast-radius tiers (David, 2026-08-17, issue #501; revised 2026-08-20 and
+ * 2026-08-26).
  *
- * `budget` is the round cap; `null` means uncapped by design. `escalateAt` is
- * where an uncapped tier still owes David a mandatory stop -- uncapped is not
- * unattended.
+ * `budget` is the round cap -- tripwire 1, where the Fable adjudicator takes
+ * over. No tier is uncapped any more: sensitive's old uncapped-with-a-
+ * mandatory-stop shape is gone with the two-tier tripwire below.
  *
  * THE WRITE-GATE RULE (David, 2026-08-22). The adjudicator decides BEFORE
  * code is written, not after it is pushed: a round returns findings, the
@@ -162,61 +168,101 @@ export const MAX_CHECK_AGE_MS = 60 * 60 * 1000;
  *
  * THE `internal` TIER still exists and is still strict: it is the rubric
  * the adjudicator applies (write another round only for a very high chance
- * of a CRITICAL flaw -- see review-loop-adjudicator.md), with a hard cap of
- * 3 and no self-serve extension, so at 3 the loop goes to David in person.
- * What it no longer is: an exemption from reviewing what was written. Every
- * measured runaway loop (#488's 22 rounds, #503, #531, #534, #539) was
- * internal tooling reviewed at product rigor, and the strictness that
- * answers it lives in the write decision, not in skipping review.
+ * of a CRITICAL flaw -- see review-loop-adjudicator.md), on the smallest
+ * budget (3). What it no longer is: an exemption from reviewing what was
+ * written. Every measured runaway loop (#488's 22 rounds, #503, #531, #534,
+ * #539) was internal tooling reviewed at product rigor, and the strictness
+ * that answers it lives in the write decision, not in skipping review.
  *
- * `selfServe` is the tier's answer to "may the first tripwire be cleared by an
- * adjudicator instead of by David?" Sensitive work says no: on auth, payments
- * and migrations the mandatory 🛑 at 5 IS the tripwire, and routing it to a
- * subagent would convert the one escalation the tier exists to guarantee into
- * one more thing decided in-house.
+ * THE TWO-TIER TRIPWIRE (David, 2026-08-26). Every tier -- sensitive and
+ * internal included, superseding sensitive's mandatory-🛑-at-5 and
+ * internal's David-in-person-at-3 -- runs the same two tripwires:
+ *
+ *   Tripwire 1, at the tier budget: the Fable adjudicator rules, and its
+ *   grants self-serve the loop at most one LEASH (3 rounds) past the budget.
+ *   Tripwire 2 (the David gate), at budget + leash and again wherever a
+ *   David grant runs out: a fresh Fable adjudication is committed as the
+ *   recommendation, and the loop stops for David's decision regardless of
+ *   what it recommends.
+ *
+ * The one thing that always bypasses the leash: a PRODUCT decision. The
+ * adjudicator's `escalate` verdict is terminal at any round, and a finding
+ * the loop itself recognizes as product-not-mechanical goes to David
+ * immediately without waiting for any tripwire.
  */
 export const TIERS = {
   product: {
     budget: 5,
-    escalateAt: null,
-    selfServe: true,
     label: "product code",
   },
   sensitive: {
-    budget: null,
-    escalateAt: 5,
-    selfServe: false,
-    label: "auth / payments / migrations (uncapped, mandatory 🛑 at 5)",
+    budget: 5,
+    label: "auth / payments / migrations",
   },
   internal: {
     budget: 3,
-    escalateAt: null,
-    selfServe: false,
-    label: "internal tooling (hard cap 3, strict write-gate adjudication, no self-serve extension)",
+    label: "internal tooling (strict write-gate adjudication rubric)",
   },
 };
 
-/** The cap a tier enforces before any extension: its budget, or its 🛑 point. */
-export const tierCap = (tier) => TIERS[tier].budget ?? TIERS[tier].escalateAt;
+/** The cap a tier enforces before any extension: its budget. */
+export const tierCap = (tier) => TIERS[tier].budget;
 
 /**
- * The outer rail on self-serve extension: twice the tier's declared budget.
+ * The self-serve leash: how far past a David-authorized boundary the
+ * adjudicator's own grants may carry the loop before the next David gate.
+ * (David, 2026-08-26: "the second tripwire is an additional 3 loops after
+ * the first".) The adjudicator still owns grant SIZE within it (David,
+ * 2026-08-20); the leash bounds the aggregate, not each grant.
  *
- * The adjudicator owns extension SIZE (David, 2026-08-20 -- a push whose last
- * round revealed a real problem may need three rounds, not a fixed one), so
- * the old `MAX_ADJUDICATION_GRANT = 2` ceiling is gone. What replaces it is an
- * outer bound rather than a per-grant one: adjudicator grants may accumulate
- * up to 2x the budget, and there they stop and the loop goes to David
- * regardless of verdict.
- *
- * Why a rail at all, when the adjudicator's record is good: #488's post-mortem
- * found that pure judgment, however well-positioned, failed to bound a loop --
- * every round was locally rational. The adjudicator is 3-for-3, which is 3
- * samples. With unlimited grant authority a pathological loop never
- * mechanically reaches David; with the rail, the worst case of a wrong
- * adjudicator is bounded at double cost.
+ * Why a mechanical bound at all, when the adjudicator's record is good:
+ * #488's post-mortem found that pure judgment, however well-positioned,
+ * failed to bound a loop -- every round was locally rational. With unlimited
+ * grant authority a pathological loop never mechanically reaches David; with
+ * the leash, he is consulted every three rounds past the budget, with the
+ * adjudicator's fresh recommendation in hand.
  */
-export const railFor = (tier) => tierCap(tier) * 2;
+export const LEASH = 3;
+
+/**
+ * Allowance and rail, staged together. EXTENSIONS ACTIVATE IN SEQUENCE, AND
+ * ONLY ONCE EVERYTHING BEFORE THEM IS SPENT (see `allowance` below for why).
+ * The rail -- the round count at which the next David gate stands -- moves
+ * only when a David grant activates: it starts at budget + LEASH, and each
+ * activated `david` grant pushes it out by exactly that grant, so adjudicator
+ * grants can never carry the loop past the boundary David last authorized
+ * plus the one self-serve leash. An uncapped David grant removes both bounds.
+ */
+function staged(tier, extensions, roundsSpent) {
+  if (!Number.isInteger(roundsSpent) || roundsSpent < 0) {
+    throw new Error(`allowance needs a non-negative integer roundsSpent, got ${JSON.stringify(roundsSpent)}`);
+  }
+  let total = tierCap(tier);
+  let rail = total + LEASH;
+  for (const ext of extensions) {
+    if (roundsSpent < total) break; // this stage is not exhausted yet
+    if (ext.kind === "david") {
+      if (ext.grant === "uncapped") return { total: Infinity, rail: Infinity };
+      total += ext.grant;
+      rail += ext.grant;
+    } else if (ext.kind === "adjudication" && ext.verdict === "continue") {
+      // Adjudicator grants accumulate, but never past the current David
+      // gate. David grants move the gate itself -- he is the authority the
+      // gate escalates TO.
+      total = Math.min(total + ext.grant, rail);
+    }
+  }
+  return { total, rail };
+}
+
+/**
+ * The round count at which the loop's next (or current) David gate stands,
+ * given which extensions have activated at `roundsSpent`. With the default
+ * `roundsSpent` every extension is treated as activated -- the fully-extended
+ * gate, which is what a merge-time check wants.
+ */
+export const railFor = (tier, extensions = [], roundsSpent = Number.MAX_SAFE_INTEGER) =>
+  staged(tier, extensions, roundsSpent).rail;
 
 /** Verdicts the adjudicator may return. Only `continue` grants rounds. */
 export const ADJUDICATION_VERDICTS = new Set(["ship-with-gaps-recorded", "split", "continue", "escalate"]);
@@ -749,24 +795,14 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!ADJUDICATION_VERDICTS.has(receipt.verdict)) {
       return `adjudication verdict "${receipt.verdict}" is not one of: ${[...ADJUDICATION_VERDICTS].join(", ")}`;
     }
-    // A non-self-serve tier refuses EVERY adjudication receipt: its tripwire
-    // is David's, in person.
-    //
-    // REVERTED (David, 2026-08-22): #553 round 4 asked for mid-budget
-    // `split`/`escalate` receipts so `checkRail` could see them, and round 5
-    // showed why that shape does not work -- `validateRecordReference` holds
-    // every receipt to the exhaustion floor, so a blocking verdict recorded
-    // before exhaustion is rejected as malformed, `loadLoop` then fails on
-    // it, and NOT EVEN A DAVID GRANT can reopen that loop. Exempting
-    // blocking verdicts from the floor would rebuild the `minPasses` <!-- retired-ok -->
-    // machinery this PR deleted, so the carve-out is reverted instead and
-    // the visibility gap is recorded: a standing `split`/`escalate` on a
-    // tier that writes no receipt is not machine-visible to the readiness
-    // gate. It is covered by process rather than mechanism -- both verdicts
-    // go to David as a 🛑 by construction, and READY is not a merge.
-    if (!TIERS[tier].selfServe) {
-      return `tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, not an adjudication`;
-    }
+    // Every tier accepts adjudication receipts (David, 2026-08-26 -- the
+    // two-tier tripwire). A KNOWN visibility gap survives from #553 round 5:
+    // `validateRecordReference` holds every receipt to the tripwire floor,
+    // so a blocking `split`/`escalate` verdict decided MID-budget cannot be
+    // recorded as a receipt (it would be rejected as premature, and
+    // `loadLoop` would then fail the whole loop). A mid-budget terminal
+    // verdict is therefore covered by process rather than mechanism -- it
+    // goes to David as a 🛑 by construction, and READY is not a merge.
     // A TERMINAL verdict decides. Refusing the next post (the guard's own
     // rule) is bypassable from this side: a later `continue` receipt would
     // become the last extension and read as reopening the loop. So the
@@ -815,7 +851,10 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (recordError) return recordError;
     if (receipt.verdict !== "continue") return null; // ship-with-gaps-recorded / split / escalate grant nothing further
     // The adjudicator owns the SIZE of an extension (David, 2026-08-20); the
-    // bound is the outer rail in `allowance`, not a per-grant ceiling here.
+    // bound is the leash in `allowance`, not a per-grant ceiling here. A
+    // continue receipt written AT a David gate is valid and simply grants
+    // nothing (`allowance` clips it at the gate): it is the committed
+    // recommendation David reviews, and only his receipt moves the gate.
     if (!Number.isInteger(receipt.grant) || receipt.grant < 1) {
       return `a continue verdict grants a positive integer of rounds, not ${JSON.stringify(receipt.grant)}`;
     }
@@ -830,8 +869,12 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
 
   if (receipt.kind === "david") {
     const uncapped = receipt.grant === "uncapped";
-    if (!uncapped && (!Number.isInteger(receipt.grant) || receipt.grant < 1)) {
-      return `David authorization must grant a positive integer of rounds or "uncapped", not ${JSON.stringify(receipt.grant)}`;
+    // Grant 0 is valid and meaningful: David reviewed the gate's Fable
+    // recommendation and endorsed STOPPING. It moves the gate nowhere, but
+    // it is the durable record that he was consulted -- which is what the
+    // gate exists to guarantee, and what pr-ready.mjs's rail check reads.
+    if (!uncapped && (!Number.isInteger(receipt.grant) || receipt.grant < 0)) {
+      return `David authorization must grant a non-negative integer of rounds (0 endorses stopping) or "uncapped", not ${JSON.stringify(receipt.grant)}`;
     }
     if (typeof receipt.authorization !== "string" || !receipt.authorization.trim()) {
       return "David authorization must quote his words in `authorization` (unverifiable by design -- see this file's header)";
@@ -970,30 +1013,17 @@ export function loadLoop(pr, io) {
  * loop at its cap; round 3.)
  */
 export function allowance(tier, extensions, roundsSpent) {
-  if (!Number.isInteger(roundsSpent) || roundsSpent < 0) {
-    throw new Error(`allowance needs a non-negative integer roundsSpent, got ${JSON.stringify(roundsSpent)}`);
-  }
-  const rail = railFor(tier);
-  let total = tierCap(tier);
-  for (const ext of extensions) {
-    if (roundsSpent < total) break; // this stage is not exhausted yet
-    if (ext.kind === "david") {
-      if (ext.grant === "uncapped") return Infinity;
-      total += ext.grant;
-    } else if (ext.kind === "adjudication" && ext.verdict === "continue") {
-      // Adjudicator grants accumulate, but never past the outer rail. David
-      // grants are not railed -- he is the authority the rail escalates TO.
-      total = Math.min(total + ext.grant, rail);
-    }
-  }
-  return total;
+  return staged(tier, extensions, roundsSpent).total;
 }
 
 /**
  * Whether self-serve extension is exhausted for this loop: the allowance has
- * reached the outer rail, so only David can grant further rounds.
+ * reached the current David gate, so only David can grant further rounds.
  */
-const railReached = (tier, extensions, roundsSpent) => allowance(tier, extensions, roundsSpent) >= railFor(tier);
+const railReached = (tier, extensions, roundsSpent) => {
+  const { total, rail } = staged(tier, extensions, roundsSpent);
+  return total >= rail;
+};
 
 /**
  * Whether a TERMINAL adjudication verdict is standing: the highest-sequence
@@ -1167,12 +1197,12 @@ function refusal(pr, state, spent, tiedCount = false) {
       `("${extensions[extensions.length - 1].verdict}", ${extensionPath(pr, extensions[extensions.length - 1].seq)}) ` +
       `and a dispatched verdict decides -- another self-serve adjudication cannot overturn it. ` +
       `Take this to David as a 🛑 NEED YOU; only a "david"-kind extension receipt reopens the loop. Record ` +
-      `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
+      `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|0|"uncapped">,` +
       `"authorization":"<his words>"}, then COMMIT AND PUSH it.`
     );
   }
 
-  if (TIERS[tier].selfServe && !railReached(tier, extensions, spent)) {
+  if (!railReached(tier, extensions, spent)) {
     return (
       `${head}\n` +
       `TRIPWIRE 1 (self-serve). Do NOT re-evaluate this in the loop's own context -- that is the ` +
@@ -1186,8 +1216,9 @@ function refusal(pr, state, spent, tiedCount = false) {
       `  3. Write its verdict to ${extensionPath(pr, nextSeq)} ` +
       `(ship-with-gaps-recorded | split | continue+grant+risk | escalate). The adjudicator sizes its own ` +
       `grant -- a push whose last round revealed a real problem may need more than one round -- bounded ` +
-      `only by the outer rail of ${railFor(tier)} rounds (2x the tier budget), where this loop goes to ` +
-      `David regardless of verdict. ` +
+      `by the self-serve leash: at the David gate of ${railFor(tier, extensions, spent)} rounds ` +
+      `(the tier budget plus a ${LEASH}-round leash, plus any rounds David has already granted) the loop ` +
+      `stops for David regardless of verdict. ` +
       `Every verdict -- not just "continue" -- must also carry \`recordPath\` (citing the exact record path ` +
       `step 1 printed) and \`decidedAt\` (an ISO timestamp of when THIS receipt is being written, not when ` +
       `the record was generated in step 1). Carry the adjudicator's own \`reasoning\` and \`gaps\` fields ` +
@@ -1196,22 +1227,31 @@ function refusal(pr, state, spent, tiedCount = false) {
       `recordPath, decidedAt, reasoning, or gaps closes this guard but can never satisfy pr-ready.mjs's ` +
       `merge gate. Then COMMIT AND PUSH it -- extensions are read from the remote-tracking ref, so an ` +
       `unpushed one grants nothing and this refusal will simply repeat.\n` +
-      `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard.`
+      `Default verdict is ship-with-gaps-recorded. Only "continue" reopens this guard. If the blocker is a ` +
+      `PRODUCT decision -- the adjudicator returns "escalate", or the open findings are product-shaped ` +
+      `rather than mechanical -- that goes to David immediately, leash or no leash.`
     );
   }
 
   return (
     `${head}\n` +
-    `TRIPWIRE 2 (hard stop). ` +
-    (TIERS[tier].selfServe
-      ? `This loop has reached the outer rail of ${railFor(tier)} rounds (2x its declared budget), so ` +
-        `adjudicator extensions stop here: a loop needing this many rounds has a problem no extension ` +
-        `fixes. `
-      : `Tier "${tier}" has no self-serve stage -- its tripwire is a mandatory 🛑 to David. `) +
-    `Take this to David as a 🛑 NEED YOU with the adjudication record pre-written as the options, and record ` +
-    `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|"uncapped">,` +
-    `"authorization":"<his words>"}, then COMMIT AND PUSH it -- extensions are read from the ` +
-    `remote-tracking ref, so an unpushed authorization grants nothing and this refusal will simply repeat.`
+    `TRIPWIRE 2 (the David gate). This loop has reached ${railFor(tier, extensions, spent)} rounds -- its ` +
+    `budget plus the ${LEASH}-round self-serve leash${extensions.some((e) => e.kind === "david") ? " plus David's earlier grants" : ""} ` +
+    `-- so the next rounds are David's to authorize, whatever the adjudicator recommends. The sequence ` +
+    `(David, 2026-08-26):\n` +
+    `  1. node scripts/review-loop-record.mjs --pr ${pr} --mcp-snapshot <file> --write\n` +
+    `  2. Dispatch ONE fresh-context adjudicator subagent ON FABLE (agent type "review-loop-adjudicator", ` +
+    `model: "fable" explicit), record and nothing else -- its verdict here is the RECOMMENDATION David ` +
+    `reviews, not a grant. Commit it to ${extensionPath(pr, nextSeq)} like any adjudication receipt ` +
+    `(recordPath, decidedAt, reasoning, gaps verbatim); a "continue" written at the gate grants nothing ` +
+    `by itself.\n` +
+    `  3. Take the verdict to David as a 🛑 NEED YOU -- his call on Fable's recommendation, with a ` +
+    `push notification -- and record his answer as the NEXT receipt: {"kind":"david",` +
+    `"grant":<n|0|"uncapped">,"authorization":"<his words>"} (default leash ${LEASH}; 0 endorses ` +
+    `stopping). COMMIT AND PUSH both -- extensions are read from the remote-tracking ref, so an unpushed ` +
+    `authorization grants nothing and this refusal will simply repeat.\n` +
+    `A PRODUCT-shaped blocker skips step 2's framing entirely: it is David's decision, not a ` +
+    `mechanical-convergence question, and goes to him directly.`
   );
 }
 
@@ -1273,8 +1313,9 @@ export function judgeReviewRequest({ toolName, toolInput }, io = nodeIo(), now =
         `IF THIS IS PRODUCT CODE, declare the budget BEFORE round 1:\n` +
         `  node scripts/review-budget.mjs declare --pr ${pr} --tier <product|sensitive> ` +
         `--criticality <1-100> --artifact "<what is under review>"\n` +
-        `Tiers: product=5 rounds; sensitive=uncapped, mandatory 🛑 at 5; internal=hard cap 3, ` +
-        `strict adjudication rubric, no self-serve extension. ` +
+        `Tiers: product=5 rounds; sensitive=5 (auth/payments/migrations); internal=3, strict ` +
+        `adjudication rubric. Every tier runs the two-tier tripwire: Fable adjudication from the ` +
+        `budget, self-serve leash of ${LEASH} rounds past it, then the David gate. ` +
         `Commit the receipt and state the budget in the PR body too.`,
     };
   }
@@ -1445,8 +1486,8 @@ function declare(flags, io) {
   io.write(budgetPath(pr), `${JSON.stringify(receipt, null, 2)}\n`);
   const cap = tierCap(flags.tier);
   return (
-    `declared: PR #${pr}, tier "${flags.tier}" (${TIERS[flags.tier].label}), ` +
-    `${TIERS[flags.tier].budget === null ? `uncapped with a mandatory 🛑 at ${cap}` : `${cap} rounds`}, ` +
+    `declared: PR #${pr}, tier "${flags.tier}" (${TIERS[flags.tier].label}), ${cap} rounds ` +
+    `(Fable adjudication from the cap, David gate at ${cap + LEASH}), ` +
     `criticality ${criticality}. Written to ${budgetPath(pr)} -- COMMIT AND PUSH it (a budget is read from the ` +
     `branch's remote-tracking ref, so an unpushed one reads as no budget at all), and state the budget in the ` +
     `PR body.`
