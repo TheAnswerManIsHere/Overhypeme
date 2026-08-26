@@ -1527,14 +1527,34 @@ test("rail: an allowance at the David gate (budget + leash) with no david receip
   assert.match(res.detail, /David gate \(8 rounds/);
 });
 
-test("rail: David's authorization as the latest extension clears the rail", () => {
+test("rail: David's authorization clears the gate only while his rounds are running (Codex, #574 round 2)", () => {
   const { dir, commit } = tempRepo();
   const head = commit({
     ".agents/receipts/loop-budget-999.json": railBudget(999),
     ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 5, risk: "r" }),
     ...railExt(999, 2, { kind: "david", grant: 2, authorization: "keep going" }),
   }, "c1");
-  assert.equal(checkRail(999, head, dir).pass, true);
+  // Gate at 10 (8-round leash boundary + his 2). Inside the grant: clears.
+  assert.equal(checkRail(999, head, dir, 9).pass, true);
+  // At the boundary, unconverged or not: the gate stands again -- a
+  // historically-latest grant must not read as permanently clearing it.
+  const spent = checkRail(999, head, dir, 10);
+  assert.equal(spent.pass, false);
+  assert.match(spent.detail, /fully spent/);
+  // Unknown delivered count fails closed, never "still inside the grant".
+  assert.equal(checkRail(999, head, dir).pass, false);
+});
+
+test("rail: a grant-0 stop-endorsement clears the gate permanently -- no rounds can run behind it", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit({
+    ".agents/receipts/loop-budget-999.json": railBudget(999),
+    ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 3, risk: "r" }),
+    ...railExt(999, 2, { kind: "david", grant: 0, authorization: "agreed, stop" }),
+  }, "c1");
+  const res = checkRail(999, head, dir, 8);
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /endorsed stopping/);
 });
 
 test("rail: below the rail passes", () => {

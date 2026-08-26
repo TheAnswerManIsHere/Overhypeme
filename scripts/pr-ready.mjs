@@ -54,6 +54,7 @@ import {
   validateExtension,
 } from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
+import { reviewerPasses } from "./review-counting.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const RECEIPT_DIR = join(HERE, "..", ".agents", "receipts");
@@ -1195,6 +1196,20 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
   return { pass: true, detail: "read after the accepted response" };
 }
 
+/**
+ * Completed reviewer passes in this snapshot, by the guard's own counter --
+ * the number `checkRail` binds David's latest grant against. Null (fail
+ * closed in the one branch that reads it) when the count cannot be taken,
+ * because "could not count" must never read as "still inside the grant".
+ */
+function countDelivered(snapshot) {
+  try {
+    return reviewerPasses(snapshot.reviews ?? [], snapshot.issueComments ?? []).length;
+  } catch {
+    return null;
+  }
+}
+
 /** The full verdict for a validated snapshot. */
 export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
   const headSha = snapshot.pr.head.sha;
@@ -1226,7 +1241,7 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
     codex,
     threads: checkThreads(snapshot.reviewThreads),
     capture: checkCapture(snapshot.capturedAt, codex.acceptedAt, now),
-    rail: checkRail(snapshot.pr.number, headSha, adjudicationOpts.cwd),
+    rail: checkRail(snapshot.pr.number, headSha, adjudicationOpts.cwd, countDelivered(snapshot)),
   };
   const ready = Object.values(items).every((i) => i.pass);
   const captureTimes = Object.values(snapshot.capturedAt ?? {}).map((v) => Date.parse(v ?? ""));
@@ -1261,7 +1276,7 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
  * loop, a grant of 0 endorses the stop, and either way his consultation is
  * the one thing the gate exists to guarantee.
  */
-export function checkRail(prNumber, headSha, cwd) {
+export function checkRail(prNumber, headSha, cwd, delivered = null) {
   const budgetRaw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/loop-budget-${prNumber}.json`], cwd);
   if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the David gate does not apply" };
   let budget;
@@ -1361,7 +1376,47 @@ export function checkRail(prNumber, headSha, cwd) {
   // nothing can shadow a David authorization at the gate.
   const last = extensions[extensions.length - 1];
   if (last?.kind === "david") {
-    return { pass: true, detail: `allowance reached the ${rail}-round David gate and David's authorization is the loop's latest extension` };
+    // A DAVID RECEIPT CLEARS THE GATE IT ANSWERS, NOT EVERY GATE AFTER IT
+    // (Codex, #574 round 2). The gate repeats where his grant runs out, and
+    // the guard's refusal only bites on the NEXT review request -- which a
+    // loop that stops unconverged at the boundary never posts. Without a
+    // round-count binding here, a historically-latest positive grant read
+    // as permanently clearing the gate, and a loop could mint READY at the
+    // spent boundary without the fresh Fable recommendation and David
+    // decision the repeating gate requires. So:
+    //   - grant 0 (a stop-endorsement) clears permanently: no further
+    //     rounds can run behind it without a NEWER david receipt, which
+    //     would then be the latest.
+    //   - "uncapped" clears permanently: there is no boundary to respect.
+    //   - a positive grant clears only while the delivered pass count is
+    //     still BELOW the gate it established -- his rounds are running.
+    //     At or past it, the gate stands again, whatever this receipt says.
+    //   - an unknown delivered count fails closed: "could not count" must
+    //     not read as "still inside the grant".
+    if (last.grant === 0) {
+      return { pass: true, detail: `David endorsed stopping at the ${rail}-round gate (grant 0) as the loop's latest extension` };
+    }
+    if (last.grant === "uncapped") {
+      return { pass: true, detail: "David's latest authorization is uncapped -- no gate stands" };
+    }
+    if (!Number.isInteger(delivered) || delivered < 0) {
+      return {
+        pass: false,
+        detail:
+          `David's latest grant establishes a gate at ${rail} rounds, but the delivered pass count could not ` +
+          "be determined -- refusing rather than assuming his rounds are still running",
+      };
+    }
+    if (delivered < rail) {
+      return { pass: true, detail: `inside David's latest grant: ${delivered} of ${rail} authorized rounds delivered` };
+    }
+    return {
+      pass: false,
+      detail:
+        `David's latest grant is fully spent (${delivered} passes delivered, gate at ${rail}) -- the gate stands ` +
+        `again: a fresh Fable recommendation and his decision (a further grant, or a grant-0 stop-endorsement) ` +
+        "are required before readiness",
+    };
   }
   return {
     pass: false,

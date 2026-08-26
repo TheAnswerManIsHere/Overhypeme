@@ -879,6 +879,42 @@ test("a direct David grant before the leash is spent places the next gate at its
   assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
 });
 
+test("an anchored direct grant during an ACTIVE leash activates immediately and cuts it short (Codex, #574 round 2)", () => {
+  // Codex's exact scenario: budget 5, adjudication grant 3 (leash to 8),
+  // 6 rounds spent, product escalation, David grants 2. Anchored at 6, his
+  // rounds are 7-8 and the gate stands at 8 -- NOT dormant until 8 and then
+  // stacked on top of the leash's unspent rounds to open 9-10.
+  const chain = [
+    { kind: "adjudication", verdict: "continue", grant: 3 },
+    { kind: "david", grant: 2, asOf: 6, authorization: "two more" },
+  ];
+  assert.equal(allowance("product", chain, 6), 8, "asOf 6 + grant 2: his rounds are 7-8");
+  assert.equal(railFor("product", chain, 6), 8, "the gate stands at 8");
+  assert.equal(allowance("product", chain, 8), 8, "nothing left at 8 -- rounds 9-10 were never granted");
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 3 })),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 2, asOf: 6, authorization: "two more" }),
+    [RECORD(1)]: recordFile(1, 5),
+    [checkPath(1)]: check(1, 8),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true);
+  assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
+});
+
+test("a malformed asOf anchor is refused, never silently stage-dormant", () => {
+  const bad = { pr: 1, kind: "david", grant: 2, asOf: "six", authorization: "two more" };
+  assert.match(
+    validateExtension(1, "product", bad, { io: null }),
+    /"asOf" must be a non-negative integer/,
+  );
+  assert.match(
+    validateExtension(1, "product", { ...bad, asOf: -1 }, { io: null }),
+    /"asOf" must be a non-negative integer/,
+  );
+});
+
 test("a David grant of 0 collapses the gate to the current allowance -- an endorsed stop opens nothing", () => {
   const stopped = [{ kind: "david", grant: 0, authorization: "agreed, stop" }];
   assert.equal(allowance("product", stopped, 5), 5);

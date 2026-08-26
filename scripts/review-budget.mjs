@@ -238,6 +238,17 @@ export const LEASH = 3;
  * rounds David never authorized on top of the ones he just did. The unused
  * leash is discarded instead; after any David grant, only he opens further
  * rounds. An uncapped David grant removes both bounds.
+ *
+ * A DIRECT grant -- one David makes mid-stage, before the current allowance
+ * is spent, typically answering a product escalation -- carries `asOf`: the
+ * completed-round count at the moment he granted. An anchored receipt
+ * activates immediately (the ordinary dormancy rule would sleep it until
+ * the stage it is meant to CUT SHORT ran to its end, and then stack his
+ * rounds on top of the unspent ones -- Codex, #574 round 2) and opens
+ * exactly `asOf + grant`: his rounds start where the loop stood when he
+ * spoke, and the unspent remainder of the stage he interrupted is
+ * discarded. A gate-written receipt needs no anchor -- at a gate the spent
+ * count IS the stage boundary, so the two forms agree there.
  */
 function staged(tier, extensions, roundsSpent) {
   if (!Number.isInteger(roundsSpent) || roundsSpent < 0) {
@@ -246,10 +257,13 @@ function staged(tier, extensions, roundsSpent) {
   let total = tierCap(tier);
   let rail = total + LEASH;
   for (const ext of extensions) {
-    if (roundsSpent < total) break; // this stage is not exhausted yet
+    // An anchored receipt activates at ITS OWN anchor, not at the boundary
+    // of the stage it cuts short; everything else stays stage-dormant.
+    const anchor = ext.kind === "david" && Number.isInteger(ext.asOf) ? ext.asOf : null;
+    if (roundsSpent < (anchor ?? total)) break; // this stage is not exhausted yet
     if (ext.kind === "david") {
       if (ext.grant === "uncapped") return { total: Infinity, rail: Infinity };
-      total += ext.grant;
+      total = (anchor ?? total) + ext.grant;
       rail = total;
     } else if (ext.kind === "adjudication" && ext.verdict === "continue") {
       // Adjudicator grants accumulate, but never past the current David
@@ -882,6 +896,22 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!uncapped && (!Number.isInteger(receipt.grant) || receipt.grant < 0)) {
       return `David authorization must grant a non-negative integer of rounds (0 endorses stopping) or "uncapped", not ${JSON.stringify(receipt.grant)}`;
     }
+    // `asOf` anchors a DIRECT grant -- one made mid-stage, before the current
+    // allowance was spent -- to the completed-round count at the moment David
+    // granted, so his rounds open at `asOf + grant` and the unspent remainder
+    // of the interrupted stage is discarded (see `staged`). OPTIONAL, as a
+    // chosen trade (Codex, #574 round 2): a gate-written receipt needs no
+    // anchor (the boundary IS the spent count there), and REQUIRING a
+    // hand-typed anchor everywhere would make a single typo'd digit open
+    // unbounded phantom rounds silently -- while a forgotten anchor on the
+    // rare direct grant costs at most the interrupted stage's unspent
+    // remainder (<= LEASH rounds), in a flow that is a 🛑 conversation with
+    // David either way. Validated when present, because a malformed anchor
+    // silently falls back to stage-boundary activation -- the exact stacking
+    // bug the anchor exists to prevent.
+    if ("asOf" in receipt && (!Number.isInteger(receipt.asOf) || receipt.asOf < 0)) {
+      return `David authorization's "asOf" must be a non-negative integer of completed rounds when present, not ${JSON.stringify(receipt.asOf)}`;
+    }
     if (typeof receipt.authorization !== "string" || !receipt.authorization.trim()) {
       return "David authorization must quote his words in `authorization` (unverifiable by design -- see this file's header)";
     }
@@ -1204,6 +1234,8 @@ function refusal(pr, state, spent, tiedCount = false) {
       `and a dispatched verdict decides -- another self-serve adjudication cannot overturn it. ` +
       `Take this to David as a 🛑 NEED YOU; only a "david"-kind extension receipt reopens the loop. Record ` +
       `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|0|"uncapped">,` +
+      `"asOf":<completed rounds when he granted -- REQUIRED for a mid-stage direct grant, so his rounds open ` +
+      `at asOf+grant and the interrupted stage's unspent remainder is discarded; redundant at a gate>,` +
       `"authorization":"<his words>"}, then COMMIT AND PUSH it.`
     );
   }
@@ -1254,7 +1286,8 @@ function refusal(pr, state, spent, tiedCount = false) {
     `  3. Take the verdict to David as a 🛑 NEED YOU -- his call on Fable's recommendation, with a ` +
     `push notification -- and record his answer as the NEXT receipt: {"kind":"david",` +
     `"grant":<n|0|"uncapped">,"authorization":"<his words>"} (default leash ${LEASH}; 0 endorses ` +
-    `stopping). COMMIT AND PUSH both -- extensions are read from the remote-tracking ref, so an unpushed ` +
+    `stopping; a receipt written at this gate needs no "asOf" -- only a mid-stage DIRECT grant anchors ` +
+    `itself with one). COMMIT AND PUSH both -- extensions are read from the remote-tracking ref, so an unpushed ` +
     `authorization grants nothing and this refusal will simply repeat.\n` +
     `A PRODUCT-shaped blocker skips step 2's framing entirely: it is David's decision, not a ` +
     `mechanical-convergence question, and goes to him directly.`

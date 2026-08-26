@@ -121,6 +121,12 @@ simply one of the passes.
 // on that recommendation — a grant opens exactly those rounds, 0 endorses stopping.
 { "pr": 503, "kind": "david", "grant": 3, "authorization": "<his words>", "createdAt": "…" }
 
+// A DIRECT grant — David consulted mid-stage (a product escalation), before the
+// current allowance was spent — additionally carries "asOf": the completed-round
+// count when he granted. His rounds open at asOf + grant and the interrupted
+// stage's unspent remainder is discarded; a gate-written receipt needs no anchor.
+{ "pr": 503, "kind": "david", "grant": 2, "asOf": 6, "authorization": "<his words>", "createdAt": "…" }
+
 // loop-round-check-<pr>.json — EPHEMERAL, gitignored, one post per receipt.
 // `capturedAt` is the SNAPSHOT's capture time, not the command's: freshness is
 // a property of the evidence, or a saved snapshot mints a renewable receipt.
