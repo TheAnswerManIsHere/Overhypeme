@@ -32,6 +32,11 @@ import {
   _resetSyncRunnerForTests,
   type SyncRunnerDriver,
 } from "../lib/stripeSyncRunner.js";
+import {
+  __resetVerificationStateForTests,
+  __setAccountRetrieverForTests,
+} from "../lib/stripeAccountGuard.js";
+import { invalidateStripeSync } from "../lib/stripeClient.js";
 
 
 const USER_PREFIX = "tadminstrsync-";
@@ -39,6 +44,11 @@ const USER_PREFIX = "tadminstrsync-";
 // Minimal env so dynamic imports of stripeClient don't throw on module load.
 process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";
 process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? "pk_test_dummy";
+// The account guard sits in front of every client construction, so the route
+// under test cannot reach its lock check unless this environment declares an
+// expected account and the account read is stubbed to match it.
+process.env.STRIPE_ACCOUNT_ID_TEST = process.env.STRIPE_ACCOUNT_ID_TEST ?? "acct_admin_sync_test";
+let restoreRetriever: (() => void) | null = null;
 
 function makeApp(): Express {
   const app = express();
@@ -75,6 +85,7 @@ let adminSid: string;
 let userSid: string;
 
 before(async () => {
+  restoreRetriever = __setAccountRetrieverForTests(async () => process.env.STRIPE_ACCOUNT_ID_TEST!);
   await cleanup();
   const adminId = await createTestUser({ isAdmin: true });
   const userId = await createTestUser({ isAdmin: false });
@@ -83,12 +94,17 @@ before(async () => {
 });
 
 after(async () => {
+  restoreRetriever?.();
+  restoreRetriever = null;
+  __resetVerificationStateForTests();
   _resetSyncRunnerForTests();
   await cleanup();
 });
 
 beforeEach(() => {
   _resetSyncRunnerForTests();
+  __resetVerificationStateForTests();
+  invalidateStripeSync();
 });
 
 describe("POST /admin/stripe/sync — auth", () => {

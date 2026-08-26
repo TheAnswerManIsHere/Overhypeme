@@ -29,6 +29,10 @@ import { eq, like } from "drizzle-orm";
 import stripeRouter from "../routes/stripe.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import {
+  __resetVerificationStateForTests,
+  __setAccountRetrieverForTests,
+} from "../lib/stripeAccountGuard.js";
 
 
 const USER_PREFIX = "t_routes_st_";
@@ -286,8 +290,26 @@ describe("POST /stripe/portal — pre-Stripe guard", () => {
 });
 
 describe("payment 5xx responses do not leak provider diagnostics", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
+  // The account guard now sits in front of every client construction, so this
+  // test has to declare an expected account and stub the account read — without
+  // them the route is refused before it ever reaches Stripe, and the generic-
+  // message property this test exists for would go unexercised.
+  let restoreRetriever: (() => void) | null = null;
+
+  beforeEach(async () => {
+    await cleanupUsers();
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_routes_stripe_test";
+    __resetVerificationStateForTests();
+    restoreRetriever = __setAccountRetrieverForTests(async () => "acct_routes_stripe_test");
+  });
+
+  afterEach(async () => {
+    restoreRetriever?.();
+    restoreRetriever = null;
+    delete process.env.STRIPE_ACCOUNT_ID_TEST;
+    __resetVerificationStateForTests();
+    await cleanupUsers();
+  });
 
   it("POST /stripe/portal returns a generic message on Stripe failures", async () => {
     const userId = await createTestUser();
