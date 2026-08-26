@@ -5,6 +5,15 @@
 **Criticality:** 80 — this is the only thing standing between a misplaced key and a mutated live
 account, and the failure is silent today.
 
+> **Revision 7, after round 6 returned three findings — all upheld.** All three attack the state
+> machine revision 6 introduced, and the P1 is the one that matters: the verified-transition
+> recovery hook was written unqualified, so a retry following a *refused inactive-mode toggle
+> probe* could have run webhook registration and backfill **against the account the guard had just
+> rejected** — the plan specifying, in its recovery path, the exact mutation it exists to prevent.
+> Settled decision 9 is now scoped to the active mode and to committed writes. The two P2s close
+> gaps in the status model: an `unconfigured` state for the credentials-absent path, and an honest
+> per-instance scope for a value this autoscale deployment cannot report fleet-wide.
+>
 > **Revision 6, after round 5 returned four findings — all upheld — and after the budget's
 > mandatory stop.** The declared 5 rounds were spent; the exhaustion adjudication returned
 > *escalate* (`.agents/adjudications/572-3.json`), and David granted a 2-round extension with the
@@ -246,16 +255,52 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    initialization sequence — webhook registration, then backfill, same order as a clean boot —
    guarded so it runs **exactly once** whether verification succeeded at boot or on any later
    retry. Test 12 asserts the webhook registration and backfill, not merely client availability.
+
+   **Scoped by round 6, and this is the correction that matters most in the whole plan.** As
+   written the hook was unqualified — *any* transition to verified resumes initialization. But
+   settled decisions 6 and 3b create verifications that are **not** about the running server's
+   mode: the mode-toggle probe verifies a **target** mode before the write, and on an indefinite
+   result the write never happens. An unqualified hook would then let a later retry of that probe
+   run webhook registration and backfill **against the inactive account the guard just refused**,
+   or re-initialize the still-active mode a second time. The first is the plan specifying the wrong
+   account mutation it was written to make unreachable.
+
+   So resumption is bound to two conditions together: the verification is for the **currently
+   stored mode**, and — when it originated as a toggle probe — the mode write it authorized
+   **actually committed**. A probe for an inactive target that returns indefinite therefore
+   changes nothing: no resumption, no global `pending`, no effect on the active mode's payments,
+   which stay healthy because that mode's own verification is untouched. **Verification state is
+   per mode**, not one global flag; the summary reports the stored mode's. Test 17.
 10. **The unverified state has a live status channel** (revision 6, after round 5). The promise
    that the Billing page "shows payments as unavailable-pending-verification" had no mechanism:
    the page fetches `/api/admin/stripe/summary` on mount and manual refresh only
    (`billing.tsx:165-180`), and neither that endpoint nor `/stripe/config` carries verification
-   state today. So: the verifier exposes its state — `pending` / `verified` / `refused`, with the
-   refusal reason and last-attempt timestamp, never account ids beyond what the refusal message
-   already carries for the admin — as a `verification` field on the **authenticated**
-   `/admin/stripe/summary` response (`admin.ts:3233`, already `requireAdmin`-gated, already
-   fetched by the page); the Billing page polls it while the state is `pending` and stops when it
-   settles. Test 16 proves `pending → verified` renders without a manual refresh.
+   state today. So: the verifier exposes its state — with the refusal reason and last-attempt
+   timestamp, never account ids beyond what the refusal message already carries for the admin — as
+   a `verification` field on the **authenticated** `/admin/stripe/summary` response
+   (`admin.ts:3233`, already `requireAdmin`-gated, already fetched by the page); the Billing page
+   polls it while the state is transitional and stops when it settles. Test 16 proves
+   `pending → verified` renders without a manual refresh.
+
+   **Four states, not three** (revision 7, after round 6). Revision 6's `pending`/`verified`/
+   `refused` had no slot for the credentials-absent path — the first row of the outcome table,
+   which boots deliberately without starting verification or retries at all. Reporting it as
+   `pending` would make the page poll forever and label an intentionally unconfigured integration
+   as temporary recovery; `refused` would contradict decision 6; omitting the field breaks the
+   response shape. The fourth state is **`unconfigured`** — terminal, not polled, rendered as
+   "Stripe is not configured" rather than as a fault. Test 18.
+
+   **The value is per-instance, and says so** (revision 7, after round 6). `.replit:29` sets
+   `deploymentTarget = "autoscale"`, and `architecture-map.md:227-230` records that the server runs
+   in **every** instance — so this state is process-local, and the summary endpoint answers from
+   whichever instance the router picked. A single unlabelled value would let one healthy instance
+   report recovery while another still refuses payments: the same overclaim species this loop has
+   now hit seven times, so it is named rather than papered over. The field therefore carries the
+   responding **instance identifier**, and the Billing page presents it as this instance's state.
+   A **fleet-wide aggregate is explicitly out of scope for this increment** — it needs shared
+   state, and *Must Not Change* item 5 forbids a schema change — and is recorded in the claim audit
+   as a gap rather than implied by an unqualified label. Test 19 asserts the label and the
+   identifier, so a future aggregate replaces a stated scope rather than a silent one.
 ### The affected-surface inventory
 
 Class: *every path that mutates a Stripe account during boot, and every reader of the expected
@@ -281,6 +326,8 @@ variables, not their contents.
 | The account read used by the guard does not mutate and is authoritative | Two halves, both read at the pinned versions. **That the call is a non-mutating self-lookup:** at `stripe@20.0.0`, `accounts.retrieve()` with no id takes the branch at `node_modules/stripe/cjs/resources/Accounts.js:22-27` — `{ method: 'GET', fullPath: '/v1/account' }`. `GET` is non-mutating; `/v1/account` takes no account parameter, so it can only resolve to the account behind the presented key. **That the rejected helper is unsafe:** `stripe-replit-sync/dist/index.js:577-604`, which caches, falls back to a local key-hash lookup, and upserts | Construct — revision 1 asserted this of `getAccountId()` **without reading it**, which was the round-1 finding that stopped the loop. Round 3 then found revision 3 had recorded only the second half: the *load-bearing* half, about an external API, was carried unversioned |
 | The refusal cannot be swallowed | It is not inside `initStripe()`'s `catch` and not behind the detached launch at `index.ts:409`; its tests assert **process startup failure**, not helper rejection | Construct |
 | The boot gate never verifies a guessed mode | The gate reads the mode through a failure-propagating path; a failed read resolves to **unverified**, never to a default. Round 4 found the existing read (`stripeClient.ts:7-16` over `adminConfig.ts:176-183`) answers "test" through **two** nested catches for both "stored as test" and "could not tell" | Construct — with test 11 asserting no verification runs against a defaulted mode |
+| Payments availability is reported for the whole deployment | **Not claimed.** `.replit:29` is `deploymentTarget = "autoscale"` with the server in every instance (`architecture-map.md:227-230`), so the verification state is process-local and the summary answers from one instance. The field is labelled with its instance and the page presents it as such | **Gap, named** — a fleet aggregate needs shared state, which *Must Not Change* item 5 forbids in this increment |
+| Recovery cannot mutate an account the guard refused | Resumption requires the verification to be for the **stored** mode and, for a toggle probe, for the mode write to have committed (settled decision 9 as scoped). A refused inactive-mode probe resumes nothing | Construct — revision 6's unqualified hook was **overstated**, per round 6 |
 | A transient verification failure cannot pin payments off | The memo caches successes only; a rejection is evicted before it propagates (settled decision 8, the `deferred-work.md:541-546` guardrail). Test 12 asserts recovery without restart | Construct |
 | The refusal precedes the port opening | It completes before `app.listen()` at `index.ts:303`, asserted by test 3b as *the port is never bound*. Revision 3 claimed only that it escapes `initStripe()`, which `grep -n "app.listen\|initStripe()"` shows is 106 lines too late | Construct — revision 3's version was **overstated**, per round 3 |
 | Production carries the expected account id | `.replit:186-187` place both under `[userenv.shared]`, alongside the production origin — evidence, not proof, that the deployment reads them | **Checked, not prevented** — the pre-merge live confirmation is what discharges it |
@@ -458,8 +505,11 @@ Vitest test under `artifacts/overhype-me`, so the promised regression would neve
 
 **The degraded state is also visible, not only the refusal** (settled decision 6 creates it): while
 the server runs unverified — Stripe unreachable at boot, retries in flight — the Billing page shows
-payments as unavailable-pending-verification rather than healthy. Per the async-status contract,
-a state the server can be in that an operator would act on is shown, not logged. This is the ship-the-UI-surface rule applying to a refusal path rather than a
+payments as unavailable-pending-verification rather than healthy, for **this instance** and for the
+**stored mode**, with `unconfigured` rendered as "not configured" rather than as a fault (settled
+decision 10, as extended by round 6). Per the async-status contract, a state the server can be in
+that an operator would act on is shown, not logged — and per the claim-oracle rule, it is shown
+with the scope it actually has. This is the ship-the-UI-surface rule applying to a refusal path rather than a
 feature — a guard whose explanation dies at the fetch boundary is a guard the operator cannot
 act on.
 
@@ -573,8 +623,24 @@ act on.
 16. **The Billing page shows `pending → verified` without a manual refresh.** Frontend test:
    with the summary endpoint reporting `pending` then `verified`, the page's polling renders the
    transition on its own. Runs in the frontend suite with test 10.
-Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–15;
-`pnpm --filter @workspace/overhype-me run test` for tests 10 and 16.
+17. **A refused inactive-mode probe changes nothing, and its recovery stays isolated.** Toggling
+   to a target mode whose credential returns an **indefinite** result leaves the stored mode
+   unchanged (test 5) — and then, when a later retry of that probe verifies, **no** webhook
+   registration and **no** backfill run, because the mode write never committed. Throughout,
+   payments on the **active** mode stay available and its own verification is untouched. This is
+   the test that separates a recovery hook bound to the stored mode from revision 6's unqualified
+   one, which would have initialized against the refused account.
+18. **The credentials-absent path reports `unconfigured`.** API and frontend: the summary field
+   reads `unconfigured`, the Billing page renders "not configured" rather than a fault, and the
+   page does **not** poll — the state is terminal. Without this the page polls forever against an
+   integration nobody enabled.
+19. **The status is labelled with its instance.** The summary response carries the responding
+   instance's identifier alongside the state, and the page presents the value as that instance's
+   rather than the deployment's. Asserts the named scope so a later fleet aggregate replaces a
+   stated limitation, not a silent one.
+Runners: `pnpm --filter @workspace/api-server test` for tests 1–9, 11–15 and 17;
+`pnpm --filter @workspace/overhype-me run test` for tests 10, 16 and 19. Test 18 has both halves,
+one in each suite.
 
 ## Implementation Steps
 
@@ -633,17 +699,21 @@ Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–15;
    the server's reason instead of the hardcoded `Failed to update`.
 3d. Make the verified transition **resume the remaining initialization exactly once** (settled
    decision 9): webhook registration, then backfill, whether verification succeeded at boot or on
-   a later retry.
-3e. Expose the verifier's state as the `verification` field on `/admin/stripe/summary`, and poll
-   it from the Billing page while pending (settled decision 10). Map the typed unverified error
-   in `paymentErrorResponse` to 503 with the client-safe message.
+   a later retry — **and only for the stored mode, and only when a toggle probe's mode write
+   actually committed.** An unqualified hook lets a refused inactive-mode probe initialize against
+   the account the guard rejected.
+3e. Expose the verifier's state as the `verification` field on `/admin/stripe/summary` — four
+   states (`unconfigured`/`pending`/`verified`/`refused`), **per mode**, carrying the responding
+   instance's identifier — and poll it from the Billing page while transitional, presenting it as
+   this instance's state (settled decision 10). Map the typed unverified error in
+   `paymentErrorResponse` to 503 with the client-safe message.
 4. **Move the boot-time verification attempt ahead of `app.listen()` at `index.ts:303`**:
    awaited, bounded by a timeout, outside `initStripe()`'s `catch`, outside its detached launch at
    `:409`, and completed before the port is bound. Three outcomes: verified → listen; confirmed
    mismatch → exit with the port never bound; indefinite → listen with payments refused and the
    retry loop armed. The listen call is the line to measure against; "outside `initStripe()`" is
    necessary and not sufficient.
-5. Tests 1–16.
+5. Tests 1–19.
 6. Post-merge live verification on the Repl — confirming an already-safe deployment, not gating it.
 
 ## Risks and Mitigations
@@ -668,6 +738,9 @@ Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–15;
 | **The boot gate verifies a mode it guessed** | Settled decision 7: the guard's mode read propagates failure; a failed read is *unverified*, never "test". Test 11 asserts no verification runs against a defaulted mode — round 4 found the existing read swallows failure twice |
 | **One transient Stripe error pins payments off until restart** | Settled decision 8: the memo caches successes only, rejections evicted before propagating — the `deferred-work.md:541-546` guardrail. Test 12 asserts recovery |
 | **The site runs payments-off indefinitely and nobody notices** | The unverified state is loud three ways: an error-level log per failed retry, the `verification` field on the admin summary with the Billing page polling it live (test 16), and payment routes returning the typed 503 rather than generic retry advice (test 15) |
+| **Recovery mutates the account the guard just refused** | Settled decision 9 as scoped: resumption requires the stored mode *and* a committed mode write, so a refused inactive-mode probe resumes nothing. Test 17. Revision 6's unqualified hook specified this mutation |
+| **The status model has no state for an unconfigured integration** | Four states, with `unconfigured` terminal and unpolled; test 18. Three states would have made the page poll forever against an integration nobody enabled |
+| **One instance reports recovery for a fleet that has not recovered** | The value is labelled per-instance and presented as such; the fleet aggregate is a *named gap* in the claim audit rather than an implied capability. Test 19 |
 | **Recovery restores checkout but not the integration** | Settled decision 9: the verified transition resumes webhook registration and backfill exactly once; test 12 asserts the sequence, not client availability alone |
 | **The config cache republishes the old mode past a toggle** | The guard's strict read bypasses `loadAll()` entirely — one direct query per memoised construction (settled decision 7 as amended); test 14 delays a cache read across the toggle and asserts the target mode wins. The cache's own single-flight fix stays deferred and is unchanged |
 | **Scope creep back toward the driver seam** | Settled decision 5: this plan touches neither driver selection nor the fake, and is shippable alone |
