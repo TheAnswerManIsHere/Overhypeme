@@ -24,6 +24,7 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
+import { STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
 import { handleReceiptRequest } from "../lib/receiptHandler";
 import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
 import { priceGrantsMembership } from "../lib/membershipPricing";
@@ -512,6 +513,11 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
       res,
       err,
       clientMessage: "Unable to confirm checkout. Please try again or contact support.",
+      // The card may already have been charged by the time this route can fail
+      // — Stripe has already redirected the customer back from a completed
+      // session. So a guard refusal here must not repeat the default's "No
+      // charge was made", which would read as an instruction to buy again.
+      unverifiedClientMessage: STRIPE_UNVERIFIED_CONFIRM_MESSAGE,
       logMessage: "POST /stripe/checkout/confirm error",
       extra: { sessionId, userId: req.user.id },
     });

@@ -15,7 +15,7 @@ import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { uploadUserImage } from "@/lib/image-upload";
-import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CLIENT_MESSAGE } from "@workspace/api-zod";
+import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -587,7 +587,10 @@ export default function Profile() {
               | { code?: string; error?: string }
               | null;
             if (body?.code === STRIPE_UNVERIFIED_CODE) {
-              setCheckoutUnverifiedReason(body.error ?? STRIPE_UNVERIFIED_CLIENT_MESSAGE);
+              // The confirm-path message, not the general one: this branch only ever
+              // runs after Stripe redirected the customer back from a completed
+              // session, so the fallback must not claim no charge was made either.
+              setCheckoutUnverifiedReason(body.error ?? STRIPE_UNVERIFIED_CONFIRM_MESSAGE);
               setCheckoutPolling(false);
               Sentry.addBreadcrumb({
                 category: "stripe",

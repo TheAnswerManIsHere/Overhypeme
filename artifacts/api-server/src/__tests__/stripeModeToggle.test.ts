@@ -36,6 +36,7 @@ import {
 } from "../lib/stripeAccountGuard.js";
 import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import {
+  SYNC_MODE_RECHECK_MS,
   __discardedBuildsForTests,
   __endCachedSyncForTests,
   __setRawClientFactoryForTests,
@@ -431,6 +432,49 @@ describe("the construction boundary is mode-coherent", () => {
     // why the factory is indirected rather than read back off the object.
     assert.equal(builtFrom, "sk_live_correct", `client was built from the wrong credential: ${String(builtFrom)}`);
     assert.ok(client, "a client is still returned");
+  });
+
+  it("a remote-instance toggle is noticed within the recheck interval, not the cache TTL", async () => {
+    // Round 2's P1. A toggle busts the config cache and invalidates the sync
+    // only on the instance that handled it. Every other instance of this
+    // autoscale deployment kept BOTH for the config cache's full 60s TTL, so an
+    // admin sync or a webhook routed there ran against the previous account and
+    // mixed its data into the shared database — while the Billing surface
+    // already reported the new mode.
+    //
+    // This simulates the remote case exactly: the row changes, and this process
+    // is told nothing (no bustConfigCache, no invalidateStripeSync).
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(
+      stubAccountRetriever((secretKey) =>
+        secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_test_expected",
+      ),
+    );
+
+    const first = await getStripeSync();
+    const readsAfterBuild = __strictModeReadsForTests();
+
+    // The row moves to live behind this process's back.
+    await db.update(adminConfigTable).set({ value: "true" }).where(eq(adminConfigTable.key, "stripe_live_mode"));
+    // NOT busting the cache is the point: isLiveMode() still answers "test".
+    assert.equal(await isLiveMode(), false, "the lenient read is stale, which is the remote-toggle case");
+
+    // Inside the interval the published sync is still reused, and no row is read
+    // — that is the amplification bound, and it is deliberate.
+    assert.equal(await getStripeSync(), first);
+    assert.equal(__strictModeReadsForTests(), readsAfterBuild);
+
+    // Once the interval elapses the row is consulted, and the stale sync is
+    // replaced rather than handed out again.
+    await new Promise((r) => setTimeout(r, SYNC_MODE_RECHECK_MS + 20));
+    const second = await getStripeSync();
+    assert.notEqual(second, first, "a sync for the superseded mode must not be reused past the interval");
+    assert.ok(__strictModeReadsForTests() > readsAfterBuild, "the row must actually have been read");
   });
 
   it("test 5b / test 9 — a build whose generation is stale is discarded and its pool is ENDED", async () => {

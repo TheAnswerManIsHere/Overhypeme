@@ -20,12 +20,36 @@
 export const STRIPE_UNVERIFIED_CODE = "stripe_account_unverified";
 
 /**
- * The message an END USER sees. It names the condition and, deliberately, no
- * account ids, no key names and no environment variables — a mismatch refusal's
- * diagnostic text names both accounts and stays in the log.
+ * The message an END USER sees on a payment path that runs BEFORE any charge:
+ * starting a checkout, opening the billing portal, changing a subscription. It
+ * names the condition and, deliberately, no account ids, no key names and no
+ * environment variables — a mismatch refusal's diagnostic text names both
+ * accounts and stays in the log.
+ *
+ * "No charge was made" is true on these paths and is the reassurance that stops
+ * a worried customer retrying. It is NOT true everywhere — see below.
  */
 export const STRIPE_UNVERIFIED_CLIENT_MESSAGE =
   "Payments are temporarily unavailable while we verify our payment provider connection. No charge was made. Please try again shortly.";
+
+/**
+ * The message for CHECKOUT CONFIRMATION, and the reason it exists is money.
+ *
+ * `POST /stripe/checkout/confirm` runs *after* Stripe has redirected the
+ * customer back from a completed Checkout session — so by the time a refusal
+ * can happen there, the card may well already have been charged. Sending the
+ * message above on that path asserts something we do not know, and asserts it
+ * to someone standing in front of a "pay" button: "No charge was made. Please
+ * try again shortly" is an instruction to buy the same thing twice.
+ *
+ * So this one says only what is actually known — that the status cannot be
+ * confirmed right now — and tells them explicitly not to pay again. It is
+ * reachable in normal operation, not just in a misconfiguration: a checkout
+ * created against a verified instance can have its confirmation routed to an
+ * unverified one during a rolling deploy or a partial Stripe outage.
+ */
+export const STRIPE_UNVERIFIED_CONFIRM_MESSAGE =
+  "We can't confirm your payment status right now — please don't pay again. If your payment went through, your account will update on its own; check back shortly, and contact support if it hasn't.";
 
 /**
  * Four states, not three. `unconfigured` is the credentials-absent path: an

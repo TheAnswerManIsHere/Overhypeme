@@ -57,7 +57,30 @@ export type StripeBootOutcome =
  * the managed webhook unregistered and the mirror tables empty until the next
  * restart — "payments recover automatically" was true only for clients.
  */
-let initializationStarted = false;
+/**
+ * Set only once the REQUIRED setup has actually succeeded.
+ *
+ * The distinction between "started" and "completed" is the whole point, and
+ * getting it wrong was round 2's P1: marking initialization done up front meant
+ * a transient failure in migrations, sync construction or webhook registration
+ * was caught, logged, and then permanent — the retry timer already stopped, the
+ * state still reporting `verified`, and checkout live while the managed webhook
+ * was never registered. That is precisely the outcome settled decision 9 exists
+ * to prevent, reached through a transient error instead of a missing hook.
+ *
+ * Required means webhook registration. The backfill stays fire-and-forget, as
+ * it has always been — awaiting it here would change the boot sequence's
+ * timing, which *Must Not Change* item 2 pins.
+ */
+let initializationCompleted = false;
+
+/**
+ * The in-flight attempt, so concurrent callers join it rather than starting a
+ * second one. A single boolean cannot do both jobs: as a completion flag it
+ * lets a transient failure become permanent, and as a re-entrancy guard alone
+ * it lets two callers run the sequence at once.
+ */
+let initializationInFlight: Promise<boolean> | null = null;
 
 /**
  * The three effects the remaining initialization performs, injectable so a test
@@ -103,56 +126,85 @@ export function __setStripeInitDepsForTests(next: StripeInitDeps): () => void {
 
 /** Test seam. */
 export function __resetStripeInitForTests(): void {
-  initializationStarted = false;
+  initializationCompleted = false;
+  initializationInFlight = null;
   stopStripeVerificationRetry();
   deterministicallyRefusedModes.clear();
 }
 
-export function hasStripeInitializationStarted(): boolean {
-  return initializationStarted;
+export function hasStripeInitializationCompleted(): boolean {
+  return initializationCompleted;
 }
 
-export async function resumeStripeInitialization(): Promise<void> {
-  if (initializationStarted) return;
-  initializationStarted = true;
-  try {
+/**
+ * Run the remaining initialization — Stripe schema migrations, managed-webhook
+ * registration, then the full backfill, in that order.
+ *
+ * Resolves `true` when the required setup completed (now or earlier), `false`
+ * when it failed and is still owed. The caller keeps the retry loop armed on
+ * `false`, so a transient failure is retried rather than remembered as success.
+ */
+export async function resumeStripeInitialization(): Promise<boolean> {
+  if (initializationCompleted) return true;
+  if (initializationInFlight) return initializationInFlight;
+
+  const attempt = (async (): Promise<boolean> => {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
       logger.warn("DATABASE_URL not set, skipping Stripe init");
-      return;
+      // Not a transient failure to retry: nothing about this recovers on an
+      // interval, and retrying it would log the same line forever.
+      initializationCompleted = true;
+      return true;
     }
 
-    const active = deps ?? {
-      ...productionDeps,
-      getSiteBaseUrl: (await import("./siteUrl")).getSiteBaseUrl,
-    };
+    try {
+      const active = deps ?? {
+        ...productionDeps,
+        getSiteBaseUrl: (await import("./siteUrl")).getSiteBaseUrl,
+      };
 
-    await active.runSyncMigrations({ databaseUrl });
-    logger.info("Stripe schema ready");
+      await active.runSyncMigrations({ databaseUrl });
+      logger.info("Stripe schema ready");
 
-    const stripeSync = await active.getSync();
+      const stripeSync = await active.getSync();
 
-    const webhookUrl = `${active.getSiteBaseUrl()}/api/stripe/webhook`;
-    // findOrCreateManagedWebhook registers the webhook endpoint and subscribes it to all
-    // event types returned by getSupportedEventTypes() in stripe-replit-sync.  That list
-    // must include every event that webhookHandlers.ts handles (currently:
-    //   charge.refunded, charge.dispute.created, charge.dispute.closed,
-    //   plus subscription/invoice events).
-    // When adding a new handler, ensure the matching event type is also present in
-    // getSupportedEventTypes() so Stripe actually delivers the event to this endpoint.
-    //
-    // This is the first Stripe MUTATION of the boot sequence, and the whole
-    // reason verification is awaited before the port binds: it used to run
-    // BEFORE the account comparison, so a live key in the test variable
-    // registered a webhook on the live account and then backfilled it.
-    await stripeSync.findOrCreateManagedWebhook(webhookUrl);
-    logger.info({ webhookUrl }, "Stripe webhook configured");
+      const webhookUrl = `${active.getSiteBaseUrl()}/api/stripe/webhook`;
+      // findOrCreateManagedWebhook registers the webhook endpoint and subscribes it to all
+      // event types returned by getSupportedEventTypes() in stripe-replit-sync.  That list
+      // must include every event that webhookHandlers.ts handles (currently:
+      //   charge.refunded, charge.dispute.created, charge.dispute.closed,
+      //   plus subscription/invoice events).
+      // When adding a new handler, ensure the matching event type is also present in
+      // getSupportedEventTypes() so Stripe actually delivers the event to this endpoint.
+      //
+      // This is the first Stripe MUTATION of the boot sequence, and the whole
+      // reason verification is awaited before the port binds: it used to run
+      // BEFORE the account comparison, so a live key in the test variable
+      // registered a webhook on the live account and then backfilled it.
+      await stripeSync.findOrCreateManagedWebhook(webhookUrl);
+      logger.info({ webhookUrl }, "Stripe webhook configured");
 
-    void stripeSync.syncBackfill({ object: "all" })
-      .then(() => logger.info("Stripe backfill complete"))
-      .catch((err: unknown) => logger.error({ err }, "Stripe backfill error"));
-  } catch (err) {
-    logger.error({ err }, "Stripe init failed — continuing without payments");
+      // Required setup is done. The backfill below is fire-and-forget exactly as
+      // it has always been, so its failure logs and does not reopen this.
+      initializationCompleted = true;
+
+      void stripeSync.syncBackfill({ object: "all" })
+        .then(() => logger.info("Stripe backfill complete"))
+        .catch((err: unknown) => logger.error({ err }, "Stripe backfill error"));
+
+      return true;
+    } catch (err) {
+      logger.error({ err }, "Stripe init failed — will retry; continuing without payments");
+      return false;
+    }
+  })();
+
+  initializationInFlight = attempt;
+  try {
+    return await attempt;
+  } finally {
+    initializationInFlight = null;
   }
 }
 
@@ -289,9 +341,14 @@ export async function runStripeVerificationRetryOnce(): Promise<void> {
   // which is the condition that makes resumption safe. A verification for an
   // INACTIVE target mode (a toggle probe) never reaches here: the loop only
   // ever attempts the stored mode.
-  stopStripeVerificationRetry();
   logger.info({ mode }, "Stripe account verified on retry — resuming Stripe initialization");
-  await resumeStripeInitialization();
+  const completed = await resumeStripeInitialization();
+
+  // The timer stops only once the required setup has actually succeeded.
+  // Stopping it on verification alone is what made a transient webhook failure
+  // permanent: nothing was left to try again, and the state still said verified.
+  if (completed) stopStripeVerificationRetry();
+  else logger.warn({ mode }, "Stripe initialization did not complete — keeping the retry armed");
 }
 
 function armStripeVerificationRetry(): void {
@@ -314,7 +371,12 @@ function armStripeVerificationRetry(): void {
  */
 export function startStripeAfterBoot(outcome: StripeBootOutcome): void {
   if (outcome.kind === "verified") {
-    void resumeStripeInitialization();
+    // Arm the loop on failure here too. A verified boot whose webhook
+    // registration then fails transiently would otherwise leave the integration
+    // half-initialized with nothing scheduled to finish it.
+    void resumeStripeInitialization().then((completed) => {
+      if (!completed) armStripeVerificationRetry();
+    });
     return;
   }
   if (outcome.kind === "pending") {

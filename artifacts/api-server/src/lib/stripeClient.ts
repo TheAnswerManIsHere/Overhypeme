@@ -177,7 +177,11 @@ function refuseIfThrottled(cachedMode: boolean): void {
 
 async function captureModeForConstruction(): Promise<boolean> {
   try {
-    return await readStripeLiveModeStrict();
+    const live = await readStripeLiveModeStrict();
+    // Stamped only on success: a failed read establishes nothing about the
+    // stored mode, so it must not postpone the next attempt to learn it.
+    lastStrictModeReadAt = Date.now();
+    return live;
   } catch (err) {
     throw new StripeUnverifiedError(
       `The stored Stripe mode could not be read, so no credential can be trusted to belong to it: ` +
@@ -266,6 +270,7 @@ export function __discardedBuildsForTests(): { count: number; lastPoolEnded: boo
  * creates and then rejects.
  */
 export async function __endCachedSyncForTests(): Promise<void> {
+  lastStrictModeReadAt = 0;
   const current = stripeSync;
   stripeSync = null;
   stripeSyncLiveMode = null;
@@ -277,24 +282,39 @@ export async function __endCachedSyncForTests(): Promise<void> {
 /** Bounded so a toggle storm cannot spin either constructor forever. */
 const MAX_CONSTRUCTION_ATTEMPTS = 3;
 
+/**
+ * How long a published sync may be reused before the stored mode is re-read
+ * from the row rather than from the config cache.
+ *
+ * This is the middle of two bad extremes, and both were tried on this PR.
+ *
+ * A **strict read on every call** bounds staleness to zero and hands an
+ * unauthenticated flood one uncached query each: `getStripeSync()` runs before
+ * signature validation on the one route the rate limiter exempts *because* it
+ * has a signature gate.
+ *
+ * **Never re-reading** — reusing a published sync purely on the lenient cached
+ * mode — is what round 2 caught. A toggle only busts the config cache and
+ * invalidates the sync on the instance that handled it; every other instance of
+ * this autoscale deployment keeps both for the cache's full 60-second TTL, and
+ * an admin sync or a webhook routed there operates against the previous account
+ * and mixes its data into the shared database while the Billing surface already
+ * reports the new mode.
+ *
+ * So: one row read per process per interval, whatever the request rate. The
+ * flood costs at most one query per interval; the cross-instance window drops
+ * from the cache's TTL to this. It does not make the fleet coherent — an
+ * instance can still be this far behind, and full coherence needs shared state
+ * that *Must Not Change* item 5 forbids here — it bounds how far.
+ */
+export const SYNC_MODE_RECHECK_MS = 5_000;
+
+let lastStrictModeReadAt = 0;
+
 export async function getStripeSync() {
-  // Fast path, and the reason it reads the mode LENIENTLY.
-  //
-  // This function runs on every webhook — *before* signature validation, on the
-  // one route exempted from the rate limiter because it has a signature gate.
-  // Putting the strict (uncached, direct-row) read here would give an
-  // unauthenticated flood one database round-trip each, which is the same
-  // amplification the verification throttle exists to prevent, moved one layer
-  // down.
-  //
-  // So the already-published instance is reused on exactly the terms it always
-  // was: today's cached mode read, with today's staleness (`invalidateStripeSync()`
-  // covers a local toggle; a toggle on another instance is noticed when the
-  // config cache turns over, as before). Nothing here can certify an account —
-  // this instance was verified strictly when it was built, and the moment a
-  // build is actually needed the code below reads the mode strictly.
   const cachedMode = await isLiveMode();
-  if (stripeSync && stripeSyncLiveMode === cachedMode) return stripeSync;
+  const recheckDue = Date.now() - lastStrictModeReadAt >= SYNC_MODE_RECHECK_MS;
+  if (stripeSync && stripeSyncLiveMode === cachedMode && !recheckDue) return stripeSync;
   refuseIfThrottled(cachedMode);
 
   for (let attempt = 0; attempt < MAX_CONSTRUCTION_ATTEMPTS; attempt++) {
@@ -332,6 +352,9 @@ export async function getStripeSync() {
 }
 
 export function invalidateStripeSync() {
+  // Force the next call to re-read the row rather than trust the interval: a
+  // local toggle is the one moment we KNOW the mode moved.
+  lastStrictModeReadAt = 0;
   // The pool of the instance being dropped here is deliberately NOT ended, and
   // the omission is easy to mistake for an oversight now that a disposal helper
   // exists a few lines up. Disposal of PREVIOUSLY CACHED instances is separate,

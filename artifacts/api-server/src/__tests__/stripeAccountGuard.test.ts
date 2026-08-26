@@ -43,7 +43,8 @@ import {
 import {
   __resetStripeInitForTests,
   __setStripeInitDepsForTests,
-  hasStripeInitializationStarted,
+  hasStripeInitializationCompleted,
+  resumeStripeInitialization,
   runStripeBootVerification,
   runStripeVerificationRetryOnce,
 } from "../lib/stripeInit.js";
@@ -154,7 +155,7 @@ describe("the guard classifies each outcome into its own class", () => {
     // account was ever handed out. The old check ran AFTER
     // findOrCreateManagedWebhook() had already registered a webhook on it.
     await assert.rejects(() => getStripeSync(), (err: Error) => err instanceof StripeAccountMismatchError);
-    assert.equal(hasStripeInitializationStarted(), false, "no Stripe mutation sequence may have started");
+    assert.equal(hasStripeInitializationCompleted(), false, "no Stripe mutation sequence may have completed");
   });
 
   it("test 3c — an indefinite answer withholds the client and does NOT refuse to boot", async () => {
@@ -450,6 +451,87 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
     await runStripeVerificationRetryOnce();
     await new Promise((r) => setTimeout(r, 10));
     assert.deepEqual(sequence, ["migrations", "webhook", "backfill"]);
+  });
+
+  it("a transient failure in the resumed initialization is retried, not remembered as done", async () => {
+    // Round 2's P1. Marking initialization complete up front meant a transient
+    // failure in migrations, sync construction or webhook registration was
+    // caught, logged, and then PERMANENT: the retry timer already stopped, the
+    // state still reporting `verified`, and checkout live while the managed
+    // webhook was never registered and the mirror tables stayed empty until a
+    // restart. That is the outcome settled decision 9 exists to prevent,
+    // reached through a transient error instead of a missing hook.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
+    restores.push(stubAccountRetriever(() => "acct_expected"));
+
+    const sequence: string[] = [];
+    let webhookAttempts = 0;
+    restores.push(
+      __setStripeInitDepsForTests({
+        runSyncMigrations: async () => { sequence.push("migrations"); },
+        getSync: async () => ({
+          findOrCreateManagedWebhook: async () => {
+            webhookAttempts++;
+            if (webhookAttempts === 1) throw new Error("transient Stripe error registering the webhook");
+            sequence.push("webhook");
+          },
+          syncBackfill: async () => { sequence.push("backfill"); },
+        }),
+        getSiteBaseUrl: () => "https://example.test",
+      }),
+    );
+
+    // First pass: verification succeeds, webhook registration does not.
+    assert.equal(await resumeStripeInitialization(), false, "a failed setup must report incomplete");
+    assert.equal(hasStripeInitializationCompleted(), false);
+    // Migrations ran and the webhook did not, so nothing downstream of it ran.
+    assert.deepEqual(sequence, ["migrations"], "the webhook never registered, so nothing after it ran");
+
+    // The work is still owed, so a later pass actually retries it — rather than
+    // returning early because a flag said it was already done. Migrations run
+    // again, which is correct: the library's migrations are idempotent, and
+    // skipping them on a retry would assume the failed pass got that far.
+    assert.equal(await resumeStripeInitialization(), true);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(hasStripeInitializationCompleted(), true);
+    assert.deepEqual(sequence, ["migrations", "migrations", "webhook", "backfill"]);
+    assert.equal(webhookAttempts, 2);
+
+    // And still exactly once after it has succeeded.
+    assert.equal(await resumeStripeInitialization(), true);
+    assert.equal(webhookAttempts, 2);
+  });
+
+  it("concurrent callers join one initialization attempt", async () => {
+    // The completion flag cannot also be the re-entrancy guard: as a completion
+    // flag alone a transient failure becomes permanent, and as a re-entrancy
+    // guard alone two callers run the mutation sequence at once.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
+    restores.push(stubAccountRetriever(() => "acct_expected"));
+
+    let webhookCalls = 0;
+    restores.push(
+      __setStripeInitDepsForTests({
+        runSyncMigrations: async () => { await new Promise((r) => setTimeout(r, 15)); },
+        getSync: async () => ({
+          findOrCreateManagedWebhook: async () => { webhookCalls++; },
+          syncBackfill: async () => {},
+        }),
+        getSiteBaseUrl: () => "https://example.test",
+      }),
+    );
+
+    const results = await Promise.all([
+      resumeStripeInitialization(),
+      resumeStripeInitialization(),
+      resumeStripeInitialization(),
+    ]);
+    assert.deepEqual(results, [true, true, true]);
+    assert.equal(webhookCalls, 1, "three concurrent callers must produce one registration");
   });
 
   it("test 13 — a post-boot confirmed mismatch leaves the process up with payments refused", async () => {
