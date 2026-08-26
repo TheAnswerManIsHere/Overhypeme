@@ -5,6 +5,7 @@ import {
   describeScope,
   headlineFor,
   instancesSampled,
+  nextExpiryAt,
   pruneStaleObservations,
   recordObservation,
   shouldKeepPolling,
@@ -103,9 +104,31 @@ export function StripeVerificationStatus({
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const scheduleNext = () => {
-      if (cancelled || !shouldKeepPolling(pruneStaleObservations(pollRef.current))) return;
-      const delay = pollRef.current.quietPolls > 0 ? settledPollIntervalMs : pollIntervalMs;
-      timer = setTimeout(() => void sample(), delay);
+      if (cancelled) return;
+      const pruned = pruneStaleObservations(pollRef.current);
+      if (shouldKeepPolling(pruned)) {
+        const delay = pollRef.current.quietPolls > 0 ? settledPollIntervalMs : pollIntervalMs;
+        timer = setTimeout(() => void sample(), delay);
+        return;
+      }
+
+      // Polling has stopped, but expiry is a function of TIME, and `pruneStale-
+      // Observations` at render time is not reactive to it. Without this, an
+      // instance observed as `refused` and then terminated stays on screen
+      // forever, because nothing ever re-renders to notice its entry aged out.
+      //
+      // So when the last observation is due to expire, wake once and re-derive.
+      // That either drops it — changing what the panel says — or, if a fresh
+      // sample has arrived since, does nothing.
+      const expiresAt = nextExpiryAt(pruned);
+      if (expiresAt === null) return;
+      timer = setTimeout(() => {
+        if (cancelled) return;
+        const next = pruneStaleObservations(pollRef.current);
+        pollRef.current = next;
+        setPoll(next);
+        scheduleNext();
+      }, Math.max(0, expiresAt - Date.now()) + 1);
     };
 
     const sample = async () => {

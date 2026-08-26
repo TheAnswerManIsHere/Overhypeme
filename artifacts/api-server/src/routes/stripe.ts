@@ -1,7 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import type Stripe from "stripe";
 import { z } from "zod";
-import { getUncachableStripeClient, getStripePublishableKey, isLiveMode } from "../lib/stripeClient";
+import {
+  getUncachableStripeClient,
+  getStripePublishableKey,
+  getVerifiedStripeMode,
+} from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
@@ -34,7 +38,11 @@ const router: IRouter = Router();
 // GET /stripe/config — return publishable key for frontend
 router.get("/stripe/config", async (_req: Request, res: Response) => {
   try {
-    const publishableKey = await getStripePublishableKey();
+    // The authoritative mode, same source as the payment clients — see
+    // getVerifiedStripeMode. A publishable key from one account paired with a
+    // checkout client for another is the same divergence as the catalog one
+    // below, one step earlier.
+    const publishableKey = await getStripePublishableKey(await getVerifiedStripeMode());
     res.json({ publishableKey });
   } catch {
     res.json({ publishableKey: null });
@@ -45,7 +53,12 @@ router.get("/stripe/config", async (_req: Request, res: Response) => {
 // Any product a registered user pays for qualifies them for Legendary membership.
 router.get("/stripe/plans", async (_req: Request, res: Response) => {
   try {
-    const live = await isLiveMode();
+    // NOT the 60-second cached read. After a toggle handled by another instance
+    // that would hand a customer prices from the old account, which they would
+    // then submit to a checkout client built for the new one — where Stripe
+    // rejects the price as missing. Catalog and client resolve the mode from one
+    // bounded, authoritative source.
+    const live = await getVerifiedStripeMode();
     const products = await stripeStorage.listProductsWithPrices(live);
     res.json({ plans: products });
   } catch {

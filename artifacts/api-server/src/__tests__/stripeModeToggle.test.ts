@@ -474,6 +474,48 @@ describe("the construction boundary is mode-coherent", () => {
     assert.notEqual(await getUncachableStripeClient(), undefined);
   });
 
+  it("a mode committed by another instance DURING verification is not handed out", async () => {
+    // Round 4's P1. The generation counter is process-local, so a toggle
+    // committed by another autoscale instance never moves it — and verification
+    // is a network round-trip, which is a wide window for one to land in. The
+    // constructor would have returned a client for the superseded account, and
+    // checkout or an admin mutation would then have operated on it.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    await setStoredMode(false);
+
+    let builtFrom: string | null = null;
+    restores.push(
+      __setRawClientFactoryForTests((secretKey) => { builtFrom = secretKey; return {} as never; }),
+    );
+
+    // While the FIRST verification is in flight, another instance commits the
+    // toggle: the row changes and this process is told nothing — no
+    // bustConfigCache, and critically no invalidateStripeSync, so the
+    // generation counter does not move.
+    let toggled = false;
+    restores.push(
+      stubAccountRetriever(async (secretKey) => {
+        if (!toggled) {
+          toggled = true;
+          await db.update(adminConfigTable).set({ value: "true" })
+            .where(eq(adminConfigTable.key, "stripe_live_mode"));
+          __expireModeRecheckForTests();
+        }
+        return secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_test_expected";
+      }),
+    );
+
+    const { liveMode } = await getVerifiedStripeClient();
+
+    assert.equal(liveMode, true, "the client must be for the mode the row holds AFTER verification");
+    assert.equal(builtFrom, "sk_live_correct", "and built from that mode's credential");
+  });
+
   it("a remote-instance toggle is noticed within the recheck interval, not the cache TTL", async () => {
     // Round 2's P1. A toggle busts the config cache and invalidates the sync
     // only on the instance that handled it. Every other instance of this

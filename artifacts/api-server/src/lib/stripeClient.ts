@@ -114,10 +114,13 @@ export async function getVerifiedStripeClient(): Promise<{ client: Stripe; liveM
     const { secretKey } = await getCredentials(liveMode);
     await verifyStripeAccount({ liveMode, secretKey });
 
-    if (constructionGeneration !== generationAtStart) {
-      // A toggle landed while this construction was verifying. Handing the
-      // caller this client would hand them the mode that was just switched
-      // away from — verified, correctly, for an account nobody is using now.
+    // Two checks, because they catch different toggles. The generation counter
+    // is process-local, so it never moves for a toggle committed by ANOTHER
+    // autoscale instance — and verification is a network round-trip, which is a
+    // wide window for one to land in. Re-reading the row closes it: what the
+    // caller gets is a client for the mode the row holds *after* the account was
+    // verified, not before.
+    if (constructionGeneration !== generationAtStart || (await captureModeForConstruction()) !== liveMode) {
       // Nothing to dispose: unlike a StripeSync build, no client exists yet.
       continue;
     }
@@ -151,8 +154,8 @@ export async function getUncachableStripeClient() {
   return (await getVerifiedStripeClient()).client;
 }
 
-export async function getStripePublishableKey() {
-  const { publishableKey } = await getCredentials();
+export async function getStripePublishableKey(liveMode?: boolean) {
+  const { publishableKey } = await getCredentials(liveMode);
   return publishableKey;
 }
 
@@ -201,6 +204,7 @@ async function captureModeForConstruction(): Promise<boolean> {
     // Stamped only on success: a failed read establishes nothing about the
     // stored mode, so it must not postpone the next attempt to learn it.
     lastStrictModeReadAt = Date.now();
+    lastStrictMode = live;
     return live;
   } catch (err) {
     throw new StripeUnverifiedError(
@@ -298,10 +302,12 @@ export function __discardedBuildsForTests(): { count: number; lastPoolEnded: boo
  */
 export function __expireModeRecheckForTests(): void {
   lastStrictModeReadAt = 0;
+  lastStrictMode = null;
 }
 
 export async function __endCachedSyncForTests(): Promise<void> {
   lastStrictModeReadAt = 0;
+  lastStrictMode = null;
   const current = stripeSync;
   stripeSync = null;
   stripeSyncLiveMode = null;
@@ -341,6 +347,33 @@ const MAX_CONSTRUCTION_ATTEMPTS = 3;
 export const SYNC_MODE_RECHECK_MS = 5_000;
 
 let lastStrictModeReadAt = 0;
+let lastStrictMode: boolean | null = null;
+
+/**
+ * The authoritative Stripe mode, read from the row and bounded by
+ * `SYNC_MODE_RECHECK_MS`.
+ *
+ * **One source, shared by everything whose answer is tied to a Stripe account.**
+ * Round 4 found the cost of not having this: the client boundary read the mode
+ * strictly while `GET /stripe/plans` still read it through the 60-second config
+ * cache, so after a toggle handled by another instance a customer could be shown
+ * prices from the old account and then submit one to a client built for the new
+ * one — where Stripe rejects it as missing. That is the second time this
+ * increment's strict read has diverged from a reader that used to agree with it,
+ * which is why this is a shared accessor rather than another point repair.
+ *
+ * Bounded, not per-call: `/stripe/plans` and `/stripe/config` are public, so a
+ * row read per request would be the same amplification the throttle exists to
+ * prevent. The window is the recheck interval, not the config cache's TTL.
+ */
+export async function getVerifiedStripeMode(): Promise<boolean> {
+  if (lastStrictMode !== null && Date.now() - lastStrictModeReadAt < SYNC_MODE_RECHECK_MS) {
+    return lastStrictMode;
+  }
+  const live = await captureModeForConstruction();
+  lastStrictMode = live;
+  return live;
+}
 
 export async function getStripeSync() {
   const cachedMode = await isLiveMode();
@@ -364,7 +397,10 @@ export async function getStripeSync() {
 
     const built = await buildStripeSync(live);
 
-    if (constructionGeneration !== generationAtStart) {
+    // Same pair as the raw-client constructor: the generation catches a local
+    // toggle, the row re-read catches one committed by another instance while
+    // this construction was out at Stripe.
+    if (constructionGeneration !== generationAtStart || (await captureModeForConstruction()) !== live) {
       // A toggle landed while this build was in flight. Publishing it now would
       // reinstate the mode the invalidation just removed.
       await discardRejectedBuild(built);
@@ -386,6 +422,7 @@ export function invalidateStripeSync() {
   // Force the next call to re-read the row rather than trust the interval: a
   // local toggle is the one moment we KNOW the mode moved.
   lastStrictModeReadAt = 0;
+  lastStrictMode = null;
   // The pool of the instance being dropped here is deliberately NOT ended, and
   // the omission is easy to mistake for an oversight now that a disposal helper
   // exists a few lines up. Disposal of PREVIOUSLY CACHED instances is separate,

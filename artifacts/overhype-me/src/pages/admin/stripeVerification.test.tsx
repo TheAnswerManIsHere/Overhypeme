@@ -14,6 +14,7 @@ import {
   EMPTY_POLL_STATE,
   OBSERVATION_TTL_MS,
   SETTLE_CONFIRM_POLLS,
+  nextExpiryAt,
   pruneStaleObservations,
   describeScope,
   parseToggleErrorBody,
@@ -127,6 +128,17 @@ describe("observations expire", () => {
     const pruned = pruneStaleObservations(state, later);
     expect(Object.keys(pruned.byInstance)).toEqual(["live-one"]);
     expect(worstObservedState(pruned)).toBe("verified");
+  });
+
+  it("the next expiry is the EARLIEST observation's, so a waker cannot sleep past one", () => {
+    // Round 4's P2: pruning at render time is not reactive to time, so a caller
+    // that has stopped polling needs to know when to wake. Keying on the newest
+    // entry would sleep straight past an older one still on screen.
+    const t0 = 3_000_000;
+    let state = recordObservation(EMPTY_POLL_STATE, snap({ instanceId: "old" }), t0);
+    state = recordObservation(state, snap({ instanceId: "new" }), t0 + 5_000);
+    expect(nextExpiryAt(state)).toBe(t0 + OBSERVATION_TTL_MS);
+    expect(nextExpiryAt(EMPTY_POLL_STATE)).toBeNull();
   });
 
   it("pruning is identity when nothing has expired", () => {
@@ -301,6 +313,10 @@ describe("the rendered status surface", () => {
     expect(screen.getByTestId("stripe-verification").getAttribute("data-instances")).toBe("1");
     // Fired at most once, so a page that cannot refresh does not spin.
     expect(onStoredModeChanged).toHaveBeenCalledTimes(1);
+    // And it carries the OBSERVED mode, not just a bare signal: the page needs
+    // the authoritative value, because the endpoint it would otherwise re-read
+    // can answer from an instance still holding a stale config cache.
+    expect(onStoredModeChanged).toHaveBeenCalledWith("live");
     cleanup();
   });
 

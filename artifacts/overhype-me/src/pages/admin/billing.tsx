@@ -572,10 +572,24 @@ export default function AdminBilling() {
             initial={summary?.verification ?? null}
             expectedMode={liveMode === null ? null : liveMode ? "live" : "test"}
             fetchStatus={fetchVerificationStatus}
-            // A sample for a mode this page is not showing means the stored mode
-            // moved somewhere else. Re-read everything: that refreshes the mode
-            // chip and remounts this panel under the correct key.
-            onStoredModeChanged={() => { void fetchAll(); }}
+            // Apply the observation, then refresh.
+            //
+            // The observed mode came from the guard's own authoritative read on
+            // the summary endpoint. `fetchAll()` alone was not enough: its
+            // /admin/config request can land on an instance still holding the
+            // old 60-second config cache, leaving `liveMode` — and so this
+            // panel's key and expectedMode — unchanged, while the one-shot
+            // notification has already been spent. The page would then sit on
+            // the wrong mode with its samples being rejected until an operator
+            // reloaded it.
+            //
+            // Setting the mode from the observation first means the page is
+            // right immediately; the refresh that follows reconciles everything
+            // else and is allowed to be eventually-consistent.
+            onStoredModeChanged={(observedMode) => {
+              if (observedMode !== null) setLiveMode(observedMode === "live");
+              void fetchAll();
+            }}
           />
         </div>
 

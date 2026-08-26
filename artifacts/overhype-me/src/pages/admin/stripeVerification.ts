@@ -97,6 +97,19 @@ export function pruneStaleObservations(
   return { byInstance, seenAt, quietPolls: state.quietPolls };
 }
 
+/**
+ * When the earliest-expiring observation ages out, or `null` if there are none.
+ *
+ * Expiry is a function of time, and nothing re-renders on its own once polling
+ * stops — so a caller that has stopped polling needs to know when to wake and
+ * re-derive, or a terminated instance stays on screen indefinitely.
+ */
+export function nextExpiryAt(state: VerificationPollState): number | null {
+  const times = Object.values(state.seenAt);
+  if (times.length === 0) return null;
+  return Math.min(...times) + OBSERVATION_TTL_MS;
+}
+
 function observations(state: VerificationPollState): VerificationSnapshot[] {
   return Object.values(state.byInstance);
 }
