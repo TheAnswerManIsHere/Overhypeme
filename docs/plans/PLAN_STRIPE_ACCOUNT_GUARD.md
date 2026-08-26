@@ -5,6 +5,11 @@
 **Criticality:** 80 — this is the only thing standing between a misplaced key and a mutated live
 account, and the failure is silent today.
 
+> **Revision 2, after round 1 returned five findings — all upheld.** Two were overstated claims
+> in this plan's own audit, which tripped a pre-registered flip condition and sent the increment
+> to David rather than straight to a fix; he chose to fix and continue. The largest: `getAccountId()`
+> is **not** a read. Details in each section below.
+>
 > Split out of PR #568 after its round 5, which found this defect while reviewing a plan that
 > could not have fixed it. Written under the
 > [claim-oracle rule](../ai-context/working-modes.md#a-completeness-claim-carries-its-oracle-or-it-is-not-a-claim-david-2026-08-25)
@@ -71,8 +76,29 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    Today's `if (expectedAccountId)` makes absence a silent skip, which is fail-open: the
    environment least likely to have configured it is the one most likely to be misconfigured.
 2. **A mismatch is fatal.** Logging and continuing is what makes today's check worthless.
-3. **The check runs before any mutation** — before `findOrCreateManagedWebhook` and before
-   `syncBackfill`. A check after a mutation is a report, not a guard.
+3. **The check is enforced where clients are constructed, not only at boot** (revision 2, after
+   round 1). Revision 1 checked the mode active *at boot* and asserted that post-boot admin routes
+   therefore sat behind the guard. That is false: `PATCH /admin/config/stripe_live_mode`
+   (`routes/admin.ts:3024`) writes the new mode, invalidates the cached client, and immediately
+   calls `runFullSync` using the **newly active credential, which boot never verified**.
+
+   The invariant instead: **no Stripe client or sync object is handed to any caller until the
+   account behind its credential has been verified against the expected id for that mode.**
+   `stripeClient.ts` is the only construction site in the tracked repo, so that boundary covers
+   boot, the mode toggle, checkout and the admin routes uniformly, rather than enumerating callers
+   and hoping the list stays complete. Verification is memoised per mode and credential, so this
+   is one extra call per distinct credential, not per request.
+3b. **The account is read with `stripe.accounts.retrieve()` through the raw client — never with
+   the sync library's `getAccountId()`** (revision 2, after round 1). Round 1 established, and I
+   confirmed at `node_modules/stripe-replit-sync/dist/index.js:577-604`, that `getAccountId()`
+   returns an in-memory cached id; failing that, returns an id looked up **from the local database
+   by API-key hash without contacting Stripe**; and only on a miss calls Stripe and then
+   **upserts the account row and the key hash into the database**. It is therefore neither
+   non-mutating nor authoritative.
+
+   The compounding effect matters more than either flaw alone: a first mismatched boot stores the
+   wrong account *against that key's hash*, so every later boot resolves it locally and never asks
+   Stripe. A guard built on that helper grows quieter precisely in the case it exists to catch.
 4. **The refusal must survive the swallowing paths.** `initStripe()` wraps everything in a
    `try/catch` that logs *"Stripe init failed — continuing without payments"*, and `index.ts:408`
    launches it as `initStripe().catch(...)` under *"Non-blocking background tasks — failures are
@@ -88,9 +114,9 @@ account id.*
 
 | Oracle (tracked set) | Result |
 | --- | --- |
-| `git grep -nE "STRIPE_ACCOUNT_ID" -- . ':!node_modules'` | **4 hits**: `.replit:186-187` set both ids; `index.ts:107-108` read them. No other reader, and no computed or helper-mediated access |
-| `git grep -n "findOrCreateManagedWebhook\|syncBackfill" -- '*.ts' ':!*__tests__*'` | boot mutations occur at `index.ts:99` and `index.ts:121`; `syncBackfill` also reachable from the admin sync routes, which run **after** boot and so sit behind this guard |
-| `git grep -n "getAccountId" -- '*.ts' ':!*__tests__*'` | the account is readable without mutating, which is what makes a pre-mutation check possible at all |
+| `git grep -nE "STRIPE_ACCOUNT_ID" -- . ':!node_modules' ':!docs/plans' ':!.agents'` | **4 hits**: `.replit:186-187` set both ids under `[userenv.shared]`; `index.ts:107-108` read them. No other reader, no computed or helper-mediated access. **Scoped to exclude this document** — round 1 found revision 1's unscoped command returned nine, five of them the plan matching itself, so it was not reproducible as recorded |
+| `git grep -n "findOrCreateManagedWebhook\|syncBackfill" -- '*.ts' ':!*__tests__*'` | boot mutations at `index.ts:99` and `:121`. **`syncBackfill` is also called from `routes/admin.ts:3024`, on the `stripe_live_mode` toggle, with a credential boot never verified** — revision 1 claimed these "sit behind this guard" and they did not, which is why the guard moved to the construction boundary |
+| `git grep -n "stripe_live_mode" -- '*.ts' ':!*__tests__*'` | the mode is read in `stripeClient.ts:12` and five route sites, and **written** at `routes/admin.ts:3024`; every consumer obtains its client through `stripeClient.ts`, which is what makes that boundary sufficient |
 
 **Both expected-account ids are already configured** (`.replit:186-187`), which is why the rollout
 below is a confirmation rather than a migration. Values are not reproduced here; the plan needs the
@@ -102,8 +128,10 @@ variables, not their contents.
 | --- | --- | --- |
 | Exactly two sites read the expected account id, both in `index.ts` | `git grep -nE "STRIPE_ACCOUNT_ID"` → 4 hits, 2 of which are the `.replit` definitions | Oracle, run and mapped |
 | Boot mutates Stripe at exactly two points | `git grep -n "findOrCreateManagedWebhook\|syncBackfill"` → `index.ts:99` and `:121`; other `syncBackfill` callers are post-boot admin routes | Oracle, run and mapped |
-| A misconfigured environment cannot mutate the wrong account | The check is required, fatal, and ordered before both mutation points (settled decisions 1–3) | Construct |
+| A misconfigured environment cannot mutate the wrong account | Verification is enforced at the single client-construction boundary in `stripeClient.ts` and refuses fatally, so no caller — boot, mode toggle, checkout or admin route — receives a client for an unverified account (settled decision 3) | Construct — revision 1's boot-only version was **overstated**, per round 1 |
+| The account read used by the guard does not mutate and is authoritative | `stripe.accounts.retrieve()` on the raw client. **Not** the sync library's `getAccountId()`, which caches, falls back to a local key-hash lookup, and upserts (`stripe-replit-sync/dist/index.js:577-604`) | Construct — revision 1 asserted this of `getAccountId()` **without reading it**, which was the round-1 finding that stopped the loop |
 | The refusal cannot be swallowed | It is not inside `initStripe()`'s `catch` and not behind the detached launch at `index.ts:408`; its tests assert **process startup failure**, not helper rejection | Construct |
+| Production carries the expected account id | `.replit:186-187` place both under `[userenv.shared]`, alongside the production origin — evidence, not proof, that the deployment reads them | **Checked, not prevented** — the pre-merge live confirmation is what discharges it |
 | A correctly-configured environment is unaffected | **Not claimed as proven by construction.** It is *checked* — by the matching-path tests and the post-merge live verification. The guard adds a branch on the boot path, and only running it against the real accounts establishes that the matching path is unchanged | **Checked, not prevented** |
 
 The last row is deliberate. Under the claim-oracle rule a property backed only by tests is written
@@ -139,6 +167,22 @@ introduce a second opinion about which account is correct.
 4. **Refuse on mismatch**, terminating the process with a message naming both ids and the variable
    to correct.
 5. **Only then** register the webhook and start the backfill, unchanged.
+
+**Two failure classes, and conflating them is the trap round 1 found.**
+
+| Situation | Outcome |
+| --- | --- |
+| Stripe credentials **absent or incomplete** | Unchanged from today: `getCredentials()` throws, `initStripe()` logs *"continuing without payments"*, **the server boots**. This plan does not make Stripe configuration mandatory |
+| Credentials present, **expected account id absent** | **Fatal** |
+| Credentials present, **account mismatched** | **Fatal**, before any mutation |
+| Credentials present, **account unreadable** (Stripe unreachable, key rejected) | **Fatal** — an unverifiable account is not a verified one |
+
+Revision 1 said only "hoist the check into an awaited phase whose failure terminates", which round
+1 correctly read as turning optional Stripe configuration into a fatal boot dependency: the
+straightforward implementation would terminate on the absent-credentials path too, contradicting
+this plan's own Runtime Behavior. **The awaited phase runs only once credentials are present**,
+and the two classes are distinguished by their origin — a credential-absence error from
+`getCredentials()` is not a guard refusal and must not be treated as one.
 
 **Placement is the load-bearing part.** The refusal runs in an awaited boot phase whose failure
 terminates the process — not inside `initStripe()`'s `catch`, and not behind its detached launch.
@@ -187,7 +231,16 @@ line becomes a server that will not start — which is the point.
    only checks the refusal would pass on a check placed after line 99.
 4. **The refusal is not swallowed:** with `initStripe()`'s `try/catch` intact, a mismatch still
    terminates the process.
-5. **Live-driver verification, outside CI** (post-merge, through the Replit connector): the Repl
+5. **The mode-toggle path is guarded:** with a valid credential for the active mode and a
+   **mismatched** credential for the inactive one, toggling `stripe_live_mode` refuses rather than
+   re-syncing — the case revision 1's boot-only check missed entirely.
+6. **Credentials absent → the server still boots** without payments, and does **not** terminate.
+   This is the negative test for the guard's own blast radius: it proves the fix did not turn
+   optional Stripe configuration into a fatal boot dependency.
+7. **The guard's account read does not consult the sync library's cache or the local database** —
+   asserted directly, because a passing guard built on `getAccountId()` would be indistinguishable
+   from a correct one until the day it mattered. Cache-hit and cache-miss paths both exercised.
+8. **Live-driver verification, outside CI** (post-merge, through the Replit connector): the Repl
    boots against its real test-mode account with the expected id set, and the account-verified path
    logs success. This is what establishes the *Must Not Change* row the claim audit marks as
    **checked** rather than proven.
@@ -198,15 +251,28 @@ Runners: `pnpm --filter @workspace/api-server test`.
 
 **Rollout ordering first — PR #568's round 1 found this exact hazard the hard way.**
 
-1. **Confirm `STRIPE_ACCOUNT_ID_LIVE` is present in production's environment.** The Repl already
-   carries both (`.replit:186-187`); production is the one to verify, and it must be verified
-   **before** the requirement ships or the first boot after merge is fatal.
-2. Hoist the account check ahead of `findOrCreateManagedWebhook`, into an awaited boot phase whose
-   failure terminates the process.
-3. Make an absent expected id a refusal.
-4. Make a mismatch a refusal.
-5. Tests 1–4.
-6. Post-merge live verification on the Repl.
+1. **Confirm `STRIPE_ACCOUNT_ID_LIVE` is present in the production deployment's environment —
+   as a pre-merge prerequisite, executed and recorded before the code can merge.** Round 1 was
+   right that revision 1 pointed this at the wrong instrument: this repository's Post-merge
+   verification runs *after* merge and Repl sync, so it cannot prevent the first fatal boot. The
+   confirmation runs through the live-environment connector and its result is recorded on the
+   implementation PR **before** merge; Post-merge verification is reserved for confirming an
+   already-safe deployment.
+
+   **The oracle lowers this risk but does not discharge it.** `git grep -nE "STRIPE_ACCOUNT_ID" --
+   . ':!node_modules' ':!docs/plans' ':!.agents'` returns four hits: `index.ts:107-108` read the
+   ids, and `.replit:186-187` set them under **`[userenv.shared]`** — the same section that carries
+   `ALLOWED_ORIGINS` including the production origin `https://overhype.me`, which is strong evidence
+   production reads that section. That is evidence, not proof, which is exactly why the live
+   confirmation stays a prerequisite rather than being replaced by the file.
+2. Add account verification at the client-construction boundary in `stripeClient.ts`, using
+   `stripe.accounts.retrieve()` on the raw client, memoised per mode and credential.
+3. Make an absent expected id a refusal, and a mismatch a refusal, both fatal — while leaving the
+   credentials-absent path exactly as it is today.
+4. Ensure the boot-time refusal reaches the process: awaited, outside `initStripe()`'s `catch` and
+   outside its detached launch at `index.ts:408`.
+5. Tests 1–7.
+6. Post-merge live verification on the Repl — confirming an already-safe deployment, not gating it.
 
 ## Risks and Mitigations
 
@@ -216,4 +282,7 @@ Runners: `pnpm --filter @workspace/api-server test`.
 | **The refusal is placed where it cannot refuse** | Named as the load-bearing property; tests assert process startup failure rather than helper rejection — the exact distinction that would have caught PR #568's round-3 defect |
 | **A check that refuses correctly but too late** | Test 3 asserts no mutation was attempted, not merely that boot failed |
 | **The matching path changes behavior** | Explicitly *checked, not prevented* in the claim audit; covered by test 2 and the post-merge live verification, and the timeout/retry bounds are named in *Must Not Change* |
+| **A mutation path that does not pass through the construction boundary** | The boundary is the single construction site the #568 inventory established; the mode-toggle path — the one revision 1 missed — is a named test rather than an assumption |
+| **The guard's own read mutates or answers from stale local state** | `stripe.accounts.retrieve()` on the raw client, with a test asserting the sync library's cache and key-hash lookup are not consulted |
+| **The fix makes optional Stripe configuration fatal** | The two failure classes are separated explicitly, and the credentials-absent boot is a named negative test |
 | **Scope creep back toward the driver seam** | Settled decision 5: this plan touches neither driver selection nor the fake, and is shippable alone |
