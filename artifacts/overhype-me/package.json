@@ -15,7 +15,7 @@
     "check:help-content": "tsx scripts/generate-help-content.ts --check",
     "e2e": "playwright test",
     "e2e:smoke": "playwright test routeLoadSmoke",
-    "e2e:surfaces": "playwright test adminQueueHealth adminHelp"
+    "e2e:surfaces": "playwright test adminQueueHealth adminHelp adminPermissions"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
