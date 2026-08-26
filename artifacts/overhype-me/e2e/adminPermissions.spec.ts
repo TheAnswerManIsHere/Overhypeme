@@ -229,7 +229,7 @@ test.describe("Admin · permissions core", () => {
     // navigation silently changes under four rewritten UAT steps.
     // (Codex, #575 round 1.)
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    const avatar = page.getByRole("button", { name: /Open account menu/i });
+    const avatar = page.getByRole("button", { name: /Open your profile/i });
     await expect(avatar, "an authenticated header should offer the avatar control").toBeVisible({ timeout: 30_000 });
     await avatar.click();
     await expect(
