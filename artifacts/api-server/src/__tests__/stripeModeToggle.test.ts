@@ -42,6 +42,7 @@ import {
   __setRawClientFactoryForTests,
   getStripeSync,
   getUncachableStripeClient,
+  getVerifiedStripeClient,
   invalidateStripeSync,
   isLiveMode,
 } from "../lib/stripeClient.js";
@@ -432,6 +433,45 @@ describe("the construction boundary is mode-coherent", () => {
     // why the factory is indirected rather than read back off the object.
     assert.equal(builtFrom, "sk_live_correct", `client was built from the wrong credential: ${String(builtFrom)}`);
     assert.ok(client, "a client is still returned");
+  });
+
+  it("the test-event gate and the client it uses cannot disagree about the mode", async () => {
+    // Round 3's P1, and a divergence THIS increment created: the route refused
+    // to run in live mode by reading the lenient config-cached mode, while its
+    // client was built from the guard's strict row read. On an instance that had
+    // not handled a toggle those disagree for the cache's TTL — so the route
+    // could pass its "test mode only" gate and then create a real customer on
+    // the LIVE account. Before this increment both reads went through the same
+    // cached path and always agreed.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(
+      stubAccountRetriever((secretKey) =>
+        secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_test_expected",
+      ),
+    );
+
+    // Warm the lenient cache on TEST, then move the row to LIVE *without*
+    // busting it — precisely the remote-toggle case.
+    await setStoredMode(false);
+    assert.equal(await isLiveMode(), false);
+    await db.update(adminConfigTable).set({ value: "true" }).where(eq(adminConfigTable.key, "stripe_live_mode"));
+    assert.equal(await isLiveMode(), false, "the lenient read is stale, which is the setup for this defect");
+
+    // The gate must see the mode the CLIENT was verified for, not the stale one.
+    const { liveMode } = await getVerifiedStripeClient();
+    assert.equal(
+      liveMode,
+      true,
+      "the verified mode must be the row's, so a gate reading it cannot authorize test while the client is live",
+    );
+
+    // And the convenience wrapper is the same construction, not a second one.
+    assert.notEqual(await getUncachableStripeClient(), undefined);
   });
 
   it("a remote-instance toggle is noticed within the recheck interval, not the cache TTL", async () => {

@@ -3553,11 +3553,22 @@ router.get("/admin/stripe/sync/status", requireAdmin, async (_req: Request, res:
 
 router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: Response) => {
   try {
-    // Use getConfigStringRaw to be independent of debug-mode resolution
-    const { getConfigStringRaw } = await import("../lib/adminConfig");
-    const liveMode = await getConfigStringRaw("stripe_live_mode", "false");
+    // The gate and the client come from ONE operation, deliberately.
+    //
+    // This used to check the mode through getConfigStringRaw — the lenient,
+    // config-cached read — while the client it later built resolved the mode
+    // through the guard's strict row read. On an autoscale instance that did not
+    // handle a toggle those two disagree for the config cache's TTL, so this
+    // route could pass its "test mode only" gate and then create a real customer
+    // on the LIVE account. That divergence is a consequence of this increment:
+    // before it, both reads went through the same cached path and always agreed.
+    //
+    // So the mode this refuses on is the mode the client was actually verified
+    // for. There is no second read to disagree with.
+    const { getVerifiedStripeClient } = await import("../lib/stripeClient");
+    const { client: stripe, liveMode } = await getVerifiedStripeClient();
 
-    if (liveMode === "true") {
+    if (liveMode) {
       res.status(403).json({ error: "Test events are only available in test mode" });
       return;
     }
@@ -3579,11 +3590,11 @@ router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: 
     }
 
     const { stripeStorage } = await import("../lib/stripeStorage");
-    const { getUncachableStripeClient } = await import("../lib/stripeClient");
 
     let customerId = targetUser.stripeCustomerId;
     if (!customerId) {
-      const stripe = await getUncachableStripeClient();
+      // The same client the gate above refused on — not a fresh construction,
+      // which could resolve a different mode than the one just authorized.
       const customer = await stripe.customers.create({
         email: targetUser.email ?? undefined,
         metadata: { userId },

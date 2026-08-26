@@ -5,6 +5,7 @@ import {
   describeScope,
   headlineFor,
   instancesSampled,
+  pruneStaleObservations,
   recordObservation,
   shouldKeepPolling,
   worstObservedState,
@@ -49,7 +50,15 @@ export interface StripeVerificationStatusProps {
    * and would sit on the stale answer until a manual refresh. Pass `null` when
    * the stored mode is not known yet; that also rejects, which is correct.
    */
-  expectedMode?: "live" | "test" | null;
+  expectedMode: "live" | "test" | null;
+  /**
+   * Called once if a sample arrives for a mode this page is not showing —
+   * i.e. the stored mode changed somewhere else (another admin, another tab).
+   * Rejecting the sample keeps the panel honest; this is what lets the PAGE
+   * catch up, rather than sitting on a mode nobody is in any more. Fired at
+   * most once per mount, so a page that cannot refresh does not spin.
+   */
+  onStoredModeChanged?: (observedMode: "live" | "test" | null) => void;
   pollIntervalMs?: number;
   settledPollIntervalMs?: number;
 }
@@ -68,7 +77,8 @@ export interface StripeVerificationStatusProps {
 export function StripeVerificationStatus({
   fetchStatus,
   initial = null,
-  expectedMode = null,
+  expectedMode,
+  onStoredModeChanged,
   pollIntervalMs = VERIFICATION_POLL_INTERVAL_MS,
   settledPollIntervalMs = VERIFICATION_SETTLED_POLL_INTERVAL_MS,
 }: StripeVerificationStatusProps) {
@@ -86,13 +96,14 @@ export function StripeVerificationStatus({
    */
   const pollRef = useRef(poll);
   pollRef.current = poll;
+  const announcedModeChange = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const scheduleNext = () => {
-      if (cancelled || !shouldKeepPolling(pollRef.current)) return;
+      if (cancelled || !shouldKeepPolling(pruneStaleObservations(pollRef.current))) return;
       const delay = pollRef.current.quietPolls > 0 ? settledPollIntervalMs : pollIntervalMs;
       timer = setTimeout(() => void sample(), delay);
     };
@@ -102,14 +113,30 @@ export function StripeVerificationStatus({
       try {
         const observation = await fetchStatus();
         if (cancelled) return;
-        next = observation
-          ? recordObservation(pollRef.current, observation)
-          : { ...pollRef.current, quietPolls: pollRef.current.quietPolls + 1 };
+        // EVERY observation is mode-checked, not just the seed. Round 3 caught
+        // the difference: if another admin or another browser tab changes the
+        // stored mode while this page is open, later polls return snapshots for
+        // the NEW mode while this panel and the toggle beside it still describe
+        // the old one — and mixing them reports, say, "Payments verified" under
+        // a stale TEST label when the sample actually describes LIVE. A sample
+        // for a mode this page is not showing is not evidence about this page.
+        const usable = observation && expectedMode !== null && observation.mode === expectedMode;
+        // Only when the page KNOWS its mode and the sample disagrees. A null
+        // expectedMode means the page has not loaded the stored mode yet — that
+        // is ignorance, not a change, and reporting it as one would send the
+        // page into a refresh it does not need.
+        if (observation && !usable && expectedMode !== null && !announcedModeChange.current) {
+          announcedModeChange.current = true;
+          onStoredModeChanged?.(observation.mode);
+        }
+        next = usable
+          ? recordObservation(pruneStaleObservations(pollRef.current), observation)
+          : { ...pruneStaleObservations(pollRef.current), quietPolls: pollRef.current.quietPolls + 1 };
       } catch {
         // A failed fetch is not information about the guard. Count it as a quiet
         // poll so the settle window still closes, and report nothing.
         if (cancelled) return;
-        next = { ...pollRef.current, quietPolls: pollRef.current.quietPolls + 1 };
+        next = { ...pruneStaleObservations(pollRef.current), quietPolls: pollRef.current.quietPolls + 1 };
       }
       pollRef.current = next;
       setPoll(next);
@@ -130,7 +157,10 @@ export function StripeVerificationStatus({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const state = worstObservedState(poll);
+  // Pruned before every reading of the state, so an expired entry cannot drive
+  // the headline while being expired in the polling decision, or vice versa.
+  const live = pruneStaleObservations(poll);
+  const state = worstObservedState(live);
   if (state === null) return null;
 
   const tone =
@@ -139,7 +169,7 @@ export function StripeVerificationStatus({
       : state === "refused" ? "text-red-400 border-red-500/30 bg-red-500/10"
       : "text-muted-foreground border-border bg-muted/20";
 
-  const reasons = Object.values(poll.byInstance)
+  const reasons = Object.values(live.byInstance)
     .filter((o) => o.state !== "verified" && o.reason)
     .map((o) => ({ instanceId: o.instanceId, reason: o.reason! }));
 
@@ -148,7 +178,7 @@ export function StripeVerificationStatus({
       className={`mt-4 border rounded-sm p-3 text-xs ${tone}`}
       data-testid="stripe-verification"
       data-state={state}
-      data-instances={instancesSampled(poll)}
+      data-instances={instancesSampled(live)}
     >
       <div className="flex items-center gap-2 font-medium">
         {state === "verified"
@@ -156,7 +186,7 @@ export function StripeVerificationStatus({
           : <AlertTriangle className="w-4 h-4 shrink-0" />}
         <span>{headlineFor(state)}</span>
       </div>
-      <p className="mt-1 opacity-80">{describeScope(poll)}</p>
+      <p className="mt-1 opacity-80">{describeScope(live)}</p>
       {reasons.map((r) => (
         <p key={r.instanceId} className="mt-1 opacity-80">
           <span className="font-mono">{r.instanceId.slice(0, 8)}</span>: {r.reason}

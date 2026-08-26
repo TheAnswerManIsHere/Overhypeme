@@ -105,7 +105,7 @@ export function __setRawClientFactoryForTests(fn: (secretKey: string) => Stripe)
  * carries the same verification — and, like the other, captures the mode ONCE
  * and threads it to both the expected account id and the credential.
  */
-export async function getUncachableStripeClient() {
+export async function getVerifiedStripeClient(): Promise<{ client: Stripe; liveMode: boolean }> {
   refuseIfThrottled(await isLiveMode());
 
   for (let attempt = 0; attempt < MAX_CONSTRUCTION_ATTEMPTS; attempt++) {
@@ -121,7 +121,7 @@ export async function getUncachableStripeClient() {
       // Nothing to dispose: unlike a StripeSync build, no client exists yet.
       continue;
     }
-    return rawClientFactory(secretKey);
+    return { client: rawClientFactory(secretKey), liveMode };
   }
 
   throw new StripeUnverifiedError(
@@ -129,6 +129,26 @@ export async function getUncachableStripeClient() {
       `no client is handed out for a mode that is no longer current.`,
     null,
   );
+}
+
+/**
+ * The client alone, for the callers that do not gate on which mode they got.
+ *
+ * A caller whose SAFETY depends on the mode must use `getVerifiedStripeClient()`
+ * and gate on the `liveMode` it returns — never on a separate read. Round 3
+ * caught the difference: `/admin/stripe/test-event` refuses to run in live mode,
+ * and it checked that through the lenient config-cached read while its client
+ * was built from the strict one. On an instance that had not handled a toggle
+ * those two disagree for the cache's TTL, so the route could pass its
+ * "test mode only" gate and then create a real customer on the LIVE account.
+ *
+ * The two reads disagreeing is a consequence of THIS increment — before it, the
+ * gate and the client resolved the mode through the same cached path, so they
+ * always agreed. Returning the verified mode alongside the client is what makes
+ * a gate and a mutation impossible to split.
+ */
+export async function getUncachableStripeClient() {
+  return (await getVerifiedStripeClient()).client;
 }
 
 export async function getStripePublishableKey() {

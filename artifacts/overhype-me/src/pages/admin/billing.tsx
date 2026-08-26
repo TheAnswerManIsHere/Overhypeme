@@ -572,6 +572,10 @@ export default function AdminBilling() {
             initial={summary?.verification ?? null}
             expectedMode={liveMode === null ? null : liveMode ? "live" : "test"}
             fetchStatus={fetchVerificationStatus}
+            // A sample for a mode this page is not showing means the stored mode
+            // moved somewhere else. Re-read everything: that refreshes the mode
+            // chip and remounts this panel under the correct key.
+            onStoredModeChanged={() => { void fetchAll(); }}
           />
         </div>
 

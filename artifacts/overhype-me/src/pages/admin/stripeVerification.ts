@@ -30,6 +30,8 @@ export type VerificationSnapshot = StripeVerificationSnapshot;
 
 export interface VerificationPollState {
   byInstance: Record<string, VerificationSnapshot>;
+  /** When each instance was last actually observed, for the liveness bound below. */
+  seenAt: Record<string, number>;
   /** Consecutive polls that revealed nothing new — no new instance, no state change. */
   quietPolls: number;
 }
@@ -40,19 +42,59 @@ export interface VerificationPollState {
  */
 export const SETTLE_CONFIRM_POLLS = 3;
 
-export const EMPTY_POLL_STATE: VerificationPollState = { byInstance: {}, quietPolls: 0 };
+/**
+ * How long an unseen instance's observation still counts.
+ *
+ * Instances come and go — a rollout replaces them, autoscale removes them under
+ * load. Without a liveness bound, one instance observed as `pending` and then
+ * terminated stays in the map forever: the panel keeps polling because something
+ * is still transitional, and keeps reporting that dead instance's state as the
+ * current worst even after every reachable instance has verified. A terminated
+ * `refused` entry does the same thing after polling stops.
+ *
+ * So an observation is evidence with a shelf life. This is deliberately several
+ * poll intervals, so an instance the router simply did not pick for a few polls
+ * is not mistaken for one that is gone.
+ */
+export const OBSERVATION_TTL_MS = 120_000;
+
+export const EMPTY_POLL_STATE: VerificationPollState = { byInstance: {}, seenAt: {}, quietPolls: 0 };
 
 export function recordObservation(
   previous: VerificationPollState,
   observation: VerificationSnapshot,
+  now: number = Date.now(),
 ): VerificationPollState {
   const known = previous.byInstance[observation.instanceId];
   const isNew = known === undefined;
   const changed = !isNew && known.state !== observation.state;
   return {
     byInstance: { ...previous.byInstance, [observation.instanceId]: observation },
+    seenAt: { ...previous.seenAt, [observation.instanceId]: now },
     quietPolls: isNew || changed ? 0 : previous.quietPolls + 1,
   };
+}
+
+/**
+ * Drop observations older than the TTL. Applied before every reading of the
+ * state — the headline, the scope line, and the polling decision — so a stale
+ * entry cannot survive in one of them while being expired in another.
+ */
+export function pruneStaleObservations(
+  state: VerificationPollState,
+  now: number = Date.now(),
+): VerificationPollState {
+  const liveIds = Object.keys(state.byInstance).filter(
+    (id) => now - (state.seenAt[id] ?? 0) < OBSERVATION_TTL_MS,
+  );
+  if (liveIds.length === Object.keys(state.byInstance).length) return state;
+  const byInstance: Record<string, VerificationSnapshot> = {};
+  const seenAt: Record<string, number> = {};
+  for (const id of liveIds) {
+    byInstance[id] = state.byInstance[id]!;
+    seenAt[id] = state.seenAt[id]!;
+  }
+  return { byInstance, seenAt, quietPolls: state.quietPolls };
 }
 
 function observations(state: VerificationPollState): VerificationSnapshot[] {

@@ -12,7 +12,9 @@ import { render, screen, waitFor, cleanup } from "@testing-library/react";
 
 import {
   EMPTY_POLL_STATE,
+  OBSERVATION_TTL_MS,
   SETTLE_CONFIRM_POLLS,
+  pruneStaleObservations,
   describeScope,
   parseToggleErrorBody,
   recordObservation,
@@ -103,6 +105,37 @@ describe("the polling rule accounts for there being more than one instance", () 
   });
 });
 
+describe("observations expire", () => {
+  it("an instance not seen within the TTL stops driving the headline and the polling", () => {
+    // Round 3's P2. In an autoscale deployment an instance observed as `pending`
+    // can be terminated during a rollout. With no liveness bound its entry stays
+    // in the map forever: the panel keeps polling because something is still
+    // transitional, and keeps presenting the dead instance's state as the
+    // current worst even after every reachable instance has verified.
+    const t0 = 1_000_000;
+    let state = recordObservation(EMPTY_POLL_STATE, snap({ instanceId: "gone", state: "pending" }), t0);
+    state = recordObservation(state, snap({ instanceId: "live-one", state: "verified" }), t0);
+
+    // While both are fresh, the dead one correctly dominates.
+    expect(worstObservedState(pruneStaleObservations(state, t0))).toBe("pending");
+    expect(shouldKeepPolling(pruneStaleObservations(state, t0))).toBe(true);
+
+    // The surviving instance keeps answering; the terminated one never does.
+    const later = t0 + OBSERVATION_TTL_MS + 1;
+    state = recordObservation(state, snap({ instanceId: "live-one", state: "verified" }), later);
+
+    const pruned = pruneStaleObservations(state, later);
+    expect(Object.keys(pruned.byInstance)).toEqual(["live-one"]);
+    expect(worstObservedState(pruned)).toBe("verified");
+  });
+
+  it("pruning is identity when nothing has expired", () => {
+    const t0 = 2_000_000;
+    const state = recordObservation(EMPTY_POLL_STATE, snap({ instanceId: "a" }), t0);
+    expect(pruneStaleObservations(state, t0 + 1)).toBe(state);
+  });
+});
+
 describe("the rendered status surface", () => {
   it("test 16 — pending becomes verified without a manual refresh", async () => {
     // The server recovers only once the test has observed `pending`, so the
@@ -115,7 +148,7 @@ describe("the rendered status surface", () => {
         : snap({ instanceId: "inst-1", state: "pending", reason: "Stripe unreachable" }),
     );
 
-    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("pending");
@@ -133,7 +166,7 @@ describe("the rendered status surface", () => {
 
   it("test 18 — an unconfigured integration renders as not-configured and is NOT polled", async () => {
     const fetchStatus = vi.fn(async () => snap({ instanceId: "inst-1", state: "unconfigured", reason: "no keys" }));
-    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("unconfigured");
@@ -153,7 +186,7 @@ describe("the rendered status surface", () => {
     const fetchStatus = vi.fn(async () =>
       snap({ instanceId: "9f8e7d6c-1111-2222-3333-444455556666", state: "verified" }),
     );
-    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("stripe-verification").getAttribute("data-instances")).toBe("1");
@@ -174,7 +207,7 @@ describe("the rendered status surface", () => {
       return snap({ instanceId: "inst-1", state: "refused", reason: "wrong account" });
     });
 
-    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("refused");
@@ -208,11 +241,15 @@ describe("the rendered status surface", () => {
     cleanup();
   });
 
-  it("a seed with no known stored mode is rejected too", async () => {
-    // `expectedMode` is null while the page is still loading the config rows.
-    // Accepting a seed then would show a state nobody has confirmed applies.
+  it("with no known stored mode, nothing is attributed and nothing is shown", async () => {
+    // `expectedMode` is null while the page is still loading its config rows.
+    // No sample can be attributed to a mode in that window, and a state shown
+    // without the mode it belongs to is the same overclaim this panel exists to
+    // avoid — so it renders nothing until the page knows. In the real page that
+    // window is one fetch long, and the panel is keyed on the mode, so it
+    // remounts and starts sampling the moment the mode is known.
     const fetchStatus = vi.fn(async () => snap({ instanceId: "inst-1", state: "verified", mode: "test" }));
-    render(
+    const { container } = render(
       <StripeVerificationStatus
         fetchStatus={fetchStatus}
         initial={snap({ instanceId: "inst-1", state: "unconfigured", mode: "test" })}
@@ -222,9 +259,48 @@ describe("the rendered status surface", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("verified");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByTestId("stripe-verification")).toBeNull();
+    expect(container.textContent).toBe("");
+    cleanup();
+  });
+
+  it("a poll sample for a DIFFERENT stored mode is rejected, and the page is told", async () => {
+    // Round 3's P2. Only the initial seed was mode-checked. If another admin or
+    // another tab changes the stored mode while this page is open, later polls
+    // return snapshots for the NEW mode while this panel and the toggle beside
+    // it still describe the old one — so the panel could report "Payments
+    // verified" under a stale TEST label from a sample that describes LIVE.
+    let call = 0;
+    const fetchStatus = vi.fn(async () => {
+      call++;
+      return call === 1
+        ? snap({ instanceId: "inst-1", state: "refused", mode: "test", reason: "wrong account" })
+        : snap({ instanceId: "inst-2", state: "verified", mode: "live" });
     });
+    const onStoredModeChanged = vi.fn();
+
+    render(
+      <StripeVerificationStatus
+        fetchStatus={fetchStatus}
+        expectedMode="test"
+        onStoredModeChanged={onStoredModeChanged}
+        pollIntervalMs={1}
+        settledPollIntervalMs={1}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("refused");
+    });
+
+    // The live-mode sample must never be mixed in: the panel still shows only
+    // what it saw for the mode it is labelled with.
+    await waitFor(() => expect(onStoredModeChanged).toHaveBeenCalled());
+    expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("refused");
+    expect(screen.getByTestId("stripe-verification").getAttribute("data-instances")).toBe("1");
+    // Fired at most once, so a page that cannot refresh does not spin.
+    expect(onStoredModeChanged).toHaveBeenCalledTimes(1);
     cleanup();
   });
 
