@@ -5,6 +5,20 @@
 **Criticality:** 80 — this is the only thing standing between a misplaced key and a mutated live
 account, and the failure is silent today.
 
+> **Revision 5, after round 4 returned four findings — all upheld — and after David decided the
+> availability fork round 4's P1 correctly refused to let this plan settle on its own.** The
+> decision (David, 2026-08-26): **a Stripe outage never takes the site down.** Only a *definitive*
+> wrong answer is fatal at boot; an *indefinite* one — Stripe unreachable, the mode unreadable —
+> boots the server without payments, refuses the payment paths, and retries on an interval until
+> verification succeeds. This replaces revision 2's "an unverifiable account is not a verified one
+> → fatal" row, which had quietly taken an availability position nobody asked for. The safety
+> invariant never rested on fatality anyway: **no client is handed to any caller until its account
+> verifies** — withholding clients is the mechanism; refusing to boot is operator visibility for
+> the one case where the wrong account is *confirmed*. Also in this revision: the boot gate reads
+> the mode through a failure-propagating path (round 4 found `getConfigStringRaw` silently answers
+> "test" when it means "I could not tell"), verification failures are never memoised, and test 10
+> gains its actual runner — the frontend suite.
+>
 > **Revision 4, after round 3 returned eight findings — all upheld.** None of them attacks the
 > guard's shape; every one attacks a place where the plan asserted a property it had not made
 > reachable. Four are about *where* the mechanism sits — the fatal check must precede
@@ -167,6 +181,37 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    for this lesson three times.
 5. **This plan does not touch driver selection, the fake, or credential isolation.** They are
    separate increments on #566. This one is deliberately buildable and shippable alone.
+6. **The availability posture: only a definitive wrong answer is fatal** (David, 2026-08-26,
+   deciding round 4's P1). Fatal at boot: a **confirmed mismatch** — Stripe answered, and the
+   account behind the credential is not the declared one — and a **missing expected id with
+   credentials present**, which is deterministic misconfiguration retry cannot fix. Everything
+   indefinite — Stripe unreachable, a timeout, a 5xx, the mode unreadable from the config store,
+   a rejected key — **boots the server without payments**: the payment paths refuse with a clear
+   error, verification retries on an interval, and payments come online automatically when a retry
+   verifies. A mismatch discovered *post-boot* by a retry leaves the server up: payments stay
+   refused, and the error is loud. The reasoning, recorded because it inverts revision 2: the
+   guard's safety never came from fatality — it comes from **no client existing until its account
+   verifies** (settled decision 3). Fatality is operator signal, and it is reserved for the case
+   where the wrong account is a *fact* rather than a possibility. A rejected key is grouped with
+   the indefinite cases deliberately: it cannot mutate anything (every call fails), so killing the
+   site over it converts a harmless misconfiguration into an outage.
+7. **The mode read behind the guard must propagate failure** (revision 5, after round 4).
+   `isLiveMode()` (`stripeClient.ts:7-16`) wraps `getConfigStringRaw("stripe_live_mode", "false")`
+   (`adminConfig.ts:176-183`) — **two** nested swallowing layers, each answering `"test mode"` for
+   both "the stored mode is test" and "the lookup failed". A gate reading its precondition through
+   that path can verify the **test** account while the stored mode is **live**, then hand the
+   misplaced live credential to the first post-recovery construction — certifying the wrong
+   account, which settled decision 3c calls worse than no guard. The guard therefore uses a
+   failure-propagating mode read; a failed read resolves to **unverified** (degrade-and-retry per
+   decision 6), never to a defaulted mode. `isLiveMode()`'s swallowing behavior is unchanged for
+   its other callers — this plan adds a strict read for the guard, it does not rewrite the
+   lenient one.
+8. **Verification failures are never memoised** (revision 5, after round 4). The per-mode,
+   per-credential memo caches **successes only**; a rejected verification is evicted before the
+   rejection propagates. `deferred-work.md:541-546` already records this exact hazard for
+   `getStripeSync()` as a forward-looking guardrail — a cached rejection would pin payments off
+   until restart, defeating decision 6's retry loop, and one transient Stripe blip would become a
+   permanent outage of the payment paths.
 
 ### The affected-surface inventory
 
@@ -189,9 +234,11 @@ variables, not their contents.
 | --- | --- | --- |
 | Exactly two sites read the expected account id, both in `index.ts` | `git grep -nE "STRIPE_ACCOUNT_ID"` → 4 hits, 2 of which are the `.replit` definitions | Oracle, run and mapped |
 | Boot mutates Stripe at exactly two points | `git grep -n "findOrCreateManagedWebhook\|syncBackfill"` → `index.ts:99` and `:121`; other `syncBackfill` callers are post-boot admin routes | Oracle, run and mapped |
-| A misconfigured environment cannot mutate the wrong account | Verification is enforced at the single client-construction boundary in `stripeClient.ts` and refuses fatally, so no caller — boot, mode toggle, checkout or admin route — receives a client for an unverified account (settled decision 3) | Construct — revision 1's boot-only version was **overstated**, per round 1 |
+| A misconfigured environment cannot mutate the wrong account | Verification is enforced at the single client-construction boundary in `stripeClient.ts` and withholds the client on anything but a verified account, so no caller — boot, mode toggle, checkout or admin route — receives a client for an unverified account (settled decision 3) | Construct — revision 1's boot-only version was **overstated**, per round 1 |
 | The account read used by the guard does not mutate and is authoritative | Two halves, both read at the pinned versions. **That the call is a non-mutating self-lookup:** at `stripe@20.0.0`, `accounts.retrieve()` with no id takes the branch at `node_modules/stripe/cjs/resources/Accounts.js:22-27` — `{ method: 'GET', fullPath: '/v1/account' }`. `GET` is non-mutating; `/v1/account` takes no account parameter, so it can only resolve to the account behind the presented key. **That the rejected helper is unsafe:** `stripe-replit-sync/dist/index.js:577-604`, which caches, falls back to a local key-hash lookup, and upserts | Construct — revision 1 asserted this of `getAccountId()` **without reading it**, which was the round-1 finding that stopped the loop. Round 3 then found revision 3 had recorded only the second half: the *load-bearing* half, about an external API, was carried unversioned |
 | The refusal cannot be swallowed | It is not inside `initStripe()`'s `catch` and not behind the detached launch at `index.ts:409`; its tests assert **process startup failure**, not helper rejection | Construct |
+| The boot gate never verifies a guessed mode | The gate reads the mode through a failure-propagating path; a failed read resolves to **unverified**, never to a default. Round 4 found the existing read (`stripeClient.ts:7-16` over `adminConfig.ts:176-183`) answers "test" through **two** nested catches for both "stored as test" and "could not tell" | Construct — with test 11 asserting no verification runs against a defaulted mode |
+| A transient verification failure cannot pin payments off | The memo caches successes only; a rejection is evicted before it propagates (settled decision 8, the `deferred-work.md:541-546` guardrail). Test 12 asserts recovery without restart | Construct |
 | The refusal precedes the port opening | It completes before `app.listen()` at `index.ts:303`, asserted by test 3b as *the port is never bound*. Revision 3 claimed only that it escapes `initStripe()`, which `grep -n "app.listen\|initStripe()"` shows is 106 lines too late | Construct — revision 3's version was **overstated**, per round 3 |
 | Production carries the expected account id | `.replit:186-187` place both under `[userenv.shared]`, alongside the production origin — evidence, not proof, that the deployment reads them | **Checked, not prevented** — the pre-merge live confirmation is what discharges it |
 | A correctly-configured environment is unaffected | **Not claimed as proven by construction.** It is *checked* — by the matching-path tests and the post-merge live verification. The guard adds a branch on the boot path, and only running it against the real accounts establishes that the matching path is unchanged | **Checked, not prevented** |
@@ -219,7 +266,7 @@ introduce a second opinion about which account is correct.
 
 ## Proposed Design
 
-**One check, moved, made required, and made fatal.**
+**One check, moved, made required, and given teeth — fatal on a confirmed mismatch, degrade-and-retry on an indefinite answer (settled decision 6).**
 
 1. **Resolve the expected account id** for the active mode, exactly as today.
 2. **Refuse if it is absent**, whenever Stripe is initialising against real credentials. Absence is
@@ -266,14 +313,15 @@ item 5 asserts all three halves — the sync refused, the stored mode unchanged,
 response — and item 5d covers the concurrent case, which item 5 alone cannot: it exercises a single
 request, and a single request never observes this defect.
 
-**Two failure classes, and conflating them is the trap round 1 found.**
+**Three outcome classes, and conflating any two of them is the trap this loop kept finding** —
+round 1 caught fatal-vs-absent, round 4 caught fatal-vs-indefinite.
 
 | Situation | Outcome |
 | --- | --- |
 | Stripe credentials **absent or incomplete** | Unchanged from today: `getCredentials()` throws, `initStripe()` logs *"continuing without payments"*, **the server boots**. This plan does not make Stripe configuration mandatory |
-| Credentials present, **expected account id absent** | **Fatal** |
-| Credentials present, **account mismatched** | **Fatal**, before any mutation |
-| Credentials present, **account unreadable** (Stripe unreachable, key rejected) | **Fatal** — an unverifiable account is not a verified one |
+| Credentials present, **expected account id absent** | **Fatal** — deterministic misconfiguration; retry cannot fix it |
+| Credentials present, **account mismatched** (Stripe answered) | **Fatal**, before any mutation and before the port binds |
+| Credentials present, **account indefinite** (Stripe unreachable, timeout, 5xx, key rejected, mode unreadable) | **Boots without payments** (David, 2026-08-26): payment paths refuse with a clear error, verification retries on an interval, payments come online automatically on a verified retry. A retry that later returns a *confirmed mismatch* leaves the server up — payments stay refused, loudly |
 
 Revision 1 said only "hoist the check into an awaited phase whose failure terminates", which round
 1 correctly read as turning optional Stripe configuration into a fatal boot dependency: the
@@ -291,11 +339,20 @@ bound its port**, which means a mismatched deployment opens for traffic, can pas
 and only then exits. On a platform that restarts it, that is a crash loop serving requests in
 between.
 
-So the requirement is positional and stated against the line, not the function: **verification
-completes before `app.listen()` at `index.ts:303`.** It runs in an awaited boot phase preceding the
-listen call — not inside `initStripe()`'s `catch`, not behind its detached launch, and not merely
-"earlier in the file". **What is not acceptable is a refusal that logs, and what is no longer
-acceptable is a refusal that arrives after the port is open.**
+So the requirement is positional and stated against the line, not the function: **the boot
+verification attempt completes before `app.listen()` at `index.ts:303`.** It runs in an awaited
+boot phase preceding the listen call — not inside `initStripe()`'s `catch`, not behind its detached
+launch, and not merely "earlier in the file". **What is not acceptable is a refusal that logs, and
+what is no longer acceptable is a refusal that arrives after the port is open.**
+
+**Under settled decision 6 the awaited attempt is one attempt, bounded.** It resolves to one of
+three outcomes: **verified** → listen, payments on; **confirmed mismatch** → exit, port never
+bound; **indefinite** (timeout, network error, 5xx, mode unreadable) → listen, payments refused,
+retry loop armed. The attempt carries an explicit timeout so a Stripe outage delays boot by at most
+that bound rather than blocking it — the pre-listen placement exists so a *confirmed* mismatch
+never serves traffic, and decision 6 exists so an *unconfirmed* one never blocks the site. The
+post-listen retry uses the same verifier and the same memo (successes only, decision 8), so
+recovery needs no restart.
 
 Test 3b is what holds this: it asserts the **port is never bound**, rather than that the process
 eventually exits. A test asserting only eventual exit passes against exactly the placement this
@@ -307,11 +364,16 @@ finding describes — which is how revision 3 would have shipped looking tested.
 
 ## Runtime Behavior
 
-- **Correctly configured (production, and the Repl):** unchanged. One extra read at boot, then the
-  same sequence.
-- **Expected id absent:** refuses to boot, naming the variable to set.
-- **Expected id present, account mismatched:** refuses to boot **before any Stripe mutation**,
-  naming expected and actual.
+- **Correctly configured (production, and the Repl):** unchanged. One extra bounded read at boot,
+  then the same sequence.
+- **Expected id absent (credentials present):** refuses to boot, naming the variable to set.
+- **Expected id present, account mismatched:** refuses to boot **before any Stripe mutation and
+  before the port binds**, naming expected and actual.
+- **Expected id present, account indefinite** (Stripe down, timeout, key rejected, mode
+  unreadable): **boots without payments.** Payment paths refuse with an error naming the
+  unverified state; verification retries on an interval; payments come online automatically when a
+  retry verifies. A retry returning a confirmed mismatch leaves the server up with payments
+  refused, loudly (David, 2026-08-26).
 - **Stripe not configured at all:** unchanged — `getCredentials()` throws as it does today and the
   server continues without payments. This plan does not make un-configured Stripe fatal; that is
   driver-selection scope on #566.
@@ -320,7 +382,9 @@ finding describes — which is how revision 3 would have shipped looking tested.
 
 None for users. For an operator the change is visible in two failure cases.
 
-**At boot**, a silent log line becomes a server that will not start — which is the point.
+**At boot**, a confirmed wrong account turns a silent log line into a server that will not
+start — which is the point. An *indefinite* answer instead boots with payments off and retries
+(settled decision 6), so a Stripe outage reads as degraded payments, never as a dead site.
 
 **At the mode toggle, the Billing page has to be changed for the refusal to be visible at all**
 (revision 4, after round 3). Revision 3 promised a response "naming the account mismatch" and
@@ -333,7 +397,14 @@ value of the refusal.
 
 So the surface ships with the guard: `toggleLiveMode()` parses the error body and displays the
 server's reason, falling back to the current generic string only when the body carries none. Test
-10 covers it. This is the ship-the-UI-surface rule applying to a refusal path rather than a
+10 covers it — **run by the frontend suite** (`pnpm --filter @workspace/overhype-me run test`),
+which round 4 caught: the plan had recorded only the api-server runner, which cannot discover a
+Vitest test under `artifacts/overhype-me`, so the promised regression would never have executed.
+
+**The degraded state is also visible, not only the refusal** (settled decision 6 creates it): while
+the server runs unverified — Stripe unreachable at boot, retries in flight — the Billing page shows
+payments as unavailable-pending-verification rather than healthy. Per the async-status contract,
+a state the server can be in that an operator would act on is shown, not logged. This is the ship-the-UI-surface rule applying to a refusal path rather than a
 feature — a guard whose explanation dies at the fetch boundary is a guard the operator cannot
 act on.
 
@@ -349,7 +420,7 @@ act on.
 
 ## Testing Plan
 
-1. **Expected id absent → process startup failure.** Not a helper rejection: a test that asserts a
+1. **Expected id absent (credentials present) → process startup failure.** Not a helper rejection: a test that asserts a
    rejected promise would pass against the broken placement, which is precisely how PR #568's
    round-3 defect would have survived.
 2. **Expected id present and matching → boots**, and the webhook registration and backfill still
@@ -357,6 +428,10 @@ act on.
 3. **Expected id present and mismatched → process startup failure**, *and* **no Stripe mutation
    was attempted** — the assertion that distinguishes this fix from the status quo. A test that
    only checks the refusal would pass on a check placed after line 99.
+3c. **Stripe unreachable at boot → the server boots**, payment paths refuse with an error naming
+   the unverified state, and **no Stripe client is handed to any caller**. The bounded attempt
+   means boot is delayed by at most the timeout. This is settled decision 6's positive half, and
+   the assertion that matters is the withheld client — the refusing routes are its consequence.
 3b. **On mismatch the port is never bound.** Asserted directly against `app.listen()`, not as
    "the process eventually exits" — `index.ts:303` binds 106 lines before the detached
    `initStripe()` at `:409`, so a refusal that is merely awaited-and-fatal still serves traffic
@@ -411,8 +486,25 @@ act on.
    without this assertion means "leaked once per delayed toggle".
 10. **The Billing page shows the server's reason.** A refused toggle whose response names the
    account mismatch renders that reason, not the hardcoded `Failed to update` that
-   `billing.tsx:231` produces today for every non-success response.
-Runners: `pnpm --filter @workspace/api-server test`.
+   `billing.tsx:231` produces today for every non-success response. **Runs in the frontend
+   suite** — `pnpm --filter @workspace/overhype-me run test`, per `docs/tests/TESTING.md:22` —
+   as a Vitest file under `artifacts/overhype-me`; the api-server runner cannot discover it,
+   which round 4 caught after revision 4 recorded only that runner.
+11. **A failed mode read never verifies a guessed mode.** With `stripe_live_mode` stored as live
+   and the config read failing, the boot gate performs **no** verification against test mode, hands
+   out **no** client, and boots with payments refused; when the config read recovers, a retry
+   verifies the **live** account and payments come online. The defaulted-mode path
+   (`getConfigStringRaw(..., "false")`, two swallowing layers) is the one this test exists to
+   prove unused by the guard.
+12. **A transient verification failure recovers without restart.** Verification fails once
+   (Stripe error), then succeeds on retry for the **same mode and credential**: the failure was
+   not memoised, payments come online, and the pool count did not grow. This is the
+   `deferred-work.md:541-546` guardrail made a test, and it is what keeps settled decision 6's
+   retry loop from being decorative.
+13. **A post-boot confirmed mismatch does not kill the server.** A retry that returns a definite
+   wrong account leaves the process up, payments refused, with a loud error naming both ids.
+Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–13;
+`pnpm --filter @workspace/overhype-me run test` for test 10.
 
 ## Implementation Steps
 
@@ -425,12 +517,13 @@ Runners: `pnpm --filter @workspace/api-server test`.
    established that revision 3 then got the *content* wrong, and the two failures compound.
 
    Revision 3 asked only whether `STRIPE_ACCOUNT_ID_LIVE` **exists**. But this plan makes three
-   things fatal, and presence answers none of them: it does not say **which mode production is
+   things matter, and presence answers none of them: it does not say **which mode production is
    actually in** (so it may check the live id while production runs test), it does not say the
    active secret **retrieves** the declared account (a mismatch is fatal), and it does not say the
-   retrieval **succeeds at all** (an unreadable account is fatal, per the Runtime Behavior table).
-   A deployment could pass revision 3's prerequisite and still crash-loop on the first boot after
-   merge — the exact outcome the prerequisite exists to prevent.
+   retrieval **succeeds at all** (an indefinite account boots without payments, per settled
+   decision 6 — no longer fatal, but a production deploy that comes up with payments off is still
+   an incident). A deployment could pass revision 3's prerequisite and still boot straight into a
+   refused-payments state — or, on a real mismatch, fail to boot at all.
 
    **So the prerequisite is the guard's own comparison, run early**: read the production
    deployment's `stripe_live_mode`, call `stripe.accounts.retrieve()` with the secret for *that*
@@ -456,17 +549,24 @@ Runners: `pnpm --filter @workspace/api-server test`.
 2b. Add account verification at that boundary, using `stripe.accounts.retrieve()` on the raw
    client, memoised per mode and credential. **Both exported constructors**: `getStripeSync()` and
    `getUncachableStripeClient()`, which checkout and the admin mutation routes use directly.
-3. Make an absent expected id a refusal, and a mismatch a refusal, both fatal — while leaving the
-   credentials-absent path exactly as it is today.
+2c. Give the guard a **failure-propagating mode read** (settled decision 7): a failed read
+   resolves to unverified, never to a defaulted mode. The memo caches successes only (settled
+   decision 8).
+3. Make an absent expected id (credentials present) a refusal and a **confirmed** mismatch a
+   refusal, both fatal — while an **indefinite** answer boots without payments, arms the retry
+   loop, and surfaces the unverified state on the Billing page (settled decision 6). The
+   credentials-absent path stays exactly as it is today.
 3b. Make a refused mode toggle leave the stored mode unchanged — by verifying before the write, or
    by a compare-and-swap rollback — and report failure to the operator.
 3c. Surface that failure on the Billing page: `toggleLiveMode()` parses the error body and displays
    the server's reason instead of the hardcoded `Failed to update`.
-4. **Move the boot-time refusal ahead of `app.listen()` at `index.ts:303`**: awaited, outside
-   `initStripe()`'s `catch`, outside its detached launch at `:409`, and completed before the port
-   is bound. The listen call is the line to measure against; "outside `initStripe()`" is necessary
-   and not sufficient.
-5. Tests 1–10.
+4. **Move the boot-time verification attempt ahead of `app.listen()` at `index.ts:303`**:
+   awaited, bounded by a timeout, outside `initStripe()`'s `catch`, outside its detached launch at
+   `:409`, and completed before the port is bound. Three outcomes: verified → listen; confirmed
+   mismatch → exit with the port never bound; indefinite → listen with payments refused and the
+   retry loop armed. The listen call is the line to measure against; "outside `initStripe()`" is
+   necessary and not sufficient.
+5. Tests 1–13.
 6. Post-merge live verification on the Repl — confirming an already-safe deployment, not gating it.
 
 ## Risks and Mitigations
@@ -479,12 +579,16 @@ Runners: `pnpm --filter @workspace/api-server test`.
 | **A rollback races a concurrent toggle and reverts a valid change** | Verify-before-write is the preferred shape precisely because it has no race; a rollback, if used, is a compare-and-swap conditional on the row still holding this request's value. Test 5d exercises two overlapping writers |
 | **The guard refuses and the operator cannot see why** | The reason is carried through to the Billing page rather than stopping at the API; test 10. `billing.tsx:231` discards every server error today |
 | **The generation check leaks a connection pool per delayed toggle** | Disposal is named as the concrete call the library actually permits (`postgresClient.pool.end()`), not as "dispose"; test 9 asserts the pool closes |
-| **The pre-merge production check passes and the first boot still fails** | The prerequisite is the guard's own comparison — mode, retrieval, and id match — rather than a presence test that answers none of the three fatal conditions |
+| **The pre-merge production check passes and the first boot still fails** | The prerequisite is the guard's own comparison — mode, retrieval, and id match — rather than a presence test that answers none of the three conditions that matter — the active mode, the retrieval succeeding, and the id matching |
 | **A check that refuses correctly but too late** | Test 3 asserts no mutation was attempted, not merely that boot failed |
 | **The matching path changes behavior** | Explicitly *checked, not prevented* in the claim audit; covered by test 2 and the post-merge live verification, and the timeout/retry bounds are named in *Must Not Change* |
 | **The guard certifies an account it did not actually check** | The boundary is made mode-coherent *before* verification is added (settled decision 3c) — one captured mode for the expected id and every credential, with a generation check before publishing. Without this the guard is worse than absent, since it produces a verified-looking client for an unverified account |
 | **A refused toggle leaves payments in a mode that cannot work** | The stored mode changes only if the target mode verifies; the test asserts the rollback and the operator-visible failure, not just the refusal |
 | **A mutation path that does not pass through the construction boundary** | The boundary is the single construction site the #568 inventory established, and **both** of its exported constructors are guarded; the mode-toggle path (missed by revision 1) and the raw-client path (untested in revision 3) are named tests rather than assumptions |
 | **The guard's own read mutates or answers from stale local state** | `stripe.accounts.retrieve()` on the raw client, with a test asserting the sync library's cache and key-hash lookup are not consulted |
-| **The fix makes optional Stripe configuration fatal** | The two failure classes are separated explicitly, and the credentials-absent boot is a named negative test |
+| **The fix makes optional Stripe configuration fatal** | The outcome classes are separated explicitly, and the credentials-absent boot is a named negative test |
+| **A Stripe outage takes the site down** | Settled decision 6: only a confirmed mismatch (or a missing expected id with credentials present) is fatal; every indefinite answer boots without payments and retries. Tests 3c, 12 and 13 hold the three edges: outage boots, recovery needs no restart, a post-boot mismatch does not kill the process |
+| **The boot gate verifies a mode it guessed** | Settled decision 7: the guard's mode read propagates failure; a failed read is *unverified*, never "test". Test 11 asserts no verification runs against a defaulted mode — round 4 found the existing read swallows failure twice |
+| **One transient Stripe error pins payments off until restart** | Settled decision 8: the memo caches successes only, rejections evicted before propagating — the `deferred-work.md:541-546` guardrail. Test 12 asserts recovery |
+| **The site runs payments-off indefinitely and nobody notices** | The unverified state is loud twice: an error-level log per failed retry, and the Billing page shows payments as unavailable-pending-verification per the async-status contract |
 | **Scope creep back toward the driver seam** | Settled decision 5: this plan touches neither driver selection nor the fake, and is shippable alone |
