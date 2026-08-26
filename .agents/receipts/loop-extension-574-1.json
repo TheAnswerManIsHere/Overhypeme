@@ -1,0 +1,11 @@
+{
+  "pr": 574,
+  "kind": "adjudication",
+  "verdict": "continue",
+  "grant": 2,
+  "risk": "The guard would permit review rounds David never authorized: review-budget.mjs's early return at line 265 leaves allowance() at Infinity after an uncapped grant so a later David grant-0 stop receipt is silently ignored, and a direct David grant missing asOf (line 912) defers to the old stage boundary and stacks the unspent leash his grant was supposed to discard \u2014 both are the receipt machinery failing to enforce a recorded David decision.",
+  "recordPath": ".agents/adjudications/574-1.json",
+  "decidedAt": "2026-08-26T05:02:02.275Z",
+  "reasoning": "Internal tier at its budget (3 of 3 spent), all 12 findings in-diff, and the artifact IS the gate machinery (review-budget.mjs, pr-ready.mjs). Two of round 3's four unresolved P1s clear the internal critical bar \u2014 they corrupt enforcement of david-kind receipts, widening the loop's authority past what David granted, and the excerpts anchor to specific live code paths in artifact territory, so the very-high-chance requirement is met. The trend (6, 2, 4) shows fixes to the staged/allowance chain breeding adjacent holes, which argues for a small buffer round; the remaining two findings (a fail-closed never-READY branch and a pr-watch prose contradiction) would not alone justify a round but ride along under the mandatory review of the critical fixes.",
+  "gaps": []
+}

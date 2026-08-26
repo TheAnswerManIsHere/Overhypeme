@@ -223,8 +223,8 @@ the disclosure check passes:
    written to the committed `loop-extension-<pr>-<n>.json` receipt the guard
    consumes and pushed — a ledger-only exhaustion verdict leaves the
    allowance unchanged and the guard will demand the adjudication that
-   already ran. (Sensitive-tier plans have no self-serve stage: at 5 they go
-   straight to David.) A plan loop
+   already ran. (Sensitive-tier plans run the same two-tier tripwire as
+   every tier — David, 2026-08-26.) A plan loop
    takes the tier of what it plans, so a product plan runs on the product
    budget with the same tripwires. What goes to David mid-loop, as a 🛑,
    whatever the adjudicator says, is what the SOW gate reserved: a

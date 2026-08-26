@@ -2510,10 +2510,11 @@ retry's pass lands — because nothing was written down to be wrong.
    cache. Read it at decision time instead, and validate the read hard.
 2. **Persist decisions, not evidence.** PR #503 kept the *budget declaration*
    and the *extension grants* committed — those are choices nobody else holds a
-   copy of, and "no second self-serve extension, ever" has to survive the
-   container or the second tripwire never fires. It stopped committing the
-   round count, which was evidence. The line between the two is the whole rule:
-   evidence is session-local and re-derivable; a decision is not.
+   copy of, and which David gates have been passed, and what he granted at
+   each, has to survive the container or the second tripwire never fires. It
+   stopped committing the round count, which was evidence. The line between
+   the two is the whole rule: evidence is session-local and re-derivable; a
+   decision is not.
 3. **Treat "most of this round's findings are about the last round's fixes" as
    a design signal, not a diligence signal.** The self-policed oscillation
    rule this used to cite was retired in 2026-08-20 at 0-for-15; what carries

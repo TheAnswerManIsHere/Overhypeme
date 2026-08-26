@@ -54,6 +54,7 @@ import {
   validateExtension,
 } from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
+import { reviewerPasses } from "./review-counting.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const RECEIPT_DIR = join(HERE, "..", ".agents", "receipts");
@@ -630,16 +631,15 @@ export function checkCodex(issueComments, reviews, headSha = null) {
  * every adjudication verdict, not just `continue` (this file's stakes are
  * different: honoring the receipt is what unblocks a merge). Beyond what
  * `validateRecordReference` checks there (generator, PR, round count against
- * the declared tier's cap), this function also confirms the tier is
- * self-serve (`sensitive` never gets this fallback -- its tripwire is a
- * mandatory 🛑 to David, and a record or receipt claiming otherwise is
- * wrong on its face), and that no request was still pending when the record
- * was generated.
+ * the declared tier's cap), this function also confirms that no request was
+ * still pending when the record was generated. Every tier's receipts get
+ * this fallback as of the two-tier tripwire (David, 2026-08-26): sensitive
+ * and internal loops now write adjudication receipts like product ones.
  *
  * IT DOES NOT COUNT PRIOR ADJUDICATIONS. It did until 2026-08-20, citing
  * `review-budget.mjs`'s rule that a second adjudication is never valid --
  * and that rule is gone: the adjudicator now runs after every round and may
- * grant more than once, bounded by the outer rail rather than by a count. The
+ * grant more than once, bounded by the David-gate leash rather than by a count. The
  * check had to go with its own justification, and nothing was lost, because
  * what makes a ship verdict terminal is the ACTIVE-ALLOWANCE test below
  * (`passes >= record.budget.allowance` -- the tripwire actually fired, at
@@ -736,7 +736,7 @@ function latestReviewRequestAt(issueComments) {
  * file's higher stakes. Returns `{ ok: true, generatedAt, baseline }` or
  * `{ ok: false, detail }`.
  */
-function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
+function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd, { floor = true } = {}) {
   if (typeof recordPath !== "string" || !recordPath.startsWith(`${ADJUDICATIONS_DIR}/`)) {
     return { ok: false, detail: `recordPath ${JSON.stringify(recordPath)} is not under ${ADJUDICATIONS_DIR}/` };
   }
@@ -765,18 +765,6 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   if (!TIERS[tier]) {
     return { ok: false, detail: `${recordPath} names an unknown tier ${JSON.stringify(tier)}` };
   }
-  // `sensitive` never gets this fallback: its tripwire is David's, in
-  // person. Neither does `internal` any more (David, 2026-08-22, the
-  // write-gate rule): its stop happens BEFORE a new commit exists, so the
-  // head is already reviewed and the ordinary merge path applies -- there is
-  // no unreviewed head for a receipt to unwedge, and the 2026-08-21 carve-out
-  // that let one through is gone rather than fixed.
-  if (!TIERS[tier].selfServe) {
-    return {
-      ok: false,
-      detail: `${recordPath}: tier "${tier}" has no self-serve extension -- its tripwire is a mandatory 🛑 to David, never an adjudication`,
-    };
-  }
   const passes = record.rounds?.completedReviewerPasses;
   // The ACTIVE allowance, not the tier's base cap: if David granted extra
   // rounds (a `david`-kind extension) before this adjudication ever
@@ -790,7 +778,12 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   // (Codex, #539 round 3.)
   const allowanceField = record.budget?.allowance;
   const cap = Number.isFinite(allowanceField) ? allowanceField : Infinity;
-  if (!Number.isInteger(passes) || passes < cap) {
+  // `floor: false` is the DIRECT-STOP exemption (Codex, #574 round 3): a
+  // record cited by David's own grant-0 receipt proves the baseline and the
+  // loop's state, not that a tripwire fired -- his stop needs no tripwire
+  // and can land mid-stage. Every other caller keeps the floor: an
+  // ADJUDICATION must follow the tripwire it answers.
+  if (!Number.isInteger(passes) || (floor && passes < cap)) {
     return {
       ok: false,
       detail:
@@ -906,9 +899,11 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return { pass: false, detail: `no committed, canonically-named loop-extension-${prNumber}-*.json receipt at ${headSha.slice(0, 7)}` };
   }
 
-  // Only the loop's TERMINAL decision (the highest sequence number) is ever
-  // consulted -- see the docblock above for why this closes the
-  // superseded-verdict gap without needing to special-case `david` receipts.
+  // The loop's TERMINAL decision (the highest sequence number) anchors the
+  // check -- a superseded verdict is never honored. One david-kind shape IS
+  // special-cased below, deliberately: a trailing grant-0 stop-endorsement,
+  // which does not supersede the gate recommendation beneath it but ratifies
+  // it (David, 2026-08-26). Every other david receipt still disqualifies.
   const terminal = candidates[0];
   const raw = git(["show", `${headSha}:${terminal.path}`], cwd);
   if (raw === null) {
@@ -924,13 +919,126 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   if (receipt.pr !== prNumber) {
     return { pass: false, detail: `${terminal.path}: names PR ${receipt.pr}, not ${prNumber}` };
   }
-  if (receipt.kind !== "adjudication" || receipt.verdict !== "ship-with-gaps-recorded") {
+
+  // A TRAILING DAVID STOP-ENDORSEMENT (kind "david", grant 0) IS TRANSPARENT
+  // rather than a disqualifier (Codex, #574 round 1). Grant 0 is David's
+  // "reviewed the gate's recommendation, stop here" decision at a David
+  // gate, and the two-tier tripwire's documented zero-round path commits it
+  // as the loop's last receipt -- which, without this, wedged the PR
+  // permanently: the endorsement's own commit moved HEAD past the last
+  // reviewed commit while the unchanged allowance refused another Codex
+  // pass, so nothing could ever mint READY. So the receipt VALIDATED below
+  // becomes the adjudication immediately beneath the endorsement (the gate
+  // recommendation David ruled on), and the endorsement itself joins the
+  // allowed bookkeeping diff. A `continue` recommendation is acceptable
+  // beneath an endorsement -- David's 0 overrides it into a stop, which is
+  // exactly the case the gate exists for -- while `split`/`escalate` stay
+  // refused: those hand the PR to further action, and shipping over them is
+  // a conversation, not a receipt. A David grant ABOVE zero stays a
+  // disqualifier: it reopens the loop, so a fresh pass is owed, not honored
+  // bookkeeping.
+  // A DIRECT DAVID STOP (Codex, #574 round 3): a product-shaped blocker goes
+  // to David immediately -- possibly before any adjudication receipt exists,
+  // and possibly mid-stage. His grant-0 receipt then cites its OWN mechanical
+  // record (`recordPath`), which supplies the source-derived baseline this
+  // fallback's diff bound requires; the tripwire floor is waived because his
+  // stop needs no tripwire. Committing that pair is what would otherwise
+  // wedge the PR: the receipt's own commit moves HEAD past the last reviewed
+  // commit while the unchanged allowance opens no round for another pass.
+  if (
+    receipt.kind === "david" &&
+    receipt.grant === 0 &&
+    typeof receipt.recordPath === "string" &&
+    receipt.recordPath.trim()
+  ) {
+    const recordCheck = validateAdjudicationRecord(prNumber, receipt.recordPath, headSha, cwd, { floor: false });
+    if (!recordCheck.ok) return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
+    if (latestRequestAt !== null) {
+      const evidenceSecondFloor = Math.floor(recordCheck.evidenceCapturedAt / 1000) * 1000;
+      if (latestRequestAt >= evidenceSecondFloor) {
+        return {
+          pass: false,
+          detail:
+            `${terminal.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
+            `at or after the cited record's own evidence capture second -- a fresh review may have been asked for ` +
+            "since David stopped this loop, and this receipt cannot answer for it",
+        };
+      }
+    }
+    const stopAncestor = isAncestor(recordCheck.baseline, headSha, cwd);
+    if (stopAncestor !== true) {
+      return {
+        pass: false,
+        detail:
+          `${terminal.path}: the cited record's baseline ${recordCheck.baseline.slice(0, 7)} ` +
+          (stopAncestor === null
+            ? `could not be checked for ancestry of ${headSha.slice(0, 7)} (git merge-base failed)`
+            : `is not an ancestor of ${headSha.slice(0, 7)} -- the branch was rewritten since`),
+      };
+    }
+    const stopAllowed = new Set([terminal.path, receipt.recordPath]);
+    const stopChanged = git(["diff", "--no-renames", "--name-only", `${recordCheck.baseline}..${headSha}`], cwd);
+    if (stopChanged === null) {
+      return { pass: false, detail: `${terminal.path}: could not diff ${recordCheck.baseline.slice(0, 7)}..${headSha.slice(0, 7)}` };
+    }
+    const stopFiles = stopChanged.split("\n").filter(Boolean);
+    const stopOutOfScope = stopFiles.filter((f) => !stopAllowed.has(f));
+    if (stopOutOfScope.length) {
+      return {
+        pass: false,
+        detail:
+          `${terminal.path}: ${stopOutOfScope.length} file(s) changed since the cited record's baseline that are ` +
+          `not this direct stop's own receipt or record (${stopOutOfScope.slice(0, 5).join(", ")}` +
+          `${stopOutOfScope.length > 5 ? ", ..." : ""}) -- real content changed, so a fresh Codex pass is required`,
+      };
+    }
+    return {
+      pass: true,
+      detail:
+        `David's direct stop (grant 0, ${terminal.path}) citing ${receipt.recordPath}, baseline ` +
+        `${recordCheck.baseline.slice(0, 7)}; ${stopFiles.length} bookkeeping-only file(s) changed since ` +
+        `(${stopFiles.join(", ") || "none"}), nothing reviewable`,
+      acceptedAt: recordCheck.generatedAt,
+    };
+  }
+
+  let endorsement = null;
+  let candidate = terminal;
+  if (receipt.kind === "david" && receipt.grant === 0) {
+    if (candidates.length < 2) {
+      return {
+        pass: false,
+        detail:
+          `${terminal.path}: a David stop-endorsement (grant 0) with no preceding gate adjudication to endorse ` +
+          "and no recordPath of its own -- a direct stop must cite the mechanical record generated when David stopped the loop",
+      };
+    }
+    endorsement = terminal;
+    candidate = candidates[1];
+    const endorsedRaw = git(["show", `${headSha}:${candidate.path}`], cwd);
+    if (endorsedRaw === null) {
+      return { pass: false, detail: `${candidate.path} is listed at ${headSha.slice(0, 7)} but its committed content could not be read` };
+    }
+    try {
+      receipt = JSON.parse(endorsedRaw);
+    } catch (e) {
+      return { pass: false, detail: `${candidate.path}: unreadable or malformed JSON (${e.message})` };
+    }
+    if (receipt.pr !== prNumber) {
+      return { pass: false, detail: `${candidate.path}: names PR ${receipt.pr}, not ${prNumber}` };
+    }
+  }
+
+  const shipEquivalent =
+    receipt.verdict === "ship-with-gaps-recorded" || (endorsement !== null && receipt.verdict === "continue");
+  if (receipt.kind !== "adjudication" || !shipEquivalent) {
     return {
       pass: false,
       detail:
-        `${terminal.path}: the loop's terminal decision is kind=${JSON.stringify(receipt.kind)} ` +
-        `verdict=${JSON.stringify(receipt.verdict)}, not an adjudication ship-with-gaps-recorded -- either a ` +
-        "later extension superseded the ship verdict, or none was ever recorded as the loop's last word",
+        `${candidate.path}: the loop's terminal decision is kind=${JSON.stringify(receipt.kind)} ` +
+        `verdict=${JSON.stringify(receipt.verdict)}, not an adjudication ship-with-gaps-recorded` +
+        (endorsement ? " or a David-endorsed gate recommendation" : "") +
+        " -- either a later extension superseded the ship verdict, or none was ever recorded as the loop's last word",
     };
   }
   // The adjudicator's documented output schema always returns `reasoning`
@@ -939,10 +1047,10 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // verdict specifically, the durable record of what's knowingly left.
   // (Codex, #539 round 3.)
   if (typeof receipt.reasoning !== "string" || !receipt.reasoning.trim()) {
-    return { pass: false, detail: `${terminal.path}: missing the adjudicator's \`reasoning\`` };
+    return { pass: false, detail: `${candidate.path}: missing the adjudicator's \`reasoning\`` };
   }
   if (!Array.isArray(receipt.gaps)) {
-    return { pass: false, detail: `${terminal.path}: missing the adjudicator's \`gaps\` array` };
+    return { pass: false, detail: `${candidate.path}: missing the adjudicator's \`gaps\` array` };
   }
   // `decidedAt` is when THIS receipt was written -- after the adjudicator
   // actually responded, unlike the record's own `generatedAt`, which is
@@ -953,12 +1061,12 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // (Codex, #539 round 3.)
   const decidedAt = Date.parse(receipt.decidedAt ?? "");
   if (!Number.isFinite(decidedAt)) {
-    return { pass: false, detail: `${terminal.path}: missing or unparseable \`decidedAt\`` };
+    return { pass: false, detail: `${candidate.path}: missing or unparseable \`decidedAt\`` };
   }
 
   const recordCheck = validateAdjudicationRecord(prNumber, receipt.recordPath, headSha, cwd);
   if (!recordCheck.ok) {
-    return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
+    return { pass: false, detail: `${candidate.path}: ${recordCheck.detail}` };
   }
 
   // THE CHAIN UNDER THE CANDIDATE MUST BE ONE THE GUARD WOULD ACCEPT. Only
@@ -974,7 +1082,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // (Codex, #543 round 4, fixed forward post-merge.)
   const preceding = [];
   for (const { path } of [...candidates].sort((a, b) => a.seq - b.seq)) {
-    if (path === terminal.path) continue;
+    if (path === candidate.path || (endorsement && path === endorsement.path)) continue;
     const precedingRaw = git(["show", `${headSha}:${path}`], cwd);
     if (precedingRaw === null) {
       return { pass: false, detail: `${path} is listed at ${headSha.slice(0, 7)} but its committed content could not be read` };
@@ -992,7 +1100,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
         return {
           pass: false,
           detail:
-            `${terminal.path}: a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- ` +
+            `${candidate.path}: a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- ` +
             `a further adjudication receipt cannot follow it; only a "david"-kind receipt reopens the loop`,
         };
       }
@@ -1002,7 +1110,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: decidedAt (${new Date(decidedAt).toISOString()}) predates the cited record's own ` +
+        `${candidate.path}: decidedAt (${new Date(decidedAt).toISOString()}) predates the cited record's own ` +
         `generatedAt (${new Date(recordCheck.generatedAt).toISOString()}) -- the decision cannot have happened ` +
         "before the record it ruled on was generated",
     };
@@ -1023,7 +1131,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
       return {
         pass: false,
         detail:
-          `${terminal.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
+          `${candidate.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
           `at or after the record's own evidence capture second (${new Date(recordCheck.evidenceCapturedAt).toISOString()}) -- ` +
           "a fresh review may have been asked for since the loop closed, and this receipt cannot answer for it",
       };
@@ -1035,7 +1143,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: could not determine whether the record's baseline ${recordCheck.baseline.slice(0, 7)} is ` +
+        `${candidate.path}: could not determine whether the record's baseline ${recordCheck.baseline.slice(0, 7)} is ` +
         `an ancestor of ${headSha.slice(0, 7)} (git merge-base failed -- possibly a shallow clone; fetch full history)`,
     };
   }
@@ -1043,15 +1151,17 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: the record's baseline ${recordCheck.baseline.slice(0, 7)} is not an ancestor of ` +
+        `${candidate.path}: the record's baseline ${recordCheck.baseline.slice(0, 7)} is not an ancestor of ` +
         `${headSha.slice(0, 7)} -- the branch was rewritten since the record was generated`,
     };
   }
 
-  const allowedPaths = new Set([terminal.path, receipt.recordPath]);
+  const allowedPaths = new Set(
+    endorsement ? [candidate.path, receipt.recordPath, endorsement.path] : [candidate.path, receipt.recordPath],
+  );
   const changed = git(["diff", "--no-renames", "--name-only", `${recordCheck.baseline}..${headSha}`], cwd);
   if (changed === null) {
-    return { pass: false, detail: `${terminal.path}: could not diff ${recordCheck.baseline.slice(0, 7)}..${headSha.slice(0, 7)}` };
+    return { pass: false, detail: `${candidate.path}: could not diff ${recordCheck.baseline.slice(0, 7)}..${headSha.slice(0, 7)}` };
   }
   const files = changed.split("\n").filter(Boolean);
   const outOfScope = files.filter((f) => !allowedPaths.has(f));
@@ -1059,15 +1169,17 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: ${outOfScope.length} file(s) changed since the record's baseline that are not this ` +
-        `adjudication's own receipt or record (${outOfScope.slice(0, 5).join(", ")}${outOfScope.length > 5 ? ", ..." : ""}) -- ` +
+        `${candidate.path}: ${outOfScope.length} file(s) changed since the record's baseline that are not this ` +
+        `adjudication's own receipt, its record, or a trailing David stop-endorsement ` +
+        `(${outOfScope.slice(0, 5).join(", ")}${outOfScope.length > 5 ? ", ..." : ""}) -- ` +
         "real content changed since the record was generated, so a fresh Codex pass is required, not this receipt",
     };
   }
   return {
     pass: true,
     detail:
-      `adjudicated ship-with-gaps-recorded at ${new Date(decidedAt).toISOString()}, record generated against ` +
+      `adjudicated ${receipt.verdict}${endorsement ? ` with David's stop-endorsement (${endorsement.path})` : ""} ` +
+      `at ${new Date(decidedAt).toISOString()}, record generated against ` +
       `${recordCheck.baseline.slice(0, 7)}; ${files.length} bookkeeping-only file(s) changed since ` +
       `(${files.join(", ") || "none"}), nothing reviewable`,
     acceptedAt: decidedAt,
@@ -1156,6 +1268,20 @@ export function checkCapture(capturedAt, acceptedAt, now = Date.now()) {
   return { pass: true, detail: "read after the accepted response" };
 }
 
+/**
+ * Completed reviewer passes in this snapshot, by the guard's own counter --
+ * the number `checkRail` binds David's latest grant against. Null (fail
+ * closed in the one branch that reads it) when the count cannot be taken,
+ * because "could not count" must never read as "still inside the grant".
+ */
+function countDelivered(snapshot) {
+  try {
+    return reviewerPasses(snapshot.reviews ?? [], snapshot.issueComments ?? []).length;
+  } catch {
+    return null;
+  }
+}
+
 /** The full verdict for a validated snapshot. */
 export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
   const headSha = snapshot.pr.head.sha;
@@ -1187,7 +1313,7 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
     codex,
     threads: checkThreads(snapshot.reviewThreads),
     capture: checkCapture(snapshot.capturedAt, codex.acceptedAt, now),
-    rail: checkRail(snapshot.pr.number, headSha, adjudicationOpts.cwd),
+    rail: checkRail(snapshot.pr.number, headSha, adjudicationOpts.cwd, countDelivered(snapshot)),
   };
   const ready = Object.values(items).every((i) => i.pass);
   const captureTimes = Object.values(snapshot.capturedAt ?? {}).map((v) => Date.parse(v ?? ""));
@@ -1207,21 +1333,24 @@ export function evaluate(snapshot, now = Date.now(), adjudicationOpts = {}) {
 }
 
 /**
- * The outer rail, enforced at merge time (Codex, #543 round 3).
+ * The David gate, enforced at merge time (Codex, #543 round 3; re-sited by
+ * the two-tier tripwire, David, 2026-08-26).
  *
- * The contract says a loop whose allowance reaches 2x its declared budget
- * goes to David REGARDLESS of verdict -- but without this check, a clean
- * final pass (or a terminal ship receipt at rail allowance) satisfies the
+ * The contract says a loop whose allowance reaches its budget plus the
+ * self-serve leash (plus any earlier David grants) goes to David REGARDLESS
+ * of the adjudicator's recommendation -- but without this check, a clean
+ * final pass (or a terminal ship receipt at gate allowance) satisfies the
  * Codex item and the PR mints READY with David never consulted. Reads the
- * committed budget receipt at the head; no budget (internal work, or no loop)
- * means the rail does not apply. When the fully-activated allowance has
- * reached the rail, only a loop whose LAST extension is a `david`-kind
- * receipt is ready -- his authorization is the one thing the rail exists to
- * guarantee.
+ * committed budget receipt at the head; no budget (internal work merged on
+ * a clean automatic pass, or no loop) means the gate does not apply. When
+ * the fully-activated allowance has reached the gate, only a loop whose
+ * LAST extension is a `david`-kind receipt is ready -- a grant reopens the
+ * loop, a grant of 0 endorses the stop, and either way his consultation is
+ * the one thing the gate exists to guarantee.
  */
-export function checkRail(prNumber, headSha, cwd) {
+export function checkRail(prNumber, headSha, cwd, delivered = null) {
   const budgetRaw = git(["show", `${headSha}:${LOOP_RECEIPTS_DIR}/loop-budget-${prNumber}.json`], cwd);
-  if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the outer rail does not apply" };
+  if (budgetRaw === null) return { pass: true, detail: "no committed round budget -- the David gate does not apply" };
   let budget;
   try {
     budget = JSON.parse(budgetRaw);
@@ -1306,27 +1435,67 @@ export function checkRail(prNumber, headSha, cwd) {
 
   // Fully activated: what the allowance becomes once everything is spent.
   const activated = allowance(tier, extensions, Number.MAX_SAFE_INTEGER);
-  const rail = railFor(tier);
+  const rail = railFor(tier, extensions);
   // Validation above makes NaN unreachable; this is the fail-closed backstop
   // so any future gap in it blocks a merge instead of waving one through.
   if (activated !== Infinity && !Number.isFinite(activated)) {
-    return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the rail" };
+    return { pass: false, detail: "the loop's activated allowance is not a number -- cannot rule out the David gate" };
   }
-  if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round outer rail` };
+  if (activated < rail) return { pass: true, detail: `allowance ${activated} is below the ${rail}-round David gate` };
   // The look-through added on 2026-08-21 for a trailing internal terminal
   // receipt is gone with the receipt itself (David, 2026-08-22): under the
   // write-gate rule no tier commits a terminal receipt mid-budget, so
-  // nothing can shadow a David authorization at the rail.
+  // nothing can shadow a David authorization at the gate.
   const last = extensions[extensions.length - 1];
   if (last?.kind === "david") {
-    return { pass: true, detail: `allowance reached the ${rail}-round rail and David's authorization is the loop's latest extension` };
+    // A DAVID RECEIPT CLEARS THE GATE IT ANSWERS, NOT EVERY GATE AFTER IT
+    // (Codex, #574 round 2). The gate repeats where his grant runs out, and
+    // the guard's refusal only bites on the NEXT review request -- which a
+    // loop that stops unconverged at the boundary never posts. Without a
+    // round-count binding here, a historically-latest positive grant read
+    // as permanently clearing the gate, and a loop could mint READY at the
+    // spent boundary without the fresh Fable recommendation and David
+    // decision the repeating gate requires. So:
+    //   - grant 0 (a stop-endorsement) clears permanently: no further
+    //     rounds can run behind it without a NEWER david receipt, which
+    //     would then be the latest.
+    //   - "uncapped" clears permanently: there is no boundary to respect.
+    //   - a positive grant clears only while the delivered pass count is
+    //     still BELOW the gate it established -- his rounds are running.
+    //     At or past it, the gate stands again, whatever this receipt says.
+    //   - an unknown delivered count fails closed: "could not count" must
+    //     not read as "still inside the grant".
+    if (last.grant === 0) {
+      return { pass: true, detail: `David endorsed stopping at the ${rail}-round gate (grant 0) as the loop's latest extension` };
+    }
+    if (last.grant === "uncapped") {
+      return { pass: true, detail: "David's latest authorization is uncapped -- no gate stands" };
+    }
+    if (!Number.isInteger(delivered) || delivered < 0) {
+      return {
+        pass: false,
+        detail:
+          `David's latest grant establishes a gate at ${rail} rounds, but the delivered pass count could not ` +
+          "be determined -- refusing rather than assuming his rounds are still running",
+      };
+    }
+    if (delivered < rail) {
+      return { pass: true, detail: `inside David's latest grant: ${delivered} of ${rail} authorized rounds delivered` };
+    }
+    return {
+      pass: false,
+      detail:
+        `David's latest grant is fully spent (${delivered} passes delivered, gate at ${rail}) -- the gate stands ` +
+        `again: a fresh Fable recommendation and his decision (a further grant, or a grant-0 stop-endorsement) ` +
+        "are required before readiness",
+    };
   }
   return {
     pass: false,
     detail:
-      `this loop's allowance has reached the outer rail (${rail} rounds -- 2x its declared budget), which goes ` +
-      `to David regardless of verdict; no "david"-kind receipt is the latest extension, so readiness cannot ` +
-      `be self-served`,
+      `this loop's allowance has reached the David gate (${rail} rounds -- its budget plus the self-serve ` +
+      `leash plus any earlier David grants), which goes to David regardless of the adjudicator's ` +
+      `recommendation; no "david"-kind receipt is the latest extension, so readiness cannot be self-served`,
   };
 }
 
@@ -1365,7 +1534,7 @@ const LABEL = {
   codex: "Codex returned",
   threads: "Threads resolved",
   capture: "Evidence ordering",
-  rail: "Outer rail",
+  rail: "David gate",
 };
 
 export function formatReceipt(receipt) {

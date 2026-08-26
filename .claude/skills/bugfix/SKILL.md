@@ -337,7 +337,8 @@ What is *bugfix-specific* about the loop:
   whole diff is agent-facing markdown or process tooling, the internal
   tier governs (David, 2026-08-21) — the automatic pass, one triage,
   fix rounds re-reviewed under the strict internal adjudication rubric,
-  hard cap 3 — exactly as if the same change had arrived through feature
+  budget 3 with the standard two-tier tripwire — exactly as if the same
+  change had arrived through feature
   mode. Entering
   through this mode never raises an artifact's ceremony, and never lowers
   product code's.

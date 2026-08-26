@@ -96,8 +96,8 @@ test("a nested :start does not un-suppress the block when the inner one closes",
 test("clean prose stating the CURRENT rule produces no findings", () => {
   const text = [
     "From round 3 onward, dispatch the adjudicator on any round that returned",
-    "findings, before anything is written for them. The internal tier has a hard",
-    "cap of 3 rounds and no self-serve extension.",
+    "findings, before anything is written for them. Every tier self-serves a",
+    "3-round leash past its budget; the David gate stands at budget + leash.",
   ].join("\n");
   assert.deepEqual(scanText(text), []);
 });

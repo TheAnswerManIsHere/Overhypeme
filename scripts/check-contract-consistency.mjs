@@ -88,13 +88,81 @@ export const RETIRED = [
     phrase: "no re-requested rounds",
     retired: "2026-08-22",
     why: "retired internal-tooling carve-out — it left every fix round structurally unreviewable",
-    instead: "the internal tier: fixes are re-reviewed, hard cap 3, strict rubric",
+    instead: "the internal tier: fixes are re-reviewed, budget 3, two-tier tripwire, strict rubric",
   },
   {
     phrase: "fix-round merge path",
     retired: "2026-08-22",
     why: "retired workaround (David posting the trigger himself, or recutting the PR) for a wedge that no longer exists",
     instead: "the internal tier's ordinary re-request",
+  },
+  {
+    phrase: "outer rail",
+    retired: "2026-08-26",
+    why: "retired tier-2 tripwire shape (a 2x-budget hard stop) — replaced by the David gate under the two-tier tripwire",
+    instead: "the David gate: budget + 3-round self-serve leash, repeating with each David grant, entered with a fresh Fable recommendation",
+  },
+  {
+    phrase: "2x the declared budget",
+    retired: "2026-08-26",
+    why: "retired David-gate position — the gate sits at budget + 3, not double the budget",
+    instead: "the David gate at budget + leash (+ his earlier grants)",
+  },
+  {
+    phrase: "2x its declared budget",
+    retired: "2026-08-26",
+    why: "retired David-gate position — the gate sits at budget + 3, not double the budget",
+    instead: "the David gate at budget + leash (+ his earlier grants)",
+  },
+  {
+    phrase: "no self-serve",
+    retired: "2026-08-26",
+    why: "retired tier property — every tier now self-serves the leash via the Fable adjudicator",
+    instead: "the two-tier tripwire on every tier: Fable at the budget, the David gate at budget + 3",
+  },
+  {
+    phrase: "mandatory 🛑 at 5",
+    retired: "2026-08-26",
+    why: "retired sensitive-tier shape (uncapped, with a mandatory stop for David at its round 5)",
+    instead: "sensitive: budget 5, the same two-tier tripwire as every tier",
+  },
+  {
+    // The same retired rule's other attested wording (.agents/receipts/README.md,
+    // working-modes.md) — one rule, two fixed strings, both tracked.
+    phrase: "mandatory 🛑 to David at 5",
+    retired: "2026-08-26",
+    why: "retired sensitive-tier shape (uncapped, with a mandatory stop for David at its round 5)",
+    instead: "sensitive: budget 5, the same two-tier tripwire as every tier",
+  },
+  {
+    phrase: "hard cap 3",
+    retired: "2026-08-26",
+    why: "retired internal-tier shape (straight to David at 3, no extension of any kind)",
+    instead: "internal: budget 3, Fable-adjudicated leash to 6, the David gate at 6",
+  },
+  {
+    // The same retired rule's attested prose wording (docs/engineering/
+    // code-review.md said "a hard cap of 3 rounds") — one rule, both fixed
+    // strings tracked. (Codex, #574 round 1.)
+    phrase: "hard cap of 3",
+    retired: "2026-08-26",
+    why: "retired internal-tier shape (straight to David at 3, no extension of any kind)",
+    instead: "internal: budget 3, Fable-adjudicated leash to 6, the David gate at 6",
+  },
+  {
+    // "no second self-serve extension, ever" — the one-extension rule, whose
+    // intervening word defeats the "no self-serve" substring. Both spellings
+    // this repo actually used are tracked. (Codex, #574 round 1.)
+    phrase: "second self-serve extension",
+    retired: "2026-08-26",
+    why: "retired one-extension rule — the David gate now repeats, and what persists is which gates were passed and what he granted",
+    instead: "the repeating David gate: his grant opens exactly those rounds, and the gate stands again where they run out",
+  },
+  {
+    phrase: "second self-service extension",
+    retired: "2026-08-26",
+    why: "retired one-extension rule — the David gate now repeats, and what persists is which gates were passed and what he granted",
+    instead: "the repeating David gate: his grant opens exactly those rounds, and the gate stands again where they run out",
   },
 ];
 

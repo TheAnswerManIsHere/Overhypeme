@@ -110,8 +110,29 @@ simply one of the passes.
   "risk": "<the named unaddressed behavioral risk>",
   "recordPath": ".agents/adjudications/503-1.json", "createdAt": "…" }
 
-// loop-extension-<pr>-2.json — COMMITTED. Tripwire 2, David only. Never a second adjudication.
-{ "pr": 503, "kind": "david", "grant": 3, "authorization": "<his words>", "createdAt": "…" }
+// loop-extension-<pr>-2.json — COMMITTED. Tripwire 2 (the David gate), step one:
+// the fresh Fable recommendation, committed as an ordinary adjudication receipt.
+// At the gate it grants nothing by itself — it is what David reviews.
+{ "pr": 503, "kind": "adjudication", "verdict": "ship-with-gaps-recorded", "grant": 0,
+  "risk": "", "recordPath": ".agents/adjudications/503-2.json",
+  "decidedAt": "…", "reasoning": "…", "gaps": ["…"] }
+
+// loop-extension-<pr>-3.json — COMMITTED. Tripwire 2, step two: David's decision
+// on that recommendation — a grant opens exactly those rounds, 0 endorses stopping.
+// "asOf" (the completed-round count when he granted) is REQUIRED on every finite
+// grant; at a gate it is the gate's own round count. Rounds open at asOf + grant,
+// so a DIRECT mid-stage grant (a product escalation) discards the interrupted
+// stage's unspent remainder rather than stacking under his rounds. "uncapped"
+// needs no anchor — and a LATER anchored receipt of his can supersede it.
+{ "pr": 503, "kind": "david", "grant": 3, "asOf": 8, "authorization": "<his words>", "createdAt": "…" }
+
+// A DIRECT STOP — David answers a product escalation with "stop", possibly before
+// any adjudication receipt exists. His grant-0 receipt cites its OWN mechanical
+// record (run review-loop-record.mjs when he stops, commit both): that record's
+// sinceLastReview.head is the baseline pr-ready.mjs bounds the bookkeeping diff
+// against, with the tripwire floor waived — his stop needs no tripwire.
+{ "pr": 503, "kind": "david", "grant": 0, "asOf": 4, "authorization": "<his words>",
+  "recordPath": ".agents/adjudications/503-2.json", "createdAt": "…" }
 
 // loop-round-check-<pr>.json — EPHEMERAL, gitignored, one post per receipt.
 // `capturedAt` is the SNAPSHOT's capture time, not the command's: freshness is
@@ -125,8 +146,10 @@ simply one of the passes.
 // posts issued in one turn run as two processes.
 ```
 
-Tiers: `internal` = 3 rounds, `product` = 5, `sensitive` = uncapped with a
-mandatory 🛑 to David at 5 (and no self-serve extension at all).
+Tiers: `internal` = 3 rounds, `product` = 5, `sensitive` = 5
+(auth/payments/migrations). Every tier runs the same two-tier tripwire
+(David, 2026-08-26): Fable adjudication from the budget, a 3-round self-serve
+leash past it, then the David gate — repeating wherever a David grant runs out.
 
 ## Fail-closed, everywhere
 

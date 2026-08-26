@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   TIERS,
   tierCap,
+  LEASH,
+  railFor,
   allowance,
   countRounds,
   budgetPath,
@@ -171,18 +173,20 @@ test("only this repo's loops are budgeted", () => {
 
 test("the tiers are the ones the contract declares", () => {
   assert.equal(tierCap("product"), 5);
-  assert.equal(tierCap("sensitive"), 5, "uncapped, but the mandatory stop is at 5");
-  assert.equal(TIERS.sensitive.budget, null);
-  assert.equal(TIERS.sensitive.selfServe, false, "auth/payments/migrations never self-serve their tripwire");
-  // The internal tier: hard cap 3, no self-serve extension. At 3 the loop
-  // goes to David in person.
-  assert.equal(tierCap("internal"), 3, "the hard cap David set: at 3, the loop goes to him in person");
-  assert.equal(TIERS.internal.selfServe, false, "no self-serve extension -- the cap IS the bring-David-in point");
+  assert.equal(tierCap("sensitive"), 5, "auth/payments/migrations: budget 5, same two-tier tripwire as every tier");
+  assert.equal(TIERS.sensitive.budget, 5, "the old uncapped-with-a-mandatory-stop shape is gone (David, 2026-08-26)");
+  assert.equal(tierCap("internal"), 3, "the smallest budget: Fable takes over at 3, David gates at 6");
+  assert.equal(LEASH, 3, "the second tripwire sits 3 rounds past the first (David, 2026-08-26)");
   // The write-gate rule (David, 2026-08-22) deleted `adjudicatedStop`: no tier
   // commits a terminal receipt mid-budget, because no loop may end on an
-  // unreviewed head for such a receipt to unwedge.
+  // unreviewed head for such a receipt to unwedge. The two-tier tripwire
+  // (David, 2026-08-26) deleted `selfServe` and `escalateAt`: every tier
+  // self-serves the leash via the Fable adjudicator, and the David gate is
+  // positional (budget + leash + his own grants), not a tier property.
   for (const tier of Object.keys(TIERS)) {
     assert.equal(TIERS[tier].adjudicatedStop, undefined, `${tier} must not carry the deleted adjudicatedStop property`);
+    assert.equal(TIERS[tier].selfServe, undefined, `${tier} must not carry the deleted selfServe property`);
+    assert.equal(TIERS[tier].escalateAt, undefined, `${tier} must not carry the deleted escalateAt property`);
   }
 });
 
@@ -352,15 +356,16 @@ test("an adjudication receipt with no reasoning, or a non-array gaps, is rejecte
   );
 });
 
-test("the sensitive tier has no self-serve extension at all", () => {
-  assert.match(
-    validateExtension(1, "sensitive", adjudication(1), { adjudicationsAlreadySeen: 0, io: null }),
-    /no self-serve extension/,
-  );
+test("every tier accepts adjudication receipts -- the two-tier tripwire covers sensitive and internal too", () => {
+  // David, 2026-08-26: sensitive's tripwire is no longer his in person, and
+  // internal's cap no longer routes straight to him. The Fable adjudicator
+  // self-serves the leash on all three tiers; the David gate follows it.
+  assert.equal(validateExtension(1, "sensitive", adjudication(1), { adjudicationsAlreadySeen: 0, io: null }), null);
+  assert.equal(validateExtension(1, "internal", adjudication(1), { adjudicationsAlreadySeen: 0, io: null }), null);
 });
 
 test("a David authorization must quote his words and grant something concrete", () => {
-  const ok = { pr: 1, kind: "david", grant: 3, authorization: "go ahead, three more" };
+  const ok = { pr: 1, kind: "david", grant: 3, asOf: 5, authorization: "go ahead, three more" };
   assert.equal(validateExtension(1, "product", ok, { adjudicationsAlreadySeen: 1, io: null }), null);
   assert.equal(allowance("product", [ok], 5), 8);
 
@@ -368,9 +373,19 @@ test("a David authorization must quote his words and grant something concrete", 
     validateExtension(1, "product", { ...ok, authorization: "" }, { adjudicationsAlreadySeen: 1, io: null }),
     /quote his words/,
   );
-  assert.match(
+  assert.equal(
     validateExtension(1, "product", { ...ok, grant: 0 }, { adjudicationsAlreadySeen: 1, io: null }),
-    /positive integer of rounds or "uncapped"/,
+    null,
+    "grant 0 is David endorsing the stop at a gate -- the durable record that he was consulted",
+  );
+  assert.equal(allowance("product", [{ ...ok, grant: 0 }], 5), 5, "an endorsed stop moves the gate nowhere");
+  assert.match(
+    validateExtension(1, "product", { ...ok, grant: -1 }, { adjudicationsAlreadySeen: 1, io: null }),
+    /non-negative integer of rounds/,
+  );
+  assert.match(
+    validateExtension(1, "product", { ...ok, grant: 2.5 }, { adjudicationsAlreadySeen: 1, io: null }),
+    /non-negative integer of rounds/,
   );
   assert.equal(allowance("sensitive", [{ ...ok, grant: "uncapped" }], 5), Infinity);
 });
@@ -588,8 +603,8 @@ test("an unlistable receipts directory refuses rather than forgetting every exte
 test("a zero-padded extension name is refused, not normalised onto a canonical one", () => {
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
-    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, authorization: "ok" }),
-    ".agents/receipts/loop-extension-1-01.json": json({ pr: 1, kind: "david", grant: 2, authorization: "ok" }),
+    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "ok" }),
+    ".agents/receipts/loop-extension-1-01.json": json({ pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "ok" }),
   });
   assert.match(loadLoop(1, io).detail, /not a canonical extension name/);
 });
@@ -608,7 +623,7 @@ test("the next extension path is max+1, so a sequence gap never overwrites a rec
     [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(adjudication(1)),
     [RECORD(1)]: recordFile(1, 5),
-    [extensionPath(1, 3)]: json({ pr: 1, kind: "david", grant: 1, authorization: "ok" }),
+    [extensionPath(1, 3)]: json({ pr: 1, kind: "david", grant: 1, asOf: 7, authorization: "ok" }),
   });
   assert.equal(loadLoop(1, io).nextSeq, 4);
 });
@@ -616,7 +631,7 @@ test("the next extension path is max+1, so a sequence gap never overwrites a rec
 test("extensions are read in sequence order, not directory order", () => {
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
-    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, authorization: "ok" }),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, asOf: 7, authorization: "ok" }),
     [extensionPath(1, 1)]: json(adjudication(1)),
     [RECORD(1)]: recordFile(1, 5),
   });
@@ -641,7 +656,7 @@ test("a David grant activates only after the adjudication before it is spent", (
     { kind: "david", grant: 4, authorization: "ok" },
   ];
   assert.equal(allowance("product", extensions, 5), 7, "the David grant is still dormant at 5");
-  assert.equal(allowance("product", extensions, 7), 11, "and activates at 7-- David grants are not railed");
+  assert.equal(allowance("product", extensions, 7), 11, "and activates at 7 -- David grants move the gate itself");
 });
 
 test("allowance refuses a nonsense spent count rather than defaulting", () => {
@@ -696,7 +711,8 @@ test("the no-budget refusal routes internal tooling to the internal tier, not ar
   assert.match(reason, /IF THIS IS INTERNAL TOOLING/);
   assert.match(reason, /round 1 \(the automatic pass\) found NOTHING, no request is needed/);
   assert.match(reason, /--tier internal/);
-  assert.match(reason, /internal=hard cap 3/);
+  assert.match(reason, /internal=3, strict/);
+  assert.match(reason, /two-tier tripwire/);
   assert.doesNotMatch(reason, /Do NOT declare a budget/, "the old carve-out's instruction must be gone, not merely contradicted");
 });
 
@@ -750,30 +766,32 @@ test("a valid extension reopens the guard for exactly the rounds it granted", ()
   );
 });
 
-test("tripwire 2 fires at the outer rail -- 2x the budget -- and goes to David", () => {
-  // David, 2026-08-20: the adjudicator owns extension size, so what ends
-  // self-serve is the aggregate reaching 2x the tier budget, not a count of
-  // how many adjudications have been written.
+test("tripwire 2 fires at the David gate -- budget + leash -- with a Fable recommendation for him", () => {
+  // David, 2026-08-26: the adjudicator still owns extension size, but its
+  // grants self-serve at most one leash (3 rounds) past the budget. At the
+  // gate a fresh Fable adjudication runs as the RECOMMENDATION and the loop
+  // stops for David's decision, whatever it recommends.
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(adjudication(1, { grant: 5 })),
     [RECORD(1)]: recordFile(1, 5),
-    [checkPath(1)]: check(1, 10),
+    [checkPath(1)]: check(1, 8),
   });
   const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
   assert.equal(blocked, true);
-  assert.match(reason, /TRIPWIRE 2/);
-  assert.match(reason, /outer rail of 10 rounds/);
+  assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
+  assert.match(reason, /reached 8 rounds/);
+  assert.match(reason, /RECOMMENDATION David reviews/);
   assert.match(reason, /🛑 NEED YOU/);
 });
 
-test("adjudication grants accumulate up to the rail and no further", () => {
+test("adjudication grants accumulate up to the leash and no further", () => {
   const extensions = [
     { kind: "adjudication", verdict: "continue", grant: 3 },
     { kind: "adjudication", verdict: "continue", grant: 4 },
   ];
-  assert.equal(allowance("product", extensions, 5), 8, "the first grant activates at the cap");
-  assert.equal(allowance("product", extensions, 8), 10, "the second is clipped at the rail, not 12");
+  assert.equal(allowance("product", extensions, 5), 8, "the first grant activates at the cap and fills the leash");
+  assert.equal(allowance("product", extensions, 8), 8, "the second is clipped at the David gate, not 12");
 });
 
 test("a standing terminal verdict routes to David, never to another self-serve adjudication (Codex, #543 round 2)", () => {
@@ -807,7 +825,7 @@ test("an adjudication receipt AFTER a terminal verdict is invalid at load time (
   assert.equal(
     validateExtension(1, "product", adjudication(1, { recordPath: RECORD(1) }), {
       io: null,
-      preceding: [shipped, { pr: 1, kind: "david", grant: 2, authorization: "go" }],
+      preceding: [shipped, { pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "go" }],
     }),
     null,
   );
@@ -818,32 +836,130 @@ test("a david grant after a terminal verdict reopens the loop", () => {
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(shipped),
-    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, authorization: "one more round" }),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, asOf: 5, authorization: "one more round" }),
     [RECORD(1)]: recordFile(1, 5),
     [checkPath(1)]: check(1, 5),
   });
   assert.equal(judgeReviewRequest(post(1), io, NOW).blocked, false);
 });
 
-test("David's authorization clears tripwire 2 past the rail", () => {
-  const io = fakeIo({
+test("David's authorization opens exactly his grant past the gate, then the gate repeats", () => {
+  const base = {
     [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(adjudication(1, { grant: 5 })),
-    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 2, authorization: "yes, keep going" }),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 2, asOf: 8, authorization: "yes, keep going" }),
     [RECORD(1)]: recordFile(1, 5),
-    [checkPath(1)]: check(1, 10),
-  });
-  assert.equal(judgeReviewRequest(post(1), io, NOW).blocked, false);
+  };
+  assert.equal(
+    judgeReviewRequest(post(1), fakeIo({ ...base, [checkPath(1)]: check(1, 9) }), NOW).blocked,
+    false,
+    "round 10 is inside David's 2-round grant past the 8-round gate",
+  );
+  const { blocked, reason } = judgeReviewRequest(post(1), fakeIo({ ...base, [checkPath(1)]: check(1, 10) }), NOW);
+  assert.equal(blocked, true, "his grant spent, the gate stands again -- adjudicator grants cannot pass it");
+  assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
+  assert.match(reason, /exactly where David's latest grant runs out/);
 });
 
-test("the sensitive tier runs to 5 and then stops for David, self-serve unavailable", () => {
+test("a direct David grant before the leash is spent places the next gate at its end (Codex, #574 round 1)", () => {
+  // A product escalation can bring David in BELOW the leash. His grant of 2
+  // at round 5 yields allowance 7 -- and the gate must stand at 7, not at
+  // the never-used budget+leash rail of 8, or Fable could self-serve rounds
+  // he did not grant on top of the ones he just did.
+  const direct = [{ kind: "david", grant: 2, asOf: 5, authorization: "two more" }];
+  assert.equal(allowance("product", direct, 5), 7);
+  assert.equal(railFor("product", direct, 7), 7, "the unused leash is discarded, not carried forward");
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "two more" }),
+    [checkPath(1)]: check(1, 7),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true);
+  assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
+});
+
+test("an anchored direct grant during an ACTIVE leash activates immediately and cuts it short (Codex, #574 round 2)", () => {
+  // Codex's exact scenario: budget 5, adjudication grant 3 (leash to 8),
+  // 6 rounds spent, product escalation, David grants 2. Anchored at 6, his
+  // rounds are 7-8 and the gate stands at 8 -- NOT dormant until 8 and then
+  // stacked on top of the leash's unspent rounds to open 9-10.
+  const chain = [
+    { kind: "adjudication", verdict: "continue", grant: 3 },
+    { kind: "david", grant: 2, asOf: 6, authorization: "two more" },
+  ];
+  assert.equal(allowance("product", chain, 6), 8, "asOf 6 + grant 2: his rounds are 7-8");
+  assert.equal(railFor("product", chain, 6), 8, "the gate stands at 8");
+  assert.equal(allowance("product", chain, 8), 8, "nothing left at 8 -- rounds 9-10 were never granted");
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 3 })),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 2, asOf: 6, authorization: "two more" }),
+    [RECORD(1)]: recordFile(1, 5),
+    [checkPath(1)]: check(1, 8),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true);
+  assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
+});
+
+test("asOf is required on every finite David grant -- missing or malformed refuses (Codex, #574 round 3)", () => {
+  // Round 2 kept the anchor optional; round 3 showed one forgotten field
+  // silently re-created the direct-grant stacking bug. Activation semantics
+  // bound the typo surface (a wrong anchor goes dormant or drops the
+  // allowance -- both fail closed), so requiring it is the safe side.
+  const bad = { pr: 1, kind: "david", grant: 2, asOf: "six", authorization: "two more" };
+  assert.match(validateExtension(1, "product", bad, { io: null }), /must carry "asOf"/);
+  assert.match(validateExtension(1, "product", { ...bad, asOf: -1 }, { io: null }), /must carry "asOf"/);
+  const { asOf, ...missing } = bad;
+  assert.match(validateExtension(1, "product", missing, { io: null }), /must carry "asOf"/);
+  assert.equal(
+    validateExtension(1, "product", { pr: 1, kind: "david", grant: "uncapped", authorization: "go" }, { io: null }),
+    null,
+    "uncapped has no boundary arithmetic to anchor -- exempt",
+  );
+});
+
+test("a later anchored David receipt supersedes an earlier uncapped grant (Codex, #574 round 3)", () => {
+  // The old early return made David's stop invisible after an uncapped
+  // authorization: allowance stayed Infinity forever. His newer receipt now
+  // re-caps the loop.
+  const chain = [
+    { kind: "david", grant: "uncapped", asOf: 5, authorization: "keep going, uncapped" },
+    { kind: "david", grant: 0, asOf: 9, authorization: "actually, stop" },
+  ];
+  assert.equal(allowance("product", chain, 9), 9, "his stop re-caps the loop at round 9");
+  assert.equal(railFor("product", chain, 9), 9, "the gate stands where he stopped it");
+  assert.equal(allowance("product", [chain[0]], 9), Infinity, "uncapped alone is still uncapped");
+  const recap = [chain[0], { kind: "david", grant: 2, asOf: 9, authorization: "two more, then stop" }];
+  assert.equal(allowance("product", recap, 9), 11, "a finite anchored grant restores a boundary");
+});
+
+test("a David grant of 0 collapses the gate to the current allowance -- an endorsed stop opens nothing", () => {
+  const stopped = [{ kind: "david", grant: 0, authorization: "agreed, stop" }];
+  assert.equal(allowance("product", stopped, 5), 5);
+  assert.equal(railFor("product", stopped, 5), 5, "the gate stands exactly where he stopped it");
+});
+
+test("the sensitive tier runs the same two-tier tripwire: Fable at 5, David at 8", () => {
+  // David, 2026-08-26, superseding the mandatory-stop-for-him-at-5 shape.
   const at4 = fakeIo({ [budgetPath(1)]: budget(1, "sensitive"), [checkPath(1)]: check(1, 4) });
-  assert.equal(judgeReviewRequest(post(1), at4, NOW).blocked, false, "uncapped below the mandatory stop");
+  assert.equal(judgeReviewRequest(post(1), at4, NOW).blocked, false, "in budget");
 
   const at5 = fakeIo({ [budgetPath(1)]: budget(1, "sensitive"), [checkPath(1)]: check(1, 5) });
-  const { blocked, reason } = judgeReviewRequest(post(1), at5, NOW);
-  assert.equal(blocked, true);
-  assert.match(reason, /TRIPWIRE 2/, "sensitive work skips the self-serve tripwire entirely");
+  const tripwire1 = judgeReviewRequest(post(1), at5, NOW);
+  assert.equal(tripwire1.blocked, true);
+  assert.match(tripwire1.reason, /TRIPWIRE 1 \(self-serve\)/, "sensitive self-serves the leash like every tier");
+
+  const at8 = fakeIo({
+    [budgetPath(1)]: budget(1, "sensitive"),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 3 })),
+    [RECORD(1)]: recordFile(1, 5),
+    [checkPath(1)]: check(1, 8),
+  });
+  const gate = judgeReviewRequest(post(1), at8, NOW);
+  assert.equal(gate.blocked, true);
+  assert.match(gate.reason, /TRIPWIRE 2 \(the David gate\)/);
 });
 
 test("a review request with no readable PR number is refused, not waved through", () => {
@@ -1443,24 +1559,33 @@ test("a record with no stable id is rejected, not silently deduplicated", () => 
 // ---------------------------------------------------------------------------
 
 
-test("the internal tier refuses EVERY adjudication receipt -- continue and terminal alike", () => {
-  // Under the write-gate rule a stop precedes any new commit, so the head is
-  // already reviewed and the ordinary merge path applies: there is nothing
-  // for a committed terminal receipt to unwedge, and the cap stays David's.
-  assert.match(validateExtension(1, "internal", adjudication(1), { io: null }), /no self-serve extension/);
+test("the internal tier self-serves the leash like every tier (David, 2026-08-26)", () => {
+  // The strictness stayed where it belongs -- the adjudicator's internal
+  // rubric (write only for a near-certain CRITICAL flaw) -- while the cap
+  // stopped routing straight to David: Fable rules at 3, he gates at 6.
   const shipped = adjudication(1, { verdict: "ship-with-gaps-recorded", grant: 0, risk: "" });
-  assert.match(validateExtension(1, "internal", shipped, { io: null }), /no self-serve extension/);
+  assert.equal(validateExtension(1, "internal", shipped, { io: null }), null);
+  const extensions = [{ kind: "adjudication", verdict: "continue", grant: 5 }];
+  assert.equal(allowance("internal", extensions, 3), 6, "an oversized grant is clipped at the 6-round David gate");
 });
 
+test("an internal loop at its cap gets the self-serve tripwire; the David gate stands at 6", () => {
+  const at3 = fakeIo({ [budgetPath(1)]: budget(1, "internal"), [checkPath(1)]: check(1, 3) });
+  const tripwire1 = judgeReviewRequest(post(1), at3, NOW);
+  assert.equal(tripwire1.blocked, true);
+  assert.match(tripwire1.reason, /tier "internal"/);
+  assert.match(tripwire1.reason, /TRIPWIRE 1 \(self-serve\)/);
+  assert.match(tripwire1.reason, /David gate of 6 rounds/);
 
-
-test("an internal continue at the cap has nowhere to go but David -- the refusal says so", () => {
-  const io = fakeIo({ [budgetPath(1)]: budget(1, "internal"), [checkPath(1)]: check(1, 3) });
-  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
-  assert.equal(blocked, true);
-  assert.match(reason, /tier "internal"/);
-  assert.match(reason, /TRIPWIRE 2 \(hard stop\)/);
-  assert.match(reason, /mandatory 🛑 to David/);
+  const at6 = fakeIo({
+    [budgetPath(1)]: budget(1, "internal"),
+    [extensionPath(1, 1)]: json(adjudication(1, { grant: 3 })),
+    [RECORD(1)]: recordFile(1, 3),
+    [checkPath(1)]: check(1, 6),
+  });
+  const gate = judgeReviewRequest(post(1), at6, NOW);
+  assert.equal(gate.blocked, true);
+  assert.match(gate.reason, /TRIPWIRE 2 \(the David gate\)/);
 });
 
 test("an in-budget internal round is allowed like any other declared loop", () => {
