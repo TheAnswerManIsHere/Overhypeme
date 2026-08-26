@@ -631,9 +631,12 @@ the safety net a non-code-reading product manager depends on.
   call on the recommendation — instead of taking effect on its own; his
   answer is the committed `david`-kind receipt (a grant opens exactly those
   rounds, default another 3-round leash with the gate repeating where it
-  runs out; 0 endorses stopping; a direct mid-stage grant anchors itself
-  with `asOf` so the interrupted stage's unspent remainder is discarded,
-  never stacked under his rounds). The gate exists because pure judgment,
+  runs out; 0 endorses stopping; every finite grant carries `asOf`, the
+  completed-round count when he granted, and opens exactly `asOf + grant` —
+  so a direct mid-stage grant discards the interrupted stage's unspent
+  remainder rather than stacking under his rounds, and a direct stop cites
+  its own mechanical record so the merge gate stays satisfiable). The gate
+  exists because pure judgment,
   however well-positioned, is what failed to bound #488 — every round there
   was locally rational.
 - **A product decision skips the leash entirely.** A product-shaped blocker —

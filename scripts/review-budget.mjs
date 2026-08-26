@@ -262,7 +262,16 @@ function staged(tier, extensions, roundsSpent) {
     const anchor = ext.kind === "david" && Number.isInteger(ext.asOf) ? ext.asOf : null;
     if (roundsSpent < (anchor ?? total)) break; // this stage is not exhausted yet
     if (ext.kind === "david") {
-      if (ext.grant === "uncapped") return { total: Infinity, rail: Infinity };
+      if (ext.grant === "uncapped") {
+        // NOT an early return (Codex, #574 round 3): David can change his
+        // mind, and a later receipt of his -- an anchored re-cap, or an
+        // anchored grant-0 stop -- must be able to supersede an earlier
+        // uncapped authorization. Returning here made his stop invisible
+        // and left the guard permitting rounds forever.
+        total = Infinity;
+        rail = Infinity;
+        continue;
+      }
       total = (anchor ?? total) + ext.grant;
       rail = total;
     } else if (ext.kind === "adjudication" && ext.verdict === "continue") {
@@ -896,21 +905,25 @@ export function validateExtension(pr, tier, receipt, { io, ref, preceding = [] }
     if (!uncapped && (!Number.isInteger(receipt.grant) || receipt.grant < 0)) {
       return `David authorization must grant a non-negative integer of rounds (0 endorses stopping) or "uncapped", not ${JSON.stringify(receipt.grant)}`;
     }
-    // `asOf` anchors a DIRECT grant -- one made mid-stage, before the current
-    // allowance was spent -- to the completed-round count at the moment David
-    // granted, so his rounds open at `asOf + grant` and the unspent remainder
-    // of the interrupted stage is discarded (see `staged`). OPTIONAL, as a
-    // chosen trade (Codex, #574 round 2): a gate-written receipt needs no
-    // anchor (the boundary IS the spent count there), and REQUIRING a
-    // hand-typed anchor everywhere would make a single typo'd digit open
-    // unbounded phantom rounds silently -- while a forgotten anchor on the
-    // rare direct grant costs at most the interrupted stage's unspent
-    // remainder (<= LEASH rounds), in a flow that is a 🛑 conversation with
-    // David either way. Validated when present, because a malformed anchor
-    // silently falls back to stage-boundary activation -- the exact stacking
-    // bug the anchor exists to prevent.
-    if ("asOf" in receipt && (!Number.isInteger(receipt.asOf) || receipt.asOf < 0)) {
-      return `David authorization's "asOf" must be a non-negative integer of completed rounds when present, not ${JSON.stringify(receipt.asOf)}`;
+    // `asOf` -- the completed-round count at the moment David granted -- is
+    // REQUIRED on every finite grant (Codex, #574 round 3, superseding round
+    // 2's optional-by-trade design): his rounds open at `asOf + grant` and
+    // anything the interrupted stage had left is discarded (see `staged`).
+    // Round 2 kept it optional fearing a typo'd anchor would open unbounded
+    // phantom rounds -- but the activation semantics bound that themselves:
+    // an anchor ABOVE the spent count leaves the receipt dormant (allowance
+    // unchanged, refusal repeats -- fail closed), an anchor too LOW drops
+    // the allowance below what is spent (refusal repeats -- fail closed),
+    // and the worst reachable overshoot is the gap between the typo and the
+    // truth, inside the current stage. A FORGOTTEN anchor, by contrast,
+    // silently re-created the stacking bug this field exists to prevent.
+    // `"uncapped"` is exempt: it has no boundary arithmetic to anchor.
+    if (!uncapped && (!Number.isInteger(receipt.asOf) || receipt.asOf < 0)) {
+      return (
+        `David authorization must carry "asOf" -- the completed-round count when he granted, a non-negative ` +
+        `integer (got ${JSON.stringify(receipt.asOf)}). His rounds open at asOf + grant; at a gate, asOf is ` +
+        `the gate's own round count`
+      );
     }
     if (typeof receipt.authorization !== "string" || !receipt.authorization.trim()) {
       return "David authorization must quote his words in `authorization` (unverifiable by design -- see this file's header)";
@@ -1234,8 +1247,8 @@ function refusal(pr, state, spent, tiedCount = false) {
       `and a dispatched verdict decides -- another self-serve adjudication cannot overturn it. ` +
       `Take this to David as a 🛑 NEED YOU; only a "david"-kind extension receipt reopens the loop. Record ` +
       `his answer in ${extensionPath(pr, nextSeq)} as {"kind":"david","grant":<n|0|"uncapped">,` +
-      `"asOf":<completed rounds when he granted -- REQUIRED for a mid-stage direct grant, so his rounds open ` +
-      `at asOf+grant and the interrupted stage's unspent remainder is discarded; redundant at a gate>,` +
+      `"asOf":<completed rounds when he granted -- REQUIRED on every finite grant; his rounds open at ` +
+      `asOf+grant, so a mid-stage direct grant discards the interrupted stage's unspent remainder>,` +
       `"authorization":"<his words>"}, then COMMIT AND PUSH it.`
     );
   }
@@ -1285,9 +1298,8 @@ function refusal(pr, state, spent, tiedCount = false) {
     `by itself.\n` +
     `  3. Take the verdict to David as a 🛑 NEED YOU -- his call on Fable's recommendation, with a ` +
     `push notification -- and record his answer as the NEXT receipt: {"kind":"david",` +
-    `"grant":<n|0|"uncapped">,"authorization":"<his words>"} (default leash ${LEASH}; 0 endorses ` +
-    `stopping; a receipt written at this gate needs no "asOf" -- only a mid-stage DIRECT grant anchors ` +
-    `itself with one). COMMIT AND PUSH both -- extensions are read from the remote-tracking ref, so an unpushed ` +
+    `"grant":<n|0|"uncapped">,"asOf":<this gate's round count>,"authorization":"<his words>"} ` +
+    `(default leash ${LEASH}; 0 endorses stopping; "asOf" is REQUIRED on every finite grant). COMMIT AND PUSH both -- extensions are read from the remote-tracking ref, so an unpushed ` +
     `authorization grants nothing and this refusal will simply repeat.\n` +
     `A PRODUCT-shaped blocker skips step 2's framing entirely: it is David's decision, not a ` +
     `mechanical-convergence question, and goes to him directly.`

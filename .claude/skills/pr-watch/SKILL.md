@@ -157,10 +157,13 @@ disarm any check-in still pending on it.
 **The convergence-break and skip-review-if-docs-only rules below are
 for implementation PRs.** A `[PLAN REVIEW]` draft PR follows
 `plan-review-loop`'s own cadence instead — minimum 3 rounds even on a clean
-early pass, no count-based break (its stopping rule is the judgment rubric,
-per that skill's step 9), and every
+early pass, and every
 revision re-triggered regardless of whether the diff is docs-only, since
-the diff *is* the plan. While watching an implementation PR:
+the diff *is* the plan. Its stopping rule is the SAME declared budget and
+two-tier tripwire as every loop (a plan loop takes the tier of what it
+plans — see that skill's step 9): the budget guard's refusals apply to
+plan-review triggers exactly as to implementation ones, with the per-round
+adjudicator, the leash, and the David gate all in force. While watching an implementation PR:
 
 - **Never judge a webhook event from its text alone — fetch the live PR state
   first.** This is the rule I broke: a `<github-webhook-activity>` arrived that

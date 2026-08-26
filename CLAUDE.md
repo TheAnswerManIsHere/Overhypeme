@@ -328,11 +328,13 @@ itself, and `main`'s real protection is GitHub's server-side ruleset.
    his call on its recommendation, with a push notification — rather than
    taking effect on its own. His answer is the `david`-kind receipt: a grant
    opens exactly that many more rounds (default: another 3-round leash, the
-   gate repeating where it runs out), 0 endorses stopping. A **direct**
-   grant — David consulted mid-stage, before the current allowance was
-   spent — anchors itself with `asOf` (the completed-round count when he
-   granted): his rounds open at `asOf + grant` and the interrupted stage's
-   unspent remainder is discarded, never stacked under his. **The exception
+   gate repeating where it runs out), 0 endorses stopping. Every finite
+   grant carries `asOf` — the completed-round count when he granted; the
+   guard refuses a receipt without it — and opens exactly `asOf + grant`,
+   so a **direct** mid-stage grant discards the interrupted stage's
+   unspent remainder, never stacks under his rounds. A direct **stop**
+   (grant 0 before any gate receipt exists) also cites its own mechanical
+   record, which is what keeps the merge gate satisfiable. **The exception
    that skips the leash entirely: a product decision.** A product-shaped
    blocker — the adjudicator's `escalate`, or my own recognition that a
    finding is product-not-mechanical — goes to David immediately, at any

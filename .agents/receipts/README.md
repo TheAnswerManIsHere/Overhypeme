@@ -119,13 +119,20 @@ simply one of the passes.
 
 // loop-extension-<pr>-3.json — COMMITTED. Tripwire 2, step two: David's decision
 // on that recommendation — a grant opens exactly those rounds, 0 endorses stopping.
-{ "pr": 503, "kind": "david", "grant": 3, "authorization": "<his words>", "createdAt": "…" }
+// "asOf" (the completed-round count when he granted) is REQUIRED on every finite
+// grant; at a gate it is the gate's own round count. Rounds open at asOf + grant,
+// so a DIRECT mid-stage grant (a product escalation) discards the interrupted
+// stage's unspent remainder rather than stacking under his rounds. "uncapped"
+// needs no anchor — and a LATER anchored receipt of his can supersede it.
+{ "pr": 503, "kind": "david", "grant": 3, "asOf": 8, "authorization": "<his words>", "createdAt": "…" }
 
-// A DIRECT grant — David consulted mid-stage (a product escalation), before the
-// current allowance was spent — additionally carries "asOf": the completed-round
-// count when he granted. His rounds open at asOf + grant and the interrupted
-// stage's unspent remainder is discarded; a gate-written receipt needs no anchor.
-{ "pr": 503, "kind": "david", "grant": 2, "asOf": 6, "authorization": "<his words>", "createdAt": "…" }
+// A DIRECT STOP — David answers a product escalation with "stop", possibly before
+// any adjudication receipt exists. His grant-0 receipt cites its OWN mechanical
+// record (run review-loop-record.mjs when he stops, commit both): that record's
+// sinceLastReview.head is the baseline pr-ready.mjs bounds the bookkeeping diff
+// against, with the tripwire floor waived — his stop needs no tripwire.
+{ "pr": 503, "kind": "david", "grant": 0, "asOf": 4, "authorization": "<his words>",
+  "recordPath": ".agents/adjudications/503-2.json", "createdAt": "…" }
 
 // loop-round-check-<pr>.json — EPHEMERAL, gitignored, one post per receipt.
 // `capturedAt` is the SNAPSHOT's capture time, not the command's: freshness is

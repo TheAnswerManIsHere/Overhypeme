@@ -1532,7 +1532,7 @@ test("rail: David's authorization clears the gate only while his rounds are runn
   const head = commit({
     ".agents/receipts/loop-budget-999.json": railBudget(999),
     ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 5, risk: "r" }),
-    ...railExt(999, 2, { kind: "david", grant: 2, authorization: "keep going" }),
+    ...railExt(999, 2, { kind: "david", grant: 2, asOf: 8, authorization: "keep going" }),
   }, "c1");
   // Gate at 10 (8-round leash boundary + his 2). Inside the grant: clears.
   assert.equal(checkRail(999, head, dir, 9).pass, true);
@@ -1550,7 +1550,7 @@ test("rail: a grant-0 stop-endorsement clears the gate permanently -- no rounds 
   const head = commit({
     ".agents/receipts/loop-budget-999.json": railBudget(999),
     ...railExt(999, 1, { kind: "adjudication", verdict: "continue", grant: 3, risk: "r" }),
-    ...railExt(999, 2, { kind: "david", grant: 0, authorization: "agreed, stop" }),
+    ...railExt(999, 2, { kind: "david", grant: 0, asOf: 8, authorization: "agreed, stop" }),
   }, "c1");
   const res = checkRail(999, head, dir, 8);
   assert.equal(res.pass, true);
@@ -1790,6 +1790,47 @@ test("adjudication: a trailing David grant ABOVE zero still disqualifies -- it r
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
   assert.match(res.detail, /not an adjudication ship-with-gaps-recorded/);
+});
+
+test("adjudication: a DIRECT David stop citing its own record is honored, mid-stage included (Codex, #574 round 3)", () => {
+  // A product-shaped blocker can reach David before any adjudication
+  // receipt exists and before any tripwire fires. His grant-0 receipt cites
+  // its own mechanical record; the record's baseline bounds the bookkeeping
+  // diff and the tripwire floor is waived (passes 4 < allowance 5 here).
+  const { dir, commit } = tempRepo();
+  const baseline = commit({ "docs/x.md": "content" }, "c1 -- the reviewed commit");
+  const rec = record(999, 1, { passes: 4, allowanceValue: 5, baseline });
+  const head = commit(
+    {
+      ...rec.files,
+      ".agents/receipts/loop-extension-999-1.json": JSON.stringify({
+        pr: 999, kind: "david", grant: 0, asOf: 4, authorization: "stop, ship as is", recordPath: rec.path,
+      }),
+    },
+    "c2 -- record + direct stop land together",
+  );
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /David's direct stop/);
+});
+
+test("adjudication: a direct stop still refuses when real content changed since its record's baseline", () => {
+  const { dir, commit } = tempRepo();
+  const baseline = commit({ "docs/x.md": "content" }, "c1");
+  const rec = record(999, 1, { passes: 4, allowanceValue: 5, baseline });
+  const head = commit(
+    {
+      ...rec.files,
+      ".agents/receipts/loop-extension-999-1.json": JSON.stringify({
+        pr: 999, kind: "david", grant: 0, asOf: 4, authorization: "stop", recordPath: rec.path,
+      }),
+      "src/smuggled.mjs": "changed",
+    },
+    "c2 -- direct stop plus a smuggled change",
+  );
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /real content changed/);
 });
 
 test("adjudication: a stop-endorsement with no preceding gate adjudication fails closed", () => {

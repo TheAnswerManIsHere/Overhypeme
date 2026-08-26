@@ -365,7 +365,7 @@ test("every tier accepts adjudication receipts -- the two-tier tripwire covers s
 });
 
 test("a David authorization must quote his words and grant something concrete", () => {
-  const ok = { pr: 1, kind: "david", grant: 3, authorization: "go ahead, three more" };
+  const ok = { pr: 1, kind: "david", grant: 3, asOf: 5, authorization: "go ahead, three more" };
   assert.equal(validateExtension(1, "product", ok, { adjudicationsAlreadySeen: 1, io: null }), null);
   assert.equal(allowance("product", [ok], 5), 8);
 
@@ -603,8 +603,8 @@ test("an unlistable receipts directory refuses rather than forgetting every exte
 test("a zero-padded extension name is refused, not normalised onto a canonical one", () => {
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
-    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, authorization: "ok" }),
-    ".agents/receipts/loop-extension-1-01.json": json({ pr: 1, kind: "david", grant: 2, authorization: "ok" }),
+    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "ok" }),
+    ".agents/receipts/loop-extension-1-01.json": json({ pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "ok" }),
   });
   assert.match(loadLoop(1, io).detail, /not a canonical extension name/);
 });
@@ -623,7 +623,7 @@ test("the next extension path is max+1, so a sequence gap never overwrites a rec
     [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(adjudication(1)),
     [RECORD(1)]: recordFile(1, 5),
-    [extensionPath(1, 3)]: json({ pr: 1, kind: "david", grant: 1, authorization: "ok" }),
+    [extensionPath(1, 3)]: json({ pr: 1, kind: "david", grant: 1, asOf: 7, authorization: "ok" }),
   });
   assert.equal(loadLoop(1, io).nextSeq, 4);
 });
@@ -631,7 +631,7 @@ test("the next extension path is max+1, so a sequence gap never overwrites a rec
 test("extensions are read in sequence order, not directory order", () => {
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
-    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, authorization: "ok" }),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, asOf: 7, authorization: "ok" }),
     [extensionPath(1, 1)]: json(adjudication(1)),
     [RECORD(1)]: recordFile(1, 5),
   });
@@ -825,7 +825,7 @@ test("an adjudication receipt AFTER a terminal verdict is invalid at load time (
   assert.equal(
     validateExtension(1, "product", adjudication(1, { recordPath: RECORD(1) }), {
       io: null,
-      preceding: [shipped, { pr: 1, kind: "david", grant: 2, authorization: "go" }],
+      preceding: [shipped, { pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "go" }],
     }),
     null,
   );
@@ -836,7 +836,7 @@ test("a david grant after a terminal verdict reopens the loop", () => {
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(shipped),
-    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, authorization: "one more round" }),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 1, asOf: 5, authorization: "one more round" }),
     [RECORD(1)]: recordFile(1, 5),
     [checkPath(1)]: check(1, 5),
   });
@@ -847,7 +847,7 @@ test("David's authorization opens exactly his grant past the gate, then the gate
   const base = {
     [budgetPath(1)]: budget(1),
     [extensionPath(1, 1)]: json(adjudication(1, { grant: 5 })),
-    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 2, authorization: "yes, keep going" }),
+    [extensionPath(1, 2)]: json({ pr: 1, kind: "david", grant: 2, asOf: 8, authorization: "yes, keep going" }),
     [RECORD(1)]: recordFile(1, 5),
   };
   assert.equal(
@@ -866,12 +866,12 @@ test("a direct David grant before the leash is spent places the next gate at its
   // at round 5 yields allowance 7 -- and the gate must stand at 7, not at
   // the never-used budget+leash rail of 8, or Fable could self-serve rounds
   // he did not grant on top of the ones he just did.
-  const direct = [{ kind: "david", grant: 2, authorization: "two more" }];
+  const direct = [{ kind: "david", grant: 2, asOf: 5, authorization: "two more" }];
   assert.equal(allowance("product", direct, 5), 7);
   assert.equal(railFor("product", direct, 7), 7, "the unused leash is discarded, not carried forward");
   const io = fakeIo({
     [budgetPath(1)]: budget(1),
-    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, authorization: "two more" }),
+    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, asOf: 5, authorization: "two more" }),
     [checkPath(1)]: check(1, 7),
   });
   const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
@@ -903,16 +903,36 @@ test("an anchored direct grant during an ACTIVE leash activates immediately and 
   assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
 });
 
-test("a malformed asOf anchor is refused, never silently stage-dormant", () => {
+test("asOf is required on every finite David grant -- missing or malformed refuses (Codex, #574 round 3)", () => {
+  // Round 2 kept the anchor optional; round 3 showed one forgotten field
+  // silently re-created the direct-grant stacking bug. Activation semantics
+  // bound the typo surface (a wrong anchor goes dormant or drops the
+  // allowance -- both fail closed), so requiring it is the safe side.
   const bad = { pr: 1, kind: "david", grant: 2, asOf: "six", authorization: "two more" };
-  assert.match(
-    validateExtension(1, "product", bad, { io: null }),
-    /"asOf" must be a non-negative integer/,
+  assert.match(validateExtension(1, "product", bad, { io: null }), /must carry "asOf"/);
+  assert.match(validateExtension(1, "product", { ...bad, asOf: -1 }, { io: null }), /must carry "asOf"/);
+  const { asOf, ...missing } = bad;
+  assert.match(validateExtension(1, "product", missing, { io: null }), /must carry "asOf"/);
+  assert.equal(
+    validateExtension(1, "product", { pr: 1, kind: "david", grant: "uncapped", authorization: "go" }, { io: null }),
+    null,
+    "uncapped has no boundary arithmetic to anchor -- exempt",
   );
-  assert.match(
-    validateExtension(1, "product", { ...bad, asOf: -1 }, { io: null }),
-    /"asOf" must be a non-negative integer/,
-  );
+});
+
+test("a later anchored David receipt supersedes an earlier uncapped grant (Codex, #574 round 3)", () => {
+  // The old early return made David's stop invisible after an uncapped
+  // authorization: allowance stayed Infinity forever. His newer receipt now
+  // re-caps the loop.
+  const chain = [
+    { kind: "david", grant: "uncapped", asOf: 5, authorization: "keep going, uncapped" },
+    { kind: "david", grant: 0, asOf: 9, authorization: "actually, stop" },
+  ];
+  assert.equal(allowance("product", chain, 9), 9, "his stop re-caps the loop at round 9");
+  assert.equal(railFor("product", chain, 9), 9, "the gate stands where he stopped it");
+  assert.equal(allowance("product", [chain[0]], 9), Infinity, "uncapped alone is still uncapped");
+  const recap = [chain[0], { kind: "david", grant: 2, asOf: 9, authorization: "two more, then stop" }];
+  assert.equal(allowance("product", recap, 9), 11, "a finite anchored grant restores a boundary");
 });
 
 test("a David grant of 0 collapses the gate to the current allowance -- an endorsed stop opens nothing", () => {

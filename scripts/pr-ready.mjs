@@ -736,7 +736,7 @@ function latestReviewRequestAt(issueComments) {
  * file's higher stakes. Returns `{ ok: true, generatedAt, baseline }` or
  * `{ ok: false, detail }`.
  */
-function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
+function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd, { floor = true } = {}) {
   if (typeof recordPath !== "string" || !recordPath.startsWith(`${ADJUDICATIONS_DIR}/`)) {
     return { ok: false, detail: `recordPath ${JSON.stringify(recordPath)} is not under ${ADJUDICATIONS_DIR}/` };
   }
@@ -778,7 +778,12 @@ function validateAdjudicationRecord(prNumber, recordPath, headSha, cwd) {
   // (Codex, #539 round 3.)
   const allowanceField = record.budget?.allowance;
   const cap = Number.isFinite(allowanceField) ? allowanceField : Infinity;
-  if (!Number.isInteger(passes) || passes < cap) {
+  // `floor: false` is the DIRECT-STOP exemption (Codex, #574 round 3): a
+  // record cited by David's own grant-0 receipt proves the baseline and the
+  // loop's state, not that a tripwire fired -- his stop needs no tripwire
+  // and can land mid-stage. Every other caller keeps the floor: an
+  // ADJUDICATION must follow the tripwire it answers.
+  if (!Number.isInteger(passes) || (floor && passes < cap)) {
     return {
       ok: false,
       detail:
@@ -932,13 +937,80 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // a conversation, not a receipt. A David grant ABOVE zero stays a
   // disqualifier: it reopens the loop, so a fresh pass is owed, not honored
   // bookkeeping.
+  // A DIRECT DAVID STOP (Codex, #574 round 3): a product-shaped blocker goes
+  // to David immediately -- possibly before any adjudication receipt exists,
+  // and possibly mid-stage. His grant-0 receipt then cites its OWN mechanical
+  // record (`recordPath`), which supplies the source-derived baseline this
+  // fallback's diff bound requires; the tripwire floor is waived because his
+  // stop needs no tripwire. Committing that pair is what would otherwise
+  // wedge the PR: the receipt's own commit moves HEAD past the last reviewed
+  // commit while the unchanged allowance opens no round for another pass.
+  if (
+    receipt.kind === "david" &&
+    receipt.grant === 0 &&
+    typeof receipt.recordPath === "string" &&
+    receipt.recordPath.trim()
+  ) {
+    const recordCheck = validateAdjudicationRecord(prNumber, receipt.recordPath, headSha, cwd, { floor: false });
+    if (!recordCheck.ok) return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
+    if (latestRequestAt !== null) {
+      const evidenceSecondFloor = Math.floor(recordCheck.evidenceCapturedAt / 1000) * 1000;
+      if (latestRequestAt >= evidenceSecondFloor) {
+        return {
+          pass: false,
+          detail:
+            `${terminal.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
+            `at or after the cited record's own evidence capture second -- a fresh review may have been asked for ` +
+            "since David stopped this loop, and this receipt cannot answer for it",
+        };
+      }
+    }
+    const stopAncestor = isAncestor(recordCheck.baseline, headSha, cwd);
+    if (stopAncestor !== true) {
+      return {
+        pass: false,
+        detail:
+          `${terminal.path}: the cited record's baseline ${recordCheck.baseline.slice(0, 7)} ` +
+          (stopAncestor === null
+            ? `could not be checked for ancestry of ${headSha.slice(0, 7)} (git merge-base failed)`
+            : `is not an ancestor of ${headSha.slice(0, 7)} -- the branch was rewritten since`),
+      };
+    }
+    const stopAllowed = new Set([terminal.path, receipt.recordPath]);
+    const stopChanged = git(["diff", "--no-renames", "--name-only", `${recordCheck.baseline}..${headSha}`], cwd);
+    if (stopChanged === null) {
+      return { pass: false, detail: `${terminal.path}: could not diff ${recordCheck.baseline.slice(0, 7)}..${headSha.slice(0, 7)}` };
+    }
+    const stopFiles = stopChanged.split("\n").filter(Boolean);
+    const stopOutOfScope = stopFiles.filter((f) => !stopAllowed.has(f));
+    if (stopOutOfScope.length) {
+      return {
+        pass: false,
+        detail:
+          `${terminal.path}: ${stopOutOfScope.length} file(s) changed since the cited record's baseline that are ` +
+          `not this direct stop's own receipt or record (${stopOutOfScope.slice(0, 5).join(", ")}` +
+          `${stopOutOfScope.length > 5 ? ", ..." : ""}) -- real content changed, so a fresh Codex pass is required`,
+      };
+    }
+    return {
+      pass: true,
+      detail:
+        `David's direct stop (grant 0, ${terminal.path}) citing ${receipt.recordPath}, baseline ` +
+        `${recordCheck.baseline.slice(0, 7)}; ${stopFiles.length} bookkeeping-only file(s) changed since ` +
+        `(${stopFiles.join(", ") || "none"}), nothing reviewable`,
+      acceptedAt: recordCheck.generatedAt,
+    };
+  }
+
   let endorsement = null;
   let candidate = terminal;
   if (receipt.kind === "david" && receipt.grant === 0) {
     if (candidates.length < 2) {
       return {
         pass: false,
-        detail: `${terminal.path}: a David stop-endorsement (grant 0) with no preceding gate adjudication to endorse`,
+        detail:
+          `${terminal.path}: a David stop-endorsement (grant 0) with no preceding gate adjudication to endorse ` +
+          "and no recordPath of its own -- a direct stop must cite the mechanical record generated when David stopped the loop",
       };
     }
     endorsement = terminal;
