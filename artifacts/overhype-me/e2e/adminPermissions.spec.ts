@@ -44,7 +44,10 @@
  *      value this file reads is SET by the test first, and restored afterwards
  *      to the value the test found — never to a hardcoded default, which would
  *      silently enable a permission an operator had deliberately turned off.
- *      The two account-row facts the file cannot set (the stored tier and
+ *      That includes BOTH tiers the resolver can pick: the account's stored
+ *      tier while admin mode is on, and `registered` while previewing, which
+ *      `principalFromUser` substitutes regardless of the stored tier. The two
+ *      account-row facts the file cannot set (the stored tier and
  *      `captchaVerified`) are asserted as explicit, self-explaining
  *      preconditions rather than assumed. See `establishGridPremise`.
  */
@@ -60,6 +63,12 @@ const FEATURE = "fact_submit_captcha_bypass";
 
 /** Its `displayName` in the grid, which is what the cell's `title` is built from. */
 const FEATURE_LABEL = "Skip Captcha on Fact Submission";
+/**
+ * The tier every previewing admin resolves as, whatever their stored tier —
+ * `principalFromUser` hardcodes it (featureAccess.ts:161) so that a
+ * legendary-holding admin in preview does not keep Legendary features.
+ */
+const PREVIEW_TIER = "registered";
 
 /** One grid cell as this test found it, so `afterEach` can put it back. */
 interface CapturedCell {
@@ -150,7 +159,19 @@ async function establishGridPremise(page: Page): Promise<string> {
     "this suite needs an admin that has NOT completed captcha onboarding, or the /submit gate cannot observe the entitlement",
   ).toBe(false);
 
+  // The account's OWN tier, which is what resolves while admin mode is on.
   await setGridCell(page, state.membershipTier, FEATURE, false);
+
+  // AND the `registered` row, which is what resolves while PREVIEWING —
+  // `principalFromUser` substitutes that tier for every previewing admin and
+  // deliberately ignores `membershipTier` (featureAccess.ts:161), so a
+  // legendary-tier bootstrap admin would otherwise keep the feature through the
+  // untouched Registered row and fail the post-exit assertion while preview was
+  // behaving correctly. A no-op second write when the stored tier IS
+  // `registered`; `setGridCell` captures each cell only on first touch.
+  // (Codex, #570 round 2 — a defect in round 1's fix to this same helper.)
+  await setGridCell(page, PREVIEW_TIER, FEATURE, false);
+
   await setGridCell(page, "admin", FEATURE, true);
   return state.membershipTier;
 }
@@ -350,15 +371,26 @@ test.describe("Admin · permissions core", () => {
   // test failed part-way. The grid is shared mutable state; a dirty cell would
   // fail the NEXT run closed, which is the class of flake #563 round 7 removed.
   test.afterEach(async ({ page }) => {
+    // Every failure is collected rather than thrown, so one unrestorable cell
+    // cannot skip the cells after it — then the teardown fails naming exactly
+    // what was left dirty. A bare `.catch(() => {})` was not enough: an
+    // APIRequestContext rejects only on a network error, so a 403 or a 500
+    // resolved normally and left the suite green with a permission still
+    // changed. (Codex, #570 round 2.)
+    const failures: string[] = [];
     for (const cell of captured.reverse()) {
-      await page.context().request
-        .patch("/api/admin/feature-flags", {
+      try {
+        const res = await page.context().request.patch("/api/admin/feature-flags", {
           headers: { "X-CSRF-Token": await csrfToken(page) },
           data: { tier: cell.tier, featureKey: cell.featureKey, enabled: cell.enabled },
-        })
-        .catch(() => {});
+        });
+        if (!res.ok()) failures.push(`${cell.tier}:${cell.featureKey} -> HTTP ${res.status()}`);
+      } catch (err) {
+        failures.push(`${cell.tier}:${cell.featureKey} -> ${(err as Error).message}`);
+      }
     }
     captured = [];
+    expect(failures, `grid cells left dirty by teardown: ${failures.join("; ")}`).toEqual([]);
   });
 });
 
