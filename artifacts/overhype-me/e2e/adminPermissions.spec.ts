@@ -221,7 +221,22 @@ test.describe("Admin · permissions core", () => {
   test("Exit Admin drops the Admin row's entitlements, and leaves a way back", async ({ page }) => {
     const storedTier = await establishGridPremise(page);
 
-    await page.goto("/profile", { waitUntil: "domcontentloaded" });
+    // Step 6 starts at the AVATAR, not at /profile. Navigating straight to
+    // the page would assert the button while leaving unproven the one hop the
+    // document tells David to take -- and that hop is load-bearing: the
+    // account-menu dropdown `AccountMenu` renders is mounted nowhere, so the
+    // avatar navigates instead of opening it. Mount that component and this
+    // navigation silently changes under four rewritten UAT steps.
+    // (Codex, #575 round 1.)
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const avatar = page.getByRole("button", { name: /Open account menu/i });
+    await expect(avatar, "an authenticated header should offer the avatar control").toBeVisible({ timeout: 30_000 });
+    await avatar.click();
+    await expect(
+      page,
+      "tapping the avatar should land on Profile, which is where Exit Admin lives",
+    ).toHaveURL(/\/profile\/?$/, { timeout: 30_000 });
+
     const exit = page.getByRole("button", { name: /Exit Admin/i });
     const resume = page.getByRole("button", { name: /Resume Admin/i });
 
