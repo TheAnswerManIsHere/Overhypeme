@@ -29,8 +29,21 @@ changes what people can actually do, without a deploy.
 
 **One thing to expect while testing:** changes in Admin → Features take
 effect within about **a minute** — that's the resolver's cache window, and
-it's real. If a toggle seems not to have worked, wait a minute and reload
-before treating it as a finding.
+it's real. In practice the server you just toggled from updates
+immediately, so a reload is usually enough; if a toggle still seems not to
+have worked, wait a minute and reload again before treating it as a
+finding.
+
+**Steps 6, 7, 8 and 9 are now proven in CI and can be skipped** (PR #570,
+`e2e/adminPermissions.spec.ts`). They run on every push and assert the
+exit / resume / preview-gate behaviour, including that leaving admin mode
+genuinely withdraws entitlements rather than just relabelling the button.
+Run them only if you want to see it with your own eyes.
+
+**Steps 1–3 are NOT covered and still want your eyes.** CI proves the same
+*mechanism* on a different feature, because `custom_avatar` needs a stored
+photo and CI has no way to produce one. So "the Admin column is real" is
+machine-proven; "`custom_avatar` specifically works" is not.
 
 ## Setup
 
@@ -101,18 +114,19 @@ for Legendary can never lose a feature by being an admin.
 
 ### 6. Exiting admin mode switches you to a normal view
 
-**Do:** As admin, open the account menu (tap your avatar) and choose
-**Exit Admin**.
+**Do:** As admin, tap your avatar in the top-right — it opens your
+**Profile** page — and click **Exit Admin** there.
 
 **Expect:** The site reloads as a registered user would see it.
 
 ### 7. A way back into admin is always visible
 
-**Do:** Open the account menu again.
+**Do:** Look at the same spot on your Profile page where **Exit Admin**
+was.
 
-**Expect:** There's now a **Resume Admin** entry. Before this PR there
-wasn't — every entry point was hidden unless admin mode was already on, so
-once you left, you were stuck.
+**Expect:** The button now reads **Resume Admin**. Before this PR there
+wasn't one — every entry point was hidden unless admin mode was already on,
+so once you left, you were stuck.
 
 ### 8. Visiting /admin while previewing explains itself instead of refusing
 
@@ -129,8 +143,8 @@ working **Resume admin** button — *not* "Access Denied".
 
 ### 10. Preview mode hides Legendary features too
 
-**Do:** As admin, choose **Exit Admin**, then go to a fact and open the
-meme builder, pick Image, pick a photo.
+**Do:** As admin, click **Exit Admin** on your Profile page, then go to a
+fact and open the meme builder, pick Image, pick a photo.
 
 **Expect:** The **Private** pill is **locked** — you're previewing as a
 registered member, and registered members don't get private memes.
@@ -146,7 +160,8 @@ no preview state, can ever cost you console access.
 
 ### 12. Resuming admin restores Legendary features
 
-**Do:** Click **Resume Admin**.
+**Do:** Go back to your Profile page and click **Resume Admin**, then
+return to the meme builder for the same fact and pick Image again.
 
 **Expect:** The Private pill is available again.
 
