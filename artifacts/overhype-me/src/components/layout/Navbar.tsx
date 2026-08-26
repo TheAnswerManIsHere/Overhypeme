@@ -216,8 +216,10 @@ export function Navbar() {
             </div>
 
             {/* Avatar / login — chrome contains navigation only; SHARE / SUBMIT
-                / LEGENDARY no longer live here (Invite friends + Membership
-                are inside the avatar dropdown; Submit lives on /library). */}
+                / LEGENDARY no longer live here. The avatar opens Profile,
+                which carries Edit Profile, Membership, Admin Panel,
+                Exit/Resume Admin, Forget Me and Sign Out; Submit lives on
+                /library. (There is no avatar dropdown — see AccountMenu.tsx.) */}
             <div className="flex items-center gap-3">
               {!authLoading && (isAuthenticated ? (
                 <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} onClick={() => setLocation("/profile")} />

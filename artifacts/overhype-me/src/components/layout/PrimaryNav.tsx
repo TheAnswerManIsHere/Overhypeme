@@ -25,7 +25,7 @@ function go(href: string) {
  * directly under the top bar at tablet and above. The Library icon is a
  * content-style icon (stack/grid) and never an avatar — that visual signal
  * is what separates content destinations from identity (the avatar opens
- * the AccountMenu; it never navigates).
+ * the user's own Profile).
  */
 export function PrimaryNav() {
   const [location] = useLocation();
