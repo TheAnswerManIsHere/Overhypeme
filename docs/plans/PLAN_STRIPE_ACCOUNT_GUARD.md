@@ -5,6 +5,17 @@
 **Criticality:** 80 — this is the only thing standing between a misplaced key and a mutated live
 account, and the failure is silent today.
 
+> **Revision 6, after round 5 returned four findings — all upheld — and after the budget's
+> mandatory stop.** The declared 5 rounds were spent; the exhaustion adjudication returned
+> *escalate* (`.agents/adjudications/572-3.json`), and David granted a 2-round extension with the
+> scope ruling that all four are fixed **in this increment**
+> (`.agents/receipts/loop-extension-572-1.json`). All four attack the degraded-mode machinery
+> revision 5 added: recovery must resume the *whole* initialization (webhook + backfill), not just
+> client availability; the guard's mode read must bypass the admin-config cache, whose in-flight
+> reads can republish the pre-toggle mode for ~60 seconds; the unverified state needs a live status
+> channel on the Billing page; and the payment routes' shared error responder must carry a typed
+> unverified error instead of flattening everything to "try again".
+>
 > **Revision 5, after round 4 returned four findings — all upheld — and after David decided the
 > availability fork round 4's P1 correctly refused to let this plan settle on its own.** The
 > decision (David, 2026-08-26): **a Stripe outage never takes the site down.** Only a *definitive*
@@ -206,6 +217,19 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    decision 6), never to a defaulted mode. `isLiveMode()`'s swallowing behavior is unchanged for
    its other callers — this plan adds a strict read for the guard, it does not rewrite the
    lenient one.
+
+   **Amended by round 5: the strict read also bypasses the admin-config cache.** Failure
+   propagation alone is not enough, because the cache can serve a *stale success*:
+   `loadAll()` (`adminConfig.ts:32-40`) has no in-flight tracking, so a read started before a
+   toggle can complete after `bustConfigCache()` and repopulate the cache with **pre-write rows
+   for another ~60 seconds** — documented at `deferred-work.md:500-506`, naming the
+   `stripe_live_mode` bust path specifically. A post-toggle construction reading through that
+   cache captures the old mode *inside the current generation*, so the generation check passes
+   and the guard verifies one mode while the sync runs another. The strict read therefore selects
+   the `stripe_live_mode` row **directly from the database**, touching neither `loadAll()`'s
+   cache nor its TTL. One targeted query per construction (constructions are memoised); the
+   general config cache and its documented single-flight fix stay deferred — this bypasses the
+   cache for one key at one boundary, it does not fix the cache.
 8. **Verification failures are never memoised** (revision 5, after round 4). The per-mode,
    per-credential memo caches **successes only**; a rejected verification is evicted before the
    rejection propagates. `deferred-work.md:541-546` already records this exact hazard for
@@ -213,6 +237,25 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    until restart, defeating decision 6's retry loop, and one transient Stripe blip would become a
    permanent outage of the payment paths.
 
+9. **A verified retry resumes the full initialization, exactly once** (revision 6, after round
+   5). Revision 5 promised "payments recover automatically" and delivered it only for clients:
+   `initStripe()` (`index.ts:75-127`) attempts `getStripeSync()` once, catches the refusal, and
+   returns **before** `findOrCreateManagedWebhook()` and `syncBackfill()` — so a recovered retry
+   would restore checkout while the managed webhook stays unregistered and the mirror tables stay
+   empty until the next restart. The transition to *verified* therefore triggers the remaining
+   initialization sequence — webhook registration, then backfill, same order as a clean boot —
+   guarded so it runs **exactly once** whether verification succeeded at boot or on any later
+   retry. Test 12 asserts the webhook registration and backfill, not merely client availability.
+10. **The unverified state has a live status channel** (revision 6, after round 5). The promise
+   that the Billing page "shows payments as unavailable-pending-verification" had no mechanism:
+   the page fetches `/api/admin/stripe/summary` on mount and manual refresh only
+   (`billing.tsx:165-180`), and neither that endpoint nor `/stripe/config` carries verification
+   state today. So: the verifier exposes its state — `pending` / `verified` / `refused`, with the
+   refusal reason and last-attempt timestamp, never account ids beyond what the refusal message
+   already carries for the admin — as a `verification` field on the **authenticated**
+   `/admin/stripe/summary` response (`admin.ts:3233`, already `requireAdmin`-gated, already
+   fetched by the page); the Billing page polls it while the state is `pending` and stops when it
+   settles. Test 16 proves `pending → verified` renders without a manual refresh.
 ### The affected-surface inventory
 
 Class: *every path that mutates a Stripe account during boot, and every reader of the expected
@@ -344,6 +387,18 @@ verification attempt completes before `app.listen()` at `index.ts:303`.** It run
 boot phase preceding the listen call — not inside `initStripe()`'s `catch`, not behind its detached
 launch, and not merely "earlier in the file". **What is not acceptable is a refusal that logs, and
 what is no longer acceptable is a refusal that arrives after the port is open.**
+
+**The unverified state reaches paying users as a specific message, not a generic one** (revision
+6, after round 5). Every payment route's `catch` calls the shared responder
+`paymentErrorResponse()` with a **fixed** `clientMessage` per call site ("Unable to start
+checkout. Please try again." and variants) — the thrown error's own message is logged and
+discarded (`paymentErrorResponse.ts:5-31`), so during a degraded boot, checkout, portal and
+subscription users would see retry advice for a condition retrying does not fix. So: the
+verifier's refusal is a **typed error** carrying a client-safe message — payments temporarily
+unavailable, no account ids — and the shared responder maps that type to HTTP 503 with that
+message before falling back to each call site's generic string. One mapping at the boundary all
+payment routes already pass through, not a per-route edit. Test 15 proves representative payment
+endpoints return it during a degraded boot.
 
 **Under settled decision 6 the awaited attempt is one attempt, bounded.** It resolves to one of
 three outcomes: **verified** → listen, payments on; **confirmed mismatch** → exit, port never
@@ -496,15 +551,30 @@ act on.
    verifies the **live** account and payments come online. The defaulted-mode path
    (`getConfigStringRaw(..., "false")`, two swallowing layers) is the one this test exists to
    prove unused by the guard.
-12. **A transient verification failure recovers without restart.** Verification fails once
-   (Stripe error), then succeeds on retry for the **same mode and credential**: the failure was
-   not memoised, payments come online, and the pool count did not grow. This is the
-   `deferred-work.md:541-546` guardrail made a test, and it is what keeps settled decision 6's
-   retry loop from being decorative.
+12. **A transient verification failure recovers without restart — and recovery is the whole
+   sequence.** Verification fails once (Stripe error), then succeeds on retry for the **same mode
+   and credential**: the failure was not memoised, payments come online, the pool count did not
+   grow, **and the managed webhook is registered and the backfill started, in that order** —
+   exactly once across boot and retries (settled decision 9). Round 5 found the client-only
+   version of this test passes against a recovery that leaves the integration dead until
+   restart. The memo half is the `deferred-work.md:541-546` guardrail made a test.
 13. **A post-boot confirmed mismatch does not kill the server.** A retry that returns a definite
    wrong account leaves the process up, payments refused, with a loud error naming both ids.
-Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–13;
-`pnpm --filter @workspace/overhype-me run test` for test 10.
+14. **A stale config-cache read cannot leak the old mode past a toggle.** A `loadAll()` delayed
+   across the PATCH and `bustConfigCache()` completes and repopulates the cache with pre-write
+   rows; the client and sync constructed after the toggle nevertheless use the **target** mode —
+   because the guard's strict read went to the database, not the cache (settled decision 7 as
+   amended). This is round 5's delayed-read test, and it fails against a strict read that only
+   propagates failure without bypassing the cache.
+15. **Payment routes name the unverified state.** During a degraded boot, representative payment
+   endpoints (checkout, portal, subscription) return HTTP 503 with the typed unverified message —
+   not the per-route "Please try again" strings — and no account ids. Exercised through the
+   routes, so the mapping in the shared responder is proven reachable, not just present.
+16. **The Billing page shows `pending → verified` without a manual refresh.** Frontend test:
+   with the summary endpoint reporting `pending` then `verified`, the page's polling renders the
+   transition on its own. Runs in the frontend suite with test 10.
+Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–15;
+`pnpm --filter @workspace/overhype-me run test` for tests 10 and 16.
 
 ## Implementation Steps
 
@@ -549,9 +619,10 @@ Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–13;
 2b. Add account verification at that boundary, using `stripe.accounts.retrieve()` on the raw
    client, memoised per mode and credential. **Both exported constructors**: `getStripeSync()` and
    `getUncachableStripeClient()`, which checkout and the admin mutation routes use directly.
-2c. Give the guard a **failure-propagating mode read** (settled decision 7): a failed read
-   resolves to unverified, never to a defaulted mode. The memo caches successes only (settled
-   decision 8).
+2c. Give the guard a **failure-propagating, cache-bypassing mode read** (settled decision 7 as
+   amended): the `stripe_live_mode` row is selected directly from the database, never through
+   `loadAll()`'s cache; a failed read resolves to unverified, never to a defaulted mode. The memo
+   caches successes only (settled decision 8).
 3. Make an absent expected id (credentials present) a refusal and a **confirmed** mismatch a
    refusal, both fatal — while an **indefinite** answer boots without payments, arms the retry
    loop, and surfaces the unverified state on the Billing page (settled decision 6). The
@@ -560,13 +631,19 @@ Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–13;
    by a compare-and-swap rollback — and report failure to the operator.
 3c. Surface that failure on the Billing page: `toggleLiveMode()` parses the error body and displays
    the server's reason instead of the hardcoded `Failed to update`.
+3d. Make the verified transition **resume the remaining initialization exactly once** (settled
+   decision 9): webhook registration, then backfill, whether verification succeeded at boot or on
+   a later retry.
+3e. Expose the verifier's state as the `verification` field on `/admin/stripe/summary`, and poll
+   it from the Billing page while pending (settled decision 10). Map the typed unverified error
+   in `paymentErrorResponse` to 503 with the client-safe message.
 4. **Move the boot-time verification attempt ahead of `app.listen()` at `index.ts:303`**:
    awaited, bounded by a timeout, outside `initStripe()`'s `catch`, outside its detached launch at
    `:409`, and completed before the port is bound. Three outcomes: verified → listen; confirmed
    mismatch → exit with the port never bound; indefinite → listen with payments refused and the
    retry loop armed. The listen call is the line to measure against; "outside `initStripe()`" is
    necessary and not sufficient.
-5. Tests 1–13.
+5. Tests 1–16.
 6. Post-merge live verification on the Repl — confirming an already-safe deployment, not gating it.
 
 ## Risks and Mitigations
@@ -590,5 +667,7 @@ Runners: `pnpm --filter @workspace/api-server test` for tests 1–9 and 11–13;
 | **A Stripe outage takes the site down** | Settled decision 6: only a confirmed mismatch (or a missing expected id with credentials present) is fatal; every indefinite answer boots without payments and retries. Tests 3c, 12 and 13 hold the three edges: outage boots, recovery needs no restart, a post-boot mismatch does not kill the process |
 | **The boot gate verifies a mode it guessed** | Settled decision 7: the guard's mode read propagates failure; a failed read is *unverified*, never "test". Test 11 asserts no verification runs against a defaulted mode — round 4 found the existing read swallows failure twice |
 | **One transient Stripe error pins payments off until restart** | Settled decision 8: the memo caches successes only, rejections evicted before propagating — the `deferred-work.md:541-546` guardrail. Test 12 asserts recovery |
-| **The site runs payments-off indefinitely and nobody notices** | The unverified state is loud twice: an error-level log per failed retry, and the Billing page shows payments as unavailable-pending-verification per the async-status contract |
+| **The site runs payments-off indefinitely and nobody notices** | The unverified state is loud three ways: an error-level log per failed retry, the `verification` field on the admin summary with the Billing page polling it live (test 16), and payment routes returning the typed 503 rather than generic retry advice (test 15) |
+| **Recovery restores checkout but not the integration** | Settled decision 9: the verified transition resumes webhook registration and backfill exactly once; test 12 asserts the sequence, not client availability alone |
+| **The config cache republishes the old mode past a toggle** | The guard's strict read bypasses `loadAll()` entirely — one direct query per memoised construction (settled decision 7 as amended); test 14 delays a cache read across the toggle and asserts the target mode wins. The cache's own single-flight fix stays deferred and is unchanged |
 | **Scope creep back toward the driver seam** | Settled decision 5: this plan touches neither driver selection nor the fake, and is shippable alone |
