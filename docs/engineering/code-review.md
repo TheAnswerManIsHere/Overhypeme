@@ -177,7 +177,9 @@ cost more than the defects they describe. This is the *depth* rule. The
 the 2026-08-20 no-rounds carve-out): a clean automatic pass is the whole
 ceremony, but when the pass finds a real defect the pushed fixes are
 re-reviewed under the internal tier, with the external adjudicator's strict
-rubric deciding continuation and a hard cap of 3 rounds — see
+rubric deciding continuation on a 3-round budget under the standard
+two-tier tripwire (a self-serve leash to round 6, the David gate at 6 —
+David, 2026-08-26) — see
 [`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)'s
 internal-tier section. The retired fix-round merge-path workarounds no
 longer apply.

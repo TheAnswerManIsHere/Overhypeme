@@ -224,7 +224,8 @@ the diff *is* the plan. While watching an implementation PR:
   returned. (Under the write-gate rule a stop
   precedes any new commit, so the head is already reviewed and no receipt is
   written for it — the 2026-08-21 internal stop-receipt is gone; the only
-  committed verdict receipt is the product tier's at exhaustion.)
+  committed verdict receipts are tripwire receipts, on any tier: at budget
+  exhaustion, and at a David gate.)
   **Known gap, recorded rather than fixed (#553 rounds 4–5):** a standing
   `split`/`escalate` on a tier that writes no receipt is invisible to
   `checkRail`, so the readiness gate can mint READY on a PR whose own last

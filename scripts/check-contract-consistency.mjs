@@ -140,6 +140,30 @@ export const RETIRED = [
     why: "retired internal-tier shape (straight to David at 3, no extension of any kind)",
     instead: "internal: budget 3, Fable-adjudicated leash to 6, the David gate at 6",
   },
+  {
+    // The same retired rule's attested prose wording (docs/engineering/
+    // code-review.md said "a hard cap of 3 rounds") — one rule, both fixed
+    // strings tracked. (Codex, #574 round 1.)
+    phrase: "hard cap of 3",
+    retired: "2026-08-26",
+    why: "retired internal-tier shape (straight to David at 3, no extension of any kind)",
+    instead: "internal: budget 3, Fable-adjudicated leash to 6, the David gate at 6",
+  },
+  {
+    // "no second self-serve extension, ever" — the one-extension rule, whose
+    // intervening word defeats the "no self-serve" substring. Both spellings
+    // this repo actually used are tracked. (Codex, #574 round 1.)
+    phrase: "second self-serve extension",
+    retired: "2026-08-26",
+    why: "retired one-extension rule — the David gate now repeats, and what persists is which gates were passed and what he granted",
+    instead: "the repeating David gate: his grant opens exactly those rounds, and the gate stands again where they run out",
+  },
+  {
+    phrase: "second self-service extension",
+    retired: "2026-08-26",
+    why: "retired one-extension rule — the David gate now repeats, and what persists is which gates were passed and what he granted",
+    instead: "the repeating David gate: his grant opens exactly those rounds, and the gate stands again where they run out",
+  },
 ];
 
 const IGNORE_LINE = "<!-- retired-ok -->";

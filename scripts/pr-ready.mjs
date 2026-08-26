@@ -893,9 +893,11 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return { pass: false, detail: `no committed, canonically-named loop-extension-${prNumber}-*.json receipt at ${headSha.slice(0, 7)}` };
   }
 
-  // Only the loop's TERMINAL decision (the highest sequence number) is ever
-  // consulted -- see the docblock above for why this closes the
-  // superseded-verdict gap without needing to special-case `david` receipts.
+  // The loop's TERMINAL decision (the highest sequence number) anchors the
+  // check -- a superseded verdict is never honored. One david-kind shape IS
+  // special-cased below, deliberately: a trailing grant-0 stop-endorsement,
+  // which does not supersede the gate recommendation beneath it but ratifies
+  // it (David, 2026-08-26). Every other david receipt still disqualifies.
   const terminal = candidates[0];
   const raw = git(["show", `${headSha}:${terminal.path}`], cwd);
   if (raw === null) {
@@ -911,13 +913,59 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   if (receipt.pr !== prNumber) {
     return { pass: false, detail: `${terminal.path}: names PR ${receipt.pr}, not ${prNumber}` };
   }
-  if (receipt.kind !== "adjudication" || receipt.verdict !== "ship-with-gaps-recorded") {
+
+  // A TRAILING DAVID STOP-ENDORSEMENT (kind "david", grant 0) IS TRANSPARENT
+  // rather than a disqualifier (Codex, #574 round 1). Grant 0 is David's
+  // "reviewed the gate's recommendation, stop here" decision at a David
+  // gate, and the two-tier tripwire's documented zero-round path commits it
+  // as the loop's last receipt -- which, without this, wedged the PR
+  // permanently: the endorsement's own commit moved HEAD past the last
+  // reviewed commit while the unchanged allowance refused another Codex
+  // pass, so nothing could ever mint READY. So the receipt VALIDATED below
+  // becomes the adjudication immediately beneath the endorsement (the gate
+  // recommendation David ruled on), and the endorsement itself joins the
+  // allowed bookkeeping diff. A `continue` recommendation is acceptable
+  // beneath an endorsement -- David's 0 overrides it into a stop, which is
+  // exactly the case the gate exists for -- while `split`/`escalate` stay
+  // refused: those hand the PR to further action, and shipping over them is
+  // a conversation, not a receipt. A David grant ABOVE zero stays a
+  // disqualifier: it reopens the loop, so a fresh pass is owed, not honored
+  // bookkeeping.
+  let endorsement = null;
+  let candidate = terminal;
+  if (receipt.kind === "david" && receipt.grant === 0) {
+    if (candidates.length < 2) {
+      return {
+        pass: false,
+        detail: `${terminal.path}: a David stop-endorsement (grant 0) with no preceding gate adjudication to endorse`,
+      };
+    }
+    endorsement = terminal;
+    candidate = candidates[1];
+    const endorsedRaw = git(["show", `${headSha}:${candidate.path}`], cwd);
+    if (endorsedRaw === null) {
+      return { pass: false, detail: `${candidate.path} is listed at ${headSha.slice(0, 7)} but its committed content could not be read` };
+    }
+    try {
+      receipt = JSON.parse(endorsedRaw);
+    } catch (e) {
+      return { pass: false, detail: `${candidate.path}: unreadable or malformed JSON (${e.message})` };
+    }
+    if (receipt.pr !== prNumber) {
+      return { pass: false, detail: `${candidate.path}: names PR ${receipt.pr}, not ${prNumber}` };
+    }
+  }
+
+  const shipEquivalent =
+    receipt.verdict === "ship-with-gaps-recorded" || (endorsement !== null && receipt.verdict === "continue");
+  if (receipt.kind !== "adjudication" || !shipEquivalent) {
     return {
       pass: false,
       detail:
-        `${terminal.path}: the loop's terminal decision is kind=${JSON.stringify(receipt.kind)} ` +
-        `verdict=${JSON.stringify(receipt.verdict)}, not an adjudication ship-with-gaps-recorded -- either a ` +
-        "later extension superseded the ship verdict, or none was ever recorded as the loop's last word",
+        `${candidate.path}: the loop's terminal decision is kind=${JSON.stringify(receipt.kind)} ` +
+        `verdict=${JSON.stringify(receipt.verdict)}, not an adjudication ship-with-gaps-recorded` +
+        (endorsement ? " or a David-endorsed gate recommendation" : "") +
+        " -- either a later extension superseded the ship verdict, or none was ever recorded as the loop's last word",
     };
   }
   // The adjudicator's documented output schema always returns `reasoning`
@@ -926,10 +974,10 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // verdict specifically, the durable record of what's knowingly left.
   // (Codex, #539 round 3.)
   if (typeof receipt.reasoning !== "string" || !receipt.reasoning.trim()) {
-    return { pass: false, detail: `${terminal.path}: missing the adjudicator's \`reasoning\`` };
+    return { pass: false, detail: `${candidate.path}: missing the adjudicator's \`reasoning\`` };
   }
   if (!Array.isArray(receipt.gaps)) {
-    return { pass: false, detail: `${terminal.path}: missing the adjudicator's \`gaps\` array` };
+    return { pass: false, detail: `${candidate.path}: missing the adjudicator's \`gaps\` array` };
   }
   // `decidedAt` is when THIS receipt was written -- after the adjudicator
   // actually responded, unlike the record's own `generatedAt`, which is
@@ -940,12 +988,12 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // (Codex, #539 round 3.)
   const decidedAt = Date.parse(receipt.decidedAt ?? "");
   if (!Number.isFinite(decidedAt)) {
-    return { pass: false, detail: `${terminal.path}: missing or unparseable \`decidedAt\`` };
+    return { pass: false, detail: `${candidate.path}: missing or unparseable \`decidedAt\`` };
   }
 
   const recordCheck = validateAdjudicationRecord(prNumber, receipt.recordPath, headSha, cwd);
   if (!recordCheck.ok) {
-    return { pass: false, detail: `${terminal.path}: ${recordCheck.detail}` };
+    return { pass: false, detail: `${candidate.path}: ${recordCheck.detail}` };
   }
 
   // THE CHAIN UNDER THE CANDIDATE MUST BE ONE THE GUARD WOULD ACCEPT. Only
@@ -961,7 +1009,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
   // (Codex, #543 round 4, fixed forward post-merge.)
   const preceding = [];
   for (const { path } of [...candidates].sort((a, b) => a.seq - b.seq)) {
-    if (path === terminal.path) continue;
+    if (path === candidate.path || (endorsement && path === endorsement.path)) continue;
     const precedingRaw = git(["show", `${headSha}:${path}`], cwd);
     if (precedingRaw === null) {
       return { pass: false, detail: `${path} is listed at ${headSha.slice(0, 7)} but its committed content could not be read` };
@@ -979,7 +1027,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
         return {
           pass: false,
           detail:
-            `${terminal.path}: a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- ` +
+            `${candidate.path}: a terminal adjudication verdict ("${prev.verdict}") is standing on this loop -- ` +
             `a further adjudication receipt cannot follow it; only a "david"-kind receipt reopens the loop`,
         };
       }
@@ -989,7 +1037,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: decidedAt (${new Date(decidedAt).toISOString()}) predates the cited record's own ` +
+        `${candidate.path}: decidedAt (${new Date(decidedAt).toISOString()}) predates the cited record's own ` +
         `generatedAt (${new Date(recordCheck.generatedAt).toISOString()}) -- the decision cannot have happened ` +
         "before the record it ruled on was generated",
     };
@@ -1010,7 +1058,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
       return {
         pass: false,
         detail:
-          `${terminal.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
+          `${candidate.path}: a \`@codex review\` request was posted at ${new Date(latestRequestAt).toISOString()}, ` +
           `at or after the record's own evidence capture second (${new Date(recordCheck.evidenceCapturedAt).toISOString()}) -- ` +
           "a fresh review may have been asked for since the loop closed, and this receipt cannot answer for it",
       };
@@ -1022,7 +1070,7 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: could not determine whether the record's baseline ${recordCheck.baseline.slice(0, 7)} is ` +
+        `${candidate.path}: could not determine whether the record's baseline ${recordCheck.baseline.slice(0, 7)} is ` +
         `an ancestor of ${headSha.slice(0, 7)} (git merge-base failed -- possibly a shallow clone; fetch full history)`,
     };
   }
@@ -1030,15 +1078,17 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: the record's baseline ${recordCheck.baseline.slice(0, 7)} is not an ancestor of ` +
+        `${candidate.path}: the record's baseline ${recordCheck.baseline.slice(0, 7)} is not an ancestor of ` +
         `${headSha.slice(0, 7)} -- the branch was rewritten since the record was generated`,
     };
   }
 
-  const allowedPaths = new Set([terminal.path, receipt.recordPath]);
+  const allowedPaths = new Set(
+    endorsement ? [candidate.path, receipt.recordPath, endorsement.path] : [candidate.path, receipt.recordPath],
+  );
   const changed = git(["diff", "--no-renames", "--name-only", `${recordCheck.baseline}..${headSha}`], cwd);
   if (changed === null) {
-    return { pass: false, detail: `${terminal.path}: could not diff ${recordCheck.baseline.slice(0, 7)}..${headSha.slice(0, 7)}` };
+    return { pass: false, detail: `${candidate.path}: could not diff ${recordCheck.baseline.slice(0, 7)}..${headSha.slice(0, 7)}` };
   }
   const files = changed.split("\n").filter(Boolean);
   const outOfScope = files.filter((f) => !allowedPaths.has(f));
@@ -1046,15 +1096,17 @@ export function checkAdjudicatedCodex(prNumber, headSha, { cwd, codexOutage = fa
     return {
       pass: false,
       detail:
-        `${terminal.path}: ${outOfScope.length} file(s) changed since the record's baseline that are not this ` +
-        `adjudication's own receipt or record (${outOfScope.slice(0, 5).join(", ")}${outOfScope.length > 5 ? ", ..." : ""}) -- ` +
+        `${candidate.path}: ${outOfScope.length} file(s) changed since the record's baseline that are not this ` +
+        `adjudication's own receipt, its record, or a trailing David stop-endorsement ` +
+        `(${outOfScope.slice(0, 5).join(", ")}${outOfScope.length > 5 ? ", ..." : ""}) -- ` +
         "real content changed since the record was generated, so a fresh Codex pass is required, not this receipt",
     };
   }
   return {
     pass: true,
     detail:
-      `adjudicated ship-with-gaps-recorded at ${new Date(decidedAt).toISOString()}, record generated against ` +
+      `adjudicated ${receipt.verdict}${endorsement ? ` with David's stop-endorsement (${endorsement.path})` : ""} ` +
+      `at ${new Date(decidedAt).toISOString()}, record generated against ` +
       `${recordCheck.baseline.slice(0, 7)}; ${files.length} bookkeeping-only file(s) changed since ` +
       `(${files.join(", ") || "none"}), nothing reviewable`,
     acceptedAt: decidedAt,

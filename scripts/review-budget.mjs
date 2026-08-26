@@ -227,11 +227,17 @@ export const LEASH = 3;
 /**
  * Allowance and rail, staged together. EXTENSIONS ACTIVATE IN SEQUENCE, AND
  * ONLY ONCE EVERYTHING BEFORE THEM IS SPENT (see `allowance` below for why).
- * The rail -- the round count at which the next David gate stands -- moves
- * only when a David grant activates: it starts at budget + LEASH, and each
- * activated `david` grant pushes it out by exactly that grant, so adjudicator
- * grants can never carry the loop past the boundary David last authorized
- * plus the one self-serve leash. An uncapped David grant removes both bounds.
+ * The rail -- the round count at which the next David gate stands -- starts
+ * at budget + LEASH (the adjudicator's one self-serve leash), and each
+ * activated `david` grant places it EXACTLY at the allowance that grant
+ * establishes: "his grant opens exactly those rounds and the gate repeats
+ * where they run out". Setting `rail = total` rather than `rail += grant`
+ * is load-bearing for the direct-grant case (Codex, #574 round 1): a
+ * product escalation can bring David in BEFORE the leash was spent, and
+ * carrying the unused leash forward would let the adjudicator self-serve
+ * rounds David never authorized on top of the ones he just did. The unused
+ * leash is discarded instead; after any David grant, only he opens further
+ * rounds. An uncapped David grant removes both bounds.
  */
 function staged(tier, extensions, roundsSpent) {
   if (!Number.isInteger(roundsSpent) || roundsSpent < 0) {
@@ -244,7 +250,7 @@ function staged(tier, extensions, roundsSpent) {
     if (ext.kind === "david") {
       if (ext.grant === "uncapped") return { total: Infinity, rail: Infinity };
       total += ext.grant;
-      rail += ext.grant;
+      rail = total;
     } else if (ext.kind === "adjudication" && ext.verdict === "continue") {
       // Adjudicator grants accumulate, but never past the current David
       // gate. David grants move the gate itself -- he is the authority the
@@ -1217,8 +1223,8 @@ function refusal(pr, state, spent, tiedCount = false) {
       `(ship-with-gaps-recorded | split | continue+grant+risk | escalate). The adjudicator sizes its own ` +
       `grant -- a push whose last round revealed a real problem may need more than one round -- bounded ` +
       `by the self-serve leash: at the David gate of ${railFor(tier, extensions, spent)} rounds ` +
-      `(the tier budget plus a ${LEASH}-round leash, plus any rounds David has already granted) the loop ` +
-      `stops for David regardless of verdict. ` +
+      `(the tier budget plus its ${LEASH}-round leash, or exactly where David's latest grant runs out) ` +
+      `the loop stops for David regardless of verdict. ` +
       `Every verdict -- not just "continue" -- must also carry \`recordPath\` (citing the exact record path ` +
       `step 1 printed) and \`decidedAt\` (an ISO timestamp of when THIS receipt is being written, not when ` +
       `the record was generated in step 1). Carry the adjudicator's own \`reasoning\` and \`gaps\` fields ` +
@@ -1235,8 +1241,8 @@ function refusal(pr, state, spent, tiedCount = false) {
 
   return (
     `${head}\n` +
-    `TRIPWIRE 2 (the David gate). This loop has reached ${railFor(tier, extensions, spent)} rounds -- its ` +
-    `budget plus the ${LEASH}-round self-serve leash${extensions.some((e) => e.kind === "david") ? " plus David's earlier grants" : ""} ` +
+    `TRIPWIRE 2 (the David gate). This loop has reached ${railFor(tier, extensions, spent)} rounds -- ` +
+    `${extensions.some((e) => e.kind === "david") ? "exactly where David's latest grant runs out" : `its budget plus the ${LEASH}-round self-serve leash`} ` +
     `-- so the next rounds are David's to authorize, whatever the adjudicator recommends. The sequence ` +
     `(David, 2026-08-26):\n` +
     `  1. node scripts/review-loop-record.mjs --pr ${pr} --mcp-snapshot <file> --write\n` +

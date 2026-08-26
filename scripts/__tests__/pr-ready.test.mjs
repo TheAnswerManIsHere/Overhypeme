@@ -1252,7 +1252,7 @@ test("adjudication: real content changed since the record's baseline is refused,
   const head = commit({ "docs/x.md": "DIFFERENT unreviewed content" }, "c3 -- real change, never reviewed");
   const res = checkAdjudicatedCodex(999, head, { cwd: dir });
   assert.equal(res.pass, false);
-  assert.match(res.detail, /not this adjudication's own receipt or record/);
+  assert.match(res.detail, /not this adjudication's own receipt, its record, or a trailing David stop-endorsement/);
   assert.match(res.detail, /docs\/x\.md/);
 });
 
@@ -1302,7 +1302,7 @@ test("adjudication: one real file mixed in with the receipt+record still fails t
   assert.equal(res.pass, false);
   // Confirms it fails on the mixed-content diff specifically, not on a
   // malformed receipt -- a receipt this well-formed would otherwise pass.
-  assert.match(res.detail, /not this adjudication's own receipt or record/);
+  assert.match(res.detail, /not this adjudication's own receipt, its record, or a trailing David stop-endorsement/);
   assert.match(res.detail, /docs\/x\.md/);
 });
 
@@ -1730,6 +1730,73 @@ test("Codex: the zero-request automatic-pass path is deliberately tier-blind (de
 });
 
 
+
+test("adjudication: a trailing David stop-endorsement (grant 0) is transparent -- the ship verdict beneath it is honored (Codex, #574 round 1)", () => {
+  // The documented zero-round stop at a David gate commits his grant-0
+  // receipt as the loop's last extension. Without the endorsement carve-out
+  // that receipt disqualified the fallback while its own commit moved HEAD
+  // past the last reviewed commit -- a PR that could never mint READY.
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999);
+  const head = commit(
+    { ".agents/receipts/loop-extension-999-2.json": JSON.stringify({ pr: 999, kind: "david", grant: 0, authorization: "agreed, stop" }) },
+    "c3 -- David endorses the stop",
+  );
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /David's stop-endorsement/);
+});
+
+test("adjudication: a David-endorsed continue at the gate is a stop too -- his 0 overrides the recommendation", () => {
+  // At the gate Fable can recommend continue and David can still stop.
+  // The endorsed chain must be mergeable exactly like an endorsed ship.
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999, { extOpts: { verdict: "continue", grant: 2, risk: "r" } });
+  const head = commit(
+    { ".agents/receipts/loop-extension-999-2.json": JSON.stringify({ pr: 999, kind: "david", grant: 0, authorization: "stop here" }) },
+    "c3 -- David overrides continue into a stop",
+  );
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, true);
+});
+
+test("adjudication: a trailing David grant ABOVE zero still disqualifies -- it reopens the loop", () => {
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999);
+  const head = commit(
+    { ".agents/receipts/loop-extension-999-2.json": JSON.stringify({ pr: 999, kind: "david", grant: 2, authorization: "two more" }) },
+    "c3 -- David grants more rounds",
+  );
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /not an adjudication ship-with-gaps-recorded/);
+});
+
+test("adjudication: a stop-endorsement with no preceding gate adjudication fails closed", () => {
+  const { dir, commit } = tempRepo();
+  const head = commit(
+    { ".agents/receipts/loop-extension-999-1.json": JSON.stringify({ pr: 999, kind: "david", grant: 0, authorization: "stop" }) },
+    "c1 -- an endorsement of nothing",
+  );
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /no preceding gate adjudication/);
+});
+
+test("adjudication: an endorsed verdict still refuses when real content changed since the record's baseline", () => {
+  const { dir, commit } = tempRepo();
+  closedLoop(commit, 999);
+  const head = commit(
+    {
+      ".agents/receipts/loop-extension-999-2.json": JSON.stringify({ pr: 999, kind: "david", grant: 0, authorization: "stop" }),
+      "src/real-code.mjs": "changed",
+    },
+    "c3 -- endorsement plus a smuggled change",
+  );
+  const res = checkAdjudicatedCodex(999, head, { cwd: dir });
+  assert.equal(res.pass, false);
+  assert.match(res.detail, /file\(s\) changed since the record's baseline/);
+});
 
 test("adjudication: the internal tier gets the merge-gate fallback like every tier (David, 2026-08-26)", () => {
   // The two-tier tripwire means internal loops write adjudication receipts

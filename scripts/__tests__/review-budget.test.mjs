@@ -5,6 +5,7 @@ import {
   TIERS,
   tierCap,
   LEASH,
+  railFor,
   allowance,
   countRounds,
   budgetPath,
@@ -655,7 +656,7 @@ test("a David grant activates only after the adjudication before it is spent", (
     { kind: "david", grant: 4, authorization: "ok" },
   ];
   assert.equal(allowance("product", extensions, 5), 7, "the David grant is still dormant at 5");
-  assert.equal(allowance("product", extensions, 7), 11, "and activates at 7-- David grants are not railed");
+  assert.equal(allowance("product", extensions, 7), 11, "and activates at 7 -- David grants move the gate itself");
 });
 
 test("allowance refuses a nonsense spent count rather than defaulting", () => {
@@ -857,7 +858,31 @@ test("David's authorization opens exactly his grant past the gate, then the gate
   const { blocked, reason } = judgeReviewRequest(post(1), fakeIo({ ...base, [checkPath(1)]: check(1, 10) }), NOW);
   assert.equal(blocked, true, "his grant spent, the gate stands again -- adjudicator grants cannot pass it");
   assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
-  assert.match(reason, /plus David's earlier grants/);
+  assert.match(reason, /exactly where David's latest grant runs out/);
+});
+
+test("a direct David grant before the leash is spent places the next gate at its end (Codex, #574 round 1)", () => {
+  // A product escalation can bring David in BELOW the leash. His grant of 2
+  // at round 5 yields allowance 7 -- and the gate must stand at 7, not at
+  // the never-used budget+leash rail of 8, or Fable could self-serve rounds
+  // he did not grant on top of the ones he just did.
+  const direct = [{ kind: "david", grant: 2, authorization: "two more" }];
+  assert.equal(allowance("product", direct, 5), 7);
+  assert.equal(railFor("product", direct, 7), 7, "the unused leash is discarded, not carried forward");
+  const io = fakeIo({
+    [budgetPath(1)]: budget(1),
+    [extensionPath(1, 1)]: json({ pr: 1, kind: "david", grant: 2, authorization: "two more" }),
+    [checkPath(1)]: check(1, 7),
+  });
+  const { blocked, reason } = judgeReviewRequest(post(1), io, NOW);
+  assert.equal(blocked, true);
+  assert.match(reason, /TRIPWIRE 2 \(the David gate\)/);
+});
+
+test("a David grant of 0 collapses the gate to the current allowance -- an endorsed stop opens nothing", () => {
+  const stopped = [{ kind: "david", grant: 0, authorization: "agreed, stop" }];
+  assert.equal(allowance("product", stopped, 5), 5);
+  assert.equal(railFor("product", stopped, 5), 5, "the gate stands exactly where he stopped it");
 });
 
 test("the sensitive tier runs the same two-tier tripwire: Fable at 5, David at 8", () => {

@@ -110,10 +110,15 @@ simply one of the passes.
   "risk": "<the named unaddressed behavioral risk>",
   "recordPath": ".agents/adjudications/503-1.json", "createdAt": "…" }
 
-// loop-extension-<pr>-2.json — COMMITTED. Tripwire 2 (the David gate): the fresh
-// Fable recommendation is committed as an adjudication receipt first (granting
-// nothing at the gate), then David's decision as a david-kind receipt — a grant
-// opens exactly those rounds, 0 endorses stopping.
+// loop-extension-<pr>-2.json — COMMITTED. Tripwire 2 (the David gate), step one:
+// the fresh Fable recommendation, committed as an ordinary adjudication receipt.
+// At the gate it grants nothing by itself — it is what David reviews.
+{ "pr": 503, "kind": "adjudication", "verdict": "ship-with-gaps-recorded", "grant": 0,
+  "risk": "", "recordPath": ".agents/adjudications/503-2.json",
+  "decidedAt": "…", "reasoning": "…", "gaps": ["…"] }
+
+// loop-extension-<pr>-3.json — COMMITTED. Tripwire 2, step two: David's decision
+// on that recommendation — a grant opens exactly those rounds, 0 endorses stopping.
 { "pr": 503, "kind": "david", "grant": 3, "authorization": "<his words>", "createdAt": "…" }
 
 // loop-round-check-<pr>.json — EPHEMERAL, gitignored, one post per receipt.
