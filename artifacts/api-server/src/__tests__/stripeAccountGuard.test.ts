@@ -23,12 +23,17 @@ import { eq } from "drizzle-orm";
 import {
   VERIFY_THROTTLE_MS,
   __resetVerificationStateForTests,
-  __setAccountRetrieverForTests,
+  __strictModeReadsForTests,
   getVerificationStatus,
   isAccountVerified,
   readStripeLiveModeStrict,
   verifyStripeAccount,
 } from "../lib/stripeAccountGuard.js";
+import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
+import {
+  STRIPE_UNVERIFIED_CODE as SHARED_STRIPE_UNVERIFIED_CODE,
+  STRIPE_UNVERIFIED_CLIENT_MESSAGE as SHARED_STRIPE_UNVERIFIED_CLIENT_MESSAGE,
+} from "@workspace/api-zod";
 import {
   STRIPE_UNVERIFIED_CODE,
   StripeAccountMismatchError,
@@ -44,17 +49,8 @@ import {
 } from "../lib/stripeInit.js";
 import { getStripeSync, getUncachableStripeClient, invalidateStripeSync } from "../lib/stripeClient.js";
 
-const ENV_KEYS = [
-  "STRIPE_SECRET_KEY_TEST",
-  "STRIPE_SECRET_KEY_LIVE",
-  "STRIPE_PUBLISHABLE_KEY_TEST",
-  "STRIPE_PUBLISHABLE_KEY_LIVE",
-  "STRIPE_ACCOUNT_ID_TEST",
-  "STRIPE_ACCOUNT_ID_LIVE",
-] as const;
-
-const snapshot: Record<string, string | undefined> = {};
 const restores: Array<() => void> = [];
+let restoreEnv: (() => void) | null = null;
 
 async function setStoredMode(live: boolean): Promise<void> {
   const value = live ? "true" : "false";
@@ -82,7 +78,7 @@ function configureMatchingTestMode(accountId = "acct_expected"): { retrievals: s
   process.env.STRIPE_ACCOUNT_ID_TEST = accountId;
   const retrievals: string[] = [];
   restores.push(
-    __setAccountRetrieverForTests(async (secretKey) => {
+    stubAccountRetriever((secretKey) => {
       retrievals.push(secretKey);
       return accountId;
     }),
@@ -98,10 +94,7 @@ function configureMatchingTestMode(accountId = "acct_expected"): { retrievals: s
 // break them somewhere far from this file.
 describe("the Stripe account guard", () => {
 beforeEach(async () => {
-  for (const k of ENV_KEYS) {
-    snapshot[k] = process.env[k];
-    delete process.env[k];
-  }
+  restoreEnv = clearStripeEnv();
   __resetVerificationStateForTests();
   __resetStripeInitForTests();
   invalidateStripeSync();
@@ -110,10 +103,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   while (restores.length > 0) restores.pop()!();
-  for (const k of ENV_KEYS) {
-    if (snapshot[k] === undefined) delete process.env[k];
-    else process.env[k] = snapshot[k];
-  }
+  restoreEnv?.();
+  restoreEnv = null;
   __resetVerificationStateForTests();
   __resetStripeInitForTests();
   invalidateStripeSync();
@@ -126,7 +117,7 @@ describe("the guard classifies each outcome into its own class", () => {
     process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
     // STRIPE_ACCOUNT_ID_TEST deliberately unset.
     let retrievals = 0;
-    restores.push(__setAccountRetrieverForTests(async () => { retrievals++; return "acct_anything"; }));
+    restores.push(stubAccountRetriever(() => { retrievals++; return "acct_anything"; }));
 
     await assert.rejects(
       () => verifyStripeAccount({ liveMode: false, secretKey: "sk_test_x" }),
@@ -146,7 +137,7 @@ describe("the guard classifies each outcome into its own class", () => {
     process.env.STRIPE_SECRET_KEY_TEST = "sk_test_wrong_account";
     process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
-    restores.push(__setAccountRetrieverForTests(async () => "acct_someone_elses"));
+    restores.push(stubAccountRetriever(() => "acct_someone_elses"));
 
     await assert.rejects(
       () => verifyStripeAccount({ liveMode: false, secretKey: "sk_test_wrong_account" }),
@@ -170,7 +161,7 @@ describe("the guard classifies each outcome into its own class", () => {
     process.env.STRIPE_SECRET_KEY_TEST = "sk_test_x";
     process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
-    restores.push(__setAccountRetrieverForTests(async () => { throw new Error("ECONNREFUSED stripe.com"); }));
+    restores.push(stubAccountRetriever(() => { throw new Error("ECONNREFUSED stripe.com"); }));
 
     const outcome = await runStripeBootVerification();
     assert.equal(outcome.kind, "pending", "a Stripe outage must never take the site down");
@@ -186,7 +177,7 @@ describe("the guard classifies each outcome into its own class", () => {
     // own blast radius: the fix must not turn optional Stripe configuration
     // into a fatal boot dependency.
     let retrievals = 0;
-    restores.push(__setAccountRetrieverForTests(async () => { retrievals++; return "acct_x"; }));
+    restores.push(stubAccountRetriever(() => { retrievals++; return "acct_x"; }));
 
     const outcome = await runStripeBootVerification();
     assert.equal(outcome.kind, "unconfigured");
@@ -236,7 +227,7 @@ describe("the account read is Stripe's answer, never local state", () => {
     process.env.STRIPE_SECRET_KEY_TEST = "sk_test_wrong";
     process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
-    restores.push(__setAccountRetrieverForTests(async () => "acct_other"));
+    restores.push(stubAccountRetriever(() => "acct_other"));
 
     // Guarding sync construction alone passes almost every other test in this
     // file and still hands checkout and the admin mutation routes a
@@ -255,7 +246,7 @@ describe("the memo caches successes only", () => {
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
     let calls = 0;
     restores.push(
-      __setAccountRetrieverForTests(async () => {
+      stubAccountRetriever(() => {
         calls++;
         if (calls === 1) throw new Error("503 from Stripe");
         return "acct_expected";
@@ -283,7 +274,7 @@ describe("retrieval is single-flight and interval-bound behind the public webhoo
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
     let calls = 0;
     restores.push(
-      __setAccountRetrieverForTests(async () => {
+      stubAccountRetriever(async () => {
         calls++;
         await new Promise((r) => setTimeout(r, 20));
         return "acct_expected";
@@ -305,7 +296,7 @@ describe("retrieval is single-flight and interval-bound behind the public webhoo
     process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
     let calls = 0;
-    restores.push(__setAccountRetrieverForTests(async () => { calls++; throw new Error("network down"); }));
+    restores.push(stubAccountRetriever(() => { calls++; throw new Error("network down"); }));
 
     for (let i = 0; i < 25; i++) {
       await assert.rejects(
@@ -323,6 +314,56 @@ describe("retrieval is single-flight and interval-bound behind the public webhoo
       (err: Error) => err instanceof StripeUnverifiedError,
     );
     assert.equal(calls, 2, "a forced attempt bypasses the throttle");
+  });
+
+  it("the throttle preserves a CONFIRMED mismatch instead of flattening it", async () => {
+    // Twice now, a throttle written as "refuse without asking Stripe" answered
+    // with the indefinite error for a mode whose account is definitely wrong —
+    // the same conflation of definite and indefinite this whole guard exists to
+    // end, reintroduced inside the mechanism protecting it. Both the internal
+    // window and the construction boundary's earlier check answer from one
+    // implementation, and this is what pins that.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_wrong";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
+    restores.push(stubAccountRetriever(() => "acct_someone_elses"));
+
+    await assert.rejects(
+      () => verifyStripeAccount({ liveMode: false, secretKey: "sk_test_wrong" }),
+      (err: Error) => err instanceof StripeAccountMismatchError,
+    );
+    // Inside the window, through both entry points.
+    await assert.rejects(
+      () => verifyStripeAccount({ liveMode: false, secretKey: "sk_test_wrong" }),
+      (err: Error) => err instanceof StripeAccountMismatchError,
+    );
+    await assert.rejects(
+      () => getStripeSync(),
+      (err: Error) => err instanceof StripeAccountMismatchError,
+    );
+  });
+
+  it("a flood during an unverified window costs no database read per request", async () => {
+    // The Stripe call is not the only amplification vector on the one route the
+    // rate limiter exempts: the strict mode read is an uncached row select, so a
+    // throttle that bites only at the Stripe call still converts forged requests
+    // 1:1 into queries against a 2-connection pool for the whole outage.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
+    restores.push(stubAccountRetriever(() => { throw new Error("network down"); }));
+
+    await assert.rejects(() => getStripeSync(), (err: Error) => err instanceof StripeUnverifiedError);
+    const readsAfterFirst = __strictModeReadsForTests();
+
+    for (let i = 0; i < 25; i++) {
+      await assert.rejects(() => getStripeSync(), (err: Error) => err instanceof StripeUnverifiedError);
+    }
+    assert.equal(
+      __strictModeReadsForTests(),
+      readsAfterFirst,
+      "25 further calls inside the throttle window must issue no direct-row read",
+    );
   });
 });
 
@@ -343,7 +384,7 @@ describe("the mode read behind the guard", () => {
 
     const verifiedModes: boolean[] = [];
     restores.push(
-      __setAccountRetrieverForTests(async (secretKey) => {
+      stubAccountRetriever((secretKey) => {
         verifiedModes.push(secretKey === "sk_live_correct");
         return secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_test_expected";
       }),
@@ -374,7 +415,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
     let calls = 0;
     restores.push(
-      __setAccountRetrieverForTests(async () => {
+      stubAccountRetriever(() => {
         calls++;
         if (calls === 1) throw new Error("Stripe unreachable");
         return "acct_expected";
@@ -417,7 +458,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_expected";
     let calls = 0;
     restores.push(
-      __setAccountRetrieverForTests(async () => {
+      stubAccountRetriever(() => {
         calls++;
         if (calls === 1) throw new Error("Stripe unreachable");
         return "acct_someone_elses";
@@ -452,18 +493,13 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
 });
 
 describe("the wire contract the frontend branches on", () => {
-  it("the client-visible code is identical on both sides of the boundary", () => {
-    // Duplicated across packages by necessity; checked here so a rename on
-    // either side fails the suite instead of quietly turning the frontend's
-    // 503 branch into dead code.
-    const here = dirname(fileURLToPath(import.meta.url));
-    const frontend = readFileSync(
-      resolve(here, "../../../overhype-me/src/pages/admin/stripeVerification.ts"),
-      "utf8",
-    );
-    const match = /export const STRIPE_UNVERIFIED_CODE = "([^"]+)"/.exec(frontend);
-    assert.ok(match, "the frontend must declare STRIPE_UNVERIFIED_CODE");
-    assert.equal(match[1], STRIPE_UNVERIFIED_CODE);
+  it("the client-visible code comes from the shared contract, not a copy", () => {
+    // This used to be a test that read the frontend file as TEXT and regexed it
+    // for the literal — a mechanism maintained in place of an import. Both sides
+    // now import `@workspace/api-zod`, so the type-checker enforces it and this
+    // only has to pin that the error class did not grow a local literal.
+    assert.equal(new StripeUnverifiedError("x", false).code, SHARED_STRIPE_UNVERIFIED_CODE);
+    assert.equal(new StripeUnverifiedError("x", false).clientMessage, SHARED_STRIPE_UNVERIFIED_CLIENT_MESSAGE);
   });
 
   it("a refusal's client-safe message carries no account identifier", () => {

@@ -12,8 +12,20 @@ import {
   type VerificationSnapshot,
 } from "./stripeVerification";
 
-/** Fast enough that a recovery is visible while an operator is still looking. */
+/** Fast enough that a change is visible while an operator is still looking. */
 export const VERIFICATION_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Once nothing is changing, back off to the server's own retry cadence.
+ *
+ * The server re-attempts verification every 30s, so a recovery cannot surface
+ * faster than that however often the page asks — and the endpoint it asks is
+ * the admin summary, which runs a filtered tier-count aggregate over `users`
+ * plus two webhook-audit queries. Polling that every 5s for the duration of a
+ * Stripe outage, which is exactly when this panel is being watched, is load
+ * bought for nothing.
+ */
+export const VERIFICATION_SETTLED_POLL_INTERVAL_MS = 30_000;
 
 export interface StripeVerificationStatusProps {
   /**
@@ -22,7 +34,14 @@ export interface StripeVerificationStatusProps {
    * endpoint it already fetches.
    */
   fetchStatus: () => Promise<VerificationSnapshot | null>;
+  /**
+   * A sample the page already has — the summary fetch it performs on mount
+   * carries this field, so seeding it here avoids a second request for a value
+   * already in hand.
+   */
+  initial?: VerificationSnapshot | null;
   pollIntervalMs?: number;
+  settledPollIntervalMs?: number;
 }
 
 /**
@@ -38,45 +57,65 @@ export interface StripeVerificationStatusProps {
  */
 export function StripeVerificationStatus({
   fetchStatus,
+  initial = null,
   pollIntervalMs = VERIFICATION_POLL_INTERVAL_MS,
+  settledPollIntervalMs = VERIFICATION_SETTLED_POLL_INTERVAL_MS,
 }: StripeVerificationStatusProps) {
-  const [poll, setPoll] = useState<VerificationPollState>(EMPTY_POLL_STATE);
+  const [poll, setPoll] = useState<VerificationPollState>(() =>
+    initial ? recordObservation(EMPTY_POLL_STATE, initial) : EMPTY_POLL_STATE,
+  );
+
   /**
-   * A ref, not state, and that matters: `setStarted(true)` would re-render
-   * immediately, tearing down this effect and cancelling the very first sample
-   * before it resolved — so the panel would render nothing at all.
+   * The loop reads the latest state through a ref rather than through the
+   * effect's dependencies. Depending on `poll` would tear the effect down and
+   * rebuild it on every sample, which needs a second guard to stop the teardown
+   * from cancelling the very first request — and getting that wrong renders
+   * nothing at all.
    */
-  const startedRef = useRef(false);
+  const pollRef = useRef(poll);
+  pollRef.current = poll;
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleNext = () => {
+      if (cancelled || !shouldKeepPolling(pollRef.current)) return;
+      const delay = pollRef.current.quietPolls > 0 ? settledPollIntervalMs : pollIntervalMs;
+      timer = setTimeout(() => void sample(), delay);
+    };
+
     const sample = async () => {
+      let next: VerificationPollState;
       try {
         const observation = await fetchStatus();
-        if (cancelled || !observation) return;
-        setPoll((previous) => recordObservation(previous, observation));
+        if (cancelled) return;
+        next = observation
+          ? recordObservation(pollRef.current, observation)
+          : { ...pollRef.current, quietPolls: pollRef.current.quietPolls + 1 };
       } catch {
         // A failed fetch is not information about the guard. Count it as a quiet
         // poll so the settle window still closes, and report nothing.
         if (cancelled) return;
-        setPoll((previous) => ({ ...previous, quietPolls: previous.quietPolls + 1 }));
+        next = { ...pollRef.current, quietPolls: pollRef.current.quietPolls + 1 };
       }
+      pollRef.current = next;
+      setPoll(next);
+      scheduleNext();
     };
 
-    if (!startedRef.current) {
-      startedRef.current = true;
-      void sample();
-      return () => { cancelled = true; };
-    }
+    // `initial`, when the page had one, is already recorded — so the first
+    // request here is a poll, not a duplicate of the fetch that produced it.
+    if (initial) scheduleNext();
+    else void sample();
 
-    if (!shouldKeepPolling(poll)) return () => { cancelled = true; };
-
-    const timer = setTimeout(() => { void sample(); }, pollIntervalMs);
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
     };
-  }, [poll, fetchStatus, pollIntervalMs]);
+    // Mount-scoped on purpose: the loop owns its own scheduling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const state = worstObservedState(poll);
   if (state === null) return null;

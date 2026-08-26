@@ -1,7 +1,8 @@
 /**
  * The guard's typed errors, in their own module so both the guard and the
  * shared payment-error responder can `instanceof` them without an import
- * cycle. Nothing here imports anything — that is the point.
+ * cycle. It reaches nothing in this package — that is the point; its only
+ * import is the client-facing contract, which is a leaf.
  *
  * Three classes, one per outcome the plan separates, because conflating any
  * two of them is the failure this workstream exists to prevent:
@@ -15,6 +16,11 @@
  *     timeout, a 5xx, a rejected key, the mode unreadable. NEVER fatal. The
  *     server boots, payment paths refuse, verification retries.
  *
+ * Which of them is DEFINITE is asked in three places (the boot phase, the retry
+ * pass, and the mode-toggle route), so it is answered once here by
+ * `isDefiniteVerificationFailure`. Adding a fourth class and forgetting one of
+ * those call sites would silently classify it as indefinite in that one place.
+ *
  * Both fatal classes are also thrown post-boot, where they are NOT fatal — the
  * process stays up and the payment path refuses (settled decision 6, and the
  * post-boot behavior recorded as gap 4 at plan approval). Fatality is a
@@ -22,16 +28,12 @@
  * errors carry.
  */
 
-/** Discriminator carried to the client so a caller can branch without parsing prose. */
-export const STRIPE_UNVERIFIED_CODE = "stripe_account_unverified";
+import {
+  STRIPE_UNVERIFIED_CLIENT_MESSAGE,
+  STRIPE_UNVERIFIED_CODE,
+} from "@workspace/api-zod";
 
-/**
- * The client-safe message. It names the condition and, deliberately, no
- * account ids, no key names and no environment variables — this string reaches
- * end users on the checkout path.
- */
-export const STRIPE_UNVERIFIED_CLIENT_MESSAGE =
-  "Payments are temporarily unavailable while we verify our payment provider connection. No charge was made. Please try again shortly.";
+export { STRIPE_UNVERIFIED_CLIENT_MESSAGE, STRIPE_UNVERIFIED_CODE };
 
 /**
  * Base class so one `instanceof` covers every refusal the guard can produce.
@@ -69,3 +71,19 @@ export class StripeExpectedAccountMissingError extends StripeVerificationError {
 
 /** An indefinite answer — Stripe unreachable, a timeout, a 5xx, a rejected key. */
 export class StripeUnverifiedError extends StripeVerificationError {}
+
+/**
+ * True when Stripe (or the environment) has given a DEFINITE wrong answer, as
+ * opposed to "could not tell".
+ *
+ * The distinction is the whole availability posture: a definite answer is fatal
+ * at boot and stops the retry loop asking again, while every indefinite one
+ * boots without payments and retries. Conflating them in either direction is
+ * the failure this workstream exists to end.
+ */
+export function isDefiniteVerificationFailure(err: unknown): boolean {
+  return (
+    err instanceof StripeAccountMismatchError ||
+    err instanceof StripeExpectedAccountMissingError
+  );
+}

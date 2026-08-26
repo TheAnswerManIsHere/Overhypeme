@@ -105,19 +105,24 @@ describe("the polling rule accounts for there being more than one instance", () 
 
 describe("the rendered status surface", () => {
   it("test 16 — pending becomes verified without a manual refresh", async () => {
-    const answers: VerificationSnapshot[] = [
-      snap({ instanceId: "inst-1", state: "pending", reason: "Stripe unreachable" }),
-      snap({ instanceId: "inst-1", state: "verified", reason: null }),
-    ];
-    let call = 0;
-    const fetchStatus = vi.fn(async () => answers[Math.min(call++, answers.length - 1)]!);
+    // The server recovers only once the test has observed `pending`, so the
+    // transition is genuinely rendered by the component's own polling rather
+    // than raced past by a fast fixture.
+    let recovered = false;
+    const fetchStatus = vi.fn(async () =>
+      recovered
+        ? snap({ instanceId: "inst-1", state: "verified", reason: null })
+        : snap({ instanceId: "inst-1", state: "pending", reason: "Stripe unreachable" }),
+    );
 
-    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} />);
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("pending");
     });
     expect(screen.getByText(/Stripe unreachable/)).toBeTruthy();
+
+    recovered = true;
 
     // No refresh, no click, no remount — the page's own polling renders it.
     await waitFor(() => {
@@ -128,7 +133,7 @@ describe("the rendered status surface", () => {
 
   it("test 18 — an unconfigured integration renders as not-configured and is NOT polled", async () => {
     const fetchStatus = vi.fn(async () => snap({ instanceId: "inst-1", state: "unconfigured", reason: "no keys" }));
-    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} />);
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("unconfigured");
@@ -148,12 +153,52 @@ describe("the rendered status surface", () => {
     const fetchStatus = vi.fn(async () =>
       snap({ instanceId: "9f8e7d6c-1111-2222-3333-444455556666", state: "verified" }),
     );
-    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} />);
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("stripe-verification").getAttribute("data-instances")).toBe("1");
     });
     expect(screen.getByText(/9f8e7d6c/)).toBeTruthy();
+    cleanup();
+  });
+
+  it("a first fetch that fails keeps trying instead of rendering nothing forever", async () => {
+    // The panel exists to SHOW a state rather than log it, so a transport
+    // failure on the first sample must not silently leave the operator with a
+    // blank space — and `shouldKeepPolling` returns false on an empty
+    // observation set, which is exactly what that would have produced.
+    let call = 0;
+    const fetchStatus = vi.fn(async () => {
+      call++;
+      if (call === 1) throw new Error("network");
+      return snap({ instanceId: "inst-1", state: "refused", reason: "wrong account" });
+    });
+
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} pollIntervalMs={1} settledPollIntervalMs={1} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("refused");
+    });
+    cleanup();
+  });
+
+  it("a seeded initial sample renders without a second fetch", async () => {
+    // The page's own summary fetch already carries this field; re-requesting it
+    // on mount would double the load on the heaviest admin endpoint.
+    const fetchStatus = vi.fn(async () => snap({ instanceId: "inst-1", state: "verified" }));
+    render(
+      <StripeVerificationStatus
+        fetchStatus={fetchStatus}
+        initial={snap({ instanceId: "inst-1", state: "verified" })}
+        pollIntervalMs={10_000}
+        settledPollIntervalMs={10_000}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("verified");
+    });
+    expect(fetchStatus).not.toHaveBeenCalled();
     cleanup();
   });
 });

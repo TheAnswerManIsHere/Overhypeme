@@ -16,6 +16,7 @@
  *   - After admin PATCH: bustConfigCache() sets _cache = null → next read re-fetches
  */
 
+import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { adminConfigTable, type AdminConfig } from "@workspace/db/schema";
 
@@ -181,6 +182,38 @@ export async function getConfigStringRaw(key: string, defaultValue: string): Pro
   } catch {
     return defaultValue;
   }
+}
+
+/**
+ * Read one config value STRICTLY: no cache, no TTL, and no default on failure.
+ *
+ * The fourth sibling in this family, and the two things that make it different
+ * are the two hazards its caller could not survive:
+ *
+ *   - **It propagates.** `getConfigStringRaw` answers with its default for both
+ *     "the stored value is that" and "the lookup threw", so a gate reading its
+ *     precondition through it cannot tell a stored value from a failure.
+ *   - **It does not touch `loadAll()`.** That cache has no in-flight tracking,
+ *     so a read started before a write can complete after `bustConfigCache()`
+ *     and repopulate the cache with pre-write rows for another ~60 seconds
+ *     (documented at `docs/engineering/deferred-work.md:500-506`). A reader that
+ *     must not act on a superseded value therefore has to go to the row.
+ *
+ * This is a targeted bypass for callers that need it, NOT a fix for the cache:
+ * the single-flight repair for `loadAll()` is its own tracked work, and every
+ * other reader still goes through the cache with its documented behavior. One
+ * query per call, so use it where calls are bounded — not on a hot path.
+ *
+ * Returns `undefined` when the row is absent, which is a readable answer; a
+ * failed lookup throws.
+ */
+export async function getConfigStringStrict(key: string): Promise<string | undefined> {
+  const rows = await db
+    .select({ value: adminConfigTable.value })
+    .from(adminConfigTable)
+    .where(eq(adminConfigTable.key, key))
+    .limit(1);
+  return rows[0]?.value;
 }
 
 /**

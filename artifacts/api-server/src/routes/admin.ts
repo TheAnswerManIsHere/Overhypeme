@@ -2745,6 +2745,61 @@ router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) =
   }
 });
 
+/**
+ * Verify the account behind the TARGET mode's credential before the stored mode
+ * is written. Returns a refusal to send, or null to proceed.
+ *
+ * Verify-before-write is the only permitted shape here, and the alternative is
+ * not merely less tidy — it is unsafe. The update below is
+ * `.set(patch).where(eq(adminConfigTable.key, key))`: keyed on the config key
+ * alone, with no row version and no expected prior value. So a
+ * write-then-roll-back on refusal has no compare-and-swap to roll back against:
+ * with two admins toggling, request A writes an invalid target, request B
+ * writes a valid one and succeeds, then A's verification fails and A restores
+ * the value it remembered — silently undoing B's successful change. The guard
+ * would have manufactured the mode inconsistency it exists to prevent. And in
+ * the window between write and rollback the stored mode names an unverified
+ * target, so payment requests reading it are refused.
+ *
+ * Nothing is committed that has to be taken back: the stored mode changes only
+ * if the target mode's account verifies.
+ *
+ * This is a UX gate, not the safety mechanism — safety lives at the client
+ * construction boundary, which refuses whatever this route does. What it buys
+ * is an operator who is told the toggle failed, and why, instead of one who
+ * sees a successful toggle and payments that quietly stop working.
+ */
+async function refuseUnverifiedStripeModeToggle(
+  targetLiveMode: boolean,
+): Promise<{ status: number; error: string } | null> {
+  const { getStripeSecretKey } = await import("../lib/stripeClient");
+  const { verifyStripeAccount } = await import("../lib/stripeAccountGuard");
+  const { isDefiniteVerificationFailure } = await import("../lib/stripeVerificationErrors");
+
+  let targetSecretKey: string;
+  try {
+    targetSecretKey = await getStripeSecretKey(targetLiveMode);
+  } catch (err) {
+    // The target mode has no credentials. Refuse rather than switch payments
+    // into a mode that cannot work; the message already names the variable.
+    return { status: 400, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  try {
+    await verifyStripeAccount({ liveMode: targetLiveMode, secretKey: targetSecretKey, force: true });
+    return null;
+  } catch (err) {
+    // This is an admin-only route, so the operator gets the diagnostic message
+    // — which names both account ids and the variable to correct, and is the
+    // whole value of the refusal. It is not the string end users ever see.
+    logger.error({ err, targetLiveMode }, "[admin] refused stripe_live_mode toggle — target account not verified");
+    return {
+      status: isDefiniteVerificationFailure(err) ? 409 : 503,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Response) => {
   const key = String(req.params["key"]);
 
@@ -2945,54 +3000,13 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     updatedById: req.user?.id ?? null,
   };
 
-  // ── The Stripe mode toggle verifies BEFORE it writes ───────────────────────
-  //
-  // Verify-before-write is the only permitted shape here, and the alternative
-  // is not merely less tidy — it is unsafe. This route's update is
-  // `.set(patch).where(eq(adminConfigTable.key, key))`: keyed on the config key
-  // alone, with no row version and no expected prior value. So a write-then-roll-
-  // back on refusal has no compare-and-swap to roll back against: with two
-  // admins toggling, request A writes an invalid target, request B writes a
-  // valid one and succeeds, then A's verification fails and A restores the value
-  // it remembered — silently undoing B's successful change. The guard would have
-  // manufactured the mode inconsistency it exists to prevent. And in the window
-  // between write and rollback the stored mode names an unverified target, so
-  // payment requests reading it are refused.
-  //
-  // Nothing is committed that has to be taken back: the stored mode changes only
-  // if the target mode's account verifies.
+  // The Stripe mode toggle verifies BEFORE it writes — see
+  // refuseUnverifiedStripeModeToggle below, and the post-write invalidate +
+  // resync for this same key further down this handler.
   if (key === "stripe_live_mode" && newValue !== undefined) {
-    const targetLiveMode = newValue === "true";
-    const { getStripeSecretKey } = await import("../lib/stripeClient");
-    const { verifyStripeAccount } = await import("../lib/stripeAccountGuard");
-    const {
-      StripeAccountMismatchError,
-      StripeExpectedAccountMissingError,
-    } = await import("../lib/stripeVerificationErrors");
-
-    let targetSecretKey: string;
-    try {
-      targetSecretKey = await getStripeSecretKey(targetLiveMode);
-    } catch (err) {
-      // The target mode has no credentials. Refuse rather than switch payments
-      // into a mode that cannot work; the message already names the variable.
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
-      return;
-    }
-
-    try {
-      await verifyStripeAccount({ liveMode: targetLiveMode, secretKey: targetSecretKey, force: true });
-    } catch (err) {
-      // This is an admin-only route, so the operator gets the diagnostic message
-      // — which names both account ids and the variable to correct, and is the
-      // whole value of the refusal. It is not the string end users ever see.
-      const definite =
-        err instanceof StripeAccountMismatchError ||
-        err instanceof StripeExpectedAccountMissingError;
-      logger.error({ err, targetLiveMode }, "[admin] refused stripe_live_mode toggle — target account not verified");
-      res.status(definite ? 409 : 503).json({
-        error: err instanceof Error ? err.message : String(err),
-      });
+    const refusal = await refuseUnverifiedStripeModeToggle(newValue === "true");
+    if (refusal) {
+      res.status(refusal.status).json({ error: refusal.error });
       return;
     }
   }
@@ -3329,23 +3343,21 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     // named gap, not an implied capability.
     const { getVerificationStatus, readStripeLiveModeStrict } = await import("../lib/stripeAccountGuard");
     const { WORKER_INSTANCE_ID } = await import("../lib/workerHeartbeats");
-    let verificationLiveMode: boolean | null = null;
-    try {
-      verificationLiveMode = await readStripeLiveModeStrict();
-    } catch {
-      // Unreadable mode is itself an indefinite answer; getVerificationStatus
-      // renders it as pending with that reason rather than guessing a mode.
-      verificationLiveMode = null;
-    }
-    const verification = getVerificationStatus(verificationLiveMode, WORKER_INSTANCE_ID);
 
-    const [duplicateSuppressedRows, recentFailures] = await Promise.all([
+    const [duplicateSuppressedRows, recentFailures, verificationLiveMode] = await Promise.all([
       db.select({ cnt: sql<number>`count(*)::int` }).from(stripeWebhookAuditTable).where(eq(stripeWebhookAuditTable.state, "ignored_duplicate")),
       db.select().from(stripeWebhookAuditTable)
         .where(eq(stripeWebhookAuditTable.state, "failed"))
         .orderBy(desc(stripeWebhookAuditTable.createdAt))
         .limit(20),
+      // Nothing above depends on this, so it rides along rather than adding a
+      // third serial round-trip to an endpoint the Billing page polls. An
+      // unreadable mode is itself an indefinite answer: getVerificationStatus
+      // renders null as pending with that reason rather than guessing a mode.
+      readStripeLiveModeStrict().catch(() => null),
     ]);
+
+    const verification = getVerificationStatus(verificationLiveMode, WORKER_INSTANCE_ID);
 
     res.json({
       activeSubscribers: tierCounts?.legendary ?? 0,

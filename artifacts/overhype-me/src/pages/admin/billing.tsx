@@ -567,7 +567,11 @@ export default function AdminBilling() {
           {/* Keyed on the stored mode: a toggle makes every instance's
               verification state for the NEW mode unobserved, so the samples
               taken for the old one are dropped rather than carried over. */}
-          <StripeVerificationStatus key={String(liveMode)} fetchStatus={fetchVerificationStatus} />
+          <StripeVerificationStatus
+            key={String(liveMode)}
+            initial={summary?.verification ?? null}
+            fetchStatus={fetchVerificationStatus}
+          />
         </div>
 
         {/* Stripe Connection */}

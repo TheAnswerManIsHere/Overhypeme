@@ -39,10 +39,7 @@ import {
   readStripeLiveModeStrict,
   verifyStripeAccount,
 } from "./stripeAccountGuard.js";
-import {
-  StripeAccountMismatchError,
-  StripeExpectedAccountMissingError,
-} from "./stripeVerificationErrors.js";
+import { isDefiniteVerificationFailure } from "./stripeVerificationErrors.js";
 import { getStripeSecretKey } from "./stripeClient.js";
 
 export type StripeBootOutcome =
@@ -76,7 +73,13 @@ export interface StripeInitDeps {
   getSiteBaseUrl: () => string;
 }
 
-const productionDeps: StripeInitDeps = {
+/**
+ * `getSiteBaseUrl` is absent here rather than stubbed: it is resolved by an
+ * `await import` at the one call site, and a placeholder that throws would look
+ * like a production implementation while being unreachable — a trap for the next
+ * caller, who would get a runtime throw instead of a type error.
+ */
+const productionDeps: Omit<StripeInitDeps, "getSiteBaseUrl"> = {
   runSyncMigrations: async (opts) => {
     const { runMigrations } = await import("stripe-replit-sync");
     return runMigrations(opts);
@@ -84,10 +87,6 @@ const productionDeps: StripeInitDeps = {
   getSync: async () => {
     const { getStripeSync } = await import("./stripeClient");
     return getStripeSync();
-  },
-  getSiteBaseUrl: () => {
-    // Resolved lazily and synchronously at the call site below.
-    throw new Error("getSiteBaseUrl must be resolved before use");
   },
 };
 
@@ -211,11 +210,8 @@ export async function runStripeBootVerification(): Promise<StripeBootOutcome> {
     await withBootTimeout(verifyStripeAccount({ liveMode, secretKey, force: true }));
     return { kind: "verified", liveMode };
   } catch (err) {
-    if (
-      err instanceof StripeAccountMismatchError ||
-      err instanceof StripeExpectedAccountMissingError
-    ) {
-      return { kind: "fatal", reason: err.message };
+    if (isDefiniteVerificationFailure(err)) {
+      return { kind: "fatal", reason: err instanceof Error ? err.message : String(err) };
     }
     const reason = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Stripe account could not be verified — booting with payments refused");
@@ -245,6 +241,16 @@ export function stopStripeVerificationRetry(): void {
  * waiting on a real interval.
  */
 export async function runStripeVerificationRetryOnce(): Promise<void> {
+  // Cheap skip first, on the cached mode. A mode whose refusal is deterministic
+  // cannot change answer without an environment change, so re-deriving it every
+  // 30 seconds for the life of the process — in every autoscale instance — buys
+  // nothing, and the strict read that would tell us the mode is itself an
+  // uncached query. `bustConfigCache()` runs on the toggle, so a mode change
+  // still reaches this read promptly and recovery-by-toggle keeps working; that
+  // is why the timer is left ARMED rather than stopped here.
+  const { isLiveMode } = await import("./stripeClient.js");
+  if (deterministicallyRefusedModes.has((await isLiveMode()) ? "live" : "test")) return;
+
   let liveMode: boolean;
   try {
     liveMode = await readStripeLiveModeStrict();
@@ -267,10 +273,7 @@ export async function runStripeVerificationRetryOnce(): Promise<void> {
   try {
     await verifyStripeAccount({ liveMode, secretKey, force: true });
   } catch (err) {
-    if (
-      err instanceof StripeAccountMismatchError ||
-      err instanceof StripeExpectedAccountMissingError
-    ) {
+    if (isDefiniteVerificationFailure(err)) {
       // Post-boot, a confirmed wrong account does NOT kill the server: the
       // process stays up and payments stay refused, loudly. Fatality is
       // boot-only — a PATCH or a retry must never terminate a healthy server.

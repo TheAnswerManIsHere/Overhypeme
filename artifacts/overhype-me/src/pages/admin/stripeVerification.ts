@@ -23,32 +23,10 @@
  * may not add; this is the honest per-instance mechanism in its place.
  */
 
-/**
- * The discriminator the API sends on a refused payment request.
- *
- * **This literal is duplicated across the client/server boundary**, and the
- * duplication is checked rather than trusted: `stripeAccountGuard.test.ts`
- * reads this file and asserts it matches
- * `api-server/src/lib/stripeVerificationErrors.ts`, so a rename on one side
- * fails the suite instead of silently turning the branch that depends on it
- * into dead code.
- */
-export const STRIPE_UNVERIFIED_CODE = "stripe_account_unverified";
+import type { StripeVerificationSnapshot, StripeVerificationState } from "@workspace/api-zod";
 
-/** Used only if the server sends the code with no message. */
-export const STRIPE_UNVERIFIED_FALLBACK_MESSAGE =
-  "Payments are temporarily unavailable while we verify our payment provider connection. No charge was made. Please try again shortly.";
-
-export type VerificationState = "unconfigured" | "pending" | "verified" | "refused";
-
-export interface VerificationSnapshot {
-  state: VerificationState;
-  mode: "live" | "test" | null;
-  reason: string | null;
-  lastAttemptAt: string | null;
-  instanceId: string;
-  scope: "instance";
-}
+export type VerificationState = StripeVerificationState;
+export type VerificationSnapshot = StripeVerificationSnapshot;
 
 export interface VerificationPollState {
   byInstance: Record<string, VerificationSnapshot>;
@@ -83,7 +61,14 @@ function observations(state: VerificationPollState): VerificationSnapshot[] {
 
 export function shouldKeepPolling(state: VerificationPollState): boolean {
   const seen = observations(state);
-  if (seen.length === 0) return false;
+  if (seen.length === 0) {
+    // Nothing observed yet. `quietPolls > 0` means a fetch was attempted and
+    // failed — a failed fetch is not information about the guard, so keep
+    // trying for the settle window rather than giving up: stopping here would
+    // render nothing at all, for the lifetime of the mount, and the state the
+    // panel exists to show would be silently absent.
+    return state.quietPolls > 0 && state.quietPolls < SETTLE_CONFIRM_POLLS;
+  }
 
   // Terminal and deliberately unpolled: an integration nobody enabled is not a
   // fault and is not recovering. Polling it forever would render an intentional

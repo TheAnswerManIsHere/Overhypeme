@@ -59,19 +59,20 @@
  */
 
 import { createHash } from "node:crypto";
-import Stripe from "stripe";
-import { eq } from "drizzle-orm";
-import { db } from "@workspace/db";
-import { adminConfigTable } from "@workspace/db/schema";
+import type { StripeVerificationSnapshot, StripeVerificationState } from "@workspace/api-zod";
+import { getConfigStringStrict } from "./adminConfig.js";
+import { STRIPE_REQUEST_TIMEOUT_MS } from "./membershipTiming.js";
 import { logger } from "./logger";
 import {
-  STRIPE_MAX_NETWORK_RETRIES,
-  STRIPE_REQUEST_TIMEOUT_MS,
-} from "./membershipTiming.js";
+  createRawStripeClient,
+  stripeAccountVarFor,
+  stripeSecretVarFor,
+} from "./stripeRawClient.js";
 import {
   StripeAccountMismatchError,
   StripeExpectedAccountMissingError,
   StripeUnverifiedError,
+  StripeVerificationError,
 } from "./stripeVerificationErrors.js";
 
 /**
@@ -88,30 +89,7 @@ export const VERIFY_RETRY_INTERVAL_MS = 30_000;
 /** Ceiling on the awaited boot attempt, so a Stripe outage delays boot by at most this. */
 export const BOOT_VERIFY_TIMEOUT_MS = STRIPE_REQUEST_TIMEOUT_MS + 2_000;
 
-export type StripeVerificationState =
-  | "unconfigured"
-  | "pending"
-  | "verified"
-  | "refused";
-
-export interface StripeVerificationStatus {
-  state: StripeVerificationState;
-  /** "live" | "test", or null when the mode itself could not be read. */
-  mode: "live" | "test" | null;
-  /** Operator-facing reason for a non-verified state. Never carries a secret. */
-  reason: string | null;
-  lastAttemptAt: string | null;
-  /**
-   * The responding process. The deployment is `autoscale` with the server in
-   * every instance (`.replit:29`, `architecture-map.md:227-230`), so this value
-   * is process-local and the summary endpoint answers from whichever instance
-   * the router picked. Labelling it is not decoration: an unlabelled value would
-   * let one healthy instance report recovery for a fleet that has not recovered.
-   */
-  instanceId: string;
-  /** Always "instance". A fleet aggregate needs shared state and is out of scope. */
-  scope: "instance";
-}
+export type { StripeVerificationSnapshot, StripeVerificationState } from "@workspace/api-zod";
 
 /** Per-mode state. Verification state is per mode, never one global flag. */
 interface ModeState {
@@ -183,31 +161,16 @@ export function __strictModeReadsForTests(): number {
 
 export async function readStripeLiveModeStrict(): Promise<boolean> {
   strictModeReads++;
-  const rows = await db
-    .select({ value: adminConfigTable.value })
-    .from(adminConfigTable)
-    .where(eq(adminConfigTable.key, "stripe_live_mode"))
-    .limit(1);
   // An absent row is a readable answer, not a failure: the seed has never run
   // or the key was removed, and both mean "not live". A read that THREW is what
-  // must not resolve to a mode, and it propagates.
-  return rows[0]?.value === "true";
+  // must not resolve to a mode, and `getConfigStringStrict` is the sibling of
+  // the cached getters that propagates rather than defaulting.
+  return (await getConfigStringStrict("stripe_live_mode")) === "true";
 }
 
 /** The account id this environment declares for a mode. */
 export function expectedAccountIdFor(liveMode: boolean): string | undefined {
-  return liveMode
-    ? process.env.STRIPE_ACCOUNT_ID_LIVE
-    : process.env.STRIPE_ACCOUNT_ID_TEST;
-}
-
-/** The env var name to name in a refusal, so an operator knows what to correct. */
-export function expectedAccountVarFor(liveMode: boolean): string {
-  return liveMode ? "STRIPE_ACCOUNT_ID_LIVE" : "STRIPE_ACCOUNT_ID_TEST";
-}
-
-function secretVarFor(liveMode: boolean): string {
-  return liveMode ? "STRIPE_SECRET_KEY_LIVE" : "STRIPE_SECRET_KEY_TEST";
+  return process.env[stripeAccountVarFor(liveMode)];
 }
 
 /**
@@ -215,11 +178,7 @@ function secretVarFor(liveMode: boolean): string {
  * Production always uses the real implementation below.
  */
 let retrieveAccountId: (secretKey: string) => Promise<string> = async (secretKey) => {
-  const stripe = new Stripe(secretKey, {
-    apiVersion: "2025-08-27.basil" as Stripe.LatestApiVersion,
-    timeout: STRIPE_REQUEST_TIMEOUT_MS,
-    maxNetworkRetries: STRIPE_MAX_NETWORK_RETRIES,
-  });
+  const stripe = createRawStripeClient(secretKey);
   // No argument: GET /v1/account, which resolves to the account behind THIS
   // key. Never `getAccountId()` — see point 1 in the module header.
   const account = await stripe.accounts.retrieve();
@@ -270,8 +229,8 @@ export async function verifyStripeAccount(params: {
     // environment never said which account they may touch. No Stripe call —
     // there is nothing a retrieval could tell us that changes this.
     const reason =
-      `${expectedAccountVarFor(liveMode)} is not set, but ${secretVarFor(liveMode)} is. ` +
-      `Set ${expectedAccountVarFor(liveMode)} to the account id these credentials belong to.`;
+      `${stripeAccountVarFor(liveMode)} is not set, but ${stripeSecretVarFor(liveMode)} is. ` +
+      `Set ${stripeAccountVarFor(liveMode)} to the account id these credentials belong to.`;
     setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
     throw new StripeExpectedAccountMissingError(reason, liveMode);
   }
@@ -285,20 +244,11 @@ export async function verifyStripeAccount(params: {
   }
 
   if (!force) {
-    const last = lastAttempt.get(key);
-    if (last !== undefined && Date.now() - last.at < VERIFY_THROTTLE_MS) {
-      // Interval-bound: one retrieval per mode+credential per window, however
-      // many callers arrive. The error is minted fresh each time and the entry
-      // expires without anyone clearing it.
-      if (last.definiteMismatchReason !== undefined) {
-        throw new StripeAccountMismatchError(last.definiteMismatchReason, liveMode);
-      }
-      throw new StripeUnverifiedError(
-        `Stripe account verification for ${modeName(liveMode)} mode was attempted less than ` +
-          `${VERIFY_THROTTLE_MS}ms ago and has not succeeded; not re-contacting Stripe yet.`,
-        liveMode,
-      );
-    }
+    // Interval-bound: one retrieval per mode+credential per window, however many
+    // callers arrive. The error is minted fresh each time and the entry expires
+    // without anyone clearing it.
+    const refusal = throttledRefusalFor(liveMode, secretKey);
+    if (refusal) throw refusal;
   }
 
   const attempt = (async () => {
@@ -321,9 +271,9 @@ export async function verifyStripeAccount(params: {
     if (actual !== expected) {
       // Definite. Stripe answered and the answer is wrong.
       const reason =
-        `STRIPE ACCOUNT MISMATCH — ${secretVarFor(liveMode)} belongs to account ${actual}, ` +
-        `but ${expectedAccountVarFor(liveMode)} declares ${expected}. ` +
-        `Correct ${secretVarFor(liveMode)} (or ${expectedAccountVarFor(liveMode)} if the declaration is wrong).`;
+        `STRIPE ACCOUNT MISMATCH — ${stripeSecretVarFor(liveMode)} belongs to account ${actual}, ` +
+        `but ${stripeAccountVarFor(liveMode)} declares ${expected}. ` +
+        `Correct ${stripeSecretVarFor(liveMode)} (or ${stripeAccountVarFor(liveMode)} if the declaration is wrong).`;
       setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
       lastAttempt.set(key, { at: Date.now(), definiteMismatchReason: reason });
       throw new StripeAccountMismatchError(reason, liveMode);
@@ -352,9 +302,44 @@ export function isAccountVerified(liveMode: boolean, secretKey: string): boolean
   return verified.has(memoKey(liveMode, secretKey));
 }
 
+/**
+ * The refusal to raise when an attempt for this mode+credential ran inside the
+ * throttle window and has not succeeded — or `null` when there is no reason to
+ * refuse without asking Stripe.
+ *
+ * **One implementation, used in two places**, and that is deliberate: the
+ * construction boundary calls it to refuse *before* paying for the strict,
+ * uncached mode read, and `verifyStripeAccount` calls it on the same window.
+ * Written twice, the second copy flattened a CONFIRMED mismatch into an
+ * indefinite answer — the same conflation of definite and indefinite this guard
+ * exists to end, reintroduced in the mechanism meant to protect it.
+ *
+ * Why the boundary needs the earlier refusal at all: `getStripeSync()` runs
+ * before signature validation on the one route the rate limiter exempts, so a
+ * throttle that bites only at the Stripe call still lets a forged flood drive
+ * one direct-row SELECT each, for the whole duration of an outage, against a
+ * 2-connection pool.
+ */
+export function throttledRefusalFor(
+  liveMode: boolean,
+  secretKey: string,
+): StripeVerificationError | null {
+  const key = memoKey(liveMode, secretKey);
+  if (verified.has(key)) return null;
+  const last = lastAttempt.get(key);
+  if (last === undefined || Date.now() - last.at >= VERIFY_THROTTLE_MS) return null;
+  if (last.definiteMismatchReason !== undefined) {
+    return new StripeAccountMismatchError(last.definiteMismatchReason, liveMode);
+  }
+  return new StripeUnverifiedError(
+    `Stripe account verification for ${modeName(liveMode)} mode was attempted less than ` +
+      `${VERIFY_THROTTLE_MS}ms ago and has not succeeded; not re-contacting Stripe yet.`,
+    liveMode,
+  );
+}
+
 /** Record the credentials-absent state, which is terminal and unpolled. */
-export function markModeUnconfigured(liveMode: boolean | null, reason: string): void {
-  if (liveMode === null) return;
+export function markModeUnconfigured(liveMode: boolean, reason: string): void {
   setModeState(liveMode, { state: "unconfigured", reason, lastAttemptAt: null });
 }
 
@@ -367,7 +352,7 @@ export function markModeUnconfigured(liveMode: boolean | null, reason: string): 
 export function getVerificationStatus(
   liveMode: boolean | null,
   instanceId: string,
-): StripeVerificationStatus {
+): StripeVerificationSnapshot {
   if (liveMode === null) {
     return {
       state: "pending",

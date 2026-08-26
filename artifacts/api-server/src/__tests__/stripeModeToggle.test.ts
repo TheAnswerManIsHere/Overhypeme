@@ -29,12 +29,12 @@ import { runScopedSync, isSyncRunning, _resetSyncRunnerForTests, type SyncRunner
 import { bustConfigCache, getConfigStringRaw } from "../lib/adminConfig.js";
 import {
   __resetVerificationStateForTests,
-  __setAccountRetrieverForTests,
   __strictModeReadsForTests,
   getVerificationStatus,
   isAccountVerified,
   readStripeLiveModeStrict,
 } from "../lib/stripeAccountGuard.js";
+import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import {
   __discardedBuildsForTests,
   __endCachedSyncForTests,
@@ -50,16 +50,8 @@ import {
 
 const USER_PREFIX = "tstripetoggle-";
 
-const ENV_KEYS = [
-  "STRIPE_SECRET_KEY_TEST",
-  "STRIPE_SECRET_KEY_LIVE",
-  "STRIPE_PUBLISHABLE_KEY_TEST",
-  "STRIPE_PUBLISHABLE_KEY_LIVE",
-  "STRIPE_ACCOUNT_ID_TEST",
-  "STRIPE_ACCOUNT_ID_LIVE",
-] as const;
-const snapshot: Record<string, string | undefined> = {};
 const restores: Array<() => void> = [];
+let restoreEnv: (() => void) | null = null;
 
 function makeApp(): Express {
   const app = express();
@@ -105,7 +97,7 @@ function configureTestValidLiveMismatched(): { retrievals: string[] } {
   process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
   const retrievals: string[] = [];
   restores.push(
-    __setAccountRetrieverForTests(async (secretKey) => {
+    stubAccountRetriever((secretKey) => {
       retrievals.push(secretKey);
       return secretKey === "sk_test_correct" ? "acct_test_expected" : "acct_someone_elses";
     }),
@@ -142,7 +134,7 @@ after(async () => {
 });
 
 beforeEach(async () => {
-  for (const k of ENV_KEYS) { snapshot[k] = process.env[k]; delete process.env[k]; }
+  restoreEnv = clearStripeEnv();
   __resetVerificationStateForTests();
   __resetStripeInitForTests();
   _resetSyncRunnerForTests();
@@ -152,9 +144,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   while (restores.length > 0) restores.pop()!();
-  for (const k of ENV_KEYS) {
-    if (snapshot[k] === undefined) delete process.env[k]; else process.env[k] = snapshot[k];
-  }
+  restoreEnv?.();
+  restoreEnv = null;
   __resetVerificationStateForTests();
   __resetStripeInitForTests();
   _resetSyncRunnerForTests();
@@ -264,7 +255,7 @@ describe("the mode toggle verifies BEFORE it writes", () => {
     process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
     // No live credentials at all.
-    restores.push(__setAccountRetrieverForTests(async () => "acct_test_expected"));
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
 
     const res = await request(makeApp())
       .patch("/admin/config/stripe_live_mode")
@@ -291,7 +282,7 @@ describe("the mode toggle verifies BEFORE it writes", () => {
 
     let liveAttempts = 0;
     restores.push(
-      __setAccountRetrieverForTests(async (secretKey) => {
+      stubAccountRetriever((secretKey) => {
         if (secretKey === "sk_test_correct") return "acct_test_expected";
         liveAttempts++;
         if (liveAttempts === 1) throw new Error("Stripe unreachable");
@@ -361,7 +352,7 @@ describe("the construction boundary is mode-coherent", () => {
     process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
     process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
-    restores.push(__setAccountRetrieverForTests(async () => "acct_test_expected"));
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
 
     const first = await getStripeSync();
     const readsAfterBuild = __strictModeReadsForTests();
@@ -385,7 +376,7 @@ describe("the construction boundary is mode-coherent", () => {
     let released: (() => void) | null = null;
     const firstRetrievalStarted = new Promise<void>((resolve) => {
       restores.push(
-        __setAccountRetrieverForTests(async () => {
+        stubAccountRetriever(async () => {
           if (released === null) {
             resolve();
             await new Promise<void>((r) => { released = r; });

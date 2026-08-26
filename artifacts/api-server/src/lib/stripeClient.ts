@@ -1,11 +1,12 @@
-import Stripe from "stripe";
-import {
-  STRIPE_MAX_NETWORK_RETRIES,
-  STRIPE_REQUEST_TIMEOUT_MS,
-} from "./membershipTiming.js";
 import { logger } from "./logger";
 import {
+  createRawStripeClient,
+  stripePublishableVarFor,
+  stripeSecretVarFor,
+} from "./stripeRawClient.js";
+import {
   readStripeLiveModeStrict,
+  throttledRefusalFor,
   verifyStripeAccount,
 } from "./stripeAccountGuard.js";
 import { StripeUnverifiedError } from "./stripeVerificationErrors.js";
@@ -56,8 +57,8 @@ async function getCredentials(liveMode?: boolean) {
     ? process.env.STRIPE_PUBLISHABLE_KEY_LIVE
     : process.env.STRIPE_PUBLISHABLE_KEY_TEST;
 
-  const secretVar = useLive ? "STRIPE_SECRET_KEY_LIVE" : "STRIPE_SECRET_KEY_TEST";
-  const publishableVar = useLive ? "STRIPE_PUBLISHABLE_KEY_LIVE" : "STRIPE_PUBLISHABLE_KEY_TEST";
+  const secretVar = stripeSecretVarFor(useLive);
+  const publishableVar = stripePublishableVarFor(useLive);
 
   if (!envSecret) {
     throw new Error(
@@ -78,28 +79,6 @@ async function getCredentials(liveMode?: boolean) {
 }
 
 /**
- * Build a raw Stripe client from an already-resolved secret. Split out so the
- * guarded constructor and any future caller share one set of request bounds.
- */
-function createRawStripeClient(secretKey: string): Stripe {
-  return new Stripe(secretKey, {
-    apiVersion: "2025-08-27.basil" as Stripe.LatestApiVersion,
-    // The SDK defaults are DEFAULT_TIMEOUT = 80000 with maxNetworkRetries = 2,
-    // and this call passed neither — so one degraded retrieval could legitimately
-    // run 80 seconds, and with retries nearer four minutes, against a 60-second
-    // entitlement lease. A retrieval returning after expiry has its apply
-    // discarded by the fence, correctly, and if latency stays elevated every
-    // subsequent pass does the same thing: "repaired on the next pass" never
-    // happens and the source is stuck for as long as Stripe is slow.
-    //
-    // Bounding the request is the fix, not lengthening the lease — see
-    // membershipTiming.ts, which derives the lease floor from these two numbers.
-    timeout: STRIPE_REQUEST_TIMEOUT_MS,
-    maxNetworkRetries: STRIPE_MAX_NETWORK_RETRIES,
-  });
-}
-
-/**
  * One of the two exported construction boundaries, and the one checkout and the
  * admin mutation routes use directly.
  *
@@ -109,6 +88,7 @@ function createRawStripeClient(secretKey: string): Stripe {
  * and threads it to both the expected account id and the credential.
  */
 export async function getUncachableStripeClient() {
+  refuseIfThrottled(await isLiveMode());
   const liveMode = await captureModeForConstruction();
   const { secretKey } = await getCredentials(liveMode);
   await verifyStripeAccount({ liveMode, secretKey });
@@ -140,6 +120,25 @@ export async function getStripeSecretKey(liveMode?: boolean) {
  * A mode read that FAILS resolves to unverified, never to a default — see
  * `stripeAccountGuard.ts` point 2.
  */
+/**
+ * Refuse now, on the cached mode, if an attempt for it just failed.
+ *
+ * This runs BEFORE the strict read, and that ordering is the point: the strict
+ * read is an uncached row select, so without this an unauthenticated flood on
+ * the webhook route would be throttled at the Stripe call and not at the
+ * database. Reading `process.env` and a Map costs nothing.
+ *
+ * It can only ever WITHHOLD a client, never hand one out, so acting on a
+ * possibly-stale mode here is safe — the strict read still decides everything
+ * that grants access.
+ */
+function refuseIfThrottled(cachedMode: boolean): void {
+  const secretKey = process.env[stripeSecretVarFor(cachedMode)];
+  if (!secretKey) return;
+  const refusal = throttledRefusalFor(cachedMode, secretKey);
+  if (refusal) throw refusal;
+}
+
 async function captureModeForConstruction(): Promise<boolean> {
   try {
     return await readStripeLiveModeStrict();
@@ -226,8 +225,6 @@ export async function __endCachedSyncForTests(): Promise<void> {
   const current = stripeSync;
   stripeSync = null;
   stripeSyncLiveMode = null;
-  discardedBuildPoolEnded = null;
-  discardedBuildCount = 0;
   if (current) await discardRejectedBuild(current);
   discardedBuildPoolEnded = null;
   discardedBuildCount = 0;
@@ -254,6 +251,7 @@ export async function getStripeSync() {
   // build is actually needed the code below reads the mode strictly.
   const cachedMode = await isLiveMode();
   if (stripeSync && stripeSyncLiveMode === cachedMode) return stripeSync;
+  refuseIfThrottled(cachedMode);
 
   for (let attempt = 0; attempt < MAX_SYNC_BUILD_ATTEMPTS; attempt++) {
     const generationAtStart = syncGeneration;
@@ -290,6 +288,13 @@ export async function getStripeSync() {
 }
 
 export function invalidateStripeSync() {
+  // The pool of the instance being dropped here is deliberately NOT ended, and
+  // the omission is easy to mistake for an oversight now that a disposal helper
+  // exists a few lines up. Disposal of PREVIOUSLY CACHED instances is separate,
+  // documented work (`docs/engineering/deferred-work.md:528-563`) with its own
+  // hazards — an in-flight caller may still hold this object. What this
+  // increment took is disposal of a build its own generation check creates and
+  // then rejects: a leak this code introduces, not one it inherits.
   stripeSync = null;
   stripeSyncLiveMode = null;
   syncGeneration++;
