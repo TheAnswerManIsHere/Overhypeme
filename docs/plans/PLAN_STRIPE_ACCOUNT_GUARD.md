@@ -5,6 +5,15 @@
 **Criticality:** 80 — this is the only thing standing between a misplaced key and a mutated live
 account, and the failure is silent today.
 
+> **Revision 4, after round 3 returned eight findings — all upheld.** None of them attacks the
+> guard's shape; every one attacks a place where the plan asserted a property it had not made
+> reachable. Four are about *where* the mechanism sits — the fatal check must precede
+> `app.listen()`, not merely leave `initStripe()`; the pre-merge production check must exercise the
+> retrieval rather than test a variable's presence; the rollback must be conditional or it races a
+> concurrent toggle; a generation-rejected build must have its pool closed. Three are testing-plan
+> gaps that would let a wrong implementation pass. One records the external Stripe claim at its
+> version.
+>
 > **Revision 3, after round 2 returned three findings — all upheld.** The largest is a scope
 > addition I am taking **now** rather than deferring, under the "cannot be correct without it"
 > override, and flagged to David rather than absorbed: **the construction boundary this guard sits
@@ -93,7 +102,12 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    account behind its credential has been verified against the expected id for that mode.**
    `stripeClient.ts` is the only construction site in the tracked repo, so that boundary covers
    boot, the mode toggle, checkout and the admin routes uniformly, rather than enumerating callers
-   and hoping the list stays complete. Verification is memoised per mode and credential, so this
+   and hoping the list stays complete. **That file exports two constructors, and both are the
+   boundary** — `getStripeSync()` and `getUncachableStripeClient()`, the latter used directly by
+   checkout (`routes/stripe.ts`) and the admin mutation routes. Round 3 found revision 3's tests
+   exercised only the first, which would have let an implementation guard sync construction, pass
+   every listed test, and still hand checkout an unverified client. The invariant is about clients,
+   not about the sync object. Verification is memoised per mode and credential, so this
    is one extra call per distinct credential, not per request.
 
 3c. **The construction boundary must first be made mode-coherent — a scope addition taken *now*,
@@ -115,6 +129,21 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    account id and to every credential; and a generation check before a completed build is
    published**, so a build whose mode is no longer current is disposed rather than cached.
 
+   **"Disposed" has to mean something specific, because the library gives it nothing to mean**
+   (revision 4, after round 3). `new StripeSync(...)` constructs a `PostgresClient`, which runs
+   `this.pool = new pg.Pool(config.poolConfig)` synchronously in its own constructor
+   (`stripe-replit-sync/dist/index.js:34-38`, reached from `:565`). A pool therefore exists before
+   any generation check can reject the build, so dropping the reference leaks it on every delayed
+   toggle. And `grep -n "pool.end\|close()\|dispose"` over that file returns **nothing** — the
+   library exposes no teardown at all. The only reachable disposal is its public field:
+   `sync.postgresClient.pool.end()`. Naming that here rather than writing "dispose" is the point;
+   an implementer told to dispose would look for a method that does not exist and drop the
+   reference instead.
+
+   Disposal of *previously cached* instances stays deferred, as before. This is disposal of a
+   build this increment's own generation check creates and then rejects — a leak the increment
+   introduces, not one it inherits.
+
    **Why now rather than next**, stated because the default is next: the guard's correctness
    depends on it. Deferring it ships a verification that can certify the wrong account. This is
    *not* a licence to take the rest of that deferred-work entry — single-flight, pool disposal and
@@ -132,7 +161,7 @@ a live-account key cannot create a webhook on, or begin a backfill against, that
    wrong account *against that key's hash*, so every later boot resolves it locally and never asks
    Stripe. A guard built on that helper grows quieter precisely in the case it exists to catch.
 4. **The refusal must survive the swallowing paths.** `initStripe()` wraps everything in a
-   `try/catch` that logs *"Stripe init failed — continuing without payments"*, and `index.ts:408`
+   `try/catch` that logs *"Stripe init failed — continuing without payments"*, and `index.ts:409`
    launches it as `initStripe().catch(...)` under *"Non-blocking background tasks — failures are
    logged but never crash the server."* A refusal placed inside either is a log line. PR #568 paid
    for this lesson three times.
@@ -161,8 +190,9 @@ variables, not their contents.
 | Exactly two sites read the expected account id, both in `index.ts` | `git grep -nE "STRIPE_ACCOUNT_ID"` → 4 hits, 2 of which are the `.replit` definitions | Oracle, run and mapped |
 | Boot mutates Stripe at exactly two points | `git grep -n "findOrCreateManagedWebhook\|syncBackfill"` → `index.ts:99` and `:121`; other `syncBackfill` callers are post-boot admin routes | Oracle, run and mapped |
 | A misconfigured environment cannot mutate the wrong account | Verification is enforced at the single client-construction boundary in `stripeClient.ts` and refuses fatally, so no caller — boot, mode toggle, checkout or admin route — receives a client for an unverified account (settled decision 3) | Construct — revision 1's boot-only version was **overstated**, per round 1 |
-| The account read used by the guard does not mutate and is authoritative | `stripe.accounts.retrieve()` on the raw client. **Not** the sync library's `getAccountId()`, which caches, falls back to a local key-hash lookup, and upserts (`stripe-replit-sync/dist/index.js:577-604`) | Construct — revision 1 asserted this of `getAccountId()` **without reading it**, which was the round-1 finding that stopped the loop |
-| The refusal cannot be swallowed | It is not inside `initStripe()`'s `catch` and not behind the detached launch at `index.ts:408`; its tests assert **process startup failure**, not helper rejection | Construct |
+| The account read used by the guard does not mutate and is authoritative | Two halves, both read at the pinned versions. **That the call is a non-mutating self-lookup:** at `stripe@20.0.0`, `accounts.retrieve()` with no id takes the branch at `node_modules/stripe/cjs/resources/Accounts.js:22-27` — `{ method: 'GET', fullPath: '/v1/account' }`. `GET` is non-mutating; `/v1/account` takes no account parameter, so it can only resolve to the account behind the presented key. **That the rejected helper is unsafe:** `stripe-replit-sync/dist/index.js:577-604`, which caches, falls back to a local key-hash lookup, and upserts | Construct — revision 1 asserted this of `getAccountId()` **without reading it**, which was the round-1 finding that stopped the loop. Round 3 then found revision 3 had recorded only the second half: the *load-bearing* half, about an external API, was carried unversioned |
+| The refusal cannot be swallowed | It is not inside `initStripe()`'s `catch` and not behind the detached launch at `index.ts:409`; its tests assert **process startup failure**, not helper rejection | Construct |
+| The refusal precedes the port opening | It completes before `app.listen()` at `index.ts:303`, asserted by test 3b as *the port is never bound*. Revision 3 claimed only that it escapes `initStripe()`, which `grep -n "app.listen\|initStripe()"` shows is 106 lines too late | Construct — revision 3's version was **overstated**, per round 3 |
 | Production carries the expected account id | `.replit:186-187` place both under `[userenv.shared]`, alongside the production origin — evidence, not proof, that the deployment reads them | **Checked, not prevented** — the pre-merge live confirmation is what discharges it |
 | A correctly-configured environment is unaffected | **Not claimed as proven by construction.** It is *checked* — by the matching-path tests and the post-merge live verification. The guard adds a branch on the boot path, and only running it against the real accounts establishes that the matching path is unchanged | **Checked, not prevented** |
 
@@ -182,7 +212,7 @@ launched so that its failures never reach the process.
 | --- | --- | --- |
 | Which account this environment may use | **`STRIPE_ACCOUNT_ID_{LIVE,TEST}`** — already the source, currently advisory | Unchanged as a source; becomes binding |
 | Which credential is read | `stripe_live_mode` config row selecting the env var | Unchanged |
-| Which account is actually connected | Stripe, via **`stripe.accounts.retrieve()` on the raw client** | The authority the guard compares against. **Not** `getAccountId()`, which may answer from local state without contacting Stripe |
+| Which account is actually connected | Stripe, via **`stripe.accounts.retrieve()` on the raw client** — no argument, which at the installed `stripe@20.0.0` maps to `GET /v1/account` (`node_modules/stripe/cjs/resources/Accounts.js:22-27`) | The authority the guard compares against: a `GET`, so non-mutating, and `/v1/account` resolves to *the credential's own* account rather than one named by the caller. **Not** `getAccountId()`, which may answer from local state without contacting Stripe |
 
 **No new source of truth.** The guard makes an existing declaration enforceable; it does not
 introduce a second opinion about which account is correct.
@@ -211,11 +241,30 @@ construction-boundary guard, a mismatched inactive credential would therefore re
 **leaving payments switched to a mode whose every client rejects** — and the operator would see a
 successful toggle.
 
-The invariant: **the stored mode changes only if the target mode's account verifies.** Either
-verify before the write, or roll the write back on refusal; and the response is a failure the
-operator can see, naming the account mismatch. Testing-plan item 5 asserts both halves — the sync
-refused *and* the stored mode unchanged *and* a non-success response — because asserting only the
-refusal would pass against exactly the behavior this finding describes.
+The invariant: **the stored mode changes only if the target mode's account verifies.**
+
+**Revision 3 offered "verify before the write, or roll it back on refusal" as equivalent
+alternatives. Round 3 established they are not** — the rollback half is unsafe as written. I
+confirmed the route has no compare-and-swap: the update is
+`.update(adminConfigTable).set(patch).where(eq(adminConfigTable.key, key))`
+(`routes/admin.ts:3000-3004`), keyed only on the config key, with no row version and no expected
+prior value. So with two admins or API clients toggling concurrently: request A writes an invalid
+target, request B writes a valid one and succeeds, then A's verification fails and A restores the
+value it remembered — **silently undoing B's successful change.** The guard would have manufactured
+the mode inconsistency it exists to prevent.
+
+Two acceptable shapes, and the first is preferred because it has no race to reason about:
+
+1. **Verify before the write.** The target mode's account is verified first; the config row is
+   written only on success. Nothing is ever committed that has to be taken back.
+2. **Conditional rollback.** If the write must come first, the restore is a compare-and-swap that
+   succeeds *only while the row still holds this request's value*, and reports failure without
+   writing when it does not.
+
+Either way the response is a failure the operator can see, naming the account mismatch. Testing-plan
+item 5 asserts all three halves — the sync refused, the stored mode unchanged, a non-success
+response — and item 5d covers the concurrent case, which item 5 alone cannot: it exercises a single
+request, and a single request never observes this defect.
 
 **Two failure classes, and conflating them is the trap round 1 found.**
 
@@ -233,11 +282,24 @@ this plan's own Runtime Behavior. **The awaited phase runs only once credentials
 and the two classes are distinguished by their origin — a credential-absence error from
 `getCredentials()` is not a guard refusal and must not be treated as one.
 
-**Placement is the load-bearing part.** The refusal runs in an awaited boot phase whose failure
-terminates the process — not inside `initStripe()`'s `catch`, and not behind its detached launch.
-If the ordering constraints make an in-place fix impossible, the alternative that satisfies the
-same invariant is to hoist the account check out of `initStripe()` into that awaited phase and
-leave the rest where it is. **What is not acceptable is a refusal that logs.**
+**Placement is the load-bearing part, and round 3 found the plan had understated it.** Revision 3
+said the refusal must sit outside `initStripe()`'s `catch` and outside its detached launch at
+`index.ts:409`. Both are necessary and neither is sufficient: `grep -n "app.listen\|initStripe()"`
+puts `app.listen(port, ...)` at **`index.ts:303`** and the detached `initStripe()` at **`:409`** —
+106 lines later. A check hoisted to line 409 and awaited there still runs **after the process has
+bound its port**, which means a mismatched deployment opens for traffic, can pass a health check,
+and only then exits. On a platform that restarts it, that is a crash loop serving requests in
+between.
+
+So the requirement is positional and stated against the line, not the function: **verification
+completes before `app.listen()` at `index.ts:303`.** It runs in an awaited boot phase preceding the
+listen call — not inside `initStripe()`'s `catch`, not behind its detached launch, and not merely
+"earlier in the file". **What is not acceptable is a refusal that logs, and what is no longer
+acceptable is a refusal that arrives after the port is open.**
+
+Test 3b is what holds this: it asserts the **port is never bound**, rather than that the process
+eventually exits. A test asserting only eventual exit passes against exactly the placement this
+finding describes — which is how revision 3 would have shipped looking tested.
 
 ## Data Model and Migration Impact
 
@@ -256,8 +318,24 @@ leave the rest where it is. **What is not acceptable is a refusal that logs.**
 
 ## Admin/User UX Impact
 
-None for users. For an operator the change is visible only in the failure case, where a silent log
-line becomes a server that will not start — which is the point.
+None for users. For an operator the change is visible in two failure cases.
+
+**At boot**, a silent log line becomes a server that will not start — which is the point.
+
+**At the mode toggle, the Billing page has to be changed for the refusal to be visible at all**
+(revision 4, after round 3). Revision 3 promised a response "naming the account mismatch" and
+stopped at the API. I read `artifacts/overhype-me/src/pages/admin/billing.tsx:219-243`:
+`toggleLiveMode()` does `if (!resp.ok) throw new Error("Failed to update")` — the response body is
+**never read**, so every non-success reply, whatever it says, reaches the operator as the string
+`Failed to update`. An operator seeing that has no way to tell a mismatched account from a
+transient failure, and the reason they need — which key points at which account — is the whole
+value of the refusal.
+
+So the surface ships with the guard: `toggleLiveMode()` parses the error body and displays the
+server's reason, falling back to the current generic string only when the body carries none. Test
+10 covers it. This is the ship-the-UI-surface rule applying to a refusal path rather than a
+feature — a guard whose explanation dies at the fetch boundary is a guard the operator cannot
+act on.
 
 ## Security, Permissions, and Validation
 
@@ -279,6 +357,11 @@ line becomes a server that will not start — which is the point.
 3. **Expected id present and mismatched → process startup failure**, *and* **no Stripe mutation
    was attempted** — the assertion that distinguishes this fix from the status quo. A test that
    only checks the refusal would pass on a check placed after line 99.
+3b. **On mismatch the port is never bound.** Asserted directly against `app.listen()`, not as
+   "the process eventually exits" — `index.ts:303` binds 106 lines before the detached
+   `initStripe()` at `:409`, so a refusal that is merely awaited-and-fatal still serves traffic
+   first. This is the test that distinguishes the required placement from the one revision 3
+   described.
 4. **The refusal is not swallowed:** with `initStripe()`'s `try/catch` intact, a mismatch still
    terminates the process.
 5. **The mode-toggle path is guarded, and a refusal rolls back:** with a valid credential for the
@@ -290,30 +373,74 @@ line becomes a server that will not start — which is the point.
    mode flip landing between a construction's mode reads must not yield a mixed-mode client, and a
    build whose generation is stale must not publish after `invalidateStripeSync()`. This is the
    test that makes the guard meaningful rather than decorative.
+5c. **A valid toggle still works, end to end.** With a matching credential for the target mode,
+   the PATCH **succeeds**, the new mode **is stored**, the cache is invalidated, and the full sync
+   starts. Round 3 found the suite covered only refusal, so an implementation that rejects every
+   toggle — or verifies, refuses to persist, and skips the sync — would have passed it. This is the
+   regression test for *Must Not Change* item 3, and the only listed test that would fail if the
+   guard simply broke the toggle. The oracle for the gap: `git grep -ln "stripe_live_mode"` across
+   the api-server tests returns one file, `stripeWebhookSecret.test.ts`, which does not exercise
+   the config toggle at all.
+5d. **Concurrent toggles do not lose a valid write.** Two overlapping PATCHes — one whose target
+   mode fails verification, one whose target verifies — leave the stored mode at the *valid*
+   request's value, whichever order they complete in. Item 5 exercises a single request and so
+   cannot see this: the defect needs a second writer to exist.
 6. **Credentials absent → the server still boots** without payments, and does **not** terminate.
    This is the negative test for the guard's own blast radius: it proves the fix did not turn
    optional Stripe configuration into a fatal boot dependency.
 7. **The guard's account read does not consult the sync library's cache or the local database** —
    asserted directly, because a passing guard built on `getAccountId()` would be indistinguishable
    from a correct one until the day it mattered. Cache-hit and cache-miss paths both exercised.
+7b. **A mismatched credential is refused through `getUncachableStripeClient()` too, and no raw
+   client reaches a mutation caller.** Tests 1–5 all reach Stripe through `getStripeSync()`, and
+   test 7 can be satisfied by a shared verifier that only the sync path calls — so an
+   implementation guarding sync construction alone passes every other item here while still handing
+   checkout the wrong-account client. `git grep -n "getUncachableStripeClient" -- '*.ts' '*.tsx'
+   ':!*__tests__*'` returns 22 references across four files: `lib/stripeClient.ts` (the export),
+   `routes/stripe.ts` (checkout), `routes/admin.ts` (admin mutations) and `lib/webhookHandlers.ts`.
+   This is the test that makes settled decision 3's invariant — *no Stripe client handed to any
+   caller until its account is verified* — cover both exported constructors rather than one.
 8. **Live-driver verification, outside CI** (post-merge, through the Replit connector): the Repl
    boots against its real test-mode account with the expected id set, and the account-verified path
    logs success. This is what establishes the *Must Not Change* row the claim audit marks as
    **checked** rather than proven.
-
+9. **A generation-rejected build closes its pool.** A construction whose mode is stale by
+   completion is not merely dropped: its `postgresClient.pool` is ended, asserted directly. The
+   pool exists by then whatever the generation check decides — `PostgresClient`'s constructor runs
+   `new pg.Pool(...)` synchronously (`stripe-replit-sync/dist/index.js:34-38`) — so "discarded"
+   without this assertion means "leaked once per delayed toggle".
+10. **The Billing page shows the server's reason.** A refused toggle whose response names the
+   account mismatch renders that reason, not the hardcoded `Failed to update` that
+   `billing.tsx:231` produces today for every non-success response.
 Runners: `pnpm --filter @workspace/api-server test`.
 
 ## Implementation Steps
 
 **Rollout ordering first — PR #568's round 1 found this exact hazard the hard way.**
 
-1. **Confirm `STRIPE_ACCOUNT_ID_LIVE` is present in the production deployment's environment —
-   as a pre-merge prerequisite, executed and recorded before the code can merge.** Round 1 was
-   right that revision 1 pointed this at the wrong instrument: this repository's Post-merge
-   verification runs *after* merge and Repl sync, so it cannot prevent the first fatal boot. The
-   confirmation runs through the live-environment connector and its result is recorded on the
-   implementation PR **before** merge; Post-merge verification is reserved for confirming an
-   already-safe deployment.
+1. **Run the guard's own check against production, by hand, before the code can merge** — a
+   pre-merge prerequisite executed through the live-environment connector, with its result recorded
+   on the implementation PR. Round 1 established the *timing*: this repository's Post-merge
+   verification runs after merge and Repl sync, so it cannot prevent a first fatal boot. Round 3
+   established that revision 3 then got the *content* wrong, and the two failures compound.
+
+   Revision 3 asked only whether `STRIPE_ACCOUNT_ID_LIVE` **exists**. But this plan makes three
+   things fatal, and presence answers none of them: it does not say **which mode production is
+   actually in** (so it may check the live id while production runs test), it does not say the
+   active secret **retrieves** the declared account (a mismatch is fatal), and it does not say the
+   retrieval **succeeds at all** (an unreadable account is fatal, per the Runtime Behavior table).
+   A deployment could pass revision 3's prerequisite and still crash-loop on the first boot after
+   merge — the exact outcome the prerequisite exists to prevent.
+
+   **So the prerequisite is the guard's own comparison, run early**: read the production
+   deployment's `stripe_live_mode`, call `stripe.accounts.retrieve()` with the secret for *that*
+   mode, and compare the returned account id to that mode's `STRIPE_ACCOUNT_ID_*`. It must return
+   an id, and it must match. Anything else stops the merge. Recorded on the implementation PR
+   before merge; Post-merge verification is reserved for confirming an already-safe deployment.
+
+   **Scoping, since the connector defaults to building:** this is read-only and diagnostic — report
+   the mode, report whether the ids match, never print the secret or the account id values, and
+   change nothing.
 
    **The oracle lowers this risk but does not discharge it.** `git grep -nE "STRIPE_ACCOUNT_ID" --
    . ':!node_modules' ':!docs/plans' ':!.agents'` returns four hits: `index.ts:107-108` read the
@@ -323,16 +450,23 @@ Runners: `pnpm --filter @workspace/api-server test`.
    confirmation stays a prerequisite rather than being replaced by the file.
 2. **Make the construction boundary mode-coherent first** (settled decision 3c): capture the mode
    once per construction and thread it to the expected account id and to every credential, and
-   discard a completed build whose generation is no longer current. Verification added to a racy
-   boundary would certify the wrong account.
+   discard a completed build whose generation is no longer current — **ending its
+   `postgresClient.pool`**, since the library exposes no teardown of its own. Verification added to
+   a racy boundary would certify the wrong account.
 2b. Add account verification at that boundary, using `stripe.accounts.retrieve()` on the raw
-   client, memoised per mode and credential.
+   client, memoised per mode and credential. **Both exported constructors**: `getStripeSync()` and
+   `getUncachableStripeClient()`, which checkout and the admin mutation routes use directly.
 3. Make an absent expected id a refusal, and a mismatch a refusal, both fatal — while leaving the
    credentials-absent path exactly as it is today.
-3b. Make a refused mode toggle leave the stored mode unchanged and report failure to the operator.
-4. Ensure the boot-time refusal reaches the process: awaited, outside `initStripe()`'s `catch` and
-   outside its detached launch at `index.ts:408`.
-5. Tests 1–8.
+3b. Make a refused mode toggle leave the stored mode unchanged — by verifying before the write, or
+   by a compare-and-swap rollback — and report failure to the operator.
+3c. Surface that failure on the Billing page: `toggleLiveMode()` parses the error body and displays
+   the server's reason instead of the hardcoded `Failed to update`.
+4. **Move the boot-time refusal ahead of `app.listen()` at `index.ts:303`**: awaited, outside
+   `initStripe()`'s `catch`, outside its detached launch at `:409`, and completed before the port
+   is bound. The listen call is the line to measure against; "outside `initStripe()`" is necessary
+   and not sufficient.
+5. Tests 1–10.
 6. Post-merge live verification on the Repl — confirming an already-safe deployment, not gating it.
 
 ## Risks and Mitigations
@@ -341,11 +475,16 @@ Runners: `pnpm --filter @workspace/api-server test`.
 | --- | --- |
 | **Shipping the requirement before production has the variable** | Step 1 precedes every code step and the PR's verification section confirms it before merge. Recovery is one environment variable and a restart — no code change, no rollback |
 | **The refusal is placed where it cannot refuse** | Named as the load-bearing property; tests assert process startup failure rather than helper rejection — the exact distinction that would have caught PR #568's round-3 defect |
+| **The refusal fires only after the port is open**, so a mismatched deployment serves traffic and crash-loops | The requirement is stated against `index.ts:303`, not against `initStripe()`; test 3b asserts the port is **never bound**, which an eventual-exit assertion does not |
+| **A rollback races a concurrent toggle and reverts a valid change** | Verify-before-write is the preferred shape precisely because it has no race; a rollback, if used, is a compare-and-swap conditional on the row still holding this request's value. Test 5d exercises two overlapping writers |
+| **The guard refuses and the operator cannot see why** | The reason is carried through to the Billing page rather than stopping at the API; test 10. `billing.tsx:231` discards every server error today |
+| **The generation check leaks a connection pool per delayed toggle** | Disposal is named as the concrete call the library actually permits (`postgresClient.pool.end()`), not as "dispose"; test 9 asserts the pool closes |
+| **The pre-merge production check passes and the first boot still fails** | The prerequisite is the guard's own comparison — mode, retrieval, and id match — rather than a presence test that answers none of the three fatal conditions |
 | **A check that refuses correctly but too late** | Test 3 asserts no mutation was attempted, not merely that boot failed |
 | **The matching path changes behavior** | Explicitly *checked, not prevented* in the claim audit; covered by test 2 and the post-merge live verification, and the timeout/retry bounds are named in *Must Not Change* |
 | **The guard certifies an account it did not actually check** | The boundary is made mode-coherent *before* verification is added (settled decision 3c) — one captured mode for the expected id and every credential, with a generation check before publishing. Without this the guard is worse than absent, since it produces a verified-looking client for an unverified account |
 | **A refused toggle leaves payments in a mode that cannot work** | The stored mode changes only if the target mode verifies; the test asserts the rollback and the operator-visible failure, not just the refusal |
-| **A mutation path that does not pass through the construction boundary** | The boundary is the single construction site the #568 inventory established; the mode-toggle path — the one revision 1 missed — is a named test rather than an assumption |
+| **A mutation path that does not pass through the construction boundary** | The boundary is the single construction site the #568 inventory established, and **both** of its exported constructors are guarded; the mode-toggle path (missed by revision 1) and the raw-client path (untested in revision 3) are named tests rather than assumptions |
 | **The guard's own read mutates or answers from stale local state** | `stripe.accounts.retrieve()` on the raw client, with a test asserting the sync library's cache and key-hash lookup are not consulted |
 | **The fix makes optional Stripe configuration fatal** | The two failure classes are separated explicitly, and the credentials-absent boot is a named negative test |
 | **Scope creep back toward the driver seam** | Settled decision 5: this plan touches neither driver selection nor the fake, and is shippable alone |
