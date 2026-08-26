@@ -38,7 +38,9 @@ import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarne
 import {
   __discardedBuildsForTests,
   __endCachedSyncForTests,
+  __setRawClientFactoryForTests,
   getStripeSync,
+  getUncachableStripeClient,
   invalidateStripeSync,
   isLiveMode,
 } from "../lib/stripeClient.js";
@@ -366,6 +368,69 @@ describe("the construction boundary is mode-coherent", () => {
       readsAfterBuild,
       "reusing a published sync must not issue a direct-row read per call",
     );
+  });
+
+  it("getUncachableStripeClient() re-derives when a toggle lands mid-verification", async () => {
+    // Round 1's P1. The generation check covered getStripeSync() only — so a
+    // checkout or admin request that captured test mode and then waited in
+    // verifyStripeAccount (a network round-trip, up to the Stripe timeout)
+    // would still be handed a TEST-account client after a concurrent admin
+    // toggle had committed LIVE, and would mutate the now-inactive account.
+    //
+    // This is the same defect the plan named for the sync path, in the other
+    // constructor — the exact asymmetry round 3 of the plan review caught once
+    // already for verification itself.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+
+    const retrievals: string[] = [];
+    let builtFrom: string | null = null;
+    restores.push(
+      __setRawClientFactoryForTests((secretKey) => {
+        builtFrom = secretKey;
+        return {} as never;
+      }),
+    );
+    let released: (() => void) | null = null;
+    const firstRetrievalStarted = new Promise<void>((resolve) => {
+      restores.push(
+        stubAccountRetriever(async (secretKey) => {
+          retrievals.push(secretKey);
+          if (released === null) {
+            resolve();
+            await new Promise<void>((r) => { released = r; });
+          }
+          return secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_test_expected";
+        }),
+      );
+    });
+
+    const pending = getUncachableStripeClient();
+    await firstRetrievalStarted;
+
+    // The toggle commits and invalidates, exactly as the admin route does.
+    await setStoredMode(true);
+    invalidateStripeSync();
+    (released as unknown as () => void)();
+
+    const client = await pending;
+
+    assert.deepEqual(
+      retrievals,
+      ["sk_test_correct", "sk_live_correct"],
+      "the constructor must re-derive against the current mode rather than return the superseded one",
+    );
+    // And the client it actually hands back is built from the NEW mode's
+    // credential. Asserting the retrieval sequence alone would pass against a
+    // constructor that re-verifies for the new mode and then returns the stale
+    // client anyway — stripe@20 keeps the secret in a private field, which is
+    // why the factory is indirected rather than read back off the object.
+    assert.equal(builtFrom, "sk_live_correct", `client was built from the wrong credential: ${String(builtFrom)}`);
+    assert.ok(client, "a client is still returned");
   });
 
   it("test 5b / test 9 — a build whose generation is stale is discarded and its pool is ENDED", async () => {

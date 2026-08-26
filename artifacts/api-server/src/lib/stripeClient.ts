@@ -1,3 +1,4 @@
+import type Stripe from "stripe";
 import { logger } from "./logger";
 import {
   createRawStripeClient,
@@ -79,6 +80,23 @@ async function getCredentials(liveMode?: boolean) {
 }
 
 /**
+ * The client factory, indirected for ONE reason: `stripe@20` keeps the secret
+ * in a private field, so a test cannot read back which credential the returned
+ * client carries. Asserting only the *retrieval sequence* would pass against a
+ * constructor that correctly re-verifies for the new mode and then hands back
+ * the stale client anyway — a claim wider than what establishes it, which is
+ * precisely the species this workstream keeps finding.
+ */
+let rawClientFactory: (secretKey: string) => Stripe = createRawStripeClient;
+
+/** Test seam. Returns a restore function. */
+export function __setRawClientFactoryForTests(fn: (secretKey: string) => Stripe): () => void {
+  const previous = rawClientFactory;
+  rawClientFactory = fn;
+  return () => { rawClientFactory = previous; };
+}
+
+/**
  * One of the two exported construction boundaries, and the one checkout and the
  * admin mutation routes use directly.
  *
@@ -89,10 +107,28 @@ async function getCredentials(liveMode?: boolean) {
  */
 export async function getUncachableStripeClient() {
   refuseIfThrottled(await isLiveMode());
-  const liveMode = await captureModeForConstruction();
-  const { secretKey } = await getCredentials(liveMode);
-  await verifyStripeAccount({ liveMode, secretKey });
-  return createRawStripeClient(secretKey);
+
+  for (let attempt = 0; attempt < MAX_CONSTRUCTION_ATTEMPTS; attempt++) {
+    const generationAtStart = constructionGeneration;
+    const liveMode = await captureModeForConstruction();
+    const { secretKey } = await getCredentials(liveMode);
+    await verifyStripeAccount({ liveMode, secretKey });
+
+    if (constructionGeneration !== generationAtStart) {
+      // A toggle landed while this construction was verifying. Handing the
+      // caller this client would hand them the mode that was just switched
+      // away from — verified, correctly, for an account nobody is using now.
+      // Nothing to dispose: unlike a StripeSync build, no client exists yet.
+      continue;
+    }
+    return rawClientFactory(secretKey);
+  }
+
+  throw new StripeUnverifiedError(
+    `The Stripe mode changed on every one of ${MAX_CONSTRUCTION_ATTEMPTS} construction attempts; ` +
+      `no client is handed out for a mode that is no longer current.`,
+    null,
+  );
 }
 
 export async function getStripePublishableKey() {
@@ -155,12 +191,20 @@ let stripeSync: Awaited<ReturnType<typeof buildStripeSync>> | null = null;
 let stripeSyncLiveMode: boolean | null = null;
 
 /**
- * Bumped by every `invalidateStripeSync()`. A build that completes after its
- * generation has been superseded is discarded rather than published — the
- * second half of `deferred-work.md:529-565`, where an old-mode build could
- * publish *after* the invalidation meant to remove it.
+ * Bumped by every `invalidateStripeSync()`, and read by BOTH exported
+ * constructors. A construction that completes after its generation has been
+ * superseded is discarded rather than handed out — the second half of
+ * `deferred-work.md:529-565`, where an old-mode build could publish *after* the
+ * invalidation meant to remove it.
+ *
+ * It has to cover both, and covering only the sync path was round 1's P1: the
+ * verification in the middle of a construction is a network round-trip, so an
+ * admin toggle has a whole Stripe timeout in which to commit a new mode while a
+ * checkout sits waiting — and the caller would then mutate the account that is
+ * no longer active. Guarding one of two constructors is the same asymmetry the
+ * plan review already caught once, for verification itself.
  */
-let syncGeneration = 0;
+let constructionGeneration = 0;
 
 async function buildStripeSync(liveMode: boolean) {
   const { StripeSync } = await import("stripe-replit-sync");
@@ -230,8 +274,8 @@ export async function __endCachedSyncForTests(): Promise<void> {
   discardedBuildCount = 0;
 }
 
-/** Bounded so a toggle storm cannot spin here forever. */
-const MAX_SYNC_BUILD_ATTEMPTS = 3;
+/** Bounded so a toggle storm cannot spin either constructor forever. */
+const MAX_CONSTRUCTION_ATTEMPTS = 3;
 
 export async function getStripeSync() {
   // Fast path, and the reason it reads the mode LENIENTLY.
@@ -253,8 +297,8 @@ export async function getStripeSync() {
   if (stripeSync && stripeSyncLiveMode === cachedMode) return stripeSync;
   refuseIfThrottled(cachedMode);
 
-  for (let attempt = 0; attempt < MAX_SYNC_BUILD_ATTEMPTS; attempt++) {
-    const generationAtStart = syncGeneration;
+  for (let attempt = 0; attempt < MAX_CONSTRUCTION_ATTEMPTS; attempt++) {
+    const generationAtStart = constructionGeneration;
     const live = await captureModeForConstruction();
 
     // The lenient read disagreed with the row — either it was stale, or a
@@ -269,7 +313,7 @@ export async function getStripeSync() {
 
     const built = await buildStripeSync(live);
 
-    if (syncGeneration !== generationAtStart) {
+    if (constructionGeneration !== generationAtStart) {
       // A toggle landed while this build was in flight. Publishing it now would
       // reinstate the mode the invalidation just removed.
       await discardRejectedBuild(built);
@@ -281,7 +325,7 @@ export async function getStripeSync() {
     return stripeSync;
   }
   throw new StripeUnverifiedError(
-    `The Stripe mode changed on every one of ${MAX_SYNC_BUILD_ATTEMPTS} construction attempts; ` +
+    `The Stripe mode changed on every one of ${MAX_CONSTRUCTION_ATTEMPTS} construction attempts; ` +
       `no client is published for a mode that is no longer current.`,
     null,
   );
@@ -297,10 +341,5 @@ export function invalidateStripeSync() {
   // then rejects: a leak this code introduces, not one it inherits.
   stripeSync = null;
   stripeSyncLiveMode = null;
-  syncGeneration++;
-}
-
-/** Test seam: return the current generation counter. */
-export function __syncGenerationForTests(): number {
-  return syncGeneration;
+  constructionGeneration++;
 }

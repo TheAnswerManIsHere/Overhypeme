@@ -182,6 +182,52 @@ describe("the rendered status surface", () => {
     cleanup();
   });
 
+  it("a seed for a DIFFERENT mode is rejected, and the panel fetches instead", async () => {
+    // Round 1's P2. After a successful toggle the page's summary still
+    // describes the previous mode, and this component remounts with it. Seeding
+    // from that reports the wrong mode's state — and if the previous state was
+    // `unconfigured`, which is terminal and deliberately unpolled, the panel
+    // would never fetch again and would sit on the stale answer indefinitely.
+    const fetchStatus = vi.fn(async () =>
+      snap({ instanceId: "inst-1", state: "verified", mode: "live" }),
+    );
+    render(
+      <StripeVerificationStatus
+        fetchStatus={fetchStatus}
+        initial={snap({ instanceId: "inst-1", state: "unconfigured", mode: "test", reason: "no keys" })}
+        expectedMode="live"
+        pollIntervalMs={1}
+        settledPollIntervalMs={1}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("verified");
+    });
+    expect(fetchStatus).toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("a seed with no known stored mode is rejected too", async () => {
+    // `expectedMode` is null while the page is still loading the config rows.
+    // Accepting a seed then would show a state nobody has confirmed applies.
+    const fetchStatus = vi.fn(async () => snap({ instanceId: "inst-1", state: "verified", mode: "test" }));
+    render(
+      <StripeVerificationStatus
+        fetchStatus={fetchStatus}
+        initial={snap({ instanceId: "inst-1", state: "unconfigured", mode: "test" })}
+        expectedMode={null}
+        pollIntervalMs={1}
+        settledPollIntervalMs={1}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("verified");
+    });
+    cleanup();
+  });
+
   it("a seeded initial sample renders without a second fetch", async () => {
     // The page's own summary fetch already carries this field; re-requesting it
     // on mount would double the load on the heaviest admin endpoint.
@@ -189,7 +235,8 @@ describe("the rendered status surface", () => {
     render(
       <StripeVerificationStatus
         fetchStatus={fetchStatus}
-        initial={snap({ instanceId: "inst-1", state: "verified" })}
+        initial={snap({ instanceId: "inst-1", state: "verified", mode: "test" })}
+        expectedMode="test"
         pollIntervalMs={10_000}
         settledPollIntervalMs={10_000}
       />,

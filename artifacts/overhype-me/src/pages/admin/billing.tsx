@@ -570,6 +570,7 @@ export default function AdminBilling() {
           <StripeVerificationStatus
             key={String(liveMode)}
             initial={summary?.verification ?? null}
+            expectedMode={liveMode === null ? null : liveMode ? "live" : "test"}
             fetchStatus={fetchVerificationStatus}
           />
         </div>

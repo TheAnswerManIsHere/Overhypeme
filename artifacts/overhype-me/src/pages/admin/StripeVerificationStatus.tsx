@@ -40,6 +40,16 @@ export interface StripeVerificationStatusProps {
    * already in hand.
    */
   initial?: VerificationSnapshot | null;
+  /**
+   * The mode the page believes is stored. An `initial` sample for any other
+   * mode is REJECTED rather than shown: after a successful toggle the page's
+   * summary still describes the previous mode, and seeding with it reports the
+   * wrong mode's state. Worse, if that previous state was `unconfigured` —
+   * terminal, and deliberately not polled — the panel would never fetch again
+   * and would sit on the stale answer until a manual refresh. Pass `null` when
+   * the stored mode is not known yet; that also rejects, which is correct.
+   */
+  expectedMode?: "live" | "test" | null;
   pollIntervalMs?: number;
   settledPollIntervalMs?: number;
 }
@@ -58,11 +68,13 @@ export interface StripeVerificationStatusProps {
 export function StripeVerificationStatus({
   fetchStatus,
   initial = null,
+  expectedMode = null,
   pollIntervalMs = VERIFICATION_POLL_INTERVAL_MS,
   settledPollIntervalMs = VERIFICATION_SETTLED_POLL_INTERVAL_MS,
 }: StripeVerificationStatusProps) {
+  const seed = initial && expectedMode !== null && initial.mode === expectedMode ? initial : null;
   const [poll, setPoll] = useState<VerificationPollState>(() =>
-    initial ? recordObservation(EMPTY_POLL_STATE, initial) : EMPTY_POLL_STATE,
+    seed ? recordObservation(EMPTY_POLL_STATE, seed) : EMPTY_POLL_STATE,
   );
 
   /**
@@ -104,9 +116,10 @@ export function StripeVerificationStatus({
       scheduleNext();
     };
 
-    // `initial`, when the page had one, is already recorded — so the first
-    // request here is a poll, not a duplicate of the fetch that produced it.
-    if (initial) scheduleNext();
+    // A seed the page had for THIS mode is already recorded, so the first
+    // request here is a poll rather than a duplicate of the fetch that produced
+    // it. A rejected or absent seed samples immediately instead.
+    if (seed) scheduleNext();
     else void sample();
 
     return () => {
