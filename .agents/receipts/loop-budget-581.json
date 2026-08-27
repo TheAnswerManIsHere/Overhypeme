@@ -1,0 +1,8 @@
+{
+  "pr": 581,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 45,
+  "artifact": "bugfix skill: live-evidence decision beat (moved to working-modes.md) + live-diagnosis.md reference file",
+  "declaredAt": "2026-08-27T04:31:33.411Z"
+}
