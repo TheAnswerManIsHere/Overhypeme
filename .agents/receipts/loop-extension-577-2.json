@@ -1,0 +1,15 @@
+{
+  "pr": 577,
+  "kind": "adjudication",
+  "verdict": "ship-with-gaps-recorded",
+  "grant": 0,
+  "risk": "",
+  "recordPath": ".agents/adjudications/577-5.json",
+  "decidedAt": "2026-08-27T04:29:29.000Z",
+  "reasoning": "Six rounds on a sensitive-tier artifact produced 22 findings with a trend of 3,3,4,5,4,3 \u2014 never once approaching clean \u2014 and all 22 in-diff, which is the non-converging shape rather than an unfinished review. The core safety property declared at round zero (refuse to boot against a confirmed-mismatched Stripe account, fatal pre-listen) had its P1s raised in rounds 1-5 and all 19 of those threads are resolved; the 3 findings left from round 6 are recovery and cache-coherence edges of an admin toggling modes across autoscale instances \u2014 a stuck-degraded initialization path that announces itself on the verification status page, a 60-second stale-cache retry-skip window, and test-suite env hygiene \u2014 not wrong-account-charge paths. Buying another write-plus-review round on payments code, when each of the last four rounds manufactured new coherence edges from the previous round's fixes, is priced above what these gaps are worth; the head is reviewed (sinceLastReview shows noChange against 9dbf332) and stopping here merges exactly what round 6 examined.",
+  "gaps": [
+    "stripeInit.ts:306 (P2): after a remote mode toggle, a deterministically-refused retry can consult the 60-second cached isLiveMode() and skip re-verification of the newly active mode until the cache TTL expires",
+    "stripeInit.ts:390 (P1): a server that boots with its active mode unconfigured and is then toggled to a configured, verified mode records the verification but does not resume full initialization (sync/webhook setup), leaving that instance degraded until restart \u2014 visible on the admin verification status surface",
+    "stripePaymentRefusal.test.ts:89 (P2): refusal tests mutate process-global Stripe env vars without restoring them in afterEach under --test-isolation=none, risking cross-file test contamination"
+  ]
+}

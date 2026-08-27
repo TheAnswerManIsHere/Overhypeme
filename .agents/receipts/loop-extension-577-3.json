@@ -1,0 +1,9 @@
+{
+  "pr": 577,
+  "kind": "david",
+  "grant": 0,
+  "asOf": 6,
+  "authorization": "Option 3",
+  "decidedAt": "2026-08-27T04:29:29.000Z",
+  "context": "The gate recommendation above (ship-with-gaps-recorded, from .agents/adjudications/577-5.json) went to David with all three round-6 gaps stated, including that the P1 is NOT reachable from production's current configuration \u2014 the pre-merge live check confirmed the stored mode is test and test credentials are present, so production boots verified \u2014 and including a correction to the adjudicator's claim that the P1 announces itself on the status surface: it does not, hasStripeInitializationCompleted() has no non-test callers. He chose to ship this PR now and open a follow-up PR immediately for the P1, carrying the other two gaps with it. Grant 0 endorses stopping this loop; it is not an acceptance of the gaps as permanent."
+}
