@@ -1,0 +1,143 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-27T05:02:51.131Z",
+  "evidenceCapturedAt": "2026-08-27T05:02:40Z",
+  "pr": 582,
+  "title": "Stop every refresh-seeded enrichment job crashing on a partial visual override",
+  "artifact": {
+    "files": 6,
+    "added": 258,
+    "removed": 10,
+    "patch": "[unavailable -- the snapshot carries no base or head sha; weigh the absence as uncertainty]",
+    "patchNote": "base...head: the artifact this round's findings are about. This is the diff to read when the rubric asks whether a finding describes a critical flaw. `sinceLastReview.patch` is separate and is normally empty under the write-gate rule, since the judge rules on an already-reviewed head."
+  },
+  "budget": {
+    "tier": "product",
+    "tierMeaning": "product code",
+    "declaredBudget": 5,
+    "cap": 5,
+    "criticality": 70,
+    "artifactDeclaredAtRoundZero": "Tier B bugfix: guard partial visual-strategy-override blobs in collectRenderedTextEntries, unblocking every refresh-seeded enrichment job",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 5,
+    "extensions": []
+  },
+  "rounds": {
+    "completedReviewerPasses": 3,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-27T04:34:58Z",
+        "source": "review",
+        "findings": 0
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-27T04:45:43Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-27T05:00:56Z",
+        "source": "review",
+        "findings": 2
+      }
+    ],
+    "trend": [
+      0,
+      4,
+      2
+    ],
+    "totalFindings": 6
+  },
+  "findings": {
+    "unresolved": 0,
+    "resolved": 0,
+    "resolutionUnknown": 6,
+    "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6cspDg",
+        "path": "docs/tests/UAT/PR582_ENRICHMENT_REFRESH_CRASH_UAT.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-27T04:45:43Z",
+        "excerpt": "P1 Put the UAT steps under the required parser sections. /uat enumerates only ### headings inside ## Steps or ## Regression; this file has neither required section, so the driver discovers zero steps."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6cspDo",
+        "path": "docs/tests/UAT/PR582_ENRICHMENT_REFRESH_CRASH_UAT.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-27T04:45:43Z",
+        "excerpt": "P1 Expect the concept-review stage after enrichment. runEnrichmentForCandidateVersion advances prep_pending to concept_review; renders wait for concept approval. UI shows 'Generating visual ideas…' or 'Ready for concept review', not 'Renders ready — needs review'."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6cspDk",
+        "path": "docs/tests/UAT/PR582_ENRICHMENT_REFRESH_CRASH_UAT.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-27T04:45:43Z",
+        "excerpt": "P2 Wait for each job's scheduled retry before failing UAT. RETRY_DELAYS_MS 5min/30min/2h/8h; a sync does not reset nextAttemptAt."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6cspDj",
+        "path": "docs/tests/UAT/PR582_ENRICHMENT_REFRESH_CRASH_UAT.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-27T04:45:43Z",
+        "excerpt": "P2 Accept jobs that exhausted retries before the merge. Step 1 required failed==0 while the doc says pre-merge failed rows are expected."
+      },
+      {
+        "threadId": "PRRT_R3_A",
+        "path": "docs/tests/UAT/PR582_ENRICHMENT_REFRESH_CRASH_UAT.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-27T05:00:56Z",
+        "excerpt": "P1 Ignore retained lastError on successful retries. processClaimedJob sets status done but does not clear lastError (asyncJobs.ts:419-429), and Queue Health renders any retained error (queueHealth.tsx:369-371). A correctly recovered job still carries the old forEach message and fails this expectation."
+      },
+      {
+        "threadId": "PRRT_R3_B",
+        "path": "docs/tests/UAT/PR582_ENRICHMENT_REFRESH_CRASH_UAT.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-27T05:00:56Z",
+        "excerpt": "P2 Remove the one-minute success deadline. Enrichment can exceed a minute while healthy; uat-doc-format.md prohibits timing guesses. Wait for the job's terminal state instead of making elapsed wall time a pass condition."
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 6,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "e64aa85a93730cf8a615e05c393f49b9a72deb14",
+    "resolved": true,
+    "since": "e64aa85a93730cf8a615e05c393f49b9a72deb14",
+    "head": "e64aa85a93730cf8a615e05c393f49b9a72deb14",
+    "commits": 0,
+    "files": [],
+    "patch": "",
+    "behavioralFiles": 0,
+    "proseOnly": false,
+    "noChange": true,
+    "note": "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the base branch this includes files already reviewed and merged there. Use `artifact` for the size of what is actually under review here."
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/review-counting.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}
