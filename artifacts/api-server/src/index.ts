@@ -3,6 +3,11 @@
 // via the module loader — but setupExpressErrorHandler in app.ts captures all
 // unhandled errors, which is all we need.
 import "./instrument";
+// MUST stay here, second only to ./instrument: this module asserts required
+// production configuration at IMPORT time, so it has to be evaluated before
+// the imports below pull in the database-backed module graph. See
+// lib/bootChecks.ts for why a call in the body of this file is too late.
+import "./lib/bootChecks.js";
 import * as Sentry from "@sentry/node";
 import { createApp } from "./app";
 import { logger } from "./lib/logger";

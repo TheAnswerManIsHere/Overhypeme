@@ -30,6 +30,16 @@ must-not-change, does it match the settled decisions rather than a plausible
 alternative. Flag a dropped or narrowed requirement even if the code itself
 never mentions it — the absence is the finding.
 
+**If the plan cites a direction, check the code against that too, not just
+the plan's own Product Intent.** A plan built under
+[the increment test](../ai-context/working-modes.md#the-increment-test) can
+correctly build a narrower increment while its direction still carries
+constraints on that increment (a boundary rule, an invariant, a decision
+already settled at the direction level) — a PR that satisfies the plan's
+stated intent while violating its direction is exactly the "internally sound,
+quietly wrong" shape this oracle exists to catch. Missing Direction on a PR
+whose plan cited one is itself a finding.
+
 The oracle also carries **Approved-plan source** — the exact final revision
 those words came from (plan-review PR + final plan commit sha, or the plan
 filename + content hash on the private/manual path), plus the date David
@@ -146,7 +156,7 @@ style nit.
 
 ### Documentation-only PRs get a light review (David, 2026-08-08)
 
-When a PR changes only documentation — TEST_RUN/UAT docs, `docs/ai-context/`,
+When a PR changes only documentation — UAT docs, `docs/ai-context/`,
 `docs/engineering/`, skills, READMEs, the manual — the review bar drops to:
 **is it generally correct, with no glaring issues?** A glaring issue means an
 instruction that would lead someone to do something harmful or wrong, a claim
@@ -162,13 +172,29 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
   not need to enumerate every edge case to be good enough.
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
-cost more than the defects they describe. This is the *depth* rule; the
-*round-count* rule for the same artifacts (light docs never loop — see the
-criticality gate) lives in
+cost more than the defects they describe. This is the *depth* rule. The
+*continuation* rule is the internal tier (David, 2026-08-21, superseding
+the 2026-08-20 no-rounds carve-out): a clean automatic pass is the whole
+ceremony, but when the pass finds a real defect the pushed fixes are
+re-reviewed under the internal tier, with the external adjudicator's strict
+rubric deciding continuation on a 3-round budget under the standard
+two-tier tripwire (a self-serve leash to round 6, the David gate at 6 —
+David, 2026-08-26) — see
+[`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)'s
+internal-tier section. The retired fix-round merge-path workarounds no
+longer apply.
+
+**Internal tooling gets the light bar too, and loops only for its fixes
+(David, 2026-08-21).** Guards, `scripts/`, skills, agent contracts,
+process docs and documentation harvests are reviewed by the automatic pass
+when the PR opens; a clean pass ships, and findings get one triage with
+one-line declines. What changed from 2026-08-20: fixes that get pushed are
+re-requested under the internal tier rather than merged unreviewed. The
+reviewer should still raise genuine defects and skip prose, structure and
+completeness findings: the loops this repo measured on that class were 22
+rounds of correct findings against an artifact where none of them
+mattered. The full reasoning is in
 [`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
-The author's review request on a docs-only PR states this bar explicitly
-("docs-only — light review per code-review.md"), so the reviewer calibrates
-from the request itself, not just from this file.
 
 ## Runtime correctness
 
@@ -234,6 +260,42 @@ from the request itself, not just from this file.
   [`decisions.md`](../ai-context/decisions.md) → "Recurring failure patterns
   become CI guards."
 
+### A source guard bounds a *shape*, and shapes have more forms than they look
+
+The CI-guard rule above is right, but a source guard has a specific failure
+mode worth pricing in when reviewing one. It matches **syntax**, while the
+defect is **semantics**, and the set of syntactic forms with the same meaning
+is usually larger than the author enumerated.
+
+Worked example, PR #474's `check-budget-gate-unconditional.mjs` — a guard
+against a spend check being made conditional. Three consecutive review rounds
+each found one more reachable form the current version missed: a regex over
+`if (<identifier>)` missed `if (priced !== null)`; the AST rewrite that fixed
+that treated an entire `if` condition as unconditional and so missed
+`if (priced && await checkBudget(…))`; and the fix for *that* inspected only
+the then-branch, missing `if (priced) {…} else return;`. Each fix was correct
+and each left a cheaper equivalent reachable.
+
+What to take from it, as a reviewer or an author:
+
+- **Probe, don't reason.** Every one of those was found by writing the form
+  into a throwaway source file and running the guard — never by reading it.
+  A guard's own correctness claim is worth exactly the probes behind it, so ask
+  which forms were actually executed against it.
+- **Prefer a real test when the behavior is testable.** The same PR's
+  admin-exemption regression was ordinary unit-testable behavior and got three
+  tests pinning it, verified to fail against the old code. A source guard is
+  the right instrument only when the invariant is inline control flow that no
+  unit test can reach — not merely when writing one is inconvenient.
+- **Expect to cap it, and document the residual.** At some point another
+  missed shape is evidence the space cannot be closed syntactically, not a
+  to-do. Record the known limits in the guard's own header, and be explicit
+  that it is a backstop rather than the control — silence from it is not proof
+  of safety.
+- **Watch the cost.** That guard was belt-and-braces on an otherwise ~10-line
+  fix and generated three of the loop's eight findings. Worth it here, on a
+  money path; not worth it by default.
+
 ## Observability
 
 - Failures reported (Sentry where appropriate)? Bulk operations expose what
@@ -272,10 +334,249 @@ reviewing:
    pass surface (see below). Don't manufacture a finding to prove the round
    ran.
 
+### The author's declines are where their error rate concentrates
+
+Observed across seven rounds on PR #498 (20 findings, all confirmed, none
+declined *as findings*): the author's error rate was not uniform across the
+diff. It concentrated in the replies that said **"confirmed, but I resolved it
+differently, and here is why."**
+
+Both round-1 substitutions in that PR were incomplete, and one rested on a
+factual premise the author had never checked — an objection about process
+restarts that turned out to be irrelevant, because the job state it worried
+about did not survive a restart either. The recommendation being declined was
+correct; the reasoning for declining it was not.
+
+**Two consequences, one for each side of the loop.**
+
+*As the reviewer:* when the author accepts a finding but substitutes their own
+remedy, re-review the substitution at least as hard as you reviewed the
+original defect — it is newly written, un-reviewed code justified by an
+argument you have not checked. "Agreed, fixed differently" is not convergence.
+
+*As the author:* a decline is the one reply where you are reasoning rather than
+reporting, so state the premise it rests on explicitly, and **verify that
+premise before posting** rather than after. If the premise is about how the
+code behaves, read the code; if it is about what a construct does, run a
+three-line probe. The cheapest tell that a decline is unsafe is that its
+justification contains a claim you have not executed.
+
 Who posts the re-review trigger, which findings it names, who replies on which
 thread, and the git mechanics around all of it are the implementing agent's
 ceremony — for Claude Code, `CLAUDE.md`'s *Watching the PRs I open*. This
 section defines only the reviewer's substantive standard.
+
+## Codex has two usage limits — a security-review bounce is NOT a code-review outage
+
+**The fact (David, 2026-08-15), canonical here because it binds every agent
+watching a PR, not just the one that hit it:**
+
+The Codex connector meters **two independent things**:
+
+| Limit | Capacity | What bouncing it means |
+|---|---|---|
+| **Security reviews** | Limited, and the one that actually bounces | Only that security reviews are unavailable |
+| **General code reviews** | Effectively unlimited for this repo | — |
+
+The connector's comment names its own scope:
+
+> You have reached your Codex usage limits **for security reviews**. Please try again later.
+
+**So the rule is: ignore that comment and request the code review.** Post
+`@codex review` as normal. A security-limit bounce is never a reason to skip a
+code review, defer one, treat a round as converged, or merge past it.
+
+**Evidence, because this was previously written up from a bad inference.** On
+PR #458 the security bounce landed at 22:42 and a **full code review with 8
+findings arrived at 22:48**, with a second round of 7 at 22:59 — code review
+was working the entire time the bounce was on screen. On PR #459 the identical
+bounce produced no review at all, not because Codex was unavailable but
+because the misreading meant nobody asked. The earlier PR #371 observation
+(bounces while David's visible weekly quota showed ~98% remaining) fits the
+same picture: that quota is the code-review pool, which stayed full while the
+*security* limit bounced.
+
+**A genuine code-review outage is a different animal** — a request that yields
+**no code review**. Judge that on the absence of the code review alone: the
+two limits are independent, so a security bounce can fire *during* a real
+code-review outage, and testing for "no review **and** no bounce" would let
+that unrelated comment mask the outage indefinitely. That case still exists,
+and since 2026-08-17 it is a **development stop**, not a stakes-graded
+proceed: **every PR gets a code review, and nothing merges until it returns.**
+A PR's criticality governs how many rounds are worth requesting; it never
+governs whether the first one has to come back. So an agent that cannot get a
+code review stops and says so loudly to David rather than proceeding on a
+docs-only or low-criticality exemption — that exemption is retired. The retry
+limit in the implementing agent's ceremony (for Claude Code,
+`.claude/skills/pr-watch/SKILL.md`) governs how many times to re-ask before
+escalating. A security-limit bounce does not qualify as an outage, and must
+not be reported as one.
+
+**The failure mode this exists to prevent is a reading error, not a tooling
+gap** — the prior rule quoted the "for security reviews" wording verbatim and
+still concluded the review was unavailable. See
+[`known-failure-patterns.md`](../ai-context/known-failure-patterns.md)'s
+*Reading a scoped limit message as a blanket outage*.
+
+## A comparative claim has two directions, and only one gets tested
+
+**Applies when writing a finding, a reply, or a header comment** — not to the
+code under review. A claim of the form *X is stricter/earlier/safer than Y*
+asserts **both** directions. The usual failure is to check the direction that
+prompted the claim, find it holds, and ship the comparison.
+
+**Three instances in one session (2026-08-17), across three PRs:**
+
+| Claim | Direction checked | Direction that was false |
+| --- | --- | --- |
+| The node-less guard fallback is "stricter on force pushes" | It blocks the permitted lease push | It *allows* `git-push -f`, which the parser blocks |
+| `committedAt` "necessarily precedes the push"; backdating "only over-blocks" | Backdating moves the bound earlier | `GIT_COMMITTER_DATE` is arbitrary, so it can be set *forward* |
+| The lease rule "sits behind GitHub's ruleset," unlike the fetcher rule | The ruleset exists and blocks force pushes | It targets `main`, not the `claude/*` branches the lease rule governs |
+
+**Why it survives review of the code itself.** These claims live in prose, and
+prose is not executed — nothing fails, and the half that *is* true makes the
+sentence read as verified. The fallback claim had already survived one review
+round, because that round only challenged the word "weaker" — and "stricter"
+is equally one-directional.
+
+**Avoid:** construct the counter-example for the opposite direction *before*
+shipping the sentence, and prefer a **measured matrix to a comparative
+adjective** whenever the behaviour has more than one axis. `.claude/guard.sh`
+now carries a six-row block/allow table precisely because two successive
+adjectives were tried and both were false; a table has no direction to get
+backwards.
+
+**The cheap test that would have caught all three:** ask *what would make the
+opposite true, and can I run it?* Each was falsifiable in under a minute —
+hiding `node` from `PATH`, setting `GIT_COMMITTER_DATE` to a future date,
+checking the ruleset's *target* rather than its existence. None was hard to
+check; all three were simply never checked.
+
+**Note which clock that middle one names, because the first version of this
+line got it wrong.** It said "reading `git commit --date`" — but `--date`
+overrides the **author** date, and the claim under test was about the
+**committer** date. Measured in a scratch repo:
+
+```
+git commit --date=2001-01-01 ...              author: 2001   committer: now
+GIT_COMMITTER_DATE=2031-01-01T00:00:00Z ...   author: now    committer: 2031
+```
+
+**The committer form needs the full timestamp; the author form does not.**
+`GIT_COMMITTER_DATE=2031-01-01` fails with `fatal: invalid date format`
+(git 2.43), while `--date=2001-01-01` is accepted. An earlier version of this
+block abbreviated both, so the line a reader would copy errored out — and it
+survived review because its neighbour, which tolerates the short form, sits
+directly above it. Presenting an abbreviated command as "the measurement" when
+the abbreviation is not what was run is the same defect as the rest of this
+entry, one layer down. (Codex, #506.)
+
+So a reviewer following the original recipe would have checked a clock the
+claim never depended on, found nothing, and concluded it held. **A remedy that
+does not exercise the thing it is prescribed for is worse than no remedy** —
+it converts "unverified" into "verified" while changing nothing. That this
+happened *inside the entry about testing claims properly* is the strongest
+argument it makes. (Codex, #506 round 2.)
+
+**A near miss that does NOT belong here**, recorded because it was in this
+list for one review round: a `Math.min` over a widened set, described with the
+wrong causal mechanism. That has no opposite direction — "the reduction was
+wrong" and "its consumer is the ordering check" are unrelated predicates, not
+two halves of a comparison, and the counter-example test above would not have
+caught it. Its actual lesson is *trace a value through its consumers*, and it
+lives in
+[`reduction-over-a-set-that-changed-size.md`](../../.agents/memory/reduction-over-a-set-that-changed-size.md).
+Padding a pattern with an adjacent-looking case makes its mechanism claim
+false, which is the same defect as the pattern itself. (Codex, #506 round 1.)
+
+## A count in prose is a hand-maintained duplicate of the thing it counts
+
+**Applies to a number that summarizes a separately-maintained enumerated
+set** — "four findings", "five failed attempts", "three removed outright."
+The number duplicates an enumeration that lives somewhere else, so it is a
+[duplicate source of truth](../ai-context/known-failure-patterns.md) in
+miniature — and the copy is the one that rots.
+
+**Does not apply to a standalone scalar with no enumeration behind it** — a
+configured limit, a threshold, a date, or a count read directly from a
+canonical, mechanically-produced source ("236 tests" straight from the test
+runner's own summary line has nothing to enumerate against; it either matches
+the runner's current output or it doesn't). Telling a reviewer to "enumerate
+or delete" a value like that would be asking them to invent an enumeration
+that was never the source of truth in the first place. The distinction is
+whether some other artifact enumerates the members this number is counting —
+if yes, this pattern applies; if the number **is** the artifact, it doesn't.
+
+**What makes it worse than an ordinary stale claim:** it goes stale *during the
+edit that is fixing something else*, so the moment of highest attention is also
+the moment it breaks. Three instances in one session (2026-08-17):
+
+| Where | What happened |
+| --- | --- |
+| A guard header's job list | "one job" → "FIRST/SECOND", which read as exhaustive and omitted `checkCommand`'s standing refusals |
+| A harvest entry's instance table | "four instances" survived removing one of them, and the count was load-bearing in the argument for the entry existing |
+| A contract section's header | changed to "five failed attempts" over a body still enumerating three and saying "four definitions" |
+
+The third is the sharpest: it happened **inside the edit that added the fifth
+attempt**, in a section whose subject is claims going stale.
+
+**Avoid — in order of preference:**
+
+1. **Enumerate instead of counting.** A numbered list cannot disagree with
+   itself; a sentence saying "four" above a list of three can and did.
+2. **Derive the number mechanically** if it must appear (a script, a test).
+3. **Delete it.** "Several rounds" carries the same weight and cannot be wrong.
+
+**Never patch the number.** Editing "four" to "five" and moving on is what
+produced instance three — the count was corrected and the body it summarized
+was not, so the paragraph was internally inconsistent in a *new* way.
+
+**Graduation trigger.** Three recurrences in one session makes a deterministic
+check a named candidate under this repo's recurring-failure→CI-guard rule.
+That's a code change, so it's tracked as a proper backlog item —
+[`deferred-work.md`](deferred-work.md#code-level-tech-debt) — rather than
+left to whoever next re-reads this paragraph during a maintenance sweep.
+
+## A boundary that resists repeated definition is missing a decision, not a better sentence
+
+**Looks like:** you write a rule that needs a general test to sort cases, a
+reviewer breaks the test with a counter-example, you sharpen it, and the
+sharpened version breaks somewhere else. The instinct each time is that the
+sentence was not precise enough.
+
+**PR #504 is the worked example: five definitions of one boundary failed in
+sequence**, each refuted by a concrete counter-example, while the behaviour
+underneath never changed. The enumeration and what each attempt got wrong are
+in `CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* — not
+repeated here, since the instance belongs to that contract and only the
+generalization belongs in shared review practice.
+
+**What actually ended it was two things arriving together, and neither was a
+better sentence:** an owner resolving what a dispatched verdict is *worth*,
+and that same owner separately instructing that the boundary stop being
+defined at all. The first fact alone didn't stop the drafting — it was
+immediately spent deriving a sixth attempt, in the same breath as recording
+the fifth having failed. It took the explicit stop instruction, on top of the
+new fact, to actually end the cycle. A generalization that keeps only the
+first condition would predict that the fact alone should have been enough,
+which is the opposite of what happened.
+
+**Two consequences worth having in front of you during a review loop:**
+
+- **Count the attempts.** Repeated failed definitions of the same boundary —
+  not a specific number; the worked example ran to five with nothing
+  stopping it at three or four — is the signal to stop drafting and go find
+  the missing decision. It is cheap to count and easy to miss, because each
+  individual attempt feels like progress.
+- **Once the decision arrives, the temptation is to spend it on one more
+  definition.** That is exactly what happened on #504: the new fact was used to
+  derive attempt five, in the same commit that recorded four having failed.
+  The decision's value is usually that it makes the definition *unnecessary*,
+  not that it makes one possible.
+
+**A reviewer is well placed to say this out loud**, often better placed than
+the author — the counter-examples are coming from the reviewer's side, so it
+sees the sequence before the author admits it is one.
 
 ## Review output format
 

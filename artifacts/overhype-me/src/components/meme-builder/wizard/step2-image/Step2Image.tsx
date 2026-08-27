@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import type { AspectRatio, MemeTextOptions, MyImageSource, ViewerContext } from "../../types";
 import type { StockImage } from "../../hooks/useStockImages";
-import { UnifiedUpgradeModal } from "../../../upgrade/UnifiedUpgradeModal";
+import {
+  UnifiedUpgradeModal,
+  type UpgradeModalContext,
+} from "../../../upgrade/UnifiedUpgradeModal";
+import { VisibilityToggle } from "../../parts/VisibilityToggle";
 import { WizardPrimaryAction } from "../WizardPrimaryAction";
 import type { PendingWizardState } from "../state/wizardStorage";
 import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
@@ -73,6 +77,9 @@ export function Step2Image({
 }: Props) {
   const [, navigate] = useLocation();
   const tier = viewerContext.tier;
+  // Told, not derived — the same answer createMemeRecord will apply.
+  const canSetPrivate = viewerContext.entitlements?.["meme_private_visibility"]?.allowed === true;
+  const canPulidStylize = viewerContext.entitlements?.["meme_pulid_stylize"]?.allowed === true;
 
   const [tab, setTab] = useState<SourceTab>(() => {
     // For unregistered users, never inherit a cached AI or self-upload source
@@ -87,6 +94,8 @@ export function Step2Image({
     return pickDefaultSourceTab(tier);
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeContext, setUpgradeContext] = useState<UpgradeModalContext>("ai-tab");
+  const [isPublic, setIsPublic] = useState(state.isPublic ?? true);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(state.aspectRatio ?? "landscape");
   const [framingOffset, setFramingOffset] = useState<{ x: number; y: number }>(
     state.framingOffset ?? { x: 0, y: 0 },
@@ -152,6 +161,9 @@ export function Step2Image({
   useEffect(() => {
     dispatch({ type: "set-text-options", textOptions });
   }, [textOptions, dispatch]);
+  useEffect(() => {
+    dispatch({ type: "set-is-public", isPublic });
+  }, [isPublic, dispatch]);
 
   // Task #507: previously this auto-picked `kind:"primary"` as the implicit
   // default. The profile photo is now just a tagged library entry, so the
@@ -220,6 +232,21 @@ export function Step2Image({
     setTab(next);
   };
 
+  // `canPulidStylize` only reached the segmented control's chrome
+  // (SourceSegmentedControl locks the tab), not `tab` state itself — so an
+  // account that lands on "ai-you" without clicking there (the tier-based
+  // pickDefaultSourceTab() default above, or a restored draft with
+  // stylizeWithAi cached from before a revocation) kept the live AiSourcePanel
+  // mounted with a locked chrome around it, whose Create/save actions reach
+  // endpoints that now 403. Round 3 of PR #425's review caught this; the
+  // panel render below is also gated directly as defense in depth.
+  useEffect(() => {
+    if (tab === "ai-you" && !canPulidStylize) {
+      setTab("self-upload");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPulidStylize]);
+
   const handleStockSelect = (image: StockImage) => {
     setStockSelectedId(image.id);
     setStockSelectedUrl(image.url);
@@ -275,6 +302,11 @@ export function Step2Image({
   };
 
   const wizardPrimaryActionRef = useRef<HTMLDivElement | null>(null);
+  // Dedicated ref to the primary CTA itself. Deliberately not
+  // `wizardPrimaryActionRef.current.querySelector("button")`: the visibility
+  // toggle above the CTA renders its own buttons, so DOM order alone can't
+  // tell "Make my meme" apart from "Public"/"Private".
+  const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handlePulidJobComplete = (generatedObjectPath: string) => {
     setPulidJobId(null);
@@ -291,11 +323,8 @@ export function Step2Image({
     // Defer until after React commits so the disabled→enabled transition is
     // already applied and screen readers announce the focus change correctly.
     requestAnimationFrame(() => {
-      const node = wizardPrimaryActionRef.current;
-      if (!node) return;
-      node.scrollIntoView({ behavior: "smooth", block: "end" });
-      const btn = node.querySelector("button");
-      if (btn) (btn as HTMLButtonElement).focus({ preventScroll: true });
+      wizardPrimaryActionRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      primaryButtonRef.current?.focus({ preventScroll: true });
     });
   };
 
@@ -375,6 +404,7 @@ export function Step2Image({
           name,
           pronouns,
           textOptions: memeTextOptions,
+          isPublic,
         } as WizardRuntimeState,
         factId: Number(factId),
         pulidGeneratedUploadKey,
@@ -460,12 +490,26 @@ export function Step2Image({
 
       {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
       <div className="flex-1 overflow-y-auto overscroll-y-none">
-        <div className="mx-auto max-w-md space-y-4 px-4 pt-4 pb-24">
+        {/* Bottom padding must clear the fixed action bar, which grows by a
+            row when the visibility control is present — otherwise the last
+            control sits under it and can't be reached. Sized for the bar's
+            TALLEST state (Private selected, whose helper line can wrap to
+            two lines) rather than tracking each state separately — a control
+            switching between Public/Private must never change whether the
+            scroll area's last item is reachable. */}
+        <div
+          className={`mx-auto max-w-md space-y-4 px-4 pt-4 ${
+            tier === "unregistered" ? "pb-24" : "pb-56"
+          }`}
+        >
           <SourceSegmentedControl
             active={tab}
-            tier={tier}
+            canPulidStylize={canPulidStylize}
             onSelect={handleSourceTab}
-            onRequestUpgrade={() => setUpgradeOpen(true)}
+            onRequestUpgrade={() => {
+              setUpgradeContext("ai-tab");
+              setUpgradeOpen(true);
+            }}
           />
 
           <AspectRatioToggle value={aspectRatio} onChange={setAspectRatio} />
@@ -493,7 +537,7 @@ export function Step2Image({
             />
           )}
 
-          {tab === "ai-you" && (
+          {tab === "ai-you" && canPulidStylize && (
             <AiSourcePanel
               factId={factId}
               selected={aiStylingImage}
@@ -534,13 +578,29 @@ export function Step2Image({
           onClick={handleMakeMyMeme}
           disabled={!sourceSelected}
           loading={saving}
+          buttonRef={primaryButtonRef}
+          aboveAction={
+            // Unregistered viewers can't save at all (the CTA routes them to
+            // signup), so the visibility choice would be premature noise.
+            tier === "unregistered" ? undefined : (
+              <VisibilityToggle
+                isPublic={isPublic}
+                onChange={setIsPublic}
+                canSetPrivate={canSetPrivate}
+                onRequestUpgrade={() => {
+                  setUpgradeContext("private-meme");
+                  setUpgradeOpen(true);
+                }}
+              />
+            )
+          }
         />
       </div>
 
       <UnifiedUpgradeModal
         open={upgradeOpen}
         onClose={() => setUpgradeOpen(false)}
-        context="ai-tab"
+        context={upgradeContext}
       />
 
       <NoFaceFallbackModal

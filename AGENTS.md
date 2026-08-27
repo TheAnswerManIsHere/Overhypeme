@@ -8,7 +8,7 @@
 >
 > **One source of truth for all agents.** These docs are shared by Codex, Claude
 > Code, and future agents. Claude Code's `CLAUDE.md` holds only Claude-specific
-> ceremony (plan-mode delivery, its PR/squash-merge workflow, TEST_RUN/UAT,
+> ceremony (plan-mode delivery, its PR/squash-merge workflow, post-merge verification/UAT,
 > auto-watch) and defers to these shared docs for every cross-agent principle. When
 > shared product/architecture/principle truth changes, edit the shared doc here —
 > do not fork a divergent copy into any agent's own file or private memory.
@@ -29,6 +29,9 @@ Start with:
 - [`docs/manual/`](docs/manual/README.md) — the human-facing narrative manual
   (how the system works and *why*); a companion to `docs/ai-context/`, **not** a
   replacement for it
+- [`docs/handoff/`](docs/handoff/README.md) — ephemeral cross-tool coordination
+  (Replit ↔ Codex ↔ Claude Code); every file there is in-flight, never a
+  record — delete once addressed, per its own contract
 
 For **visual pipeline** work, also read:
 
@@ -95,15 +98,15 @@ For **billing, Stripe webhooks, or membership** work specifically, also read:
   grace episodes, the known reconciliation gap
 
 Engineering practice: [`docs/engineering/`](docs/engineering/) —
-[testing-guide](docs/tests/testing-guide.md),
+[testing](docs/tests/TESTING.md),
 [migrations-and-backfills](docs/engineering/migrations-and-backfills.md)
 (and its worked example,
 [ncmec-audit-ledger-hardening](docs/engineering/ncmec-audit-ledger-hardening.md),
 for a migration that cannot enforce its own privilege boundary),
 [code-review](docs/engineering/code-review.md),
-[test-run-contract](docs/tests/test-run-contract.md) (what a per-PR
-`TEST_RUN` checklist must contain — Replit executes it post-merge against the
-live DB),
+[test-run-contract](docs/tests/test-run-contract.md) (what a PR's
+*Post-merge verification* section must contain — Replit executes it
+post-merge against the live DB, driven through the Replit connector),
 [deferred-work](docs/engineering/deferred-work.md) (the backlog of parked
 maintenance/security/tech-debt items — engineering deferrals only; product
 deferrals stay in the roadmap). Subsystem gotchas: `.agents/memory/`.
@@ -112,7 +115,10 @@ Agent sandboxes:
 [`docs/ai-context/codex-environment.md`](docs/ai-context/codex-environment.md) —
 what Codex's container can and cannot do (it boots without a database by
 default, so the api-server integration suite is unavailable there unless
-`CODEX_SETUP_DB=1`).
+`CODEX_SETUP_DB=1`);
+[`docs/ai-context/replit-environment.md`](docs/ai-context/replit-environment.md) —
+how Replit's live-environment access, auto-commit checkpoints, and direct-to-`main`
+push actually work, and why that push path is unguarded on purpose.
 
 ## Working agreement with David
 
@@ -121,17 +127,27 @@ plan until David has explicitly approved that plan.** An ambiguous nudge or anot
 agent's approval is not David's approval. Full working rules:
 [`docs/ai-context/agent-working-rules.md`](docs/ai-context/agent-working-rules.md).
 
-**Two working modes — David picks explicitly.** Default is **feature mode** (plan
-→ approval → full build → PR). **Bugfix mode** is a lightweight fix-and-commit path
-David turns on by saying so (e.g. a prompt starting **"Bugfix mode:"**); absent an
-explicit signal you are in feature mode. Read
+**Two working modes — the ceremony in force is always visible, never silent.**
+Default is **feature mode** (plan → approval → full build → PR). **Bugfix
+mode** is a lightweight fix-and-commit path. For Codex, David turns it on by
+saying so (e.g. a prompt starting **"Bugfix mode:"**); absent an explicit
+signal you are in feature mode. (Claude routes by request shape with an
+announced, vetoable classification — see the mode-entry section of
+working-modes.md.) Read
 [`docs/ai-context/working-modes.md`](docs/ai-context/working-modes.md) for the full
 contract of each and how to switch between them.
 
-**End-of-feature documentation.** When David invokes `/document` or asks to lock
-in a finished feature's learnings, follow
-[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md)
-(distinct from a one-off "remember this," which is immediate targeted persistence).
+**End-of-feature documentation.** Follow
+[`docs/ai-context/documentation-workflow.md`](docs/ai-context/documentation-workflow.md).
+**The per-merge close-out judgement is retired (David, 2026-08-20)** — the
+heavyweight harvest now runs **batched at `/maintenance`**, covering every
+product feature merged since the last pass, or whenever David asks. What
+close-out owes instead is cheap and unconditional: a **harvest-notes comment
+on the feature's workstream issue** — decisions and why, alternatives
+rejected, gotcha candidates — so the batched pass inherits the session's
+context. Process PRs get no harvest. This is distinct from a one-off
+"remember this" (immediate targeted persistence), which never waits for a
+batch.
 
 **Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
 has a GitHub issue as its spine, tracked on a private Project board and kept
@@ -213,9 +229,8 @@ paragraph is a summary, not the authority.
 
 ## Setup, verification, and the CI gate
 
-Full commands, DB isolation, and the production guard are in
-[`docs/tests/testing-guide.md`](docs/tests/testing-guide.md) and the
-canonical [`docs/tests/TESTING.md`](docs/tests/TESTING.md). The essentials:
+Full commands, DB isolation, and the production guard are in the canonical
+[`docs/tests/TESTING.md`](docs/tests/TESTING.md). The essentials:
 
 - Build generated artifacts + libs before package checks:
   `pnpm --filter @workspace/api-spec run codegen` → `pnpm run typecheck:libs` →

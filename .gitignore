@@ -51,12 +51,24 @@ Thumbs.db
 !.local/tasks/
 !.local/tasks/**
 attached_assets/
+# npm-global installs in the Repl (e.g. Claude Code via `npm install -g`)
+# land under the workspace's .config so they persist across restarts —
+# tool binaries, not project files; keep them out of checkpoint commits.
+.config/
 
 # Claude Code agent worktrees (per-session ephemeral)
 .claude/worktrees/
 
 # Claude Code personal/local settings (machine-specific, not shared)
 .claude/settings.local.json
+
+# Claude Code user config dir for the in-Repl install (CLAUDE_CONFIG_DIR in
+# .replit). Holds OAuth credentials + session history. It lives inside the
+# workspace only because that's what persists across Repl restarts — it must
+# NEVER be committed: this repo is public, and Replit Agent auto-commits the
+# workspace at checkpoints, so an untracked credentials dir WILL eventually be
+# swept into a pushed commit without this entry.
+.claude-user/
 
 # Secrets — never commit env files (allow *.example templates)
 .env
@@ -75,3 +87,40 @@ attached_assets/
 # boot) materializes it next to dist/ so the bundled server can resolve
 # ../assets. The canonical, tracked sources live under src/assets/.
 artifacts/api-server/assets/
+
+# Receipts split by KIND, and the line is evidence vs. decision.
+#
+# EVIDENCE is session-local, not repo history: each file describes one PR at
+# one moment, is worthless once the moment passes, and is re-derivable at will.
+# Both shapes below are ignored --
+#   pr-*.json               readiness, quoted in a merge claim and checked by the merge hook
+#   loop-round-check-*.json rounds counted from a snapshot for the budget guard
+#   loop-round-check-*.claim  the atomic single-use claim on one such receipt
+#
+# DECISIONS (loop-budget-*.json, loop-extension-*.json) are committed instead.
+# They are taken once and bind afterwards, and they MUST survive the container
+# or tripwire 2 can never fire: an ephemeral extension record means a loop that
+# already spent its one self-serve adjudication is offered the self-serve
+# tripwire again by the next session, forever.
+#
+# Named shapes rather than `.agents/receipts/` + negations, because git cannot
+# re-include a file whose parent directory is excluded -- the negations read
+# correctly and do nothing. The cost is that a NEW evidence shape must be added
+# here; the benefit is that the rule actually works. A new file in this
+# directory that is evidence belongs on this list.
+#
+# The round COUNT is deliberately evidence. It was a committed file in this
+# mechanism's first design, and that is precisely what failed: a cache of state
+# GitHub already holds, which drifted from it four different ways in one
+# evening.
+.agents/receipts/pr-*.json
+.agents/receipts/loop-round-check-*.json
+# Matches BOTH claim shapes: the original `<check>.json.claim`, and the
+# per-generation `<check>.json.<nonce>.claim` the guard writes now that the
+# claim is keyed to the receipt's nonce (`claimPath` = `${checkPath(pr)}.${nonce}.claim`).
+# The narrower `*.json.claim` pattern stopped matching the moment the nonce
+# was added -- a silent coupling break that showed up only as an untracked
+# file -- so the pattern is written to cover the whole family rather than one
+# spelling of it. Verified to match both shapes (`git status --ignored`); a
+# pre-nonce claim can still be sitting in a working tree from an earlier loop.
+.agents/receipts/loop-round-check-*.claim

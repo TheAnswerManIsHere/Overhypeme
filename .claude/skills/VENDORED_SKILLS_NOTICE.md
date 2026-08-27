@@ -86,3 +86,33 @@ which writes `skills-lock.json` at the repo root for future
 Pocock. Note: the user's first attempt used `-g` (global, user-home-level)
 install — that does not persist in this ephemeral remote environment, so it
 was reinstalled at project scope instead so it's committed with the rest.
+
+## Vendored skills from mattpocock/skills (MIT) — file copy, 2026-08-21
+
+`grilling`, `domain-modeling`, and `prototype` were copied from a fresh clone
+of https://github.com/mattpocock/skills (main branch as of 2026-08-21, MIT
+licensed, copyright Matt Pocock) via direct file copy — NOT via the `skills`
+CLI, so `skills-lock.json` does not track them (it covers only the
+CLI-installed `grill-me`). PR #545, workstream #544. Upstream locations:
+`skills/productivity/grilling/`, `skills/engineering/domain-modeling/`,
+`skills/engineering/prototype/`. The upstream `agents/openai.yaml` files
+(OpenAI-harness display metadata) were deliberately not vendored.
+
+Modification status:
+
+- `grilling/SKILL.md` — upstream body verbatim, plus a clearly-marked
+  "Overhype.me adaptations" section (interviewee, terse question bodies,
+  notification rule, delegation caps, ceremony boundary).
+- `domain-modeling/SKILL.md` — **adapted, not verbatim**: upstream's session
+  behaviors and three-gate offer heuristic kept; file targets rewritten from
+  `CONTEXT.md`/`docs/adr/` to `docs/ai-context/glossary.md` and
+  `docs/ai-context/decisions.md`; upstream's `CONTEXT-FORMAT.md` and
+  `ADR-FORMAT.md` not vendored (the target files carry their own formats).
+- `prototype/SKILL.md` — upstream body verbatim plus an "Overhype.me
+  adaptations" section (Artifact delivery, capture-through-draft-PR,
+  selection stays David's). `LOGIC.md` and `UI.md` are byte-for-byte
+  upstream copies.
+- `grill-me/SKILL.md` — **no longer verbatim as of PR #545**: body changed
+  from `Run a `/grilling` session.` to upstream's exact delegation form,
+  `Call the Skill tool with "grilling".` (it had pointed at a skill that was
+  not installed).

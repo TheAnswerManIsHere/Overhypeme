@@ -41,6 +41,25 @@ export const ACTION_COPY = {
   tryAiMode: "Try AI mode",
 } as const;
 
+/**
+ * Public/Private visibility control. `private` is Legendary-level by
+ * default — `createMemeRecord` rejects an explicit `isPublic: false` with a
+ * 403 unless the caller is legendary/admin *or* an operator has separately
+ * granted their tier the `meme_private_visibility` flag (Admin → Features).
+ * This component never consults that flag: the lock is tier-only
+ * (`tier !== "legendary"`), so a lower tier the flag was granted to still
+ * sees Private locked here — the control must never let an *unentitled by
+ * default* tier select it (it upsells instead), because the save would
+ * refuse it, not silently publish it.
+ */
+export const VISIBILITY_COPY = {
+  groupLabel: "Who can see this meme",
+  public: "Public",
+  private: "Private",
+  privateHelper: "Only you. It stays out of the gallery and the link won't open for anyone else.",
+  lockBadge: "LEGEND",
+} as const;
+
 export const UPLOAD_ERROR_COPY = {
   "too-large": "That file is too big. Try one under 15 MB.",
   "invalid-format": "Use a JPEG, PNG, or WebP image.",

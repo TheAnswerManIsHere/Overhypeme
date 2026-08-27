@@ -1,0 +1,8 @@
+{
+  "pr": 503,
+  "kind": "david",
+  "grant": 1,
+  "authorization": "One more round is granted",
+  "context": "Tripwire 2 on PR #503. The loop reached 4 of 4 (tier internal, cap 3, plus one adjudication continue+1). Round 4 returned 6 findings, all real and all fixed in 207f996 -- but that commit is unreviewed, and the standing rule is that every PR gets a Codex review before merge. So the round budget and the merge gate were in direct conflict, which is a hard stop to David by design: there is never a second self-serve extension. He granted one round so 207f996 can be reviewed.",
+  "createdAt": "2026-08-18T03:00:00.000Z"
+}

@@ -142,9 +142,23 @@ function StyleCard({
 // ─── Video Tab wizard ────────────────────────────────────────────────────────
 
 function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl, defaultPrivate, initialPathMode }: VideoTabProps) {
-  const { role, user } = useAuth();
+  const { role, user, can } = useAuth();
   const isAdmin = role === "admin";
-  const isLegendary = role === "legendary" || role === "admin";
+  // Told, not derived, and split into the TWO entitlements this tab actually
+  // consults. "Upload your own photo as a video source" needs nothing beyond
+  // being in this already-video_generation-gated tab; "AI Generated" mode
+  // additionally needs meme_ai_background, since it renders AiBgPicker, which
+  // is a capability an operator can grant or revoke independently of video
+  // access. One `isLegendary` boolean covering both meant a grid change to
+  // either entitlement couldn't move this screen.
+  const canVideo = can("video_generation");
+  const canAiBackground = can("meme_ai_background");
+  // Independently configurable from video_generation — round 5 of PR #425's
+  // review found this toggle rendered unconditionally while the server-side
+  // gate (videos.ts) only checked video_generation, letting anyone with video
+  // access get the private-visibility perk for free. Matches the image
+  // path's `canSetPrivate` gate in MemeBuilder.tsx.
+  const canSetPrivate = can("meme_private_visibility");
   const profileImageUrl = user?.profileImageUrl ?? null;
   const { pronouns } = usePersonName();
   const { styles: videoStyles } = useVideoStyles();
@@ -234,6 +248,16 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // component goes too.
   const [isVideoPrivate, setIsVideoPrivate] = useState(defaultPrivate ?? false);
 
+  // Reconcile away from a private selection the entitlement no longer covers.
+  // Round 6 of PR #425's review found gating the toggle's RENDER on
+  // `canSetPrivate` (added earlier this round) hid the only control that
+  // could clear a `true` value, so a user who selected Private before a
+  // revocation kept sending `isPrivate: true` to a route that now 403s it,
+  // with no visible way to fix their own stuck state.
+  useEffect(() => {
+    if (!canSetPrivate && isVideoPrivate) setIsVideoPrivate(false);
+  }, [canSetPrivate, isVideoPrivate]);
+
   const selectedStyle = videoStyles.find((s) => s.id === selectedStyleId) ?? videoStyles[0];
 
   // ── Load prefetched Pexels photos on mount ────────────────────────────────
@@ -293,7 +317,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
   // ── Load upload gallery for premium users ─────────────────────────────────
   useEffect(() => {
-    if (!isLegendary || imageMode !== "upload") return;
+    if (!canVideo || imageMode !== "upload") return;
     setIsLoadingGallery(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
       .then((r) => r.json())
@@ -302,7 +326,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       })
       .catch(() => {})
       .finally(() => setIsLoadingGallery(false));
-  }, [isLegendary, imageMode]);
+  }, [canVideo, imageMode]);
 
 
   // ── Clean up video progress timer on unmount ───────────────────────────────
@@ -457,9 +481,12 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
             <div className="flex border-b border-border mb-4 overflow-x-auto">
               {(["identity", "stock", "ai", "upload"] as VideoImageMode[]).map((mode) => {
                 const labels: Record<VideoImageMode, string> = { identity: "You", stock: "Stock Photo", ai: "AI Generated", upload: "Upload" };
-                // "identity" + "stock" are free; the legacy "upload" + "ai" tabs
-                // still require Legendary because of the underlying source flow.
-                const needsPremium = (mode === "ai" || mode === "upload") && !isLegendary;
+                // "identity" + "stock" are free. "upload" needs only video
+                // access (this whole tab is already video_generation-gated).
+                // "ai" additionally needs meme_ai_background — a capability
+                // AiBgPicker itself gates, independent of video access.
+                const needsPremium =
+                  mode === "ai" ? !canAiBackground : mode === "upload" ? !canVideo : false;
                 return (
                   <button
                     key={mode}
@@ -559,7 +586,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
               initialImages={aiMemeImages ?? null}
               aiGender={aiGender}
               isGendered={factIsGendered}
-              isLegendary={isLegendary}
+              canGenerate={canAiBackground}
               isAdmin={isAdmin}
               onSelect={(sel: AiBgSelection | null) => {
                 setSelectedBgUrl(sel?.url ?? null);
@@ -604,7 +631,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           {/* Upload mode */}
           {imageMode === "upload" && (
             <div className="space-y-3">
-              {!isLegendary ? (
+              {!canVideo ? (
                 <AccessGate reason="legendary" size="sm" description="Upload your own photos with a Legendary membership." />
               ) : (
                 <>
@@ -901,27 +928,29 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
           {videoState.status !== "done" && (
             <>
-              {/* Public / Private toggle */}
-              <div className="flex items-center gap-3 mb-4 p-3 bg-secondary border border-border rounded-sm">
-                <button
-                  onClick={() => setIsVideoPrivate(false)}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
-                    !isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Globe className="w-3.5 h-3.5" /> Public
-                </button>
-                <button
-                  onClick={() => setIsVideoPrivate(true)}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
-                    isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Lock className="w-3.5 h-3.5" /> Private
-                </button>
-              </div>
+              {/* Public / Private toggle (premium) */}
+              {canSetPrivate && (
+                <div className="flex items-center gap-3 mb-4 p-3 bg-secondary border border-border rounded-sm">
+                  <button
+                    onClick={() => setIsVideoPrivate(false)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
+                      !isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Globe className="w-3.5 h-3.5" /> Public
+                  </button>
+                  <button
+                    onClick={() => setIsVideoPrivate(true)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
+                      isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Lock className="w-3.5 h-3.5" /> Private
+                  </button>
+                </div>
+              )}
               <Button
                 onClick={() => void handleGenerateVideo()}
                 disabled={videoState.status === "generating" || !selectedBgUrl}

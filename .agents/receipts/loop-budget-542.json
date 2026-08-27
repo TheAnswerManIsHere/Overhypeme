@@ -1,0 +1,8 @@
+{
+  "pr": 542,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 8,
+  "artifact": "docs-only: decisions.md entry + CLAUDE.md guard bullet, PR #534 close-out learnings",
+  "declaredAt": "2026-08-20T16:21:18.355Z"
+}

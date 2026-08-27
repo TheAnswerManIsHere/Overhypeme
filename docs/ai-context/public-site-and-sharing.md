@@ -222,8 +222,11 @@ generic sitewide fallback.
   visibility-checked via `canViewMeme` (same no-existence-disclosure
   pattern as OG) → logs an affiliate click (`affiliateClicksTable`,
   skipped on `?preview=true`) → re-exports the meme image to
-  `meme-exports/${slug}.jpg` (public ACL; same export step as the
-  standalone `POST /memes/:slug/zazzle-export`) → builds the Zazzle URL
+  `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg` (public ACL; render-
+  versioned since PR #398 round 3 so a corrected re-export can't collide
+  with an edge-cached copy of an earlier, since-fixed render; same export
+  step as the standalone `POST /memes/:slug/zazzle-export`) → builds the
+  Zazzle URL
   from affiliate params stored in `admin_config`
   (`lib/zazzle.ts:9-34`) → `302`s (or returns the URL as JSON on
   `?preview=true`). On any failure mid-flow, falls back to a bare Zazzle

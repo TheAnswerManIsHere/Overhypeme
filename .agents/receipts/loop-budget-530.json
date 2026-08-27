@@ -1,0 +1,8 @@
+{
+  "pr": 530,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 10,
+  "artifact": "/document harvest for PR #503: three known-failure-patterns entries, one decisions.md entry, two memory notes, one roadmap entry",
+  "declaredAt": "2026-08-19T18:58:33.979Z"
+}

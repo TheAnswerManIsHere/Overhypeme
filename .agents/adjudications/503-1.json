@@ -1,0 +1,464 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-18T01:42:10.132Z",
+  "pr": 503,
+  "title": "Review-round budget: mechanical tripwire + fresh-context adjudication (David-merge-only)",
+  "artifact": {
+    "files": 18,
+    "added": 2767,
+    "removed": 16
+  },
+  "budget": {
+    "tier": "internal",
+    "tierMeaning": "internal tooling / docs / guards / agent contracts",
+    "declaredBudget": 3,
+    "cap": 3,
+    "criticality": 45,
+    "artifactDeclaredAtRoundZero": "review-round budget guard (scripts/review-budget.mjs + contract updates)",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "allowance": 3,
+    "extensions": []
+  },
+  "rounds": {
+    "completedReviewerPasses": 3,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-17T21:41:18Z",
+        "source": "review",
+        "findings": 13
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-17T21:46:57Z",
+        "source": "review",
+        "findings": 2
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-17T22:41:06Z",
+        "source": "review",
+        "findings": 12
+      }
+    ],
+    "trend": [
+      13,
+      2,
+      12
+    ],
+    "totalFindings": 27
+  },
+  "findings": {
+    "unresolved": 12,
+    "resolved": 15,
+    "resolutionUnknown": 0,
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z504l",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Count the automatic opening review toward the budget"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z504q",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Reject adjudication receipts created before the tripwire"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z504t",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Fail closed when the rounds receipt belongs to another PR"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z504w",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Distinguish an unreadable tally from an absent one"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z5040",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Verify the snapshot matches the requested PR"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z5041",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Restrict territory counts to Codex findings"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z5043",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Persist each tally update before relying on it"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z5045",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Verify the adjudication record before granting rounds"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z505A",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Reconcile per-round findings before writing the record"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z505D",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Diff against the PR head instead of the current checkout"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z505E",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Reject invalid PR numbers in the record CLI"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z505F",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Require issue comments in adjudication snapshots"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z505I",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:41:18Z",
+        "excerpt": "Include unresolved finding evidence in the record"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z57KC",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:46:57Z",
+        "excerpt": "Preserve extension filenames until validating uniqueness"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z57KJ",
+        "path": ".claude/guard.sh",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-17T21:46:57Z",
+        "excerpt": "Keep Bash payloads out of the no-Node budget fallback"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlJ",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": false,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Require proof that an extension follows its tripwire"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlM",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Bind reconciliation snapshots to the requested PR"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlP",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Reject stale snapshots before refunding rounds"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlR",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Propagate unexpected git-show failures"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlT",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Preserve reconciliation history when recording a round"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlW",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Compute the record allowance from spent rounds"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlX",
+        "path": "scripts/review-loop-record.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": false,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Deduplicate finding items by root-comment identity"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nla",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Fail closed when the receipts directory cannot be listed"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nld",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Verify the tally commit reached the remote branch"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlg",
+        "path": ".claude/skills/maintenance/SKILL.md",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Count the automatic opening pass in the tripwire digest"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nll",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": true,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Validate reconciliation entries before counting them"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6Z6nlo",
+        "path": "scripts/review-budget.mjs",
+        "line": null,
+        "resolved": false,
+        "outdated": false,
+        "createdAt": "2026-08-17T22:41:06Z",
+        "excerpt": "Avoid reusing occupied extension paths after sequence gaps"
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 27,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "0c53c1ecc084d5f02ed856e7e63172a02b401d6d",
+    "resolved": true,
+    "since": "0c53c1ecc084d5f02ed856e7e63172a02b401d6d",
+    "head": "0cd6f3c092a9a78a2ed08de30044f3acd2b0622a",
+    "commits": 7,
+    "files": [
+      {
+        "file": ".agents/memory/MEMORY.md",
+        "class": "agent-contract",
+        "added": 2,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/github-actions-outage-mimics-quota.md",
+        "class": "agent-contract",
+        "added": 8,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/reduction-over-a-set-that-changed-size.md",
+        "class": "agent-contract",
+        "added": 40,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/stacked-pr-gets-no-workflow-run.md",
+        "class": "agent-contract",
+        "added": 40,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/README.md",
+        "class": "record",
+        "added": 74,
+        "removed": 70
+      },
+      {
+        "file": ".agents/receipts/loop-rounds-503.json",
+        "class": "record",
+        "added": 0,
+        "removed": 17
+      },
+      {
+        "file": ".claude/guard.sh",
+        "class": "agent-contract",
+        "added": 64,
+        "removed": 18
+      },
+      {
+        "file": ".claude/settings.json",
+        "class": "agent-contract",
+        "added": 10,
+        "removed": 0
+      },
+      {
+        "file": ".claude/skills/maintenance/SKILL.md",
+        "class": "agent-contract",
+        "added": 6,
+        "removed": 4
+      },
+      {
+        "file": ".claude/skills/pr-watch/SKILL.md",
+        "class": "agent-contract",
+        "added": 65,
+        "removed": 18
+      },
+      {
+        "file": ".github/workflows/build.yml",
+        "class": "code",
+        "added": 10,
+        "removed": 1
+      },
+      {
+        "file": ".gitignore",
+        "class": "code",
+        "added": 27,
+        "removed": 0
+      },
+      {
+        "file": "CLAUDE.md",
+        "class": "agent-contract",
+        "added": 164,
+        "removed": 27
+      },
+      {
+        "file": "docs/ai-context/decisions.md",
+        "class": "agent-contract",
+        "added": 74,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/known-failure-patterns.md",
+        "class": "agent-contract",
+        "added": 125,
+        "removed": 0
+      },
+      {
+        "file": "docs/engineering/code-review.md",
+        "class": "agent-contract",
+        "added": 11,
+        "removed": 4
+      },
+      {
+        "file": "scripts/__tests__/guard-decision.test.mjs",
+        "class": "code",
+        "added": 210,
+        "removed": 63
+      },
+      {
+        "file": "scripts/__tests__/pr-ready.test.mjs",
+        "class": "code",
+        "added": 671,
+        "removed": 0
+      },
+      {
+        "file": "scripts/__tests__/review-budget.test.mjs",
+        "class": "code",
+        "added": 345,
+        "removed": 267
+      },
+      {
+        "file": "scripts/guard-decision.mjs",
+        "class": "code",
+        "added": 212,
+        "removed": 38
+      },
+      {
+        "file": "scripts/pr-ready.mjs",
+        "class": "code",
+        "added": 809,
+        "removed": 0
+      },
+      {
+        "file": "scripts/review-budget.mjs",
+        "class": "code",
+        "added": 331,
+        "removed": 305
+      },
+      {
+        "file": "scripts/review-loop-record.mjs",
+        "class": "code",
+        "added": 21,
+        "removed": 3
+      }
+    ],
+    "behavioralFiles": 21,
+    "proseOnly": false,
+    "noChange": false
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/loop-metrics.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}

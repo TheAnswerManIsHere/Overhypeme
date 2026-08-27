@@ -1,0 +1,8 @@
+{
+  "pr": 570,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 25,
+  "artifact": "Playwright suite draining PR425's admin-permissions UAT steps into CI, plus one CI env var",
+  "declaredAt": "2026-08-25T23:58:07.123Z"
+}

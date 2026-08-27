@@ -78,7 +78,8 @@ function DimsFromUrl({ url }: { url: string }) {
 
 export default function MemePage() {
   const [, params] = useRoute("/m/:slug");
-  const { user, role } = useAuth();
+  const { user, role, can } = useAuth();
+  const canPulidStylize = can("meme_pulid_stylize");
   const slug = params?.slug ?? "";
   // Task #507: open the builder in self-upload mode whenever the viewer has
   // ANY profile photo on file (first-party upload or external Clerk/OAuth
@@ -163,6 +164,7 @@ export default function MemePage() {
     userId: user?.id ?? null,
     meme: { createdById: meme.createdById, imageTransform: meme.imageTransform },
     justCreated,
+    canPulidStylize,
   });
 
   const wearHref = `/wear/${slug}?source=meme-page`;

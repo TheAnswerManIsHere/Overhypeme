@@ -4,7 +4,14 @@ export type SourceTab = "stock" | "self-upload" | "ai-you";
 
 interface Props {
   active: SourceTab;
-  tier: Tier;
+  /**
+   * `can("meme_pulid_stylize")` from the caller — told, not derived. This
+   * used to be `tier === "legendary"`: the same PR #402 shape, on the tab
+   * that leads into the PuLID flow. A grid change (granting the entitlement
+   * to `registered`, or revoking it from `legendary`) wouldn't move this
+   * control.
+   */
+  canPulidStylize: boolean;
   onSelect: (tab: SourceTab) => void;
   onRequestUpgrade: () => void;
 }
@@ -21,11 +28,11 @@ interface TabSpec {
 
 /**
  * Three pills: AI you | Your photo | Stock. AI leads because it's the hero
- * experience for legendary subscribers. Tier rules:
- *
- *   unregistered: stock unlocked; self-upload locked (signup); ai-you locked (upgrade)
- *   registered:   stock + self-upload unlocked; ai-you locked (upgrade)
- *   legendary:    all three unlocked
+ * experience for entitled accounts. Stock and Your Photo are always
+ * unlocked here (self-upload's own registration requirement is enforced one
+ * level up, by `resolveBehavior`'s invalid-cell case — this control never
+ * renders for an unregistered viewer). "AI you" is locked exactly when
+ * `canPulidStylize` is false, whatever tier the account happens to hold.
  *
  * Locked tabs are dimmed but tappable so the user can discover the upsell.
  * Design-system rule: no emoji decoration — locked tabs show a small typeset
@@ -33,7 +40,7 @@ interface TabSpec {
  */
 export function SourceSegmentedControl({
   active,
-  tier,
+  canPulidStylize,
   onSelect,
   onRequestUpgrade,
 }: Props) {
@@ -41,7 +48,7 @@ export function SourceSegmentedControl({
     {
       id: "ai-you",
       label: "AI you",
-      ...(tier === "legendary"
+      ...(canPulidStylize
         ? {}
         : { lock: { badge: "LEGEND" as const, onClick: onRequestUpgrade } }),
     },

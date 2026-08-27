@@ -1,0 +1,7 @@
+{
+  "pr": 567,
+  "kind": "david",
+  "grant": 1,
+  "authorization": "David, 2026-08-25, in this session. The internal tier's cap-3 tripwire is a mandatory stop to David in person, and it fired: round 3 returned a fourth instance of the vacuous-assertion class, nothing was written for it, and the finding plus a proposed patch went to him with three options (apply the patch / ship with the gap recorded / re-examine the approach). He replied: \"apply the proposed patch\". That instruction authorizes the one round this grant covers, because the write-gate rule makes the review of written code mandatory rather than optional -- the patch is now committed as 748e811, and without this round it would be an unreviewed head, which is never mergeable. The grant is ONE round: it covers reviewing the code his ruling caused to be written, and nothing beyond it. If round 4 returns findings worth writing for, that is a fresh stop back to David, not a second self-serve extension -- this tier has none.",
+  "grantedAt": "2026-08-25T22:17:00Z"
+}

@@ -1,5 +1,9 @@
 # Deferred Engineering Work
 
+Last maintenance pass: none yet under the 2026-08-20 contract — the next
+`/maintenance` run updates this line every pass (it is the durable window
+boundary the batched documentation harvest reads).
+
 The single, durable home for engineering, security-hygiene, and maintenance
 work we have **consciously chosen not to do yet** — dependency bumps we've
 parked, deprecations we're carrying, cleanup we've postponed, toolchain debt.
@@ -57,6 +61,31 @@ we've sequenced for later.
   hold has a security dimension (we're declining a patch-eligible bump), so the
   quarterly security review should re-check whether a CVE has landed on the
   0.34.x line we're staying on.
+  - **Re-checked 2026-08-16 (the auth/entitlement/spend security pass). The
+    libvips CVEs still stand — the hold is NOT security-safe.** `pnpm audit`
+    reports no advisory against sharp, and that is **not evidence**: `audit`
+    surfaces npm-registry advisories, while sharp's exposure is inherited from
+    the **libvips binary bundled inside it**, which no npm advisory covers.
+    The four CVEs recorded under *Cost of waiting* above (incl.
+    [GHSA-f88m-g3jw-g9cj](https://github.com/lovell/sharp/security/advisories/GHSA-f88m-g3jw-g9cj),
+    High) remain a known, accepted risk while this stays parked. The remaining
+    gate is unchanged: a deliberate visual-pipeline upgrade with UAT, targeting
+    0.35.1+.
+  - **This entry was briefly edited to claim the opposite, which is the second
+    occurrence of a pattern this repo already documents.** The first version of
+    this line, in 2026-07, asserted "no known CVE" from assumption; the
+    2026-08-16 version asserted "negative" from a clean `pnpm audit`. Different
+    reasoning, same false conclusion, on the same dependency. See
+    [`known-failure-patterns.md`](../ai-context/known-failure-patterns.md#security-relevant-dependency-claims-written-from-assumption-not-verification)
+    — whose worked example *is* this line. The check that would have caught
+    both is the one that pattern already prescribes: read the package's own
+    GHSA/changelog, and treat a tool's silence as silence rather than as a
+    negative result. **Nothing here should be re-marked "clear" without a
+    libvips-version check.**
+  - **Separately, `pnpm audit` on 2026-08-16 reported ~70 advisories overall.**
+    Not a statement about sharp; that is the Dependabot backlog, and several
+    sit on production-path packages (`express` → `body-parser`,
+    `path-to-regexp`) rather than dev tooling. Triaging it is tracked below.
 
 - **Nothing alerts if the `rate_limit_counters` purge silently stops running.**
   - **What.** `jobs/rateLimitCounterPurger.ts` reports through structured log
@@ -104,20 +133,128 @@ we've sequenced for later.
     correctly (including the `StripeSync` pool's connections). Should land
     before scaling autoscale usage materially.
 
-- **`IP_HASH_SALT` can silently fall back in production (found on PR #299's review, deferred by PR #308).**
-  - **What.** `hashIp` falls back to a repository-known string when the salt
-    env var is missing or under 16 characters, logged only as a WARN. PR
-    #308's own rate limiter doesn't hash IPs, but `transientRenderLog.ts`'s
-    existing usage still does, so this fallback remains live.
-  - **Why deferred now.** Pre-existing on `main`; same provenance as the
-    autoscale entry above.
-  - **Cost of waiting.** In production with a missing/weak salt, IP hashes in
-    `transientRenderLog` would use a value anyone with repo access can derive
-    — defeating the point of hashing — with only a WARN log as the signal.
-  - **Revisit trigger.** Next security-focused pass, or the quarterly security
-    review. Fix is a boot assertion on the canonical production predicate
-    (`REPLIT_DEPLOYMENT === "1" || NODE_ENV === "production"`), tested on
-    **both** branches of that `||`.
+- **`IP_HASH_SALT` production fallback — SHIPPED, off this list.** Deferred
+  twice (found on PR #299's review, deferred by PR #308; trigger fired again on
+  the 2026-08-16 security pass) and closed by **PR #484**:
+  `assertIpSaltConfigured()` runs at boot from `index.ts` and refuses to start
+  a production process whose `IP_HASH_SALT` is missing or under 16 characters.
+  Recorded here rather than deleted because two other entries cite this one's
+  provenance, and because the *shape* of the fix is the reusable part: the WARN
+  could never have been upgraded to a runtime throw, since
+  `logTransientRender` swallows its own errors by design — boot was the only
+  loud moment available. Non-production keeps the dev fallback.
+
+- **~~`recordCost` swallows a ledger-write failure~~ — SHIPPED, PR #498 (`6b3364d`).**
+  A lost write is now *accepted and measured*: `noteLedgerWriteFailure` records a
+  counter plus timestamp in `admin_config`. Not recovered — that was settled
+  decision #4, and reconciliation remains unbuilt. Original entry kept below for
+  the reasoning.
+
+  - **What.** `budgetGate.recordCost` catches and logs at WARN, deliberately —
+    it runs *after* a successful fal call, so throwing would fail a generation
+    the user has already been charged compute for. The consequence is that a
+    persistent ledger-write failure means spend accumulates while recorded
+    spend does not, and the per-user ceiling silently stops binding. That is
+    the same fail-open family as the gate skip PR #474 closed, on the
+    accounting side rather than the enforcement side.
+  - **Why deferred now.** It overlaps the approved `is_estimated` ledger work
+    (below) — both change when and what `recordCost` writes — so doing them
+    separately would touch the same function twice with the second change
+    partly reverting the first's assumptions.
+  - **Cost of waiting.** Higher than "sustained failure" framing suggests, and
+    an earlier version of this entry understated it. **One** swallowed insert
+    permanently understates the ledger — there is no retry and no backfill — so
+    a single lost write is enough for a later request to pass
+    `currentSpend + proposedCost <= limit` while real cumulative spend has
+    crossed the ceiling. A sustained failure widens the gap; it is not a
+    precondition for the fail-open. Nothing alerts on either case.
+  - **Revisit trigger.** Fold into the `is_estimated` migration PR.
+
+- **~~The cost ledger records no provenance, and an unpriced synchronous generation is not recorded at all~~ — SHIPPED, PRs #497 + #498 (`6b3364d`).**
+  Both writers record on every branch, and every row written from Release B
+  onward carries `is_estimated`. **Residual, still open:** rows written *before*
+  Release B remain `NULL` until Release C's classification backfill, and
+  `recordStage2Cost` has an uncounted failure path (see the note under the
+  2026-08-18 skip-and-count decision). Original entry kept below.
+
+  - **What.** Two related gaps, and the second is the one that is easy to get
+    wrong. **(a)** On **both** synchronous paths — `aiMemePipeline` and
+    `POST /videos/generate` — `recordCost` is guarded on a provider-resolved
+    price, so a generation gated on a fallback estimate is written nowhere. Both
+    routes gate correctly on the fallback and then decline to record it, which
+    is the same asymmetry in two places: across a sustained pricing outage their
+    recorded spend stops growing and the ceiling PR #474 restored is measured
+    against a stale total. **Scope the fix to both writers** — an earlier version
+    of this entry said "synchronous image," which would have left unpriced
+    synchronous videos permanently unrecorded.
+    **(b)** The ledger **mixes two different kinds of figure**, with nothing
+    marking which is which. No `user_generation_costs` column flags provenance,
+    and the cost columns are all `NOT NULL` — but **`job_reference_id` is
+    nullable** (`recordCost` stores `?? null`), which matters below: a row with
+    no reference carries no stage suffix to recover provenance from.
+
+    **Note the distinction is NOT measured-vs-estimated.** *No* row records an
+    actual provider charge: `getCachedPrice` returns an hourly-refreshed unit
+    rate and `costComputation.ts` derives a cost from dimensions, count and
+    duration without ever reading a billing result. The real distinction is
+    **provider-resolved rate** (fal's published price for that endpoint, applied
+    to the request's actual parameters) versus **operator-configured estimate**
+    (the engine's `estimatedCostUsdPerCall`, or a hardcoded fallback). Both are
+    computed; one tracks the provider, the other tracks our own guess.
+
+    **Which writers produce which is deliberately NOT enumerated here.** This
+    entry carried a per-writer table for two review rounds and it was wrong in a
+    different way each round — stage gating, row distinguishability, and the
+    measured/estimated framing itself all had to be corrected (PR #477, rounds
+    1–3). A specification that unreliable is worse than none, because the
+    migration would inherit its errors with more confidence than they deserve.
+    **Derive it from `videoPipelineRunner.ts`, `aiMemePipeline.ts` and
+    `routes/videos.ts` at build time and verify against live data.** What is
+    safe to carry forward is only the shape: the async video pipeline writes
+    operator-configured figures for its stylise and subtitle stages and for its
+    main stage's pricing-failure path, while the synchronous paths and the main
+    stage's normal path write provider-resolved ones.
+  - **Why deferred now.** Closing it needs a schema column, which is Tier C
+    (migration ceremony, its own PR), and it builds on the fallback path PR
+    #474 introduced — so it is sequenced after that merge rather than folded
+    into it.
+  - **Cost of waiting.** The per-request ceiling holds; the cumulative one does
+    not, for the duration of a pricing outage on either synchronous path. Cost reporting
+    already overstates its own precision on the video path.
+  - **Scope warning for whoever builds it.** An `is_estimated` column that
+    covers only the new image-path writes would be **worse than none** — it
+    would assert a provenance distinction while silently leaving the video
+    pipeline's operator-configured rows, and every historical row, flagged as
+    if they were provider-resolved. Note the column name itself invites the
+    retired framing: `is_estimated = false` must mean *provider-resolved rate*,
+    not *measured charge*, since no row is a measured charge.
+  - **Historical rows are more recoverable than a first look suggests** — so
+    don't default them all to `false` without checking. Two discriminators
+    exist in the data and are worth investigating before deciding:
+    `job_reference_id` carries a per-stage suffix **where it is present at all**
+    (the column is nullable, so some rows have none), and `billing_units`
+    differs sharply between the two writers on the video pipeline's main stage
+    (a computed token count versus a literal `1`). **Both are leads, not
+    conclusions** — confirm the current code still writes them that way,
+    establish how many rows carry a null reference, and validate the
+    distribution against live data before a backfill relies on either. An earlier version of this entry asserted the opposite (that those
+    rows were indistinguishable), which would have discarded recoverable
+    provenance permanently.
+  - **A missing row is not automatically normal, and not automatically a gap.**
+    Some stages legitimately don't run — the stylise stage only on the
+    stylize-then-video path, the subtitle stage only after the main stage
+    succeeds — so their rows are correctly absent for many healthy jobs. But
+    `recordCost` swallows an insert failure (the entry above), so an
+    expected row can also be missing from a perfectly healthy job. **Normality
+    has to be judged from `sourceMode` and the stage/job outcome, not from row
+    count**, and an expected-but-missing row is a write gap — precisely the
+    accounting failure the `recordCost` item exists to track. A reconciliation
+    check that treats absence as benign would ignore it.
+  - **Revisit trigger.** **Approved by David 2026-08-16** — not a parked
+    condition, queued work. See the decision entry in
+    [`decisions.md`](../ai-context/decisions.md), which also records the open
+    product question it carries (whether the two spend-display surfaces
+    should include, label, or exclude estimated rows).
 
 **Security follow-ups from the C5/C9 review.** Lower-risk hardening the
 security review consciously deferred. Full context lives in
@@ -496,6 +633,195 @@ re-gather it when the work is scheduled.
     (`MEMORY.md:23`) repeats the same bare `docs/plans/PLAN_*.md` teaching
     text, a third file the guard would need to know about before it can ship.
 
+- **No CI guard against a migration's raw-SQL DDL missing its `schema.ts`
+  shadow (found on PR #425's `/document` harvest review).**
+  - **What.** [`raw-sql-migration-needs-schema-shadow.md`](../../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
+    documents the pattern — a migration's hand-written `CREATE INDEX`,
+    `ADD CONSTRAINT`, or `CREATE SEQUENCE` with no matching `schema.ts`
+    declaration is invisible to `drizzle-kit push`, which silently drops it
+    on any push against an already-migrated database — and now records
+    **three** confirmed occurrences across three different PRs (#242, #293,
+    #425), the last of which reproduced the drop directly (two `push-force`
+    runs). `pnpm --filter @workspace/db run validate-snapshots` does not
+    catch either shape — not because migrations are exempt (every
+    snapshotless journal entry needs its own named, reasoned exemption in
+    `check-migration-snapshots.ts`, and `0099_admin_permissions_core` has
+    one), but because the validator's comparison only covers tables,
+    columns, and enums; it has no logic for indexes, constraints, or
+    sequences at all.
+  - **Why deferred now.** Same reasoning as the sibling entry below for
+    dangling `docs/plans/*` citations — this repo's own rule is that a
+    recurring failure pattern becomes a deterministic CI guard, not a
+    reviewer-memory ask, and three strikes across three separate PRs is
+    well past the point a fresh agent should be expected to catch this by
+    reading the memory doc each time. Not implemented in the PR that raised
+    it a third time (#425's `/document` harvest) because that pass is
+    docs-only; writing and wiring a new guard script is a code change
+    outside that ceremony's boundary.
+  - **Cost of waiting.** A fourth instance stays possible and undetected by
+    CI — each prior occurrence was caught by a human/Codex reviewer noticing
+    a specific missing declaration, not by anything mechanical, so the next
+    one is exactly as likely to slip through as the first three did.
+  - **Shape of the fix, not yet built.** A naive version — flag every
+    historical `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE` with no
+    matching `schema.ts` declaration — breaks on real history: migration
+    `0022` creates `email_outbox_pending_idx`, migrations `0037`/`0038`
+    create `email_outbox_status_created_idx`, and `0063` deliberately
+    `DROP`s both when generalizing the async-jobs table — neither should
+    have a current shadow, and a guard comparing raw per-migration CREATEs
+    against schema.ts would reject that legitimate retirement on day one.
+    The guard has to walk the full migration sequence and compute each raw
+    object's **terminal** state (does a later migration's `DROP
+    INDEX`/`DROP CONSTRAINT`/`DROP SEQUENCE` remove it before the check
+    ever runs) — and that removal isn't always an explicit DROP naming the
+    object itself: `0023` adds a foreign-key constraint on
+    `lifetime_entitlements`, and `0096` drops the whole
+    `lifetime_entitlements` table with no separate `DROP CONSTRAINT` —
+    every constraint and index scoped to a dropped table goes with it
+    implicitly, so the terminal-state pass needs to fold in
+    `DROP TABLE`/dropped-column removals before checking what's left, not
+    just the object-specific DROP statements. Only an object that's still
+    raw-SQL-created, on a table that still exists, and never explicitly or
+    implicitly dropped needs a `schema.ts` shadow. **Terminal-state
+    tracking alone still isn't enough**: several objects already exist on
+    `main` today, live and un-dropped, that are deliberately never
+    shadowed. A guard with no way to exempt a known, reasoned case would
+    fail Build against the tree as it stands today, before it ever caught
+    a new drift. It needs its own named `ALLOWLIST`, the identical shape
+    `check-permission-chokepoint.mjs` already uses — each entry names the
+    object, the migration, and why it's permanently unshadowed.
+
+    A terminal-state pass over the full migration history (every
+    `CREATE INDEX`/`ADD CONSTRAINT`/`CREATE SEQUENCE` **and every inline
+    `CHECK`/`UNIQUE`/`REFERENCES` clause inside a `CREATE TABLE` or
+    `ADD COLUMN` — Postgres auto-names those, and Drizzle reconciles the
+    resulting objects exactly as it does explicitly-named ones, so an
+    extractor that only scans `ADD CONSTRAINT` statements misses them**,
+    reduced by every `DROP INDEX`/`DROP CONSTRAINT`/`DROP TABLE`,
+    cross-checked against every `index()`/`uniqueIndex()`/`check()`/
+    `pgSequence()`/`.references()` declaration in `lib/db/src/schema/*.ts`)
+    was run for this entry. **The guard's implementer re-derives this
+    inventory mechanically rather than trusting the enumeration below** —
+    this entry's own review found the list incomplete twice, which is the
+    strongest available evidence that a hand-maintained enumeration of it
+    rots; the durable content here is the *method* and the two-way split,
+    with the current results as the starting checklist.
+
+    As of this writing the pass finds **seven** objects with an explicit,
+    comment-documented reason to stay permanently unshadowed — genuine
+    `ALLOWLIST` seeds:
+    - **Six partial indexes**, all exempt for the same reason (the pinned
+      `drizzle-kit`'s partial-index handling is brittle, per the comments
+      in `facts.ts:159-160` and `imagePromptAttempts.ts:130-135`):
+      `IDX_facts_eval_golden`, `IDX_ipa_eval_run_fact_created`,
+      `IDX_ipa_eval_fact_run_created` (`0081`), `IDX_ipa_request_id`,
+      `IDX_ipa_render_job_id` (`0065`), and `IDX_ipa_review_only`
+      (`0076`).
+    - **One genuinely self-referential foreign key** (`0048`):
+      `uim_source_object_path_fk` (`upload_image_metadata.source_object_
+      path` → its own `object_path`) — `uploadImageMetadataTable`'s
+      trailing comment records that Drizzle's TS-side self-FK helper is
+      brittle and isn't required for runtime queries.
+
+    **And ten objects that are live schema-shadow gaps — real,
+    reproducible exposure under this note's confirmed mechanism, each
+    fixable with an ordinary declaration, so none belongs on a permanent
+    allowlist.** (The two `0095` sequences, `membership_source_state_seq`
+    and `membership_lease_fence_seq`, were the eleventh and twelfth — the
+    PR #293 incident is precisely `push --force` dropping them — but PR
+    #427 closed exactly that gap while this list was being reviewed:
+    migration `0100_membership_sequence_repair` recreates them and
+    `membershipEntitlements.ts` now carries matching `pgSequence()`
+    declarations, which is the model fix for everything below.)
+    - `uim_fact_id_fk` (`0048`) — an ordinary cross-table FK
+      (`upload_image_metadata.fact_id` → `facts.id`), expressible with
+      the same `.references(() => factsTable.id)` used throughout
+      `memes.ts`. The self-FK brittleness reason in the adjacent comment
+      covers `uim_source_object_path_fk` only; this one rode along.
+    - `memes_status_check`, `quarantined_memes_source_check`,
+      `ncmec_reports_match_source_check` (`0043`) — the only DB-level
+      validation for `memes.status`, `quarantined_memes.source`, and
+      `ncmec_reports.match_source` respectively. (Distinct columns and
+      vocabularies from `0097`'s newer `submission_status`/
+      `content_origin` checks, which are shadowed — these three are not
+      superseded by them.)
+    - `idx_memes_created_by_id_created_at` (`0051`),
+      `facts_has_overrides_idx` (`0071`) — both partial indexes, so a
+      cleanup pass may legitimately conclude they join the reasoned
+      brittle-partial-index exemptions above instead; that's a
+      case-by-case call for whoever fixes them, made with a comment
+      either way.
+    - `affiliate_clicks_source_idx` (`0034`), `UQ_uim_user_is_profile`
+      (`0055`, also partial — same call as above).
+    - The two **inline, auto-named CHECKs**: `share_intents.platform`
+      (`0052:22`) and `hero_examples.artifact_type` (`0054:16`) —
+      `shareIntents.ts`/`heroExamples.ts` mention them in comments but
+      declare no `check()` builder, so a push-built database silently
+      loses both vocabularies' enforcement.
+
+    (`stripe_checkout_request_ledger_request_key_unique` from `0045`
+    looks like a gap at first grep, but that migration renames a
+    Postgres-auto-named constraint to Drizzle's exact
+    `table_column_unique` convention — `.unique()` on `memberships.ts`'s
+    `requestKey` generates that identical name, so it *is* shadowed.)
+
+    The ten gaps predate this entry; fixing them (declare the missing
+    shadow, or add a reasoned comment that promotes one to the allowlist)
+    is separate work from writing the guard, and has to land **before**
+    the guard can go green — or the implementer explicitly seeds them as
+    "known gap, not yet fixed" entries so the guard's first Build run
+    doesn't fail on objects it didn't cause. Either way the initial
+    `ALLOWLIST` accounts for every object the re-derived inventory
+    returns, split honestly between reasoned-permanent and
+    known-gap-pending.
+
+    Wire the guard into `build.yml`'s `Build` job, where
+    `validate-snapshots` and both `check-permission-chokepoint*.mjs`
+    guards already run — the same general shape as the chokepoint guards'
+    file-scan-plus-allowlist approach but requiring cross-migration state,
+    not a single-file scan.
+  - **Revisit trigger.** Next dev-infra/migrations tooling pass, or the next
+    time this exact mistake recurs a fourth time.
+
+- **No CI guard against a stale hand-written count in doc/comment prose
+  (found on PR #513's `/document` harvest, first recorded occurrence).**
+  - **What.** [`code-review.md`](code-review.md#a-count-in-prose-is-a-hand-maintained-duplicate-of-the-thing-it-counts)
+    documents the pattern — a number written into a doc, comment, header, or
+    PR body that summarizes a separately-maintained enumerated set (e.g.
+    "four findings", "five failed attempts") is a duplicate source of truth
+    in miniature, and it goes stale specifically *during the edit that's
+    fixing something else*, which is the moment attention is elsewhere.
+    Three instances landed in one session (2026-08-17), the sharpest inside
+    the very edit that added the count that made it wrong. Nothing
+    mechanical catches this today; it relies on a reviewer noticing.
+  - **Why deferred now.** This repo's own rule is that a recurring failure
+    pattern becomes a deterministic CI guard, not a reviewer-memory ask —
+    this entry is the queued acknowledgment of that rule firing, not a
+    decision to skip it. Not implemented in the PR that raised it (#513)
+    because that pass is a docs-only `/document` harvest; writing and wiring
+    a new guard script is a code change outside that ceremony's boundary.
+    Unlike the two sibling entries below, this is the **first** recorded
+    occurrence, not the third — flagged here specifically so a maintenance
+    sweep can watch for a second and third instance rather than the pattern
+    only living in review-guidance prose that nothing re-reads on a
+    schedule.
+  - **Cost of waiting.** Low today (one session, three instances, all caught
+    by the same reviewer in the same pass) — but the pattern's own point is
+    that it goes unnoticed precisely when attention is on something else, so
+    "caught so far" isn't evidence it'll keep being caught.
+  - **Shape of the fix, not yet built.** Nontrivial to do well: a naive
+    regex over standalone numbers in prose would false-positive on
+    configured values, dates, and thresholds that this pattern explicitly
+    doesn't cover (see the "does not apply" carve-out in the code-review.md
+    entry). A workable version likely needs to pair a counting word ("four
+    findings", "N instances", "N attempts") with a nearby enumerated list or
+    table and flag a mismatch between the stated count and the actual item
+    count — closer to a doc-linting AST pass than a grep.
+  - **Revisit trigger.** Next dev-infra/tooling pass, or the next time this
+    exact mistake recurs a second time (matching the two-strikes-plus
+    threshold the sibling CI-guard entries below used before being written
+    up as backlog items).
+
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
     conditionally gaining `/api/auth/dev-admin-login` only inside an
@@ -527,6 +853,28 @@ re-gather it when the work is scheduled.
     itself (so it's re-evaluated per call, matching the CORS-mount check), or
     documenting the asymmetry as an intentional exception if there's a reason
     the exemption specifically must stay import-time-frozen.
+
+- **The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`).**
+  - **What.** `Build` run 31911725205 on commit `7e37cc8` (PR #451's squash —
+    a metrics-record-only change touching a loop record)
+    failed at the `Run api-server test suite` step. The two commits that
+    followed it on `main` (`fac70e3`, `d8b7573`) ran the same job green with
+    no fix in between, and a docs-only diff cannot break that suite, so the
+    failure was not caused by the commit under test.
+  - **Why deferred now.** One observation is not a pattern. The `/maintenance`
+    contract's rule is that a flake **seen twice across maintenance passes**
+    graduates to a fix task; chasing a single non-reproducing failure is the
+    kind of speculative work the blast-radius rule exists to prevent. This
+    entry exists so the second observation is *detectable* — without it, the
+    next pass has nothing to compare against and the rule can never fire.
+  - **Cost of waiting.** A red `main` that is not a real regression costs a
+    diagnosis each time it happens and erodes the signal value of CI. Bounded
+    while it stays a single occurrence; grows if it recurs, because a suite
+    that fails randomly stops being evidence of anything.
+  - **Revisit trigger.** The **next `/maintenance` pass**: if the api-server
+    suite has failed on `main` again since 2026-08-15, this graduates to a
+    `/bugfix` task and this entry closes. If the window is clean, note it and
+    keep this parked one more cycle.
 
 ---
 

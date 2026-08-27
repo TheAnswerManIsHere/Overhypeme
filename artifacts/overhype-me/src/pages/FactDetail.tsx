@@ -21,7 +21,7 @@ import type { FactPexelsImages } from "@/types/pexels";
 
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
-import { roleToTier } from "@/components/meme-builder/integration/studioAdapter";
+import { roleToIdentity } from "@/components/meme-builder/integration/studioAdapter";
 
 const MemeStudio = lazyWithRetry(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
 
@@ -82,7 +82,7 @@ async function fetchMemes(factId: number, visibility: "community" | "my-public" 
 }
 
 function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }) {
-  const { isAuthenticated, user, role } = useAuth();
+  const { isAuthenticated, user, role, entitlements } = useAuth();
   const [, setLocation] = useLocation();
   const { rateFact } = useAppMutations();
   const { name, pronouns } = usePersonName();
@@ -119,7 +119,8 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
               factId={String(id)}
               factText={fact.text}
               viewerContext={{
-                tier: roleToTier(role),
+                tier: roleToIdentity(role),
+                entitlements,
                 userId: user?.id,
                 name: user?.displayName ?? undefined,
                 pronouns: (user as { pronouns?: string } | undefined)?.pronouns ?? pronouns ?? undefined,
@@ -258,7 +259,7 @@ export default function FactDetail() {
   const isMemeRoute = params?.sub === "meme";
   const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
-  const { isAuthenticated, user, role } = useAuth();
+  const { isAuthenticated, user, role, entitlements } = useAuth();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
@@ -425,7 +426,8 @@ export default function FactDetail() {
               factId={String(factId)}
               factText={fact.text}
               viewerContext={{
-                tier: roleToTier(role),
+                tier: roleToIdentity(role),
+                entitlements,
                 userId: user?.id,
                 name: user?.displayName ?? undefined,
                 pronouns: (user as { pronouns?: string } | undefined)?.pronouns ?? pronouns ?? undefined,

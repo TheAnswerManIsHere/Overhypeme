@@ -1,3 +1,4 @@
+import { isRealAdminRequest } from "../lib/adminIdentity";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { affiliateClicksTable } from "@workspace/db/schema";
@@ -13,7 +14,7 @@ const router: IRouter = Router();
  * without logging a click. Used for debugging in the UI.
  */
 router.get("/affiliate/zazzle-url", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated() || !(req.user as { isAdmin?: boolean })?.isAdmin) {
+  if (!isRealAdminRequest(req)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }

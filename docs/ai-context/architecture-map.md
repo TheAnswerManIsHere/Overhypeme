@@ -461,14 +461,13 @@ deliberately excludes them and points here instead.
   five filing-capable ones reject writes with a 403 per phase 1's
   reserved-key guard; `ncmec_safety_alert_email` and the two retry keys stay
   plain editable cards). The narrative half lives in
-  [`moderation.md`](../manual/moderation.md)'s legal/safety section.
+  [`3-moderation.md`](../manual/3-moderation.md)'s legal/safety section.
 
 ## Test structure
 
 - API DB-backed tests: `artifacts/api-server/src/__tests__/*.test.ts`, run via the
   isolated runners (never raw `node --test`). See
-  [`../tests/testing-guide.md`](../tests/testing-guide.md) and
-  `docs/tests/TESTING.md` (canonical).
+  [`../tests/TESTING.md`](../tests/TESTING.md) (canonical).
 - Frontend: Vitest under `artifacts/overhype-me`.
 - **GitHub CI is the authoritative gate** (`Build` + `Test` required on PRs to
   `main`).

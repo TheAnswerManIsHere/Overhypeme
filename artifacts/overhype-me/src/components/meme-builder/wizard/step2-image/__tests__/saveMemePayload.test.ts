@@ -47,6 +47,48 @@ describe("buildSaveMemePayload", () => {
     expect(payload!.imageTransform).toBeUndefined();
   });
 
+  it("carries the visibility choice, defaulting to public when unset", () => {
+    const state: WizardRuntimeState = {
+      ...baseState(),
+      mode: "stock",
+      source: { kind: "stock", stockImageId: "999" },
+    };
+    // Drafts captured before the control existed have no isPublic field.
+    expect(buildSaveMemePayload({ state, factId: 42 })!.isPublic).toBe(true);
+    expect(
+      buildSaveMemePayload({ state: { ...state, isPublic: false }, factId: 42 })!.isPublic,
+    ).toBe(false);
+    expect(
+      buildSaveMemePayload({ state: { ...state, isPublic: true }, factId: 42 })!.isPublic,
+    ).toBe(true);
+  });
+
+  it("carries the visibility choice through the upload branches too", () => {
+    const state: WizardRuntimeState = {
+      ...baseState(),
+      mode: "self-upload",
+      isPublic: false,
+      source: {
+        kind: "self-upload",
+        image: { kind: "library", objectPath: "/objects/foo.jpg" },
+        stylizeWithAi: false,
+      },
+    };
+    expect(buildSaveMemePayload({ state, factId: 42 })!.isPublic).toBe(false);
+
+    const stylized: WizardRuntimeState = {
+      ...state,
+      source: { ...state.source!, stylizeWithAi: true } as WizardRuntimeState["source"],
+    };
+    expect(
+      buildSaveMemePayload({
+        state: stylized,
+        factId: 42,
+        pulidGeneratedUploadKey: "/objects/pulid-result.jpg",
+      })!.isPublic,
+    ).toBe(false);
+  });
+
   it("requires a pulidGeneratedUploadKey when stylizeWithAi is true", () => {
     const state: WizardRuntimeState = {
       ...baseState(),

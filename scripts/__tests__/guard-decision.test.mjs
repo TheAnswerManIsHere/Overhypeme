@@ -9,6 +9,7 @@ import {
   tokenize,
   segments,
   checkCommand,
+  checkMerge,
   extractCommand,
   stripHeredocs,
 } from "../guard-decision.mjs";
@@ -117,9 +118,170 @@ const MUST_BLOCK = [
   ["npx -c joins its command string the same way a shell's -c does", "npx -c 'drizzle-kit push'"],
   ["npm exec -c is the same interface npx uses", "npm exec -c 'drizzle-kit push'"],
   ["parent-directory traversal climbs back out of an apparently scoped path", "rm -rf /tmp/../*"],
+
+  // --- curl/wget: refused outright (David, 2026-08-17) ---
+  // The rule exists because api.github.com fails SILENTLY inside a pipeline.
+  // It refuses the whole program rather than deciding which invocations reach
+  // that host, because four review rounds showed that judgement cannot be made
+  // without reimplementing curl's and wget's own argument parsing.
+  ["curl to the GitHub API", "curl -sS https://api.github.com/repos/o/r/pulls/1"],
+  ["the CI-poll shape that stalled on 2026-08-16", "curl -sS https://api.github.com/repos/o/r/commits/abc/check-runs | grep -c in_progress"],
+  ["wget too", "wget -qO- https://api.github.com/rate_limit"],
+  ["hidden behind a wrapper", "env -i curl -sS https://api.github.com/x"],
+  ["hidden in a compound command", "echo hi && curl -sS https://api.github.com/x"],
+  ["hidden inside a nested shell", "bash -c 'curl -sS https://api.github.com/x'"],
+
+  // Any other host, deliberately. Precision was the whole cost centre, and an
+  // ad-hoc fetch is rare enough to ask about.
+  ["curl to an unrelated host is refused too", "curl -sS https://example.com/thing"],
+  ["so is wget to one", "wget -O out.html https://example.com"],
+  ["and a fetch with no URL-shaped argument at all", "curl --help"],
+
+  // The routes that ended the parser. Each was a live bypass found by Codex on
+  // #488 across four rounds, in a different sub-language of these tools; all of
+  // them are now blocked by the same single rule rather than five mechanisms.
+  ["round 3: an attached short value (wget -i)", "wget -ihttps://api.github.com/rate_limit"],
+  ["round 4: a wgetrc directive via --execute", "wget -e base=https://api.github.com/ -F -i local.html"],
+  ["round 4: --connect-to's second host", "curl --connect-to example.com:443:api.github.com:443 https://example.com/"],
+  ["round 4: URL brace globbing", "curl 'https://api.github.{com,org}/rate_limit'"],
+  ["round 4: a SOCKS-scheme proxy endpoint", "curl --proxy socks5h://api.github.com https://example.com/"],
+  ["round 4: variable interpolation into --expand-url", "curl --variable h=api.github.com --expand-url 'https://{{h}}/rate_limit'"],
+
+  // Round 5 attacked the ONE exception the rule used to carry -- the agent
+  // proxy's own status probe -- and found three ways through it in a single
+  // pass. The exception is gone rather than tightened: the third of these
+  // cannot be fixed by inspecting arguments at all, because the extra request
+  // is not in the arguments.
+  ["round 5: the probe path on ANY origin, including the blocked one", "curl https://api.github.com/__agentproxy/status"],
+  ["round 5: an attached -K config file alongside the probe", "curl -K/tmp/api.conf \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["round 5: a .curlrc reached via CURL_HOME adds transfers argv never shows", "CURL_HOME=/tmp/profile curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+  ["the probe itself, now that there is no exception", "curl -sS \"$HTTPS_PROXY/__agentproxy/status\""],
+
+  // Round 5 also found the one remaining fail-OPEN: an unrecognised wrapper
+  // flag made resolveRealCommand give up and return the wrapper, so the
+  // membership test never saw the fetcher.
+  ["round 5: exec -a substitutes argv0 and still runs curl", "exec -a fetch /usr/bin/curl https://api.github.com/rate_limit"],
+  ["the same wrapper without the flag", "exec /usr/bin/curl https://api.github.com/rate_limit"],
+
+  // Round 6: programs that DISPATCH to a fetcher. `timeout` is the one of
+  // these I might plausibly have typed by accident -- it is the natural
+  // spelling of a CI wait, which is the mistake this whole rule exists for.
+  ["round 6: timeout starts COMMAND after its DURATION", "timeout 30 curl https://api.github.com/rate_limit"],
+  ["with an option before the duration", "timeout -k 5 30 curl https://api.github.com/x"],
+  ["round 6: env -S splits its value into a command line", "env -S 'curl https://api.github.com/rate_limit'"],
+  ["the attached spelling of the same", "env -Scurl https://api.github.com/x"],
+  ["round 6: npx --call, the long spelling of -c", "npx --call 'curl https://api.github.com/x'"],
+  ["npm exec --call likewise", "npm exec --call 'curl https://api.github.com/x'"],
+  // The heredoc-delimiter work that rounds 8-15 produced is SPLIT OUT of this
+  // PR (David, 2026-08-17). Its rows travel with it. What remains here is the
+  // fetcher refusal, which is what this PR is about and which has been stable
+  // since round 6.
+  //
+  // The consequence is stated rather than hidden: with main's identifier-only
+  // delimiter grammar, a fetcher behind a punctuated heredoc delimiter reaches
+  // the untokenisable path, where `LOOKS_DESTRUCTIVE` -- known incomplete --
+  // decides. That is a pre-existing gap this PR neither widens nor closes.
+  // Round 8: `help time` documents `time [-p] pipeline` and it EXECUTES the
+  // pipeline. A plausible diagnostic command, and one the deleted sweep had
+  // been masking.
+  ["round 8: time -p runs its pipeline", "time -p curl https://api.github.com/rate_limit"],
+  ["the bare form too", "time curl https://api.github.com/x"],
+  // Round 7: the query exemption must cover only the WRAPPER's own leading
+  // options. Here `-v` belongs to curl, and curl really runs.
+  ["round 7: command's operand with its own -v", "command curl -v https://api.github.com/rate_limit"],
+  // Round 16: `npm exec --help` documents `x` as the alias, verified against
+  // this container's npm. Same dispatcher, second spelling.
+  ["round 16: npm x is npm exec", "npm x --call 'curl --version'"],
+  ["the -c spelling of the same alias", "npm x -c 'wget --help'"],
+  // Round 16: measured -- `env -S '-i printf ...'` runs printf, so the split
+  // words go into ENV's argv, not straight to the child. Judging the first
+  // word as the program let an option prefix hide the fetcher behind it.
+  ["round 16: an option prefix inside env -S", "env -S '-i curl --version'"],
+  ["a value-taking option prefix inside env -S", "env -S '-u HOME wget --help'"],
+  ["an end-of-options marker inside env -S", "env -S '-- curl --version'"],
+  ["the attached spelling of the same", "env -S'-i curl --version'"],
+  // Round 16: the array-assignment suppression must not swallow a command
+  // substitution sitting inside the parentheses.
+  ["round 16: a substitution inside an array literal is still a command", "arr=( $(git push -f origin main) )"],
+  // Round 17: `$` is not what makes a substitution executable. Round 16's
+  // suppression tested only for `$`, so both of these were erased whole --
+  // `segments()` returned an empty array and the fetcher vanished. A fail-open
+  // created by a fix for a false block, from checking one example.
+  ["round 17: backticks in an array literal still execute", "arr=( `curl --version` )"],
+  ["round 17: process substitution in an array literal still executes", "arr=( <(curl --version) )"],
+  // Round 17, second pass: `help declare` says integer variables undergo
+  // ARITHMETIC EVALUATION on assignment, so an integer array's initializer
+  // expands a plain identifier -- and a variable whose value carries a
+  // substitution then runs. Measured: the equivalent probe wrote its marker
+  // file. This is what killed the "every token is a plain word" whitelist:
+  // whether tokens are inert depends on attributes set elsewhere in the
+  // command, not on the tokens.
+  ["round 17: an integer array's initializer is arithmetic, not data", "curl='a[$(/usr/bin/curl --version)0]'; declare -ia arr=(curl)"],
+  ["the bare form of the same", "declare -ia arr=(curl)"],
+  // ACCEPTED OVER-BLOCK, pinned deliberately. Bash assigns two strings here
+  // and runs neither, so this refusal is wrong -- and it is the cost of
+  // deleting the suppression that tried to allow it, which opened a
+  // fail-open in each of its two versions. Do not "fix" this row without
+  // reading the note above `segments()`.
+  ["an array literal naming fetchers is over-blocked, and that is the accepted trade", "fetchers=(curl wget)"],
+  ["the append spelling, same accepted trade", "fetchers+=(curl)"],
+  // Round 18: the over-block is NOT fetcher-only. Deleting the suppression
+  // restored it for every rule in the module, because the literal's words are
+  // emitted as a command segment that all of them judge. Pinned across three
+  // different rules so the class is what is asserted, not one example -- the
+  // first version of this note named only the fetcher case and understated
+  // the deletion's blast radius by three rules.
+  ["a push in an array literal is over-blocked too", "ops=(git push -f origin main)"],
+  ["an rm in an array literal, same class", "cleanup=(rm -rf /)"],
+  ["a drizzle-kit push in an array literal, same class", "migration=(drizzle-kit push)"],
+  // Round 19: update-ref is a SEPARATE branch of checkCommand from push, so
+  // naming push did not cover it -- the second consecutive round in which this
+  // note was too narrow. Both spellings, since the direct executable is its
+  // own branch again.
+  ["an update-ref in an array literal, a fourth distinct rule", "ops=(git update-ref refs/heads/main abc1234)"],
+  ["the direct git-update-ref executable, same class", "ops=(/usr/lib/git-core/git-update-ref refs/heads/main abc1234)"],
+  // Round 20: the drizzle-kit rule scans ALL tokens rather than command
+  // position, so an inert leading word does NOT defuse it -- unlike every
+  // other rule (see the MUST_ALLOW rows below). Pinned because it is the one
+  // case that distinguishes "judged as ordinary argv" from "the first word
+  // decides", and the header's claim now rests on that distinction.
+  ["a drizzle-kit push behind an inert word is still caught, because that rule scans every token", "ops=(echo drizzle-kit push)"],
+  ["an unclosed array paren is not suppressed", "arr=(curl wget"],
+  ["a subshell is not an array assignment", "(cd x && curl https://api.github.com/x)"],
+  ["an array literal does not exempt what follows it", "fetchers=(curl wget) && curl https://api.github.com/x"],
+  // Round 16: truncating the option scan at `--` must not lose the ordinary
+  // spelling, where the command-string flag precedes the boundary.
+  ["a command string before npm's -- boundary", "npm exec -c 'curl https://api.github.com/x' -- pkg"],
 ];
 
 const MUST_ALLOW = [
+  // --- the host may be MENTIONED freely; only running a fetcher is refused ---
+  // A substring rule would have blocked all of these, and the last three are
+  // things this repo does constantly.
+  ["a path that merely looks like the host", "cat ./api.github.com.md"],
+  ["a commit message naming it", "git commit -m 'note that api.github.com is blocked from bash'"],
+  ["a doc write naming it", "echo 'api.github.com returns 403 here' > notes.md"],
+  ["a repo script naming the host in a flag", "node scripts/review-budget.mjs status --pr 472"],
+
+  // The hook reads the command line typed at it, not a script's contents, so a
+  // script that runs curl internally is untouched. That is what keeps the
+  // blanket refusal cheap: these were the only real curl uses in the repo.
+  ["a script that runs curl internally", "bash scripts/phase5-og-smoke.sh"],
+
+  // Round 6 also found two FALSE BLOCKS that the refusal and its wrapper
+  // sweep had introduced. Both are pinned, because a guard that refuses
+  // ordinary work gets worked around rather than obeyed.
+  ["command -v names a program without running it", "command -v curl"],
+  ["sudo -p's value is a prompt string, not a program", "sudo -p curl true"],
+  ["timeout wrapping something that is not a fetcher", "timeout 90 bash -c 'pnpm test'"],
+  ["sudo -u's value is a username", "sudo -u postgres psql"],
+  // Round 7: three false blocks the fail-closed sweep produced before it was
+  // deleted. They are pinned because deleting the sweep is the fix, and a
+  // regression would be re-adding it.
+  ["sudo -l lists privileges without running the command", "sudo -l curl"],
+  ["an unlisted wrapper flag must not make data look executable", "sudo -n printf '%s\\n' curl"],
+  ["an in-range octal escape still decodes", "cat <<$'\\101'\nUse /usr/bin/curl for the probe; David's note\nA"],
+
   // --- the one permitted force shape ---
   ["lease onto an owned branch", "git push --force-with-lease origin claude/status-nvkst1"],
   ["lease onto a plan-review branch", "git push --force-with-lease origin plan-review/evidence-retention"],
@@ -181,6 +343,34 @@ const MUST_ALLOW = [
   ["a heredoc feeding a shell that HAS -c is genuinely inert data", "bash -c 'echo hi' <<'EOF'\ngit push -f origin claude/x\nEOF"],
   ["npx -c running something harmless", "npx -c 'echo hi'"],
   ["parent traversal that still lands on a real scoped name", "rm -rf /tmp/sub/../scratch-xyz"],
+
+  // --- round 16: false blocks the blanket fetcher refusal introduced ---
+  // Naming a fetcher stays allowed; only running one is refused. `(` is an
+  // operator, so an array literal was segmented into a command whose argv[0]
+  // was `curl`, contradicting that boundary.
+  ["an ordinary array is unaffected", "files=(a.txt b.txt)"],
+  // Round 20: the over-block is NOT "any protected name in an array". Array
+  // contents are judged as ordinary command argv, so a rule keyed on the
+  // RESOLVED program does not fire when an inert word comes first.
+  //
+  // These rows pin runtime verdicts and nothing more. An earlier version of
+  // this comment claimed they made "a future widening of that claim fail the
+  // suite" -- false, since no assertion here reads the header's prose, and the
+  // branch shipped 236 green tests beside a header statement that was already
+  // refuted. (Codex, #488 round 21.) The coupling that comment wanted now
+  // exists as the array-literal invariant at the end of this file.
+  ["an inert leading word defuses the fetcher rule", "ops=(echo curl)"],
+  ["and the push rule", "ops=(echo git push -f origin main)"],
+  ["and the rm rule", "ops=(echo rm -rf /)"],
+  // A dispatcher's `--` ends ITS options; `--call` past that boundary belongs
+  // to the invoked package. Measured for the shell branch too: `bash -- -c
+  // 'printf X'` reports `bash: -c: No such file or directory`, so bash reads
+  // `-c` as $0 and never runs the string.
+  ["a child's identically-named argument after npm's --", "npm exec -- eslint --call 'curl is inert data'"],
+  ["bash's -- means the -c string is not a command", "bash -- -c 'curl https://api.github.com'"],
+  // Re-entering env -S as `env <split>` reuses the measured option table, so
+  // an option prefix in front of a HARMLESS child stays allowed.
+  ["an option prefix in env -S around something harmless", "env -S '-i make'"],
 ];
 
 for (const [name, command] of MUST_BLOCK) {
@@ -200,11 +390,21 @@ for (const [name, command] of MUST_ALLOW) {
 // ---------------------------------------------------------------------------
 
 test("unparseable input that looks destructive is blocked", () => {
-  // Unbalanced quote: tokenising throws, so the conservative scan decides.
+  // Unbalanced quote: tokenising throws.
   assert.equal(blocked("git push -f origin main 'unterminated"), true);
 });
 
 test("unparseable input that looks harmless is allowed", () => {
+  // This row asserts main's behaviour, unchanged by this PR: untokenisable
+  // text is allowed unless `LOOKS_DESTRUCTIVE` recognises it.
+  //
+  // That list is KNOWN INCOMPLETE -- Codex showed on #488 round 14 that
+  // `git push origin +main` is absent from it, so a force refspec behind an
+  // unreadable heredoc gets through. Refusing untokenisable text outright
+  // closes that, and reverses this row; it is split out with the heredoc
+  // scanner it depends on, because the pair was still converging after five
+  // rounds. Left here as main has it, so this PR's diff is the fetcher
+  // refusal and nothing else.
   assert.equal(blocked("echo 'unterminated"), false);
 });
 
@@ -438,3 +638,405 @@ for (const depth of [5, 6]) {
     assert.equal(blocked(nestBashC("echo hi", depth)), true);
   });
 }
+
+
+// ---------------------------------------------------------------------------
+// The array-literal invariant, executed rather than described.
+//
+// The header's note about array over-blocking was wrong in FOUR consecutive
+// review rounds (#488 rounds 18-21) while the behaviour never changed: too
+// narrow, too narrow again, then "any protected name is refused" (false --
+// `ops=(echo curl)` is allowed), then "the literal's first word decides" (also
+// false -- `ops=(env curl)` is refused, because wrappers and environment
+// assignments are stripped first).
+//
+// Codex's round-21 finding named why patching the prose kept failing: a
+// comment claiming "a future widening fails the suite" was itself false. These
+// rows pin runtime verdicts; nothing read the prose, and the branch shipped 236
+// green tests alongside a header statement that was refuted.
+//
+// So the claim is now a single executable invariant instead of a description:
+// an array literal gets exactly the verdict its words get as a command. Unlike
+// the four descriptions it replaces, it fails here if it stops being true.
+//
+// BUT THE CASE LIST BELOW IS HAND-CURATED, so the coverage does NOT update
+// itself. A new rule whose inputs aren't represented here can behave
+// differently inside an array with every one of these green. **If you add a
+// rule to guard-decision.mjs, add a case here** -- or derive this list from the
+// rule set instead of maintaining it by hand. An earlier version of this
+// comment claimed the invariant "needs no updating when a rule is added,"
+// which was the same false assurance the block above warns about, two
+// paragraphs after warning about it. (Codex, #499 round 2.)
+//
+// THE BOUNDARY MATTERS. The invariant is over COMMAND TEXT, which is what
+// `blocked()` compares -- both operands wrapped in a payload. Stated one level
+// up as `decide(a) === decide(b)` it is false, because `decide` parses its
+// argument as PreToolUse JSON first: a WORDS value that is itself valid
+// payload JSON has its inner command extracted on one side and is read as
+// shell text on the other. The header said it that way for one round and the
+// tests could not have caught it. (Codex, #488 round 22.) The last case below
+// is that input, pinned.
+const ARRAY_INVARIANT_CASES = [
+  // protected in command position
+  "curl https://api.github.com/x",
+  "git push -f origin main",
+  "git update-ref refs/heads/main abc1234",
+  "rm -rf /",
+  "drizzle-kit push",
+  // defused by an inert leading word -- all of these are ALLOWED both ways
+  "echo curl",
+  "echo git push -f origin main",
+  "echo rm -rf /",
+  // NOT defused: the drizzle-kit rule scans every token
+  "echo drizzle-kit push",
+  // reached THROUGH a wrapper or an assignment prefix, which is what refuted
+  // the "first word decides" version
+  "env curl",
+  "FOO=x curl",
+  "env git push -f origin main",
+  "FOO=x rm -rf /",
+  "sudo curl",
+  "timeout 5 curl",
+  // ordinary, allowed both ways
+  "a.txt b.txt",
+  "echo hi",
+  "git push --force-with-lease origin claude/x",
+  // The case that distinguishes the command-text boundary from `decide`'s own:
+  // valid PreToolUse JSON. As command TEXT both sides agree (neither runs a
+  // fetcher); passed to `decide` directly they would not, which is why the
+  // invariant is stated over command text.
+  '{"tool_input":{"command":"curl --version"}}',
+];
+
+for (const words of ARRAY_INVARIANT_CASES) {
+  test(`array literal matches the bare command: ${words}`, () => {
+    assert.equal(blocked(`arr=(${words})`), blocked(words));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The review-round budget, at the routing layer.
+//
+// `review-budget.test.mjs` owns the budget matrix itself. What is pinned HERE
+// is the thing only this file can break: that ONE hook now carries THREE
+// judgements without any of them leaking into the others. The Bash pipeline
+// must never see a comment payload (it would tokenise a JSON blob and judge
+// prose); the budget must never see a Bash payload (it would refuse a commit
+// message quoting the trigger); and the merge gate must never see either.
+// ---------------------------------------------------------------------------
+
+const REVIEW_TOOL = "mcp__github__add_issue_comment";
+const NOW_ISO = "2026-08-17T12:00:00.000Z";
+const NOW_MS = Date.parse(NOW_ISO);
+
+const reviewPayload = (body, overrides = {}) =>
+  JSON.stringify({
+    tool_name: REVIEW_TOOL,
+    tool_input: {
+      owner: "TheAnswerManIsHere",
+      repo: "Overhypeme",
+      issue_number: 991,
+      body,
+      ...overrides,
+    },
+  });
+
+/** An in-memory receipt store, so these tests never touch .agents/receipts. */
+const memoryIo = (files = {}) => {
+  const store = { ...files };
+  return {
+    store,
+    now: () => NOW_ISO,
+    read: (rel) => (rel in store ? store[rel] : null),
+    exists: (rel) => rel in store,
+    listReceipts: () =>
+      Object.keys(store)
+        .filter((k) => k.startsWith(".agents/receipts/"))
+        .map((k) => k.slice(".agents/receipts/".length)),
+    write: (rel, text) => {
+      store[rel] = text;
+    },
+    claimOnce: (rel) => {
+      if (rel in store) return false;
+      store[rel] = "";
+      return true;
+    },
+    releaseClaim: (rel) => {
+      delete store[rel];
+    },
+    nonce: () => "0123456789abcdef",
+    // The store IS the durable tree -- decisions are read from the ref only.
+    durableRef: () => "origin/fake",
+    readDurable: (_ref, rel) => (rel in store ? { state: "present", text: store[rel] } : { state: "absent" }),
+    listDurable: (_ref, dir) =>
+      Object.keys(store)
+        .filter((k) => k.startsWith(`${dir}/`))
+        .map((k) => k.slice(dir.length + 1)),
+  };
+};
+
+const budgetFile = (pr, tier, cap) =>
+  JSON.stringify({
+    pr,
+    tier,
+    budget: cap,
+    criticality: 30,
+    artifact: "x",
+    declaredAt: "2026-08-17T00:00:00.000Z",
+  });
+
+/** The fresh-evidence receipt the guard demands: rounds counted, not tallied. */
+const checkFile = (pr, spent) =>
+  JSON.stringify({
+    pr,
+    repo: "TheAnswerManIsHere/Overhypeme",
+    capturedAt: "2026-08-17T11:59:00.000Z",
+    delivered: spent,
+    pending: 0,
+    spent,
+    nonce: "0123456789abcdef",
+  });
+
+const budgeted = (extra = {}) =>
+  memoryIo({ ".agents/receipts/loop-budget-991.json": budgetFile(991, "product", 5), ...extra });
+
+test("an @codex review post with no declared budget is refused", () => {
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io: memoryIo(), now: NOW_MS });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no round budget declared for PR #991/);
+});
+
+test("an @codex review post with a budget but no counted evidence is refused", () => {
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io: budgeted(), now: NOW_MS });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no round-check receipt/);
+});
+
+test("an @codex review post inside its counted budget is allowed", () => {
+  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 1) });
+  assert.equal(decide(reviewPayload("@codex review"), { io, now: NOW_MS }).blocked, false);
+});
+
+test("an @codex review post past its budget is refused at tripwire 1", () => {
+  const io = budgeted({ ".agents/receipts/loop-round-check-991.json": checkFile(991, 5) });
+  const { blocked: isBlocked, reason } = decide(reviewPayload("@codex review"), { io, now: NOW_MS });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /TRIPWIRE 1/);
+  assert.match(reason, /ON FABLE/);
+});
+
+test("an ordinary PR comment is unaffected by the budget", () => {
+  const io = memoryIo();
+  assert.equal(decide(reviewPayload("Fixed in abc1234 — resolving this thread."), { io, now: NOW_MS }).blocked, false);
+  assert.deepEqual(io.store, {}, "and nothing is written");
+});
+
+test("the three judgements do not leak into each other", () => {
+  // A commit message quoting the trigger goes down the Bash path, where the
+  // budget has no say -- otherwise writing about this mechanism would block
+  // every commit that mentions it.
+  assert.equal(blocked('git commit -m "post @codex review after the fix"'), false);
+  // A comment payload never reaches the tokeniser: this body is a shell
+  // string that WOULD be blocked as a command.
+  assert.equal(decide(reviewPayload("git push -f origin main"), { io: memoryIo(), now: NOW_MS }).blocked, false);
+  // And a merge payload reaches the merge gate, not the budget: its refusal
+  // is about the readiness receipt, never about rounds.
+  const mergeCall = JSON.stringify({
+    tool_name: "mcp__github__merge_pull_request",
+    tool_input: { owner: "TheAnswerManIsHere", repo: "Overhypeme", pullNumber: 991 },
+  });
+  const mergeVerdict = decide(mergeCall, { readReceipt: () => null, resolveSha: () => null });
+  assert.equal(mergeVerdict.blocked, true);
+  assert.match(mergeVerdict.reason, /readiness receipt/);
+  assert.doesNotMatch(mergeVerdict.reason, /round budget/);
+});
+
+// ---------------------------------------------------------------------------
+// The DEGRADED path (Codex, round 2). When node is unavailable the hook falls
+// back to raw greps — and running both of them over every payload leaked in
+// both directions, which is the one thing the node path is careful never to
+// do. Running with node stripped from PATH is what makes this a test of the
+// fallback rather than a second test of the module.
+// ---------------------------------------------------------------------------
+
+function runHookWithoutNode(rawPayload) {
+  try {
+    execFileSync("bash", [".claude/guard.sh"], {
+      cwd: REPO_ROOT,
+      input: rawPayload,
+      env: { ...process.env, PATH: "/usr/bin:/bin" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return 0;
+  } catch (error) {
+    return error.status;
+  }
+}
+
+const FALLBACK_CASES = [
+  ["a commit quoting the trigger is not a review request", { tool_name: "Bash", tool_input: { command: 'git commit -m "post @codex review after the fix"' } }, 0],
+  ["a real force push is still refused", { tool_name: "Bash", tool_input: { command: "git push -f origin main" } }, 2],
+  ["a comment quoting a force push is not a command", { tool_name: "mcp__github__add_issue_comment", tool_input: { body: "git push -f origin main" } }, 0],
+  ["a comment carrying the trigger is refused — the budget cannot be checked without node", { tool_name: "mcp__github__add_issue_comment", tool_input: { body: "@codex review" } }, 2],
+  ["an unrecognised payload shape gets BOTH scans", { tool_input: { body: "@codex review" } }, 2],
+];
+
+for (const [name, payloadObject, expected] of FALLBACK_CASES) {
+  test(`fallback (no node): ${name}`, () => {
+    assert.equal(runHookWithoutNode(JSON.stringify(payloadObject)), expected);
+  });
+}
+
+test("the fallback really is the fallback — node must be absent from that PATH", () => {
+  // Without this the five cases above would silently be re-testing the node
+  // path, and would keep passing even if the fallback routing were removed.
+  assert.throws(() => execFileSync("node", ["--version"], { env: { PATH: "/usr/bin:/bin" }, stdio: "ignore" }));
+});
+
+// ---------------------------------------------------------------------------
+// The merge gate.
+//
+// CLAUDE.md's merge bar is CI green + Codex converged + every review thread
+// resolved. It was reported from a single checked item twice -- PR #458 (merged
+// with a round outstanding; seven findings landed 47 seconds later) and PR #487
+// (reported green having run get_check_runs and nothing else, on a PR where no
+// review had ever been requested). The standing rule is that a discipline
+// broken twice becomes a check, so the merge tool now requires the receipt
+// scripts/pr-ready.mjs produces.
+//
+// `checkMerge` takes its receipt reader and SHA resolver as parameters so this
+// table asserts the decision rather than the filesystem.
+// ---------------------------------------------------------------------------
+
+const READY = {
+  verdict: "READY",
+  pr: 500,
+  repo: "TheAnswerManIsHere/Overhypeme",
+  headSha: "a".repeat(40),
+  branch: "claude/x",
+  generatedAt: new Date(Date.now() - 60_000).toISOString(),
+  // When the PR was READ, which is what the gate ages against. `generatedAt`
+  // only records when the check ran, and re-running a saved snapshot resets it
+  // while the data behind it stays as old as it was. (Codex, #490.)
+  evidenceAt: new Date(Date.now() - 60_000).toISOString(),
+  items: { ci: { pass: true }, codex: { pass: true }, threads: { pass: true } },
+};
+
+const MERGE_INPUT = { pullNumber: 500, owner: "TheAnswerManIsHere", repo: "Overhypeme" };
+
+const mergeReason = (receipt, { tip = READY.headSha, input = MERGE_INPUT } = {}) =>
+  checkMerge(input, { readReceipt: () => receipt, resolveSha: () => tip });
+
+test("merge gate: a current, passing receipt allows the merge", () => {
+  assert.equal(mergeReason(READY), null);
+});
+
+test("merge gate: no receipt at all blocks -- the PR #487 shape", () => {
+  assert.match(mergeReason(null), /no readiness receipt/);
+});
+
+test("merge gate: a NOT READY receipt blocks and names the failing item", () => {
+  const receipt = {
+    ...READY,
+    verdict: "NOT READY",
+    items: {
+      ci: { pass: true, detail: "9 checks, all passing" },
+      codex: { pass: false, detail: "no `@codex review` request found" },
+      threads: { pass: true, detail: "0 threads" },
+    },
+  };
+  const reason = mergeReason(receipt);
+  assert.match(reason, /NOT READY/);
+  // The whole failure being fixed is a green CI reading standing in for the
+  // bar, so the message must name the item that actually failed.
+  assert.match(reason, /codex: no `@codex review` request found/);
+});
+
+test("merge gate: a receipt older than the age cap blocks", () => {
+  const stale = { ...READY, evidenceAt: new Date(Date.now() - 90 * 60_000).toISOString() };
+  assert.match(mergeReason(stale), /no longer current/);
+});
+
+test("merge gate: an unparseable timestamp blocks rather than reading as age zero", () => {
+  assert.match(mergeReason({ ...READY, evidenceAt: "whenever" }), /no longer current/);
+});
+
+test("merge gate: a receipt from the future blocks", () => {
+  const future = { ...READY, evidenceAt: new Date(Date.now() + 10 * 60_000).toISOString() };
+  assert.match(mergeReason(future), /no longer current/);
+});
+
+test("merge gate: a push after validation invalidates the receipt", () => {
+  // The age cap alone cannot catch this: the receipt was accurate when written
+  // and my own next commit made it describe a commit that will not merge.
+  const reason = mergeReason(READY, { tip: "b".repeat(40) });
+  assert.match(reason, /is not the commit that would merge/);
+});
+
+test("merge gate: an unresolvable branch BLOCKS rather than abstaining", () => {
+  // This abstained in the first cut, on the reasoning that a branch the remote
+  // lookup cannot resolve is not evidence of a problem. Wrong default for a
+  // guard: the abstention is indistinguishable from the case it exists to
+  // catch. (Codex, #490.)
+  assert.match(mergeReason(READY, { tip: null }), /could not resolve the current tip/);
+});
+
+test("merge gate: a receipt minted for ANOTHER repository blocks", () => {
+  // Receipts are keyed by PR number and shas resolve against this checkout's
+  // origin, so a merge aimed elsewhere would find a locally valid receipt and a
+  // locally matching tip and pass every remaining check. (Codex, #490.)
+  const reason = mergeReason(READY, {
+    input: { pullNumber: 500, owner: "someone-else", repo: "Overhypeme" },
+  });
+  assert.match(reason, /minted for TheAnswerManIsHere\/Overhypeme/);
+});
+
+test("merge gate: a merge input naming no repository blocks", () => {
+  assert.match(mergeReason(READY, { input: { pullNumber: 500 } }), /names no owner\/repo/);
+});
+
+test("merge gate: a receipt recording no repository blocks", () => {
+  const { repo, ...noRepo } = READY;
+  assert.match(mergeReason(noRepo), /an unrecorded repository/);
+});
+
+test("merge gate: a receipt with no evidenceAt blocks", () => {
+  // Its age would otherwise describe when the check RAN rather than when the
+  // PR was read -- the gap a saved snapshot walks through. (Codex, #490.)
+  const { evidenceAt, ...noEvidence } = READY;
+  assert.match(mergeReason(noEvidence), /records no evidenceAt/);
+});
+
+test("merge gate: a receipt whose body names a different PR blocks", () => {
+  // Found by filename, so a mismatched body means a hand-edited or misfiled
+  // receipt -- the artifact whose word should least be taken.
+  assert.match(mergeReason({ ...READY, pr: 501 }), /says it is for PR #501/);
+});
+
+test("merge gate: a receipt with no branch blocks", () => {
+  const noBranch = { ...READY, branch: null };
+  assert.match(mergeReason(noBranch), /names no branch/);
+});
+
+test("merge gate: an abbreviated head sha blocks", () => {
+  // The tip comparison is exact equality, so a short sha would never match and
+  // the binding would be dead weight that still looked present.
+  assert.match(mergeReason({ ...READY, headSha: "abc1234" }), /no full head sha/);
+});
+
+test("merge gate: a missing pullNumber blocks", () => {
+  assert.match(mergeReason(READY, { input: {} }), /no pullNumber/);
+});
+
+test("merge gate: the merge tool routes to the gate, not the Bash parser", () => {
+  const raw = JSON.stringify({
+    tool_name: "mcp__github__merge_pull_request",
+    tool_input: { owner: "o", repo: "r", pullNumber: 500 },
+  });
+  const { blocked: isBlocked, reason } = decide(raw, {
+    readReceipt: () => null,
+    resolveSha: () => null,
+  });
+  assert.equal(isBlocked, true);
+  assert.match(reason, /no readiness receipt/);
+});

@@ -3,7 +3,7 @@
 > A map of the admin console: every page, what it's for, and where the
 > real depth already lives. **This is a tour, not a deep dive** — fact
 > moderation is [`moderation-workflow.md`](./moderation-workflow.md) /
-> [`content-lifecycle.md`](../manual/content-lifecycle.md); comment
+> [`2-content-lifecycle.md`](../manual/2-content-lifecycle.md); comment
 > moderation, ratings, and hearts are
 > [`community-and-engagement.md`](./community-and-engagement.md); admin
 > role grants, reinstatement, and soft/hard user delete are
@@ -18,7 +18,7 @@
 
 ## Page inventory
 
-Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS`:
+Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 16 `NAV_ITEMS`:
 
 | Route | File | What it's for |
 | --- | --- | --- |
@@ -37,11 +37,70 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS`:
 | `/admin/features` | `features.tsx` | The tier × feature-flag permission matrix — see *Config surfaces*. |
 | `/admin/email-queue` | `emailQueue.tsx` | Outbound transactional-email outbox: pending/failed rows, retry, requeue. |
 | `/admin/queue-health` | `queueHealth.tsx` | Background job-queue infra dashboard: per-queue/lane status counts, oldest-pending age, per-item drill-in. |
+| `/admin/help`, `/admin/help/:chapter` | `help.tsx` | The [Overhype.me Manual](../manual/README.md), rendered in-console — see *The in-app Manual* below. A `NAV_ITEMS` entry ("Help"), and also reached from the `?` control on each screen. |
 
 `/admin/comments` and `/admin/ai` are routed to redirect components
 (`AdminModerationRedirect`, `AdminAIRedirect`) rather than to the
 `comments.tsx`/`ai.tsx` files that still exist on disk — see *Dead and
 misleading surfaces* below.
+
+## The in-app Manual (`/admin/help`)
+
+`docs/manual/` is the single source of truth and is only ever **read**. The
+console serves a **committed generated artifact** built from it at
+`artifacts/overhype-me/src/generated/help/` — the `generate:field-docs` shape
+with the direction inverted (source in `docs/`, artifact in code), which is why
+its freshness gate lives where it does. See
+[`decisions.md`](./decisions.md) for that decision and its rationale; the short
+version is that `scripts/classify-ci-paths.mjs` classifies `docs/manual/**` as
+inert, so a check in the frontend suite could never fire on a chapter-only PR.
+The other way out of that bind — making the path non-inert, as
+`docs/ADMIN_FIELD_REFERENCE.md` does — wasn't available here, because this gate
+is a script rather than a vitest assertion. The decision entry has the full
+comparison.
+
+| Piece | File |
+| --- | --- |
+| Generator (+ `--check` mode, the CI gate) | `artifacts/overhype-me/scripts/generate-help-content.ts` |
+| Route + search UI + navigation | `artifacts/overhype-me/src/pages/admin/help.tsx` |
+| Screen → chapter/anchor map for the `?` control | `artifacts/overhype-me/src/components/admin/helpMap.ts` |
+| Link validation shared by both consumer call sites | `artifacts/overhype-me/src/components/admin/helpLinkGuard.ts` |
+| Fragment scrolling | `artifacts/overhype-me/src/components/admin/useFragmentScroll.ts` |
+
+**Generation fails rather than emitting a plausible-but-wrong artifact** — on
+disk/table disagreement, chapter-number disagreement across any of the four
+representations, an unclassifiable link, a `#fragment` that doesn't resolve in
+its *rendered destination*, markdown outside the declared vocabulary, or
+anything executable in the output. What that means for chapter authors is in
+[`docs/manual/README.md`](../manual/README.md); this is the machinery side.
+
+**Four things that will bite you if you touch this code:**
+
+1. **Document order is not top-level order.** `unist-util-visit` walks headings
+   at every depth; iterating `tree.children` walks only the top level. Pairing
+   the two by index desynchronises on the first heading nested in a blockquote
+   or list, and every later section silently attributes to the wrong anchor.
+   Pair by **source position** (`position.offset`), not by counter. The chapter
+   title comes from the validated top-level `H1` for the same reason —
+   `sections[0]` is whatever the visitor reached first.
+2. **Validate the representation that renders.** Anything checked with a
+   raw-source regex can be satisfied by a decoy inside a fenced code block. Read
+   the parsed node — and bind it to the right one: *"the table under
+   `## Contents`"*, not "the largest table"; *"the last `**Next:**` paragraph in
+   the closing nodes"*, not "the first paragraph starting with Next".
+3. **The bundle boundary is an import-graph property**, asserted in
+   `helpBundleBoundary.test.ts` across the app entry, `AdminLayout`, and every
+   non-help admin route. ~160 KB of prose landing in a shared chunk is
+   invisible to every other check — nothing fails, admin pages just get heavier.
+   This is why `helpMap.ts` holds string literals and imports nothing generated.
+4. **Navigation is consolidated behind one function** and held there by an AST
+   check (`helpNavigationGuard.test.ts`). wouter neither re-renders on a
+   hash-only change nor emits a native `hashchange`, so a second navigation path
+   fails *silently* — the address bar updates and the page doesn't move.
+
+**No backend surface**: no API route, no table, no server render path. And no
+confidentiality claim over the prose — see the decision on why client-side
+routing is not a confidentiality boundary.
 
 ## Admin access at the UI level
 
@@ -69,10 +128,35 @@ Two distinct pages, not one:
   display limit). A global Debug-Mode toggle swaps every key to its
   debug value set.
 - **`/admin/features`** — the tier × feature-flag matrix
-  (`unregistered/registered/legendary/admin` × feature keys). Confirmed
-  actually read by `tierFeatures.ts` and consumed in `memes.ts`,
-  `videos.ts`, `render.ts`, `facts.ts`, `videoJobs.ts` — this one is
-  genuinely wired end to end, unlike some of the findings below.
+  (`unregistered/registered/legendary/admin` × feature keys), read by
+  `artifacts/api-server/src/lib/featureAccess.ts`, which is the only module
+  permitted to touch the grid tables.
+
+  **The Admin column is live.** It used to be decorative: the grid is keyed by
+  tier, an admin's stored tier is `registered`, and no code path ever passed
+  `'admin'` — so those rows were unreachable by construction and every
+  admin exemption was hand-written in application code instead. Resolution is
+  now a union (`features(tier) ∪ features('admin')`), so toggling an Admin cell
+  changes what admins can do with no deploy. The column header states that
+  admin values *add to*, never replace, the user's own tier: an admin whose tier
+  already grants a feature sees no change from switching Admin off, which is the
+  union working correctly rather than a bug.
+
+  **A toggle takes effect within the resolver's cache TTL (60s), per process.**
+  The writing process busts its own cache immediately; others converge within
+  the window. Open clients poll `GET /entitlements/version` and re-fetch when
+  either the grid revision or their own principal fingerprint moves.
+
+  **Every cell change is audited** — actor, tier, feature, before/after,
+  timestamp — in `tier_feature_permission_audit`, with the prior value read
+  under a row lock so two concurrent edits record two honest transitions rather
+  than both reporting the same stale "before". A rejected write produces no
+  audit row and no revision bump.
+
+  Making the write side *unbypassable* (sanctioned functions, triggers, revoked
+  privileges, the ownership runbook) is Plan 1b's scope. Until it ships, these
+  invariants hold because `featureAccess.ts` is the only writer — a convention,
+  not a boundary.
 
 **A subtle, currently-live "looks editable but isn't" gap:** five seeded
 NCMEC-related `admin_config` keys (CyberTipline filing config) reject

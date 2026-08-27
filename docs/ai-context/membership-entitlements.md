@@ -9,7 +9,7 @@
 > (34 commits, 11 code-review rounds, 101 findings), replacing code that had
 > never had an independent review since its original build.
 >
-> **Human-facing narrative:** [`docs/manual/payments-and-membership.md`](../manual/payments-and-membership.md).
+> **Human-facing narrative:** [`docs/manual/10-payments-and-membership.md`](../manual/10-payments-and-membership.md).
 > **Decision history:** [`decisions.md`](./decisions.md#2026-07-30--reconciliation-is-deferred-out-of-the-entitlement-model-pr-the-gap-is-accepted).
 > **Superseded:** [`stripe-payments-audit-findings.md`](./stripe-payments-audit-findings.md)
 > is the audit that commissioned this rewrite — read it for history, not for
@@ -243,6 +243,58 @@ suggests "membership."
 | `artifacts/api-server/src/lib/stripeStorage.ts` | the fact-of-the-day mailing list, the revocation notice |
 | `artifacts/api-server/src/routes/admin.ts` | dashboard counts, the admin user list |
 | `artifacts/api-server/src/routes/users.ts`, `artifacts/api-server/src/routes/auth.ts`, `artifacts/api-server/src/routes/localAuth.ts` | login/profile payloads |
+
+**Every product-feature permission resolves through one function.**
+`artifacts/api-server/src/lib/featureAccess.ts` is the chokepoint: it is the
+only module permitted to read `tier_feature_permissions`, and
+`scripts/check-permission-chokepoint.mjs` (wired into `build.yml`) fails the
+build if anything else references the tier-keyed lookup or reads those tables.
+Route code asks `can(principal, key)` — never about a tier string.
+
+*Why the tier-keyed lookup had to become unreachable.* `membership_tier` is
+only ever `unregistered | registered | legendary` — admin is an orthogonal
+boolean, so an admin's stored tier is `registered` unless they separately hold
+a paid entitlement. The grid's `admin` rows (seeded by `0028`/`0029`) were
+therefore unreachable by construction: no caller ever passed `'admin'`. Every
+gate where an admin should qualify grew a hand-written exception, thirteen-plus
+of them in three different shapes, and two of those silently denied admins by
+accident. Getting it wrong is invisible: the admin simply doesn't get the
+feature, and because most legendary gates *are* role-based, the one that isn't
+looks like it works. It cost a private meme being published — see
+[`known-failure-patterns.md`](known-failure-patterns.md).
+
+*What replaced it.* Resolution is a **union**, never an override:
+`features(tier) ∪ (isAdmin ? features('admin') : ∅)`. The Admin column is live,
+so toggling it changes behaviour with no deploy, and an admin who also holds a
+paid entitlement never *loses* a feature by being an admin. Every gate fails
+closed on a missing row, an unknown key, or a database error.
+
+*Principal construction normalizes explicitly.* `req.user.membershipTier` is
+not toggle-aware — "view as user" flips `isAdmin` but leaves the tier at the
+account's real paid tier — so a naive read would give a legendary-holding admin
+in preview mode every Legendary feature. `principalFromRequest` drops the tier
+to `registered` when previewing. Feature gates honour the toggle deliberately;
+operational privilege never does.
+
+*Two rails, kept apart.* Operational privileges (console access, user
+management, moderation, config) stay on `requireRole` over `realUserRole` and
+are **not** grid features. That separation is what makes admin lockout
+impossible by configuration: nothing that grants console access lives in the
+grid. `adminIdentity.ts` is the single definition of "really an admin", over
+all three grant mechanisms (stored column, `ADMIN_USER_IDS`,
+`BOOTSTRAP_ADMIN_EMAIL`).
+
+*Queued work is authorized as of submission.* `video_jobs.authorization_snapshot`
+persists the resolved decision alongside the principal, and background paths
+read it rather than re-resolving — otherwise an admin previewing as a user
+would bypass every gate through the background path, and a grid change
+mid-flight would retroactively change what a running job was allowed to do.
+
+*The client is told, never derives.* `/auth/user` ships the resolved
+entitlement map as a sibling of `user` (populated for anonymous callers too),
+stamped with both `gridRevision` and `principalFingerprint`.
+`GET /entitlements/version` is the revalidation probe and is never
+shared-cached. `roleToTier` — the PR #402 function — is deleted.
 
 All route through `effectiveTierExpr()` / `effectiveTierPredicate()` /
 `effectiveTierForRow()` — an **expression**, not a stored predicate, because a

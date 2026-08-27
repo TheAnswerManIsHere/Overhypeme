@@ -87,6 +87,19 @@ describe("resolveEnrichment", () => {
     assert.equal(effective.visualPromptStrategyOverride?.requiredVisualDetails[0], "a glowing aura");
     assert.equal(summary.hasVisualStrategyOverride, true);
   });
+
+  it("stays renderable for a legacy visual override missing requiredVisualDetails/forbiddenVisualDetails (#579)", () => {
+    // Matches the shape stuck in production: a pre-Phase-2 override that only
+    // ever had `version` + `coreSceneOverride`, predating the array fields.
+    const legacyVisual = { version: 1 as const, coreSceneOverride: "{NAME} stands there confidently." };
+    const { effective, summary } = resolveEnrichment({
+      aiDerived: AI,
+      overrides: {},
+      visualPromptStrategyOverride: legacyVisual as unknown as FactEnrichment["visualPromptStrategyOverride"],
+    });
+    assert.deepEqual(effective.visualPromptStrategyOverride?.requiredVisualDetails, []);
+    assert.equal(summary.hasVisualStrategyOverride, true);
+  });
 });
 
 describe("comparison helpers", () => {

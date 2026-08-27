@@ -19,8 +19,7 @@ on:
 
 # A PR-triggered run is obsolete the moment another push lands on the same
 # PR — cancelling it loses no signal, just wall-clock and Actions minutes.
-# Every push-to-main run must complete, no exceptions — the ledger-debt
-# audit step only runs there. That ruled out `queue: max` (GitHub disallows
+# Every push-to-main run must complete, no exceptions. That ruled out `queue: max` (GitHub disallows
 # combining it with a `cancel-in-progress` that can evaluate true, which
 # ours does for PR events) as a way to protect queued push runs. Falling
 # back to `github.ref` for the group key was tried first and was WRONG: every
@@ -114,9 +113,10 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
 
-    # Explicit least-privilege. `pull-requests: read` is what the loop-ledger
-    # coverage guard needs to list closed PRs; every other step in this job
-    # only reads the checkout.
+    # Explicit least-privilege. `pull-requests: read` predates the deleted
+    # loop-ledger coverage guard; kept because narrowing a token during an
+    # unrelated change risks breaking a reader this comment doesn't know
+    # about, and read-only costs nothing.
     permissions:
       contents: read
       pull-requests: read
@@ -156,18 +156,42 @@ jobs:
       - name: Check manual tuning-language guard logic
         run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
 
-      # Also dependency-free. The loop ledger's whole premise is that counted
-      # numbers beat recalled ones, so its counting logic has to be provably
-      # right — an unverified derivation would carry exactly the false
-      # authority it exists to remove.
-      - name: Check loop-metrics derivation
-        run: node --test scripts/__tests__/loop-metrics.test.mjs
+      # This repo states most working rules twice by design (CLAUDE.md and
+      # docs/ai-context/ at different altitudes, the skills restating the
+      # mechanics), so replacing a rule means sweeping every copy. PR #553
+      # replaced the review-loop stopping rule three times in one day and left
+      # ten stale statements behind — five the review found, five more a manual
+      # sweep found afterwards, including the adjudicator agent's own
+      # frontmatter. Every one was a fixed string, so per
+      # docs/ai-context/decisions.md this is a check rather than another
+      # promise to sweep carefully.
+      # LEXICAL ONLY — green means no TRACKED retired phrase is stated as live,
+      # not that the contracts agree with each other.
+      - name: Check contract consistency (no retired rule stated as live)
+        run: node scripts/check-contract-consistency.mjs
 
-      - name: Check loop-metrics guard logic
-        run: node --test scripts/__tests__/check-loop-metrics.test.mjs
+      - name: Check contract-consistency guard logic
+        run: node --test scripts/__tests__/check-contract-consistency.test.mjs
 
-      - name: Check loop-report logic
-        run: node --test scripts/__tests__/loop-report.test.mjs
+      # /uat drives a run by enumerating "### " headings inside "## Steps" and
+      # "## Regression". That rule is only safe if every doc has that shape.
+      # The docs used to carry six-plus conventions for the regression section
+      # alone and 11 had no numbered steps, which made inferring coverage
+      # impossible and produced the worst failure available: pass every feature
+      # step, declare Accepted, never run the sweep. The format is defined in
+      # docs/tests/uat-doc-format.md; this keeps it true.
+      # STRUCTURE ONLY — it cannot tell a good "Expect:" from a vague one.
+      - name: Check UAT doc format
+        run: node scripts/check-uat-format.mjs
+
+      - name: Check UAT format guard logic
+        run: node --test scripts/__tests__/check-uat-format.test.mjs
+
+      # The counting library stays on the enforcement path (round budget +
+      # adjudication records) after the ledger's deletion, so its derivation
+      # keeps provable coverage. (Codex, #543 round 3.)
+      - name: Check review-counting derivation
+        run: node --test scripts/__tests__/review-counting.test.mjs
 
       # The workstream board is only trustworthy if its columns match reality.
       # The label -> field mapping is the one place that can quietly drift (a
@@ -175,14 +199,6 @@ jobs:
       # stops tracking reads identically to a board where nothing needs David.
       - name: Check project-sync label mapping
         run: node --test scripts/__tests__/sync-project-fields.test.mjs
-
-      # A workstream stuck at stage:test-run after Replit actually finished is
-      # invisible in exactly the way the whole board exists to prevent — this
-      # script is the only writable trigger for that transition, so its
-      # filename parsing, UAT-doc detection, and label/body rewrites need to
-      # be provably right, not just plausible.
-      - name: Check TEST_RUN completion sync logic
-        run: node --test scripts/__tests__/sync-test-run-completion.test.mjs
 
       # The classifier decides which PRs get to skip the Test/Frontend
       # Test/E2E Smoke jobs entirely. A bug in its allowlist is the one way
@@ -201,18 +217,24 @@ jobs:
       - name: Check Bash guard decisions
         run: node --test scripts/__tests__/guard-decision.test.mjs
 
-      # Record validity, offline. Needs no token, no PR context, and no base
-      # diff, so it runs identically on a PR and on push-to-main.
-      #
-      # Coverage is deliberately NOT checked here (David, 2026-08-07). The old
-      # guard failed builds over missing rows, which coupled every unrelated
-      # PR to ledger state and still didn't put the gap in front of the person
-      # who could act on it. Missing records are now named in the digest
-      # `/maintenance` narrates — the surface David actually reads. That trades
-      # a red check nobody sees for a weekly report someone does, and accepts
-      # that tracking can lapse for a week. This is a tracking tool.
-      - name: Check loop-metrics store
-        run: node scripts/check-loop-metrics.mjs
+      # Another judgement behind the same hook: the review-round budget.
+      # It exists because per-round judgment provably cannot stop a runaway
+      # review loop (PR #488: 22 rounds on ~10 lines, 0-for-15 on the
+      # judgment-shaped stopping rules). A budget guard whose refusal matrix
+      # is unasserted would be the same failure one level up -- a stopping
+      # rule nobody can rely on, which is worse than none because it is
+      # trusted.
+      - name: Check review-round budget decisions
+        run: node --test scripts/__tests__/review-budget.test.mjs
+
+      # The merge bar (CI green, Codex converged, threads resolved) was reported
+      # from a single checked item twice — PR #458 merged with a round
+      # outstanding, PR #487 reported green from get_check_runs alone on a PR
+      # where no review had ever been requested. The receipt this script writes
+      # is what the merge hook now demands, so its three checks need the same
+      # asserted-not-asserted-about treatment as the guard above.
+      - name: Check PR readiness receipts
+        run: node --test scripts/__tests__/pr-ready.test.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -232,6 +254,62 @@ jobs:
       # Same script as the local ritual: rerun codegen, fail on any diff.
       - name: Codegen drift check
         run: pnpm run check:codegen-drift
+
+      # The in-app admin help content is GENERATED FROM docs/manual/, which is
+      # the inverse of the generate:field-docs precedent (source in code,
+      # artifact in docs/) — and that inversion is why this gate lives HERE
+      # rather than in the Frontend Test suite where the field-docs staleness
+      # assertion sits.
+      #
+      # scripts/classify-ci-paths.mjs classifies all of docs/** as inert, so a
+      # PR that edits only a manual chapter skips Test / Frontend Test / E2E
+      # Smoke entirely. A freshness check living in those suites would never
+      # run on the exact change that can invalidate the artifact, and a stale
+      # help bundle would merge green with the console showing a manual that no
+      # longer matches docs/manual/.
+      #
+      # This job is never gated, so the check runs on every PR that can touch
+      # either side. Adding docs/manual/** to the inert carve-out was the
+      # alternative and was rejected: it would force two Postgres boots and a
+      # Chromium download onto every prose edit, which is the cost the
+      # classifier exists to avoid.
+      - name: Check admin help content is in sync with docs/manual/
+        run: pnpm --filter @workspace/overhype-me run check:help-content
+
+      # The permission chokepoint. A tier-keyed hasFeature() reachable from route
+      # code is how PR #402's bug class reproduces, so the guard makes the wrong
+      # call impossible rather than merely discouraged.
+      - name: Permission chokepoint check
+        run: pnpm run check:permissions
+
+      # The client half of the same invariant: a NEW tier/role comparison
+      # gating a product feature client-side is the PR #402 shape on the other
+      # side of the wire. See scripts/check-permission-chokepoint-frontend.mjs.
+      - name: Permission chokepoint check (frontend)
+        run: pnpm run check:permissions:frontend
+
+      # The spend gate must run even when pricing can't be resolved. Wrapping
+      # checkBudget() in `if (priced)` skips the check on a pricing miss, so
+      # the guard makes that shape impossible rather than merely discouraged.
+      - name: Budget gate unconditional check
+        run: pnpm run check:budget-gate
+
+      # The other half of the same defect: gating correctly and then declining
+      # to RECORD leaves the ceiling measured against a total that stops
+      # growing. Measured, not assumed — restoring the old `if (priced)`
+      # wrapper produced zero typecheck errors and a fully green test suite, so
+      # this guard is the only thing standing between that regression and main.
+      - name: Ledger write unconditional check
+        run: pnpm run check:record-cost
+
+      # Third in the same family, and the one that had been missing. checkBudget
+      # returns the ADMIN EXEMPTION before resolving the proposed cost, which is
+      # worth nothing if the caller resolves it eagerly — arguments evaluate
+      # before the call, so a failing cost lookup denies an admin who never
+      # needed it. PR #474 round 4 found this and added the thunk overload;
+      # PR #498 round 3 found it reintroduced. Twice is a machine, not a note.
+      - name: Budget gate thunk check
+        run: pnpm run check:budget-gate-thunk
 
       - name: Build app
         run: pnpm run build
@@ -501,9 +579,18 @@ jobs:
       # isDevAdminLoginEnabled() is fail-closed and this is an ephemeral CI
       # database. Vite's /api proxy defaults to localhost:8080 off-Replit
       # (vite.config.ts), standing in for Replit's path router.
+      #
+      # ALLOWED_ORIGINS is what lets a browser test CLICK something. The app's
+      # origin allowlist (app.ts parseAllowedOrigins) is empty off-Replit, so
+      # every browser-initiated mutation 403s "Origin not allowed" — the
+      # request context Playwright uses for setup sends no Origin header and is
+      # unaffected, which is why the read-only suites never hit this. Naming
+      # the Vite origin here makes CI behave as a real deployment does, where
+      # that origin is allowed.
       - name: Start dev stack (api-server + Vite)
         run: |
           (cd artifacts/api-server && PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=ci-smoke-dummy \
+            ALLOWED_ORIGINS=http://localhost:5173 \
             pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &)
           (cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ \
             pnpm exec vite > /tmp/vite.log 2>&1 &)
@@ -516,6 +603,11 @@ jobs:
 
       - name: Run route-load smoke suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:smoke
+
+      # Admin surfaces drained out of the UAT documents. Its own step, so a red
+      # build names which suite broke; shares the trace upload below.
+      - name: Run admin-surface suite
+        run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:surfaces
 
       - name: Upload traces on failure
         if: failure()

@@ -76,10 +76,17 @@ import { generateAiMemeBackgroundFromReference, generateAiMemeBackgroundStandalo
 import { generateVideoDirection } from "./videoDirection";
 import { addCaptionsToVideo } from "./falAutoSubtitle";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
-import { checkBudget, recordCost } from "./budgetGate";
+import { BudgetGateError, checkBudget, noteLedgerWriteFailure, recordCost } from "./budgetGate";
+import { withBookkeepingTimeout } from "./bookkeepingTimeout";
 import { getCachedPrice } from "./falPricing";
 import { computeVideoCost, resolveVideoDimensions } from "./costComputation";
-import { createMemeRecord } from "./createMemeRecord";
+import { createMemeRecord, resolveMemeDecisions } from "./createMemeRecord";
+import {
+  buildAuthorizationSnapshot,
+  decisionFromSnapshot,
+  type AuthorizationSnapshot,
+  type Principal,
+} from "./featureAccess";
 import { logger } from "./logger";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -149,6 +156,27 @@ export interface JobState {
   stage1CostUsd?: number;
   stage2CostUsd?: number;
   stage3CostUsd?: number;
+
+  /**
+   * What the PREFLIGHT GATE priced stages 1 and 3 at — carried so the writers
+   * record the figures the job was actually admitted on, rather than re-reading
+   * the engine rows minutes later past a 60s cache TTL. See
+   * `resolveStageCostUsd` for why re-reading is wrong for these two stages and
+   * right for stage 2.
+   *
+   * In-memory is sufficient coverage, not a partial measure: `jobs` is a plain
+   * Map and `resumeFromStage2` resumes from it, so a process restart loses the
+   * running job entirely. There is no path where a job outlives this field.
+   *
+   * Either is null when the figure is genuinely unknown: `stage1EstimateUsd`
+   * for a non-stylize job, which never runs stage 1, and both for an exempt
+   * admin whose post-gate resolution failed. A writer that finds null records
+   * the loss on `ledger_write_failures` rather than substituting a constant —
+   * a fabricated figure is the fail-open this release exists to close.
+   */
+  stage1EstimateUsd: number | null;
+  stage3EstimateUsd: number | null;
+
   stage1Attempts: number;
 
   /** DB-side video_jobs row id, used for the imageSource.videoJobId field. */
@@ -157,6 +185,12 @@ export interface JobState {
   errorCode?: string;
   errorMessage?: string;
 
+  /**
+   * The decisions that authorized this job, resolved at submission. Mirrors
+   * what was persisted on the `video_jobs` row; the row is the durable copy and
+   * this is the in-process one. Kept off the wire by sanitization.
+   */
+  _authorizationSnapshot: AuthorizationSnapshot;
   /** Internal scheduling state — kept off the wire by sanitization. */
   _phaseStartedAt: number;
   /** Optional floor boosted by fal queue/progress callbacks (Part 3). */
@@ -183,6 +217,28 @@ export interface StartJobInput {
   pronouns?: string | null;
   /** Rendered fact text (name/pronouns substituted) — drives the engine's voice slot. */
   renderedFactText?: string | null;
+  /**
+   * The submitting request's principal. Required: this pipeline runs long after
+   * the request that started it, so the only moment "view as user" is visible
+   * is right here. Resolving gates later from the stored admin flag — which is
+   * what used to happen inside `createMemeRecord` — cannot see it at all.
+   */
+  principal: Principal;
+  /**
+   * The caller's own `video_generation` decision, from the SAME `can()` call
+   * that gated the request. Required, not re-derived here.
+   *
+   * This function used to call `can(principal, "video_generation")` a second
+   * time internally, which opened a window: if the grid was toggled between
+   * the route's gate and this call — or if resolution itself failed the
+   * second time for any reason — the job would still start, but its permanent
+   * `authorization_snapshot` would record `false` for the very decision that
+   * admitted it, corrupting the record in exactly the case it exists to
+   * protect. The route's decision is definitionally what authorized this call
+   * (it 403s before ever reaching here), so that is the value that must be
+   * persisted — not a fresh, possibly-different answer to the same question.
+   */
+  videoGenerationDecision: boolean;
 }
 
 export class VideoJobError extends Error {
@@ -369,6 +425,57 @@ function engineNumeric(v: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Per-call cost for stage 1 or 3, from the operator-configured engine row.
+ *
+ * **Resolved ONCE, at preflight, and then carried on the job** — see
+ * `JobState.stage1EstimateUsd` / `stage3EstimateUsd`. Neither writer re-reads.
+ *
+ * Two separate defects drove that, and both are worth stating because the
+ * obvious-looking alternatives reintroduce them:
+ *
+ * 1. *Sharing a resolver is not enough.* Round 1 of PR #498's review had the
+ *    gate and the writers calling one shared function, which removes the
+ *    duplicated expression but not the divergence: `loadEngine` caches for 60s,
+ *    so a job outliving the TTL, an operator edit mid-job, or a transient read
+ *    failure still yields a different number at the writer than the one that
+ *    admitted the job. Unlike stage 2, stages 1 and 3 have **no later
+ *    provider-resolved rate** — the second read is the same class of estimate,
+ *    just later, so it buys nothing and can only disagree. Resolving once is
+ *    strictly better here and strictly worse for stage 2.
+ *
+ * 2. *An unreadable row must deny, not degrade.* `decisions.md` 2026-08-16
+ *    settles this for the generation spend gate: a pricing miss degrades to the
+ *    operator-configured estimate, but an unreadable `engines` row **denies**,
+ *    because no fallback can be proven not to undercut an admin-set value — a
+ *    $0.02 seed silently displacing an admin-set $0.08 is precisely the
+ *    fail-open this exists to prevent. So the two failure modes are NOT the
+ *    same and must not share a catch:
+ *
+ *      * row legitimately absent  → the catalogue constant, and carry on. The
+ *        decision explicitly allows this; not every model has a persisted row.
+ *      * read FAILED              → throw `BudgetGateError`, deny the job.
+ *
+ * The distinction is load-bearing, and collapsing it is easy to do by accident:
+ * a single `try { … } catch { return FALLBACK }` around both reads at once
+ * looks defensive and is the exact violation.
+ */
+async function resolveStageCostUsd(engineId: string, fallback: number): Promise<number> {
+  let engine: Engine | null;
+  try {
+    engine = await loadEngine(engineId);
+  } catch (err) {
+    // The authoritative source is unreadable. Deny — see above.
+    logger.error(
+      { err, engineId },
+      "[videoPipeline] engines row unreadable during preflight — denying rather than substituting the catalogue value",
+    );
+    throw new BudgetGateError(err);
+  }
+  if (!engine) return fallback;
+  return engineNumeric(engine.estimatedCostUsdPerCall, fallback);
+}
+
 async function estimateStage2Cost(
   engine: Engine,
   durationSec: number,
@@ -389,11 +496,33 @@ async function estimateStage2Cost(
   }
 }
 
-async function estimateTotalCost(engine: Engine, input: StartJobInput): Promise<number> {
-  const stage1 = input.sourceMode === "stylize-then-video" ? STAGE1_FALLBACK_COST : 0;
+/**
+ * What preflight resolved, kept per-stage rather than collapsed to a total, so
+ * the writers can record the figures the gate actually decided on.
+ *
+ * `stage1` is null when the job has no stage 1 — a non-stylize job never runs
+ * PuLID, so reading its engine row would let an unreadable PuLID row deny a job
+ * that will never touch it. Denying is right for a stage the job will run, and
+ * over-broad for one it won't.
+ *
+ * Stage 2 is deliberately absent: its writer re-prices against a
+ * provider-resolved rate after the render, which is the one real price in this
+ * pipeline and the thing `isEstimated: false` asserts.
+ */
+interface PreflightEstimate {
+  total: number;
+  stage1: number | null;
+  stage3: number | null;
+}
+
+async function estimateTotalCost(engine: Engine, input: StartJobInput): Promise<PreflightEstimate> {
+  const stage1 =
+    input.sourceMode === "stylize-then-video"
+      ? await resolveStageCostUsd(PULID_IMAGE_ENGINE_ID, STAGE1_FALLBACK_COST)
+      : null;
   const stage2 = await estimateStage2Cost(engine, input.durationSec, input.aspectRatio, input.resolution);
-  const stage3 = STAGE3_FALLBACK_COST;
-  return stage1 + stage2 + stage3;
+  const stage3 = await resolveStageCostUsd(SUBTITLE_ENGINE_ID, STAGE3_FALLBACK_COST);
+  return { total: (stage1 ?? 0) + stage2 + stage3, stage1, stage3 };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -466,8 +595,40 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
   }
 
   // ── Pre-flight budget gate ───────────────────────────────────────
-  const estimated = await estimateTotalCost(engine, input);
-  const budget = await checkBudget(input.userId, estimated);
+  // The estimate is resolved INSIDE a thunk, not before the call.
+  //
+  // `estimateTotalCost` can throw BudgetGateError when an engines row is
+  // unreadable (see resolveStageCostUsd), and `checkBudget` returns the ADMIN
+  // EXEMPTION before it resolves the proposed cost. Passing a resolved value
+  // throws that ordering away, because arguments evaluate before the call — so
+  // the eager form denies an exempt admin on a failure the exemption would have
+  // made irrelevant. That is the defect PR #474 round 4 introduced the thunk
+  // overload to fix, and that round 2 of this PR reintroduced here.
+  // `scripts/check-budget-gate-thunk.mjs` now makes the eager form a CI failure
+  // rather than something to remember.
+  //
+  // For a NON-exempt user the throw propagates out of checkBudget and lands in
+  // the catch below as a 503, which is the required deny.
+  let estimated: PreflightEstimate | null = null;
+  let budget: Awaited<ReturnType<typeof checkBudget>>;
+  try {
+    budget = await checkBudget(input.userId, async () => {
+      const resolved = await estimateTotalCost(engine, input);
+      estimated = resolved;
+      return resolved.total;
+    });
+  } catch (err) {
+    if (err instanceof BudgetGateError) {
+      // Deny, but as a retry-able service error — not a 429, which would tell
+      // a user hitting a transient failure that they are out of budget. The
+      // friendly text goes in `error` — every consumer of VideoJobError's
+      // body (routes/videoJobs.ts's handler, the wizard client) reads that
+      // field verbatim; a separate `message` field was silently discarded
+      // and users saw the raw code instead (#409 round 1).
+      throw new VideoJobError(503, { error: err.message, code: "budget_check_unavailable" });
+    }
+    throw err;
+  }
   if (!budget.allowed) {
     throw new VideoJobError(429, {
       error: "BUDGET_EXCEEDED",
@@ -477,12 +638,106 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
     });
   }
 
+  // An exempt admin never ran the thunk, so there are no figures to carry yet.
+  // Resolve them now, for RECORDING ONLY — and note the asymmetry, which is the
+  // whole point of doing it here rather than above: a failure must NOT deny.
+  // The exemption has already decided this job is allowed, and re-deciding that
+  // on a bookkeeping lookup is exactly the bug the thunk exists to prevent.
+  //
+  // NOT `estimateTotalCost`: that resolves stage 2 as well, via `getCachedPrice`,
+  // whose stale-cache path performs an un-aborted network fetch — and stage 2's
+  // figure is not wanted here at all, because its writer re-prices against a
+  // provider-resolved rate after the render.
+  //
+  // EACH LOOKUP IS INDEPENDENT, in both failure and time. That took three
+  // rounds of review to get right, so the two ways of getting it wrong are
+  // worth naming:
+  //
+  //   * `Promise.all` rejects as a unit, so one failing lookup discarded the
+  //     other stage's perfectly good figure.
+  //   * `allSettled` under ONE shared deadline has the same defect on the time
+  //     axis: allSettled stays pending until BOTH settle, so a cached PuLID
+  //     read that returned instantly was still thrown away when the subtitle
+  //     read sat waiting for a pool client.
+  //
+  // Both discard a figure we successfully obtained, and a null stage-1 figure
+  // makes `recordStage1Cost` skip — which on the no-face path is the only
+  // ledger writer there is. Hence: per-lookup deadline, then allSettled.
+  //
+  // There is deliberately no try/catch around this. `withBookkeepingTimeout`
+  // rejections are absorbed per-lookup by allSettled, and allSettled itself
+  // never rejects, so a catch here would be unreachable. Note also that NO
+  // counter increment belongs here: `recordStage1Cost` and `recordStage3Cost`
+  // each count when their own null estimate actually skips a row, and counting
+  // again here reported losses for rows that were never going to be written.
+  if (estimated === null) {
+    const [s1, s3] = await Promise.allSettled([
+      input.sourceMode === "stylize-then-video"
+        ? withBookkeepingTimeout(
+            resolveStageCostUsd(PULID_IMAGE_ENGINE_ID, STAGE1_FALLBACK_COST),
+            "stage 1 estimate lookup",
+          )
+        : Promise.resolve(null),
+      withBookkeepingTimeout(
+        resolveStageCostUsd(SUBTITLE_ENGINE_ID, STAGE3_FALLBACK_COST),
+        "stage 3 estimate lookup",
+      ),
+    ]);
+    if (s1.status === "rejected") {
+      logger.warn(
+        { err: s1.reason, userId: input.userId },
+        "[videoPipeline] stage 1 estimate unresolved for an exempt user — that row will be skipped, not fabricated",
+      );
+    }
+    if (s3.status === "rejected") {
+      logger.warn(
+        { err: s3.reason, userId: input.userId },
+        "[videoPipeline] stage 3 estimate unresolved for an exempt user — that row will be skipped, not fabricated",
+      );
+    }
+    const stage1 = s1.status === "fulfilled" ? s1.value : null;
+    const stage3 = s3.status === "fulfilled" ? s3.value : null;
+    estimated = { total: (stage1 ?? 0) + (stage3 ?? 0), stage1, stage3 };
+  }
+  const preflight: PreflightEstimate | null = estimated;
+
+  // ── Resolve what authorizes this job, once, now ──────────────────
+  // Both the video gate and the meme gates this job will need at completion
+  // are decided here, against the submitting request's principal, and travel
+  // with the job from this point on.
+  const authorizationSnapshot = buildAuthorizationSnapshot(input.principal, {
+    video_generation: input.videoGenerationDecision,
+    ...(await resolveMemeDecisions(input.principal)),
+  });
+
+  // Defense-in-depth: the route already rejects an unentitled
+  // "stylize-then-video" submission, but this is the one place that can't be
+  // bypassed by a caller who skips the route check — the snapshot recorded
+  // above is what the pipeline (and the persisted meme record) actually acts
+  // on, so it's the last point that can still refuse to run PuLID for an
+  // account that isn't entitled to it.
+  if (
+    input.sourceMode === "stylize-then-video" &&
+    !decisionFromSnapshot(authorizationSnapshot, "meme_pulid_stylize")
+  ) {
+    throw new VideoJobError(403, {
+      error: "PULID_STYLIZE_LOCKED",
+      message: "AI face styling is a Legendary feature. Upgrade your membership to unlock it.",
+    });
+  }
+
   // ── Persist the DB row ───────────────────────────────────────────
+  // Persistence is a PRECONDITION for starting the job, not a best-effort side
+  // task. This used to catch the failure, log a warning, and proceed on
+  // in-memory state alone — which meant a restart could leave a job running
+  // with no record of what authorized it, and the snapshot would guarantee
+  // nothing. No row, no job.
   let videoJobRowId: number | undefined;
-  try {
+  {
     const [row] = await db
       .insert(videoJobsTable)
       .values({
+        authorizationSnapshot,
         factId: input.factId,
         imageUrl: input.sourceImagePath,
         lookStyleId: input.lookStyleId ?? null,
@@ -505,8 +760,9 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
       })
       .returning({ id: videoJobsTable.id });
     videoJobRowId = row?.id;
-  } catch (err) {
-    logger.warn({ err }, "[videoPipeline] failed to insert video_jobs row — proceeding with in-memory state only");
+    if (videoJobRowId == null) {
+      throw new VideoJobError(500, { error: "video_job_persist_failed" });
+    }
   }
 
   // ── Seed in-memory state ─────────────────────────────────────────
@@ -534,8 +790,13 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
     name: input.name ?? null,
     pronouns: input.pronouns ?? null,
     renderedFactText: input.renderedFactText ?? null,
+    // The figures the gate above decided on, carried to the writers verbatim.
+    // Null when an exempt admin's post-gate resolution failed — see above.
+    stage1EstimateUsd: preflight?.stage1 ?? null,
+    stage3EstimateUsd: preflight?.stage3 ?? null,
     stage1Attempts: 0,
     videoJobRowId,
+    _authorizationSnapshot: authorizationSnapshot,
     _phaseStartedAt: now,
   };
   jobs.set(jobId, state);
@@ -1180,6 +1441,20 @@ async function resumeFromStage2(jobId: string): Promise<void> {
       aspectRatio: job.aspectRatio,
       name: job.name ?? undefined,
       pronouns: (job.pronouns as never) ?? undefined,
+      // Makes createMemeRecord's own `imageTransform === "pulid" && !canPulid`
+      // gate reachable for this path — without this, that gate never fires
+      // for a video's underlying image no matter what stylized it. The
+      // `startVideoJob`-time check above already refuses an unentitled
+      // submission; this is the same decision, recorded on the persisted row.
+      imageTransform: job.sourceMode === "stylize-then-video" ? "pulid" : undefined,
+      // Read back, never re-resolved. This runs long after submission; calling
+      // the resolver here would answer against whatever the grid says NOW,
+      // which is precisely what the snapshot exists to prevent.
+      decisions: {
+        meme_private_visibility: decisionFromSnapshot(job._authorizationSnapshot, "meme_private_visibility"),
+        meme_rate_limit_high: decisionFromSnapshot(job._authorizationSnapshot, "meme_rate_limit_high"),
+        meme_pulid_stylize: decisionFromSnapshot(job._authorizationSnapshot, "meme_pulid_stylize"),
+      },
     });
     job.memeId = meme.memeId;
     job.permalinkUrl = meme.permalinkUrl;
@@ -1369,15 +1644,41 @@ async function uploadFinal(captionedUrl: string, jobId: string): Promise<string>
 // ─── Cost recording / persistence ────────────────────────────────────────────
 
 async function recordStage1Cost(job: JobState): Promise<void> {
-  let cost = STAGE1_FALLBACK_COST;
-  try {
-    const engine = await loadEngine(PULID_IMAGE_ENGINE_ID);
-    if (engine) {
-      cost = engineNumeric(engine.estimatedCostUsdPerCall, STAGE1_FALLBACK_COST);
-    }
-  } catch (err) {
-    logger.warn({ err }, "[videoPipeline] failed to load PuLID engine for stage 1 cost");
+  // THE LEDGER WRITE BELOW WAS REMOVED IN ROUND 3 AND IS DELIBERATELY BACK.
+  //
+  // Round 3 removed it to close a double charge: `generateAiMemeBackgroundFromReference`
+  // also records for the same PuLID call, under a different reference id, so a
+  // successful stylize-then-video stage 1 wrote two rows. That double charge is
+  // real, and it is PRE-EXISTING on `main` (verified with `git show`) — the
+  // helper's priced branch has been recording alongside this one all along.
+  //
+  // Removing it here was wrong, and round 4 found why. When PuLID cannot detect
+  // a face it throws, so the helper never reaches its own `recordCost`, while
+  // `runStage1` converts that throw into `{ stillObjectPath: null }` and this
+  // function is still called — deliberately, because costs stand on retries. So
+  // the removal turned a paid, failed attempt into one recorded by NOBODY, and
+  // a user can retry face detection indefinitely without the enforcement SUM
+  // moving. A double charge over-counts and denies too early; a missing charge
+  // under-counts and denies too late. Only one of those is a fail-open.
+  //
+  // David's call (2026-08-17): revert to `main`'s behaviour here, and fix the
+  // double charge in its own change where the no-face and retry paths get
+  // worked through properly rather than mid-review. Tracked separately — do
+  // not re-remove this write without handling the throw-before-record path.
+  if (job.stage1EstimateUsd === null) {
+    // No gated figure. Do NOT substitute the constant: the contract on
+    // JobState.stage1EstimateUsd is that an unknown figure is recorded as lost
+    // rather than fabricated, and writing a made-up number while simultaneously
+    // incrementing the lost-write counter would have the ledger and the counter
+    // assert contradictory things about the same job.
+    logger.error(
+      { jobId: job.jobId },
+      "[videoPipeline] stage 1 has no gated estimate — skipping the cost row rather than inventing one",
+    );
+    void noteLedgerWriteFailure();
+    return;
   }
+  const cost = job.stage1EstimateUsd;
   job.stage1CostUsd = (job.stage1CostUsd ?? 0) + cost;
   if (job.videoJobRowId) {
     try {
@@ -1397,7 +1698,10 @@ async function recordStage1Cost(job: JobState): Promise<void> {
       unitPriceAtCreation: cost,
       billingUnits: 1,
       computedCostUsd: cost,
+      // Always an estimate: the operator-configured per-call figure the gate
+      // used. Stage 1 has no provider-resolved rate at any point.
       pricingFetchedAt: new Date(),
+      isEstimated: true,
       jobReferenceId: `videoJob_${job.jobId}_stage1_${job.stage1Attempts}`,
     });
   } catch (err) {
@@ -1429,6 +1733,7 @@ async function recordStage2Cost(job: JobState): Promise<void> {
       billingUnits: (dims.width * dims.height * 24 * job.durationSec) / 1024,
       computedCostUsd: cost,
       pricingFetchedAt: price.fetchedAt,
+      isEstimated: false,
       jobReferenceId: `videoJob_${job.jobId}_stage2`,
     });
   } catch (err) {
@@ -1440,10 +1745,18 @@ async function recordStage2Cost(job: JobState): Promise<void> {
           userId: job.userId,
           jobType: "video",
           endpointId: engine.endpointId,
-          unitPriceAtCreation: cost,
-          billingUnits: 1,
+          // `fallbackPerSec` IS a per-second rate, so it is the unit price and
+          // the duration is the billing units. Storing `cost` (rate x duration)
+          // against billing_units = 1 kept the product right and made both
+          // fields lie — and made a per-second estimate indistinguishable from
+          // a per-call one.
+          unitPriceAtCreation: fallbackPerSec,
+          billingUnits: job.durationSec,
           computedCostUsd: cost,
+          // The pricing lookup failed; this is the engine's per-second estimate
+          // times duration. Same job_reference_id as the priced branch above.
           pricingFetchedAt: new Date(),
+          isEstimated: true,
           jobReferenceId: `videoJob_${job.jobId}_stage2`,
         });
       } catch (recErr) {
@@ -1464,15 +1777,23 @@ async function recordStage2Cost(job: JobState): Promise<void> {
 }
 
 async function recordStage3Cost(job: JobState): Promise<void> {
-  let cost = STAGE3_FALLBACK_COST;
-  try {
-    const engine = await loadEngine(SUBTITLE_ENGINE_ID);
-    if (engine) {
-      cost = engineNumeric(engine.estimatedCostUsdPerCall, STAGE3_FALLBACK_COST);
-    }
-  } catch (err) {
-    logger.warn({ err }, "[videoPipeline] failed to load subtitle engine for stage 3 cost");
+  // The gate's own figure, carried on the job — see resolveStageCostUsd.
+  // Null only when an exempt admin's post-gate resolution failed; record the
+  // loss rather than inventing the constant, same as stage 1.
+  if (job.stage3EstimateUsd === null) {
+    // Skip the whole write rather than invent a figure — see the equivalent
+    // block in recordStage1Cost. Substituting the constant here while also
+    // incrementing the lost-write counter would put a fabricated number in
+    // `video_jobs.stage3_cost_usd` and admin cost reporting, at the same moment
+    // the counter says the figure was lost.
+    logger.error(
+      { jobId: job.jobId },
+      "[videoPipeline] stage 3 has no gated estimate — skipping the cost row rather than inventing one",
+    );
+    void noteLedgerWriteFailure();
+    return;
   }
+  const cost = job.stage3EstimateUsd;
   job.stage3CostUsd = cost;
   if (job.videoJobRowId) {
     try {
@@ -1492,7 +1813,9 @@ async function recordStage3Cost(job: JobState): Promise<void> {
       unitPriceAtCreation: cost,
       billingUnits: 1,
       computedCostUsd: cost,
+      // Always an estimate, same shape as stage 1.
       pricingFetchedAt: new Date(),
+      isEstimated: true,
       jobReferenceId: `videoJob_${job.jobId}_stage3`,
     });
   } catch (err) {

@@ -22,12 +22,14 @@ import { eq, like, and, inArray } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
+import { deriveUserRole } from "../lib/userRole.js";
 
 const USER_PREFIX = "t_phase4_save_";
 const FACT_TEXT_PREFIX = "t_p4s_fact_";
 
 interface TestUserOpts {
   membershipTier?: "unregistered" | "registered" | "legendary";
+  isAdmin?: boolean;
 }
 
 async function createTestUser(opts: TestUserOpts = {}): Promise<string> {
@@ -36,6 +38,7 @@ async function createTestUser(opts: TestUserOpts = {}): Promise<string> {
     id,
     email: `${id}@test.local`,
     membershipTier: opts.membershipTier ?? "registered",
+    isAdmin: opts.isAdmin ?? false,
     displayName: "TestUser",
     pronouns: "they/them",
   });
@@ -66,8 +69,12 @@ function makeAuthedApp(userId: string): Express {
         isRealAdmin: !!u.isAdmin,
         captchaVerified: !!u.captchaVerified,
         nsfwModeEnabled: !!u.nsfwModeEnabled,
-        userRole: "registered",
-        realUserRole: "registered",
+        // Derived exactly as authMiddleware derives it, rather than pinned to
+        // "registered". A hardcoded role made the admin-vs-tier distinction
+        // invisible to these tests — which is the distinction the private-
+        // visibility gate turns on.
+        userRole: deriveUserRole(u.membershipTier, !!u.isAdmin),
+        realUserRole: deriveUserRole(u.membershipTier, !!u.isAdmin),
       } as Express.User;
     }
     req.isAuthenticated = function (this: Request) { return this.user != null; } as Request["isAuthenticated"];
@@ -277,6 +284,81 @@ describe("POST /api/memes — pulid tier gate", () => {
       });
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "tier_mismatch");
+  });
+});
+
+/**
+ * Private visibility is a legendary-LEVEL entitlement, resolved from the
+ * caller's role — not from `membership_tier` alone. The regression: the gate
+ * read `hasFeature(membershipTier, "meme_private_visibility")`, and an admin's
+ * stored tier is `registered` unless they also hold a paid entitlement, so an
+ * admin's explicit `isPublic: false` was silently coerced to `true`. The save
+ * returned 201 and the meme was world-readable at its permalink.
+ *
+ * The general invariant under test, not just the reported instance: a save
+ * that asks for private either stores private or fails — it never returns
+ * success having published the meme.
+ */
+describe("POST /api/memes — private visibility gate", () => {
+  async function saveWith(userId: string, isPublic: boolean | undefined) {
+    const factId = await insertFact("visibility", { submittedById: userId });
+    const body: Record<string, unknown> = {
+      factId,
+      imageSource: { type: "template", templateId: "action" },
+    };
+    if (isPublic !== undefined) body["isPublic"] = isPublic;
+    return request(makeAuthedApp(userId)).post("/memes").send(body);
+  }
+
+  async function storedIsPublic(memeId: number): Promise<boolean> {
+    const [row] = await db
+      .select({ isPublic: memesTable.isPublic })
+      .from(memesTable)
+      .where(eq(memesTable.id, memeId))
+      .limit(1);
+    return row.isPublic;
+  }
+
+  it("stores isPublic=false for an admin whose membership tier is only registered", async () => {
+    const userId = await createTestUser({ membershipTier: "registered", isAdmin: true });
+    const res = await saveWith(userId, false);
+    assert.equal(res.status, 201);
+    assert.equal(await storedIsPublic(res.body.id), false);
+  });
+
+  it("stores isPublic=false for a legendary user", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    const res = await saveWith(userId, false);
+    assert.equal(res.status, 201);
+    assert.equal(await storedIsPublic(res.body.id), false);
+  });
+
+  it("rejects an explicit private request from a registered non-admin instead of publishing it", async () => {
+    const userId = await createTestUser({ membershipTier: "registered" });
+    const res = await saveWith(userId, false);
+    assert.equal(res.status, 403);
+    // The failure must be visible to the caller, not a 201 hiding a public meme.
+    assert.equal(res.body.id, undefined);
+  });
+
+  it("still defaults to public when isPublic is omitted, at every tier", async () => {
+    for (const opts of [
+      { membershipTier: "registered" as const },
+      { membershipTier: "legendary" as const },
+      { membershipTier: "registered" as const, isAdmin: true },
+    ]) {
+      const userId = await createTestUser(opts);
+      const res = await saveWith(userId, undefined);
+      assert.equal(res.status, 201);
+      assert.equal(await storedIsPublic(res.body.id), true);
+    }
+  });
+
+  it("stores isPublic=true when a legendary user explicitly asks for public", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    const res = await saveWith(userId, true);
+    assert.equal(res.status, 201);
+    assert.equal(await storedIsPublic(res.body.id), true);
   });
 });
 

@@ -8,10 +8,10 @@
 >
 > **Read it front to back and you get the whole product.** The chapters below
 > are ordered to follow the core loop, not the codebase's module boundaries —
-> see *How to read this manual*. Some chapters are written today, the rest are
-> being filled in by the one-time backfill, and the *Contents* table below is
-> the live record of exactly which is which — not restated here as a count
-> that would only go stale again.
+> see *How to read this manual*. The one-time backfill that brought every
+> chapter to first-version coverage is complete; the *Contents* table below
+> stays the live record of what's written, not restated here as a count that
+> would only go stale again as the manual keeps growing.
 
 ## How to read this manual
 
@@ -123,13 +123,59 @@ Written incrementally by the **`/document` ceremony**
 ([`docs/ai-context/documentation-workflow.md`](../ai-context/documentation-workflow.md)):
 at the end of a feature build, the chapter for the touched area is created or
 updated as part of locking in that feature's learnings. There is no separate
-big-bang writing project — though a one-time **backfill of chapters for the
-areas below** is currently in progress, tracked in the
-[in-progress slices of `current-roadmap.md`](../ai-context/current-roadmap.md#in-progress-slices),
-to bring the manual to full first-version coverage.
+big-bang writing project as a matter of course — the one exception was a
+**one-time backfill** (approved by David 2026-07-30, closed out 2026-08-09)
+that brought the manual from 3 written chapters to the full **12** in reading
+order, plus 6 new `docs/ai-context/` subsystem specs for the areas that had
+none to link into; see
+[`current-roadmap.md`](../ai-context/current-roadmap.md#recently-merged-or-completed-work)
+for that pass's history. From here on, growth is incremental only.
 
 Chapters describe the system **as it is now**. History and chronology belong to
 `decisions.md` and git — no "changelog" sections accumulate here.
+
+## This manual is also a shipped surface — editing it can fail CI
+
+Since PR #472 these files are rendered inside the admin console at
+`/admin/help`, from a **committed generated artifact** built at build time.
+Two consequences for anyone editing a chapter:
+
+**1. If you change a chapter, regenerate and commit the artifact.** A CI check
+in the always-on Build job compares the two and fails when they disagree:
+
+```
+pnpm --filter @workspace/overhype-me run generate:help    # rebuild
+pnpm --filter @workspace/overhype-me run check:help-content   # what CI runs
+```
+
+It has to run in that job specifically: `docs/**` is classified as inert, so a
+chapter-only PR skips the test suites entirely — a gate living there could
+never fire on the change that invalidates the artifact.
+
+**2. Generation *fails* rather than degrading quietly**, and several of its
+gates are about things the manual already asked authors to keep consistent but
+nothing enforced. Generation stops if:
+
+- a chapter file and the **Contents table** disagree about which chapters
+  exist, or the table isn't numbered sequentially from 1;
+- a chapter's number disagrees across **any** of its four representations —
+  the table's ordinal, the filename prefix, its `# Chapter N · Title` heading,
+  and the **previous** chapter's `**Next:** chapter N` footer (the one this
+  README already called the easiest to miss);
+- a link can't be classified, or a `#fragment` doesn't resolve to a real
+  heading **in its rendered destination** — note *rendered*: for a link into
+  another chapter that's the same file, but for a link into
+  `docs/ai-context/` it is checked against that file's real headings;
+- a chapter uses markdown outside the supported vocabulary. This is the one
+  most likely to surprise you: **GitHub's alert syntax (`> [!NOTE]`) is
+  rejected**, because GitHub renders a titled callout and the in-app converter
+  would render a plain quote containing a literal `[!NOTE]`. Raw HTML is
+  rejected for the same reason (comments excepted). Footnotes are not
+  supported. Images must point at files that exist.
+
+None of this changes how you *write* — it's the same prose for the same reader.
+It means a mistake that used to render slightly wrong on GitHub now stops the
+build instead, which is the intent: the two renderings must agree.
 
 ## Chapter quality bar — no empty chapters
 
@@ -163,6 +209,54 @@ sentences over jargon; product terms per
 *what*. Unverified claims are marked **Needs David confirmation** rather than
 stated as fact.
 
+### Link each glossary term once per chapter
+
+A reader who lands mid-manual shouldn't have to already know what a *Visual
+Concept*, a *staging fact*, or a *recipe* is. So the **first** time a chapter
+uses a term defined in [`glossary.md`](../ai-context/glossary.md), it links to
+that term's anchor:
+
+```markdown
+a moderator authors the [Visual Concept](../ai-context/glossary.md#visual-concept)
+```
+
+**First occurrence only** — linking every mention turns a chapter into link
+soup. Later mentions stay plain text.
+
+This matters most for the ordinary English words that mean something specific
+here — *preview*, *grammar*, *recipe*, *root*, *lane*, *skipped*, *remove*,
+*rendering* — where a reader who doesn't follow the link may never realize
+they've misread the sentence. Several of those words name **more than one**
+thing (a submit-form *Preview*, a shared link's *rich preview*, the admin
+*compiled-prompt* preview), so link the sense the sentence actually means.
+
+Glossary anchors are generated from its `###` headings, so renaming a heading
+breaks every chapter link into it — rename deliberately and update the
+chapters in the same commit. `pnpm run check:docs` verifies that a linked
+*file* exists but **not** that an anchor within it does — however, since the
+help system shipped, **anchors in these manual files are checked**: generation
+resolves every `#fragment` against its rendered destination and fails if it
+doesn't land on a real heading. So a broken glossary anchor in a chapter is a
+build failure, not a review miss. (The `check:docs` limitation still holds for
+docs outside `docs/manual/`.)
+
+**This manual is a build input, not only prose.** Chapters are rendered in-app
+at `/admin/help` from generated modules under
+`artifacts/overhype-me/src/generated/help/` (PR #472), so **editing any chapter
+requires regenerating them in the same commit**:
+
+```
+pnpm --filter @workspace/overhype-me run generate:help
+```
+
+`check:help-content` fails the Build job when the generated modules drift from
+their source, so this is CI-enforced rather than a convention — a docs-only PR
+that touches a chapter and nothing else will still go red without it. A
+prose-only edit regenerates that chapter's content module and `searchIndex.ts`;
+adding, removing or renaming a **heading** also regenerates `manifest.ts`, and
+editing this README regenerates `content/_index.ts`. Check the diff against
+what you edited rather than against a fixed file count.
+
 ## Contents
 
 In reading order. A chapter file appears only once it holds real content, so
@@ -170,21 +264,35 @@ In reading order. A chapter file appears only once it holds real content, so
 
 | # | Chapter | Covers | Status |
 | --- | --- | --- | --- |
-| 1 | [`personalization-and-grammar.md`](./personalization-and-grammar.md) | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | ✅ written |
-| 2 | [`content-lifecycle.md`](./content-lifecycle.md) | **Submit** — a fact's three entrances (user submission, admin/API-key bulk import, variant creation) and the one funnel they hand off into review through | ✅ written |
-| 3 | [`moderation.md`](./moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
-| 4 | [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
-| 5 | [`visual-pipeline.md`](./visual-pipeline.md) | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | ✅ written |
-| 6 | [`meme-and-video-studio.md`](./meme-and-video-studio.md) | **Render** — what an end user actually makes: photo memes, AI image and video memes, tier gates, where media lives | ✅ written |
-| 7 | [`public-site-and-sharing.md`](./public-site-and-sharing.md) | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | ✅ written |
-| 8 | [`community-and-engagement.md`](./community-and-engagement.md) | Ratings, comments, comment hearts, meme hearts, and the activity feed | ✅ written |
-| 9 | [`accounts-and-auth.md`](./accounts-and-auth.md) | Sign-in methods, the account lifecycle, verification and password journeys | ✅ written |
-| 10 | [`payments-and-membership.md`](./payments-and-membership.md) | Free vs. Legendary, plan shapes, and what a membership unlocks | ✅ written |
-| 11 | [`admin-console.md`](./admin-console.md) | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | ✅ written |
-| 12 | [`background-work.md`](./background-work.md) | Async jobs, the scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
+| 1 | [`1-personalization-and-grammar.md`](./1-personalization-and-grammar.md) | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | ✅ written |
+| 2 | [`2-content-lifecycle.md`](./2-content-lifecycle.md) | **Submit** — the two ways a fact is submitted (user submission, admin/API-key bulk import), the one funnel they hand off into review through, and how variants group near-duplicate wordings | ✅ written |
+| 3 | [`3-moderation.md`](./3-moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
+| 4 | [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
+| 5 | [`5-visual-pipeline.md`](./5-visual-pipeline.md) | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | ✅ written |
+| 6 | [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md) | **Render** — what an end user actually makes: photo memes, AI image and video memes, tier gates, where media lives | ✅ written |
+| 7 | [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md) | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | ✅ written |
+| 8 | [`8-community-and-engagement.md`](./8-community-and-engagement.md) | Ratings, comments, comment hearts, meme hearts, and the activity feed | ✅ written |
+| 9 | [`9-accounts-and-auth.md`](./9-accounts-and-auth.md) | Sign-in methods, the account lifecycle, verification and password journeys | ✅ written |
+| 10 | [`10-payments-and-membership.md`](./10-payments-and-membership.md) | Free vs. Legendary, plan shapes, and what a membership unlocks | ✅ written |
+| 11 | [`11-admin-console.md`](./11-admin-console.md) | The admin surfaces and what each is for (companion: the generated [Admin Field Reference](../ADMIN_FIELD_REFERENCE.md)) | ✅ written |
+| 12 | [`12-background-work.md`](./12-background-work.md) | Async jobs, the scheduling lanes, and how status is surfaced (two altitudes) | ✅ written |
 
-When a chapter is added or an area renamed, update this table in the same
-commit.
+**This table is the source of truth for chapter numbers**, and the number now
+appears in two other places that must agree with it: each chapter's own `#
+Chapter N · Title` heading, and the `**Next:** chapter N — …` footer of the
+chapter before it. Inserting or reordering a chapter therefore renumbers a run
+of files, not just this table — do it in the same commit, and check the
+footers, which are the easiest of the three to miss. **This is now enforced**:
+help-content generation compares all four representations (this table's
+ordinal, the filename prefix, the `# Chapter N · Title` heading, and the
+previous chapter's `**Next:**` footer) and fails the Build job on any
+disagreement. The parenthetical that used to sit here predicted exactly that
+check and has been overtaken by it.
+
+Deliberately **not** written anywhere: "chapter N **of 12**." A total restated
+across twelve files is exactly the kind of count that goes stale the moment a
+chapter is added — this table stays the one place that knows how many there
+are.
 
 ## Outside this manual
 
@@ -197,7 +305,7 @@ named here so their absence reads as a decision rather than a gap:
 - **Edge and CDN behavior** — [`cloudflare-rate-limits.md`](../cloudflare-rate-limits.md)
   and [`cloudflare-gaesa-og-fix.md`](../cloudflare-gaesa-og-fix.md).
 - **Local dev tooling** — `scripts/dev-supervisor.sh` and the
-  [testing guide](../tests/testing-guide.md).
+  [testing guide](../tests/TESTING.md).
 - **The agent-facing spec layer** — [`docs/ai-context/`](../ai-context/), which
   these chapters link into rather than restate.
 - **Field-level admin truth** — the generated

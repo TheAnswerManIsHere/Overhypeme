@@ -67,13 +67,19 @@ function capitalize(s: string): string {
 
 /**
  * Resolve a name + "subj/obj" pronoun string (e.g. "he/him", "she/her",
- * "they/them") into the full token-form map used by both budget projection
- * and template rendering. Pure. Defaults to they/them when `pronouns` is
- * absent or malformed — the historical `renderCanonical`/`renderPersonalized`
- * behavior, preserved exactly.
+ * "they/them", "xe/xem", "ze/zir" — the full `PRONOUN_ALLOWLIST` set) into
+ * the full token-form map used by both budget projection and template
+ * rendering. Pure. Defaults to they/them when `pronouns` is absent,
+ * malformed, or in a format this resolver doesn't understand (e.g. a
+ * pipe-delimited custom set) — the historical `renderCanonical`/
+ * `renderPersonalized` behavior, preserved exactly. A pipe-delimited custom
+ * pronoun set (`xe|xem|xyr|xyrs|xemself|s`) is NOT parsed here — only the
+ * client's `resolveMap` supports that format today — so it must fall back
+ * rather than leak its raw literal text into a token.
  */
 export function resolveIdentityForms(name: string, pronouns: string | null | undefined): ResolvedIdentityForms {
-  const lower = (pronouns ?? "they/them").toLowerCase().trim();
+  const raw = (pronouns ?? "they/them").toLowerCase().trim();
+  const lower = raw.includes("|") ? "they/them" : raw;
   const [subj = "they", obj = "them"] = lower.split("/");
 
   let poss: string;
@@ -83,6 +89,10 @@ export function resolveIdentityForms(name: string, pronouns: string | null | und
     poss = "his"; possPro = "his"; refl = "himself";
   } else if (subj === "she") {
     poss = "her"; possPro = "hers"; refl = "herself";
+  } else if (subj === "ze") {
+    poss = "zir"; possPro = "zirs"; refl = "zirself";
+  } else if (subj === "xe") {
+    poss = "xyr"; possPro = "xyrs"; refl = "xemself";
   } else {
     poss = "their"; possPro = "theirs"; refl = "themselves";
   }

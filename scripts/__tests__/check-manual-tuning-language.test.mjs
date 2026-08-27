@@ -268,11 +268,18 @@ test("normalizes italics and markdown links too, not just bold/code", () => {
   // Regression: PR #298 round 3 — scanText("up to *50* eligible"),
   // scanText("polls every _2_ seconds"), and scanText("up to [50](../spec.md)
   // eligible") all returned no findings; the claim that this corpus doesn't
-  // use single-asterisk italics or links was wrong (moderation.md and
+  // use single-asterisk italics or links was wrong (3-moderation.md and
   // README.md both do).
   assert.ok(scanText("up to *50* eligible").length > 0, "missed an italicized value");
   assert.ok(scanText("polls every _2_ seconds").length > 0, "missed an underscore-italicized value");
   assert.ok(scanText("up to [50](../spec.md) eligible").length > 0, "missed a value inside link text");
+});
+
+test("numbered manual chapter links do not look like config key/value pairs", () => {
+  assert.deepEqual(
+    scanText("Related: [`2-content-lifecycle.md`](./2-content-lifecycle.md)"),
+    [],
+  );
 });
 
 test("italics stripping does not corrupt a snake_case identifier", () => {

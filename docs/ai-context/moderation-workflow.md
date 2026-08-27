@@ -66,10 +66,33 @@ ever fire in Step 3.
 
 Every way a fact enters the system funnels through one primitive,
 `createTriageReview` (`artifacts/api-server/src/lib/moderationStaging.ts`): manual
-user submission, admin/API-key bulk import, and variant creation (from an
+user submission, admin/API-key bulk import, and the admin variant route (from an
 existing fact's Facts-page editor) all insert a `pending_reviews` row starting at
 `triage_pending` — none of them can create a fact directly. `facts.is_active`
 defaults to `false`, so a fact is never born active or already enriched.
+
+**Product-wise that is two sources, not three.** A fact is submitted either by a
+user or by an admin import; the admin variant route is an authoring convenience
+for the second, not a distinct kind of content. Variant status is a *link*
+(`pending_reviews.parent_fact_id` → `facts.parent_id`), and within this funnel
+it's applied in two places: that route sets it at creation, and Triage sets it
+via `provisional-approve`'s `parentFactId` (the "Prep as Variant of #N" action
+on a review carrying a `matchingFactId`, attached whenever the duplicate check
+found any positive-confidence match — a lower bar than the threshold that
+warns the submitter, so Triage sees candidates the submitter never saw
+flagged). The latter is the near-duplicate
+consolidation path — a reworded submission becomes an alternate phrasing of the
+fact it echoes rather than a rejection or a second near-identical row. Either
+way the fact runs the full pipeline; see
+[*Variants are independent facts*](./taxonomy-and-enrichment.md#variants-are-independent-facts)
+for what the link does and does not confer.
+
+A third mechanism sits outside this funnel entirely: the admin Facts editor's
+`parentId` field lets an admin directly PATCH an existing fact's parent,
+re-parenting an already-published root under another root (or clearing a
+variant back to root) without any review at all. It's gated by the same
+active-root invariant `activateFact` enforces, not by the triage/prep
+pipeline — nothing in this section's "funnel" claim covers it.
 
 ## The activation chokepoint — one exit
 

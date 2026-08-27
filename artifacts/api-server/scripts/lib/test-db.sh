@@ -119,11 +119,30 @@ _td_split() { printf '%s' "${1:-}" | tr ',' ' '; }
 # assert_not_production — refuse destructive DB setup against production/dev.
 # Deny-by-detection (no opt-in flag for normal dev/test/CI runs). Refuses when:
 #   * NODE_ENV is "production" (case-insensitive);
-#   * the source dbname is a protected name — by default `heliumdb` (Overhype's
-#     PROD *and* DEV database share this exact name) and `production`, plus any in
+#   * the source dbname is a protected name — by default `heliumdb` (DEV),
+#     `neondb` (PRODUCTION) and `production`, plus any in
 #     TEST_DB_PROTECTED_NAMES (comma/space-separated) — or contains 'prod';
-#   * the source host matches any substring in TEST_DB_PROTECTED_HOSTS;
+#   * the source host matches `neon.tech` (where production lives) or any
+#     substring in TEST_DB_PROTECTED_HOSTS;
 #   * the URL won't parse.
+#
+# DEV AND PRODUCTION ARE DIFFERENT DATABASES ON DIFFERENT PROVIDERS. `heliumdb`
+# (host `helium`) is dev; production is `neondb`, hosted on Neon. They used to
+# share the single name `heliumdb`, and for a while after the split this guard
+# still only knew that one name — so it protected dev and would have waved a
+# destructive run straight through to production, which matches none of
+# `heliumdb`/`production`/`*prod*`. Both the name and a generic `neon.tech`
+# host marker are now baked in as defaults rather than left to the
+# TEST_DB_PROTECTED_* env vars, which are unset in every environment this
+# guard actually runs in.
+#
+# The host marker is deliberately generic (any `*.neon.tech`), not the specific
+# production endpoint: an endpoint hostname is environment-specific config that
+# does not belong in a public repo, and matching the provider fails closed for
+# any future Neon database too. Consequence to know about: a Neon-hosted TEST
+# database would also be refused, with no opt-out. That is the correct default
+# while no such database exists — if one is ever needed, add an explicit
+# allowlist mechanism then rather than loosening this marker.
 # The dedicated test database is named `heliumdb_test` (Replit's TEST_DATABASE_URL
 # points here; the sandbox/CI uses `overhype_test`). Those are allowed because the
 # match is EXACT, not a substring — which is also why the per-worker
@@ -140,9 +159,9 @@ assert_not_production() {
     _td_err "could not parse a database name from DATABASE_URL; refusing to proceed."
     return 1
   fi
-  for p in heliumdb production $(_td_split "${TEST_DB_PROTECTED_NAMES:-}"); do
+  for p in heliumdb neondb production $(_td_split "${TEST_DB_PROTECTED_NAMES:-}"); do
     if [ "$db" = "$p" ]; then
-      _td_err "database '${db}' is the protected prod/dev database; refusing destructive test-DB setup."
+      _td_err "database '${db}' is a protected live database (heliumdb=dev, neondb=production); refusing destructive test-DB setup."
       _td_err "Point DATABASE_URL at the test database 'heliumdb_test' instead."
       return 1
     fi
@@ -154,10 +173,10 @@ assert_not_production() {
   esac
   host="$(source_db_host)"
   if [ -n "$host" ]; then
-    for p in $(_td_split "${TEST_DB_PROTECTED_HOSTS:-}"); do
+    for p in neon.tech $(_td_split "${TEST_DB_PROTECTED_HOSTS:-}"); do
       case "$host" in
         *"$p"*)
-          _td_err "host '${host}' matches a protected host marker; refusing destructive test-DB setup."
+          _td_err "host '${host}' matches a protected host marker ('${p}'); refusing destructive test-DB setup."
           return 1 ;;
       esac
     done
@@ -234,6 +253,41 @@ _td_dump_public() {
   pg_dump "$src" --schema=public --schema-only --no-owner --no-privileges --no-comments -f "$out"
 }
 
+# Reference tables whose ROWS a worker database cannot function without.
+#
+# The template is structure-only, which is correct for everything a test creates
+# for itself. It is wrong for migration-seeded *reference* data: rows that exist
+# because a migration inserted them, and that the application reads on every
+# request rather than a test setting up.
+#
+# The Feature Permission Grid is exactly that. Since the permission chokepoint
+# landed, every product-feature gate resolves through it and fails CLOSED on a
+# missing row — so a worker database with an empty grid denies every feature to
+# everyone, and dozens of unrelated suites fail for a reason that has nothing to
+# do with what they test. (`entitlement_grid_revision` is here too: the resolver
+# treats an absent singleton as "the migration has not run" and refuses to serve
+# an empty grid as authoritative.)
+#
+# This copies the rows rather than re-declaring them, so the migration stays the
+# single source of truth for what the grid contains. The engine catalogue is the
+# sibling case, handled differently only because it is reconciled from code
+# (`seed_catalogue`) rather than owned by a migration.
+_TD_REFERENCE_TABLES=(
+  public.feature_flags
+  public.tier_feature_permissions
+  public.entitlement_grid_revision
+)
+
+# _td_dump_reference_data <outfile> — data-only dump of the reference tables.
+_td_dump_reference_data() {
+  local out="$1" src args=(); src="$(build_source_db_url_for)"
+  local t; for t in "${_TD_REFERENCE_TABLES[@]}"; do args+=(--table="$t"); done
+  # --on-conflict-do-nothing + --inserts so replaying over a template that
+  # already has rows (or a re-run) is harmless rather than a unique violation.
+  pg_dump "$src" --data-only --no-owner --no-privileges --inserts \
+    --on-conflict-do-nothing "${args[@]}" -f "$out"
+}
+
 # reset_and_clone_schema_into <target_db> — build a per-DB template (route B):
 # fresh DB from template0 + pgvector + the source public DDL (structure only).
 # Return codes: 0 ok; 1 create failed; 2 extension denied; 3 real dump/replay error.
@@ -260,6 +314,17 @@ reset_and_clone_schema_into() {
     rm -f "$dump"; _td_err "schema replay into ${target} failed"; return 3
   fi
   rm -f "$dump"
+
+  # Reference rows — see _TD_REFERENCE_TABLES. Structure alone leaves the
+  # permission grid empty, and an empty grid denies every feature to everyone.
+  local refdump; refdump="$(mktemp /tmp/td_ref_XXXXXX.sql)"
+  if ! _td_dump_reference_data "$refdump"; then
+    rm -f "$refdump"; _td_err "pg_dump of reference data failed"; return 3
+  fi
+  if ! psql "$target_url" -v ON_ERROR_STOP=1 -q -f "$refdump"; then
+    rm -f "$refdump"; _td_err "reference-data replay into ${target} failed"; return 3
+  fi
+  rm -f "$refdump"
   return 0
 }
 
@@ -299,6 +364,16 @@ reset_and_clone_schema() {
     rm -f "$dump"; _td_err "schema clone into ${schema} failed"; return 1
   fi
   rm -f "$dump"
+
+  # Reference rows, rewritten into this schema the same way the DDL was.
+  local refdump; refdump="$(mktemp /tmp/td_ref_XXXXXX.sql)"
+  if ! _td_dump_reference_data "$refdump"; then
+    rm -f "$refdump"; _td_err "pg_dump of reference data failed"; return 1
+  fi
+  if ! sed "s/public\./${schema}./g" "$refdump" | psql "$src" -v ON_ERROR_STOP=1 -q; then
+    rm -f "$refdump"; _td_err "reference-data clone into ${schema} failed"; return 1
+  fi
+  rm -f "$refdump"
   return 0
 }
 
@@ -423,6 +498,21 @@ _td_self_check() {
   ( export DATABASE_URL="postgres://u:p@h/overhype_prod"; assert_not_production ) 2>/dev/null && { echo "FAIL guard prod dbname"; fail=1; }
   ( export DATABASE_URL="postgres://u:p@h/heliumdb_test"; assert_not_production ) 2>/dev/null || { echo "FAIL guard blocked heliumdb_test"; fail=1; }
   assert_not_production 2>/dev/null || { echo "FAIL guard blocked a legit test db"; fail=1; }
+
+  # Production is `neondb` on Neon — a different database on a different
+  # provider from dev's `heliumdb`. Both the name and the host must refuse
+  # INDEPENDENTLY: the name check alone would miss a renamed prod database,
+  # and the host check alone would miss a Neon database reached through a
+  # proxy/alias hostname. Asserting them separately (not just the realistic
+  # URL that trips both) is what keeps one silently regressing behind the
+  # other.
+  ( export DATABASE_URL="postgres://u:p@some-host/neondb"; assert_not_production ) 2>/dev/null && { echo "FAIL guard neondb by name"; fail=1; }
+  ( export DATABASE_URL="postgres://u:p@ep-x-y.us-east-1.aws.neon.tech/anything"; assert_not_production ) 2>/dev/null && { echo "FAIL guard neon.tech by host"; fail=1; }
+  ( export DATABASE_URL="postgresql://neondb_owner:p@ep-x-y.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require"; assert_not_production ) 2>/dev/null && { echo "FAIL guard real prod URL shape"; fail=1; }
+  # The name match stays EXACT, so a test database that merely starts with the
+  # protected name is still allowed — same property that keeps heliumdb_test
+  # and the heliumdb_t_*/heliumdb_w_* clones working.
+  ( export DATABASE_URL="postgres://u:p@h/neondb_test"; assert_not_production ) 2>/dev/null || { echo "FAIL guard blocked neondb_test"; fail=1; }
 
   if [ "$fail" -eq 0 ]; then echo "[test-db] self-check: PASS"; else echo "[test-db] self-check: FAIL"; fi
   return "$fail"

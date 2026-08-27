@@ -1,3 +1,4 @@
+import { requireFeature } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { createHash } from "crypto";
@@ -25,16 +26,17 @@ import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
+import { resolveStoredMemeCaption } from "../lib/memeComposite";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
 import { memeKey } from "../lib/storageKeys";
-import { BudgetExceededError } from "../lib/budgetGate";
+import { BudgetExceededError, BudgetGateError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
 import { quarantineImage } from "../lib/moderation/quarantine";
 import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
-import { requireLegendary } from "../middlewares/tierMiddleware";
-import { hasFeature } from "../lib/tierFeatures";
+import { principalFromRequest } from "../lib/featureAccess";
+import { resolveMemeDecisions } from "../lib/createMemeRecord";
 import { isAtLeastLegendary, deriveUserRole } from "../lib/userRole";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
@@ -109,8 +111,13 @@ const LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT = 200;
  * v3 — 2026-05: fixed JPEG encode quality bug — `OUTPUT_JPEG_QUALITY`
  * was being passed as 0.9 to a 0-100 integer API, producing tiny ~22KB
  * files with chunky 8×8 block artifacts on every photo meme. Now 90.
+ * v4 — 2026-08: the split caption halves stored in `text_options` are the RAW
+ * fact template, and the renderer draws them in preference to the
+ * personalised `factText` — so every split-caption meme baked a literal
+ * `{NAME}` into the image. The halves are now personalised alongside the fact
+ * text, which changes the output for every already-saved split-caption meme.
  */
-const MEME_RENDER_VERSION = 3;
+const MEME_RENDER_VERSION = 4;
 
 /**
  * Idempotency map for /api/memes POSTs. Protects against double-clicks and
@@ -293,8 +300,10 @@ router.post("/memes", async (req: Request, res: Response) => {
     }
   }
 
-  const dbTier = req.user.membershipTier ?? "unregistered";
-  const userRoleForPulid = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
+  // Resolved here, at submission time, from the request's principal — which is
+  // the only place "view as user" is visible. `createMemeRecord` applies these
+  // rather than re-deriving them.
+  const decisions = await resolveMemeDecisions(principalFromRequest(req));
 
   try {
     const result = await createMemeRecord({
@@ -309,8 +318,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       name: parsed.data.name,
       pronouns: parsed.data.pronouns,
       previewImageBase64: parsed.data.previewImageBase64,
-      resolvedRole: userRoleForPulid,
-      resolvedTier: dbTier,
+      decisions,
     });
 
     if (result.idempotent) {
@@ -672,12 +680,8 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
       : Promise.resolve(undefined),
   ]);
 
-  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-  const factText = creator?.displayName && rawTemplate
-    ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
-    : (fact?.canonicalText ?? fact?.text ?? "");
+  const { factText, textOptions } = resolveStoredMemeCaption(fact, creator, meme.textOptions);
   const source = meme.imageSource as StoredImageSource;
-  const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 
   let background: BackgroundSource;
 
@@ -793,12 +797,8 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
           : Promise.resolve(undefined),
       ]);
 
-      const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-      const factText = creator?.displayName && rawTemplate
-        ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
-        : (fact?.canonicalText ?? fact?.text ?? "");
+      const { factText, textOptions } = resolveStoredMemeCaption(fact, creator, meme.textOptions);
       const source = meme.imageSource as StoredImageSource;
-      const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 
       let background: BackgroundSource;
       if (source.type === "template") {
@@ -819,7 +819,16 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
     }
 
     // Store in object storage with a public ACL so Zazzle can fetch it directly
-    const subPath = `meme-exports/${slug}.jpg`;
+    // Render-versioned path (round 3, PR #398): /api/storage/objects/* is
+    // edge-cached for 24h (CACHE.PUBLIC_OBJECT, routes/storage.ts) same as the
+    // meme image itself, but this write OVERWRITES a fixed slug-keyed path —
+    // so a customer re-exporting the same meme after a render-pipeline fix
+    // could still hand Zazzle a URL an edge PoP already has cached from the
+    // pre-fix bytes. Folding MEME_RENDER_VERSION into the path means a
+    // content-changing fix always produces a URL nothing has cached yet,
+    // without needing the og-router Worker (which doesn't intercept this
+    // route) or a Cache-Control/ETag scheme this endpoint doesn't have.
+    const subPath = `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg`;
     await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
     await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
       owner: "system",
@@ -926,12 +935,8 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
           : Promise.resolve(undefined),
       ]);
 
-      const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-      const factText = creator?.displayName && rawTemplate
-        ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
-        : (fact?.canonicalText ?? fact?.text ?? "");
+      const { factText, textOptions } = resolveStoredMemeCaption(fact, creator, meme.textOptions);
       const source = meme.imageSource as StoredImageSource;
-      const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 
       let background: BackgroundSource;
       if (source.type === "template") {
@@ -951,7 +956,16 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
       imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
     }
 
-    const subPath = `meme-exports/${slug}.jpg`;
+    // Render-versioned path (round 3, PR #398): /api/storage/objects/* is
+    // edge-cached for 24h (CACHE.PUBLIC_OBJECT, routes/storage.ts) same as the
+    // meme image itself, but this write OVERWRITES a fixed slug-keyed path —
+    // so a customer re-exporting the same meme after a render-pipeline fix
+    // could still hand Zazzle a URL an edge PoP already has cached from the
+    // pre-fix bytes. Folding MEME_RENDER_VERSION into the path means a
+    // content-changing fix always produces a URL nothing has cached yet,
+    // without needing the og-router Worker (which doesn't intercept this
+    // route) or a Cache-Control/ETag scheme this endpoint doesn't have.
+    const subPath = `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg`;
     await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
     await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
       owner: "system",
@@ -1278,7 +1292,10 @@ router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (r
 });
 
 // POST /memes/ai/:factId/generate — legendary user triggers AI image generation for a fact
-router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request, res: Response) => {
+router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: Request, res: Response) => {
   const estimatedCostUsd = 0.04;
   const gate = enforceGovernance(req, res, {
     path: "meme",
@@ -1290,6 +1307,16 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
   if (!gate.ok) return;
   const governanceStartedAt = Date.now();
   let governanceFailed = false;
+  // A budget-gate refusal (429/503, both below) is a pre-provider refusal —
+  // fal was never called. `completeGovernance`'s circuit breaker attributes
+  // any non-2xx response here to the fal provider, so without this flag three
+  // budget-gate refusals in a row (a database hiccup, not a fal outage) would
+  // open the circuit and reject unrelated users' real fal calls for 60s
+  // (#409 round 3). Scoped to the budget branches specifically — moderation/
+  // no-face/generic failures below DO originate from an actual fal call and
+  // are correctly attributed as-is; widening this further is a pre-existing,
+  // separate concern outside #409's scope.
+  let budgetGateRefusal = false;
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
@@ -1449,6 +1476,7 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
       });
     } catch (err) {
       if (err instanceof BudgetExceededError) {
+        budgetGateRefusal = true;
         res.status(429).json({
           error: "BUDGET_EXCEEDED",
           currentSpend: err.budgetStatus.currentSpend,
@@ -1456,6 +1484,10 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
           remainingBudget: err.budgetStatus.remainingBudget,
           upgradePath: err.upgradePath,
         });
+      } else if (err instanceof BudgetGateError) {
+        // Retry-able: the gate could not answer, so this is not a 429 (#409).
+        budgetGateRefusal = true;
+        res.status(503).json({ error: err.message });
       } else if (err instanceof ModerationRejectedError) {
         res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
       } else if (isNoFaceError(err)) {
@@ -1541,7 +1573,13 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
     completeGovernance(req, {
       provider: "fal",
       latencyMs: Date.now() - governanceStartedAt,
-      failed: governanceFailed || res.statusCode >= 400,
+      failed: !budgetGateRefusal && (governanceFailed || res.statusCode >= 400),
+      // A budget-gate refusal never reached fal at all — `failed: false`
+      // alone would still report it as a successful provider completion,
+      // resetting the fail streak and polluting the latency average with the
+      // DB check's timing. skipProviderHealth omits it from fal's health
+      // tracking entirely (#409 round 4) — see the flag's own comment above.
+      skipProviderHealth: budgetGateRefusal,
       actualCostUsd: !governanceFailed && res.statusCode < 400 ? estimatedCostUsd : 0,
       responseStatus: res.statusCode,
       idempotencyKey: gate.idempotencyKey,
@@ -1575,7 +1613,10 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
 
 // DELETE /memes/ai/:factId/image — hard-delete an AI background image slot (owner only)
 // Query params: gender (male|female|neutral), imageIndex (0-based)
-router.delete("/memes/ai/:factId/image", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/memes/ai/:factId/image", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: AuthenticatedRequest, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
@@ -1687,7 +1728,10 @@ function resolvePublicUrlForUpload_v2(uploadedObjectPath: string): string {
   return uploadedObjectPath;
 }
 
-router.post("/memes/ai/:factId/analyze-source", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/memes/ai/:factId/analyze-source", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
     if (isNaN(factId)) {
@@ -1731,7 +1775,10 @@ router.post("/memes/ai/:factId/analyze-source", requireLegendary, async (req: Au
   }
 });
 
-router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/memes/ai/:factId/generate-v2", requireFeature("meme_ai_background", {
+  errorCode: "legendary_required",
+  message: "This feature requires a Legendary membership.",
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
     if (isNaN(factId)) {

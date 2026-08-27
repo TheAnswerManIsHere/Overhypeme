@@ -10,6 +10,8 @@ import {
   DEFAULT_MEME_ASPECT_RATIO,
   type MemeAspectRatio,
 } from "@workspace/api-zod";
+import { hasUnresolvedFactTokens } from "./renderCanonical";
+import { logger } from "./logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // In production the build script copies src/assets → dist/assets, so
@@ -197,6 +199,52 @@ function centerCropParams(
   return { sx, sy, sw, sh };
 }
 
+/**
+ * Which text this render actually draws.
+ *
+ * `factText` and `options.topText`/`options.bottomText` are two representations
+ * of the SAME sentence: the split pair is the fact cut in two by the studio's
+ * split slider. Whenever either half is present the split pair wins and
+ * `factText` is never drawn — which is why a caller that personalises only
+ * `factText` silently bakes raw `{NAME}` into the finished meme.
+ *
+ * Callers MUST personalise the split halves too (see
+ * `personalizeMemeTextOptions` in `memeComposite.ts`). This function is the
+ * last line of defence for the ones that don't: when a half still carries
+ * unresolved template tokens but `factText` does not, the split is abandoned
+ * and the resolved `factText` is drawn as one block. A meme whose caption sits
+ * in the wrong position is bad; a public, shareable image reading "{NAME}
+ * MAKES ONIONS CRY" is worse.
+ */
+export type ResolvedTextBlocks =
+  | { mode: "split"; topText: string; bottomText: string }
+  | { mode: "single"; text: string };
+
+export function resolveTextBlocks(
+  factText: string,
+  options?: Pick<TextOptions, "topText" | "bottomText">,
+): ResolvedTextBlocks {
+  const hasSplit = options?.topText !== undefined || options?.bottomText !== undefined;
+  if (!hasSplit) return { mode: "single", text: factText };
+
+  const topText = options?.topText ?? "";
+  const bottomText = options?.bottomText ?? "";
+  const splitHasTokens =
+    hasUnresolvedFactTokens(topText) || hasUnresolvedFactTokens(bottomText);
+
+  if (splitHasTokens && !hasUnresolvedFactTokens(factText)) {
+    logger.error(
+      { topText, bottomText },
+      "[memeGenerator] split caption still carries unresolved fact tokens — " +
+        "falling back to the personalised factText. The calling render path is " +
+        "missing personalizeMemeTextOptions().",
+    );
+    return { mode: "single", text: factText };
+  }
+
+  return { mode: "split", topText, bottomText };
+}
+
 export async function generateMemeBuffer(
   background: BackgroundSource,
   factText: string,
@@ -285,6 +333,10 @@ export async function generateMemeBuffer(
   ctx.fillText("OM", logicalW - 24, logicalH * 0.72);
 
   // ── Text ──────────────────────────────────────────────────────────
+  const blocks = resolveTextBlocks(factText, options);
+  // Type-size selection deliberately keys off the *requested* format (whether
+  // the caller sent a split pair), not off `blocks.mode` — so the token
+  // fallback above changes only WHICH text is drawn, never how large it is.
   const hasNewFormat = !!(options?.topText !== undefined || options?.bottomText !== undefined);
   // Defaults below mirror the client-side LivePreview so the saved/downloaded
   // render is visually consistent with what the user saw in the studio. Prior
@@ -375,11 +427,11 @@ export async function generateMemeBuffer(
     ctx.restore();
   }
 
-  if (hasNewFormat) {
-    if ((options?.topText ?? "").trim()) renderBlock(wrapText(options!.topText!), "top");
-    if ((options?.bottomText ?? "").trim()) renderBlock(wrapText(options!.bottomText!), "bottom");
+  if (blocks.mode === "split") {
+    if (blocks.topText.trim()) renderBlock(wrapText(blocks.topText), "top");
+    if (blocks.bottomText.trim()) renderBlock(wrapText(blocks.bottomText), "bottom");
   } else {
-    renderBlock(wrapText(factText), options?.verticalPosition ?? "middle");
+    renderBlock(wrapText(blocks.text), options?.verticalPosition ?? "middle");
   }
 
   // ── Watermark ─────────────────────────────────────────────────────

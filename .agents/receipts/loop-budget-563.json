@@ -1,0 +1,8 @@
+{
+  "pr": 563,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 35,
+  "artifact": "UAT backlog triage: 3 docs restored after a false-subset retirement, 3 corrected oracles, and a production-DB guard for two e2e specs. Test docs and test code only; no product code.",
+  "declaredAt": "2026-08-25T17:17:57.587Z"
+}

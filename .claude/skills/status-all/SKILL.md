@@ -20,9 +20,11 @@ existing thread (that burns the wrong session's context for no benefit).
 
 **This is a read-only reporting skill.** It never writes labels, comments,
 or issue bodies — that's `pr-watch`, `plan-review-loop`, `bugfix`, and
-`pr-docs`'s job at the moments those already fire, plus one automated
-exception outside any agent session: `test-run-completion.yml` writes the
-`stage:test-run` → `stage:uat`/`stage:close-out` transition itself.
+`pr-docs`'s job at the moments those already fire. (The old automated
+exception, the `test-run-completion.yml` Action, is retired with the
+TEST_RUN file pattern, 2026-08-15 — the `stage:test-run` →
+`stage:uat`/`stage:close-out` transition is `pr-watch`'s close-out
+sequence now.)
 
 ## Why this reads issues + labels, not the Project board
 
@@ -138,8 +140,8 @@ section (the anchor check, the open/closed/`merged_at` selection, the
 targeted search fallback) only ever operates on this already-trusted set.
 
 One call, not one per issue — regex `^Workstream:[ \t]*#(\d+)` (multiline,
-anchored to the start of a line, matching `sync-test-run-completion.mjs`'s
-`extractWorkstreamIssueNumber`) out of each trusted body to build the
+anchored to the start of a line — the repo's shared `Workstream:` marker
+convention, stated in the PR template) out of each trusted body to build the
 issue→PR map locally. The anchor matters: an unanchored
 `Workstream:\s*#(\d+)` can cross a line break (`\s` matches newlines) and
 grab an unrelated `#N` several lines later, or match an example embedded
@@ -234,7 +236,7 @@ per-thread narration in the output.
 **Page `get_commits`, `get_review_comments`, `get_comments`, and
 `get_reviews` to exhaustion**, the same way Step 1 pages through issues —
 a review loop that's gone several rounds can exceed one page of any of
-these (see `scripts/loop-metrics.mjs`'s own pagination for real examples),
+these (the review-counting library's own pagination requirements are the same),
 and a single capped call can silently return an incomplete prefix that's
 missing the most recent commit, reply, or review. Since Step 4 picks the
 *latest* item across these collections, an incomplete page doesn't just
@@ -242,8 +244,7 @@ under-report — it can make an active workstream look stalled. `get_comments`
 matters here, not just for completeness: this repo's Codex loop delivers
 some events — a clean re-review pass, an `@codex review` trigger — as
 plain issue comments rather than inline review threads
-(`scripts/loop-metrics.mjs`'s own derivation has to handle this same
-shape). Skipping `get_comments` makes those events invisible, which can
+(`scripts/review-counting.mjs`'s own derivation handles this same shape). Skipping `get_comments` makes those events invisible, which can
 misreport who's actually holding a workstream. `get_reviews` matters for
 the other direction: a clean Codex pass delivered as a normal
 `pull_request_review` with **no** inline findings shows up in neither
@@ -267,14 +268,15 @@ worth running.
 
 ### Stalled detection
 
-**A David-gate is `waiting:david` OR `waiting:replit`** — not just the
-former. Replit never acts alone: David is the one who actually runs the
-TEST_RUN checklist and relays the result, the same reason `/status`'s own
-five-state table (`.claude/skills/status/SKILL.md`) reports `waiting:replit`
-as `WAITING ON YOU` rather than a third-party wait. A workstream at
-`waiting:replit` needs David **immediately**, the same as `waiting:david` —
-not after some delay, and never bucketed as merely "in progress" in the
-meantime.
+**A David-gate is `waiting:david`** — and since 2026-08-15, that alone.
+`waiting:replit` used to count as one (David ran the TEST_RUN checklist
+and relayed the result); the post-merge verification run is now driven by
+the agent through the Replit connector inside close-out, so a workstream
+sitting at `waiting:replit` is agent-held work — it buckets and
+stall-detects like `waiting:claude`, and a lingering one means a close-out
+some session needs to finish, which is exactly what the stalled bucket
+exists to surface. `/status`'s five-state table
+(`.claude/skills/status/SKILL.md`) made the matching move.
 
 A workstream is **stalled** when `waiting` is NOT a David-gate (per the
 definition above — a David-gate is "needs you," a more urgent bucket, never
@@ -286,7 +288,7 @@ through David's own GitHub account in this environment, not a separate
 bot identity.** Every reply, review comment, and commit I make in this
 repo appears under `TheAnswerManIsHere`'s login (confirmed by this very
 PR's own reply-thread history, and by the MCP fixture in
-`scripts/__tests__/loop-metrics.test.mjs`). Filtering "authored by David"
+`scripts/__tests__/review-loop-record.test.mjs`). Filtering "authored by David"
 by login alone therefore misclassifies every one of my own responses as
 David's — discarding real activity and reporting an active, answered
 thread as stalled, the opposite of what this filter exists to catch. Tell
@@ -366,20 +368,27 @@ honor it.
 ### Plain-language blockers for anything on a David-gate
 
 Don't just say "needs you" — say **what**, restated in one sentence from
-the actual source, not guessed from the stage name alone. Applies to both
-David-gate values (`waiting:david` and `waiting:replit`):
+the actual source, not guessed from the stage name alone. Applies to the
+David-gate value (`waiting:david` — since 2026-08-15 the only one; see the
+David-gate definition above):
 
 - If there's an open, unresolved review thread addressed to David → read
   it and restate the actual question in plain language.
-- If the gate is structural (🛑 Plan approval, 🛑 Merge, 🛑 UAT) with no
+- If the gate is structural (🛑 Scope of work, 🛑 Plan approval, 🛑 UAT, or
+  a carve-out Merge) with no
   open question — say so plainly ("ready to merge, CI green, Codex
-  converged" / "merged — UAT doc at `docs/PR<N>_..._UAT.md`, not yet run").
-  Search for the UAT doc filename before claiming one doesn't exist.
-- If `waiting:replit`, say what's ready for him to run — e.g. "merged,
-  ready for the TEST_RUN checklist at `docs/PR<N>_..._TEST_RUN.md`."
+  converged" / "merged — UAT doc at `docs/tests/UAT/PR<N>_..._UAT.md`, not
+  yet run"). Search for the UAT doc filename before claiming one doesn't
+  exist.
 - Accuracy over cheapness here: a wrong restatement makes the whole report
   untrustworthy, which defeats the purpose. Read the actual comment/thread
   rather than inferring from labels alone.
+
+`waiting:replit` is **not** in this section's scope — it's agent-held
+close-out work and renders in the stalled/in-progress buckets, never under
+🛑 NEEDS YOU. When reporting one, say what's pending and where, e.g.
+"merged, post-merge verification checks from PR #<N>'s body not yet driven
+through the connector — a session needs to finish close-out."
 
 ## Step 5 — Render the report
 
@@ -389,9 +398,8 @@ found; don't pad empty sections):
 
 ```
 🛑 NEEDS YOU (n)
-#311 — CodeQL rate-limiter: merged, UAT doc ready at docs/PR308_..._UAT.md, not yet run
+#311 — CodeQL rate-limiter: merged, UAT doc ready at docs/tests/UAT/PR308_..._UAT.md, not yet run
 #281 — Evidence retention plan: [specific restated question from the thread]
-#320 — Rate-limiter tuning: merged, ready for the TEST_RUN checklist at docs/PR320_..._TEST_RUN.md
 
 ⚠️ STALLED (n) — no activity >48h, nobody currently blocked on David
 #309 — Evidence retention: Codex posted round 2 findings 6d ago, unanswered

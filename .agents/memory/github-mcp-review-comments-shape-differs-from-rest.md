@@ -33,6 +33,42 @@ before writing any code that maps MCP output into a REST-shaped structure.
   nothing for every one of the bot's own comments — normalize both sides
   (strip a trailing `[bot]`) before comparing.
 
+## The flags describe THREAD state, not CODE state (PR #503)
+Shape isn't the only thing that misleads. `get_review_comments` returns a
+resolved flag and an outdated flag per thread, and both describe **the
+conversation**, not the code.
+
+**Mind the field name — this call has two spellings, and neither is
+`resolved`.** A live `get_review_comments` response observed 2026-08-19 returns
+**`is_resolved` / `is_outdated` / `is_collapsed`** (snake_case) on each thread,
+while the tool's own description advertises **`isResolved` / `isOutdated` /
+`isCollapsed`**. `scripts/review-loop-record.mjs` reads `thread.isResolved` off
+a captured snapshot and emits its own flattened `resolved` field, so all three
+spellings are live in this repo at different layers. **Check the shape of the
+snapshot in front of you** — a miss here reads `undefined`, which the record
+maps to "resolution unknown" rather than erroring.
+
+- **A thread not marked resolved does not mean "the finding was never
+  fixed."** It means nobody marked the thread resolved. A finding that was
+  fixed in code but whose thread reply is still outstanding is
+  **shape-identical** to one that was ignored.
+- **A thread not marked outdated does not mean "recent commits didn't touch
+  this."** It is GitHub's judgement about whether the anchored diff hunk still
+  applies, not a statement about whether the defect was addressed.
+
+This is not hypothetical: PR #503's fresh-context adjudicator reasoned from a
+mechanical record built on these fields and drew both wrong conclusions — that
+two fixed findings were unfixed, and that the commits since the last pass had
+not touched them. The numbers were right; the fields invited a reading they do
+not support. If a consumer needs *code* state, it has to come from the diff,
+not from thread metadata — and if a record surfaces these fields to a reader,
+each one needs a note saying what it is and what it is not.
+
+A third field with the same problem: **`sinceLastReview` (branch movement) is
+not the PR's diff.** After a merge from the base branch it includes the base
+branch's own already-reviewed files, which an adjudicator read as unreviewed
+surface.
+
 ## Why it's dangerous
 Code written against the REST shape (or against an assumed/remembered MCP
 shape) will look like it works — it won't throw — while silently producing

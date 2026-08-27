@@ -32,7 +32,7 @@ function FlameMark({ className = "" }: { className?: string }) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role, can } = useAuth();
   const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
@@ -43,10 +43,12 @@ export function Navbar() {
   // the onboarding work instead of a competing nav button.
   const isColdMobile = !isAuthenticated && !authLoading && !name;
 
-  const isLegendary = role === "legendary" || role === "admin";
-
+  // Which avatar is public is a SERVER decision now (effectiveAvatar.ts), and
+  // this surface asks the same entitlement the server resolves rather than
+  // inferring it from the role. Three public projections used to ignore
+  // avatarSource entirely; this one honoured it but checked no entitlement.
   const navAvatarUrl = (() => {
-    if (isLegendary && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+    if (can("custom_avatar") && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
       return profile.profileImageUrl;
     }
     if (profile?.id) {
@@ -214,8 +216,12 @@ export function Navbar() {
             </div>
 
             {/* Avatar / login — chrome contains navigation only; SHARE / SUBMIT
-                / LEGENDARY no longer live here (Invite friends + Membership
-                are inside the avatar dropdown; Submit lives on /library). */}
+                / LEGENDARY no longer live here. The avatar opens Profile,
+                which carries Edit Profile, Admin Panel, Exit/Resume Admin,
+                Forget Me and Sign Out in both layouts — Membership only on
+                desktop and only for non-Legendary members; Submit lives on
+                /library. (There is no avatar dropdown — see AccountMenu.tsx
+                for the two destinations Profile does not cover.) */}
             <div className="flex items-center gap-3">
               {!authLoading && (isAuthenticated ? (
                 <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} onClick={() => setLocation("/profile")} />

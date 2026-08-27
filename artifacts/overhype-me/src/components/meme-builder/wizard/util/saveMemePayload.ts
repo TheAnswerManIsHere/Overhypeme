@@ -28,6 +28,13 @@ export interface SaveMemePayload {
   framingTransform?: { offsetX: number; offsetY: number } | null;
   aspectRatio?: AspectRatio;
   imageTransform?: "pulid" | "pulid_fallback_text";
+  /**
+   * Gallery visibility. Always sent explicitly so the saved row reflects the
+   * control the user actually saw, rather than relying on the server default.
+   * A non-Legendary-level caller who sends `false` is rejected with a 403 —
+   * the server never downgrades an explicit private request to public.
+   */
+  isPublic: boolean;
 }
 
 export interface BuildPayloadArgs {
@@ -40,7 +47,10 @@ export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | 
   const { state, factId, pulidGeneratedUploadKey } = args;
   if (!state.source) return null;
 
-  const base: Pick<SaveMemePayload, "factId" | "name" | "pronouns" | "textOptions" | "framingTransform" | "aspectRatio"> = {
+  const base: Pick<
+    SaveMemePayload,
+    "factId" | "name" | "pronouns" | "textOptions" | "framingTransform" | "aspectRatio" | "isPublic"
+  > = {
     factId,
     name: state.name,
     pronouns: state.pronouns,
@@ -49,6 +59,7 @@ export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | 
       ? { offsetX: state.framingOffset.x, offsetY: state.framingOffset.y }
       : null,
     aspectRatio: state.aspectRatio,
+    isPublic: state.isPublic ?? true,
   };
 
   if (state.source.kind === "stock") {

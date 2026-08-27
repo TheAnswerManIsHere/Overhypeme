@@ -1,0 +1,8 @@
+{
+  "pr": 574,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 60,
+  "artifact": "two-tier tripwire: review-budget/pr-ready guards + contract sweep (PR #574)",
+  "declaredAt": "2026-08-26T04:28:23.559Z"
+}

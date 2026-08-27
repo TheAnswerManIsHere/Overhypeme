@@ -62,7 +62,83 @@ quality.
   Compiled Prompt preview is a contract with production.
 - **Async work must show per-item + aggregate status** at all times (Taxonomy
   Health is the reference implementation).
-- One `is_admin` role; no multi-role permission model planned.
+- Orthogonal boolean roles (`is_admin`, `is_tester`) layered over the
+  membership tier — **not** a general multi-role RBAC system. See
+  *Permissions direction* below.
+
+## Permissions direction
+
+> **End state:** one screen answers "who is allowed to do what," for every
+> **product entitlement** an account may hold. David, 2026-08-10: *"I want all
+> functions that check permissions to exclusively use this matrix so there is
+> only ever one place to check and one source of truth for what different
+> accounts can do in the system."* His words were totalising; the two-rail
+> split immediately below is how that intent is honoured without also making
+> operational **privileges** — admin console access chief among them —
+> runtime-editable, which would reopen the lockout risk the whole effort exists
+> to close. The grid is the single source of truth **for entitlements**;
+> privileges stay code-owned, deliberately off this screen, and are documented
+> rather than displayed there.
+
+The **Feature Permission Grid** (`tier_feature_permissions`) is that screen.
+Reaching the end state is incremental; the constraints below bind every
+increment, so plans cite them rather than re-deciding them.
+
+**Two rails, kept apart.** *Entitlements* — what product features an account
+gets — resolve through the grid, at runtime, editable with no deploy.
+*Privileges* — what an account may do to the system (admin console, user
+management, moderation, config editing, the grid editor itself) — resolve
+through a role check in code and are **never** grid features. This is what
+makes admin lockout impossible by configuration: nothing that grants console
+access lives in the grid.
+
+**Ownership is a third thing** and stays out of the grid — "may I act on *my
+own* resource" is not an entitlement. Likewise **deliberately public** routes:
+browsing without an account is core product behaviour, declared rather than
+inferred.
+
+**The grid holds anything that determines what a given account may do**,
+including numeric limits (spend, upload and rate caps), not just on/off
+switches. `admin_config` keeps global tuning that is identical for everybody.
+That boundary is what decides where the *next* setting goes.
+
+**Overlays are unions, never overrides.** `admin` and `tester` add to the
+account's tier; more permissive wins. An admin who also pays never loses a
+feature by being an admin.
+
+**Tier privileges are an upsell surface, not just plumbing** (David,
+2026-08-11). Withholding a capability from lower tiers and unlocking it on
+upgrade is a deliberate conversion lever — custom avatars are the worked
+example: lower tiers get a non-configurable generated icon, and setting a
+custom image is a paid unlock. Such privileges must be **enforced
+server-side**, not merely hidden in the UI, or the incentive is decorative.
+
+**The client is told what it may do; it never derives it.** A client that
+re-derives permissions from a role will eventually disagree with the server —
+that divergence published a private meme (PR #402) and is the defect class
+this direction exists to close.
+
+**Settled and not to be re-litigated per increment:** the union semantics
+above; "view as user" normalizing to `registered` so a preview is faithful,
+while console access ignores the toggle; admins may *view* any ordinary
+content (a meme, a fact, a comment) but not *act* on content they don't own
+outside their granted moderation/operational privileges — this is about
+ownership on user-generated content, never a viewing right, and it does not
+touch or loosen the moderation privileges that already let an admin approve,
+reject, or otherwise act on submissions they didn't create; **quarantined and
+restricted CSAM/abuse evidence is categorically excluded from admin viewing**
+regardless of this rule — [`legal-safety-moderation.md`](./legal-safety-moderation.md)
+governs that boundary and wins any conflict, there is deliberately no admin
+viewer for that content, and no permissions increment may add one; engine
+access granted by **band**
+(standard / premium / experimental) rather than per engine, so a new model is
+labelled rather than added to the grid; admin-only creation dials (model,
+duration, resolution, engine override) are operator tools, not entitlements;
+and queued work is authorized as of submission, not execution.
+
+**Deferred, deliberately:** impersonating a specific user ("log in as") — a
+wanted support capability, but a session/auth feature with its own write,
+audit and privacy policy, out of scope for the permission architecture itself.
 
 ## Launch-critical vs deferrable work
 
@@ -95,6 +171,9 @@ before proposing to reverse one.)*
 - `facts.*` as the sole active enrichment truth (versions table is an archive).
 - **On-by-default, no rollout-flag gating** pre-launch.
 - **No new external vendors** without David's sign-off.
+- The **two permission rails** — entitlements in the grid, privileges in code
+  — and the union (never override) semantics of the `admin` / `tester`
+  overlays. See *Permissions direction* above.
 
 ## Open questions for David
 

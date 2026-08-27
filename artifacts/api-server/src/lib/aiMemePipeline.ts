@@ -16,14 +16,22 @@ import { callUtilityLLM } from "./utilityLLM";
 import { ObjectStorageService } from "./objectStorage";
 import { aiBackgroundKey } from "./storageKeys";
 import { db } from "@workspace/db";
-import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema";
+import { factsTable, userAiImagesTable, usersTable, enginesTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
 import { getScenePromptSystem } from "./scenePromptConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
+import { ALL_ENGINES } from "./engines";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
-import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
+import {
+  BudgetExceededError,
+  BudgetGateError,
+  checkBudget,
+  noteLedgerWriteFailure,
+  recordCost,
+} from "./budgetGate";
 import { logger } from "./logger";
+import { withBookkeepingTimeout } from "./bookkeepingTimeout";
 import { applyFalSafetyTolerance, assertNoFalNsfwConcepts, FalSafetyTriggeredError } from "./moderation/falSafety";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
 import { quarantineImage } from "./moderation/quarantine";
@@ -51,6 +59,113 @@ const DEFAULT_REFERENCE_FRAME_PROMPT =
 const DEFAULT_IMAGE_MODEL_STANDARD  = "fal-ai/flux-pro/v1.1";
 const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
+
+/**
+ * Per-call cost used to gate an image generation whose real price could not be
+ * resolved, so the budget gate still runs when pricing is unavailable. A
+ * GATING estimate only — never written to the cost ledger, which records
+ * measured prices.
+ *
+ * A single hardcoded number cannot be right for every model: round 1 of PR
+ * #474's review caught a flat $0.03 (PuLID's figure) gating the standard
+ * path's `fal-ai/flux-pro/v1.1`, seeded at $0.04.
+ *
+ * THE PERSISTED ROW IS THE SOURCE OF TRUTH, NOT THE CODE CATALOGUE. Round 2
+ * caught the first fix reading `ALL_ENGINES`, which is only the seed:
+ * `estimatedCostUsdPerCall` is in `ADMIN_EDITABLE_FIELDS`, and
+ * `engines/reconcile.ts` strips those from its boot update (`codeOwnedFields`)
+ * precisely so admin edits survive.
+ *
+ * ZERO IS A VALID PERSISTED COST, NOT A MISSING ONE. The admin PATCH validator
+ * accepts any non-negative number (`adminEngines.ts:338`, `v >= 0`), so an
+ * operator can deliberately waive an engine's cost. Round 3 caught an earlier
+ * `n > 0` test discarding that and substituting a positive estimate, which
+ * would refuse a call the operator had made free. `null` still means "no
+ * estimate" and is rejected explicitly BEFORE the numeric test — `Number(null)`
+ * is `0`, not `NaN`, so an implicit check would read "no estimate" as "free"
+ * and price every such call at zero.
+ */
+function costOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  // A numeric column arrives as a string; an empty one is not a zero.
+  if (typeof value === "string" && value.trim() === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function maxCost(values: readonly unknown[]): number | null {
+  const nums = values.map(costOrNull).filter((n): n is number => n !== null);
+  return nums.length > 0 ? Math.max(...nums) : null;
+}
+
+/** Highest per-call cost the code catalogue knows about. */
+const CATALOGUE_MAX_COST_USD = maxCost(ALL_ENGINES.map((e) => e.estimatedCostUsdPerCall));
+
+/**
+ * Used only when neither source has any estimate at all — an empty engines
+ * table and a catalogue with no costs. Deliberately high rather than typical:
+ * this is the branch where we know least, and under-charging spends money that
+ * is never recovered.
+ */
+const LAST_RESORT_COST_USD = 0.15;
+
+/**
+ * Resolves the gating estimate for a model, preferring the persisted engine row
+ * over the seed.
+ *
+ * Only ever called on the degraded path (pricing already unavailable), so the
+ * extra read costs nothing in the normal case.
+ *
+ * A FAILED READ DENIES RATHER THAN GUESSES. Round 3 of this PR's review
+ * dismantled the argument that swallowing it was safe: an `engines` read can
+ * fail transiently, or because that one table is inaccessible, while
+ * `checkBudget`'s own queries still succeed — so the failure is NOT necessarily
+ * correlated, and falling back to the catalogue could silently replace an
+ * admin-set $0.08 with the seeded $0.04 and let a call through. Nor is
+ * "fall back to something that cannot undercut" achievable: if the table is
+ * unreadable we do not know what the persisted values are, so no derived number
+ * is provably above them. That leaves the rule this gate already applies
+ * everywhere else — a check that cannot determine cost denies.
+ * `BudgetGateError` is the exact existing shape for that: callers translate it
+ * to a retry-able failure, never to "you are out of budget" (#409).
+ */
+async function fallbackImageCostUsd(model: string): Promise<number> {
+  let rows: Array<{ endpointId: string; cost: unknown }>;
+  try {
+    rows = await db
+      .select({
+        endpointId: enginesTable.endpointId,
+        cost: enginesTable.estimatedCostUsdPerCall,
+      })
+      .from(enginesTable);
+  } catch (err) {
+    logger.error(
+      { err, model },
+      "[aiMemePipeline] engines table unreadable — denying rather than gating on a possibly-stale estimate",
+    );
+    throw new BudgetGateError(err);
+  }
+
+  // ORDER MATTERS, and not in the obvious way. A MODEL-SPECIFIC figure always
+  // beats an aggregate, even a persisted aggregate — otherwise an incomplete
+  // engines table silently under-gates. Concretely: the table can legitimately
+  // lack a row for a model the code knows about (a seeded test database has 7
+  // rows and no `fal-ai/flux-pro/v1.1`; production relies on `reconcileEngines`
+  // having run at boot). Preferring `max(persisted)` over the catalogue's own
+  // $0.04 entry for that model would gate it at some other engine's $0.03 —
+  // reintroducing round 1's under-gating through a different door.
+  const persistedExact = costOrNull(rows.find((r) => r.endpointId === model)?.cost);
+  if (persistedExact !== null) return persistedExact; // admin-editable truth
+
+  const catalogueExact = costOrNull(
+    ALL_ENGINES.find((e) => e.endpointId === model)?.estimatedCostUsdPerCall,
+  );
+  if (catalogueExact !== null) return catalogueExact; // model-specific seed
+
+  // Genuinely unknown model: the highest cost either source knows about, so an
+  // incomplete table cannot lower the floor.
+  return maxCost([maxCost(rows.map((r) => r.cost)), CATALOGUE_MAX_COST_USD]) ?? LAST_RESORT_COST_USD;
+}
 
 /**
  * Models that accept a face-reference image input.
@@ -220,19 +335,49 @@ async function generateAndStoreImage(
 
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedImgPrice: CachedPrice | null = null;
+  /** The exact figure checkBudget used, or null when the gate exempted the user. */
+  let gateResolvedCostUsd: number | null = null;
   if (userId) {
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
     try {
       const price = await getCachedPrice(model);
-      cachedImgPrice = price;
       const { width, height } = resolveImageSizePx(imageSize);
-      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
-      const budget = await checkBudget(userId, costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
+      const costUsd = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      priced = { price, costUsd };
     } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      // Pricing unavailable — fail open, log and continue
-      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped");
+      // Pricing unavailable — fail open, log and continue. Deliberately its
+      // own catch, separate from the gate call below: a gate failure must
+      // never be swallowed here as if it were a pricing miss (#409).
+      logger.warn({ err, model }, "[aiMemePipeline] Pricing unavailable — gating on the fallback estimate");
     }
+    // Deliberately outside the catch above (#409): a gate failure is not a
+    // pricing failure, and must propagate rather than be swallowed.
+    //
+    // The gate runs whether or not pricing resolved. This used to be
+    // `if (priced)`, which skipped the check entirely on a pricing miss and
+    // left the ceiling unenforced exactly when something else was failing.
+    // The fallback is passed as a THUNK, not awaited here: it is only needed
+      // for a user who is actually subject to a limit, and resolving it eagerly
+      // would let its failure preempt checkBudget's admin exemption (round 4).
+      const budget = await checkBudget(userId, async () => {
+        const resolved = priced ? priced.costUsd : await fallbackImageCostUsd(model);
+        // Capture what the gate ACTUALLY used rather than re-deriving it at the
+        // write site. The fallback resolves through a precedence chain
+        // (persisted-exact -> catalogue-exact -> max-across-persisted), so a
+        // second call could legitimately return a different figure — and would
+        // do so precisely when the chain fell past its first tier, i.e. exactly
+        // when an estimate is being recorded at all.
+        //
+        // Stays null for an admin: checkBudget returns at its exemption before
+        // invoking this thunk, deliberately (resolving a fallible read ahead of
+        // an exemption is the ordering bug PR #474 fixed). The recording path
+        // handles that case separately.
+        gateResolvedCostUsd = resolved;
+        return resolved;
+      });
+    if (!budget.allowed) throw new BudgetExceededError(budget);
+    // Only a REAL price is carried forward for ledger recording.
+    if (priced) cachedImgPrice = priced.price;
   }
 
   const result = await fal.subscribe(model, {
@@ -318,20 +463,74 @@ async function generateAndStoreImage(
     logger.warn({ err: aclErr, storedPath }, "[aiMemePipeline] Failed to set ACL");
   }
 
-  // Record cost AFTER successful storage (spec: not before)
-  if (userId && cachedImgPrice) {
-    const { width, height } = resolveImageSizePx(imageSize);
-    const { billingUnits, costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, cachedImgPrice);
-    await recordCost({
-      userId,
-      jobType: "image",
-      endpointId: model,
-      unitPriceAtCreation: cachedImgPrice.unitPrice,
-      billingUnits,
-      computedCostUsd: costUsd,
-      pricingFetchedAt: cachedImgPrice.fetchedAt,
-      jobReferenceId: storedPath,
-    });
+  // Record cost AFTER successful storage (spec: not before).
+  //
+  // The `if (cachedImgPrice)` guard is GONE, and that removal is the point of
+  // this change: a generation gated on a fallback estimate used to be gated
+  // correctly and then recorded nowhere, so across a pricing outage the
+  // ceiling was measured against a total that stopped growing.
+  if (userId) {
+    if (cachedImgPrice) {
+      const { width, height } = resolveImageSizePx(imageSize);
+      const { billingUnits, costUsd } = computeImageCost(
+        { widthPx: width, heightPx: height, count: 1 },
+        cachedImgPrice,
+      );
+      await recordCost({
+        userId,
+        jobType: "image",
+        endpointId: model,
+        unitPriceAtCreation: cachedImgPrice.unitPrice,
+        billingUnits,
+        computedCostUsd: costUsd,
+        pricingFetchedAt: cachedImgPrice.fetchedAt,
+        isEstimated: false,
+        jobReferenceId: storedPath,
+      });
+    } else {
+      // Unpriced. Record the estimate the gate used, decomposed per the plan:
+      // a per-call estimate is unit_price = the figure, billing_units = 1, so
+      // unit_price * billing_units = computed_cost holds for every estimated
+      // row. pricing_fetched_at is the WRITE time — no fetch happened, which is
+      // what is_estimated = true tells a reader.
+      let estimate: number | null = gateResolvedCostUsd;
+      if (estimate === null) {
+        // Admin: exempt, so checkBudget returned before invoking the thunk and
+        // there is no gate figure to carry. Resolve it now, inside a non-fatal
+        // envelope — the provider call has already completed and been paid for,
+        // so a BudgetGateError thrown here would fail a generation over
+        // bookkeeping. A skip is visible through the same counter as a lost
+        // write rather than silent.
+        try {
+          estimate = await withBookkeepingTimeout(
+            fallbackImageCostUsd(model),
+            "exempt-user estimate lookup",
+          );
+        } catch (err) {
+          logger.warn(
+            { err, model, userId },
+            "[aiMemePipeline] could not resolve an estimate for an exempt user's unpriced generation — skipping the ledger row",
+          );
+// Detached, not awaited: the pool checkout inside this call is
+          // unbounded and this is a user-facing path. See the call site in
+          // budgetGate.recordCost for the full reasoning.
+          void noteLedgerWriteFailure();
+        }
+      }
+      if (estimate !== null) {
+        await recordCost({
+          userId,
+          jobType: "image",
+          endpointId: model,
+          unitPriceAtCreation: estimate,
+          billingUnits: 1,
+          computedCostUsd: estimate,
+          pricingFetchedAt: new Date(),
+          isEstimated: true,
+          jobReferenceId: storedPath,
+        });
+      }
+    }
   }
 
   return storedPath;
@@ -459,18 +658,49 @@ async function generateAndStoreImageFromReference(
 
   // ── Budget gate ──────────────────────────────────────────────────────────────
   let cachedRefPrice: CachedPrice | null = null;
+  /** The exact figure checkBudget used, or null when the gate exempted the user. */
+  let gateResolvedCostUsd: number | null = null;
   if (userId) {
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
     try {
       const price = await getCachedPrice(model);
-      cachedRefPrice = price;
       const { width, height } = resolveImageSizePx(imageSize);
-      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
-      const budget = await checkBudget(userId, costUsd);
-      if (!budget.allowed) throw new BudgetExceededError(budget);
+      const costUsd = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price).costUsd;
+      priced = { price, costUsd };
     } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped for ref model");
+      // Pricing unavailable — fail open, log and continue. Deliberately its
+      // own catch, separate from the gate call below: a gate failure must
+      // never be swallowed here as if it were a pricing miss (#409).
+      logger.warn({ err, model, path: "reference" }, "[aiMemePipeline] Pricing unavailable — gating on the fallback estimate");
     }
+    // Deliberately outside the catch above (#409): a gate failure is not a
+    // pricing failure, and must propagate rather than be swallowed.
+    //
+    // The gate runs whether or not pricing resolved. This used to be
+    // `if (priced)`, which skipped the check entirely on a pricing miss and
+    // left the ceiling unenforced exactly when something else was failing.
+    // The fallback is passed as a THUNK, not awaited here: it is only needed
+      // for a user who is actually subject to a limit, and resolving it eagerly
+      // would let its failure preempt checkBudget's admin exemption (round 4).
+      const budget = await checkBudget(userId, async () => {
+        const resolved = priced ? priced.costUsd : await fallbackImageCostUsd(model);
+        // Capture what the gate ACTUALLY used rather than re-deriving it at the
+        // write site. The fallback resolves through a precedence chain
+        // (persisted-exact -> catalogue-exact -> max-across-persisted), so a
+        // second call could legitimately return a different figure — and would
+        // do so precisely when the chain fell past its first tier, i.e. exactly
+        // when an estimate is being recorded at all.
+        //
+        // Stays null for an admin: checkBudget returns at its exemption before
+        // invoking this thunk, deliberately (resolving a fallible read ahead of
+        // an exemption is the ordering bug PR #474 fixed). The recording path
+        // handles that case separately.
+        gateResolvedCostUsd = resolved;
+        return resolved;
+      });
+    if (!budget.allowed) throw new BudgetExceededError(budget);
+    // Only a REAL price is carried forward for ledger recording.
+    if (priced) cachedRefPrice = priced.price;
   }
 
   const result = await fal.subscribe(model, {
@@ -565,20 +795,64 @@ async function generateAndStoreImageFromReference(
     logger.warn({ err: aclErr, storedPath }, "[aiMemePipeline] Failed to set ACL");
   }
 
-  // Record cost AFTER successful storage
-  if (userId && cachedRefPrice) {
-    const { width, height } = resolveImageSizePx(imageSize);
-    const { billingUnits, costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, cachedRefPrice);
-    await recordCost({
-      userId,
-      jobType: "image",
-      endpointId: model,
-      unitPriceAtCreation: cachedRefPrice.unitPrice,
-      billingUnits,
-      computedCostUsd: costUsd,
-      pricingFetchedAt: cachedRefPrice.fetchedAt,
-      jobReferenceId: storedPath,
-    });
+  // Record cost AFTER successful storage.
+  //
+  // Same change as the standalone-background path above: the `if (cachedRefPrice)`
+  // guard is gone, so a generation gated on a fallback estimate is recorded at
+  // that estimate rather than omitted.
+  if (userId) {
+    if (cachedRefPrice) {
+      const { width, height } = resolveImageSizePx(imageSize);
+      const { billingUnits, costUsd } = computeImageCost(
+        { widthPx: width, heightPx: height, count: 1 },
+        cachedRefPrice,
+      );
+      await recordCost({
+        userId,
+        jobType: "image",
+        endpointId: model,
+        unitPriceAtCreation: cachedRefPrice.unitPrice,
+        billingUnits,
+        computedCostUsd: costUsd,
+        pricingFetchedAt: cachedRefPrice.fetchedAt,
+        isEstimated: false,
+        jobReferenceId: storedPath,
+      });
+    } else {
+      let estimate: number | null = gateResolvedCostUsd;
+      if (estimate === null) {
+        // Admin exemption — see the equivalent block above for why this
+        // resolves here and why a failure skips rather than throws.
+        try {
+          estimate = await withBookkeepingTimeout(
+            fallbackImageCostUsd(model),
+            "exempt-user estimate lookup",
+          );
+        } catch (err) {
+          logger.warn(
+            { err, model, userId },
+            "[aiMemePipeline] could not resolve an estimate for an exempt user's unpriced generation — skipping the ledger row",
+          );
+// Detached, not awaited: the pool checkout inside this call is
+          // unbounded and this is a user-facing path. See the call site in
+          // budgetGate.recordCost for the full reasoning.
+          void noteLedgerWriteFailure();
+        }
+      }
+      if (estimate !== null) {
+        await recordCost({
+          userId,
+          jobType: "image",
+          endpointId: model,
+          unitPriceAtCreation: estimate,
+          billingUnits: 1,
+          computedCostUsd: estimate,
+          pricingFetchedAt: new Date(),
+          isEstimated: true,
+          jobReferenceId: storedPath,
+        });
+      }
+    }
   }
 
   return storedPath;

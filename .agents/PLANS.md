@@ -11,21 +11,84 @@
 
 ---
 
+## Preflight: is this a plan, or a direction?
+
+**Run the increment test before filling in anything below** —
+[`../docs/ai-context/working-modes.md`](../docs/ai-context/working-modes.md#the-increment-test)
+defines it (universal quantifier ⇒ direction; a *Phases* section separating
+independently-shippable pieces ⇒ each phase was its own plan) and where a
+direction lives once you write one. If either check trips, stop and split
+before filling in anything below. Scope that arrives *later* — during planning
+or during review — is framed **now vs. next**, defaulting to **next** unless
+this plan cannot be *correct* without it. Adding it because the end state
+needs it is what the direction is for.
+
+**Then, before drafting Problem/Direction below, run the affected-surface
+inventory** —
+[`working-modes.md`](../docs/ai-context/working-modes.md#the-affected-surface-inventory-david-2026-08-13)
+defines it. If this plan touches a *pattern* (a permission shape, a
+derivation rule, a naming convention) rather than one call site, name the
+class and write the mechanical oracle
+(`git grep -n`, which searches the tracked set) that finds every instance
+before scoping the plan — the hit list is what the plan's scope is drawn
+from, not a recalled inventory. Note the oracle and its result as a Settled
+Decision even when it finds nothing new.
+
+**If the class genuinely cannot be mechanized** — a semantic pattern with no
+searchable signature — record *that* as the Settled Decision and route the
+scope call to judgment/escalation, exactly as the class-sweep protocol does
+at fix time. What is not acceptable is running a nominal search that does not
+find every instance and then claiming inventory-backed scope.
+
+**Then, for every sentence claiming a set is complete, a behavior inert, or a
+state unreachable, apply the claim-oracle rule** —
+[`working-modes.md`](../docs/ai-context/working-modes.md#a-completeness-claim-carries-its-oracle-or-it-is-not-a-claim-david-2026-08-25):
+*where is this enforced?* Two answers satisfy it. An **oracle** — executed
+against this revision, its real output recorded, and the plan stating how that
+output maps to the claim; naming a search is not running one, and an output a
+careful reader could sort two ways establishes nothing. Or a **construct** —
+a predicate, type, schema constraint, or runtime refusal *in the shipped
+system*; a table row in the plan is prose in a grid, not a construct. Anything
+else ⇒ add the construct or write the property as an open uncertainty rather
+than a Settled Decision. "Unsupported by convention" is not "unreachable by
+construction" — say which one you have. Naming the mechanism in a clause
+satisfies this without specifying it, which is what keeps it clear of the
+specification test below. **A test is not a construct** — it detects rather
+than prevents, so a property backed only by a future test is written as
+*checked*, never as *cannot*.
+
+**Then, for every line you write below, apply the specification test** —
+[`working-modes.md`](../docs/ai-context/working-modes.md#a-plan-specifies-invariants-not-implementation-david-2026-08-12):
+*if the plan never mentioned this, what would catch it?* Compiler, test
+suite, or diff review ⇒ leave it out; nothing ⇒ that is what this document is
+for. State invariants, not call-site lists or test assertions. Keep full depth
+on the four uncatchable categories: data model and migration shape, security
+and privilege boundaries, sequencing between separate plans, and product
+semantics.
+
 ## Problem
 What problem are we solving? Include the concrete user/admin/runtime symptom.
 
+## Direction
+Which direction does this plan serve? Link it, and say in one sentence what
+this increment makes true that wasn't true before. If there genuinely is no
+direction — some work stands alone — say so explicitly rather than leaving
+this blank.
+
 ## Product Intent
 What outcome does David want? (If you're unsure of the intent, ask David before
-planning further — don't guess.)
+planning further — don't guess.) State it as what **this increment** makes
+true. The end state belongs in the Direction above, not here.
 
 ## Must Not Change
 Invariants and out-of-scope behavior — what should explicitly stay the same.
 
 ## Settled Decisions
 Decisions already made during the pre-plan conversation, and why (design
-choices, trade-offs resolved before writing this plan). These three sections
-— Product Intent, Must Not Change, Settled Decisions — are the oracle a
-reviewer checks the eventual implementation PR against, verbatim (see
+choices, trade-offs resolved before writing this plan). These four sections
+— Direction, Product Intent, Must Not Change, Settled Decisions — are the
+oracle a reviewer checks the eventual implementation PR against, verbatim
+(see
 [`docs/engineering/code-review.md`](../docs/engineering/code-review.md#the-review-oracle-the-pr-body)).
 
 ## Repo Context Inspected
@@ -64,7 +127,7 @@ schemas, and audit needs.
 ## Testing Plan
 Automated tests + manual QA. Tests must prove the **general invariant**, not only
 the reported example, with negative cases. Name the runner commands (see
-`docs/tests/testing-guide.md`).
+`docs/tests/TESTING.md`).
 
 ## Implementation Steps
 Break into small, ordered steps — the smallest coherent change that satisfies the

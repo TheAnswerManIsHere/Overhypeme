@@ -349,6 +349,50 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // generate stays broken on the malformed 0063 snapshot.
   // Source of truth: lib/db/src/schema/moderation.ts.
   "0097_ncmec_submission",
+
+  // Plan 1a — one resolver, one client contract, no admin lockout (PR #425,
+  // workstream #405): the tier_feature_permission_audit table + its
+  // created_at index, and the entitlement_grid_revision singleton. Hand-
+  // authored idempotent DDL, following 0094-0097's shape — drizzle-kit
+  // generate stays broken on the malformed 0063 snapshot. Round 4 of PR
+  // #425's review caught this migration missing from the exempt list, which
+  // failed check-snapshots outright rather than merely under-covering drift.
+  // Source of truth: lib/db/src/schema/featureFlags.ts.
+  "0099_admin_permissions_core",
+
+  // Forward-only repair of the two membership ordering/fencing sequences, which
+  // `push --force` removed from any database pushed more than once because they
+  // had no schema declaration (same failure shape as 0098, one object type
+  // over). Advances each via nextval() past the maximum already stored in
+  // membership_entitlements.source_state_as_of / membership_leases.fence — a
+  // sequence restored at 1 makes both consumers' strictly-greater guards match
+  // zero rows, silently.
+  //
+  // The missing snapshot here is DEFERRED, not inexpressible — do not restate
+  // it as the latter. The two pgSequence declarations in
+  // schema/membershipEntitlements.ts are exactly a snapshot-visible delta, and
+  // this migration carries their CREATE SEQUENCE DDL besides. The exemption
+  // exists only because drizzle-kit generate stays broken on the malformed 0063
+  // snapshot. When that chain is repaired, this delta must be captured rather
+  // than treated as nothing to record — describing it as inexpressible would
+  // justify leaving the sequences out and let generation rediscover them as an
+  // unexplained change.
+  // Source of truth: lib/db/src/schema/membershipEntitlements.ts.
+  "0100_membership_sequence_repair",
+
+  // Release A (expand) of the is_estimated cost-ledger plan: one nullable
+  // boolean on user_generation_costs, plus its column comment. Hand-authored
+  // idempotent DDL following 0094-0100's shape, for the same reason they give
+  // — drizzle-kit generate stays broken on the malformed 0063 snapshot
+  // (verified again here: it exits with "migrations/meta/0063_snapshot.json
+  // data is malformed").
+  //
+  // As with 0100, the missing snapshot is DEFERRED, not inexpressible: a
+  // nullable boolean column is exactly a snapshot-visible delta, and it is
+  // declared in the schema. When the chain is repaired this must be captured
+  // rather than treated as nothing to record.
+  // Source of truth: lib/db/src/schema/falPricing.ts.
+  "0101_user_generation_costs_is_estimated",
 ]);
 
 interface JournalEntry {

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Persistent launcher for the Claude Code CLI inside the Replit workspace.
+#
+# WHY THIS EXISTS
+# ---------------
+# Claude Code's native installer puts its real payload in the workspace
+# (.local/share/claude/versions/<version>, which persists on Replit's btrfs
+# volume) but points at it from a symlink at ~/.local/bin/claude. $HOME is an
+# overlayfs layer that is WIPED on every container restart, so that symlink
+# disappears — and `claude` becomes "command not found" even though the
+# 300MB binary it pointed at is still sitting there, perfectly intact.
+#
+# The install is not gone. Only the pointer is. Re-running the installer
+# after every restart (observed twice in 90 minutes on 2026-08-11) just
+# re-creates a pointer that will be wiped again.
+#
+# This script IS the durable pointer. It lives in git, so it is restored by
+# the same sync that brings any other repo file, on a path that persists —
+# and `.replit`'s [env] block puts its directory on PATH. Nothing under
+# $HOME is involved.
+#
+# WHY IT RESOLVES AT RUNTIME INSTEAD OF BEING A SYMLINK
+# -----------------------------------------------------
+# The payload path is version-numbered and there is no "current"/"latest"
+# manifest to point at (verified directly against .local/share/claude/).
+# A symlink pinned to today's version would keep working after a future
+# `claude update` while silently launching the OLD binary. Resolving the
+# newest install at call time is the only update-safe option available.
+set -euo pipefail
+
+# The Repl's workspace root is this repo's root: scripts/bin/claude -> ../..
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+VERSIONS_DIR="${CLAUDE_CLI_VERSIONS_DIR:-${REPO_ROOT}/.local/share/claude/versions}"
+
+if [ ! -d "$VERSIONS_DIR" ]; then
+  echo "claude: Claude Code is not installed in this workspace." >&2
+  echo "  Expected payload directory: ${VERSIONS_DIR}" >&2
+  echo "  Install it with: curl -fsSL https://claude.ai/install.sh | bash" >&2
+  exit 127
+fi
+
+# Newest by mtime — "most recently installed", which is what an update
+# produces. Avoids parsing `ls` and tolerates unexpected extra files.
+BIN="$(
+  find "$VERSIONS_DIR" -maxdepth 1 -type f -executable -printf '%T@ %p\n' 2>/dev/null |
+    sort -rn | head -n1 | cut -d' ' -f2-
+)"
+
+if [ -z "$BIN" ]; then
+  echo "claude: no executable Claude Code binary found in ${VERSIONS_DIR}" >&2
+  echo "  Reinstall with: curl -fsSL https://claude.ai/install.sh | bash" >&2
+  exit 127
+fi
+
+exec "$BIN" "$@"

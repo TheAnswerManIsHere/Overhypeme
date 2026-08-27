@@ -1,0 +1,14 @@
+{
+  "pr": 539,
+  "kind": "adjudication",
+  "verdict": "ship-with-gaps-recorded",
+  "grant": 0,
+  "risk": "",
+  "recordPath": ".agents/adjudications/539-1.json",
+  "decidedAt": "2026-08-19T22:19:15Z",
+  "reasoning": "An internal-tier artifact (criticality 35) has spent its full 3-round budget with a flat trend (8, 8, 6) -- a count that refuses to fall on low-criticality internal tooling is the signal of a loop that has stopped converging on the artifact, not of unfinished work. All 22 findings are resolved (0 unresolved threads) and all 22 are inside the diff, so nothing in the record names an unaddressed behavioral risk I could point a continue at; the only unreviewed material is the 3 fix commits since aea652a, and buying a round to review the previous round's fixes is exactly the #488 shape this adjudication exists to stop. The mechanism is one coupled thing (adjudication receipts satisfying the merge gate across pr-ready.mjs / review-budget.mjs / review-loop-record.mjs), so split would manufacture an ordering dependency rather than separate deliverables.",
+  "gaps": [
+    "The 3 commits since the last reviewed pass (aea652a -> 952b4d2, ~166 changed lines across pr-ready.mjs, review-budget.mjs, review-loop-record.mjs plus tests) ship without a Codex pass over them; they are the round-3 fixes and are covered by the loop's own tests but not by a further review round.",
+    "No open reviewer findings are being left -- 22/22 threads resolved -- so the record contains no known-broken item; the recorded gap is unreviewed-fix exposure only."
+  ]
+}

@@ -1,0 +1,300 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-20T14:03:34.153Z",
+  "evidenceCapturedAt": "2026-08-20T14:03:34.153Z",
+  "pr": 534,
+  "title": "/document harvest: the /document-harvest-overclaims-its-evidence pattern (#525/#513/#528)",
+  "artifact": {
+    "files": 6,
+    "added": 428,
+    "removed": 0
+  },
+  "budget": {
+    "tier": "internal",
+    "tierMeaning": "internal tooling / docs / guards / agent contracts",
+    "declaredBudget": 3,
+    "cap": 3,
+    "criticality": 10,
+    "artifactDeclaredAtRoundZero": "docs harvest: known-failure-patterns.md meta-entry on /document harvests overclaiming their triggering PR's evidence",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 3,
+    "extensions": [
+      {
+        "kind": "adjudication",
+        "verdict": "ship-with-gaps-recorded",
+        "grant": 0
+      }
+    ]
+  },
+  "rounds": {
+    "completedReviewerPasses": 3,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-19T19:22:45Z",
+        "source": "review",
+        "findings": 1
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-19T19:28:46Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-19T19:36:23Z",
+        "source": "review",
+        "findings": 3
+      }
+    ],
+    "trend": [
+      1,
+      3,
+      3
+    ],
+    "totalFindings": 7
+  },
+  "findings": {
+    "unresolved": 0,
+    "resolved": 7,
+    "resolutionUnknown": 0,
+    "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6allV3",
+        "path": "docs/ai-context/known-failure-patterns.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T19:22:45Z",
+        "excerpt": "Distinguish unsupported claims from evidence overgeneralization"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alsAT",
+        "path": "docs/ai-context/known-failure-patterns.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T19:28:46Z",
+        "excerpt": "Remove the unsupported shared-cause claim"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alsAX",
+        "path": "docs/ai-context/known-failure-patterns.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T19:28:46Z",
+        "excerpt": "Put the new harvest check in the executed workflow"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alsAb",
+        "path": "docs/ai-context/known-failure-patterns.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T19:28:46Z",
+        "excerpt": "Include internal consistency in the proposed check"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alz7E",
+        "path": "docs/ai-context/known-failure-patterns.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T19:36:23Z",
+        "excerpt": "Remove the remaining causal framing"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alz7I",
+        "path": "docs/ai-context/documentation-workflow.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T19:36:23Z",
+        "excerpt": "Narrow the claimed gap in the old cross-check"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6alz7O",
+        "path": "docs/ai-context/known-failure-patterns.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-19T19:36:23Z",
+        "excerpt": "Keep the checklist only in its canonical workflow"
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 7,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "7c0ce89132cb24c02ae0e20e05dd337d96454045",
+    "resolved": true,
+    "since": "7c0ce89132cb24c02ae0e20e05dd337d96454045",
+    "head": "6bda3280f98b9775dd22445236d50c0ab0f84cc8",
+    "commits": 8,
+    "files": [
+      {
+        "file": ".agents/adjudications/534-1.json",
+        "class": "record",
+        "added": 141,
+        "removed": 0
+      },
+      {
+        "file": ".agents/adjudications/534-2.json",
+        "class": "record",
+        "added": 174,
+        "removed": 0
+      },
+      {
+        "file": ".agents/adjudications/539-1.json",
+        "class": "record",
+        "added": 387,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/MEMORY.md",
+        "class": "agent-contract",
+        "added": 2,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/git-cat-file-exit-128-ambiguous.md",
+        "class": "agent-contract",
+        "added": 34,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/github-mcp-review-comments-shape-differs-from-rest.md",
+        "class": "agent-contract",
+        "added": 36,
+        "removed": 0
+      },
+      {
+        "file": ".agents/memory/hook-uncaught-throw-fails-open.md",
+        "class": "agent-contract",
+        "added": 44,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-budget-530.json",
+        "class": "record",
+        "added": 8,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-budget-539.json",
+        "class": "record",
+        "added": 8,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-extension-534-1.json",
+        "class": "record",
+        "added": 11,
+        "removed": 0
+      },
+      {
+        "file": ".agents/receipts/loop-extension-539-1.json",
+        "class": "record",
+        "added": 14,
+        "removed": 0
+      },
+      {
+        "file": ".gitignore",
+        "class": "code",
+        "added": 5,
+        "removed": 0
+      },
+      {
+        "file": "CLAUDE.md",
+        "class": "agent-contract",
+        "added": 4,
+        "removed": 1
+      },
+      {
+        "file": "docs/ai-context/current-roadmap.md",
+        "class": "agent-contract",
+        "added": 28,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/decisions.md",
+        "class": "agent-contract",
+        "added": 69,
+        "removed": 0
+      },
+      {
+        "file": "docs/ai-context/documentation-workflow.md",
+        "class": "agent-contract",
+        "added": 8,
+        "removed": 5
+      },
+      {
+        "file": "docs/ai-context/known-failure-patterns.md",
+        "class": "agent-contract",
+        "added": 176,
+        "removed": 46
+      },
+      {
+        "file": "docs/ai-context/working-modes.md",
+        "class": "agent-contract",
+        "added": 4,
+        "removed": 2
+      },
+      {
+        "file": "scripts/__tests__/pr-ready.test.mjs",
+        "class": "code",
+        "added": 759,
+        "removed": 0
+      },
+      {
+        "file": "scripts/__tests__/review-budget.test.mjs",
+        "class": "code",
+        "added": 45,
+        "removed": 1
+      },
+      {
+        "file": "scripts/__tests__/review-loop-record.test.mjs",
+        "class": "code",
+        "added": 122,
+        "removed": 0
+      },
+      {
+        "file": "scripts/pr-ready.mjs",
+        "class": "code",
+        "added": 467,
+        "removed": 2
+      },
+      {
+        "file": "scripts/review-budget.mjs",
+        "class": "code",
+        "added": 61,
+        "removed": 6
+      },
+      {
+        "file": "scripts/review-loop-record.mjs",
+        "class": "code",
+        "added": 33,
+        "removed": 0
+      }
+    ],
+    "behavioralFiles": 17,
+    "proseOnly": false,
+    "noChange": false,
+    "note": "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the base branch this includes files already reviewed and merged there. Use `artifact` for the size of what is actually under review here."
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/loop-metrics.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}

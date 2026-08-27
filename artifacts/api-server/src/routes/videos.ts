@@ -5,10 +5,15 @@ import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspa
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import { motionPresetsTable, lookStylesTable, enginesTable, type Engine } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
-import { getCachedPrice } from "../lib/falPricing.js";
+import { getCachedPrice, type CachedPrice } from "../lib/falPricing.js";
 import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
-import { checkBudget, recordCost } from "../lib/budgetGate.js";
-import { hasFeature } from "../lib/tierFeatures.js";
+import {
+  BudgetGateError,
+  checkBudget,
+  noteLedgerWriteFailure,
+  recordCost,
+} from "../lib/budgetGate.js";
+import { buildAuthorizationSnapshot, can, principalFromRequest } from "../lib/featureAccess.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { userCanReadObject, userOwnsAiReferenceImage } from "../lib/objectAccess.js";
 import type { File } from "@google-cloud/storage";
@@ -364,6 +369,14 @@ router.post("/videos/generate", async (req, res) => {
   const governanceStartedAt = Date.now();
   let governanceActualCostUsd = 0;
   let governanceFailed = false;
+  // A budget-gate refusal (429/503, both below) is a pre-provider refusal —
+  // fal was never called. Both returns sit inside THIS try, so they reach
+  // the finally below; without this flag, completeGovernance would count
+  // them as fal-provider outcomes (#409 rounds 3-4 fixed this exact issue
+  // in routes/memes.ts — round 5 found this route has the identical shape,
+  // contrary to what round 3/4 claimed here after mistracing which try the
+  // finally below actually pairs with).
+  let budgetGateRefusal = false;
   try {
   if (!getFalApiKey()) {
     res
@@ -393,15 +406,19 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  // authMiddleware populates req.user.realUserRole (DB truth, ignores the
-  // "view as user" toggle) and req.user.membershipTier on every authenticated
-  // request.  Use realUserRole as the gating signal — no direct reads of the
-  // isRealAdmin boolean for authorization decisions.
+  // `isAdmin` here gates admin-only PARAMETER OVERRIDES below (custom engine,
+  // duration, aspect ratio, resolution, mode) — operational/debug privilege,
+  // not a product entitlement, so it stays role-derived on purpose.
+  // `realUserRole` (DB truth, ignoring the "view as user" toggle) is
+  // deliberate: an admin previewing as a user should still be able to use
+  // these debug controls.
+  //
+  // The `userTier`-keyed feature-flag lookup that used to live here is gone —
+  // video_generation now resolves through `can(principal, ...)` below, the
+  // one place a tier is allowed to be consulted for this decision.
   let isAdmin = false;
-  let userTier: string = "unregistered";
   if (req.isAuthenticated()) {
     isAdmin = req.user.realUserRole === "admin";
-    userTier = req.user.membershipTier ?? "unregistered";
   }
 
   // Video generation requires authentication
@@ -410,16 +427,34 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  // Video generation is a Legendary-tier feature; admins are always exempt
-  if (!isAdmin) {
-    const allowed = await hasFeature(userTier, "video_generation");
-    if (!allowed) {
-      res.status(403).json({
-        error: "VIDEO_GENERATION_LOCKED",
-        message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
-      });
-      return;
-    }
+  // One resolver call decides this, for everyone. The admin exemption is not a
+  // short-circuit in front of the grid any more — it is the admin row of the
+  // grid, unioned in by the resolver — so turning `video_generation` off in the
+  // Admin column now actually turns it off for admins, and an admin previewing
+  // as a user is treated as one.
+  const principal = principalFromRequest(req);
+  const videoGenerationAllowed = await can(principal, "video_generation");
+  if (!videoGenerationAllowed) {
+    res.status(403).json({
+      error: "VIDEO_GENERATION_LOCKED",
+      message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
+  }
+
+  // meme_private_visibility is a separate, independently configurable grid
+  // cell — `video_generation` alone does not imply it. Round 5 of PR #425's
+  // review found this route persisting `isPrivate: true` unchecked, so a
+  // caller with only the generation entitlement got the private-visibility
+  // perk for free; `createMemeRecord.ts` fails closed on the same
+  // combination and this route now matches that shape.
+  const privateVisibilityAllowed = await can(principal, "meme_private_visibility");
+  if (parsed.data.isPrivate && !privateVisibilityAllowed) {
+    res.status(403).json({
+      error: "PRIVATE_VISIBILITY_LOCKED",
+      message: "Private videos are a Legendary feature. Upgrade your membership to unlock it.",
+    });
+    return;
   }
 
   const clientIp = getClientIp(req);
@@ -529,6 +564,124 @@ router.post("/videos/generate", async (req, res) => {
   }
   const endpointId = engine.endpointId;
 
+  // ── Resolve pipeline params (engine row provides defaults) ─────────────────
+  // Admin per-request overrides win, then engine defaults from the table.
+  // Computed here (before the job row exists) because the budget gate below
+  // needs aspectRatio/resolution/durationSec to price the request.
+  const durationStr =
+    (isAdmin && parsed.data.adminDuration) || String(engine.defaultDurationSec ?? 6);
+  const durationSec = parseInt(durationStr, 10) || (engine.defaultDurationSec ?? 6);
+  const aspectRatio =
+    (isAdmin && parsed.data.adminAspectRatio) || engine.defaultAspectRatio || "16:9";
+  const resolution =
+    (isAdmin && parsed.data.adminResolution) || engine.defaultResolution || "720p";
+  const mode = (isAdmin && parsed.data.adminMode) || engine.defaultMode || undefined;
+
+  // ── Budget gate ──────────────────────────────────────────────────────────────
+  // Runs BEFORE the job row is created (#409 round 2). Round 1 ran this after
+  // insertion and cleaned up (mark-failed / best-effort delete) on denial, but
+  // a best-effort delete can itself fail during the same outage that caused
+  // the gate to fail, leaving a `pending` row the rate-limit check below still
+  // counts. Gating first means a denied or failed check needs no cleanup at
+  // all — there is nothing to leave behind.
+  const authenticatedUserId = req.isAuthenticated()
+    ? (req.user as { id?: string })?.id ?? null
+    : null;
+  let estimatedCostUsd = 0;
+  let cachedPriceForRecording: CachedPrice | null = null;
+  /**
+   * The figure `checkBudget` was actually given, priced or not.
+   *
+   * Distinct from `estimatedCostUsd`, which is assigned ONLY on the priced
+   * branch and therefore stays 0 through a pricing outage. Recording that zero
+   * would produce a ledger row that exists and contributes nothing — the
+   * ceiling would still stop growing while looking fixed, which is worse than
+   * the original bug because it hides itself.
+   */
+  let gateResolvedCostUsd: number | null = null;
+
+  if (authenticatedUserId) {
+    let priced: { price: CachedPrice; costUsd: number } | null = null;
+    try {
+      const price = await getCachedPrice(endpointId);
+      const dims = resolveVideoDimensions(aspectRatio, resolution);
+      const DEFAULT_FPS = 24;
+      const costUsd = computeVideoCost(
+        { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
+        price,
+      ).costUsd;
+      priced = { price, costUsd };
+    } catch (err) {
+      // Pricing unavailable — degrade to the engine's own configured estimate
+      // below. Deliberately its own catch, separate from the gate call: a gate
+      // failure must never be swallowed here as if it were a pricing miss
+      // (#409).
+      logger.warn({ err, endpointId }, "[videos/generate] Pricing unavailable — gating on the engine estimate");
+    }
+
+    // The gate runs whether or not pricing resolved. `estimateStage2Cost` in
+    // videoPipelineRunner.ts already degrades this way for the async path;
+    // this route used to skip the check entirely instead, which left the
+    // ceiling unenforced exactly when something else was already failing.
+    // Null-safety matters here: `Number(null)` is 0, not NaN, so a null column
+    // would silently price the call at zero — hence the explicit null check
+    // rather than a bare `Number.isFinite`.
+    const perSecRaw = engine.estimatedCostUsdPerSecond;
+    const perSecParsed = perSecRaw === null || perSecRaw === undefined ? NaN : Number(perSecRaw);
+    const ENGINE_PER_SEC_FALLBACK = 0.05; // mirrors videoPipelineRunner.ts
+    const gateCostUsd =
+      priced?.costUsd
+      ?? (Number.isFinite(perSecParsed) ? perSecParsed : ENGINE_PER_SEC_FALLBACK) * durationSec;
+
+    try {
+      // Deliberately outside the catch above (#409): a gate failure is not
+      // a pricing failure, and must propagate rather than be swallowed.
+      // Assigned OUTSIDE the thunk, deliberately. This route resolves its
+      // estimate eagerly and non-fallibly — the pricing miss is already caught
+      // above and the fallback is arithmetic on an engine row loaded earlier —
+      // so there is nothing here that could deny an exempt admin. Putting the
+      // assignment inside the thunk would instead BREAK the admin path: the
+      // thunk never runs for an exempt user, so the recording branch below
+      // would find null and record zero, which is the bug round 1 fixed.
+      gateResolvedCostUsd = gateCostUsd;
+      // The thunk is still required, and this is the shape the guard's own
+      // header calls its residual limit: closing over an already-resolved
+      // value. It is safe *here* only because that value cannot fail. The rule
+      // is bright-line because proving that per call site is what nobody
+      // reliably does — see scripts/check-budget-gate-thunk.mjs.
+      const budget = await checkBudget(authenticatedUserId, async () => gateCostUsd);
+      if (!budget.allowed) {
+        budgetGateRefusal = true;
+        res.status(429).json({
+          error: "BUDGET_EXCEEDED",
+          currentSpend: budget.currentSpend,
+          limit: budget.limit,
+          remainingBudget: budget.remainingBudget,
+          upgradePath: "/upgrade",
+        });
+        return;
+      }
+      // Only a REAL price is carried forward for ledger recording — an
+      // estimate is good enough to gate on, but must not be written to the
+      // cost ledger as if it were measured.
+      if (priced) {
+        cachedPriceForRecording = priced.price;
+        estimatedCostUsd = priced.costUsd;
+      }
+    } catch (err) {
+      if (err instanceof BudgetGateError) {
+        // The gate could not answer — this is the server's fault, not the
+        // user's. Deny with a retry-able 503, not the 429 above: conflating
+        // the two would tell someone hitting a transient database error to
+        // go buy more credit.
+        budgetGateRefusal = true;
+        res.status(503).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  }
+
   const [job] = await db
     .insert(videoJobsTable)
     .values({
@@ -541,6 +694,14 @@ router.post("/videos/generate", async (req, res) => {
       ipAddress: clientIp,
       userId: req.isAuthenticated() ? req.user.id : null,
       isPrivate: parsed.data.isPrivate ?? false,
+      // This route is the SECOND writer of `video_jobs`, and it records its own
+      // request's decision rather than deferring to the pipeline's. A
+      // placeholder here would be a live writer claiming not to know what
+      // authorized the job it is creating.
+      authorizationSnapshot: buildAuthorizationSnapshot(principal, {
+        video_generation: videoGenerationAllowed,
+        meme_private_visibility: privateVisibilityAllowed,
+      }),
     })
     .returning();
 
@@ -548,17 +709,6 @@ router.post("/videos/generate", async (req, res) => {
     res.status(500).json({ error: "Failed to create video job record." });
     return;
   }
-
-  // ── Resolve pipeline params (engine row provides defaults) ─────────────────
-  // Admin per-request overrides win, then engine defaults from the table.
-  const durationStr =
-    (isAdmin && parsed.data.adminDuration) || String(engine.defaultDurationSec ?? 6);
-  const durationSec = parseInt(durationStr, 10) || (engine.defaultDurationSec ?? 6);
-  const aspectRatio =
-    (isAdmin && parsed.data.adminAspectRatio) || engine.defaultAspectRatio || "16:9";
-  const resolution =
-    (isAdmin && parsed.data.adminResolution) || engine.defaultResolution || "720p";
-  const mode = (isAdmin && parsed.data.adminMode) || engine.defaultMode || undefined;
 
   // ── Build pipeline params for the interpreter ─────────────────────────────
   // Pipeline-level keys are camelCase and engine-agnostic; the engine's
@@ -608,44 +758,6 @@ router.post("/videos/generate", async (req, res) => {
     "[videos/generate] Calling fal.subscribe",
   );
 
-  // ── Budget gate ──────────────────────────────────────────────────────────────
-  const authenticatedUserId = req.isAuthenticated()
-    ? (req.user as { id?: string })?.id ?? null
-    : null;
-  let estimatedCostUsd = 0;
-  let cachedPriceForRecording: Awaited<ReturnType<typeof getCachedPrice>> | null = null;
-
-  if (authenticatedUserId) {
-    try {
-      const price = await getCachedPrice(endpointId);
-      cachedPriceForRecording = price;
-
-      const dims = resolveVideoDimensions(aspectRatio, resolution);
-      const DEFAULT_FPS = 24;
-      const { costUsd } = computeVideoCost(
-        { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
-        price,
-      );
-      estimatedCostUsd = costUsd;
-
-      const budget = await checkBudget(authenticatedUserId, costUsd);
-      if (!budget.allowed) {
-        await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id));
-        res.status(429).json({
-          error: "BUDGET_EXCEEDED",
-          currentSpend: budget.currentSpend,
-          limit: budget.limit,
-          remainingBudget: budget.remainingBudget,
-          upgradePath: "/upgrade",
-        });
-        return;
-      }
-    } catch (priceErr) {
-      // Price unavailable — fail open, log warning, continue without budget gate
-      logger.warn({ err: priceErr }, "[videos/generate] Budget gate skipped (pricing unavailable)");
-    }
-  }
-
   try {
     const result = await fal.subscribe(
       endpointId,
@@ -694,22 +806,80 @@ router.post("/videos/generate", async (req, res) => {
       });
 
     // Record cost AFTER successful job completion (spec: not before, to avoid phantom costs)
-    if (authenticatedUserId && cachedPriceForRecording && estimatedCostUsd > 0) {
-      const dims = resolveVideoDimensions(aspectRatio, resolution);
-      const { billingUnits } = computeVideoCost(
-        { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
-        cachedPriceForRecording,
-      );
-      await recordCost({
-        userId: authenticatedUserId,
-        jobType: "video",
-        endpointId,
-        unitPriceAtCreation: cachedPriceForRecording.unitPrice,
-        billingUnits,
-        computedCostUsd: estimatedCostUsd,
-        pricingFetchedAt: cachedPriceForRecording.fetchedAt,
-        jobReferenceId: result.requestId ?? updated?.id?.toString() ?? null,
-      });
+    //
+    // TWO guards removed here, both of which dropped real spend:
+    //   * `cachedPriceForRecording` — an unpriced generation was gated on the
+    //     engine estimate and then recorded nowhere.
+    //   * `estimatedCostUsd > 0` — a deliberate zero is a real price for a free
+    //     endpoint, and `> 0` is the wrong null guard (the same mistake already
+    //     recorded in .agents/memory/).
+    if (authenticatedUserId) {
+      const jobRef = result.requestId ?? updated?.id?.toString() ?? null;
+      if (cachedPriceForRecording) {
+        const dims = resolveVideoDimensions(aspectRatio, resolution);
+        const { billingUnits } = computeVideoCost(
+          { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
+          cachedPriceForRecording,
+        );
+        await recordCost({
+          userId: authenticatedUserId,
+          jobType: "video",
+          endpointId,
+          unitPriceAtCreation: cachedPriceForRecording.unitPrice,
+          billingUnits,
+          computedCostUsd: estimatedCostUsd,
+          pricingFetchedAt: cachedPriceForRecording.fetchedAt,
+          isEstimated: false,
+          jobReferenceId: jobRef,
+        });
+      } else {
+        // Unpriced. Unlike the image paths, this route computes its estimate
+        // EAGERLY from an already-loaded engine before calling checkBudget, so
+        // the figure is in hand whether or not the gate consumed it — including
+        // for an exempt admin. No post-call lookup, and therefore no failure
+        // window that could lose a row we could already account for.
+        //
+        // Record the figure the GATE used — `gateResolvedCostUsd`, not
+        // `estimatedCostUsd`. The latter is assigned only on the priced branch,
+        // so on a pricing miss it is still 0 and this row would record nothing.
+        //
+        // Per-second decomposition: unit_price is the per-second rate and
+        // billing_units the duration, so unit_price * billing_units =
+        // computed_cost holds. pricing_fetched_at is the write time; nothing
+        // was fetched, which is what is_estimated = true says.
+        if (gateResolvedCostUsd === null) {
+          // Structurally unreachable: the assignment and this site sit under
+          // the same `authenticatedUserId` guard, and the assignment is the
+          // first statement of the gate's try block. TypeScript cannot narrow
+          // across that distance, so the null has to be handled — and the one
+          // thing it must NOT do is fall through to a silent zero. A zero row
+          // is worse than a missing one because it exists, so nothing looks
+          // wrong while the ceiling stops growing. This makes the impossible
+          // case land on the same counter operators already watch, and still
+          // writes the row, so every path through here records something.
+          logger.error(
+            { endpointId, jobRef },
+            "[videos/generate] gate figure unavailable at recording time — recording zero; recorded spend for this user is now understated",
+          );
+// Detached, not awaited: the pool checkout inside this call is
+          // unbounded and this is a user-facing path. See the call site in
+          // budgetGate.recordCost for the full reasoning.
+          void noteLedgerWriteFailure();
+        }
+        const total = gateResolvedCostUsd ?? 0;
+        const perSecond = durationSec > 0 ? total / durationSec : total;
+        await recordCost({
+          userId: authenticatedUserId,
+          jobType: "video",
+          endpointId,
+          unitPriceAtCreation: perSecond,
+          billingUnits: durationSec > 0 ? durationSec : 1,
+          computedCostUsd: total,
+          pricingFetchedAt: new Date(),
+          isEstimated: true,
+          jobReferenceId: jobRef,
+        });
+      }
     }
 
     const responseBody = {
@@ -718,7 +888,15 @@ router.post("/videos/generate", async (req, res) => {
       status: "completed",
       record: updated ?? null,
     };
-    governanceActualCostUsd = estimatedCostUsd;
+    // The priced figure when we have one, otherwise the figure the gate used.
+    // NOT bare `estimatedCostUsd`, which is assigned only on the priced branch
+    // and stays 0 through a pricing outage — the same defect this PR fixed one
+    // block above for the ledger, and missed here. Resource governance is an
+    // INDEPENDENT enforcement layer (its own daily/monthly caps and the admin
+    // top-spender view), so a zero here makes unpriced videos invisible to it
+    // even once the ledger records them correctly. Two enforcement layers, the
+    // same figure, or the second one quietly stops binding too.
+    governanceActualCostUsd = cachedPriceForRecording ? estimatedCostUsd : (gateResolvedCostUsd ?? 0);
     res.json(responseBody);
   } catch (err) {
     await db
@@ -787,7 +965,11 @@ router.post("/videos/generate", async (req, res) => {
     completeGovernance(req, {
       provider: "fal",
       latencyMs: Date.now() - governanceStartedAt,
-      failed: governanceFailed || res.statusCode >= 400,
+      failed: !budgetGateRefusal && (governanceFailed || res.statusCode >= 400),
+      // A budget-gate refusal never reached fal — see the flag's own comment
+      // above. Same fix as routes/memes.ts (#409 rounds 3-4), applied here
+      // in round 5 after round 3/4 incorrectly concluded it didn't apply.
+      skipProviderHealth: budgetGateRefusal,
       actualCostUsd: !governanceFailed && res.statusCode < 400 ? governanceActualCostUsd : 0,
       responseStatus: res.statusCode,
       idempotencyKey: governanceGate.idempotencyKey,

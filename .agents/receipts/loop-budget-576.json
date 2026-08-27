@@ -1,0 +1,8 @@
+{
+  "pr": 576,
+  "tier": "product",
+  "budget": 5,
+  "criticality": 30,
+  "artifact": "Deletion of the unmountable AccountMenu dropdown, corrected avatar aria-label, three corrected comments",
+  "declaredAt": "2026-08-26T17:08:30.429Z"
+}

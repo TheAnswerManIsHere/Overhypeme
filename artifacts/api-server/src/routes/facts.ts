@@ -1,4 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { effectiveAvatarUrl, effectiveAvatarUrls } from "../lib/effectiveAvatar";
+import { isRealAdminRow } from "../lib/adminIdentity";
+import { effectiveTierExpr } from "../lib/membershipState";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { logActivity } from "../lib/activity";
@@ -16,7 +19,7 @@ import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { logger } from "../lib/logger";
-import { hasFeature } from "../lib/tierFeatures";
+import { can, principalFromRequest } from "../lib/featureAccess";
 import { verifyCaptcha } from "../lib/captcha";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull, not, like, or } from "drizzle-orm";
@@ -42,11 +45,31 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   const rMap = userId ? await getViewerFactRatings(userId, ids) : new Map<number, string>();
 
   const sIds = [...new Set(facts.filter((f) => f.submittedById).map((f) => f.submittedById!))];
-  const sMap = new Map<string, { displayName: string | null; profileImageUrl: string | null }>();
+  const sMap = new Map<string, { displayName: string | null; avatarUrl: string }>();
   if (sIds.length) {
-    const rows = await db.select({ id: usersTable.id, displayName: usersTable.displayName, profileImageUrl: usersTable.profileImageUrl })
+    // Selects what the effective-avatar projection needs, and resolves it over
+    // the whole batch rather than per row. This projection previously emitted
+    // `profileImageUrl` directly, with no `avatarSource` check at all — so a
+    // user who uploaded an identity photo for meme generation and never chose
+    // it as their avatar had it shown publicly beside every fact they
+    // submitted.
+    const rows = await db.select({
+      id: usersTable.id,
+      displayName: usersTable.displayName,
+      profileImageUrl: usersTable.profileImageUrl,
+      avatarSource: usersTable.avatarSource,
+      avatarStyle: usersTable.avatarStyle,
+      email: usersTable.email,
+      isAdmin: usersTable.isAdmin,
+      membershipTier: effectiveTierExpr(),
+    })
       .from(usersTable).where(and(inArray(usersTable.id, sIds), eq(usersTable.isActive, true)));
-    for (const r of rows) sMap.set(r.id, r);
+    const avatars = await effectiveAvatarUrls(
+      rows.map((r) => ({ ...r, isRealAdmin: isRealAdminRow(r) })),
+    );
+    for (const r of rows) {
+      sMap.set(r.id, { displayName: r.displayName, avatarUrl: avatars.get(r.id)! });
+    }
   }
 
   const imageCap = await getConfigInt("api_images_per_gender_cap", 5);
@@ -55,7 +78,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score, wilsonScore: f.wilsonScore,
     commentCount: f.commentCount, shareCount: f.shareCount, hashtags: hMap.get(f.id) ?? [],
     submittedBy: f.submittedById ? (sMap.get(f.submittedById)?.displayName ?? null) : null,
-    submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.profileImageUrl ?? null) : null,
+    submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.avatarUrl ?? null) : null,
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
     createdAt: f.createdAt.toISOString(),
     updatedAt: f.updatedAt.toISOString(),
@@ -426,11 +449,28 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
     .orderBy(...orderBy).limit(limit).offset(offset);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
-  const aMap = new Map<string, { displayName: string | null; profileImageUrl: string | null }>();
+  const aMap = new Map<string, { displayName: string | null; avatarUrl: string }>();
   if (authorIds.length) {
-    const users = await db.select({ id: usersTable.id, displayName: usersTable.displayName, profileImageUrl: usersTable.profileImageUrl })
+    // Same batch projection as the submitter map above, and the same
+    // pre-existing leak being closed: comment-author avatars ignored
+    // `avatarSource` entirely.
+    const users = await db.select({
+      id: usersTable.id,
+      displayName: usersTable.displayName,
+      profileImageUrl: usersTable.profileImageUrl,
+      avatarSource: usersTable.avatarSource,
+      avatarStyle: usersTable.avatarStyle,
+      email: usersTable.email,
+      isAdmin: usersTable.isAdmin,
+      membershipTier: effectiveTierExpr(),
+    })
       .from(usersTable).where(and(inArray(usersTable.id, authorIds), eq(usersTable.isActive, true)));
-    for (const u of users) aMap.set(u.id, u);
+    const avatars = await effectiveAvatarUrls(
+      users.map((u) => ({ ...u, isRealAdmin: isRealAdminRow(u) })),
+    );
+    for (const u of users) {
+      aMap.set(u.id, { displayName: u.displayName, avatarUrl: avatars.get(u.id)! });
+    }
   }
 
   const viewerId = (req as AuthenticatedRequest).isAuthenticated?.() ? (req as AuthenticatedRequest).user.id : undefined;
@@ -442,7 +482,7 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
     id: c.id, factId: c.factId, text: c.text,
     authorId: c.authorId ?? null,
     authorName: c.authorId ? (aMap.get(c.authorId)?.displayName ?? null) : null,
-    authorImage: c.authorId ? (aMap.get(c.authorId)?.profileImageUrl ?? null) : null,
+    authorImage: c.authorId ? (aMap.get(c.authorId)?.avatarUrl ?? null) : null,
     createdAt: c.createdAt.toISOString(),
     heartCount: c.heartCount ?? 0,
     viewerHasHearted: heartedIds.has(c.id),
@@ -462,14 +502,16 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // `req.user.membershipTier` is rebuilt from the DB on every authenticated
-  // request by authMiddleware, so it's always fresh. Intentional premium-tier
-  // exception: legendary members and admins always skip per-comment captcha.
-  // The direct tier/admin check is the authoritative gate; the tier features
-  // table entry is a secondary check that can extend the bypass to other tiers.
-  const userDbTier = req.user.membershipTier ?? "unregistered";
-  const isLegendaryOrAdmin = userDbTier === "legendary" || !!req.user.isAdmin;
-  const captchaBypass = isLegendaryOrAdmin || await hasFeature(userDbTier, "comment_captcha_bypass");
+  // ONE expression, one source of truth. This site used to OR a direct
+  // tier/admin comparison together with a grid lookup — "the direct check is
+  // authoritative; the table entry is a secondary check" — which is two rules
+  // for one capability and exactly the shape this plan exists to remove. The
+  // admin half is not a short-circuit in front of the grid; it is the grid's
+  // admin row, unioned in by the resolver.
+  //
+  // This gate deliberately honours "view as user": an admin previewing as a
+  // registered user gets the registered experience, captcha included.
+  const captchaBypass = await can(principalFromRequest(req), "comment_captcha_bypass");
 
   if (!captchaBypass) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
@@ -479,6 +521,14 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
   }
 
   const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text, status: "pending" }).returning();
+
+  // `req.user` carries `profileImageUrl` but not the avatar-selection columns,
+  // so the effective-avatar projection below needs them from the row.
+  const [commentAuthor] = await db
+    .select({ avatarSource: usersTable.avatarSource, avatarStyle: usersTable.avatarStyle })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
 
   void logActivity({
     userId: req.user.id,
@@ -499,7 +549,17 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
   res.status(201).json({
     id: comment.id, factId: comment.factId, text: comment.text, status: "pending",
     authorId: req.user.id, authorName: req.user.displayName ?? null,
-    authorImage: req.user.profileImageUrl ?? null,
+    // The third public avatar projection — the echo of the comment just
+    // created. It emitted `req.user.profileImageUrl` raw, so it leaked the same
+    // identity photo the listing above no longer does.
+    authorImage: await effectiveAvatarUrl({
+      id: req.user.id,
+      profileImageUrl: req.user.profileImageUrl ?? null,
+      avatarSource: commentAuthor?.avatarSource ?? null,
+      avatarStyle: commentAuthor?.avatarStyle ?? null,
+      membershipTier: req.user.membershipTier ?? null,
+      isRealAdmin: !!req.user.isRealAdmin,
+    }),
     createdAt: comment.createdAt.toISOString(),
     heartCount: 0,
     viewerHasHearted: false,
