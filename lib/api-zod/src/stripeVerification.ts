@@ -52,6 +52,29 @@ export const STRIPE_UNVERIFIED_CONFIRM_MESSAGE =
   "We can't confirm your payment status right now — please don't pay again. If your payment went through, your account will update on its own; check back shortly, and contact support if it hasn't.";
 
 /**
+ * The message for RECEIPT LOOKUP, and it exists because the default was false
+ * on exactly one path.
+ *
+ * `GET /stripe/invoice/:invoiceId/receipt` retrieves evidence of a charge the
+ * customer ALREADY made. Sending the default there tells someone asking for the
+ * receipt of an invoice they paid that no charge was made — a false statement
+ * about their money, made by a working system in a degraded window.
+ *
+ * The lesson recorded rather than the fix alone: round 2 fixed the confirmation
+ * path and argued it was the whole class, on the reasoning that a refusal always
+ * precedes that request's own Stripe mutation. That reasoning was sound about
+ * MUTATIONS and silent about LOOKUPS — this route mutates nothing and reads a
+ * charge that happened earlier. The class was "paths where the claim can be
+ * false", and it had two members, not one.
+ *
+ * So this one asserts nothing about whether money moved. It says what is
+ * actually true — the receipt cannot be fetched right now, and their payment and
+ * account are untouched by that.
+ */
+export const STRIPE_UNVERIFIED_RECEIPT_MESSAGE =
+  "We can't retrieve your receipt right now while we verify our payment provider connection. Your payment and your account are unaffected — please try again shortly.";
+
+/**
  * Four states, not three. `unconfigured` is the credentials-absent path: an
  * integration nobody enabled, which is terminal and must not be polled —
  * reporting it as `pending` would make the page poll forever and render an

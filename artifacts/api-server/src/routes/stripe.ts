@@ -28,7 +28,7 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
-import { STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
+import { STRIPE_UNVERIFIED_CONFIRM_MESSAGE, STRIPE_UNVERIFIED_RECEIPT_MESSAGE } from "@workspace/api-zod";
 import { handleReceiptRequest } from "../lib/receiptHandler";
 import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
 import { priceGrantsMembership } from "../lib/membershipPricing";
@@ -390,6 +390,9 @@ router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Respo
       res,
       err,
       clientMessage: "Unable to retrieve receipt. Please try again.",
+      // The one route whose purpose is evidence of a charge that ALREADY
+      // happened, so the shared default's "No charge was made" is false here.
+      unverifiedClientMessage: STRIPE_UNVERIFIED_RECEIPT_MESSAGE,
       logMessage: "GET /stripe/invoice/:invoiceId/receipt error",
       extra: { userId: req.user.id, invoiceId },
     });

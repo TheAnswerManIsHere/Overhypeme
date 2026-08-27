@@ -127,4 +127,45 @@ describe("test 15 — payment routes name the unverified state", () => {
     });
   }
 });
+
+describe("no refusal message asserts something false about the customer's money", () => {
+  it("the receipt lookup never claims no charge was made", async () => {
+    // Round 6's escalation, and David's call. This route's entire purpose is
+    // retrieving evidence of a charge that ALREADY happened, so the shared
+    // default — "No charge was made" — is a false statement about someone's
+    // money, sent to them by a working system in a degraded window.
+    //
+    // Note what is asserted: not that a particular replacement string is
+    // present, but that the CLAIM is absent. A future edit that rewords the
+    // receipt message still passes; one that lets the default back through
+    // does not.
+    const res = await request(makeApp())
+      .get("/stripe/invoice/in_test_receipt/receipt")
+      .set("authorization", `Bearer ${sid}`);
+
+    assert.equal(res.status, 503, `${res.status} ${JSON.stringify(res.body)}`);
+    assert.equal(res.body.code, STRIPE_UNVERIFIED_CODE);
+    assert.doesNotMatch(
+      String(res.body.error),
+      /no charge|not been charged|charge was made/i,
+      "a receipt lookup must not tell a paying customer that no charge was made",
+    );
+    assert.doesNotMatch(String(res.body.error), /acct_/, "no account id may reach an end user");
+    assert.match(String(res.body.error), /receipt/i, "it should say what actually failed");
+  });
+
+  it("the pre-charge routes keep the reassurance, which is true on them", async () => {
+    // The other half of the same property: neutralising the claim everywhere
+    // would have cost the six pre-charge paths the reassurance that stops a
+    // worried customer paying twice. Fixing one path must not silently change
+    // the others.
+    const res = await request(makeApp())
+      .post("/stripe/checkout")
+      .send({ priceId: "price_test_x" })
+      .set("authorization", `Bearer ${sid}`);
+
+    assert.equal(res.status, 503);
+    assert.match(String(res.body.error), /No charge was made/i);
+  });
+});
 });
