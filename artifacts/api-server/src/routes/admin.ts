@@ -3342,6 +3342,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     // aggregate needs shared state, which this increment may not add — it is a
     // named gap, not an implied capability.
     const { getVerificationStatus, readStripeLiveModeStrict } = await import("../lib/stripeAccountGuard");
+    const { ensureVerificationArmedFor } = await import("../lib/stripeInit");
     const { WORKER_INSTANCE_ID } = await import("../lib/workerHeartbeats");
 
     const [duplicateSuppressedRows, recentFailures, verificationLiveMode] = await Promise.all([
@@ -3356,6 +3357,14 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       // renders null as pending with that reason rather than guessing a mode.
       readStripeLiveModeStrict().catch(() => null),
     ]);
+
+    // Reading the status is not enough on its own. If another autoscale
+    // instance committed a mode toggle, this process has never verified the
+    // newly active mode and — on a normally successful boot — has nothing
+    // scheduled to. Without this the panel would poll a permanently
+    // transitional state, reporting active verification with nothing in
+    // flight. Idempotent and a no-op once any outcome is recorded.
+    ensureVerificationArmedFor(verificationLiveMode);
 
     const verification = getVerificationStatus(verificationLiveMode, WORKER_INSTANCE_ID);
 

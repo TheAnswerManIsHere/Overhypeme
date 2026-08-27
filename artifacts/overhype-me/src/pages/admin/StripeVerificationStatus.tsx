@@ -18,6 +18,15 @@ import {
 export const VERIFICATION_POLL_INTERVAL_MS = 5_000;
 
 /**
+ * How far before an observation's expiry the settled panel takes one sample.
+ *
+ * The lead has to be long enough for the request to complete, and short enough
+ * that a terminated instance's entry still ages out promptly. It is a lead, not
+ * an interval: the refresh happens once per TTL, not once per lead.
+ */
+export const TERMINAL_REFRESH_LEAD_MS = 15_000;
+
+/**
  * Once nothing is changing, back off to the server's own retry cadence.
  *
  * The server re-attempts verification every 30s, so a recovery cannot surface
@@ -113,22 +122,26 @@ export function StripeVerificationStatus({
       }
 
       // Polling has stopped, but expiry is a function of TIME, and `pruneStale-
-      // Observations` at render time is not reactive to it. Without this, an
-      // instance observed as `refused` and then terminated stays on screen
+      // Observations` at render time is not reactive to it. Without a wake-up,
+      // an instance observed as `refused` and then terminated stays on screen
       // forever, because nothing ever re-renders to notice its entry aged out.
       //
-      // So when the last observation is due to expire, wake once and re-derive.
-      // That either drops it — changing what the panel says — or, if a fresh
-      // sample has arrived since, does nothing.
+      // Round 4 scheduled that wake-up to PRUNE, and round 5 found what pruning
+      // alone cannot know: once polling has stopped, a still-running instance
+      // looks exactly like a terminated one — neither has been seen lately,
+      // because nothing has been asking. Every terminal observation therefore
+      // aged out at the TTL and the whole panel vanished from a healthy page.
+      //
+      // So the wake-up SAMPLES, slightly before the oldest observation is due
+      // to expire. A live instance answers and its entry is renewed; a
+      // terminated one does not and its entry ages out on the next pass. That
+      // is the distinction the panel needs, and it costs one request per TTL
+      // per mount — two orders of magnitude below the polling interval, and
+      // only while an admin has the page open.
       const expiresAt = nextExpiryAt(pruned);
       if (expiresAt === null) return;
-      timer = setTimeout(() => {
-        if (cancelled) return;
-        const next = pruneStaleObservations(pollRef.current);
-        pollRef.current = next;
-        setPoll(next);
-        scheduleNext();
-      }, Math.max(0, expiresAt - Date.now()) + 1);
+      const wakeAt = expiresAt - TERMINAL_REFRESH_LEAD_MS;
+      timer = setTimeout(() => void sample(), Math.max(0, wakeAt - Date.now()));
     };
 
     const sample = async () => {
@@ -144,11 +157,26 @@ export function StripeVerificationStatus({
         // a stale TEST label when the sample actually describes LIVE. A sample
         // for a mode this page is not showing is not evidence about this page.
         const usable = observation && expectedMode !== null && observation.mode === expectedMode;
-        // Only when the page KNOWS its mode and the sample disagrees. A null
-        // expectedMode means the page has not loaded the stored mode yet — that
-        // is ignorance, not a change, and reporting it as one would send the
-        // page into a refresh it does not need.
-        if (observation && !usable && expectedMode !== null && !announcedModeChange.current) {
+        // Only when the page KNOWS its mode and the sample reports a DIFFERENT
+        // known mode. Two kinds of ignorance are excluded, and round 5 caught
+        // the second one:
+        //
+        //   - `expectedMode === null` — the page has not loaded the stored mode
+        //     yet. That is ignorance, not a change.
+        //   - `observation.mode === null` — the responding instance could not
+        //     read the stored mode. Also ignorance, and treating it as a change
+        //     spent the one-shot notification on nothing: the Billing page
+        //     cannot apply a null mode, its fallback refresh can return the
+        //     same cached value it already had, and a LATER poll reporting a
+        //     genuine switch then found the notification already consumed —
+        //     leaving the page stuck on the old mode until a reload.
+        if (
+          observation &&
+          !usable &&
+          expectedMode !== null &&
+          observation.mode !== null &&
+          !announcedModeChange.current
+        ) {
           announcedModeChange.current = true;
           onStoredModeChanged?.(observation.mode);
         }

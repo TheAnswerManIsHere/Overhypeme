@@ -303,11 +303,15 @@ export function __discardedBuildsForTests(): { count: number; lastPoolEnded: boo
 export function __expireModeRecheckForTests(): void {
   lastStrictModeReadAt = 0;
   lastStrictMode = null;
+  strictModeInFlight = null;
+  strictModeFailure = null;
 }
 
 export async function __endCachedSyncForTests(): Promise<void> {
   lastStrictModeReadAt = 0;
   lastStrictMode = null;
+  strictModeInFlight = null;
+  strictModeFailure = null;
   const current = stripeSync;
   stripeSync = null;
   stripeSyncLiveMode = null;
@@ -350,6 +354,56 @@ let lastStrictModeReadAt = 0;
 let lastStrictMode: boolean | null = null;
 
 /**
+ * Single-flight for the strict recheck, and a throttle on FAILED attempts.
+ *
+ * Round 5 found the amplification the interval alone does not bound. When
+ * `SYNC_MODE_RECHECK_MS` expires, every concurrent caller observes the recheck
+ * as due before any of them has refreshed the timestamp, so each pays for its
+ * own uncached row read. `getStripeSync()` runs before signature validation on
+ * the one route the rate limiter exempts *because* it has a signature gate, so
+ * "concurrent callers" there means "as many as an attacker sends" — a burst
+ * every interval rather than the one query per interval the interval promises.
+ *
+ * The failure half is the sharper one: `captureModeForConstruction()` stamps
+ * the read time only on SUCCESS, deliberately, so a failed read cannot postpone
+ * the next attempt to learn the mode. Correct for one caller, and it means a
+ * database that is refusing reads never refreshes the timestamp at all — so
+ * every request keeps querying it, for as long as it stays down. The attempt
+ * stamp below is separate from the read stamp for exactly that reason: it
+ * throttles retries of a failure without ever making a failure look like an
+ * answer.
+ */
+let strictModeInFlight: Promise<boolean> | null = null;
+let strictModeFailure: { at: number; error: unknown } | null = null;
+
+function refreshVerifiedStripeMode(): Promise<boolean> {
+  // Join the read already in flight rather than starting another.
+  if (strictModeInFlight !== null) return strictModeInFlight;
+
+  // Replay a recent failure instead of re-querying a database that just
+  // refused. Bounded by the same interval, so a transient outage costs one
+  // read per interval and recovery is never postponed by more than that.
+  if (strictModeFailure !== null && Date.now() - strictModeFailure.at < SYNC_MODE_RECHECK_MS) {
+    return Promise.reject(strictModeFailure.error);
+  }
+
+  const attempt = captureModeForConstruction().then(
+    (live) => {
+      strictModeInFlight = null;
+      strictModeFailure = null;
+      return live;
+    },
+    (err: unknown) => {
+      strictModeInFlight = null;
+      strictModeFailure = { at: Date.now(), error: err };
+      throw err;
+    },
+  );
+  strictModeInFlight = attempt;
+  return attempt;
+}
+
+/**
  * The authoritative Stripe mode, read from the row and bounded by
  * `SYNC_MODE_RECHECK_MS`.
  *
@@ -370,20 +424,43 @@ export async function getVerifiedStripeMode(): Promise<boolean> {
   if (lastStrictMode !== null && Date.now() - lastStrictModeReadAt < SYNC_MODE_RECHECK_MS) {
     return lastStrictMode;
   }
-  const live = await captureModeForConstruction();
-  lastStrictMode = live;
-  return live;
+  return refreshVerifiedStripeMode();
 }
 
 export async function getStripeSync() {
-  const cachedMode = await isLiveMode();
-  const recheckDue = Date.now() - lastStrictModeReadAt >= SYNC_MODE_RECHECK_MS;
-  if (stripeSync && stripeSyncLiveMode === cachedMode && !recheckDue) return stripeSync;
-  refuseIfThrottled(cachedMode);
+  // The fast path compares the published sync against the AUTHORITATIVE mode,
+  // never against the interval alone.
+  //
+  // Round 5's P1: once `lastStrictModeReadAt` became a value SHARED with
+  // `getVerifiedStripeMode()`, a request to `/stripe/plans` or `/stripe/config`
+  // could refresh it — learning the new mode — while this instance's config
+  // cache and its published sync still described the old one. The old test
+  // (`stripeSyncLiveMode === cachedMode && !recheckDue`) then saw a fresh
+  // timestamp and reused the superseded sync for another full interval. The
+  // shared timestamp had made a stale sync look current, which is the opposite
+  // of what sharing the read was for.
+  //
+  // So the published sync is reused only while the strict answer is fresh AND
+  // the sync was built for it. The lenient read no longer participates in that
+  // decision at all — it cannot outvote the row.
+  if (
+    stripeSync &&
+    lastStrictMode !== null &&
+    stripeSyncLiveMode === lastStrictMode &&
+    Date.now() - lastStrictModeReadAt < SYNC_MODE_RECHECK_MS
+  ) {
+    return stripeSync;
+  }
+
+  // Still the lenient read: this pre-check can only WITHHOLD, and paying for a
+  // row read before refusing is the amplification round 3 closed.
+  refuseIfThrottled(await isLiveMode());
 
   for (let attempt = 0; attempt < MAX_CONSTRUCTION_ATTEMPTS; attempt++) {
     const generationAtStart = constructionGeneration;
-    const live = await captureModeForConstruction();
+    // Through the shared accessor, so a flood arriving the moment the interval
+    // expires collapses to one row read rather than one each.
+    const live = await getVerifiedStripeMode();
 
     // The lenient read disagreed with the row — either it was stale, or a
     // toggle raced back. The strict answer decides.

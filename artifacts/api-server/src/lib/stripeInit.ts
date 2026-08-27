@@ -35,6 +35,7 @@ import { logger } from "./logger";
 import {
   BOOT_VERIFY_TIMEOUT_MS,
   VERIFY_RETRY_INTERVAL_MS,
+  hasVerificationAttemptFor,
   markModeUnconfigured,
   readStripeLiveModeStrict,
   verifyStripeAccount,
@@ -130,6 +131,7 @@ export function __resetStripeInitForTests(): void {
   initializationInFlight = null;
   stopStripeVerificationRetry();
   deterministicallyRefusedModes.clear();
+  verificationKickInFlight = false;
 }
 
 export function hasStripeInitializationCompleted(): boolean {
@@ -360,6 +362,45 @@ function armStripeVerificationRetry(): void {
   }, VERIFY_RETRY_INTERVAL_MS);
   retryTimer.unref?.();
 }
+
+/**
+ * Start verification for a stored mode this process has never attempted.
+ *
+ * Round 5's case, and it is specific to autoscale: when ANOTHER instance
+ * commits a mode toggle, this process has no state for the newly active mode —
+ * and a normally successful boot has already stopped its retry timer, or never
+ * armed one. Nothing here is scheduled to verify the new mode. The Billing
+ * poll only reads a pure getter, so it would report `pending` with
+ * "Verification has not run yet" indefinitely, and keep polling forever, while
+ * claiming to be actively verifying. The status was transitional and nothing
+ * was in transit.
+ *
+ * So detecting an unseen active mode STARTS verification rather than
+ * publishing a passive state: one pass now, and the retry loop armed so a
+ * failure of that pass is not the end of it. Both are idempotent — the arm is a
+ * no-op while a timer exists, and the pass is skipped while one is in flight —
+ * and the whole thing stops calling itself as soon as any outcome is recorded
+ * for the mode, which every terminating path of a pass does.
+ */
+export function ensureVerificationArmedFor(liveMode: boolean | null): void {
+  // A mode that cannot be read is not a mode that can be verified. That is an
+  // indefinite answer the caller already renders as pending with its own
+  // reason, and it recovers through the read, not through this.
+  if (liveMode === null) return;
+  if (hasVerificationAttemptFor(liveMode)) return;
+
+  armStripeVerificationRetry();
+
+  if (verificationKickInFlight) return;
+  verificationKickInFlight = true;
+  void runStripeVerificationRetryOnce()
+    .catch((err: unknown) => logger.error({ err }, "Stripe verification pass for a newly active mode threw"))
+    .finally(() => {
+      verificationKickInFlight = false;
+    });
+}
+
+let verificationKickInFlight = false;
 
 /**
  * Called immediately after the port is bound. Runs the remaining initialization

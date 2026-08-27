@@ -23,7 +23,10 @@ import {
   worstObservedState,
   type VerificationSnapshot,
 } from "./stripeVerification";
-import { StripeVerificationStatus } from "./StripeVerificationStatus";
+import {
+  StripeVerificationStatus,
+  VERIFICATION_POLL_INTERVAL_MS,
+} from "./StripeVerificationStatus";
 
 function snap(partial: Partial<VerificationSnapshot> & { instanceId: string }): VerificationSnapshot {
   return {
@@ -318,6 +321,79 @@ describe("the rendered status surface", () => {
     // can answer from an instance still holding a stale config cache.
     expect(onStoredModeChanged).toHaveBeenCalledWith("live");
     cleanup();
+  });
+
+  it("an unreadable mode does NOT consume the one-shot mode-change notification", async () => {
+    // Round 5's P2. When the responding instance cannot read the stored mode it
+    // emits `mode: null` — ignorance, not a change. The old branch spent the
+    // one-shot notification on it: the Billing page cannot apply a null mode,
+    // its fallback refresh can return the same cached value it already had, and
+    // a LATER poll reporting a GENUINE switch then found the notification
+    // already consumed. The page sat on the old mode, rejecting every sample,
+    // until someone reloaded it.
+    let call = 0;
+    const fetchStatus = vi.fn(async () => {
+      call++;
+      if (call === 1) return snap({ instanceId: "inst-1", state: "verified", mode: "test" });
+      if (call === 2) return snap({ instanceId: "inst-9", state: "pending", mode: null });
+      return snap({ instanceId: "inst-2", state: "verified", mode: "live" });
+    });
+    const onStoredModeChanged = vi.fn();
+
+    render(
+      <StripeVerificationStatus
+        fetchStatus={fetchStatus}
+        expectedMode="test"
+        onStoredModeChanged={onStoredModeChanged}
+        pollIntervalMs={1}
+        settledPollIntervalMs={1}
+      />,
+    );
+
+    // The genuine switch must still be announced, with the real mode — which is
+    // exactly what the unreadable sample used to swallow.
+    await waitFor(() => expect(onStoredModeChanged).toHaveBeenCalledWith("live"));
+    expect(onStoredModeChanged).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it("a settled panel keeps sampling before the TTL, so a live instance does not age out", async () => {
+    // Round 5's P2 on the expiry wake-up. Round 4 scheduled that wake to PRUNE,
+    // and pruning cannot tell a terminated instance from one nothing has asked
+    // lately — which, once polling has settled, is every instance. So every
+    // terminal observation aged out at the TTL and the whole panel vanished
+    // from a perfectly healthy page.
+    vi.useFakeTimers();
+    try {
+      const fetchStatus = vi.fn(async () => snap({ instanceId: "inst-1", state: "verified", mode: "test" }));
+      render(
+        <StripeVerificationStatus
+          fetchStatus={fetchStatus}
+          expectedMode="test"
+          pollIntervalMs={10}
+          settledPollIntervalMs={10}
+        />,
+      );
+
+      // Close the settle window, then prove polling has actually STOPPED —
+      // otherwise the assertions below would pass on ordinary polling and say
+      // nothing about the wake-up at all.
+      await vi.advanceTimersByTimeAsync(10 * (SETTLE_CONFIRM_POLLS + 3));
+      const settledCalls = fetchStatus.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fetchStatus.mock.calls.length).toBe(settledCalls);
+
+      // Now past the point where the observation would age out. The instance is
+      // still answering, so the panel must still show it — which requires the
+      // scheduled wake to have SAMPLED rather than pruned.
+      await vi.advanceTimersByTimeAsync(OBSERVATION_TTL_MS);
+
+      expect(fetchStatus.mock.calls.length).toBeGreaterThan(settledCalls);
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("verified");
+    } finally {
+      vi.useRealTimers();
+      cleanup();
+    }
   });
 
   it("a seeded initial sample renders without a second fetch", async () => {

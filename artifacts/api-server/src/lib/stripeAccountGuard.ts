@@ -159,13 +159,33 @@ export function __strictModeReadsForTests(): number {
   return strictModeReads;
 }
 
-export async function readStripeLiveModeStrict(): Promise<boolean> {
-  strictModeReads++;
+let readModeRow: () => Promise<boolean> = async () =>
   // An absent row is a readable answer, not a failure: the seed has never run
   // or the key was removed, and both mean "not live". A read that THREW is what
   // must not resolve to a mode, and `getConfigStringStrict` is the sibling of
   // the cached getters that propagates rather than defaulting.
-  return (await getConfigStringStrict("stripe_live_mode")) === "true";
+  (await getConfigStringStrict("stripe_live_mode")) === "true";
+
+/**
+ * Test seam. Returns a restore function.
+ *
+ * A failing row read has no other reachable trigger: the only way to make
+ * `getConfigStringStrict` throw from a test is to break the database for every
+ * other suite in the process. The behaviour that needs an oracle — that a
+ * failure is throttled rather than re-queried once per request — is not
+ * testable without it.
+ */
+export function __setStrictModeReaderForTests(fn: () => Promise<boolean>): () => void {
+  const previous = readModeRow;
+  readModeRow = fn;
+  return () => {
+    readModeRow = previous;
+  };
+}
+
+export async function readStripeLiveModeStrict(): Promise<boolean> {
+  strictModeReads++;
+  return readModeRow();
 }
 
 /** The account id this environment declares for a mode. */
@@ -336,6 +356,18 @@ export function throttledRefusalFor(
       `${VERIFY_THROTTLE_MS}ms ago and has not succeeded; not re-contacting Stripe yet.`,
     liveMode,
   );
+}
+
+/**
+ * Whether this process has ever attempted verification for a mode.
+ *
+ * The distinction the summary needs and `getVerificationStatus` deliberately
+ * flattens: "pending because an attempt is in progress or failed indefinitely"
+ * and "pending because nothing has ever asked" render the same to an operator,
+ * and only the second one means there is nothing scheduled to change it.
+ */
+export function hasVerificationAttemptFor(liveMode: boolean): boolean {
+  return modeState.has(modeName(liveMode));
 }
 
 /** Record the credentials-absent state, which is terminal and unpolled. */

@@ -43,12 +43,14 @@ import {
   getStripeSync,
   getUncachableStripeClient,
   getVerifiedStripeClient,
+  getVerifiedStripeMode,
   invalidateStripeSync,
   isLiveMode,
 } from "../lib/stripeClient.js";
 import {
   __resetStripeInitForTests,
   __setStripeInitDepsForTests,
+  ensureVerificationArmedFor,
   runStripeVerificationRetryOnce,
 } from "../lib/stripeInit.js";
 
@@ -370,6 +372,155 @@ describe("the construction boundary is mode-coherent", () => {
       readsAfterBuild,
       "reusing a published sync must not issue a direct-row read per call",
     );
+  });
+
+  it("an active mode this process has never verified gets verification STARTED, not just reported", async () => {
+    // Round 5's P2, and it only exists because of autoscale. When ANOTHER
+    // instance commits a mode toggle, this process has no state for the newly
+    // active mode — and a boot that succeeded normally has already stopped its
+    // retry timer, or never armed one. Nothing was scheduled to verify the new
+    // mode, so the Billing poll read a pure getter, saw "Verification has not
+    // run yet", and polled that forever while the UI claimed verification was
+    // in progress. The status was transitional with nothing in transit.
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(stubAccountRetriever(() => "acct_live_expected"));
+
+    // Injected so the pass is hermetic: what is under test is that
+    // verification RUNS, not the sync library's migrations.
+    restores.push(
+      __setStripeInitDepsForTests({
+        runSyncMigrations: async () => {},
+        getSync: async () => ({
+          findOrCreateManagedWebhook: async () => {},
+          syncBackfill: async () => {},
+        }),
+        getSiteBaseUrl: () => "https://example.test",
+      }),
+    );
+
+    await setStoredMode(true);
+    bustConfigCache();
+
+    assert.equal(
+      getVerificationStatus(true, "inst-1").state,
+      "pending",
+      "the premise: nothing in this process has attempted the newly active mode",
+    );
+    assert.equal(isAccountVerified(true, "sk_live_correct"), false);
+
+    ensureVerificationArmedFor(true);
+    // The pass is started, not awaited by the caller — the summary endpoint
+    // must never block on Stripe. So wait for the OUTCOME, bounded, exiting the
+    // moment it lands rather than sleeping a fixed span.
+    for (let i = 0; i < 200 && !isAccountVerified(true, "sk_live_correct"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    assert.equal(
+      isAccountVerified(true, "sk_live_correct"),
+      true,
+      "detecting an unseen active mode must START verification",
+    );
+    assert.equal(getVerificationStatus(true, "inst-1").state, "verified");
+  });
+
+  it("a strict recheck shared with the catalog readers cannot make a stale sync look fresh", async () => {
+    // Round 5's P1. Round 4 made `lastStrictModeReadAt` a SHARED value so the
+    // catalog and the client boundary would stop disagreeing — and the sync's
+    // fast path was still testing that shared timestamp for freshness while
+    // comparing the sync itself against the LENIENT cached mode. So a public
+    // `/stripe/plans` request could learn the new mode, refresh the timestamp,
+    // and thereby certify a sync built for the old one as current for another
+    // full interval. The fix that removed one divergence had created another.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(
+      stubAccountRetriever((secretKey) =>
+        secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_test_expected",
+      ),
+    );
+
+    await setStoredMode(false);
+    const testSync = await getStripeSync();
+
+    // A toggle committed by ANOTHER instance: the row moves, this process's
+    // config cache does not, and nothing here is invalidated.
+    await db.update(adminConfigTable).set({ value: "true" }).where(eq(adminConfigTable.key, "stripe_live_mode"));
+    assert.equal(await isLiveMode(), false, "the lenient read is stale, which is the premise");
+
+    // Let the interval lapse, then have a CATALOG reader refresh the shared
+    // strict mode — exactly what a public /stripe/plans request does.
+    __expireModeRecheckForTests();
+    assert.equal(await getVerifiedStripeMode(), true, "the catalog reader learns the new mode");
+
+    // The published sync is now stale and the shared timestamp is fresh. The
+    // old fast path returned `testSync` here.
+    const after = await getStripeSync();
+    assert.notEqual(after, testSync, "a sync built for the superseded mode must not be reused");
+
+    // The superseded instance is replaced, not disposed — production defers
+    // that deliberately — so this test owns ending the pool it orphaned. Four
+    // shards share one Postgres, and a test that leaks connections fails
+    // something else, somewhere hard to trace back to it.
+    await (testSync as unknown as { postgresClient?: { pool?: { end?: () => Promise<void> } } })
+      .postgresClient?.pool?.end?.();
+    await __endCachedSyncForTests();
+  });
+
+  it("a flood arriving the moment the recheck expires costs ONE row read, not one each", async () => {
+    // Round 5's other P1, and the reason it is a P1 rather than a tidiness
+    // note: getStripeSync() runs before signature validation on the
+    // rate-limiter-exempt webhook route, so "concurrent callers" there means
+    // "as many as an attacker sends". Every one of them observed the recheck as
+    // due before any had refreshed the timestamp, so the interval bounded one
+    // caller and nothing bounded a burst.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
+
+    await setStoredMode(false);
+    await getStripeSync();
+
+    __expireModeRecheckForTests();
+    const before = __strictModeReadsForTests();
+    await Promise.all(Array.from({ length: 25 }, () => getVerifiedStripeMode()));
+    assert.equal(
+      __strictModeReadsForTests() - before,
+      1,
+      "25 concurrent rechecks must collapse to a single row read",
+    );
+    await __endCachedSyncForTests();
+  });
+
+  it("a failing strict read is not re-queried on every request until it recovers", async () => {
+    // The failure half, and the sharper one. captureModeForConstruction()
+    // stamps the read time only on SUCCESS — deliberately, so a failure cannot
+    // postpone learning the real mode. The consequence nobody had priced: a
+    // database refusing reads never refreshes the timestamp at all, so every
+    // request keeps querying it for as long as it stays down. The attempt
+    // stamp is separate from the read stamp precisely so a failure can be
+    // throttled without ever being mistaken for an answer.
+    const { __setStrictModeReaderForTests } = await import("../lib/stripeAccountGuard.js");
+    let attempts = 0;
+    restores.push(
+      __setStrictModeReaderForTests(async () => {
+        attempts += 1;
+        throw new Error("the row is unreadable");
+      }),
+    );
+
+    __expireModeRecheckForTests();
+    for (let i = 0; i < 10; i++) {
+      await assert.rejects(getVerifiedStripeMode(), /unreadable/);
+    }
+    assert.equal(attempts, 1, "a recent failure is replayed, not re-queried once per request");
   });
 
   it("getUncachableStripeClient() re-derives when a toggle lands mid-verification", async () => {
