@@ -990,6 +990,21 @@ oracle and the Tier A/B bugfix oracle below.
    search of merged PRs for the symptom — a match can shortcut the
    diagnosis, and this check is also what makes Q2's "fixed before"
    trigger knowable rather than a memory test.
+
+   **Some root causes are not in the repo, and that evidence belongs to this
+   step.** When the diagnosis turns on what the running system actually
+   *contains* rather than what the code does — which inputs actually trigger
+   it, what live data or config actually looks like, what the server actually
+   logged — gathering that is part of step 1, not something to do after
+   classifying. Both the tier and the blast radius are downstream of those
+   answers, so classifying first means classifying on a guess and re-tiering
+   when the evidence lands. **What each agent can reach differs** — Replit
+   reads the live environment directly, and Claude Code's enactment (which
+   source answers which question, and how to drive the connector so the answer
+   is evidence rather than an agent's account of itself) is
+   [`live-diagnosis.md`](../../.claude/skills/bugfix/live-diagnosis.md) — but
+   the ordering is the same for everyone: if the classification depends on
+   live state, establish the live state first.
 2. **Classify** against the checklist above. State the tier and the reason.
 3. **Write the regression test first** — a test that **fails on current code
    because of this bug**. This is the difference between fixing a bug once and

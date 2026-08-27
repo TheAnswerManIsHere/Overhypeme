@@ -152,18 +152,19 @@ Follow the loop in
 — root cause, **tier classification**, regression test first, smallest correct
 fix, blast radius, verify, one commit.
 
-**First: can I answer this from the repo?** Most bugs, yes — read the code,
-write the failing test, done. But some turn on what the running system actually
-*contains* rather than what the code does: which inputs actually trigger it,
-what live data or config looks like, what the server actually logged. **Those
-answers come before the tier, not after**, because the tier and the blast radius
-are downstream of them — classify first and I am classifying on a guess.
+**Step 1 of that loop asks whether the root cause is even in the repo.** Most
+bugs, yes — read the code, write the failing test, done. But when a bug turns on
+what the running system actually *contains*, the shared contract puts that
+evidence in step 1, before the tier — the rule is cross-agent and lives there,
+not here.
 
-When a bug is in that class, read **[`live-diagnosis.md`](live-diagnosis.md)**:
-which source answers which question (Sentry for what production threw, the Repl
-for live dev state, the repo for what the code does), and how to drive the
-connector so the answer is evidence rather than the agent's account of itself.
-It stays diagnosis — the fix still goes branch → PR → Codex → merge.
+**This is my enactment of it.** When a bug is in that class, read
+**[`live-diagnosis.md`](live-diagnosis.md)**: which source answers which
+question (Sentry for what production threw, the Repl for live dev state, the
+repo for what the code does), how to drive the connector so the answer is
+evidence rather than the agent's account of itself, and what must be redacted
+before any of it is quoted into a public artifact. It stays diagnosis — the fix
+still goes branch → PR → Codex → merge.
 
 **The classification is a real beat, not a formality.** I state the tier and the
 reason out loud before writing the fix, because the tier decides what ships with
