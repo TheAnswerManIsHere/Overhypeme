@@ -1,162 +1,129 @@
-# PR582 — Refresh-seeded enrichment no longer crashes · UAT
+# PR #582 — Facts sent back for a refresh finish their AI prep — UAT
 
-**PR:** #582 · **Workstream:** #579 · **Mode:** bugfix, Tier B
+**Workstream:** #579
 
-## What broke, in one line
+Every fact sent back for a refresh went into "AI prep" and never came out — the
+enrichment job behind it died instantly, and the stuck set only grew (4 facts at
+9:24 PM, 7 by 9:42 PM). Live facts were never affected, because a refresh only
+writes to a candidate until it is promoted; the damage was that the refresh
+pipeline was stalled and the stale-fact backlog could not be worked down at all.
 
-A fact sent back for a refresh went into "AI prep" and never came out — every
-enrichment job it queued died instantly, and the stuck set only grew.
+The crash was in the code that reads a fact's moderator visual override. Older
+stored overrides are missing fields that were added to the format later, and
+reading one of those killed the job. Two places now handle that: the reader
+normalizes before checking, and the shared function tolerates a partial value.
 
-## What you are checking
+Step 4 is the one that matters most — a fact that actually carries a visual
+override, which is the case that was breaking. Step 5 is there because the fix
+made the override reader more forgiving, and "more forgiving" must not have
+turned into "reports overrides that aren't there."
 
-That a fact sent back for a refresh **completes** its enrichment and reaches
-"Renders ready — needs review", including facts carrying a moderator
-visual-strategy override. And that nothing about how overrides behave changed
-along the way — this was a read-side tolerance fix, not a change to what an
-override means.
+## Setup
 
-## Before you start
+- [claude] Confirm `main` is synced to the Repl and the checked-out SHA matches the merge commit, before anything else is read.
+- [claude] Capture the `enrichment` lane's job counts on Admin → Queue Health, so the "after" reading has a "before" to be measured against.
+- [claude] Capture the count of facts whose stored visual override is missing a list field — the true size of the affected corpus.
+- [david] Sign in to the admin console as yourself; step 3 and step 4 need admin actions under your own account.
+- [restore] None of the above writes. Step 3 and step 4 send facts back for a refresh, which is ordinary admin work and is deliberately not reverted — the resulting candidates go through normal moderation.
 
-Run `/uat` and I will drive this step by step, do the setup, and file anything
-that breaks. You should not need to run a command yourself at any point.
+## Steps
 
-**Setup I own:** confirming `main` is synced to the Repl and reading the
-enrichment queue's pre-state so the "after" reading means something. Nothing is
-written to the database by setup.
+### 1. The stuck backlog drains on its own
 
-**One thing to know before step 1:** the jobs stuck from #579 retry on their own
-5-attempt budget. After the sync they should drain without anyone re-enqueueing
-them. If some had already burned all 5 attempts before the merge they will sit
-in `failed` — that is expected, not a regression, and re-running them is your
-call, not something the fix does automatically.
+**Do:** Go to **Admin → Queue Health** and find the `enrichment` lane.
 
----
+**Expect:** The queued count is lower than the number I captured in setup, or is
+0; `failed` reads `0`; and no listed job shows the text
+`Cannot read properties of undefined (reading 'forEach')`.
 
-## Step 1 · The stuck backlog drains on its own
+### 2. The stuck facts clear on the Moderation screen
 
-1. Go to **Admin → Queue Health**.
-2. Find the `enrichment` lane.
+**Do:** Go to **Admin → Moderation** and read the banner at the top plus the
+rows that were showing `AI prep running`.
 
-**Pass:** the queued count is falling, or has reached 0, and `failed` is still
-`0`. No job carries `Cannot read properties of undefined (reading 'forEach')`.
+**Expect:** The "N facts are in AI prep" count is lower than it was in setup,
+and at least one row that was stuck on `Preparing…` now reads
+`Renders ready — needs review` with an `Enrichment ✓ ready` pill.
 
-**Fail:** any job still carries that message, or `failed` is climbing.
+### 3. A fresh send-back completes end to end
 
-> The pre-merge reading was `9 queued · 1 working · 1 done · 0 failed`, with ten
-> of eleven jobs carrying the error. I will capture the current numbers as we go
-> so there is a before and after on the record.
+**Do:** Go to **Admin → Taxonomy Health** and send one stale fact back for
+refresh. If the "Send back to review" button is not offered on any row, first go
+to **Admin → Moderation** and decline one refresh review — that returns its fact
+to eligible. Then watch that fact's row on **Admin → Moderation**.
 
----
+**Expect:** The row moves from `AI prep running` / `Preparing…` to
+`Renders ready — needs review` with `Enrichment ✓ ready`, without sitting on the
+spinner indefinitely.
 
-## Step 2 · The stuck facts clear on the Moderation screen
+### 4. A fact carrying a moderator visual override refreshes
 
-1. Go to **Admin → Moderation**.
-2. Look at the banner and the rows that were showing `AI prep running`.
+**Do:** Open a fact that has a visual-strategy override with content in it — a
+core scene, a required visual detail, or a speech bubble — and note what that
+override says. Send that fact back for a refresh from **Admin → Taxonomy
+Health**, then watch it on **Admin → Moderation**.
 
-**Pass:** the "N facts are in AI prep" count is **falling**, and rows that were
-stuck on `Preparing… / Enrichment ⟳ working…` now read
-`Renders ready — needs review` with `Enrichment ✓ ready`.
+**Expect:** It reaches `Renders ready — needs review` with `Enrichment ✓ ready`,
+and reopening its enrichment editor shows the same override content you noted
+before the refresh, word for word.
 
-**Fail:** the count is flat or climbing, or a row sits on `working…` with no
-movement across several minutes.
+### 5. An empty override is still reported as empty
 
-> The count climbed 4 → 7 during the original failure. Falling is the signal.
+**Do:** Open the enrichment editor for a fact that has **no** visual override,
+or one whose override is an empty scaffold.
 
----
+**Expect:** No "manual override" / visual-override signal is shown for it. (Step
+4 already confirmed the opposite case — a fact with content still shows one.)
 
-## Step 3 · A fresh send-back completes end to end
+### 6. Saving a visual override still works
 
-This is the real test — the backlog draining could in principle be old jobs
-finishing for some other reason. This one starts clean.
+**Do:** In the enrichment editor for any fact, add or edit a required visual
+detail on its visual override and save.
 
-1. Go to **Admin → Taxonomy Health**.
-2. Send back a stale fact for refresh. If nothing is eligible, decline a refresh
-   review in Moderation first to free one up (that is the documented reset
-   lever — it marks the candidate `rejected` and leaves the live fact alone).
-3. Watch that fact on **Admin → Moderation**.
+**Expect:** The save succeeds with no error, and reopening the editor shows the
+edited value.
 
-**Pass:** it moves through `AI prep running` and lands on
-`Renders ready — needs review` with `Enrichment ✓ ready`. It does not sit
-spinning.
+## Regression
 
-**Fail:** it sticks in `Preparing…`, or Queue Health shows a new errored job.
+### R1. A brand-new submission still enriches
 
----
+**Do:** Submit a new fact through the normal submission flow and watch it on
+**Admin → Moderation**.
 
-## Step 4 · A fact with a moderator visual override still refreshes
+**Expect:** It reaches a classified state with `Enrichment ✓ ready`, exactly as
+before this PR.
 
-The crash was specifically in the visual-override read path, so a fact that
-actually has one is the case that mattered.
+### R2. The enrichment editor still opens on a normal fact
 
-1. Find or set up a fact carrying a **visual-strategy override** — a core scene,
-   a required visual detail, a speech bubble, any of it.
-2. Send that fact back for a refresh.
+**Do:** Open **Admin → Moderation**, pick any fact with completed enrichment and
+open its enrichment editor.
 
-**Pass:** it completes exactly like step 3, **and** its override is still intact
-afterwards — open the enrichment editor and confirm the override content you
-saw before the refresh is still there, unchanged.
+**Expect:** The editor loads with its classification fields populated — archetype,
+subtype, fit — and no error banner.
 
-**Fail:** it crashes, or any part of the override content is missing, emptied,
-or reworded.
+### R3. PR216 step 3 is reachable again
 
-> This is the "must not change" check. The fix reads these blobs more
-> tolerantly; it must not have rewritten one.
+**Do:** Return to the UAT run in #562 and attempt **PR216 step 3, "bulk run
+finishes correctly"**.
 
----
+**Expect:** The step can actually run — sent-back facts resolve rather than
+hanging, so the step reaches a real pass or fail on its own merits instead of
+being blocked.
 
-## Step 5 · Overrides still behave the way they did
+## Not bugs
 
-A spot check that the tolerance fix did not quietly change what an override
-*means*.
-
-1. Open a fact with a visual override in the enrichment editor.
-2. Confirm the "this fact has a manual override" signal is still shown for it.
-3. Open a fact with **no** override, or an empty one.
-
-**Pass:** the override signal shows for the fact that has content and does
-**not** show for the empty one. Editing and saving an override still works
-normally.
-
-**Fail:** the signal appears on facts with nothing in them, disappears from
-facts that have content, or saving an override errors.
-
----
-
-## Step 6 · Return to what this was blocking
-
-#579 blocked the UAT backlog burn-down (#562) at **PR216 step 3** — "bulk run
-finishes correctly". With enrichment working, that step can be attempted again.
-
-**Pass:** PR216 step 3 can now run — sent-back facts resolve, so the step is
-reachable whether or not it then passes on its own merits.
-
-**Fail:** it is still blocked on enrichment.
-
-> Whether PR216 step 3's per-row and aggregate *display* is separately correct
-> was never established — it may simply have been hidden behind this crash. If
-> it now fails on display grounds, that is a **new** finding and gets its own
-> issue, not a reopening of #579.
-
----
-
-## If something fails
-
-Stop and tell me at the step. I will capture the evidence, file the bug, and
-say what the way back is. A failed UAT is a follow-up PR on a fresh branch, not
-a revert — `main` is not broken here.
-
-## Known gaps, already recorded — not failures of this UAT
-
-Both are on #579, filed rather than fixed under this bugfix:
-
-- **A terminally-broken enrichment job renders as `working…` indefinitely** on
-  Moderation and never surfaces its error. If you see a job that is genuinely
-  stuck but the screen still says "working", that is this gap, not a new bug.
-- **The worker reports only the error message and discards the stack trace**,
-  which is why Queue Health could show the text but not the frame that made it
-  diagnosable.
-
-Two further **unvalidated copy points** (`enrichmentVersioning.ts`,
-`enrichmentJobs.ts`) read a stored override the same raw way. Neither is on this
-crash's path. Deferred and undecided — flagged so a later crash in that shape is
-recognised immediately rather than re-diagnosed from scratch.
+- **A crashed enrichment job shows an indefinite `working…` spinner** on
+  Admin → Moderation and never surfaces its error; the error text only ever
+  appeared on Queue Health. Recorded on #579 as a separate defect, not fixed
+  here. If you see a job that is genuinely stuck while the screen still says
+  "working", that is this gap.
+- **The worker reports only an error message and discards the stack trace**,
+  which is why this crash was diagnosable only by cross-referencing a Sentry
+  event from the admin route. Also recorded on #579, also not in scope.
+- **Two places still copy a stored override without validating it**
+  (`enrichmentVersioning.ts`, `enrichmentJobs.ts`). Neither is on this crash's
+  path now that both fixes are in. Whether to validate on write rather than
+  tolerate on read is an open question on #579, deliberately not decided here.
+- **Jobs that had already burned all 5 retry attempts before the merge** will
+  sit in `failed` rather than draining. That is expected — re-running them is a
+  deliberate call, not something the fix does automatically.
