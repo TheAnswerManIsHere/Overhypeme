@@ -18,6 +18,8 @@ import {
   type EnrichmentOverrides,
 } from "@workspace/api-zod";
 
+import { serializeResolved } from "../lib/enrichmentOverrideLayers.js";
+
 const AI: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
   subtype: "force_scaled_action",
@@ -114,6 +116,27 @@ describe("resolveEnrichment", () => {
     const { summary } = resolveEnrichment({ aiDerived: AI, overrides: {}, visualPromptStrategyOverride: stub });
     // Nothing renderable in it, but it must not throw.
     assert.equal(summary.hasVisualStrategyOverride, false);
+  });
+});
+
+// `serializeResolved` is the ONE caller that reaches the shared collector
+// WITHOUT going through `resolveEnrichment` — on its `aiDerived: null` branch it
+// calls `hasRenderableVisualStrategyOverrideContent` on the raw stored blob
+// directly. Fixing the resolver alone therefore leaves this path crashing, which
+// is why the collector itself is guarded too. Imported from the api-server lib
+// rather than api-zod deliberately: this pins the caller, not the resolver.
+describe("serializeResolved — the caller that bypasses resolveEnrichment (#579)", () => {
+  it("does not crash on a legacy visual override when there is no AI baseline", () => {
+    const legacy = { version: 1, coreSceneOverride: "{NAME} stands there confidently." } as unknown as
+      FactEnrichment["visualPromptStrategyOverride"];
+    const out = serializeResolved({
+      aiDerived: null,
+      overrides: {},
+      effective: null,
+      enrichmentStatus: "ready",
+      visualPromptStrategyOverride: legacy,
+    }) as { overrideSummary: { hasVisualStrategyOverride: boolean } };
+    assert.equal(out.overrideSummary.hasVisualStrategyOverride, true);
   });
 });
 
