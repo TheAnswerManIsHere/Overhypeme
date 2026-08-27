@@ -154,6 +154,14 @@ Live evidence is only worth gathering if it survives into the artifact:
   evidence does not substitute for it. What live data adds is *how many* of the
   sites that search found are actually affected.
 - **A live read that contradicts the code is a finding, not a discrepancy to
-  reconcile quietly.** On questions of live fact, the environment's read wins
-  over what a diff or a schema file implies; if they disagree, that gap is
-  usually the bug.
+  reconcile quietly** — but **the read only outranks the code for the
+  environment it actually read.** On a question about dev, the Repl's read is
+  ground truth and second-guessing it from a diff or a schema file is the wrong
+  instinct. On a **production** defect it is not: `heliumdb` can carry
+  unapplied migrations, different seed data, or config drift, so a dev-vs-repo
+  disagreement there may have nothing to do with the production symptom, and
+  recording it as the root cause is the same "I checked the data" error as
+  above wearing different clothes. A production conclusion needs
+  production-correlated evidence — Sentry, or a dev reproduction whose
+  mechanism demonstrably explains what Sentry recorded. Either way the
+  disagreement is worth chasing; what it licenses is what changes.
