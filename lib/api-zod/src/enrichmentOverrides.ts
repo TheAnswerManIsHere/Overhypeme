@@ -252,8 +252,13 @@ export function resolveEnrichment(input: ResolveEnrichmentInput): ResolveEnrichm
       baselineChangedPaths,
       invalidPaths,
       crossFieldInvalid,
-      hasVisualStrategyOverride: visualPromptStrategyOverride
-        ? hasRenderableVisualStrategyOverrideContent(visualPromptStrategyOverride)
+      // Use the schema-parsed `effective` value, not the raw `visualPromptStrategyOverride`
+      // input — legacy/partial-shaped overrides (predating a schema field like
+      // `requiredVisualDetails`) parse fine and get array fields defaulted to `[]`,
+      // but `collectRenderedTextEntries` assumes those defaults are already applied
+      // and crashes on the raw pre-parse value (#579).
+      hasVisualStrategyOverride: effective.visualPromptStrategyOverride
+        ? hasRenderableVisualStrategyOverrideContent(effective.visualPromptStrategyOverride)
         : false,
     },
   };
