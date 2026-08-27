@@ -1,0 +1,8 @@
+{
+  "pr": 577,
+  "tier": "sensitive",
+  "budget": 5,
+  "criticality": 80,
+  "artifact": "Stripe account guard: verification at the client-construction boundary, fatal pre-listen on a confirmed mismatch, degrade-and-retry otherwise",
+  "declaredAt": "2026-08-26T22:24:42.818Z"
+}

@@ -15,6 +15,7 @@ import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { uploadUserImage } from "@/lib/image-upload";
+import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -115,6 +116,14 @@ export default function Profile() {
 
   const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images" | "memes">("liked");
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
+  /**
+   * The server's client-safe reason when the payment provider connection could
+   * not be verified. Held separately from the generic states below because the
+   * generic ones all say "still processing, check back" — advice that is wrong
+   * for this condition and leaves the customer waiting on something that is not
+   * going to happen on its own.
+   */
+  const [checkoutUnverifiedReason, setCheckoutUnverifiedReason] = useState<string | null>(null);
   const [checkoutPolling, setCheckoutPolling] = useState(false);
   const [checkoutConfirmed, setCheckoutConfirmed] = useState(false);
   // session_id captured from the Stripe success_url redirect — used for sync confirm
@@ -566,6 +575,32 @@ export default function Profile() {
             }
           }
 
+          // The account guard refused: our Stripe credentials have not verified
+          // against the account this deployment declares. Treated as terminal
+          // rather than transient even though it arrives as a 5xx — retrying,
+          // and then falling through to webhook polling, would show this
+          // customer the generic "still processing" message for a condition
+          // that needs an operator. The server's message is client-safe and
+          // carries no account identifiers.
+          if (res.status === 503) {
+            const body = (await res.json().catch(() => null)) as
+              | { code?: string; error?: string }
+              | null;
+            if (body?.code === STRIPE_UNVERIFIED_CODE) {
+              // The confirm-path message, not the general one: this branch only ever
+              // runs after Stripe redirected the customer back from a completed
+              // session, so the fallback must not claim no charge was made either.
+              setCheckoutUnverifiedReason(body.error ?? STRIPE_UNVERIFIED_CONFIRM_MESSAGE);
+              setCheckoutPolling(false);
+              Sentry.addBreadcrumb({
+                category: "stripe",
+                message: "checkout/confirm refused — Stripe account unverified",
+                level: "error",
+              });
+              return;
+            }
+          }
+
           // 4xx = permanent rejection (ownership mismatch, session unpaid, bad sessionId).
           // No retry — fall through to polling as last resort.
           if (res.status >= 400 && res.status < 500) {
@@ -930,6 +965,11 @@ export default function Profile() {
                 <>
                   <Star className="w-5 h-5 text-primary shrink-0" />
                   <p className="font-bold text-foreground">You're now Legendary! Your membership is active. Daily facts incoming.</p>
+                </>
+              ) : checkoutUnverifiedReason ? (
+                <>
+                  <AlertTriangle className="w-5 h-5 text-primary shrink-0" />
+                  <p className="font-bold text-foreground" data-testid="checkout-unverified">{checkoutUnverifiedReason}</p>
                 </>
               ) : (
                 <>

@@ -1,0 +1,136 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-26T23:29:49.526Z",
+  "evidenceCapturedAt": "2026-08-26T23:17:16Z",
+  "pr": 577,
+  "title": "Refuse to boot against the wrong Stripe account (#571)",
+  "artifact": {
+    "files": 27,
+    "added": 3742,
+    "removed": 93,
+    "patch": "[unavailable -- the snapshot carries no base or head sha; weigh the absence as uncertainty]",
+    "patchNote": "base...head: the artifact this round's findings are about. This is the diff to read when the rubric asks whether a finding describes a critical flaw. `sinceLastReview.patch` is separate and is normally empty under the write-gate rule, since the judge rules on an already-reviewed head."
+  },
+  "budget": {
+    "tier": "sensitive",
+    "tierMeaning": "auth / payments / migrations",
+    "declaredBudget": 5,
+    "cap": 5,
+    "criticality": 80,
+    "artifactDeclaredAtRoundZero": "Stripe account guard: verification at the client-construction boundary, fatal pre-listen on a confirmed mismatch, degrade-and-retry otherwise",
+    "roundsSpent": 2,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 5,
+    "extensions": []
+  },
+  "rounds": {
+    "completedReviewerPasses": 2,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-26T22:52:51Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-26T23:13:29Z",
+        "source": "review",
+        "findings": 3
+      }
+    ],
+    "trend": [
+      3,
+      3
+    ],
+    "totalFindings": 6
+  },
+  "findings": {
+    "unresolved": 0,
+    "resolved": 0,
+    "resolutionUnknown": 6,
+    "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6co_uC",
+        "path": "artifacts/api-server/src/lib/stripeClient.ts",
+        "line": 297,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-26T22:52:52Z",
+        "excerpt": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Revalidate cached syncs after remote mode toggles**\n\nWhen `stripe_live_mode` is changed through one autoscale instance, only that process busts its config cache and invalidates its sync; another instance can retain both the old mode and its `stripeSync` for the 60-second cache TTL. This fast path therefore retu"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6co_uG",
+        "path": "lib/api-zod/src/stripeVerification.ts",
+        "line": 33,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-26T22:52:52Z",
+        "excerpt": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Do not tell post-checkout users that no charge occurred**\n\nThis message is also returned by `POST /stripe/checkout/confirm` and displayed on the success page after Stripe has redirected the customer with a completed Checkout session. If checkout was created through a verified instance but confirmation reaches a"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6co_uJ",
+        "path": "artifacts/api-server/src/lib/stripeInit.ts",
+        "line": 117,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-26T22:52:52Z",
+        "excerpt": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Retry initialization until the webhook setup succeeds**\n\nWhen boot verification is initially pending and a later retry verifies the account, this is the only automatic initialization attempt; setting `initializationStarted` before migrations, sync construction, and webhook registration means any transient failu"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6cpPK3",
+        "path": "artifacts/api-server/src/lib/stripeClient.ts",
+        "line": 113,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-26T23:13:30Z",
+        "excerpt": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Bind test-event gating to the client mode**\n\nWhen a mode toggle is handled by another autoscale instance, `/admin/stripe/test-event` can still pass its cached `getConfigStringRaw` test-mode check while this constructor's strict read selects the newly active live mode. The route then either creates a real live-a"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6cpPKt",
+        "path": "artifacts/overhype-me/src/pages/admin/StripeVerificationStatus.tsx",
+        "line": 107,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-26T23:13:30Z",
+        "excerpt": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Reject poll samples for a different stored mode**\n\nWhen another admin or browser changes `stripe_live_mode` while this page remains open, later polls can return a snapshot for the new mode while `expectedMode` and the surrounding toggle still describe the old one. Only the initial seed is mode-checked; this pat"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6cpPKy",
+        "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.ts",
+        "line": 82,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-26T23:13:30Z",
+        "excerpt": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Expire observations from vanished instances**\n\nIn an autoscale deployment, if an instance is observed as `pending` and is then terminated during a rollout or replacement, its entry remains in `byInstance` forever because observations have no freshness or liveness bound. This condition therefore keeps polling in"
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 6,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "753bee269470e697167d204d271633acb3284a62",
+    "resolved": true,
+    "since": "753bee269470e697167d204d271633acb3284a62",
+    "head": "753bee269470e697167d204d271633acb3284a62",
+    "commits": 0,
+    "files": [],
+    "patch": "",
+    "behavioralFiles": 0,
+    "proseOnly": false,
+    "noChange": true,
+    "note": "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the base branch this includes files already reviewed and merged there. Use `artifact` for the size of what is actually under review here."
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/review-counting.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}
