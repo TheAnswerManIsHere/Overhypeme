@@ -87,6 +87,34 @@ describe("resolveEnrichment", () => {
     assert.equal(effective.visualPromptStrategyOverride?.requiredVisualDetails[0], "a glowing aura");
     assert.equal(summary.hasVisualStrategyOverride, true);
   });
+
+  // Regression — #579. A refresh copies the fact's STORED visual override into
+  // the resolver verbatim, with no schema parse, so a blob that predates a list
+  // field (or was written by a path that never parsed) arrives with that list
+  // undefined. The resolver used to walk it eagerly and every enrichment job on
+  // the refresh path died with "Cannot read properties of undefined (reading
+  // 'forEach')". A partial stored blob must resolve, not throw.
+  it("resolves a stored visual override whose lists are absent (no schema parse)", () => {
+    const legacy = { version: 1, coreSceneOverride: "a giant lifting the earth" } as unknown as
+      FactEnrichment["visualPromptStrategyOverride"];
+    const { effective, summary } = resolveEnrichment({
+      aiDerived: AI,
+      overrides: {},
+      visualPromptStrategyOverride: legacy,
+    });
+    // The override still counts as renderable content — its core scene is set.
+    assert.equal(summary.hasVisualStrategyOverride, true);
+    assert.equal(effective.visualPromptStrategyOverride?.coreSceneOverride, "a giant lifting the earth");
+    // ...and the full-schema parse fills the absent lists back in.
+    assert.deepEqual(effective.visualPromptStrategyOverride?.requiredVisualDetails, []);
+  });
+
+  it("resolves a stored visual override that is a bare version stub", () => {
+    const stub = { version: 1 } as unknown as FactEnrichment["visualPromptStrategyOverride"];
+    const { summary } = resolveEnrichment({ aiDerived: AI, overrides: {}, visualPromptStrategyOverride: stub });
+    // Nothing renderable in it, but it must not throw.
+    assert.equal(summary.hasVisualStrategyOverride, false);
+  });
 });
 
 describe("comparison helpers", () => {

@@ -177,29 +177,34 @@ export function collectRenderedTextEntries(
       kind: "prose",
     });
   }
-  ov.requiredVisualDetails.forEach((value, i) =>
+  // `?? []` on EVERY list: the parsed type says these are always present (the
+  // schema `.default([])`s them), but this collector is reached with blobs that
+  // were never schema-parsed — a stored `enrichment.visualPromptStrategyOverride`
+  // is copied verbatim into `resolveEnrichment` on the refresh path, and legacy
+  // blobs (plus hand-built fixtures) predate fields that were added later. A
+  // missing list is read as empty, exactly as `bubbles` already was; a pure
+  // read-only collector must never throw on a partial blob.
+  (ov.requiredVisualDetails ?? []).forEach((value, i) =>
     out.push({ path: `requiredVisualDetails[${i}]`, value, kind: "prose" }),
   );
-  ov.forbiddenVisualDetails.forEach((value, i) =>
+  (ov.forbiddenVisualDetails ?? []).forEach((value, i) =>
     out.push({ path: `forbiddenVisualDetails[${i}]`, value, kind: "prose" }),
   );
-  ov.roleBindings.forEach((rb, i) => {
+  (ov.roleBindings ?? []).forEach((rb, i) => {
     out.push({ path: `roleBindings[${i}].entity`, value: rb.entity, kind: "entity" });
     out.push({ path: `roleBindings[${i}].visualRole`, value: rb.visualRole, kind: "prose" });
   });
-  // `?? []`: legacy blobs (and hand-built test fixtures) may predate `bubbles`
-  // and are read without a schema parse in some paths.
   (ov.bubbles ?? []).forEach((b, i) => {
     out.push({ path: `bubbles[${i}].entity`, value: b.entity, kind: "entity" });
     out.push({ path: `bubbles[${i}].text`, value: b.text, kind: "prose" });
   });
-  ov.compositionGuidance.forEach((value, i) =>
+  (ov.compositionGuidance ?? []).forEach((value, i) =>
     out.push({ path: `compositionGuidance[${i}]`, value, kind: "prose" }),
   );
-  ov.styleAgnosticPromptAdditions.forEach((value, i) =>
+  (ov.styleAgnosticPromptAdditions ?? []).forEach((value, i) =>
     out.push({ path: `styleAgnosticPromptAdditions[${i}]`, value, kind: "prose" }),
   );
-  ov.negativePromptAdditions.forEach((value, i) =>
+  (ov.negativePromptAdditions ?? []).forEach((value, i) =>
     out.push({ path: `negativePromptAdditions[${i}]`, value, kind: "prose" }),
   );
   if (ov.supportingTextPolicyOverride?.guidance) {

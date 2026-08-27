@@ -311,6 +311,36 @@ describe("collectRenderedTextEntries", () => {
     const entries = collectRenderedTextEntries(ov);
     assert.deepEqual(entries, []);
   });
+
+  // Regression — #579. The collector is reached with blobs that were never
+  // schema-parsed (a stored override copied verbatim on the refresh path), so
+  // the parsed type's promise that every list is present does not hold. Each
+  // absent list must read as empty rather than throwing on `.forEach`.
+  it("tolerates a partial blob whose lists are absent (never schema-parsed)", () => {
+    const partial = { version: 1, coreSceneOverride: "a giant lifting the earth" } as unknown as
+      VisualPromptStrategyOverride;
+    assert.deepEqual(collectRenderedTextEntries(partial), [
+      { path: "coreSceneOverride", value: "a giant lifting the earth", kind: "prose" },
+    ]);
+  });
+
+  it("tolerates a bare version stub with no fields at all", () => {
+    const stub = { version: 1 } as unknown as VisualPromptStrategyOverride;
+    assert.deepEqual(collectRenderedTextEntries(stub), []);
+  });
+
+  // Each list guarded independently — one present list must not mask the rest.
+  it("tolerates a blob where only some lists are present", () => {
+    const mixed = {
+      version: 1,
+      requiredVisualDetails: ["a glowing aura"],
+      roleBindings: [{ entity: "subject", visualRole: "the hero" }],
+    } as unknown as VisualPromptStrategyOverride;
+    assert.deepEqual(
+      collectRenderedTextEntries(mixed).map((e) => e.path),
+      ["requiredVisualDetails[0]", "roleBindings[0].entity", "roleBindings[0].visualRole"],
+    );
+  });
 });
 
 describe("isVisualStrategyRenderedTextPath / getVisualStrategyRenderedTextKind", () => {
