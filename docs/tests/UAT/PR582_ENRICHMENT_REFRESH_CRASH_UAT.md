@@ -13,37 +13,51 @@ stored overrides are missing fields that were added to the format later, and
 reading one of those killed the job. Two places now handle that: the reader
 normalizes before checking, and the shared function tolerates a partial value.
 
-Step 4 is the one that matters most — a fact that actually carries a visual
-override, which is the case that was breaking. Step 5 is there because the fix
-made the override reader more forgiving, and "more forgiving" must not have
-turned into "reports overrides that aren't there."
+**Step 3 is the load-bearing one**, not step 1. A fresh send-back enqueues a job
+that runs immediately, so it gives a clean answer within a minute. The
+already-stuck backlog is on an exponential retry schedule (5 min, 30 min, 2 h,
+8 h) that syncing new code does **not** reset — so a job on attempt 2 may sit
+untouched for half an hour while the fix is working perfectly. Step 1 is written
+to account for that rather than read it as a failure.
+
+**Where a successful refresh actually lands:** enrichment finishing advances the
+review to concept review and enqueues visual-idea generation. Renders do not
+start until a moderator approves the concept. So the success signal here is
+`Enrichment ✓ ready` plus a concept-stage label — **not** "Renders ready — needs
+review", which is two moderator actions further down the pipeline.
 
 ## Setup
 
 - [claude] Confirm `main` is synced to the Repl and the checked-out SHA matches the merge commit, before anything else is read.
-- [claude] Capture the `enrichment` lane's job counts on Admin → Queue Health, so the "after" reading has a "before" to be measured against.
+- [claude] Capture the `enrichment` lane's job counts from Admin → Queue Health — queued, working, done and **failed** — so every "after" reading has a "before" to be measured against.
+- [claude] Capture each stuck job's attempt number and its `next_attempt_at`, so step 1 can tell "still inside its backoff window" apart from "not retrying".
 - [claude] Capture the count of facts whose stored visual override is missing a list field — the true size of the affected corpus.
-- [david] Sign in to the admin console as yourself; step 3 and step 4 need admin actions under your own account.
-- [restore] None of the above writes. Step 3 and step 4 send facts back for a refresh, which is ordinary admin work and is deliberately not reverted — the resulting candidates go through normal moderation.
+- [david] Sign in to the admin console as yourself; steps 3, 4 and 6 need admin actions under your own account.
+- [restore] None of the captures above writes anything. Steps 3 and 4 send facts back for a refresh and step 6 edits one override — all ordinary admin work, deliberately not reverted; the resulting candidates go through normal moderation.
 
 ## Steps
 
-### 1. The stuck backlog drains on its own
+### 1. No job is still dying on the old error
 
-**Do:** Go to **Admin → Queue Health** and find the `enrichment` lane.
+**Do:** Go to **Admin → Queue Health**, find the `enrichment` lane, and read it
+against the counts I captured in setup.
 
-**Expect:** The queued count is lower than the number I captured in setup, or is
-0; `failed` reads `0`; and no listed job shows the text
-`Cannot read properties of undefined (reading 'forEach')`.
+**Expect:** No job whose retry has already come due still carries
+`Cannot read properties of undefined (reading 'forEach')`, and the `failed`
+count is no higher than the number captured in setup. A queued count that has
+not moved is **not** a failure on its own — check it against the captured
+`next_attempt_at` times first; jobs still inside their backoff window have not
+been retried yet.
 
-### 2. The stuck facts clear on the Moderation screen
+### 2. The stuck facts start clearing on the Moderation screen
 
-**Do:** Go to **Admin → Moderation** and read the banner at the top plus the
-rows that were showing `AI prep running`.
+**Do:** Go to **Admin → Moderation** and read the banner plus the rows that were
+showing `AI prep running`.
 
-**Expect:** The "N facts are in AI prep" count is lower than it was in setup,
-and at least one row that was stuck on `Preparing…` now reads
-`Renders ready — needs review` with an `Enrichment ✓ ready` pill.
+**Expect:** At least one row whose retry has come due has left `Preparing…` and
+now shows `Enrichment ✓ ready` with a concept-stage label —
+`Generating visual ideas…` or `Ready for concept review`. Rows still inside
+their backoff window may legitimately still read `Preparing…`.
 
 ### 3. A fresh send-back completes end to end
 
@@ -52,9 +66,10 @@ refresh. If the "Send back to review" button is not offered on any row, first go
 to **Admin → Moderation** and decline one refresh review — that returns its fact
 to eligible. Then watch that fact's row on **Admin → Moderation**.
 
-**Expect:** The row moves from `AI prep running` / `Preparing…` to
-`Renders ready — needs review` with `Enrichment ✓ ready`, without sitting on the
-spinner indefinitely.
+**Expect:** Within about a minute the row leaves `Preparing…` and shows
+`Enrichment ✓ ready` alongside `Generating visual ideas…` or
+`Ready for concept review`. It does not sit on the `Preparing…` spinner, and
+Queue Health shows no new job carrying the `forEach` error.
 
 ### 4. A fact carrying a moderator visual override refreshes
 
@@ -63,9 +78,9 @@ core scene, a required visual detail, or a speech bubble — and note what that
 override says. Send that fact back for a refresh from **Admin → Taxonomy
 Health**, then watch it on **Admin → Moderation**.
 
-**Expect:** It reaches `Renders ready — needs review` with `Enrichment ✓ ready`,
-and reopening its enrichment editor shows the same override content you noted
-before the refresh, word for word.
+**Expect:** It reaches `Enrichment ✓ ready` with a concept-stage label, exactly
+as in step 3, and reopening its enrichment editor shows the same override
+content you noted before the refresh, word for word.
 
 ### 5. An empty override is still reported as empty
 
@@ -124,6 +139,11 @@ being blocked.
   (`enrichmentVersioning.ts`, `enrichmentJobs.ts`). Neither is on this crash's
   path now that both fixes are in. Whether to validate on write rather than
   tolerate on read is an open question on #579, deliberately not decided here.
-- **Jobs that had already burned all 5 retry attempts before the merge** will
-  sit in `failed` rather than draining. That is expected — re-running them is a
-  deliberate call, not something the fix does automatically.
+- **Jobs that had already burned all 5 retry attempts before the merge** sit in
+  `failed` and never drain. That is expected, which is why step 1 compares the
+  failed count against the captured pre-state rather than requiring zero.
+  Re-running those is a deliberate call, not something the fix does.
+- **A refresh that succeeds does not produce renders.** It stops at concept
+  review by design — renders wait for a moderator to approve the concept. A row
+  sitting at `Ready for concept review` is a **passed** refresh, not a stalled
+  one.
