@@ -252,8 +252,13 @@ export function resolveEnrichment(input: ResolveEnrichmentInput): ResolveEnrichm
       baselineChangedPaths,
       invalidPaths,
       crossFieldInvalid,
-      hasVisualStrategyOverride: visualPromptStrategyOverride
-        ? hasRenderableVisualStrategyOverrideContent(visualPromptStrategyOverride)
+      // Read the schema-parsed value off `effective`, never the raw input: a
+      // legacy/partial blob parses fine (its absent lists get defaulted) while
+      // the raw one still carries them as `undefined`. The collector is ALSO
+      // guarded, because callers that bypass this resolver — `serializeResolved`
+      // on its `aiDerived: null` path — reach it with the raw value (#579).
+      hasVisualStrategyOverride: effective.visualPromptStrategyOverride
+        ? hasRenderableVisualStrategyOverrideContent(effective.visualPromptStrategyOverride)
         : false,
     },
   };

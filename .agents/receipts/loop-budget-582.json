@@ -1,0 +1,8 @@
+{
+  "pr": 582,
+  "tier": "product",
+  "budget": 5,
+  "criticality": 70,
+  "artifact": "Tier B bugfix: guard partial visual-strategy-override blobs in collectRenderedTextEntries, unblocking every refresh-seeded enrichment job",
+  "declaredAt": "2026-08-27T04:28:36.508Z"
+}
