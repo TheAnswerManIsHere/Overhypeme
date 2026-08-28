@@ -348,22 +348,39 @@ fact — a code review David asks for, not a check anything blocks on. The sweep
 reads commits authored `Replit Agent` (by name, across every identity it
 commits under) on `main`:
 
-- **Skim** UI/copy/test-only changes — seconds each, no deep read needed.
-- **Actually read** anything touching a migration, schema, auth, or payment
-  path.
+- **Skim** a change that is genuinely display-only — copy, layout, or a value
+  that was already in the data. Seconds each, no deep read needed.
+- **Actually read** anything that changes behavior, **whatever file it lives
+  in**: data, logic, migrations, schema, auth, payments, or the
+  visual/enrichment pipelines. A UI file is not evidence of a display-only
+  change — the Visual Overrides regression (#582) was behavior inside the UI
+  layer, so a rule that skims "anything UI" would skim precisely the tweak this
+  sweep exists to catch. Match the fast lane's own boundary: display vs.
+  behavior, never file location.
 - Anything real found goes through the normal channel — a `/bugfix` PR, or a
   flagged item for David — never a unilateral revert of Replit's work.
 
-**It runs at two cadences, and David invokes neither** (David, 2026-08-28).
-*Opportunistically*: any session that touches `main` — which every session does
-on its first fetch — sweeps any `Replit Agent` commit it finds there. Detection
-is free and needs no new machinery, because every non-Replit commit on `main`
-arrives through a squash-merged PR and carries its `(#N)` in the subject, so a
-Replit commit is visually unmistakable in one `git log`. *Weekly*: the
-`/maintenance` pass (see
+**It runs at two cadences** (David, 2026-08-28), and neither asks anything of
+David at the moment he makes a tweak. *Opportunistically*: any session that
+touches `main` — which every session does on its first fetch — runs one bounded
+`git log --author="Replit Agent"` there and reads what it names. **The command
+is the mechanism, not the noticing**: `fetch` and `checkout` print nothing about
+authorship, so without an explicit author log, "a session that touches `main`
+finds one" names no real moment. Exact command and its bound: CLAUDE.md's *This
+environment's git constraints*. *Weekly*: the `/maintenance` pass (see
 [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md))
-runs the same sweep as the **backstop**, so nothing sits unread longer than a
-pass even if no session happened to be open.
+runs the same sweep as the **backstop**.
+
+**What the two cadences do and don't guarantee.** The opportunistic sweep needs
+nothing from David and covers any week we are working at all. The weekly
+backstop is **David-invoked** — `/maintenance` is a ritual he runs, and the
+check-in contract rules out scheduling it, since a weekly heartbeat is exactly
+what that contract forbids. So the honest guarantee is: a Replit commit is read
+the next time any session starts work, and a week with **no** session and **no**
+`/maintenance` leaves it unread until one of the two happens. That is acceptable
+because the lane is display-only by construction; it would not be acceptable as
+the safety net for behavior changes, which is one more reason those never enter
+the lane.
 
 **There is deliberately no sweep ledger, and re-sweeping is the accepted
 cost.** A record of "which commits were already swept" is a cache of state the

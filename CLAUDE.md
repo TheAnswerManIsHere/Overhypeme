@@ -519,8 +519,11 @@ against current `main` at merge time.
 - **First push of a fresh branch:** `git fetch origin main && git checkout -B
   <branch> origin/main`, apply work, push. Also how I restart a branch whose PR
   squash-merged. **That same fetch carries the Replit sweep** — one bounded
-  command, `git log --author="Replit Agent" -3 --oneline origin/main`, and I
-  read anything it names that isn't already reviewed. Without this the
+  command, `git log --author="Replit Agent" --since="14 days ago" --oneline
+  origin/main`, and I read anything it names that isn't already reviewed.
+  **Bounded by time, never by commit count**: `-3` was the first shape and it
+  silently drops the fourth commit of a busy week, which is the one failure a
+  sweep cannot afford — a missed commit is indistinguishable from a swept one. Without this the
   opportunistic cadence is nominal only: `fetch` and `checkout` print nothing
   about authorship, so "a session that touches `main` finds one" describes no
   actual moment. Sweep rules: the *Connectors → Replit* bullet below.

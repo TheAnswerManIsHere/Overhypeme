@@ -206,11 +206,18 @@ seconds; assuming someone else read it is how one gets missed.
    step is the only retrospective check on direct-to-`main` changes —
    including migrations, auth, and payments — so a missed identity defeats
    the whole point.
-2. **Skim** anything UI/copy/test-only — no deep read needed.
-3. **Actually read** anything touching a migration, schema, auth, or payment
-   path — full diff, not just the commit message (a Replit commit message is
-   a checkpoint label, not a description to trust at face value; see
-   `replit-environment.md`'s note on checkpoints vs. intent).
+2. **Skim** a change that is genuinely display-only — copy, layout, or a
+   value already present in the data. No deep read needed.
+3. **Actually read** anything that changes behavior, **whatever file it lives
+   in**: data, logic, migrations, schema, auth, payments, or the
+   visual/enrichment pipelines — full diff, not just the commit message (a
+   Replit commit message is a checkpoint label, not a description to trust at
+   face value; see `replit-environment.md`'s note on checkpoints vs. intent).
+   **A UI file is not evidence of a display-only change.** The Visual
+   Overrides regression (#582) was behavior inside the UI layer, so the older
+   "skim anything UI/copy/test-only" rule would have skimmed exactly the tweak
+   this step exists to catch. The boundary is display vs. behavior, never file
+   location — the same one the fast lane itself uses.
 4. Anything real found goes through the normal channel: a `/bugfix` PR, or a
    flagged item for David in the numbered-question list. **Never revert or
    modify Replit's work unilaterally** — this is a retrospective read, not a
