@@ -9,7 +9,35 @@ Migrated out of `CLAUDE.md` so it loads when a routing question is actually
 live. The task-shape tier table stays resident in `CLAUDE.md`, because it has
 to fire at task boundaries without being invoked.
 
-### The session model is a constant, not a dial (David, 2026-08-15)
+### Fable to explore, Opus to build (David, 2026-08-28)
+
+**This supersedes the constant-tier rule recorded below.** David runs **Fable**
+deliberately for exploring possibilities and discussing how and why we do
+things; **when the work turns to building, the session moves to Opus**, and
+naming that boundary is mine rather than his to remember. The ask is
+**mandatory before product code** and deliberately not required for continued
+discussion, planning, or a docs/process edit. Staying on Fable to build needs a
+really compelling reason — David saying so is one; my own "this looks small" is
+not.
+
+The mechanical facts in the section below did **not** change, and they are why
+the rule is phrased as an *ask*: nothing except David can move the session
+model, so "switch to Opus" is not an action I can take. What changed is the
+conclusion drawn from those facts. The 2026-08-15 reasoning was that since he
+had to move it by hand, we should stop depending on him moving it at all — one
+tier for a whole session. That no longer matches how he works: the thinking
+half of a session and the building half want different tiers, and putting the
+boundary on me to *name* is what makes it survive a long conversation, since
+the transition to building is visible to me and invisible to a PM mid-thought.
+
+Full rule, including the maintenance exemption: `CLAUDE.md`'s *Model, cost, and
+routing*.
+
+### Superseded — the session model is a constant, not a dial (David, 2026-08-15)
+
+> Retained for its verified mechanics, which still hold. Its **conclusion** —
+> "I no longer ask for a switch in any direction" — is superseded by the
+> section above; read the switch-ask statements here as history.
 
 David asked (2026-07-24) whether the Opus→Fable switch could be automated, and
 (2026-08-15) whether we could stop switching models altogether — the switch-ask

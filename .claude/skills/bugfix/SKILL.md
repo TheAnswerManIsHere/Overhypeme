@@ -172,8 +172,14 @@ the PR. Tier A is the exception, by design.
 
 **Model tier follows the classification (CLAUDE.md's *Model, cost, and routing*):**
 
-- **Entering the bugfix workflow** (routed or via `/bugfix`) — no switch, no
-  ask (David, 2026-08-15: the session tier is a constant, Opus). Triage and
+- **Entering the bugfix workflow** (routed or via `/bugfix`) — **diagnose on
+  whatever tier the session is on; ask for Opus before writing the fix**
+  (David, 2026-08-28, superseding the 2026-08-15 constant-tier rule). The
+  boundary is product code, and a bugfix crosses it: reproducing the symptom,
+  reading the failing path and classifying the tier are all thinking, so a
+  Fable session does them without ceremony — then names the boundary and asks
+  for `/model claude-opus-5` before the first edit. **A Tier B fix never starts
+  on Fable at all**, since it is Opus-reserved execution. Triage and
   diagnosis stay in my main loop. A **bounded** piece of the work — reproduce
   the symptom, find every caller of X — is eligible for a Sonnet subagent;
   the diagnosis itself is not, because it is stateful.

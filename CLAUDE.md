@@ -487,7 +487,15 @@ me edit my own guardrails (deliberate — I may propose a guard change in a PR
 David merges, never apply one unilaterally, and a blocked guard edit is the rule
 working); **GitHub's ruleset on `main`** (block force pushes, restrict
 deletions, require linear history, require a PR, require status checks) —
-server-side, every actor; and **`.claude/guard.sh`**, whose jobs are making the
+server-side, and binding on **me** in every shape I can push. **It is not
+binding on David**: his own direct-push path to `main` through Replit's Git
+pane lands, settled 2026-08-09 and documented in
+[`replit-environment.md`](docs/ai-context/replit-environment.md). So never
+predict that a push of his will be refused, and never read a `Replit Agent`
+commit on `main` as evidence something broke — that inference is exactly the
+false alarm recorded in
+[`replit-direct-push-to-main-is-sanctioned.md`](.agents/memory/replit-direct-push-to-main-is-sanctioned.md).
+And **`.claude/guard.sh`**, whose jobs are making the
 lease mandatory on my own branches and refusing `curl`/`wget`. The ruleset does
 **not** target `claude/*` or `plan-review/*`, so on those branches the hook is
 the only line, and both its jobs live in `guard-decision.mjs` and are absent
@@ -510,7 +518,12 @@ against current `main` at merge time.
 
 - **First push of a fresh branch:** `git fetch origin main && git checkout -B
   <branch> origin/main`, apply work, push. Also how I restart a branch whose PR
-  squash-merged.
+  squash-merged. **That same fetch carries the Replit sweep** — one bounded
+  command, `git log --author="Replit Agent" -3 --oneline origin/main`, and I
+  read anything it names that isn't already reviewed. Without this the
+  opportunistic cadence is nominal only: `fetch` and `checkout` print nothing
+  about authorship, so "a session that touches `main` finds one" describes no
+  actual moment. Sweep rules: the *Connectors → Replit* bullet below.
 - **Follow-up on an already-pushed branch:** add commits and plain-push. If the
   branch genuinely needs newly-landed `main`, **merge, never rebase**.
 - **If local has diverged accidentally:** realign with `git checkout -B <branch>

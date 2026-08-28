@@ -238,6 +238,20 @@ conflicts off David's screen: pull-first means the tweak is authored on top of
 Repl's working tree (see the sync/Publish section below), so a
 still-unsynced tweak ships to production without ever having been seen.
 
+**The lane is an explicit exception to workstream tracking.**
+[`AGENTS.md`](../../AGENTS.md)'s *Workstream tracking* gives every unit of work
+a GitHub issue as its spine; a fast-lane tweak deliberately has none. Requiring
+an issue for a one-line display change would reinstate exactly the overhead the
+lane exists to remove, and the tweak is already recorded where it matters — as
+a commit on `main`. **The sweep is the lane's accountability, not the Project
+board**, so no agent should "correct" a fast-lane commit by demanding an issue
+for it retroactively. What the sweep *finds* is different: a real defect
+becomes a `/bugfix`, and that carries its own workstream issue like any other.
+The lane is therefore invisible to `/status-all` by design — which is
+acceptable only because these changes are display-only and land in seconds; the
+moment one needs tracking to be understood, it was behavior, and it did not
+belong in the lane.
+
 ## Replit has its own CI — not none, and not ours
 
 Replit runs its own internal review/testing loop as part of its development
