@@ -64,7 +64,7 @@ labelled so a future re-vendor can spot and re-apply it:
 - `subagent-driven-development` — added a **Local calibration** paragraph
   limiting fan-out to substantial independent tasks.
 
-Rationale and the full policy live in `CLAUDE.md` → *Token / cost discipline*.
+Rationale and the full policy live in `CLAUDE.md` → *Model, cost, and routing*.
 MIT permits modification; attribution above is unchanged.
 
 Not vendored: the plugin's `hooks/` (a SessionStart hook that auto-loads

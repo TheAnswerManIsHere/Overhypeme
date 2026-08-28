@@ -194,8 +194,12 @@ the disclosure check passes:
    measures against, and it is unrecoverable after the fact once revisions
    land.
 2. **Subscribe** with `subscribe_pr_activity` immediately. No tier check, no
-   switch-ask — the session model is a constant (Opus) and there is no model
-   gate on watching any PR (David, 2026-08-15). This step used to carve the
+   switch-ask — **there is no model gate on watching any PR**, whatever tier
+   the session is on (David, 2026-08-15). The premise originally given here
+   was that the session model is a constant; that is superseded by *Fable to
+   explore, Opus to build* (2026-08-28) while the conclusion is unchanged,
+   because watching a PR writes no product code and so never trips the Opus
+   ask. This step used to carve the
    `[PLAN REVIEW]` PR out of an implementation-PR Sonnet gate; that gate is
    retired, so there is nothing left to carve out of.
 3. **Trigger the first review explicitly.** I do **not** assume opening the PR

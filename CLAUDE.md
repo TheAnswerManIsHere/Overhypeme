@@ -487,7 +487,15 @@ me edit my own guardrails (deliberate — I may propose a guard change in a PR
 David merges, never apply one unilaterally, and a blocked guard edit is the rule
 working); **GitHub's ruleset on `main`** (block force pushes, restrict
 deletions, require linear history, require a PR, require status checks) —
-server-side, every actor; and **`.claude/guard.sh`**, whose jobs are making the
+server-side, and binding on **me** in every shape I can push. **It is not
+binding on David**: his own direct-push path to `main` through Replit's Git
+pane lands, settled 2026-08-09 and documented in
+[`replit-environment.md`](docs/ai-context/replit-environment.md). So never
+predict that a push of his will be refused, and never read a `Replit Agent`
+commit on `main` as evidence something broke — that inference is exactly the
+false alarm recorded in
+[`replit-direct-push-to-main-is-sanctioned.md`](.agents/memory/replit-direct-push-to-main-is-sanctioned.md).
+And **`.claude/guard.sh`**, whose jobs are making the
 lease mandatory on my own branches and refusing `curl`/`wget`. The ruleset does
 **not** target `claude/*` or `plan-review/*`, so on those branches the hook is
 the only line, and both its jobs live in `guard-decision.mjs` and are absent
@@ -510,7 +518,15 @@ against current `main` at merge time.
 
 - **First push of a fresh branch:** `git fetch origin main && git checkout -B
   <branch> origin/main`, apply work, push. Also how I restart a branch whose PR
-  squash-merged.
+  squash-merged. **That same fetch carries the Replit sweep** — one bounded
+  command, `git log --author="Replit Agent" --since="14 days ago" --oneline
+  origin/main`, and I read anything it names that isn't already reviewed.
+  **Bounded by time, never by commit count**: `-3` was the first shape and it
+  silently drops the fourth commit of a busy week, which is the one failure a
+  sweep cannot afford — a missed commit is indistinguishable from a swept one. Without this the
+  opportunistic cadence is nominal only: `fetch` and `checkout` print nothing
+  about authorship, so "a session that touches `main` finds one" describes no
+  actual moment. Sweep rules: the *Connectors → Replit* bullet below.
 - **Follow-up on an already-pushed branch:** add commits and plain-push. If the
   branch genuinely needs newly-landed `main`, **merge, never rebase**.
 - **If local has diverged accidentally:** realign with `git checkout -B <branch>
@@ -547,14 +563,30 @@ shows the true delta.
 
 ## Model, cost, and routing
 
-- **The session is always Opus** (`.claude/settings.json`), and I never ask
-  David to switch it. The one exception: if the session is genuinely below Opus
-  *and* the work is Opus-reserved **execution** (migration, Tier B fix, security
-  review, dev-infra), routing a judgement doesn't satisfy that — I say so and
-  ask him to run it from an Opus session. Two environments are not covered by
-  the pin: in-Repl sessions run Sonnet by local settings, and a session started
-  under the old `opusplan` stays there until restart. So I verify the active
-  tier before Opus-reserved work rather than inferring it.
+- **Fable to explore, Opus to build** (David, 2026-08-28, superseding the
+  2026-08-15 "session tier is a constant, switch-asks retired"). David
+  deliberately runs **Fable** for the thinking work — possibilities, "how or why
+  do we do it this way", plan conversation. That is the intended use, not a
+  misconfiguration to flag. **At the transition to building, the session moves
+  to Opus**, and it is on me to say so at that boundary, not on him to remember.
+  - **I cannot switch it — `/model` is David's, and there is no tool for me.**
+    So the rule I can actually keep is: name the boundary the moment we cross
+    it, ask for `/model claude-opus-5`, and don't start writing product code on
+    Fable while I wait.
+  - **Mandatory before product code.** Not needed to keep talking, to plan, or
+    for a docs/process edit — the ask at every small thing is the overhead this
+    is meant to avoid.
+  - **Staying on Fable needs a real reason, and David saying so is one.** My own
+    "this looks small" is not: the repo's one-line-that-broke-everything is on
+    file (#582), and cheap-looking is exactly when the tier matters.
+  - Adjudication dispatches stay on Fable regardless — that is a separate,
+    deliberate routing (below), not this rule being violated.
+- **Verify the active tier before Opus-reserved execution** (migration, Tier B
+  fix, security review, dev-infra) rather than inferring it. `.claude/settings.json`
+  pins `opus` but is **not proof of the running tier** — measured 2026-08-28,
+  this session ran Fable with that pin in place. Two more environments are
+  outside it: in-Repl sessions run Sonnet by local settings, and a session
+  started under the old `opusplan` stays there until restart.
 - **Route bounded, stateless work to a Sonnet subagent** — a codebase "how does
   X work" investigation, a mechanical multi-file edit from an approved plan, a
   self-contained research sweep, drafting from an already-complete handoff.
@@ -613,6 +645,14 @@ Authorization boundaries — the mechanics live in
   pipeline: branch → PR → Codex review → merge → sync. A sanctioned live repair
   has to be David-originated; I don't launder my own unreviewed patch through
   Replit.
+- **David's own display-only UI tweaks are a sanctioned fast lane**, settled
+  long before I meet any given one — a `Replit Agent` commit on `main` is the
+  normal case, never an incident to escalate. My duty is the sweep, not an
+  alarm: when a session touches `main` and finds one, I read it then (skim
+  display/copy, actually read anything touching data, logic, migrations, auth,
+  payments, or the visual pipeline) and route anything real to a `/bugfix` PR.
+  Re-sweeping is expected; there is no ledger. Boundary, ceremony and cadence:
+  [`replit-environment.md`](docs/ai-context/replit-environment.md).
 - **Scope every request and say what it must not touch** — Replit Agent defaults
   to *building*, so an unscoped ops question can come back as a feature.
 - **`ask_question` reads, `update_app_using_prompt` acts.** Only

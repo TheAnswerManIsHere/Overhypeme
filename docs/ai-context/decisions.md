@@ -13,6 +13,73 @@
 
 ---
 
+### 2026-08-28 · Fable to explore, Opus to build — switch-asks come back, at one boundary
+- **Decision:** David runs **Fable** deliberately for exploring possibilities and
+  discussing how and why we do things. **When the work turns to building, the
+  session moves to Opus**, and Claude Code names that boundary rather than
+  leaving David to remember it. Staying on Fable to build needs a really
+  compelling reason — David saying so is one; "this change looks small" is not.
+  The ask is **mandatory before product code** and deliberately not required for
+  continued discussion, planning, or docs/process edits. This supersedes the
+  2026-08-15 decision that the session tier is a constant and switch-asks are
+  retired in both directions; the Opus-reserved-execution exception that
+  survived it (migration, Tier B fix, security review, dev-infra) is absorbed
+  into the new rule as a verify-the-tier step. Fable-dispatched adjudications
+  are unaffected — that routing is separate and stays.
+- **Why:** The 2026-08-15 rule assumed one tier for a whole session, which no
+  longer matches how David works: the thinking half of a session and the
+  building half now genuinely want different tiers. Putting the switch on
+  Claude Code to *name* rather than on David to *remember* is what makes it
+  survive a long conversation, since the boundary is visible to the agent (a
+  build is starting) and invisible to a PM mid-discussion. The mechanical limit
+  is real and is why the rule is phrased as an ask: **`/model` is David's, and
+  Claude Code has no tool to switch the session.**
+- **Reference:** `CLAUDE.md` → *Model, cost, and routing*;
+  [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md)
+  (ops work is exempt — the pass writes no product code). Measured the same
+  day: `.claude/settings.json` pins `opus` and this session nonetheless ran
+  Fable, so the pin is not proof of the running tier.
+- **Revisit if:** the switch-ask starts firing on work that isn't really
+  building (the product-code boundary is drawn too wide), or David finds
+  himself switching so often that a per-session tier beats a per-phase one
+  after all.
+
+---
+
+### 2026-08-28 · The Replit fast lane: David's display-only UI tweaks ship direct, swept after the fact
+- **Decision:** David's own small UI changes made through Replit Agent during
+  UAT are a sanctioned lane, not an exception to be justified each time. **The
+  lane boundary is display vs. behavior, not small vs. big** — anything
+  touching data, logic, migrations, auth, payments, or the visual/enrichment
+  pipelines goes through the normal pipeline instead. His ceremony is two
+  clicks: **Pull before the tweak, Sync after it**, and never Publish while the
+  Repl and GitHub disagree. The retrospective sweep that covers the lane now
+  runs at **two cadences and David invokes neither** — opportunistically by any
+  session that touches `main` (Replit commits are unmistakable there, since
+  every other commit carries a squash-merge `(#N)`), with `/maintenance` step 7
+  as the weekly backstop. **No sweep ledger**: re-sweeping is the accepted cost.
+- **Why:** The direct-push path itself was already settled (2026-08-09) and the
+  weekly sweep already existed; what was missing was guidance David could use
+  *before* making a change, and a cadence that didn't leave a tweak unread for
+  up to a week. Diff size had been the implicit heuristic and it is the wrong
+  one — the Review # tweak (`c678a53`) was one display-only line and carried no
+  risk, while the Visual Overrides change was also one line and crashed every
+  refresh-seeded enrichment job (#582, #585). The ledger was designed and then
+  cut: it is a cache of state the git log already holds, the exact shape that
+  failed as the review-round tally, and it would have added the overhead the
+  lane exists to avoid.
+- **Reference:** [`replit-environment.md`](./replit-environment.md) §§ *The
+  fast lane* and *The one thing that IS ours*;
+  [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md)
+  step 7; [`replit-direct-push-to-main-is-sanctioned.md`](../../.agents/memory/replit-direct-push-to-main-is-sanctioned.md)
+  for the false alarm that prompted the conversation.
+- **Revisit if:** a sweep finds a real defect that reached David's UAT through
+  the lane (the boundary is drawn in the wrong place, or needs a narrower
+  definition of "display"), or opportunistic sweeps turn out to be so rare that
+  the weekly backstop is doing all the work anyway.
+
+---
+
 ### 2026-08-26 · The two-tier tripwire: a Fable recommendation at budget + 3-round leash, then the David gate — on every tier, with a product-decision fast path
 - **Decision:** David replaced the review-loop stopping shape end to end.
   Tripwire 1 stays at each tier's declared budget (product 5, sensitive 5,

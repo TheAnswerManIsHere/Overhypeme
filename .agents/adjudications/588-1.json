@@ -1,0 +1,181 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-28T20:38:38.155Z",
+  "evidenceCapturedAt": "2026-08-28T20:38:38.054911Z",
+  "pr": 588,
+  "title": "Two working contracts: the Replit fast lane, and Fable-to-explore/Opus-to-build",
+  "artifact": {
+    "files": 12,
+    "added": 401,
+    "removed": 45,
+    "patch": "[unavailable -- the snapshot carries no base or head sha; weigh the absence as uncertainty]",
+    "patchNote": "base...head: the artifact this round's findings are about. This is the diff to read when the rubric asks whether a finding describes a critical flaw. `sinceLastReview.patch` is separate and is normally empty under the write-gate rule, since the judge rules on an already-reviewed head."
+  },
+  "budget": {
+    "tier": "internal",
+    "tierMeaning": "internal tooling (strict write-gate adjudication rubric)",
+    "declaredBudget": 3,
+    "cap": 3,
+    "criticality": 25,
+    "artifactDeclaredAtRoundZero": "Two working-contract docs changes: the Replit fast lane (display-vs-behavior boundary, sweep cadence) and Fable-to-explore/Opus-to-build. Docs and contract text only, no product code.",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 3,
+    "extensions": []
+  },
+  "rounds": {
+    "completedReviewerPasses": 3,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-28T20:16:02Z",
+        "source": "review",
+        "findings": 4
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-28T20:25:58Z",
+        "source": "review",
+        "findings": 5
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-28T20:36:26Z",
+        "source": "review",
+        "findings": 2
+      }
+    ],
+    "trend": [
+      4,
+      5,
+      2
+    ],
+    "totalFindings": 11
+  },
+  "findings": {
+    "unresolved": 0,
+    "resolved": 0,
+    "resolutionUnknown": 11,
+    "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dSviW",
+        "path": "CLAUDE.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:16:02Z",
+        "excerpt": "P2 Update the live skills that still forbid this switch"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dSvid",
+        "path": "CLAUDE.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:16:02Z",
+        "excerpt": "P2 Qualify the existing every-actor main rule"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dSvik",
+        "path": "CLAUDE.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:16:02Z",
+        "excerpt": "P2 Wire the opportunistic sweep into the first-fetch path"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dSvir",
+        "path": "docs/ai-context/replit-environment.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:16:03Z",
+        "excerpt": "P2 Reconcile fast-lane tweaks with mandatory workstream tracking"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dS5CN",
+        "path": "docs/ai-context/replit-environment.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:25:58Z",
+        "excerpt": "P2 Keep the weekly sweep explicitly manual"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dS5CU",
+        "path": "CLAUDE.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:25:58Z",
+        "excerpt": "P2 Sweep every Replit commit since the previous fetch"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dS5Ca",
+        "path": ".claude/skills/model-routing/SKILL.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:25:58Z",
+        "excerpt": "P2 Retire the remaining no-switch instructions"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dS5Ci",
+        "path": "docs/ai-context/replit-environment.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:25:58Z",
+        "excerpt": "P2 Add the fast-lane exception to the root tracking rule"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dS5Cl",
+        "path": "docs/ai-context/replit-environment.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:25:58Z",
+        "excerpt": "P2 Apply the display-versus-behavior rule in maintenance"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dTC1a",
+        "path": "CLAUDE.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:36:26Z",
+        "excerpt": "P2 Preserve Replit commits beyond the 14-day window. After more than 14 days with neither a working session nor /maintenance, --since=\"14 days ago\" excludes the unseen commit permanently. Claims the filter returns only 1 of the repository's 146 matching Replit commits. Use a durable pre-fetch boundary or another window that cannot age unseen commits out."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dTC1i",
+        "path": "docs/ai-context/decisions.md",
+        "line": null,
+        "resolved": null,
+        "outdated": null,
+        "createdAt": "2026-08-28T20:36:26Z",
+        "excerpt": "P2 Record the maintenance cadence as David-invoked. The decisions.md entry still says David invokes neither cadence, while replit-environment.md and CLAUDE.md were corrected in this revision to make /maintenance David-invoked and unscheduled."
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 11,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "a64e7a3b47211f5662167ab58f8a6bd37494c3d5",
+    "resolved": false,
+    "reason": "snapshot carries no pr.head.sha, so the diff has no verifiable endpoint",
+    "note": "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the base branch this includes files already reviewed and merged there. Use `artifact` for the size of what is actually under review here."
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/review-counting.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}

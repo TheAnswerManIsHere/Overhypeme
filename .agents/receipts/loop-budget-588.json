@@ -1,0 +1,8 @@
+{
+  "pr": 588,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 25,
+  "artifact": "Two working-contract docs changes: the Replit fast lane (display-vs-behavior boundary, sweep cadence) and Fable-to-explore/Opus-to-build. Docs and contract text only, no product code.",
+  "declaredAt": "2026-08-28T20:08:20.028Z"
+}

@@ -9,7 +9,35 @@ Migrated out of `CLAUDE.md` so it loads when a routing question is actually
 live. The task-shape tier table stays resident in `CLAUDE.md`, because it has
 to fire at task boundaries without being invoked.
 
-### The session model is a constant, not a dial (David, 2026-08-15)
+### Fable to explore, Opus to build (David, 2026-08-28)
+
+**This supersedes the constant-tier rule recorded below.** David runs **Fable**
+deliberately for exploring possibilities and discussing how and why we do
+things; **when the work turns to building, the session moves to Opus**, and
+naming that boundary is mine rather than his to remember. The ask is
+**mandatory before product code** and deliberately not required for continued
+discussion, planning, or a docs/process edit. Staying on Fable to build needs a
+really compelling reason — David saying so is one; my own "this looks small" is
+not.
+
+The mechanical facts in the section below did **not** change, and they are why
+the rule is phrased as an *ask*: nothing except David can move the session
+model, so "switch to Opus" is not an action I can take. What changed is the
+conclusion drawn from those facts. The 2026-08-15 reasoning was that since he
+had to move it by hand, we should stop depending on him moving it at all — one
+tier for a whole session. That no longer matches how he works: the thinking
+half of a session and the building half want different tiers, and putting the
+boundary on me to *name* is what makes it survive a long conversation, since
+the transition to building is visible to me and invisible to a PM mid-thought.
+
+Full rule, including the maintenance exemption: `CLAUDE.md`'s *Model, cost, and
+routing*.
+
+### Superseded — the session model is a constant, not a dial (David, 2026-08-15)
+
+> Retained for its verified mechanics, which still hold. Its **conclusion** —
+> "I no longer ask for a switch in any direction" — is superseded by the
+> section above; read the switch-ask statements here as history.
 
 David asked (2026-07-24) whether the Opus→Fable switch could be automated, and
 (2026-08-15) whether we could stop switching models altogether — the switch-ask
@@ -132,9 +160,10 @@ usually wrong. So "Opus is too expensive for this" is no longer automatically
 true; **Opus at `medium` is a real option that we have never tried**, and it may
 beat Sonnet at `high` for less than we'd assume. **Where that now applies is the
 `effort` I set on a subagent** — a routed documentation pass or research sweep
-does not need `high`. It is *not* a prompt for David to type `/effort`: since
-2026-08-15 I don't ask him to change session-level dials at all, which is the
-whole point of the section above. (`max` applies to the current session only.
+does not need `high`. It is *not* a prompt for David to type `/effort`: the
+**one** session-level dial I ask him to move is the model, at the build
+boundary (*Fable to explore, Opus to build*, above), and `effortLevel` is not
+it. (`max` applies to the current session only.
 `/effort ultracode` is
 not a model level — it sends `xhigh` *and* turns on workflow orchestration; it
 burns tokens fast and should be a deliberate ask, never something I assume.)
@@ -160,11 +189,16 @@ deliberate escalation.
   at all (updated 2026-08-15).** The `best` alias resolves to Fable wherever
   it's available, which would put *every* ops-shaped turn on the most
   expensive model, so it is not a valid persisted default. This bullet used
-  to add that "`/model fable` for a deliberate Fable session is fine" — that
-  is **superseded**: the session model is a constant and I no longer propose
-  moving it in any direction. Fable is reached by subagent, full stop. (David
-  can of course still switch his own session whenever he wants; what changed
-  is that I don't ask him to.)
+  to add that "`/model fable` for a deliberate Fable session is fine" — and as
+  of **2026-08-28 that is true again from David's side**: he runs Fable
+  sessions deliberately for exploration and design conversation, which is the
+  intended use, not a misconfiguration to flag. Two things still hold. **I**
+  don't propose moving a session *to* Fable — the only switch I ask for is
+  **to Opus at the build boundary** (*Fable to explore, Opus to build*, above).
+  And the `best` alias is still not a valid persisted default, for the reason
+  given: it would put every ops-shaped turn on the most expensive model.
+  Reaching Fable for one hard piece of work *without* touching the session is
+  still the subagent route described here.
 - **Fable falls back on its own when flagged.** Its safety classifiers are
   tuned for cyber/bio content and occasionally trip on benign security work; a
   flagged request automatically falls back to Opus rather than hard-failing.
