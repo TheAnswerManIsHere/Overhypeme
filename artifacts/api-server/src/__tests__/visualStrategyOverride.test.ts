@@ -261,6 +261,37 @@ describe("hasRenderableVisualStrategyOverrideContent", () => {
     assert.equal(firstOverrideTokenError(ov), null);
   });
 
+  // Regression — #584 round 2. Same class as the coreSceneOverride bug: a field
+  // counted as override evidence that the compiler does not actually render.
+  // `composeSubjectRealization` (nanoBanana2.ts:511) returns "" whenever the mode
+  // is `use_ai_plan`, whatever the description says — so a description parked
+  // under the default mode is a no-op that must not raise the signal.
+  it("does NOT count a subjectRealizationOverride description under the default mode", () => {
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(
+        asOv({ subjectRealizationOverride: { mode: "use_ai_plan", description: "a stern librarian" } }),
+      ),
+      false,
+    );
+    // ...and it still counts the moment the mode is anything else, description or not.
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(
+        asOv({ subjectRealizationOverride: { mode: "subject_as_object", description: "a stern librarian" } }),
+      ),
+      true,
+    );
+    // A real override elsewhere is not masked by the inert realization block.
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(
+        asOv({
+          subjectRealizationOverride: { mode: "use_ai_plan", description: "a stern librarian" },
+          requiredVisualDetails: ["a red hat"],
+        }),
+      ),
+      true,
+    );
+  });
+
   it("counts policy overrides and non-default subject realization", () => {
     assert.equal(
       hasRenderableVisualStrategyOverrideContent(asOv({ violencePolicyOverride: { mode: "soften", intensity: "mild" } })),

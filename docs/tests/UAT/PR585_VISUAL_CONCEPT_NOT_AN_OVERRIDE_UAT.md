@@ -30,9 +30,9 @@ it is written to undo itself.
 - [claude] Confirm `main` is synced to the Repl and the checked-out SHA matches the merge commit, before anything is read.
 - [claude] Capture the count of facts carrying a Visual Concept — the size of the set that was showing the incorrect badge — so "it's fixed" has a number behind it.
 - [claude] Identify and name in the preview: one fact whose override panel is genuinely empty (review #6880 is the known case), and one with real override content. Steps 1, 2, 5 and R2 each need a known subject rather than a hunt.
-- [claude] Before step 5 runs, capture the current stored `visualPromptStrategyOverride` for the fact step 5 will edit, and record it in the run record — so the restore below has a real captured value rather than a guess.
+- [claude] Before step 5 runs, capture the current stored `visualPromptStrategyOverride` for the fact step 5 will edit — including its `updatedBy` and `updatedAt` — and record it in the run record, so the restore below has a real captured value rather than a guess.
 - [david] Sign in to the admin console as yourself; every step is an admin screen.
-- [restore] The visual override on the fact edited in step 5 — restore it to the value captured before that step. Step 5 ends by removing what it added, so this is the backstop if the run is interrupted mid-step, not the normal path.
+- [restore] The visual override on the fact edited in step 5 — restore it to the value captured before that step, **after every run, not only an interrupted one**. Removing the scratch entry in the step restores the *content* but not the provenance: each save that changes content re-stamps `updatedBy`/`updatedAt`, so without this the fact is left recorded as last edited by the tester at test time.
 
 ## Steps
 
@@ -60,9 +60,12 @@ the case that must not have been broken by the fix.
 
 **Do:** On the same review as step 2, read the text in the **Visual Concept —
 describe the picture** field, then open **Prompt Diagnostics** in the same
-Advanced Options section and read the compiled prompt it shows. (This panel
-recomputes and displays the prompt an image engine would receive; it does not
-render anything and does not save.)
+Advanced Options section. **Click "Generate runtime prompt preview" and wait for
+it to finish**, then read the compiled prompt. Do not read whatever is already
+on screen when the panel opens — the panel restores the last saved result for
+this fact without recomputing, which on a browser that has opened it before
+would be a prompt built by the *old* code. (Generating is read-only: the panel
+computes a preview and does not render or save.)
 
 **Expect:** The compiled prompt contains a **CORE SCENE** section carrying the
 Visual Concept text you just read. The Visual Concept is still reaching the
@@ -103,7 +106,9 @@ archetype, subtype, fit — and no error banner.
 ### R2. Real override content still reaches the prompt alongside the scene
 
 **Do:** On the fact from step 2 (the one with real override content), open
-**Prompt Diagnostics** and read the compiled prompt.
+**Prompt Diagnostics**, **click "Generate runtime prompt preview" and wait for
+it to finish** — same reason as step 3, a restored result may predate the merge
+— then read the compiled prompt.
 
 **Expect:** The prompt carries **both** the CORE SCENE **and** that fact's
 override content — its required detail, bubble, or composition note. This is

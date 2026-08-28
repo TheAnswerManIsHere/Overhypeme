@@ -465,38 +465,56 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
     });
   });
 
-/** Rendered paths that are NOT evidence of moderator intervention, and so are
- *  excluded from `hasRenderableVisualStrategyOverrideContent` while staying
- *  fully rendered and tokenized everywhere else.
+/** Rendered-text paths that are NOT evidence of moderator intervention for THIS
+ *  override, and so are excluded from `hasRenderableVisualStrategyOverrideContent`
+ *  while staying fully rendered and tokenized everywhere else.
  *
- *  `coreSceneOverride` holds the **Visual Concept**, which is a REQUIRED field —
- *  a fact cannot be saved or released to production with a blank one (see
- *  `VisualConceptCard`, and the required-gates in the admin/review routes). Every
- *  production-ready fact therefore carries one, so its presence says "this fact
- *  reached concept review", never "a moderator overrode something" (#584). It is
- *  also not a discriminator we could refine: the field holds the accepted AI
- *  draft and a hand-written scene identically, with nothing stored to tell them
- *  apart. */
-const NON_OVERRIDE_RENDERED_PATHS = new Set<string>(["coreSceneOverride"]);
+ *  Two reasons a path lands here, and they are different:
+ *
+ *  1. **Required of every fact.** `coreSceneOverride` holds the Visual Concept,
+ *     which a fact cannot be saved or released to production without (see
+ *     `VisualConceptCard`, and the required-gates in the admin/review routes).
+ *     Every production-ready fact carries one, so its presence says "this fact
+ *     reached concept review", never "a moderator overrode something" (#584). It
+ *     is also not a discriminator we could refine: the field holds the accepted
+ *     AI draft and a hand-written scene identically, with nothing stored to tell
+ *     them apart.
+ *  2. **Inert in this state.** A `subjectRealizationOverride.description` under
+ *     `mode: "use_ai_plan"` renders nothing — the compiler's
+ *     `composeSubjectRealization` returns "" for that mode whatever the
+ *     description says — so it is a no-op, not an override. (A non-default mode
+ *     is caught by the explicit check in the predicate below, description or
+ *     not.)
+ *
+ *  Both are the same underlying rule: this signal counts only content that both
+ *  reaches the engine AND represents a human decision. */
+function nonOverrideRenderedPaths(ov: VisualPromptStrategyOverride): ReadonlySet<string> {
+  const paths = new Set<string>(["coreSceneOverride"]);
+  if (!ov.subjectRealizationOverride || ov.subjectRealizationOverride.mode === "use_ai_plan") {
+    paths.add("subjectRealizationOverride.description");
+  }
+  return paths;
+}
 
 /**
  * True when the override carries any content that is RENDERED into the engine
  * prompt **and** indicates a deliberate moderator override. The single source of
  * truth for "enabled but empty" style checks so UI surfaces can't drift on what
  * counts as content. Admin-only fields (moderatorIntent, notesForModerator)
- * deliberately do NOT count, and neither do NON_OVERRIDE_RENDERED_PATHS above.
+ * deliberately do NOT count, and neither do `nonOverrideRenderedPaths` above.
  *
  * This is the "was this overridden" SIGNAL, a different question from "what gets
  * rendered" — which stays `collectRenderedTextEntries`, deliberately untouched
- * by the exclusion above so tokenization and prompt compilation are unaffected.
+ * by the exclusions above so tokenization and prompt compilation are unaffected.
  */
 export function hasRenderableVisualStrategyOverrideContent(
   ov: VisualPromptStrategyOverride,
 ): boolean {
   if (ov.supportingTextPolicyOverride || ov.violencePolicyOverride) return true;
   if (ov.subjectRealizationOverride && ov.subjectRealizationOverride.mode !== "use_ai_plan") return true;
+  const excluded = nonOverrideRenderedPaths(ov);
   return collectRenderedTextEntries(ov).some(
-    ({ path, value }) => !NON_OVERRIDE_RENDERED_PATHS.has(path) && value.trim().length > 0,
+    ({ path, value }) => !excluded.has(path) && value.trim().length > 0,
   );
 }
 
