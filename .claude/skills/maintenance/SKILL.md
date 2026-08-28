@@ -187,18 +187,35 @@ branch, PR, and Codex round, so it's batched here instead, in the same PR as
 step 6a.
 
 1. List `docs/tests/UAT/PR<N>_*_UAT.md` on current `main`.
-2. For each, resolve its workstream issue (the doc names its PR; the PR body
-   names the issue) and read its current `stage:` label.
-3. **`stage:close-out`, `stage:done`, or the issue is closed** → the run
-   finished; delete the file in this pass's docs PR. The harvest exception
-   (a doc that's the only written description of some behavior) was already
-   checked and actioned by `/uat` at close-out — nothing to re-check here.
-4. **`stage:uat` or earlier** → the run isn't done (still in progress, or
-   `Blocked` and resuming after its bug fix) — leave the file alone. This
-   mirrors `/uat` section 1's own discovery, which filters on this exact
-   label rather than the file's presence.
-5. One line in the report: "N UAT docs cleared" or "N docs present, all
-   still owed" — name any left in place, with their workstream and stage.
+2. For each, read its `**Workstream:** #<N>` line. **No line at all** means
+   the doc predates that convention — the known case is the 2026-08-24
+   legacy backlog, tracked collectively under #562 rather than one issue
+   per doc. A doc in this bucket has no per-doc `stage:` to read: leave it
+   alone and name it in the report as "no resolvable workstream" rather
+   than silently skipping it forever. Its deletion is the umbrella issue's
+   own call when *it* closes, not this step's — do not delete it here even
+   once #562 does close, without a fresh look at what that issue's own
+   record says was actually run.
+3. For a doc **with** a workstream line, read that issue's current
+   `stage:` label — the label alone, **never treat the issue being closed
+   as a stand-in for it.** An issue can close with a non-terminal stage
+   still on it (an accidental `Closes #N` in a commit body, the exact drift
+   [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)
+   already warns auto-close would cause) — that is not evidence David ran
+   the UAT. Report it as lifecycle drift needing a look and leave the doc
+   in place.
+4. **`stage:close-out` or `stage:done`** → the run finished; delete the
+   file in this pass's docs PR. The harvest exception (a doc that's the
+   only written description of some behavior) was already checked and
+   actioned by `/uat` at close-out — nothing to re-check here.
+5. **`stage:uat` or earlier, issue still open** → the run isn't done
+   (still in progress, or `Blocked` and resuming after its bug fix) —
+   leave the file alone. This mirrors `/uat` section 1's own discovery,
+   which filters on this exact label rather than the file's presence.
+6. One line in the report naming every non-empty bucket: cleared, left in
+   place (owed), no resolvable workstream (legacy), and closed-but-
+   non-terminal (drift) — with the doc and its stage for anything past the
+   first bucket.
 
 ## 7. Replit commit review
 
