@@ -181,6 +181,25 @@ the standing recommendation on file is the delete list from the #541 review.
 Below three qualifying loops, say "not yet informative" rather than dressing two
 data points as a trend.
 
+**Step 6d — UAT doc cleanup (David, 2026-08-28).** `/uat` no longer deletes a
+completed run's doc at close-out — a one-file deletion doesn't earn its own
+branch, PR, and Codex round, so it's batched here instead, in the same PR as
+step 6a.
+
+1. List `docs/tests/UAT/PR<N>_*_UAT.md` on current `main`.
+2. For each, resolve its workstream issue (the doc names its PR; the PR body
+   names the issue) and read its current `stage:` label.
+3. **`stage:close-out`, `stage:done`, or the issue is closed** → the run
+   finished; delete the file in this pass's docs PR. The harvest exception
+   (a doc that's the only written description of some behavior) was already
+   checked and actioned by `/uat` at close-out — nothing to re-check here.
+4. **`stage:uat` or earlier** → the run isn't done (still in progress, or
+   `Blocked` and resuming after its bug fix) — leave the file alone. This
+   mirrors `/uat` section 1's own discovery, which filters on this exact
+   label rather than the file's presence.
+5. One line in the report: "N UAT docs cleared" or "N docs present, all
+   still owed" — name any left in place, with their workstream and stage.
+
 ## 7. Replit commit review
 
 Retrospective read of what Replit pushed straight to `main` this week — the
@@ -388,14 +407,15 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   longer batches, see
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#one-bug-one-branch-one-pr-david-2026-07-26))
   if he says so. Maintenance touches nothing but
-  dependency merges, **with two narrow exceptions**: committing updates to
+  dependency merges, **with three narrow exceptions**: committing updates to
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
   (step 4) — recording a newly-parked item or updating an entry's status —
-  and the batched documentation harvest (step 6a). Both are
-  docs-only and zero behavior/dependency change, and both ship together in
+  the batched documentation harvest (step 6a), and the batched UAT doc
+  cleanup (step 6d). All three are
+  docs-only and zero behavior/dependency change, and all ship together in
   **one maintenance docs PR per pass** (internal tier: the automatic Codex
   pass, one triage, merge) — one PR for the whole pass, never one per
-  harvested feature, per `documentation-workflow.md`'s batched delivery path. Neither is license to fix, refactor, or bump
+  harvested feature or cleared doc, per `documentation-workflow.md`'s batched delivery path. None is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
   (dependency or Action) still only ever becomes a reported decision item,
   never a direct action, per step 4 above. **Step 9's backlog hygiene is

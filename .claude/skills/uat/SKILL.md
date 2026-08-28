@@ -13,8 +13,9 @@ record, the bug intake, and the way back.
 
 **What has not changed:** the doc is still written per
 [`pr-docs`](../pr-docs/SKILL.md), still lands on its PR before merge, still
-David's own to-do list, and **I delete it once he confirms the run
-complete** (David, 2026-08-22) — see section 6.
+David's own to-do list, and **it's left in place once he confirms the run
+complete, to be deleted in `/maintenance`'s next batched sweep** (David,
+2026-08-28, superseding same-close-out deletion) — see section 6.
 
 **The UAT doc is no longer published as an Artifact page (David,
 2026-08-21).** That reading surface existed because he was reading alone; the
@@ -381,22 +382,28 @@ Then, in one edit:
   `workstream-tracking.md`'s backlog contract. A bare `queue:` shorthand
   creates an item `/next` can't rank and the board can't display.
 - **Fix the doc** if a step's expected result was wrong.
-- **Delete the UAT doc once he confirms the run is complete** (David,
-  2026-08-22). Deletion is the default, in the same close-out, so
-  `docs/tests/UAT/` never accumulates finished tests and a surviving file
-  always means a run still owed — which is exactly what section 1's
-  discovery assumes. It is a better signal than it was: it used to lag
-  behind a manual click, so a completed run could sit there looking
-  startable for days.
+- **Do the harvest check now; leave the file itself for `/maintenance`**
+  (David, 2026-08-28, superseding same-close-out deletion). Opening a
+  branch, a PR, and a Codex round to delete one file was the ceremony this
+  superseded — the file's presence no longer means a run still owed,
+  because section 1's discovery filters on the workstream's `stage:` label,
+  not the doc's existence, so a doc that outlives its run here isn't
+  mistaken for one still startable. `/maintenance`'s batched sweep resolves
+  each doc's workstream and deletes every one whose stage has reached
+  `close-out`/`done` (Blocked runs stay at `stage:uat` and are correctly
+  left alone), landing in the same single maintenance docs PR as the
+  documentation harvest.
 
-  **The one reason to keep one is content, not sentiment:** a doc that is
-  the only written description of some behavior. That is a gap in the
+  **The one reason to still act now is content, not sentiment:** a doc that
+  is the only written description of some behavior. That is a gap in the
   Manual, not a reason to hoard a test — harvest the description into the
-  right chapter, say I've done so, then delete the doc. "It might be useful
-  later" is not a reason; a re-run of a merged PR's UAT is written fresh
-  from current behavior, not resurrected.
+  right chapter now, in this session, and say I've done so; the file itself
+  still waits for the batched sweep either way. "It might be useful later"
+  is not a reason; a re-run of a merged PR's UAT is written fresh from
+  current behavior, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next, and that the doc is gone.
+  he can do next, and that the doc will clear at the next `/maintenance`
+  pass.
 
 ## Notification discipline during a run (David, 2026-08-21)
 

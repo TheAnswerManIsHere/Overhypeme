@@ -62,11 +62,13 @@ I ship two things:
    so a doc outside the format is a doc that cannot be driven. Setup lines,
    step shape (`Do:` / `Expect:`), regression IDs and the deliberate
    omissions all live there rather than being restated here. **This half
-   stays file-based, but ownership of deletion changed (David, 2026-08-22):
-   I delete a UAT doc once he confirms the run complete**, in the same
-   close-out, rather than waiting on his own click — so the directory
-   never accumulates finished tests. See `/uat` for the one exception
-   (content worth harvesting first).
+   stays file-based; a completed run's doc is deleted in `/maintenance`'s
+   next batched sweep, not its own PR** (David, 2026-08-28, superseding
+   same-close-out deletion) — the directory can hold finished tests between
+   passes without confusing `/uat`'s discovery, since that filters on the
+   workstream's `stage:` label rather than the doc's existence. See `/uat`
+   for the one exception (content worth harvesting first, still done at
+   close-out).
 
    Because the PR number is in the filename, the UAT doc follows the
    **PR-first** flow: open the PR with a "Docs pending" placeholder note,
@@ -80,8 +82,9 @@ I ship two things:
    so write it for that: **setup is mine to execute** — the `[claude]` lines
    in the format — and `[david]` is reserved for what only his own session or
    device can do, admin-gated setup included (I hold no admin session; see
-   `/uat` section 2). The doc is still the canonical script;
-   **I delete it once he confirms the run complete** (David, 2026-08-22).
+   `/uat` section 2). The doc is still the canonical script; **it's deleted
+   in `/maintenance`'s next batched sweep once he confirms the run
+   complete** (David, 2026-08-28).
 
    **No Artifact page (David, 2026-08-21 — retiring the 2026-07-22 rule).**
    The Artifact existed as a reading surface for working through the doc

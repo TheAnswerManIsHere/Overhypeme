@@ -409,9 +409,15 @@ on. Mechanics: `pr-watch` skill. Two things that gate whether it fires at all:
    until the verification section has real content (or an explicit "none
    needed") and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` exists and is linked —
    PR-first, added to the same PR before merge, never a later PR. **David
-   confirms a run complete and I delete the doc in that same close-out**
-   (David, 2026-08-22) — unless it carries behavior recorded nowhere else, in
-   which case that content is harvested into the Manual first. Bugfix mode does not
+   confirms a run complete and the doc is marked done for the next
+   `/maintenance` sweep to delete** (David, 2026-08-28, superseding
+   same-close-out deletion) — a one-file deletion doesn't earn its own
+   branch, PR, and Codex round; batching it costs nothing since a
+   completed run is already identified by its workstream's stage, not by
+   the doc's absence. The harvest check still runs at close-out, in this
+   session, since it's a judgment call tied to context I'm holding: unless
+   the doc carries behavior recorded nowhere else, in which case that
+   content is harvested into the Manual first. Bugfix mode does not
    inherit this pairing. **Running** a UAT is the `uat` skill (David,
    2026-08-21): the doc is a script I drive step by step in chat — I own the
    setup, the per-step record, and filing any bug the moment it's found — not
