@@ -1,0 +1,160 @@
+# PR #585 — The "Overridden" badge only shows when someone actually overrode something — UAT
+
+**Workstream:** #584
+
+The admin enrichment editor was telling you a fact had a moderator override
+when it had none. The badge keyed off the Visual Concept — the "describe the
+picture" text — which every fact is *required* to have. So it lit up on
+essentially every fact that had reached concept review, which is most of them,
+and the one signal meant to say "a human touched this one" said it about
+everything.
+
+You found this yourself during PR #582's UAT: review #6880 showed
+**"Overridden: Visual Strategy"** while its entire Visual Strategy Override
+panel was empty. Your call was that the Visual Concept should be omitted from
+the check, and that is exactly what shipped.
+
+**The risk this run is really checking** is the other direction. The Visual
+Concept is still sent to the image engine and still has its `{NAME}` tokens
+validated — it just no longer counts as *evidence of an override*. Those are
+two different jobs for one field, and the way this fix could have gone wrong is
+by removing the field from both. **Steps 3 and 4 are the load-bearing ones**:
+they confirm the picture-prompt still carries the scene and tokens are still
+checked. Steps 1 and 2 confirm the badge itself.
+
+Steps 1–4 and R1–R2 are read-only. **Steps 5 and 6 are the only ones that
+write**, and they are a pair: 5 adds a scratch override, 6 removes it again.
+
+Two things about this screen that would otherwise read as bugs, so they are
+built into the steps rather than left to trip you up. **The badge is computed
+when the editor loads, not after a save** — so every step that saves tells you
+to reopen the editor before reading it. And **the compiled prompt substitutes a
+sample name for the tokens** — so `{NAME} stands there confidently.` appears in
+the prompt as `David stands there confidently.`, and you are comparing the
+scene, not the literal characters.
+
+## Setup
+
+- [claude] Confirm `main` is synced to the Repl and the checked-out SHA matches the merge commit, before anything is read.
+- [claude] Capture how many facts were showing the badge **incorrectly** — the before/after condition, not a proxy for it: a non-blank Visual Concept *and* no other qualifying override content (no required/forbidden detail, composition guidance, prompt addition, policy override, non-default realization mode, or complete bubble/role-binding row). Counting every fact with a Visual Concept would overstate it, since a fact with a real override carries one too and its badge was correct.
+- [claude] Identify and name in the preview: one fact whose override panel is genuinely empty (review #6880 is the known case), and one with real override content. Steps 1, 2, 5, 6 and R2 each need a known subject rather than a hunt.
+- [claude] Before step 5 runs, capture the current stored `visualPromptStrategyOverride` for the fact step 5 will edit — including its `updatedBy` and `updatedAt` — and record it in the run record, so the restore below has a real captured value rather than a guess.
+- [david] Sign in to the admin console as yourself; every step is an admin screen.
+- [restore] The visual override on the fact edited in steps 5 and 6 — restore it to the value captured before step 5, **after every run, not only an interrupted one**. Removing the scratch entry in step 6 restores the *content* but not the provenance: each save that changes content re-stamps `updatedBy`/`updatedAt`, so without this the fact is left recorded as last edited by the tester at test time.
+
+## Steps
+
+### 1. The badge is gone where nothing was overridden
+
+**Do:** Go to **Admin → Moderation** and open the review I name in the preview
+(the fact with an empty override panel — review #6880 unless I say otherwise).
+Expand **Advanced Options** and look at the **AI Visual Classification** block,
+just under the amber "Ambiguous sentence-initial entity" note.
+
+**Expect:** There is **no** orange `Overridden: Visual Strategy` bar. The
+classification fields below it (Joke Mechanism, Depiction Style, Overhype Fit
+and so on) are unchanged and still populated.
+
+### 2. The badge still appears where something really was overridden
+
+**Do:** Open the review I name in the preview as having real override content —
+a required visual detail, a speech bubble, or a composition note. Expand
+**Advanced Options** and look at the same **AI Visual Classification** block.
+
+**Expect:** The orange `Overridden: Visual Strategy` bar **is** shown. This is
+the case that must not have been broken by the fix.
+
+### 3. The Visual Concept still reaches the picture prompt
+
+**Do:** On the same review as step 2, read the text in the **Visual Concept —
+describe the picture** field, then open **Prompt Diagnostics** in the same
+Advanced Options section. **Click "Generate runtime prompt preview" and wait for
+it to finish**, then read the compiled prompt. Do not read whatever is already
+on screen when the panel opens — the panel restores the last saved result for
+this fact without recomputing, which on a browser that has opened it before
+would be a prompt built by the *old* code. (Generating is read-only: the panel
+computes a preview and does not render or save.)
+
+**Expect:** The compiled prompt contains a **CORE SCENE** section describing the
+same scene as the Visual Concept you just read. The Visual Concept is still
+reaching the engine — which is what the fix had to avoid breaking.
+
+**Not a mismatch:** any `{NAME}` / `{SUBJ}` / `{POSS}` tokens in the field are
+substituted for the sample identity shown in the Prompt Diagnostics controls
+before the scene reaches the prompt. So a concept reading `{NAME} stands there
+confidently.` appears as `David stands there confidently.` (or whatever sample
+name is set). Match the scene, not the literal characters.
+
+### 4. A bad token in the Visual Concept is still caught
+
+**Do:** In the **Visual Concept — describe the picture** field on any fact, type
+`{NOPE}` at the end of the existing text. **Do not save.**
+
+**Expect:** A token warning appears under the field flagging the unknown token,
+the same validation as before this PR. **Then delete the `{NOPE}` you typed**,
+leaving the field exactly as you found it, and close the editor without saving.
+
+### 5. Saving a real override raises the badge
+
+**Do:** Open the fact I name in the preview as having an empty override panel.
+In **Advanced Options → Visual Strategy Override**, add one **Required visual
+detail** with the text `uat-585-scratch`, and save. **Then close the editor and
+reopen it** — the badge is computed when the editor loads, so reading it without
+reopening shows the value from before your save.
+
+**Expect:** On reopening, the orange `Overridden: Visual Strategy` bar
+**appears** — the badge tracks the override you just made. Leave the entry in
+place; step 6 removes it.
+
+### 6. Clearing that override lowers the badge again
+
+**Do:** In the same fact's **Visual Strategy Override** panel, remove the
+`uat-585-scratch` required visual detail you added in step 5, and save. **Close
+the editor and reopen it** again, for the same reason.
+
+**Expect:** On reopening, the `Overridden: Visual Strategy` bar is **gone**. The
+distinctive text makes the entry unmistakable if anything is left behind — tell
+me if this save does not clear it, and I will restore from the value captured in
+setup.
+
+## Regression
+
+### R1. The enrichment editor still opens on a normal fact
+
+**Do:** Open **Admin → Moderation**, pick any fact with completed enrichment,
+and open its enrichment editor.
+
+**Expect:** The editor loads with its classification fields populated —
+archetype, subtype, fit — and no error banner.
+
+### R2. Real override content still reaches the prompt alongside the scene
+
+**Do:** On the fact from step 2 (the one with real override content), open
+**Prompt Diagnostics**, **click "Generate runtime prompt preview" and wait for
+it to finish** — same reason as step 3, a restored result may predate the merge
+— then read the compiled prompt.
+
+**Expect:** The prompt carries **both** the CORE SCENE **and** that fact's
+override content — its required detail, bubble, or composition note. This is
+the "a core scene must not mask real override content" invariant seen end to
+end rather than in a unit test. As in step 3, tokens are substituted for the
+sample identity, so match the scene rather than the literal characters.
+
+## Not bugs
+
+- **A fact whose override panel is empty shows no badge even though its Visual
+  Concept is long and detailed.** That is the entire point of the fix: the
+  Visual Concept is required on every fact, so it can never distinguish one
+  fact from another. Only the fields under **Visual Strategy Override** count.
+- **The Facts page "Overridden" filter is unchanged by this PR.** It filters on
+  the taxonomy override map (`enrichmentOverrides`), which is a different thing
+  from the visual override and is not touched here — so its result set should
+  look exactly as it did before. An earlier draft of this doc claimed the list
+  would shrink; that was wrong and there is nothing to check there.
+- **There is no way to tell an AI-drafted Visual Concept from one you wrote
+  yourself.** The field stores both identically and nothing records which it
+  was, which is *why* it is excluded rather than refined. If distinguishing
+  them is worth having, that is a product decision and a separate piece of
+  work, not a defect here.
+- **A recovered enrichment job still shows its old error text on Queue
+  Health.** Unrelated to this PR — a known observability gap recorded on #579.

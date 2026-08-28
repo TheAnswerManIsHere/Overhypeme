@@ -1,0 +1,8 @@
+{
+  "pr": 585,
+  "tier": "product",
+  "budget": 5,
+  "criticality": 55,
+  "artifact": "Exclude the required Visual Concept from the has-been-overridden signal (bugfix, Tier B)",
+  "declaredAt": "2026-08-28T03:13:05.464Z"
+}
