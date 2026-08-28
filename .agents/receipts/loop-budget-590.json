@@ -1,0 +1,8 @@
+{
+  "pr": 590,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 15,
+  "artifact": "Batch UAT doc deletion into /maintenance instead of its own PR (docs/process only)",
+  "declaredAt": "2026-08-28T21:42:47.009Z"
+}
