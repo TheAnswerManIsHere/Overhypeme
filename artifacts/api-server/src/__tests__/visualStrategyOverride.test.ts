@@ -200,10 +200,43 @@ describe("token helpers", () => {
 describe("hasRenderableVisualStrategyOverrideContent", () => {
   const asOv = (partial: Record<string, unknown>) => makeOverride(partial) as unknown as VisualPromptStrategyOverride;
 
-  it("counts coreSceneOverride as renderable content", () => {
+  // `coreSceneOverride` is the storage for the REQUIRED Visual Concept, not a
+  // moderator override: a fact cannot be saved or released to production with a
+  // blank one (VisualConceptCard, and 8 required-gates across the admin/review
+  // routes). So its presence says "this fact reached concept review", which is
+  // universal — it can never distinguish a fact a moderator intervened on. It is
+  // excluded from this signal while staying fully rendered/tokenized (#584).
+  it("does NOT count coreSceneOverride — it is the required Visual Concept, not an override", () => {
     assert.equal(hasRenderableVisualStrategyOverrideContent(asOv({})), false);
     assert.equal(hasRenderableVisualStrategyOverrideContent(asOv({ coreSceneOverride: "  " })), false);
-    assert.equal(hasRenderableVisualStrategyOverrideContent(asOv({ coreSceneOverride: "{NAME} on a throne" })), true);
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ coreSceneOverride: "{NAME} on a throne" })),
+      false,
+    );
+    // The exact production blob from review #6880 / fact 22587 (#584).
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(
+        { version: 1, coreSceneOverride: "{NAME} stands there confidently." } as unknown as VisualPromptStrategyOverride,
+      ),
+      false,
+    );
+  });
+
+  it("still counts every other rendered field when a Visual Concept is also present", () => {
+    // The negative case that matters: a core scene must not MASK real override
+    // content, and each field must count independently of it.
+    const withScene = (partial: Record<string, unknown>) =>
+      hasRenderableVisualStrategyOverrideContent(
+        asOv({ coreSceneOverride: "{NAME} stands there confidently.", ...partial }),
+      );
+    assert.equal(withScene({ requiredVisualDetails: ["a red hat"] }), true);
+    assert.equal(withScene({ forbiddenVisualDetails: ["no logos"] }), true);
+    assert.equal(withScene({ compositionGuidance: ["wide shot"] }), true);
+    assert.equal(withScene({ styleAgnosticPromptAdditions: ["grainy"] }), true);
+    assert.equal(withScene({ negativePromptAdditions: ["blurry"] }), true);
+    assert.equal(withScene({ roleBindings: [{ entity: "the bartender", visualRole: "pouring" }] }), true);
+    assert.equal(withScene({ violencePolicyOverride: { mode: "soften", intensity: "mild" } }), true);
+    assert.equal(withScene({ subjectRealizationOverride: { mode: "subject_as_object", description: "" } }), true);
   });
 
   it("ignores admin-only fields (moderatorIntent, notesForModerator)", () => {
@@ -211,6 +244,21 @@ describe("hasRenderableVisualStrategyOverrideContent", () => {
       hasRenderableVisualStrategyOverrideContent(asOv({ moderatorIntent: "why I overrode", notesForModerator: "note" })),
       false,
     );
+  });
+
+  // Guards the scoping of the #584 fix: excluding the Visual Concept from the
+  // "was this overridden" SIGNAL must not remove it from the RENDER/TOKENIZE
+  // path, which is a different question answered by a different function.
+  it("leaves coreSceneOverride fully rendered and tokenized (signal ≠ render path)", () => {
+    const ov = asOv({ coreSceneOverride: "{NAME} on a throne" });
+    const entry = collectRenderedTextEntries(ov).find((e) => e.path === "coreSceneOverride");
+    assert.ok(entry, "coreSceneOverride must still be emitted as rendered text");
+    assert.equal(entry!.value, "{NAME} on a throne");
+    assert.equal(entry!.kind, "prose");
+    assert.equal(isVisualStrategyRenderedTextPath("coreSceneOverride"), true);
+    // Token validation on the Visual Concept must still fire.
+    assert.ok(firstOverrideTokenError(asOv({ coreSceneOverride: "{NOPE} on a throne" })));
+    assert.equal(firstOverrideTokenError(ov), null);
   });
 
   it("counts policy overrides and non-default subject realization", () => {

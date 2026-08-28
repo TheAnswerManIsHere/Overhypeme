@@ -104,11 +104,23 @@ describe("resolveEnrichment", () => {
       overrides: {},
       visualPromptStrategyOverride: legacy,
     });
-    // The override still counts as renderable content — its core scene is set.
-    assert.equal(summary.hasVisualStrategyOverride, true);
+    // The core scene is preserved verbatim...
     assert.equal(effective.visualPromptStrategyOverride?.coreSceneOverride, "a giant lifting the earth");
     // ...and the full-schema parse fills the absent lists back in.
     assert.deepEqual(effective.visualPromptStrategyOverride?.requiredVisualDetails, []);
+    // ...but a core scene alone is the REQUIRED Visual Concept, not a moderator
+    // override, so it does not raise the signal (#584). The #579 regression this
+    // test exists for is the absence of a throw above, not this flag.
+    assert.equal(summary.hasVisualStrategyOverride, false);
+  });
+
+  // Regression — #584. The blob shape above is what EVERY production-ready fact
+  // carries, so counting it made the signal true for the whole corpus.
+  it("raises the signal for a legacy blob that also carries real override content", () => {
+    const legacy = { version: 1, coreSceneOverride: "a giant lifting the earth", requiredVisualDetails: ["a red hat"] } as unknown as
+      FactEnrichment["visualPromptStrategyOverride"];
+    const { summary } = resolveEnrichment({ aiDerived: AI, overrides: {}, visualPromptStrategyOverride: legacy });
+    assert.equal(summary.hasVisualStrategyOverride, true);
   });
 
   it("resolves a stored visual override that is a bare version stub", () => {
@@ -126,16 +138,35 @@ describe("resolveEnrichment", () => {
 // is why the collector itself is guarded too. Imported from the api-server lib
 // rather than api-zod deliberately: this pins the caller, not the resolver.
 describe("serializeResolved — the caller that bypasses resolveEnrichment (#579)", () => {
-  it("does not crash on a legacy visual override when there is no AI baseline", () => {
-    const legacy = { version: 1, coreSceneOverride: "{NAME} stands there confidently." } as unknown as
-      FactEnrichment["visualPromptStrategyOverride"];
-    const out = serializeResolved({
+  const serializeWith = (visual: unknown) =>
+    serializeResolved({
       aiDerived: null,
       overrides: {},
       effective: null,
       enrichmentStatus: "ready",
-      visualPromptStrategyOverride: legacy,
+      visualPromptStrategyOverride: visual as FactEnrichment["visualPromptStrategyOverride"],
     }) as { overrideSummary: { hasVisualStrategyOverride: boolean } };
+
+  it("does not crash on a legacy visual override when there is no AI baseline", () => {
+    // The #579 regression is that this returns at all rather than throwing.
+    const out = serializeWith({ version: 1, coreSceneOverride: "{NAME} stands there confidently." });
+    assert.equal(typeof out.overrideSummary.hasVisualStrategyOverride, "boolean");
+  });
+
+  // Regression — #584, on the bypassing caller specifically: this path computes
+  // the signal itself rather than reading the resolver's, so it needs its own
+  // proof that a Visual-Concept-only blob does not raise it.
+  it("does not raise the signal for a Visual-Concept-only blob (no AI baseline)", () => {
+    const out = serializeWith({ version: 1, coreSceneOverride: "{NAME} stands there confidently." });
+    assert.equal(out.overrideSummary.hasVisualStrategyOverride, false);
+  });
+
+  it("still raises the signal when that same blob carries real override content", () => {
+    const out = serializeWith({
+      version: 1,
+      coreSceneOverride: "{NAME} stands there confidently.",
+      bubbles: [{ type: "speech", entity: "subject", text: "Not again." }],
+    });
     assert.equal(out.overrideSummary.hasVisualStrategyOverride, true);
   });
 });
