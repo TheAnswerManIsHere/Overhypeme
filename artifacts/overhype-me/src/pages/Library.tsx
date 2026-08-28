@@ -12,7 +12,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, CheckCircle, Clock,
-  FileText, ImageIcon, Images, Plus, ThumbsUp,
+  FileText, ImageIcon, Images, Lock, Plus, ThumbsUp,
 } from "lucide-react";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -455,6 +455,16 @@ export default function Library() {
                           onDelete={() => deleteMeme(meme.permalinkSlug)}
                           deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                           permalink={memePermalink}
+                           imageOverlay={!meme.isPublic ? (
+                             <div
+                               className="absolute top-2 left-2 z-10 inline-flex items-center justify-center rounded-sm bg-black/70 p-1.5 text-white shadow-sm"
+                               title="Private meme"
+                               aria-label="Private meme"
+                             >
+                               <Lock className="w-4 h-4" aria-hidden="true" />
+                               <span className="sr-only">Private meme</span>
+                             </div>
+                           ) : undefined}
                           footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                         />
                         <div className="px-1">
