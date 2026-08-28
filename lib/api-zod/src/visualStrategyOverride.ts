@@ -479,20 +479,45 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
  *     is also not a discriminator we could refine: the field holds the accepted
  *     AI draft and a hand-written scene identically, with nothing stored to tell
  *     them apart.
- *  2. **Inert in this state.** A `subjectRealizationOverride.description` under
- *     `mode: "use_ai_plan"` renders nothing — the compiler's
- *     `composeSubjectRealization` returns "" for that mode whatever the
- *     description says — so it is a no-op, not an override. (A non-default mode
- *     is caught by the explicit check in the predicate below, description or
- *     not.)
+ *  2. **Inert in this state.** The compiler discards some content depending on
+ *     the override's own shape, and what it discards cannot be evidence of an
+ *     override. It does this in exactly three places, which is the whole of
+ *     this category — swept with
+ *     `grep -nE "ov\??\.[a-zA-Z]+" nanoBanana2.ts | grep -E "\.filter\(|use_ai_plan|return \"\""`:
  *
- *  Both are the same underlying rule: this signal counts only content that both
- *  reaches the engine AND represents a human decision. */
+ *     - `composeSubjectRealization` (`:511`) returns "" whenever the mode is
+ *       `use_ai_plan`, whatever `description` says. (A non-default mode is
+ *       caught by the explicit check in the predicate below, description or not.)
+ *     - Bubbles (`:1281`) keep only rows with BOTH `entity` and `text` —
+ *       "incomplete mid-edit rows ignored", in the compiler's own words. The
+ *       admin editor persists `{ entity: "subject", text: "" }` the moment a
+ *       bubble is added, so this state is routine, not exotic.
+ *     - Role bindings (`:1356`) keep only rows with BOTH `entity` and
+ *       `visualRole`.
+ *
+ *     The compound rows are judged **per row**, matching those filters: one
+ *     half-filled bubble alongside a complete one must not suppress the signal,
+ *     and a complete row alongside a half-filled one must still raise it.
+ *
+ *  Both reasons are the same underlying rule: this signal counts only content
+ *  that both reaches the engine AND represents a human decision. */
 function nonOverrideRenderedPaths(ov: VisualPromptStrategyOverride): ReadonlySet<string> {
   const paths = new Set<string>(["coreSceneOverride"]);
   if (!ov.subjectRealizationOverride || ov.subjectRealizationOverride.mode === "use_ai_plan") {
     paths.add("subjectRealizationOverride.description");
   }
+  (ov.bubbles ?? []).forEach((b, i) => {
+    if (!b.entity?.trim() || !b.text?.trim()) {
+      paths.add(`bubbles[${i}].entity`);
+      paths.add(`bubbles[${i}].text`);
+    }
+  });
+  (ov.roleBindings ?? []).forEach((b, i) => {
+    if (!b.entity?.trim() || !b.visualRole?.trim()) {
+      paths.add(`roleBindings[${i}].entity`);
+      paths.add(`roleBindings[${i}].visualRole`);
+    }
+  });
   return paths;
 }
 

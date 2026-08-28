@@ -292,6 +292,57 @@ describe("hasRenderableVisualStrategyOverrideContent", () => {
     );
   });
 
+  // Regression — #584 round 4, the third instance of the same class: content the
+  // compiler discards must not raise the signal. `nanoBanana2.ts` drops compound
+  // rows unless BOTH halves are filled — bubbles at :1281
+  // (`b.entity.trim() && b.text.trim()`, commented "incomplete mid-edit rows
+  // ignored") and roleBindings at :1356 (`b.entity.trim() && b.visualRole.trim()`).
+  // A half-saved row renders nothing, so it is not an override.
+  it("does NOT count a half-filled bubble or role binding", () => {
+    // The shape BubbleEditor persists when a bubble is added and saved before
+    // its text is typed.
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ bubbles: [{ type: "speech", entity: "subject", text: "" }] })),
+      false,
+    );
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ bubbles: [{ type: "speech", entity: "  ", text: "Not again." }] })),
+      false,
+    );
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ roleBindings: [{ entity: "the bartender", visualRole: "" }] })),
+      false,
+    );
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ roleBindings: [{ entity: "", visualRole: "pouring" }] })),
+      false,
+    );
+  });
+
+  it("counts a COMPLETE bubble or role binding, and is not masked by an incomplete sibling", () => {
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ bubbles: [{ type: "speech", entity: "subject", text: "Not again." }] })),
+      true,
+    );
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ roleBindings: [{ entity: "the bartender", visualRole: "pouring" }] })),
+      true,
+    );
+    // The row that matters is the complete one — an incomplete row alongside it
+    // must not suppress the signal, which is the per-row (not per-list) property.
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(
+        asOv({
+          bubbles: [
+            { type: "speech", entity: "subject", text: "" },
+            { type: "speech", entity: "the bartender", text: "Not again." },
+          ],
+        }),
+      ),
+      true,
+    );
+  });
+
   it("counts policy overrides and non-default subject realization", () => {
     assert.equal(
       hasRenderableVisualStrategyOverrideContent(asOv({ violencePolicyOverride: { mode: "soften", intensity: "mild" } })),

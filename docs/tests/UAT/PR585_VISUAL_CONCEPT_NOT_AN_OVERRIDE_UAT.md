@@ -36,7 +36,7 @@ scene, not the literal characters.
 ## Setup
 
 - [claude] Confirm `main` is synced to the Repl and the checked-out SHA matches the merge commit, before anything is read.
-- [claude] Capture the count of facts carrying a Visual Concept — the size of the set that was showing the incorrect badge — so "it's fixed" has a number behind it.
+- [claude] Capture how many facts were showing the badge **incorrectly** — the before/after condition, not a proxy for it: a non-blank Visual Concept *and* no other qualifying override content (no required/forbidden detail, composition guidance, prompt addition, policy override, non-default realization mode, or complete bubble/role-binding row). Counting every fact with a Visual Concept would overstate it, since a fact with a real override carries one too and its badge was correct.
 - [claude] Identify and name in the preview: one fact whose override panel is genuinely empty (review #6880 is the known case), and one with real override content. Steps 1, 2, 5, 6 and R2 each need a known subject rather than a hunt.
 - [claude] Before step 5 runs, capture the current stored `visualPromptStrategyOverride` for the fact step 5 will edit — including its `updatedBy` and `updatedAt` — and record it in the run record, so the restore below has a real captured value rather than a guess.
 - [david] Sign in to the admin console as yourself; every step is an admin screen.
