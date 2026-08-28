@@ -7,8 +7,12 @@ description: Weekly repo maintenance ritual. Use when David says /maintenance or
 
 David invokes this roughly weekly (`/maintenance`). It is **ops work**, and
 it runs in whatever session it was invoked in — **I do not suggest a model
-switch** (David, 2026-08-15: the session tier is a constant and switch-asks
-are retired in both directions; see `CLAUDE.md`'s *Token / cost discipline*).
+switch for it.** The *Fable to explore, Opus to build* rule (David,
+2026-08-28, see `CLAUDE.md`'s *Model, cost, and routing*) asks for a switch
+before **product code**, which this pass never writes: its two docs-only
+exceptions and its dependency merges are not building. A `/bugfix` that comes
+*out* of this pass is building, and takes the tier its own classification
+calls for.
 Bounded, stateless pieces of the pass — a research sweep, a self-contained
 lookup — are eligible for a Sonnet subagent; the triage judgements are not.
 

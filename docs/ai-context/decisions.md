@@ -13,6 +13,39 @@
 
 ---
 
+### 2026-08-28 · Fable to explore, Opus to build — switch-asks come back, at one boundary
+- **Decision:** David runs **Fable** deliberately for exploring possibilities and
+  discussing how and why we do things. **When the work turns to building, the
+  session moves to Opus**, and Claude Code names that boundary rather than
+  leaving David to remember it. Staying on Fable to build needs a really
+  compelling reason — David saying so is one; "this change looks small" is not.
+  The ask is **mandatory before product code** and deliberately not required for
+  continued discussion, planning, or docs/process edits. This supersedes the
+  2026-08-15 decision that the session tier is a constant and switch-asks are
+  retired in both directions; the Opus-reserved-execution exception that
+  survived it (migration, Tier B fix, security review, dev-infra) is absorbed
+  into the new rule as a verify-the-tier step. Fable-dispatched adjudications
+  are unaffected — that routing is separate and stays.
+- **Why:** The 2026-08-15 rule assumed one tier for a whole session, which no
+  longer matches how David works: the thinking half of a session and the
+  building half now genuinely want different tiers. Putting the switch on
+  Claude Code to *name* rather than on David to *remember* is what makes it
+  survive a long conversation, since the boundary is visible to the agent (a
+  build is starting) and invisible to a PM mid-discussion. The mechanical limit
+  is real and is why the rule is phrased as an ask: **`/model` is David's, and
+  Claude Code has no tool to switch the session.**
+- **Reference:** `CLAUDE.md` → *Model, cost, and routing*;
+  [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md)
+  (ops work is exempt — the pass writes no product code). Measured the same
+  day: `.claude/settings.json` pins `opus` and this session nonetheless ran
+  Fable, so the pin is not proof of the running tier.
+- **Revisit if:** the switch-ask starts firing on work that isn't really
+  building (the product-code boundary is drawn too wide), or David finds
+  himself switching so often that a per-session tier beats a per-phase one
+  after all.
+
+---
+
 ### 2026-08-28 · The Replit fast lane: David's display-only UI tweaks ship direct, swept after the fact
 - **Decision:** David's own small UI changes made through Replit Agent during
   UAT are a sanctioned lane, not an exception to be justified each time. **The

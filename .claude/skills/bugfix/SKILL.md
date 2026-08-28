@@ -170,7 +170,7 @@ still goes branch → PR → Codex → merge.
 reason out loud before writing the fix, because the tier decides what ships with
 the PR. Tier A is the exception, by design.
 
-**Model tier follows the classification (CLAUDE.md's *Token / cost discipline*):**
+**Model tier follows the classification (CLAUDE.md's *Model, cost, and routing*):**
 
 - **Entering the bugfix workflow** (routed or via `/bugfix`) — no switch, no
   ask (David, 2026-08-15: the session tier is a constant, Opus). Triage and

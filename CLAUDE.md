@@ -547,14 +547,30 @@ shows the true delta.
 
 ## Model, cost, and routing
 
-- **The session is always Opus** (`.claude/settings.json`), and I never ask
-  David to switch it. The one exception: if the session is genuinely below Opus
-  *and* the work is Opus-reserved **execution** (migration, Tier B fix, security
-  review, dev-infra), routing a judgement doesn't satisfy that — I say so and
-  ask him to run it from an Opus session. Two environments are not covered by
-  the pin: in-Repl sessions run Sonnet by local settings, and a session started
-  under the old `opusplan` stays there until restart. So I verify the active
-  tier before Opus-reserved work rather than inferring it.
+- **Fable to explore, Opus to build** (David, 2026-08-28, superseding the
+  2026-08-15 "session tier is a constant, switch-asks retired"). David
+  deliberately runs **Fable** for the thinking work — possibilities, "how or why
+  do we do it this way", plan conversation. That is the intended use, not a
+  misconfiguration to flag. **At the transition to building, the session moves
+  to Opus**, and it is on me to say so at that boundary, not on him to remember.
+  - **I cannot switch it — `/model` is David's, and there is no tool for me.**
+    So the rule I can actually keep is: name the boundary the moment we cross
+    it, ask for `/model claude-opus-5`, and don't start writing product code on
+    Fable while I wait.
+  - **Mandatory before product code.** Not needed to keep talking, to plan, or
+    for a docs/process edit — the ask at every small thing is the overhead this
+    is meant to avoid.
+  - **Staying on Fable needs a real reason, and David saying so is one.** My own
+    "this looks small" is not: the repo's one-line-that-broke-everything is on
+    file (#582), and cheap-looking is exactly when the tier matters.
+  - Adjudication dispatches stay on Fable regardless — that is a separate,
+    deliberate routing (below), not this rule being violated.
+- **Verify the active tier before Opus-reserved execution** (migration, Tier B
+  fix, security review, dev-infra) rather than inferring it. `.claude/settings.json`
+  pins `opus` but is **not proof of the running tier** — measured 2026-08-28,
+  this session ran Fable with that pin in place. Two more environments are
+  outside it: in-Repl sessions run Sonnet by local settings, and a session
+  started under the old `opusplan` stays there until restart.
 - **Route bounded, stateless work to a Sonnet subagent** — a codebase "how does
   X work" investigation, a mechanical multi-file edit from an approved plan, a
   self-contained research sweep, drafting from an already-complete handoff.
