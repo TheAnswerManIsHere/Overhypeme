@@ -1561,6 +1561,7 @@ function FactReviewsPanel() {
                       </span>
                     )}
                     <span className="text-xs text-muted-foreground">
+                      Review #{r.id} ·{" "}
                       {r.matchingSimilarity >= duplicateThreshold ? `${r.matchingSimilarity}% match · ` : ""}
                       by {r.candidateVersionId != null ? "admin refresh" : (r.submitter?.displayName ?? r.submitter?.email ?? "unknown")} · {new Date(r.createdAt).toLocaleDateString()}
                     </span>
