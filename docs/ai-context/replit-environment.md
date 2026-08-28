@@ -193,6 +193,51 @@ was decided against: correct, verified live, and faster than routing it
 through a PR loop would have been. Do not propose gating this path; David
 settled it on 2026-08-09.
 
+## The fast lane: David's own UI tweaks during UAT (David, 2026-08-28)
+
+The push path above is a general capability. This is the specific, common use
+David actually makes of it, named so that no agent treats it as an incident:
+**while testing, he asks Replit Agent for a small UI change, and it appears on
+his UAT screen in seconds.** That is sanctioned and expected. It is the same
+David-originated live repair CLAUDE.md already permits — not an unreviewed
+patch sneaking past the pipeline, which remains barred for Claude Code's own
+changes.
+
+**The lane boundary is display vs. behavior — not small vs. big.** Diff size
+does not predict risk, and the repo has one worked example on each side of the
+line, a day apart:
+
+- **Display (in the lane).** `c678a53` added `Review #{r.id}` to each row of
+  the admin Moderation list — one line, rendering an id already present in the
+  row's data. No API, no data model, no logic. Reviewed after the fact in well
+  under a minute.
+- **Behavior (not in the lane).** The Visual Overrides change was also
+  "one line", and it crashed every refresh-seeded enrichment job on a partial
+  visual override (fixed in #582, with a follow-on badge fix in #585). It cost
+  an hour and six review rounds — and those rounds are what *caught* it.
+
+So the routing question is never "is this small?" but **"does this change what
+the app does, or only what it shows?"** Anything touching data, logic,
+migrations, auth, payments, or the visual/enrichment pipelines goes through the
+normal pipeline instead. When David is unsure, he asks — and a misjudgment is
+recoverable, because the sweep below is the backstop.
+
+**The ceremony is two clicks, and both matter:**
+
+1. **Pull before the tweak**, so Replit Agent edits current code.
+2. **Sync after it**, so the change reaches GitHub promptly.
+
+Sync is what makes the change *visible* — GitHub is not where the app runs, but
+it is the only surface Codex and Claude Code can read, so an unsynced Repl
+change is invisible to every agent that could catch a problem in it, and the
+next post-merge sync will collide with it. Ordering is what keeps merge
+conflicts off David's screen: pull-first means the tweak is authored on top of
+`main` rather than diverging from it.
+
+**Never Publish while the Repl and GitHub disagree** — Publish snapshots the
+Repl's working tree (see the sync/Publish section below), so a
+still-unsynced tweak ships to production without ever having been seen.
+
 ## Replit has its own CI — not none, and not ours
 
 Replit runs its own internal review/testing loop as part of its development
@@ -285,17 +330,35 @@ for the full matrix.
 ## The one thing that IS ours: a periodic retrospective read
 
 Nothing gates Replit's push, so the only enforcement point is after the
-fact — a code review David asks for, not a check anything blocks on. The
-weekly `/maintenance` pass (see
-[`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md))
-sweeps commits authored `Replit Agent` (by name, across every identity it
-commits under) on `main` since the last run:
+fact — a code review David asks for, not a check anything blocks on. The sweep
+reads commits authored `Replit Agent` (by name, across every identity it
+commits under) on `main`:
 
 - **Skim** UI/copy/test-only changes — seconds each, no deep read needed.
 - **Actually read** anything touching a migration, schema, auth, or payment
   path.
 - Anything real found goes through the normal channel — a `/bugfix` PR, or a
   flagged item for David — never a unilateral revert of Replit's work.
+
+**It runs at two cadences, and David invokes neither** (David, 2026-08-28).
+*Opportunistically*: any session that touches `main` — which every session does
+on its first fetch — sweeps any `Replit Agent` commit it finds there. Detection
+is free and needs no new machinery, because every non-Replit commit on `main`
+arrives through a squash-merged PR and carries its `(#N)` in the subject, so a
+Replit commit is visually unmistakable in one `git log`. *Weekly*: the
+`/maintenance` pass (see
+[`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md))
+runs the same sweep as the **backstop**, so nothing sits unread longer than a
+pass even if no session happened to be open.
+
+**There is deliberately no sweep ledger, and re-sweeping is the accepted
+cost.** A record of "which commits were already swept" is a cache of state the
+git log already holds, and this repo has been burned by exactly that shape
+before — the review-loop round tally was stored, drifted, and was replaced by
+counting fresh from GitHub every time (see CLAUDE.md's *Review loops*). Reading
+a one-line display diff twice costs seconds; a ledger that goes stale costs a
+missed commit. Where a sweep finds something real, the resulting `/bugfix` PR
+is itself the durable record.
 
 This is a retrospective safety net, not a gate: it never blocks or delays
 Replit's own work, and it does not replace Replit's own internal CI or its

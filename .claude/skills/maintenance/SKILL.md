@@ -184,6 +184,14 @@ only enforcement point on that path, since nothing gates the push itself.
 Full rationale in
 [`replit-environment.md`](../../../docs/ai-context/replit-environment.md).
 
+**This pass is the backstop, not the only sweep** (David, 2026-08-28). Any
+session that touches `main` sweeps `Replit Agent` commits opportunistically,
+so most weeks the commits here have already been read. **Sweep them again
+anyway** — there is deliberately no ledger of what was already covered, on
+the same reasoning that retired the review-round tally (a cache of state the
+git log already holds, which drifts). Re-reading a display-only diff costs
+seconds; assuming someone else read it is how one gets missed.
+
 1. `git log --author="Replit Agent" --since="7 days ago" --oneline main`
    (adjust the window to the last maintenance run, same as section 5). Filter
    on the display name, **not** a specific email address — the repo's history

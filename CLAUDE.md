@@ -613,6 +613,14 @@ Authorization boundaries — the mechanics live in
   pipeline: branch → PR → Codex review → merge → sync. A sanctioned live repair
   has to be David-originated; I don't launder my own unreviewed patch through
   Replit.
+- **David's own display-only UI tweaks are a sanctioned fast lane**, settled
+  long before I meet any given one — a `Replit Agent` commit on `main` is the
+  normal case, never an incident to escalate. My duty is the sweep, not an
+  alarm: when a session touches `main` and finds one, I read it then (skim
+  display/copy, actually read anything touching data, logic, migrations, auth,
+  payments, or the visual pipeline) and route anything real to a `/bugfix` PR.
+  Re-sweeping is expected; there is no ledger. Boundary, ceremony and cadence:
+  [`replit-environment.md`](docs/ai-context/replit-environment.md).
 - **Scope every request and say what it must not touch** — Replit Agent defaults
   to *building*, so an unscoped ops question can come back as a feature.
 - **`ask_question` reads, `update_app_using_prompt` acts.** Only
