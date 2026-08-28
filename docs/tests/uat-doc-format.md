@@ -156,8 +156,12 @@ the same PR before merge. See
 [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md). `/uat` **consumes** this
 format and never authors it.
 
-**A UAT doc is deleted when David confirms its run is complete** (David,
-2026-08-22) — by `/uat`, in the same close-out, unless it carries behavior
-recorded nowhere else, which gets harvested into the Manual first. A surviving
-file in `docs/tests/UAT/` therefore means the run is still owed, which is why
-the format has to stay drivable for as long as the file lives.
+**A UAT doc outlives its run** (David, 2026-08-28, superseding same-close-out
+deletion) — `/uat` confirms the harvest exception (behavior recorded nowhere
+else gets moved into the Manual) at close-out, but the file itself is only
+deleted in `/maintenance`'s next batched sweep, one PR for every doc whose
+workstream has reached `close-out`/`done`. So a surviving file no longer
+implies the run is still owed — `/uat`'s own discovery filters on the
+workstream's `stage:` label for that, not the file's presence — but the format
+still has to stay drivable for as long as the file lives, since a doc can sit
+finished for up to a week between passes.

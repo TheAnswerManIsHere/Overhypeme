@@ -13,6 +13,36 @@
 
 ---
 
+### 2026-08-28 · A completed UAT doc waits for `/maintenance`'s batched sweep instead of its own PR
+- **Decision:** `/uat` no longer deletes a completed run's doc at close-out.
+  It still runs the harvest check there (a doc that's the only written
+  description of some behavior gets moved into the Manual first, same as
+  before), but the file itself is left in place. `/maintenance` gained a
+  new step (6d) that resolves every doc in `docs/tests/UAT/` against its
+  workstream's `stage:` label and deletes every one whose workstream has
+  reached `close-out`/`done`, batched into the same docs-only PR as the
+  documentation harvest (step 6a). This supersedes the 2026-08-22 decision
+  that `/uat` deletes the doc itself in the same close-out.
+- **Why:** David's call — opening a branch, a PR, and a full Codex review
+  round to delete one file is ceremony out of proportion to the change.
+  Nothing about correctness required same-close-out deletion: `/uat`
+  section 1's own discovery already filters candidate docs on the
+  workstream's `stage:uat` label, not on the doc's presence, so a finished
+  doc sitting in the directory for up to a week between maintenance passes
+  was never at risk of being offered as startable.
+- **Reference:** [`.claude/skills/uat/SKILL.md`](../../.claude/skills/uat/SKILL.md)
+  section 6; [`.claude/skills/pr-docs/SKILL.md`](../../.claude/skills/pr-docs/SKILL.md);
+  [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md)
+  step 6d and its Boundaries' third exception;
+  [`uat-doc-format.md`](../tests/uat-doc-format.md); `CLAUDE.md`'s
+  *Post-merge verification + UAT doc* pairing.
+- **Revisit if:** a stale UAT doc actually gets offered as startable between
+  passes (would mean the `stage:` filter has a gap `/uat` needs to close),
+  or the batched sweep starts accumulating enough docs that a week's wait
+  is itself the complaint.
+
+---
+
 ### 2026-08-28 · Fable to explore, Opus to build — switch-asks come back, at one boundary
 - **Decision:** David runs **Fable** deliberately for exploring possibilities and
   discussing how and why we do things. **When the work turns to building, the
@@ -1094,6 +1124,11 @@
      complete, rather than waiting on a manual click. The reasoning that
      survived is the file's *signal* — a surviving doc means a run still
      owed — which a synchronous deletion makes more reliable, not less.
+     **Superseded again 2026-08-28**: the doc's *signal* now comes from its
+     workstream's `stage:` label, not its presence, so the file no longer
+     needs to disappear synchronously to keep that signal reliable —
+     deletion moved to `/maintenance`'s batched sweep. See that entry at
+     the top of this log.
   6. **Docs-only loops continue on consequence, not count.** The
      2026-08-14 hard cap (first pass + one re-request) lasted a day:
      David flagged it as count-thinking in a contract that had just

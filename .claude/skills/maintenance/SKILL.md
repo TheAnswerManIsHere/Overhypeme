@@ -181,6 +181,42 @@ the standing recommendation on file is the delete list from the #541 review.
 Below three qualifying loops, say "not yet informative" rather than dressing two
 data points as a trend.
 
+**Step 6d — UAT doc cleanup (David, 2026-08-28).** `/uat` no longer deletes a
+completed run's doc at close-out — a one-file deletion doesn't earn its own
+branch, PR, and Codex round, so it's batched here instead, in the same PR as
+step 6a.
+
+1. List `docs/tests/UAT/PR<N>_*_UAT.md` on current `main`.
+2. For each, read its `**Workstream:** #<N>` line. **No line at all** means
+   the doc predates that convention — the known case is the 2026-08-24
+   legacy backlog, tracked collectively under #562 rather than one issue
+   per doc. A doc in this bucket has no per-doc `stage:` to read: leave it
+   alone and name it in the report as "no resolvable workstream" rather
+   than silently skipping it forever. Its deletion is the umbrella issue's
+   own call when *it* closes, not this step's — do not delete it here even
+   once #562 does close, without a fresh look at what that issue's own
+   record says was actually run.
+3. For a doc **with** a workstream line, read that issue's current
+   `stage:` label — the label alone, **never treat the issue being closed
+   as a stand-in for it.** An issue can close with a non-terminal stage
+   still on it (an accidental `Closes #N` in a commit body, the exact drift
+   [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)
+   already warns auto-close would cause) — that is not evidence David ran
+   the UAT. Report it as lifecycle drift needing a look and leave the doc
+   in place.
+4. **`stage:close-out` or `stage:done`** → the run finished; delete the
+   file in this pass's docs PR. The harvest exception (a doc that's the
+   only written description of some behavior) was already checked and
+   actioned by `/uat` at close-out — nothing to re-check here.
+5. **`stage:uat` or earlier, issue still open** → the run isn't done
+   (still in progress, or `Blocked` and resuming after its bug fix) —
+   leave the file alone. This mirrors `/uat` section 1's own discovery,
+   which filters on this exact label rather than the file's presence.
+6. One line in the report naming every non-empty bucket: cleared, left in
+   place (owed), no resolvable workstream (legacy), and closed-but-
+   non-terminal (drift) — with the doc and its stage for anything past the
+   first bucket.
+
 ## 7. Replit commit review
 
 Retrospective read of what Replit pushed straight to `main` this week — the
@@ -388,14 +424,15 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   longer batches, see
   [`working-modes.md`](../../../docs/ai-context/working-modes.md#one-bug-one-branch-one-pr-david-2026-07-26))
   if he says so. Maintenance touches nothing but
-  dependency merges, **with two narrow exceptions**: committing updates to
+  dependency merges, **with three narrow exceptions**: committing updates to
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
   (step 4) — recording a newly-parked item or updating an entry's status —
-  and the batched documentation harvest (step 6a). Both are
-  docs-only and zero behavior/dependency change, and both ship together in
+  the batched documentation harvest (step 6a), and the batched UAT doc
+  cleanup (step 6d). All three are
+  docs-only and zero behavior/dependency change, and all ship together in
   **one maintenance docs PR per pass** (internal tier: the automatic Codex
   pass, one triage, merge) — one PR for the whole pass, never one per
-  harvested feature, per `documentation-workflow.md`'s batched delivery path. Neither is license to fix, refactor, or bump
+  harvested feature or cleared doc, per `documentation-workflow.md`'s batched delivery path. None is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
   (dependency or Action) still only ever becomes a reported decision item,
   never a direct action, per step 4 above. **Step 9's backlog hygiene is
