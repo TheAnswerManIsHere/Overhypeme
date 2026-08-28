@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { deriveSyncSummary } from "./syncStatusSummary";
+import { parseToggleErrorBody, type VerificationSnapshot } from "./stripeVerification";
+import { StripeVerificationStatus } from "./StripeVerificationStatus";
 import { Button } from "@/components/ui/Button";
 import {
   CreditCard, Zap, Star, CheckCircle, XCircle, AlertTriangle,
@@ -108,6 +110,7 @@ interface StripeSummary {
   webhookSecretConfigured: boolean;
   webhookUrl: string | null;
   stripeEnv?: StripeEnvStatus;
+  verification?: VerificationSnapshot;
 }
 
 interface AdminConfigRow {
@@ -161,6 +164,15 @@ export default function AdminBilling() {
   const [pricingIntervalSaving, setPricingIntervalSaving] = useState(false);
   const [pricingIntervalSaved, setPricingIntervalSaved] = useState(false);
   const [pricingIntervalError, setPricingIntervalError] = useState<string | null>(null);
+
+  // One sample of the account guard's state, from the endpoint the page already
+  // fetches. `useCallback` with no deps so the status component's polling effect
+  // is not restarted on every render of this page.
+  const fetchVerificationStatus = useCallback(async (): Promise<VerificationSnapshot | null> => {
+    const res = await fetch("/api/admin/stripe/summary", { credentials: "include" });
+    const value = (await res.json()) as StripeSummary;
+    return value.verification ?? null;
+  }, []);
 
   const fetchAll = useCallback(async () => {
     setConfigLoading(true);
@@ -228,7 +240,14 @@ export default function AdminBilling() {
         credentials: "include",
         body: JSON.stringify({ value: newMode ? "true" : "false" }),
       });
-      if (!resp.ok) throw new Error("Failed to update");
+      if (!resp.ok) {
+        // Read the body. The server's refusal names which key points at which
+        // account, and that is the whole value of it — the previous
+        // `throw new Error("Failed to update")` discarded every server reason
+        // and left a mismatched account indistinguishable from a network blip.
+        const body: unknown = await resp.json().catch(() => null);
+        throw new Error(parseToggleErrorBody(body, "Failed to update"));
+      }
       setLiveMode(newMode);
       setStripeConfig(null);
       setConfigLoading(true);
@@ -545,6 +564,33 @@ export default function AdminBilling() {
               <span><strong>Live mode is active.</strong> Customers using checkout will be charged with real payment methods. Make sure your products and prices are correctly configured before accepting live payments.</span>
             </div>
           )}
+          {/* Keyed on the stored mode: a toggle makes every instance's
+              verification state for the NEW mode unobserved, so the samples
+              taken for the old one are dropped rather than carried over. */}
+          <StripeVerificationStatus
+            key={String(liveMode)}
+            initial={summary?.verification ?? null}
+            expectedMode={liveMode === null ? null : liveMode ? "live" : "test"}
+            fetchStatus={fetchVerificationStatus}
+            // Apply the observation, then refresh.
+            //
+            // The observed mode came from the guard's own authoritative read on
+            // the summary endpoint. `fetchAll()` alone was not enough: its
+            // /admin/config request can land on an instance still holding the
+            // old 60-second config cache, leaving `liveMode` — and so this
+            // panel's key and expectedMode — unchanged, while the one-shot
+            // notification has already been spent. The page would then sit on
+            // the wrong mode with its samples being rejected until an operator
+            // reloaded it.
+            //
+            // Setting the mode from the observation first means the page is
+            // right immediately; the refresh that follows reconciles everything
+            // else and is allowed to be eventually-consistent.
+            onStoredModeChanged={(observedMode) => {
+              if (observedMode !== null) setLiveMode(observedMode === "live");
+              void fetchAll();
+            }}
+          />
         </div>
 
         {/* Stripe Connection */}

@@ -1,0 +1,8 @@
+{
+  "pr": 583,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 10,
+  "artifact": "Internal: commit PR582's adjudication record, which the loop cited but left untracked",
+  "declaredAt": "2026-08-27T05:20:32.582Z"
+}

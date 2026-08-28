@@ -1,7 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import type Stripe from "stripe";
 import { z } from "zod";
-import { getUncachableStripeClient, getStripePublishableKey, isLiveMode } from "../lib/stripeClient";
+import {
+  getUncachableStripeClient,
+  getStripePublishableKey,
+  getVerifiedStripeMode,
+} from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
@@ -24,6 +28,7 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
+import { STRIPE_UNVERIFIED_CONFIRM_MESSAGE, STRIPE_UNVERIFIED_RECEIPT_MESSAGE } from "@workspace/api-zod";
 import { handleReceiptRequest } from "../lib/receiptHandler";
 import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
 import { priceGrantsMembership } from "../lib/membershipPricing";
@@ -33,7 +38,11 @@ const router: IRouter = Router();
 // GET /stripe/config — return publishable key for frontend
 router.get("/stripe/config", async (_req: Request, res: Response) => {
   try {
-    const publishableKey = await getStripePublishableKey();
+    // The authoritative mode, same source as the payment clients — see
+    // getVerifiedStripeMode. A publishable key from one account paired with a
+    // checkout client for another is the same divergence as the catalog one
+    // below, one step earlier.
+    const publishableKey = await getStripePublishableKey(await getVerifiedStripeMode());
     res.json({ publishableKey });
   } catch {
     res.json({ publishableKey: null });
@@ -44,7 +53,12 @@ router.get("/stripe/config", async (_req: Request, res: Response) => {
 // Any product a registered user pays for qualifies them for Legendary membership.
 router.get("/stripe/plans", async (_req: Request, res: Response) => {
   try {
-    const live = await isLiveMode();
+    // NOT the 60-second cached read. After a toggle handled by another instance
+    // that would hand a customer prices from the old account, which they would
+    // then submit to a checkout client built for the new one — where Stripe
+    // rejects the price as missing. Catalog and client resolve the mode from one
+    // bounded, authoritative source.
+    const live = await getVerifiedStripeMode();
     const products = await stripeStorage.listProductsWithPrices(live);
     res.json({ plans: products });
   } catch {
@@ -376,6 +390,9 @@ router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Respo
       res,
       err,
       clientMessage: "Unable to retrieve receipt. Please try again.",
+      // The one route whose purpose is evidence of a charge that ALREADY
+      // happened, so the shared default's "No charge was made" is false here.
+      unverifiedClientMessage: STRIPE_UNVERIFIED_RECEIPT_MESSAGE,
       logMessage: "GET /stripe/invoice/:invoiceId/receipt error",
       extra: { userId: req.user.id, invoiceId },
     });
@@ -512,6 +529,11 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
       res,
       err,
       clientMessage: "Unable to confirm checkout. Please try again or contact support.",
+      // The card may already have been charged by the time this route can fail
+      // — Stripe has already redirected the customer back from a completed
+      // session. So a guard refusal here must not repeat the default's "No
+      // charge was made", which would read as an instruction to buy again.
+      unverifiedClientMessage: STRIPE_UNVERIFIED_CONFIRM_MESSAGE,
       logMessage: "POST /stripe/checkout/confirm error",
       extra: { sessionId, userId: req.user.id },
     });

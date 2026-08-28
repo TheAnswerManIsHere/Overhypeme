@@ -177,29 +177,34 @@ export function collectRenderedTextEntries(
       kind: "prose",
     });
   }
-  ov.requiredVisualDetails.forEach((value, i) =>
+  // `?? []` on EVERY list: the parsed type says these are always present (the
+  // schema `.default([])`s them), but this collector is reached with blobs that
+  // were never schema-parsed — a stored `enrichment.visualPromptStrategyOverride`
+  // is copied verbatim into `resolveEnrichment` on the refresh path, and legacy
+  // blobs (plus hand-built fixtures) predate fields that were added later. A
+  // missing list is read as empty, exactly as `bubbles` already was; a pure
+  // read-only collector must never throw on a partial blob.
+  (ov.requiredVisualDetails ?? []).forEach((value, i) =>
     out.push({ path: `requiredVisualDetails[${i}]`, value, kind: "prose" }),
   );
-  ov.forbiddenVisualDetails.forEach((value, i) =>
+  (ov.forbiddenVisualDetails ?? []).forEach((value, i) =>
     out.push({ path: `forbiddenVisualDetails[${i}]`, value, kind: "prose" }),
   );
-  ov.roleBindings.forEach((rb, i) => {
+  (ov.roleBindings ?? []).forEach((rb, i) => {
     out.push({ path: `roleBindings[${i}].entity`, value: rb.entity, kind: "entity" });
     out.push({ path: `roleBindings[${i}].visualRole`, value: rb.visualRole, kind: "prose" });
   });
-  // `?? []`: legacy blobs (and hand-built test fixtures) may predate `bubbles`
-  // and are read without a schema parse in some paths.
   (ov.bubbles ?? []).forEach((b, i) => {
     out.push({ path: `bubbles[${i}].entity`, value: b.entity, kind: "entity" });
     out.push({ path: `bubbles[${i}].text`, value: b.text, kind: "prose" });
   });
-  ov.compositionGuidance.forEach((value, i) =>
+  (ov.compositionGuidance ?? []).forEach((value, i) =>
     out.push({ path: `compositionGuidance[${i}]`, value, kind: "prose" }),
   );
-  ov.styleAgnosticPromptAdditions.forEach((value, i) =>
+  (ov.styleAgnosticPromptAdditions ?? []).forEach((value, i) =>
     out.push({ path: `styleAgnosticPromptAdditions[${i}]`, value, kind: "prose" }),
   );
-  ov.negativePromptAdditions.forEach((value, i) =>
+  (ov.negativePromptAdditions ?? []).forEach((value, i) =>
     out.push({ path: `negativePromptAdditions[${i}]`, value, kind: "prose" }),
   );
   if (ov.supportingTextPolicyOverride?.guidance) {
@@ -460,18 +465,82 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
     });
   });
 
+/** Rendered-text paths that are NOT evidence of moderator intervention for THIS
+ *  override, and so are excluded from `hasRenderableVisualStrategyOverrideContent`
+ *  while staying fully rendered and tokenized everywhere else.
+ *
+ *  Two reasons a path lands here, and they are different:
+ *
+ *  1. **Required of every fact.** `coreSceneOverride` holds the Visual Concept,
+ *     which a fact cannot be saved or released to production without (see
+ *     `VisualConceptCard`, and the required-gates in the admin/review routes).
+ *     Every production-ready fact carries one, so its presence says "this fact
+ *     reached concept review", never "a moderator overrode something" (#584). It
+ *     is also not a discriminator we could refine: the field holds the accepted
+ *     AI draft and a hand-written scene identically, with nothing stored to tell
+ *     them apart.
+ *  2. **Inert in this state.** The compiler discards some content depending on
+ *     the override's own shape, and what it discards cannot be evidence of an
+ *     override. It does this in exactly three places, which is the whole of
+ *     this category — swept with
+ *     `grep -nE "ov\??\.[a-zA-Z]+" nanoBanana2.ts | grep -E "\.filter\(|use_ai_plan|return \"\""`:
+ *
+ *     - `composeSubjectRealization` (`:511`) returns "" whenever the mode is
+ *       `use_ai_plan`, whatever `description` says. (A non-default mode is
+ *       caught by the explicit check in the predicate below, description or not.)
+ *     - Bubbles (`:1281`) keep only rows with BOTH `entity` and `text` —
+ *       "incomplete mid-edit rows ignored", in the compiler's own words. The
+ *       admin editor persists `{ entity: "subject", text: "" }` the moment a
+ *       bubble is added, so this state is routine, not exotic.
+ *     - Role bindings (`:1356`) keep only rows with BOTH `entity` and
+ *       `visualRole`.
+ *
+ *     The compound rows are judged **per row**, matching those filters: one
+ *     half-filled bubble alongside a complete one must not suppress the signal,
+ *     and a complete row alongside a half-filled one must still raise it.
+ *
+ *  Both reasons are the same underlying rule: this signal counts only content
+ *  that both reaches the engine AND represents a human decision. */
+function nonOverrideRenderedPaths(ov: VisualPromptStrategyOverride): ReadonlySet<string> {
+  const paths = new Set<string>(["coreSceneOverride"]);
+  if (!ov.subjectRealizationOverride || ov.subjectRealizationOverride.mode === "use_ai_plan") {
+    paths.add("subjectRealizationOverride.description");
+  }
+  (ov.bubbles ?? []).forEach((b, i) => {
+    if (!b.entity?.trim() || !b.text?.trim()) {
+      paths.add(`bubbles[${i}].entity`);
+      paths.add(`bubbles[${i}].text`);
+    }
+  });
+  (ov.roleBindings ?? []).forEach((b, i) => {
+    if (!b.entity?.trim() || !b.visualRole?.trim()) {
+      paths.add(`roleBindings[${i}].entity`);
+      paths.add(`roleBindings[${i}].visualRole`);
+    }
+  });
+  return paths;
+}
+
 /**
  * True when the override carries any content that is RENDERED into the engine
- * prompt. The single source of truth for "enabled but empty" style checks so
- * UI surfaces can't drift on what counts as content. Admin-only fields
- * (moderatorIntent, notesForModerator) deliberately do NOT count.
+ * prompt **and** indicates a deliberate moderator override. The single source of
+ * truth for "enabled but empty" style checks so UI surfaces can't drift on what
+ * counts as content. Admin-only fields (moderatorIntent, notesForModerator)
+ * deliberately do NOT count, and neither do `nonOverrideRenderedPaths` above.
+ *
+ * This is the "was this overridden" SIGNAL, a different question from "what gets
+ * rendered" — which stays `collectRenderedTextEntries`, deliberately untouched
+ * by the exclusions above so tokenization and prompt compilation are unaffected.
  */
 export function hasRenderableVisualStrategyOverrideContent(
   ov: VisualPromptStrategyOverride,
 ): boolean {
   if (ov.supportingTextPolicyOverride || ov.violencePolicyOverride) return true;
   if (ov.subjectRealizationOverride && ov.subjectRealizationOverride.mode !== "use_ai_plan") return true;
-  return collectRenderedTextEntries(ov).some(({ value }) => value.trim().length > 0);
+  const excluded = nonOverrideRenderedPaths(ov);
+  return collectRenderedTextEntries(ov).some(
+    ({ path, value }) => !excluded.has(path) && value.trim().length > 0,
+  );
 }
 
 /** An empty override scaffold (all lists empty). Under presence-based activation

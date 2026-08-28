@@ -252,11 +252,11 @@ export function resolveEnrichment(input: ResolveEnrichmentInput): ResolveEnrichm
       baselineChangedPaths,
       invalidPaths,
       crossFieldInvalid,
-      // Use the schema-parsed `effective` value, not the raw `visualPromptStrategyOverride`
-      // input — legacy/partial-shaped overrides (predating a schema field like
-      // `requiredVisualDetails`) parse fine and get array fields defaulted to `[]`,
-      // but `collectRenderedTextEntries` assumes those defaults are already applied
-      // and crashes on the raw pre-parse value (#579).
+      // Read the schema-parsed value off `effective`, never the raw input: a
+      // legacy/partial blob parses fine (its absent lists get defaulted) while
+      // the raw one still carries them as `undefined`. The collector is ALSO
+      // guarded, because callers that bypass this resolver — `serializeResolved`
+      // on its `aiDerived: null` path — reach it with the raw value (#579).
       hasVisualStrategyOverride: effective.visualPromptStrategyOverride
         ? hasRenderableVisualStrategyOverrideContent(effective.visualPromptStrategyOverride)
         : false,

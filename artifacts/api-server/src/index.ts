@@ -31,6 +31,7 @@ import { registerVisualConceptJobHandlers } from "./lib/visualConceptJobs.js";
 import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
 import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
 import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
+import { runStripeBootVerification, startStripeAfterBoot } from "./lib/stripeInit.js";
 
 const rawPort = process.env["PORT"];
 
@@ -70,61 +71,6 @@ if (missingWebhookSecretVars.length > 0) {
     { missing: missingWebhookSecretVars },
     "Missing Stripe webhook-signing-secret env var(s) — falling back to the managed-webhook signing secret stored in the database for the affected mode(s). Set the mode-specific env vars to use a Stripe-Dashboard-issued signing secret instead.",
   );
-}
-
-async function initStripe() {
-  try {
-    const { runMigrations } = await import("stripe-replit-sync");
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) {
-      logger.warn("DATABASE_URL not set, skipping Stripe init");
-      return;
-    }
-
-    await runMigrations({ databaseUrl });
-    logger.info("Stripe schema ready");
-
-    const { getStripeSync } = await import("./lib/stripeClient");
-    const stripeSync = await getStripeSync();
-
-    const { getSiteBaseUrl } = await import("./lib/siteUrl");
-    const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;
-    // findOrCreateManagedWebhook registers the webhook endpoint and subscribes it to all
-    // event types returned by getSupportedEventTypes() in stripe-replit-sync.  That list
-    // must include every event that webhookHandlers.ts handles (currently:
-    //   charge.refunded, charge.dispute.created, charge.dispute.closed,
-    //   plus subscription/invoice events).
-    // When adding a new handler, ensure the matching event type is also present in
-    // getSupportedEventTypes() so Stripe actually delivers the event to this endpoint.
-    await stripeSync.findOrCreateManagedWebhook(webhookUrl);
-    logger.info({ webhookUrl }, "Stripe webhook configured");
-
-    // Validate the connected Stripe account matches the expected account ID for this mode.
-    // Catches misconfigured API keys early so the wrong account is never silently used.
-    const { isLiveMode } = await import("./lib/stripeClient");
-    const currentlyLive = await isLiveMode();
-    const expectedAccountId = currentlyLive
-      ? process.env.STRIPE_ACCOUNT_ID_LIVE
-      : process.env.STRIPE_ACCOUNT_ID_TEST;
-    if (expectedAccountId) {
-      const actualAccountId = await stripeSync.getAccountId();
-      if (actualAccountId !== expectedAccountId) {
-        logger.error(
-          { expected: expectedAccountId, actual: actualAccountId, liveMode: currentlyLive },
-          "STRIPE ACCOUNT MISMATCH — API keys are pointing at the wrong account. Check STRIPE_SECRET_KEY_TEST / STRIPE_SECRET_KEY_LIVE in Secrets.",
-        );
-      } else {
-        logger.info({ accountId: actualAccountId, liveMode: currentlyLive }, "Stripe account verified");
-      }
-    }
-
-    stripeSync.syncBackfill({ object: "all" })
-      .then(() => logger.info("Stripe backfill complete"))
-      .catch((err: unknown) => logger.error({ err }, "Stripe backfill error"));
-
-  } catch (err) {
-    logger.error({ err }, "Stripe init failed — continuing without payments");
-  }
 }
 
 // The boot-time tier reconciler is gone.
@@ -298,6 +244,24 @@ if (getFalApiKey()) {
   );
 }
 
+// ── The Stripe account guard's boot phase ────────────────────────────────────
+// This is deliberately the LAST thing before the port is bound, and its
+// position is the requirement — not "outside initStripe()", not "earlier in the
+// file". A confirmed wrong account must never serve a request, and a process
+// that binds its port and then exits is a crash loop that serves requests in
+// between. See lib/stripeInit.ts.
+//
+// It is bounded by a timeout, so an unreachable Stripe delays boot by at most
+// that bound rather than blocking it: only a CONFIRMED mismatch is fatal.
+const stripeBootOutcome = await runStripeBootVerification();
+if (stripeBootOutcome.kind === "fatal") {
+  logger.error(
+    { reason: stripeBootOutcome.reason },
+    "REFUSING TO START — the Stripe credentials do not belong to the account this environment declared. No Stripe mutation was attempted and the port was never bound.",
+  );
+  process.exit(1);
+}
+
 // Bind the port now — deployment health checks can pass immediately.
 const app = createApp();
 const server = app.listen(port, (err) => {
@@ -406,7 +370,12 @@ async function logLastStripeEvent(): Promise<void> {
 void logLastStripeEvent();
 
 // Non-blocking background tasks — failures are logged but never crash the server.
-initStripe().catch((err: unknown) => logger.error({ err }, "Stripe init error"));
+//
+// The Stripe REFUSAL is no longer one of them: it was decided above, before the
+// port was bound. What is left here is the remaining initialization (webhook
+// registration, then backfill), which runs only for a verified account — or the
+// retry loop, when the boot answer was indefinite.
+startStripeAfterBoot(stripeBootOutcome);
 // Grace convergence + authoritative reconciliation. The first is cosmetic if it
 // dies (the read path already enforces the deadline); the second is this model's
 // answer to "regardless of whether the event arrives at all".

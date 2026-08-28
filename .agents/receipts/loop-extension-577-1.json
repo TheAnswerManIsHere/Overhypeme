@@ -1,0 +1,9 @@
+{
+  "pr": 577,
+  "kind": "david",
+  "grant": 1,
+  "asOf": 5,
+  "authorization": "Fix the receipt message",
+  "decidedAt": "2026-08-27T01:00:00.000Z",
+  "context": "Budget sensitive, 5 of 5 spent. The exhaustion adjudication (.agents/adjudications/577-4.json) returned ship-with-gaps-recorded, grant 0, listing four P2 gaps. One of them was escalated to David rather than recorded, under the pre-registered flip condition that any finding about what a customer is told about money goes to him at any round: GET /stripe/invoice/:invoiceId/receipt would tell a customer requesting a receipt for an invoice they already paid that no charge was made. He chose the fix over shipping it recorded. This grant opens the one round that fix requires under the write-gate rule; the other three gaps stay recorded and declined."
+}
