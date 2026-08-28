@@ -19,16 +19,20 @@ Concept is still sent to the image engine and still has its `{NAME}` tokens
 validated — it just no longer counts as *evidence of an override*. Those are
 two different jobs for one field, and the way this fix could have gone wrong is
 by removing the field from both. **Steps 3 and 4 are the load-bearing ones**:
-they confirm the picture still renders and tokens are still checked. Steps 1
-and 2 confirm the badge itself.
+they confirm the picture-prompt still carries the scene and tokens are still
+checked. Steps 1 and 2 confirm the badge itself.
+
+Steps 1–4 and R1–R2 are read-only. **Step 5 is the only one that writes**, and
+it is written to undo itself.
 
 ## Setup
 
 - [claude] Confirm `main` is synced to the Repl and the checked-out SHA matches the merge commit, before anything is read.
 - [claude] Capture the count of facts carrying a Visual Concept — the size of the set that was showing the incorrect badge — so "it's fixed" has a number behind it.
-- [claude] Identify one fact with a genuinely empty override panel (review #6880 is the known case) and one with real override content, so step 1 and step 2 each have a known subject and you are not hunting for one.
+- [claude] Identify and name in the preview: one fact whose override panel is genuinely empty (review #6880 is the known case), and one with real override content. Steps 1, 2, 5 and R2 each need a known subject rather than a hunt.
+- [claude] Before step 5 runs, capture the current stored `visualPromptStrategyOverride` for the fact step 5 will edit, and record it in the run record — so the restore below has a real captured value rather than a guess.
 - [david] Sign in to the admin console as yourself; every step is an admin screen.
-- [restore] None. Every setup action is read-only, and steps 3 and 4 use a scratch edit you discard rather than save — noted in the step itself.
+- [restore] The visual override on the fact edited in step 5 — restore it to the value captured before that step. Step 5 ends by removing what it added, so this is the backstop if the run is interrupted mid-step, not the normal path.
 
 ## Steps
 
@@ -52,34 +56,39 @@ a required visual detail, a speech bubble, or a composition note. Expand
 **Expect:** The orange `Overridden: Visual Strategy` bar **is** shown. This is
 the case that must not have been broken by the fix.
 
-### 3. The Visual Concept still reaches the picture
+### 3. The Visual Concept still reaches the picture prompt
 
-**Do:** Open any fact that has completed enrichment and is at concept review.
-In the **Visual Concept — describe the picture** field, read the text that is
-there. Then go to the **Test Renders** step and generate one render.
+**Do:** On the same review as step 2, read the text in the **Visual Concept —
+describe the picture** field, then open **Prompt Diagnostics** in the same
+Advanced Options section and read the compiled prompt it shows. (This panel
+recomputes and displays the prompt an image engine would receive; it does not
+render anything and does not save.)
 
-**Expect:** The render reflects the scene described in that Visual Concept text
-— the subject and action you read are what you see. The Visual Concept is still
-being sent to the image engine.
+**Expect:** The compiled prompt contains a **CORE SCENE** section carrying the
+Visual Concept text you just read. The Visual Concept is still reaching the
+engine — which is what the fix had to avoid breaking.
 
 ### 4. A bad token in the Visual Concept is still caught
 
 **Do:** In the **Visual Concept — describe the picture** field on any fact, type
-`{NOPE}` at the end of the existing text. Do not save.
+`{NOPE}` at the end of the existing text. **Do not save.**
 
-**Expect:** A token warning appears under the field, flagging the unknown token
-— the same validation as before this PR. **Then remove the `{NOPE}` you typed
-and leave the field as you found it**, without saving.
+**Expect:** A token warning appears under the field flagging the unknown token,
+the same validation as before this PR. **Then delete the `{NOPE}` you typed**,
+leaving the field exactly as you found it, and close the editor without saving.
 
-### 5. Saving a real override still raises the badge
+### 5. Saving a real override raises the badge — then clearing it lowers it again
 
-**Do:** On a fact whose override panel is empty, open **Advanced Options →
-Visual Strategy Override**, add one **Required visual detail** (e.g.
-`a red hat`), and save.
+**Do:** Open the fact I name in the preview as having an empty override panel.
+In **Advanced Options → Visual Strategy Override**, add one **Required visual
+detail** with the text `uat-585-scratch`, and save. Observe the badge. Then
+**remove that same entry and save again.**
 
-**Expect:** The save succeeds, and after saving the `Overridden: Visual
-Strategy` bar now **does** appear on that fact — the badge tracks the override
-you just made.
+**Expect:** After the first save the `Overridden: Visual Strategy` bar
+**appears** — the badge tracks the override you just made. After removing the
+entry and saving again, the bar is **gone**. The distinctive text makes the
+entry unmistakable if anything is left behind; tell me if the second save does
+not clear it and I will restore from the value captured in setup.
 
 ## Regression
 
@@ -91,23 +100,15 @@ and open its enrichment editor.
 **Expect:** The editor loads with its classification fields populated —
 archetype, subtype, fit — and no error banner.
 
-### R2. The Facts page "Overridden" filter still returns facts
+### R2. Real override content still reaches the prompt alongside the scene
 
-**Do:** Go to **Admin → Facts** and click the **Overridden** filter button.
+**Do:** On the fact from step 2 (the one with real override content), open
+**Prompt Diagnostics** and read the compiled prompt.
 
-**Expect:** The filter applies without error and returns a list. It may be
-**much shorter than before this PR** — that is the fix working, not a
-regression; it now lists facts with real taxonomy/visual overrides rather than
-nearly everything.
-
-### R3. A fact sent back for a refresh still completes
-
-**Do:** Send one fact back for a refresh from **Admin → Taxonomy Health**, then
-watch its row on **Admin → Moderation**.
-
-**Expect:** It reaches `Enrichment ✓ ready` with a concept-stage label, exactly
-as PR #582 established. This fix touches the same resolver, so it is worth one
-cheap confirmation that refreshes still work.
+**Expect:** The prompt carries **both** the CORE SCENE **and** that fact's
+override content — its required detail, bubble, or composition note. This is
+the "a core scene must not mask real override content" invariant seen end to
+end rather than in a unit test.
 
 ## Not bugs
 
@@ -115,8 +116,11 @@ cheap confirmation that refreshes still work.
   Concept is long and detailed.** That is the entire point of the fix: the
   Visual Concept is required on every fact, so it can never distinguish one
   fact from another. Only the fields under **Visual Strategy Override** count.
-- **The Facts page "Overridden" filter returns far fewer facts than it used
-  to.** Same cause, and it was previously over-reporting. R2 covers this.
+- **The Facts page "Overridden" filter is unchanged by this PR.** It filters on
+  the taxonomy override map (`enrichmentOverrides`), which is a different thing
+  from the visual override and is not touched here — so its result set should
+  look exactly as it did before. An earlier draft of this doc claimed the list
+  would shrink; that was wrong and there is nothing to check there.
 - **There is no way to tell an AI-drafted Visual Concept from one you wrote
   yourself.** The field stores both identically and nothing records which it
   was, which is *why* it is excluded rather than refined. If distinguishing
