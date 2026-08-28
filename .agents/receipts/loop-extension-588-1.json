@@ -1,0 +1,14 @@
+{
+  "pr": 588,
+  "kind": "adjudication",
+  "verdict": "ship-with-gaps-recorded",
+  "grant": 0,
+  "risk": "",
+  "recordPath": ".agents/adjudications/588-1.json",
+  "decidedAt": "2026-08-28T20:41:01.183362Z",
+  "reasoning": "Internal tier at its 3-round budget (trend 4, 5, 2; criticality 25) on a docs-and-contract artifact with all 11 findings in-diff. The internal bar demands a very high chance of a CRITICAL flaw \u2014 destructive action, receipt-machinery corruption, or authority widening \u2014 and neither round-3 finding is in that class: the 14-day sweep-window concern is an ordinary correctness gap in a process doc (its '1 of 146 commits' figure is an unverified reviewer assertion, and artifact.patch is unavailable so the record cannot support the very-high-chance prong either), and the decisions.md cadence mismatch is prose consistency. A continue would buy a fix plus a mandatory fourth round on an artifact class whose failure mode is wrongly-blocking; both findings ship as recorded gaps instead.",
+  "gaps": [
+    "Sweep window durability: the --since='14 days ago' form could permanently age out Replit commits unseen after a >14-day gap with no session or /maintenance; reviewer suggests a durable pre-fetch boundary (reviewer's 1-of-146 statistic unverified)",
+    "docs/ai-context/decisions.md still says David invokes neither cadence, contradicting the corrected David-invoked /maintenance wording in replit-environment.md and CLAUDE.md"
+  ]
+}
