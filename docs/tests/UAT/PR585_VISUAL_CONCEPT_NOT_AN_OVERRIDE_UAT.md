@@ -22,17 +22,25 @@ by removing the field from both. **Steps 3 and 4 are the load-bearing ones**:
 they confirm the picture-prompt still carries the scene and tokens are still
 checked. Steps 1 and 2 confirm the badge itself.
 
-Steps 1–4 and R1–R2 are read-only. **Step 5 is the only one that writes**, and
-it is written to undo itself.
+Steps 1–4 and R1–R2 are read-only. **Steps 5 and 6 are the only ones that
+write**, and they are a pair: 5 adds a scratch override, 6 removes it again.
+
+Two things about this screen that would otherwise read as bugs, so they are
+built into the steps rather than left to trip you up. **The badge is computed
+when the editor loads, not after a save** — so every step that saves tells you
+to reopen the editor before reading it. And **the compiled prompt substitutes a
+sample name for the tokens** — so `{NAME} stands there confidently.` appears in
+the prompt as `David stands there confidently.`, and you are comparing the
+scene, not the literal characters.
 
 ## Setup
 
 - [claude] Confirm `main` is synced to the Repl and the checked-out SHA matches the merge commit, before anything is read.
 - [claude] Capture the count of facts carrying a Visual Concept — the size of the set that was showing the incorrect badge — so "it's fixed" has a number behind it.
-- [claude] Identify and name in the preview: one fact whose override panel is genuinely empty (review #6880 is the known case), and one with real override content. Steps 1, 2, 5 and R2 each need a known subject rather than a hunt.
+- [claude] Identify and name in the preview: one fact whose override panel is genuinely empty (review #6880 is the known case), and one with real override content. Steps 1, 2, 5, 6 and R2 each need a known subject rather than a hunt.
 - [claude] Before step 5 runs, capture the current stored `visualPromptStrategyOverride` for the fact step 5 will edit — including its `updatedBy` and `updatedAt` — and record it in the run record, so the restore below has a real captured value rather than a guess.
 - [david] Sign in to the admin console as yourself; every step is an admin screen.
-- [restore] The visual override on the fact edited in step 5 — restore it to the value captured before that step, **after every run, not only an interrupted one**. Removing the scratch entry in the step restores the *content* but not the provenance: each save that changes content re-stamps `updatedBy`/`updatedAt`, so without this the fact is left recorded as last edited by the tester at test time.
+- [restore] The visual override on the fact edited in steps 5 and 6 — restore it to the value captured before step 5, **after every run, not only an interrupted one**. Removing the scratch entry in step 6 restores the *content* but not the provenance: each save that changes content re-stamps `updatedBy`/`updatedAt`, so without this the fact is left recorded as last edited by the tester at test time.
 
 ## Steps
 
@@ -67,9 +75,15 @@ this fact without recomputing, which on a browser that has opened it before
 would be a prompt built by the *old* code. (Generating is read-only: the panel
 computes a preview and does not render or save.)
 
-**Expect:** The compiled prompt contains a **CORE SCENE** section carrying the
-Visual Concept text you just read. The Visual Concept is still reaching the
-engine — which is what the fix had to avoid breaking.
+**Expect:** The compiled prompt contains a **CORE SCENE** section describing the
+same scene as the Visual Concept you just read. The Visual Concept is still
+reaching the engine — which is what the fix had to avoid breaking.
+
+**Not a mismatch:** any `{NAME}` / `{SUBJ}` / `{POSS}` tokens in the field are
+substituted for the sample identity shown in the Prompt Diagnostics controls
+before the scene reaches the prompt. So a concept reading `{NAME} stands there
+confidently.` appears as `David stands there confidently.` (or whatever sample
+name is set). Match the scene, not the literal characters.
 
 ### 4. A bad token in the Visual Concept is still caught
 
@@ -80,18 +94,28 @@ engine — which is what the fix had to avoid breaking.
 the same validation as before this PR. **Then delete the `{NOPE}` you typed**,
 leaving the field exactly as you found it, and close the editor without saving.
 
-### 5. Saving a real override raises the badge — then clearing it lowers it again
+### 5. Saving a real override raises the badge
 
 **Do:** Open the fact I name in the preview as having an empty override panel.
 In **Advanced Options → Visual Strategy Override**, add one **Required visual
-detail** with the text `uat-585-scratch`, and save. Observe the badge. Then
-**remove that same entry and save again.**
+detail** with the text `uat-585-scratch`, and save. **Then close the editor and
+reopen it** — the badge is computed when the editor loads, so reading it without
+reopening shows the value from before your save.
 
-**Expect:** After the first save the `Overridden: Visual Strategy` bar
-**appears** — the badge tracks the override you just made. After removing the
-entry and saving again, the bar is **gone**. The distinctive text makes the
-entry unmistakable if anything is left behind; tell me if the second save does
-not clear it and I will restore from the value captured in setup.
+**Expect:** On reopening, the orange `Overridden: Visual Strategy` bar
+**appears** — the badge tracks the override you just made. Leave the entry in
+place; step 6 removes it.
+
+### 6. Clearing that override lowers the badge again
+
+**Do:** In the same fact's **Visual Strategy Override** panel, remove the
+`uat-585-scratch` required visual detail you added in step 5, and save. **Close
+the editor and reopen it** again, for the same reason.
+
+**Expect:** On reopening, the `Overridden: Visual Strategy` bar is **gone**. The
+distinctive text makes the entry unmistakable if anything is left behind — tell
+me if this save does not clear it, and I will restore from the value captured in
+setup.
 
 ## Regression
 
@@ -113,7 +137,8 @@ it to finish** — same reason as step 3, a restored result may predate the merg
 **Expect:** The prompt carries **both** the CORE SCENE **and** that fact's
 override content — its required detail, bubble, or composition note. This is
 the "a core scene must not mask real override content" invariant seen end to
-end rather than in a unit test.
+end rather than in a unit test. As in step 3, tokens are substituted for the
+sample identity, so match the scene rather than the literal characters.
 
 ## Not bugs
 
