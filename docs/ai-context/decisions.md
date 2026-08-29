@@ -29,8 +29,9 @@
   cheap enough that skipping it is never justified by the odds):
   1. **Sessions and environment-bound auth state — purge before the copy is
      exposed.** A session is an opaque `sid` row and authentication resolves it
-     by lookup alone (`sessionsTable`, `schema/auth.ts`;
-     `lib/auth.ts`), so a dev session row is *valid against production* once
+     by lookup alone (`sessionsTable`, `lib/db/src/schema/auth.ts`;
+     `artifacts/api-server/src/lib/auth.ts`), so a dev session row is *valid
+     against production* once
      copied. `isDevAdminLoginEnabled()` is fail-closed in production and stops a
      bootstrap-admin session being **minted** there, but it does not reject one
      already copied in. Measured on the 2026-08-28 copy: 107 session rows, **2
