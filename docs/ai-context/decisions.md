@@ -23,10 +23,13 @@
   overlooked**: every existing production meme permalink stops resolving;
   production inherits dev's Stripe **test-mode** references in place of any
   live-mode ones; and production's own moderation history is replaced by dev's.
-- **This is a procedure, not a blanket licence. Three classes of row are NOT
+- **This is a procedure, not a blanket licence. Four classes of row are NOT
   product data and are not covered by the sentence above** (Codex, PR #594
-  round 1 — all three verified against the live database, and the check is
-  cheap enough that skipping it is never justified by the odds):
+  rounds 1–2 — each verified before being accepted, and the checks are cheap
+  enough that skipping them is never justified by the odds). **The list grew
+  once already**: round 1 found three classes and round 2 found a fourth, so
+  treat it as the set known today rather than a proof of completeness, and
+  enumerate afresh against the current schema before any copy:
   1. **Sessions and environment-bound auth state — purge before the copy is
      exposed.** A session is an opaque `sid` row and authentication resolves it
      by lookup alone (`sessionsTable`, `lib/db/src/schema/auth.ts`;
@@ -46,18 +49,48 @@
      2026-08-28 copy: **0 non-terminal jobs**, so nothing ran — luck, not
      design.
   3. **Child-safety records — inventory before destroying, never assume
-     synthetic.** `ncmec_reports` and `quarantined_memes` are legally
-     significant and `legal-safety-moderation.md` requires reports and their
-     supporting evidence to be preserved. Neither pre-launch status nor a
-     product-level approval establishes that every production row was a test
-     artifact — that is a claim about data, and it needs looking at. On the
-     2026-08-28 copy this check was **not performed before the fact**; whatever
-     production held is gone and unrecoverable. What replaced it: 2
-     `ncmec_reports` (both `pending`) and 3 `quarantined_memes`, none of which
-     can be filed anywhere, because `ncmec_ispws_environment` is `test` and
-     `ncmec_submission_enabled` is `false`. Both must be re-verified before any
-     future copy — a copy that carries pending reports into an environment with
-     submission *enabled* would file test data to a child-safety authority.
+     synthetic.** `ncmec_reports`, `quarantined_memes` **and
+     `ncmec_safety_audit_log`** are legally significant and
+     `legal-safety-moderation.md` requires reports and their supporting evidence
+     to be preserved. The audit ledger belongs in this set in its own right: it
+     is the sole audit control over destructive safety actions
+     ([`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)),
+     its `ON DELETE RESTRICT` link deliberately prevents deleting a handled
+     report, and a wholesale copy bypasses that constraint rather than tripping
+     it. After any restore, re-verify its append-only triggers — copied tables do
+     not necessarily carry them.
+     Neither pre-launch status nor a product-level approval establishes that
+     every production row was a test artifact — that is a claim about data, and
+     it needs looking at. On the 2026-08-28 copy this check was **not performed
+     before the fact**; whatever production held is gone and unrecoverable. What
+     replaced it: 2 `ncmec_reports` (both `pending`) and 3 `quarantined_memes`.
+     **Nothing can be filed from those rows today, and the two config keys are
+     not the reason** — `ncmec_ispws_environment` is `test` and
+     `ncmec_submission_enabled` is `false`, but the deeper reason is that the
+     submission path does not exist: the submission worker is **not built**,
+     `submitNcmecReport()` has never contacted NCMEC, and classifier-hit
+     reporting is hard-blocked in code (`legal-safety-moderation.md`, phases 4–8
+     outstanding). Treating those two settings as the whole activation boundary
+     is the mistake to avoid. The filing risk is **future, conditional on phases
+     4–8 being wired** — at which point a copy carrying pending reports into a
+     submission-enabled environment could file test data to a child-safety
+     authority, and this entry must be re-read before that happens.
+  4. **Live-mode payment obligations — inventory before replacing, never
+     classify as accepted loss** (Codex, round 2). The Decision above accepts
+     losing dev's test-mode references in place of live-mode ones; that
+     acceptance is only safe if no live-mode obligation actually exists, which
+     is a claim about Stripe, not about our launch date. Cancellation and
+     authoritative refresh both locate a subscription **through the local row**:
+     `getMutationTarget()` (`artifacts/api-server/src/routes/stripe.ts`) starts
+     at `selectMembershipSubscription(userId)` and returns `{kind: "none"}` when
+     there is no qualifying `membership_entitlements.providerRef`. Destroy that
+     row and Stripe keeps billing while the app has **no way to cancel** — the
+     customer cannot stop it and neither can an admin. The "revisit at launch"
+     clause below does not protect anyone here, because the condition is
+     already true the moment a first real payment exists, which can precede any
+     formal launch date. So: verify live-mode customers, subscriptions and
+     payments at Stripe before a copy, and preserve or reconcile every real
+     obligation.
 - **Why:** Production has been serving a three-month-old build to essentially no
   one, so there is nothing in it worth the cost of preserving. The alternative —
   reconciling two divergent databases across a large schema change — is real work
