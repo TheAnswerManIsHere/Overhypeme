@@ -1,0 +1,179 @@
+{
+  "generator": "scripts/review-loop-record.mjs",
+  "generatedAt": "2026-08-29T01:58:46.246Z",
+  "evidenceCapturedAt": "2026-08-29T01:46:55Z",
+  "pr": 594,
+  "title": "Record the pre-launch decision that the dev database is the source of truth",
+  "artifact": {
+    "files": 2,
+    "added": 119,
+    "removed": 0,
+    "patch": "diff --git a/.agents/receipts/loop-budget-594.json b/.agents/receipts/loop-budget-594.json\nnew file mode 100644\nindex 0000000..0430919\n--- /dev/null\n+++ b/.agents/receipts/loop-budget-594.json\n@@ -0,0 +1,8 @@\n+{\n+  \"pr\": 594,\n+  \"tier\": \"internal\",\n+  \"budget\": 3,\n+  \"criticality\": 15,\n+  \"artifact\": \"One appended entry in docs/ai-context/decisions.md recording David's pre-launch decision that the dev database is the source of truth\",\n+  \"declaredAt\": \"2026-08-29T01:10:14.297Z\"\n+}\ndiff --git a/docs/ai-context/decisions.md b/docs/ai-context/decisions.md\nindex 0e120e6..a656213 100644\n--- a/docs/ai-context/decisions.md\n+++ b/docs/ai-context/decisions.md\n@@ -13,6 +13,117 @@\n \n ---\n \n+### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable\n+- **Decision:** Until launch, production's *product* data — facts, memes, users,\n+  membership rows — carries no value and may be replaced by a copy of the\n+  development database (David, 2026-08-28, during the deploy that shipped the\n+  entitlement rework). A session that proposes or performs this copy is doing\n+  the sanctioned thing and should not treat those production rows as data to be\n+  preserved, migrated, or backfilled. Three consequences are **accepted, not\n+  overlooked**: every existing production meme permalink stops resolving;\n+  production inherits dev's Stripe **test-mode** references in place of any\n+  live-mode ones; and production's own moderation history is replaced by dev's.\n+- **This is a procedure, not a blanket licence. Four classes of row are NOT\n+  product data and are not covered by the sentence above** (Codex, PR #594\n+  rounds 1–2 — each verified before being accepted, and the checks are cheap\n+  enough that skipping them is never justified by the odds). **The list grew\n+  once already**: round 1 found three classes and round 2 found a fourth, so\n+  treat it as the set known today rather than a proof of completeness, and\n+  enumerate afresh against the current schema before any copy:\n+  1. **Sessions and environment-bound auth state — purge before the copy is\n+     exposed.** A session is an opaque `sid` row and authentication resolves it\n+     by lookup alone (`sessionsTable`, `lib/db/src/schema/auth.ts`;\n+     `artifacts/api-server/src/lib/auth.ts`), so a dev session row is *valid\n+     against production* once\n+     copied. `isDevAdminLoginEnabled()` is fail-closed in production and stops a\n+     bootstrap-admin session being **minted** there, but it does not reject one\n+     already copied in. Measured on the 2026-08-28 copy: 107 session rows, **2\n+     unexpired** (both expiring 2026-09-04), **0 belonging to an admin** — so\n+     the bootstrap-admin case did not occur, and two non-admin dev sessions were\n+     nonetheless live against production until purged.\n+  2. **Non-terminal `async_jobs` rows — drain or clear them.** `pending` and\n+     `processing` rows are executable work, not history: production workers poll\n+     `pending`, and boot recovery requeues stranded `processing`. Copied email,\n+     render, enrichment and paid-backfill jobs would run under **production**\n+     credentials with real external effects and real spend. Measured on the\n+     2026-08-28 copy: **0 non-terminal jobs**, so nothing ran — luck, not\n+     design.\n+  3. **Child-safety records — inventory before destroying, never assume\n+     synthetic.** `ncmec_reports`, `quarantined_memes` **and\n+     `ncmec_safety_audit_log`** are legally significant and\n+     `legal-safety-moderation.md` requires reports and their supporting evidence\n+     to be preserved. The audit ledger belongs in this set in its own right: it\n+     is the sole audit control over destructive safety actions\n+     ([`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)),\n+     its `ON DELETE RESTRICT` link deliberately prevents deleting a handled\n+     report, and a wholesale copy bypasses that constraint rather than tripping\n+     it. After any restore, re-verify its append-only triggers — copied tables do\n+     not necessarily carry them.\n+     Neither pre-launch status nor a product-level approval establishes that\n+     every production row was a test artifact — that is a claim about data, and\n+     it needs looking at. On the 2026-08-28 copy this check was **not performed\n+     before the fact**; whatever production held is gone and unrecoverable. What\n+     replaced it: 2 `ncmec_reports` (both `pending`) and 3 `quarantined_memes`.\n+     **Nothing can be filed from those rows today, and the two config keys are\n+     not the reason** — `ncmec_ispws_environment` is `test` and\n+     `ncmec_submission_enabled` is `false`, but the deeper reason is that the\n+     submission path does not exist: the submission worker is **not built**,\n+     `submitNcmecReport()` has never contacted NCMEC, and classifier-hit\n+     reporting is hard-blocked in code (`legal-safety-moderation.md`, phases 4–8\n+     outstanding). Treating those two settings as the whole activation boundary\n+     is the mistake to avoid. The filing risk is **future, conditional on phases\n+     4–8 being wired** — at which point a copy carrying pending reports into a\n+     submission-enabled environment could file test data to a child-safety\n+     authority, and this entry must be re-read before that happens.\n+  4. **Live-mode payment obligations — inventory before replacing, never\n+     classify as accepted loss** (Codex, round 2). The Decision above accepts\n+     losing dev's test-mode references in place of live-mode ones; that\n+     acceptance is only safe if no live-mode obligation actually exists, which\n+     is a claim about Stripe, not about our launch date. Cancellation and\n+     authoritative refresh both locate a subscription **through the local row**:\n+     `getMutationTarget()` (`artifacts/api-server/src/routes/stripe.ts`) starts\n+     at `selectMembershipSubscription(userId)` and returns `{kind: \"none\"}` when\n+     there is no qualifying `membership_entitlements.providerRef`. Destroy that\n+     row and Stripe keeps billing while the app has **no way to cancel** — the\n+     customer cannot stop it and neither can an admin. The \"revisit at launch\"\n+     clause below does not protect anyone here, because the condition is\n+     already true the moment a first real payment exists, which can precede any\n+     formal launch date. So: verify live-mode customers, subscriptions and\n+     payments at Stripe before a copy, and preserve or reconcile every real\n+     obligation.\n+- **Why:** Production has been serving a three-month-old build to essentially no\n+  one, so there is nothing in it worth the cost of preserving. The alternative —\n+  reconciling two divergent databases across a large schema change — is real work\n+  in exchange for data we have already decided we don't want. The same judgement\n+  that made `0096_drop_legacy_membership_tables.sql` a plain create-and-drop\n+  rather than a backfill (\"the membership tables hold no real data\", David,\n+  2026-07-28) applies to the whole database, not just those two tables.\n+- **A copy is also the clean migration path, not a shortcut around one.** The\n+  applied-migration ledger is a table *inside* the database\n+  (`__drizzle_migrations`, keyed by SHA-256 of each SQL file —\n+  `lib/db/src/migrate.ts`), so a full copy carries dev's applied-hash record with\n+  it. `runMigrations()` then finds every entry already recorded and applies\n+  nothing. This is why Replit's publish-time schema push was correctly cancelled\n+  on the same deploy rather than answered: it was redundant as well as\n+  destructive.\n+- **The asymmetry in tooling is not a signal to the contrary.** `db:pull-prod`\n+  exists and pushes nothing the other way. That reflects which direction is the\n+  routine debugging move, not a prohibition on the other one.\n+- **Reference:** `package.json` → `db:pull-prod`;\n+  `lib/db/migrations/0096_drop_legacy_membership_tables.sql`;\n+  [`replit-environment.md`](./replit-environment.md);\n+  [`security-model.md`](./security-model.md) (session resolution, the\n+  dev-admin-login gate);\n+  [`legal-safety-moderation.md`](./legal-safety-moderation.md) (evidence\n+  preservation); [`architecture-map.md`](./architecture-map.md) (worker polling\n+  and boot recovery). The three carve-outs came from Codex on PR #594 round 1.\n+- **Revisit if:** **we launch — then this flips, hard, into its own inverse.** The\n+  moment a real user's account, meme, payment, or safety report exists in\n+  production, replacing production from dev is data destruction and needs\n+  David's explicit per-instance say-so. Treat the launch date as this entry's\n+  expiry rather than as a prompt to reconsider it: a session reading this after\n+  launch should assume it no longer holds.\n+\n ### 2026-08-28 · Fable to explore, Opus to build — switch-asks come back, at one boundary\n - **Decision:** David runs **Fable** deliberately for exploring possibilities and\n   discussing how and why we do things. **When the work turns to building, the",
+    "patchNote": "base...head: the artifact this round's findings are about. This is the diff to read when the rubric asks whether a finding describes a critical flaw. `sinceLastReview.patch` is separate and is normally empty under the write-gate rule, since the judge rules on an already-reviewed head."
+  },
+  "budget": {
+    "tier": "internal",
+    "tierMeaning": "internal tooling (strict write-gate adjudication rubric)",
+    "declaredBudget": 3,
+    "cap": 3,
+    "criticality": 15,
+    "artifactDeclaredAtRoundZero": "One appended entry in docs/ai-context/decisions.md recording David's pre-launch decision that the dev database is the source of truth",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 3,
+    "extensions": []
+  },
+  "rounds": {
+    "completedReviewerPasses": 3,
+    "byRound": [
+      {
+        "round": 1,
+        "submitted_at": "2026-08-29T01:16:40Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 2,
+        "submitted_at": "2026-08-29T01:30:33Z",
+        "source": "review",
+        "findings": 3
+      },
+      {
+        "round": 3,
+        "submitted_at": "2026-08-29T01:41:35Z",
+        "source": "review",
+        "findings": 4
+      }
+    ],
+    "trend": [
+      3,
+      3,
+      4
+    ],
+    "totalFindings": 10
+  },
+  "findings": {
+    "unresolved": 0,
+    "resolved": 10,
+    "resolutionUnknown": 0,
+    "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
+    "items": [
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dV4nL",
+        "path": "docs/ai-context/decisions.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-29T01:16:40Z",
+        "excerpt": "P1 Preserve production safety evidence during database replacement. Round 1. FIXED in 36547f2 and resolved."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dV4nQ",
+        "path": "docs/ai-context/decisions.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-29T01:16:41Z",
+        "excerpt": "P1 Purge development sessions before exposing the copied database. Round 1. FIXED in 36547f2 and resolved."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dV4nS",
+        "path": "docs/ai-context/decisions.md",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-29T01:16:41Z",
+        "excerpt": "P1 Exclude unfinished development jobs from the production copy. Round 1. FIXED in 36547f2 and resolved."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dWAcy",
+        "path": "docs/ai-context/decisions.md",
+        "line": null,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-29T01:30:33Z",
+        "excerpt": "P1 Inventory live payment obligations before replacing production. Round 2. FIXED in 193bab6 and resolved."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dWAc3",
+        "path": "docs/ai-context/decisions.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-29T01:30:33Z",
+        "excerpt": "P2 Preserve the safety audit ledger during future copies. Round 2. FIXED in 193bab6 and resolved."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dWAc6",
+        "path": "docs/ai-context/decisions.md",
+        "line": null,
+        "resolved": true,
+        "outdated": true,
+        "createdAt": "2026-08-29T01:30:33Z",
+        "excerpt": "P2 Keep the filing warning aligned with the unwired runtime. Round 2. FIXED in 193bab6 and resolved."
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dWFSm",
+        "path": "docs/ai-context/decisions.md",
+        "line": 106,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-29T01:41:35Z",
+        "excerpt": "P1 Validate schema objects before trusting the copied ledger. When the copy or restore omits triggers or other non-table objects - which this entry already acknowledges can happen at lines 60-61 - copying drizzle.__drizzle_migrations causes applyMigrations() to skip every recorded hash (lib/db/src/migrate.ts:163-185). Production can therefore report fully migrated while lacking controls such as th"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dWFSp",
+        "path": "docs/ai-context/decisions.md",
+        "line": 27,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-29T01:41:36Z",
+        "excerpt": "P1 Preserve production operational configuration during copies. When development has environment-specific admin_config values, this four-class procedure copies them into production without inventory or reconciliation. That can disable a live safety control: scanFaceSource() reads arachnid_shield_enabled from this table and skips scanning when it is false (artifacts/api-server/src/lib/moderation/ar"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dWFSr",
+        "path": "docs/ai-context/decisions.md",
+        "line": 21,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-29T01:41:36Z",
+        "excerpt": "P1 Reconcile administrator identities before exposing the copy. When any development user has users.is_admin = true, purging copied sessions does not remove that authority: the user can sign in again with the copied password or OAuth identity, and authMiddleware derives isRealAdmin directly from the current database row (artifacts/api-server/src/middlewares/authMiddleware.ts:122-140), which requir"
+      },
+      {
+        "threadId": "PRRT_kwDOR3LTYs6dWFSs",
+        "path": "docs/ai-context/decisions.md",
+        "line": 32,
+        "resolved": true,
+        "outdated": false,
+        "createdAt": "2026-08-29T01:41:36Z",
+        "excerpt": "P1 Quiesce writers before checking and replacing databases. When either database remains writable between these inventories and cutover, every check can become stale: a production quarantine/report created after the safety inventory is destroyed, while a development async_jobs row enqueued after the drain check is imported and executed. The repository's existing scripts/db-sync-prod.mjs:27-56 perf"
+      }
+    ]
+  },
+  "territory": {
+    "inDiff": 10,
+    "outsideDiff": 0,
+    "unknown": 0,
+    "outsideDiffPaths": [],
+    "note": "Territory is mechanical (finding path vs. this PR's changed files). CAUSE (new-ground / propagation / wrong-fix / re-raised) is NOT derivable -- it has no machine-readable marker, and is deliberately left unclassified rather than guessed."
+  },
+  "sinceLastReview": {
+    "lastReviewedCommit": "193bab6c8f484268a26d5a339b81eaabe0203fac",
+    "resolved": true,
+    "since": "193bab6c8f484268a26d5a339b81eaabe0203fac",
+    "head": "193bab6c8f484268a26d5a339b81eaabe0203fac",
+    "commits": 0,
+    "files": [],
+    "patch": "",
+    "behavioralFiles": 0,
+    "proseOnly": false,
+    "noChange": true,
+    "note": "Branch movement since the last reviewed commit -- NOT the PR's diff. After a merge from the base branch this includes files already reviewed and merged there. Use `artifact` for the size of what is actually under review here."
+  },
+  "provenance": {
+    "githubVia": "mcp-snapshot (no bash transport reaches the GitHub API in this container)",
+    "countingLogic": "scripts/review-counting.mjs",
+    "caveat": "This record contains no narration from the loop it measures. If a field is unknown it says so; nothing here is inferred from the session's own account of its rounds."
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "pr": 597,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 10,
+  "artifact": "One generated adjudication record committed under the existing .agents/adjudications convention",
+  "declaredAt": "2026-08-29T02:00:40.533Z"
+}
