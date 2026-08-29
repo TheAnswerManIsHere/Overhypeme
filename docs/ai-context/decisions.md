@@ -13,6 +13,44 @@
 
 ---
 
+### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable
+- **Decision:** Until launch, production's database contents carry no value and
+  may be replaced wholesale by a copy of the development database (David,
+  2026-08-28, during the deploy that shipped the entitlement rework). A session
+  that proposes or performs this copy is doing the sanctioned thing and should
+  not treat production rows as data to be preserved, migrated, or backfilled.
+  The three consequences are **accepted, not overlooked**: every existing
+  production meme permalink stops resolving; production inherits dev's Stripe
+  **test-mode** references in place of any live-mode ones; and the child-safety
+  report tables inherit dev's test submissions.
+- **Why:** Production has been serving a three-month-old build to essentially no
+  one, so there is nothing in it worth the cost of preserving. The alternative —
+  reconciling two divergent databases across a large schema change — is real work
+  in exchange for data we have already decided we don't want. The same judgement
+  that made `0096_drop_legacy_membership_tables.sql` a plain create-and-drop
+  rather than a backfill ("the membership tables hold no real data", David,
+  2026-07-28) applies to the whole database, not just those two tables.
+- **A copy is also the clean migration path, not a shortcut around one.** The
+  applied-migration ledger is a table *inside* the database
+  (`__drizzle_migrations`, keyed by SHA-256 of each SQL file —
+  `lib/db/src/migrate.ts`), so a full copy carries dev's applied-hash record with
+  it. `runMigrations()` then finds every entry already recorded and applies
+  nothing. This is why Replit's publish-time schema push was correctly cancelled
+  on the same deploy rather than answered: it was redundant as well as
+  destructive.
+- **The asymmetry in tooling is not a signal to the contrary.** `db:pull-prod`
+  exists and pushes nothing the other way. That reflects which direction is the
+  routine debugging move, not a prohibition on the other one.
+- **Reference:** `package.json` → `db:pull-prod`;
+  `lib/db/migrations/0096_drop_legacy_membership_tables.sql`;
+  [`replit-environment.md`](./replit-environment.md).
+- **Revisit if:** **we launch — then this flips, hard, into its own inverse.** The
+  moment a real user's account, meme, payment, or safety report exists in
+  production, replacing production from dev is data destruction and needs
+  David's explicit per-instance say-so. Treat the launch date as this entry's
+  expiry rather than as a prompt to reconsider it: a session reading this after
+  launch should assume it no longer holds.
+
 ### 2026-08-28 · Fable to explore, Opus to build — switch-asks come back, at one boundary
 - **Decision:** David runs **Fable** deliberately for exploring possibilities and
   discussing how and why we do things. **When the work turns to building, the
