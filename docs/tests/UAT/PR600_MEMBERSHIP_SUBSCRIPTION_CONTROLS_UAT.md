@@ -28,15 +28,31 @@ has merged.
   reads `false`, so the run stays in Stripe test mode throughout.
 - [claude] Confirm #601 has merged and is in the build under test — steps 4–6
   cannot pass otherwise.
-- [david] Be signed in as yourself on a **non-lifetime** account. A qualifying
-  Legendary for Life purchase or admin grant keeps `isLifetime` true no matter
-  what else you buy, which hides these controls by design and makes the
-  mutation routes refuse — so buying a monthly subscription on a lifetime
-  account tests nothing and spends real money. If your account is lifetime, use
-  a different account or have the lifetime entitlement revoked first.
-- [david] Step 1 needs a **fresh** monthly purchase, made during this run. An
-  existing monthly subscription whose mirror has already synced cannot
-  distinguish the fixed build from the broken one.
+- [david] **This run needs three separate accounts.** They cannot be the same
+  account, and the reason is mechanical rather than tidiness — each one ends
+  the run in a state that disqualifies it from the others:
+
+  - **Account A — no qualifying membership at all.** No active subscription,
+    no lifetime purchase, no admin grant. Used for steps 1–6. `POST
+    /stripe/checkout` has **no existing-subscription guard**, so buying on an
+    account that already has one creates a *second* qualifying subscription
+    while the panel and every mutation route act on only one of them — the
+    other keeps billing and cannot be reached from the UI. Every purchase and
+    every step 1 retry needs an account in this state.
+  - **Account B — Legendary for Life only**, with no recurring subscription,
+    for R1. Do **not** grant lifetime to Account A: an admin grant does not
+    cancel A's Stripe subscription, and once the grant lands the UI hides A's
+    recurring controls while all four mutation routes refuse it, stranding a
+    live subscription with no way to cancel it.
+  - **Account C — registered and never paid**, for R2.
+
+  A qualifying Legendary for Life source also keeps `isLifetime` true no matter
+  what else is bought, which is why B can never stand in for A: buying a
+  monthly subscription there hides the controls by design and spends real money
+  testing nothing.
+- [david] Step 1 needs a **fresh** monthly purchase, made during this run, on
+  Account A. An existing monthly subscription whose mirror has already synced
+  cannot distinguish the fixed build from the broken one.
 - [restore] If the run leaves you on the annual plan and you would rather be
   back on monthly, say so at close-out and I will file the switch-back rather
   than leaving your account changed by a test.
@@ -56,7 +72,9 @@ your renewal date and **both** a "Switch to Annual" button (it may carry a
 
 If my check shows the mirror has **already** caught up, this step is recorded
 **inconclusive, not passed** — the old broken build would have shown both
-buttons too, so it proves nothing. We re-run it on a fresh purchase.
+buttons too, so it proves nothing. We re-run it on a fresh purchase, **on
+another account with no qualifying membership** — retrying on this one would
+leave it carrying two subscriptions, only one of which the UI can reach.
 
 ### 2. The savings figure is right
 
@@ -118,8 +136,9 @@ is recorded as Blocked rather than Fail.
 
 ### R1. Legendary for Life sees no recurring controls
 
-**Do:** Sign in as (or grant yourself) a Legendary for Life account and open the
-Membership card.
+**Do:** Sign in as **Account B** — the lifetime-only account from Setup — and
+open the Membership card. Do not grant lifetime to the account used in steps
+1–6; see Setup for why that strands a live subscription.
 
 **Expect:** The card names the lifetime membership and offers
 "Manage billing & receipts" only — no "Switch to Annual", no
@@ -128,16 +147,19 @@ on.
 
 ### R2. A free account still sees the Free Plan block
 
-**Do:** Sign in as a registered, non-paying account and open the Membership
-card.
+**Do:** Sign in as **Account C** — registered, never paid — and open the
+Membership card.
 
 **Expect:** The "Free Plan" block with a "Go Legendary" button. No switch or
 cancel controls anywhere on the card.
 
 ### R3. A cancelling subscription offers Reactivate, not the controls
 
-**Do:** On a monthly subscription, click "Cancel Subscription" and confirm.
-Stay on the Membership card.
+**Do:** On an account with an **active monthly** subscription and no lifetime
+source, click "Cancel Subscription" and confirm. Stay on the Membership card.
+Account A no longer qualifies once step 4 has moved it to annual, so this needs
+a fresh monthly purchase on a subscription-free account — not a second purchase
+on A, which would leave it billing two subscriptions.
 
 **Expect:** The card reports the subscription is ending on the renewal date and
 offers "Reactivate Subscription". "Switch to Annual" and "Cancel Subscription"
