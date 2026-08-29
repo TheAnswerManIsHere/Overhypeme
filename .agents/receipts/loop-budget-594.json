@@ -1,0 +1,8 @@
+{
+  "pr": 594,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 15,
+  "artifact": "One appended entry in docs/ai-context/decisions.md recording David's pre-launch decision that the dev database is the source of truth",
+  "declaredAt": "2026-08-29T01:10:14.297Z"
+}

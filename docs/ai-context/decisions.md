@@ -13,6 +13,117 @@
 
 ---
 
+### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable
+- **Decision:** Until launch, production's *product* data — facts, memes, users,
+  membership rows — carries no value and may be replaced by a copy of the
+  development database (David, 2026-08-28, during the deploy that shipped the
+  entitlement rework). A session that proposes or performs this copy is doing
+  the sanctioned thing and should not treat those production rows as data to be
+  preserved, migrated, or backfilled. Three consequences are **accepted, not
+  overlooked**: every existing production meme permalink stops resolving;
+  production inherits dev's Stripe **test-mode** references in place of any
+  live-mode ones; and production's own moderation history is replaced by dev's.
+- **This is a procedure, not a blanket licence. Four classes of row are NOT
+  product data and are not covered by the sentence above** (Codex, PR #594
+  rounds 1–2 — each verified before being accepted, and the checks are cheap
+  enough that skipping them is never justified by the odds). **The list grew
+  once already**: round 1 found three classes and round 2 found a fourth, so
+  treat it as the set known today rather than a proof of completeness, and
+  enumerate afresh against the current schema before any copy:
+  1. **Sessions and environment-bound auth state — purge before the copy is
+     exposed.** A session is an opaque `sid` row and authentication resolves it
+     by lookup alone (`sessionsTable`, `lib/db/src/schema/auth.ts`;
+     `artifacts/api-server/src/lib/auth.ts`), so a dev session row is *valid
+     against production* once
+     copied. `isDevAdminLoginEnabled()` is fail-closed in production and stops a
+     bootstrap-admin session being **minted** there, but it does not reject one
+     already copied in. Measured on the 2026-08-28 copy: 107 session rows, **2
+     unexpired** (both expiring 2026-09-04), **0 belonging to an admin** — so
+     the bootstrap-admin case did not occur, and two non-admin dev sessions were
+     nonetheless live against production until purged.
+  2. **Non-terminal `async_jobs` rows — drain or clear them.** `pending` and
+     `processing` rows are executable work, not history: production workers poll
+     `pending`, and boot recovery requeues stranded `processing`. Copied email,
+     render, enrichment and paid-backfill jobs would run under **production**
+     credentials with real external effects and real spend. Measured on the
+     2026-08-28 copy: **0 non-terminal jobs**, so nothing ran — luck, not
+     design.
+  3. **Child-safety records — inventory before destroying, never assume
+     synthetic.** `ncmec_reports`, `quarantined_memes` **and
+     `ncmec_safety_audit_log`** are legally significant and
+     `legal-safety-moderation.md` requires reports and their supporting evidence
+     to be preserved. The audit ledger belongs in this set in its own right: it
+     is the sole audit control over destructive safety actions
+     ([`ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)),
+     its `ON DELETE RESTRICT` link deliberately prevents deleting a handled
+     report, and a wholesale copy bypasses that constraint rather than tripping
+     it. After any restore, re-verify its append-only triggers — copied tables do
+     not necessarily carry them.
+     Neither pre-launch status nor a product-level approval establishes that
+     every production row was a test artifact — that is a claim about data, and
+     it needs looking at. On the 2026-08-28 copy this check was **not performed
+     before the fact**; whatever production held is gone and unrecoverable. What
+     replaced it: 2 `ncmec_reports` (both `pending`) and 3 `quarantined_memes`.
+     **Nothing can be filed from those rows today, and the two config keys are
+     not the reason** — `ncmec_ispws_environment` is `test` and
+     `ncmec_submission_enabled` is `false`, but the deeper reason is that the
+     submission path does not exist: the submission worker is **not built**,
+     `submitNcmecReport()` has never contacted NCMEC, and classifier-hit
+     reporting is hard-blocked in code (`legal-safety-moderation.md`, phases 4–8
+     outstanding). Treating those two settings as the whole activation boundary
+     is the mistake to avoid. The filing risk is **future, conditional on phases
+     4–8 being wired** — at which point a copy carrying pending reports into a
+     submission-enabled environment could file test data to a child-safety
+     authority, and this entry must be re-read before that happens.
+  4. **Live-mode payment obligations — inventory before replacing, never
+     classify as accepted loss** (Codex, round 2). The Decision above accepts
+     losing dev's test-mode references in place of live-mode ones; that
+     acceptance is only safe if no live-mode obligation actually exists, which
+     is a claim about Stripe, not about our launch date. Cancellation and
+     authoritative refresh both locate a subscription **through the local row**:
+     `getMutationTarget()` (`artifacts/api-server/src/routes/stripe.ts`) starts
+     at `selectMembershipSubscription(userId)` and returns `{kind: "none"}` when
+     there is no qualifying `membership_entitlements.providerRef`. Destroy that
+     row and Stripe keeps billing while the app has **no way to cancel** — the
+     customer cannot stop it and neither can an admin. The "revisit at launch"
+     clause below does not protect anyone here, because the condition is
+     already true the moment a first real payment exists, which can precede any
+     formal launch date. So: verify live-mode customers, subscriptions and
+     payments at Stripe before a copy, and preserve or reconcile every real
+     obligation.
+- **Why:** Production has been serving a three-month-old build to essentially no
+  one, so there is nothing in it worth the cost of preserving. The alternative —
+  reconciling two divergent databases across a large schema change — is real work
+  in exchange for data we have already decided we don't want. The same judgement
+  that made `0096_drop_legacy_membership_tables.sql` a plain create-and-drop
+  rather than a backfill ("the membership tables hold no real data", David,
+  2026-07-28) applies to the whole database, not just those two tables.
+- **A copy is also the clean migration path, not a shortcut around one.** The
+  applied-migration ledger is a table *inside* the database
+  (`__drizzle_migrations`, keyed by SHA-256 of each SQL file —
+  `lib/db/src/migrate.ts`), so a full copy carries dev's applied-hash record with
+  it. `runMigrations()` then finds every entry already recorded and applies
+  nothing. This is why Replit's publish-time schema push was correctly cancelled
+  on the same deploy rather than answered: it was redundant as well as
+  destructive.
+- **The asymmetry in tooling is not a signal to the contrary.** `db:pull-prod`
+  exists and pushes nothing the other way. That reflects which direction is the
+  routine debugging move, not a prohibition on the other one.
+- **Reference:** `package.json` → `db:pull-prod`;
+  `lib/db/migrations/0096_drop_legacy_membership_tables.sql`;
+  [`replit-environment.md`](./replit-environment.md);
+  [`security-model.md`](./security-model.md) (session resolution, the
+  dev-admin-login gate);
+  [`legal-safety-moderation.md`](./legal-safety-moderation.md) (evidence
+  preservation); [`architecture-map.md`](./architecture-map.md) (worker polling
+  and boot recovery). The three carve-outs came from Codex on PR #594 round 1.
+- **Revisit if:** **we launch — then this flips, hard, into its own inverse.** The
+  moment a real user's account, meme, payment, or safety report exists in
+  production, replacing production from dev is data destruction and needs
+  David's explicit per-instance say-so. Treat the launch date as this entry's
+  expiry rather than as a prompt to reconsider it: a session reading this after
+  launch should assume it no longer holds.
+
 ### 2026-08-28 · Fable to explore, Opus to build — switch-asks come back, at one boundary
 - **Decision:** David runs **Fable** deliberately for exploring possibilities and
   discussing how and why we do things. **When the work turns to building, the
