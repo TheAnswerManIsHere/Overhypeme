@@ -1,6 +1,6 @@
 {
   "generator": "scripts/review-loop-record.mjs",
-  "generatedAt": "2026-08-29T01:48:52.484Z",
+  "generatedAt": "2026-08-29T01:58:46.246Z",
   "evidenceCapturedAt": "2026-08-29T01:46:55Z",
   "pr": 594,
   "title": "Record the pre-launch decision that the dev database is the source of truth",
@@ -12,8 +12,17 @@
     "patchNote": "base...head: the artifact this round's findings are about. This is the diff to read when the rubric asks whether a finding describes a critical flaw. `sinceLastReview.patch` is separate and is normally empty under the write-gate rule, since the judge rules on an already-reviewed head."
   },
   "budget": {
-    "problem": "no-budget",
-    "detail": null
+    "tier": "internal",
+    "tierMeaning": "internal tooling (strict write-gate adjudication rubric)",
+    "declaredBudget": 3,
+    "cap": 3,
+    "criticality": 15,
+    "artifactDeclaredAtRoundZero": "One appended entry in docs/ai-context/decisions.md recording David's pre-launch decision that the dev database is the source of truth",
+    "roundsSpent": 3,
+    "pendingRequest": false,
+    "ambiguous": false,
+    "allowance": 3,
+    "extensions": []
   },
   "rounds": {
     "completedReviewerPasses": 3,
@@ -46,16 +55,16 @@
   },
   "findings": {
     "unresolved": 0,
-    "resolved": 0,
-    "resolutionUnknown": 10,
+    "resolved": 10,
+    "resolutionUnknown": 0,
     "note": "unresolved/resolved is THREAD state, not code state. An unresolved thread may already be fixed and awaiting a reply; isOutdated only tracks whether the anchored hunk moved. Treat these as 'what the reviewer has not yet been told is closed', never as 'what is still broken'.",
     "items": [
       {
         "threadId": "PRRT_kwDOR3LTYs6dV4nL",
         "path": "docs/ai-context/decisions.md",
         "line": null,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": true,
         "createdAt": "2026-08-29T01:16:40Z",
         "excerpt": "P1 Preserve production safety evidence during database replacement. Round 1. FIXED in 36547f2 and resolved."
       },
@@ -63,8 +72,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dV4nQ",
         "path": "docs/ai-context/decisions.md",
         "line": null,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": true,
         "createdAt": "2026-08-29T01:16:41Z",
         "excerpt": "P1 Purge development sessions before exposing the copied database. Round 1. FIXED in 36547f2 and resolved."
       },
@@ -72,8 +81,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dV4nS",
         "path": "docs/ai-context/decisions.md",
         "line": null,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": false,
         "createdAt": "2026-08-29T01:16:41Z",
         "excerpt": "P1 Exclude unfinished development jobs from the production copy. Round 1. FIXED in 36547f2 and resolved."
       },
@@ -81,8 +90,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dWAcy",
         "path": "docs/ai-context/decisions.md",
         "line": null,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": false,
         "createdAt": "2026-08-29T01:30:33Z",
         "excerpt": "P1 Inventory live payment obligations before replacing production. Round 2. FIXED in 193bab6 and resolved."
       },
@@ -90,8 +99,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dWAc3",
         "path": "docs/ai-context/decisions.md",
         "line": null,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": true,
         "createdAt": "2026-08-29T01:30:33Z",
         "excerpt": "P2 Preserve the safety audit ledger during future copies. Round 2. FIXED in 193bab6 and resolved."
       },
@@ -99,8 +108,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dWAc6",
         "path": "docs/ai-context/decisions.md",
         "line": null,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": true,
         "createdAt": "2026-08-29T01:30:33Z",
         "excerpt": "P2 Keep the filing warning aligned with the unwired runtime. Round 2. FIXED in 193bab6 and resolved."
       },
@@ -108,8 +117,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dWFSm",
         "path": "docs/ai-context/decisions.md",
         "line": 106,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": false,
         "createdAt": "2026-08-29T01:41:35Z",
         "excerpt": "P1 Validate schema objects before trusting the copied ledger. When the copy or restore omits triggers or other non-table objects - which this entry already acknowledges can happen at lines 60-61 - copying drizzle.__drizzle_migrations causes applyMigrations() to skip every recorded hash (lib/db/src/migrate.ts:163-185). Production can therefore report fully migrated while lacking controls such as th"
       },
@@ -117,8 +126,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dWFSp",
         "path": "docs/ai-context/decisions.md",
         "line": 27,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": false,
         "createdAt": "2026-08-29T01:41:36Z",
         "excerpt": "P1 Preserve production operational configuration during copies. When development has environment-specific admin_config values, this four-class procedure copies them into production without inventory or reconciliation. That can disable a live safety control: scanFaceSource() reads arachnid_shield_enabled from this table and skips scanning when it is false (artifacts/api-server/src/lib/moderation/ar"
       },
@@ -126,8 +135,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dWFSr",
         "path": "docs/ai-context/decisions.md",
         "line": 21,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": false,
         "createdAt": "2026-08-29T01:41:36Z",
         "excerpt": "P1 Reconcile administrator identities before exposing the copy. When any development user has users.is_admin = true, purging copied sessions does not remove that authority: the user can sign in again with the copied password or OAuth identity, and authMiddleware derives isRealAdmin directly from the current database row (artifacts/api-server/src/middlewares/authMiddleware.ts:122-140), which requir"
       },
@@ -135,8 +144,8 @@
         "threadId": "PRRT_kwDOR3LTYs6dWFSs",
         "path": "docs/ai-context/decisions.md",
         "line": 32,
-        "resolved": null,
-        "outdated": null,
+        "resolved": true,
+        "outdated": false,
         "createdAt": "2026-08-29T01:41:36Z",
         "excerpt": "P1 Quiesce writers before checking and replacing databases. When either database remains writable between these inventories and cutover, every check can become stale: a production quarantine/report created after the safety inventory is destroyed, while a development async_jobs row enqueued after the drain check is imported and executed. The repository's existing scripts/db-sync-prod.mjs:27-56 perf"
       }
