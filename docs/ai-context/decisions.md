@@ -14,15 +14,49 @@
 ---
 
 ### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable
-- **Decision:** Until launch, production's database contents carry no value and
-  may be replaced wholesale by a copy of the development database (David,
-  2026-08-28, during the deploy that shipped the entitlement rework). A session
-  that proposes or performs this copy is doing the sanctioned thing and should
-  not treat production rows as data to be preserved, migrated, or backfilled.
-  The three consequences are **accepted, not overlooked**: every existing
-  production meme permalink stops resolving; production inherits dev's Stripe
-  **test-mode** references in place of any live-mode ones; and the child-safety
-  report tables inherit dev's test submissions.
+- **Decision:** Until launch, production's *product* data — facts, memes, users,
+  membership rows — carries no value and may be replaced by a copy of the
+  development database (David, 2026-08-28, during the deploy that shipped the
+  entitlement rework). A session that proposes or performs this copy is doing
+  the sanctioned thing and should not treat those production rows as data to be
+  preserved, migrated, or backfilled. Three consequences are **accepted, not
+  overlooked**: every existing production meme permalink stops resolving;
+  production inherits dev's Stripe **test-mode** references in place of any
+  live-mode ones; and production's own moderation history is replaced by dev's.
+- **This is a procedure, not a blanket licence. Three classes of row are NOT
+  product data and are not covered by the sentence above** (Codex, PR #594
+  round 1 — all three verified against the live database, and the check is
+  cheap enough that skipping it is never justified by the odds):
+  1. **Sessions and environment-bound auth state — purge before the copy is
+     exposed.** A session is an opaque `sid` row and authentication resolves it
+     by lookup alone (`sessionsTable`, `schema/auth.ts`;
+     `lib/auth.ts`), so a dev session row is *valid against production* once
+     copied. `isDevAdminLoginEnabled()` is fail-closed in production and stops a
+     bootstrap-admin session being **minted** there, but it does not reject one
+     already copied in. Measured on the 2026-08-28 copy: 107 session rows, **2
+     unexpired** (both expiring 2026-09-04), **0 belonging to an admin** — so
+     the bootstrap-admin case did not occur, and two non-admin dev sessions were
+     nonetheless live against production until purged.
+  2. **Non-terminal `async_jobs` rows — drain or clear them.** `pending` and
+     `processing` rows are executable work, not history: production workers poll
+     `pending`, and boot recovery requeues stranded `processing`. Copied email,
+     render, enrichment and paid-backfill jobs would run under **production**
+     credentials with real external effects and real spend. Measured on the
+     2026-08-28 copy: **0 non-terminal jobs**, so nothing ran — luck, not
+     design.
+  3. **Child-safety records — inventory before destroying, never assume
+     synthetic.** `ncmec_reports` and `quarantined_memes` are legally
+     significant and `legal-safety-moderation.md` requires reports and their
+     supporting evidence to be preserved. Neither pre-launch status nor a
+     product-level approval establishes that every production row was a test
+     artifact — that is a claim about data, and it needs looking at. On the
+     2026-08-28 copy this check was **not performed before the fact**; whatever
+     production held is gone and unrecoverable. What replaced it: 2
+     `ncmec_reports` (both `pending`) and 3 `quarantined_memes`, none of which
+     can be filed anywhere, because `ncmec_ispws_environment` is `test` and
+     `ncmec_submission_enabled` is `false`. Both must be re-verified before any
+     future copy — a copy that carries pending reports into an environment with
+     submission *enabled* would file test data to a child-safety authority.
 - **Why:** Production has been serving a three-month-old build to essentially no
   one, so there is nothing in it worth the cost of preserving. The alternative —
   reconciling two divergent databases across a large schema change — is real work
@@ -43,7 +77,12 @@
   routine debugging move, not a prohibition on the other one.
 - **Reference:** `package.json` → `db:pull-prod`;
   `lib/db/migrations/0096_drop_legacy_membership_tables.sql`;
-  [`replit-environment.md`](./replit-environment.md).
+  [`replit-environment.md`](./replit-environment.md);
+  [`security-model.md`](./security-model.md) (session resolution, the
+  dev-admin-login gate);
+  [`legal-safety-moderation.md`](./legal-safety-moderation.md) (evidence
+  preservation); [`architecture-map.md`](./architecture-map.md) (worker polling
+  and boot recovery). The three carve-outs came from Codex on PR #594 round 1.
 - **Revisit if:** **we launch — then this flips, hard, into its own inverse.** The
   moment a real user's account, meme, payment, or safety report exists in
   production, replacing production from dev is data destruction and needs
