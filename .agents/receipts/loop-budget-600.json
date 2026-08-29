@@ -1,0 +1,8 @@
+{
+  "pr": 600,
+  "tier": "sensitive",
+  "budget": 5,
+  "criticality": 60,
+  "artifact": "SubscriptionPanel membership-controls render gate (payments surface) + its first regression suite",
+  "declaredAt": "2026-08-29T04:31:07.182Z"
+}
