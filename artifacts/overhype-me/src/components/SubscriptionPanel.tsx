@@ -458,8 +458,23 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   // Show the portal button for any paid member or anyone with payment history
   const showPortalButton = history.length > 0 || isLegendary;
 
-  // Show cancel/reactivate controls for active recurring legendary subscribers (not lifetime)
-  const showSubscriptionControls = isLegendary && !isLifetime && !!sub;
+  // Show cancel/reactivate/switch controls for active recurring legendary
+  // subscribers (not lifetime).
+  //
+  // Gated on the APP DB (`appSub`) first, not the Stripe sync table (`sub`) —
+  // the same precedence, and for the same reason, as `cancelAtPeriodEnd` above.
+  // `appSub` is written synchronously by checkout verification and by our own
+  // cancel/reactivate endpoints; `sub` only appears once the Stripe webhook has
+  // synced that subscription into the mirror, which can lag by minutes. Gating
+  // on `sub` alone hid this whole block — Switch to Annual AND Cancel
+  // Subscription — from a genuinely active subscriber for the length of that
+  // window, with no other control offering either action.
+  //
+  // Showing them early is safe because nothing behind them reads the mirror:
+  // every mutation route resolves its target through `getMutationTarget`, which
+  // selects from the app DB and then re-retrieves the subscription live from
+  // Stripe, refusing when it no longer qualifies.
+  const showSubscriptionControls = isLegendary && !isLifetime && (!!appSub || !!sub);
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
