@@ -36,6 +36,14 @@
 - **Revisit if:** a rule that was cut turns out to have been load-bearing in a
   way no skill or check covers — the fix is a check or a format requirement,
   not restoring the paragraph.
+- **Enforcement (same day, follow-up PR):** `scripts/check-claude-md-budget.mjs`
+  holds `CLAUDE.md` at the line count #607 landed (534) in CI, so every
+  addition displaces something; and `.github/CODEOWNERS` names David as owner
+  of `CLAUDE.md`, `.claude/`, `.github/`, the guard and receipt scripts, and
+  the two shared working-rule docs, so that with "require review from Code
+  Owners" on the `main` ruleset a carve-out is refused server-side rather
+  than recognized by Claude Code's judgment. Chosen over a bigger prune
+  because the size history says the lock, not the cut, is what lasts.
 
 **Relocated rationale, by the section it left:**
 

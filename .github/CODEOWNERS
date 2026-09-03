@@ -1,0 +1,16 @@
+# Files that widen or narrow Claude Code's own guardrails or authority.
+# With "require review from Code Owners" on the main ruleset, a PR touching
+# any of these cannot merge without David's approval — the carve-out rule in
+# CLAUDE.md (Close-out → carve-outs) enforced server-side instead of by
+# Claude Code's own judgment about whether a PR is a carve-out.
+CLAUDE.md                                   @TheAnswerManIsHere
+/.claude/                                   @TheAnswerManIsHere
+/.github/                                   @TheAnswerManIsHere
+/scripts/guard-decision.mjs                 @TheAnswerManIsHere
+/scripts/pr-ready.mjs                       @TheAnswerManIsHere
+/scripts/review-budget.mjs                  @TheAnswerManIsHere
+/scripts/review-loop-record.mjs             @TheAnswerManIsHere
+/scripts/check-claude-md-budget.mjs         @TheAnswerManIsHere
+/scripts/check-contract-consistency.mjs     @TheAnswerManIsHere
+/docs/ai-context/agent-working-rules.md     @TheAnswerManIsHere
+/docs/ai-context/working-modes.md           @TheAnswerManIsHere
