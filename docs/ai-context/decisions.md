@@ -13,6 +13,193 @@
 
 ---
 
+### 2026-09-03 · A Codex pass that found nothing is sufficient for the merge receipt
+- **Decision:** the merge receipt accepts Codex's structured record of a
+  completed pass on the head commit in either of its two shapes — the
+  `**Reviewed commit:**` announcement, or the "Codex Review Summary" comment's
+  Code Review row reading Completed for that commit (David, 2026-09-03, on
+  #608: "a Codex pass that found nothing is sufficient for the merge
+  receipt"). A bare 👍 reaction with neither is still not a pass.
+- **Why:** #608's automatic round completed with no findings and delivered
+  only a 👍 plus the summary row — no announcement — which was the exact flip
+  condition `pr-ready.mjs` had pre-registered for asking David. The old rule
+  refused reactions because a reaction carries neither the commit nor the
+  time; the summary row carries both, so accepting it keeps the head binding
+  the rule exists for while no longer blocking a mergeable PR on the
+  connector's choice of delivery shape. Claude Code's recommendation was this
+  structured form rather than accepting the reaction, and David's decision
+  was taken in that form.
+- **Reference:** PR #608 (`summaryPasses` in `scripts/review-counting.mjs`,
+  used by `pr-ready.mjs` and the round count); `known-failure-patterns.md`,
+  the 👍-only row, now closed.
+- **Revisit if:** the connector stops editing the summary comment in place or
+  changes the row format — the parser is one regex, and its test fixture is
+  the measured #608 shape.
+
+---
+
+### 2026-09-03 · `CLAUDE.md` pruned to resident rules; its rationale and history relocated here
+- **Decision:** `CLAUDE.md` carries only what must hold with no skill loaded,
+  stated as a rule with no story attached. Mechanics live in the skills; the
+  reasons and the supersession history live in this log (David, 2026-09-03,
+  "I want the contract pruning done now"). The file's own first paragraph had
+  said so since July; the pass makes it true. Every paragraph of rationale
+  that came out is preserved below, grouped by the section it left, so nothing
+  is lost — it is just no longer loaded into every session.
+- **Why:** the file had grown to ~730 lines by accretion, each new lesson
+  arriving as a longer paragraph and each superseded rule leaving its history
+  in place. Attention per rule dilutes with length, and a rule that has to be
+  recalled competes with every other one. Claude Code's own assessment (same
+  conversation) was that the contract's four dominant failure patterns —
+  overweighting text in front of it against fetched state, substituting
+  machinery for judgment, changing a rule in one place and leaving stale
+  copies, and misjudging cheap-looking changes — were each answered with more
+  prose, and that only the rules which collide with an event (a required
+  format line, a receipt the guard refuses, a hook) have a working record.
+- **Reference:** the pruning PR (2026-09-03), and PR #606 for the advice rule
+  it followed.
+- **Revisit if:** a rule that was cut turns out to have been load-bearing in a
+  way no skill or check covers — the fix is a check or a format requirement,
+  not restoring the paragraph.
+- **Enforcement (same day, #608):** `scripts/check-claude-md-budget.mjs` holds
+  `CLAUDE.md` at the line and byte count that PR landed, in CI, so every
+  addition displaces something rather than extending the file. Chosen over a
+  bigger prune because the size history says the lock, not the cut, is what
+  lasts.
+- **A CODEOWNERS file was built alongside it and then dropped** (David,
+  2026-09-03, choosing that option after the finding below). **Claude Code and
+  David share one GitHub account**: every agent-opened PR is authored by
+  David's own login, and every agent merge records `merged_by` as him, so
+  GitHub cannot tell an agent PR from a human one. Requiring code-owner review
+  would therefore demand an approval the author is not allowed to give, or be
+  waived by the same account permissions that let David's Replit pushes reach
+  `main` — no constraint on Claude Code either way, and a file naming owners
+  would invite the belief that the carve-out was enforced when it was not.
+  **Do not re-propose a server-side identity control until Claude Code has a
+  GitHub identity of its own**; that is a real project, not a setting. What
+  does work is the layer that runs where Claude Code runs: the harness
+  classifier, the guard hook, the readiness receipt, and this CI check.
+
+**Relocated rationale, by the section it left:**
+
+- *Interaction preference 11 (defanged trigger, bare request).* Measured
+  2026-08-21: a trigger comment with prose attached ALSO started a
+  code-writing task on #490, #539 and #472, and did not on #503's seven
+  requests — probabilistic, so the only safe input is the bare trigger. On
+  #490 the connector's task sandbox prepared a PR, so its "committed X" claims
+  are verified against the branch rather than assumed unreachable.
+- *Advice is independent.* David's user-preferences block had said "challenge
+  my assumptions, first principles" all along and it did not change behavior
+  on its own; that is why the rule is a mechanism (assessment-first ordering,
+  a required `Recommendation:` line, an override ledger) rather than a
+  restatement. Two of his premises were corrected in the same conversation:
+  that Claude Code "knows more" (true for general engineering, false for the
+  product, its users, and this repo's history — so the rule keys on evidence,
+  not role) and that "push back" is the target (it invites performative
+  contrarianism — so the rule keys on honesty, not disagreement).
+- *Memory lives in files.* A long chat re-reads its whole transcript on every
+  return; versioned files don't. That is the whole reason working notes go in
+  files.
+- *Planning, Preflight.* The routing is to the Preflight as a whole,
+  deliberately: an earlier version of that line named two of the four checks,
+  and a checklist that lists some of its items invites skipping the ones it
+  omits.
+- *Write-gate rule (David, 2026-08-22).* It superseded the 2026-08-21 design,
+  whose internal tier deliberately ended with the last fixes unreviewed and
+  carried machinery to make that mergeable — a mid-budget terminal receipt, a
+  distinct-commit proof, a rail look-through. All of it was deleted rather
+  than fixed: it existed to make an unreviewed head safe, and an unreviewed
+  head is now simply never mergeable. The internal tier's accepted trade is
+  rougher edges: its failure mode is wrongly-blocking, which announces itself,
+  and `main`'s real protection is GitHub's server-side ruleset.
+- *Round count never stored.* A committed tally is a cache of state GitHub
+  already holds, and it failed exactly that way when it was tried: the count
+  drifted from the record and the guard trusted the drift.
+- *Adjudicator from round 3 (David, 2026-08-22, superseding the 2026-08-20
+  beyond-the-first cadence).* The loop ledger's 41 reviewed loops contained
+  zero clean round 1s and three round-2 convergences, so a dispatch before
+  round 3 only ever said "write" — the dead criticality gate reborn. Round 3
+  headed the measured runaway tail (26 of 41 loops ran 4+ rounds), which is
+  where the one dispatch pays. All in-loop self-refereeing — the criticality
+  gate, count trend, growth tripwire and oscillation diagnosis — was 0-for-15
+  at stopping loops and the budget replaced it. The verdict lives in the
+  defanged context comment and never in a file, because per-round receipts
+  would rebuild the receipt machinery this replaced; the 2026-08-21
+  internal-tier mid-budget receipt went with the write-gate rule, since a
+  stop now precedes any new commit and there is no unreviewed head to unwedge.
+- *David gate at budget + 3 (David, 2026-08-26).* Superseded the 2×-budget
+  hard stop and the sensitive tier's stop-for-him-at-5, and the internal
+  tier's straight-to-David-at-3. "The last round's fixes are unreviewed" is
+  not available as an extension's named risk and no such flag exists in the
+  record, because under the write-gate rule the round reviewing any pushed
+  fixes has already run before the judge is dispatched. Receipt semantics the
+  guard enforces (so the prose no longer needs to): every finite grant carries
+  `asOf`, the completed-round count when David granted, and opens exactly
+  `asOf + grant`, so a direct mid-stage grant discards the interrupted stage's
+  unspent remainder rather than stacking under his rounds; a direct stop
+  (grant 0 before any gate receipt exists) cites its own mechanical record,
+  which is what keeps the merge gate satisfiable.
+- *Flip conditions.* The only judgment-shaped device with a working record,
+  and it works because it collides with an event instead of waiting to be
+  recalled. This is the principle the whole prune rests on.
+- *Triage, not auto-fix.* Treating Codex's "Required Revision" as
+  automatically meaning *fix* is how a GitHub label write ended up with
+  compare-and-swap semantics.
+- *`Class:` / `Oracle:` / `Result:` on declines too.* Declining without an
+  oracle asserts the class is empty without looking. The two escape valves
+  (a design finding with no mechanical oracle, and a finding on a file the
+  command cannot reach) are in `pr-watch`.
+- *Never stacked (David, 2026-08-20).* A dependent bug waits for its parent
+  to merge and branches off fresh `main`, or the two are one bug in one PR.
+- *UAT docs.* David confirms a run complete and the doc is deleted in that
+  same close-out (David, 2026-08-22), harvesting into the Manual first
+  anything recorded nowhere else. Running a UAT became the `uat` skill
+  (David, 2026-08-21): a script driven step by step in chat, no longer a file
+  he reads alone and no longer an Artifact page.
+- *Close-out bar.* CI and Codex catch *broken*; David's UAT catches *wrong*,
+  after the sync. For a carve-out PR no hook sees his click, so the receipt
+  is the whole control. What the receipt cannot prove: that every requested
+  round came back — a permitted retry needs no push, so two requests can name
+  one commit and a single pass satisfies both.
+- *Git constraints.* David's direct-push path to `main` through Replit's Git
+  pane was settled 2026-08-09 (`replit-environment.md`); a session once
+  escalated a `Replit Agent` commit as an incident, and that false alarm is
+  recorded in
+  `.agents/memory/replit-direct-push-to-main-is-sanctioned.md`. Both of
+  `guard.sh`'s jobs live in `guard-decision.mjs` and are absent from the
+  node-unavailable fallback. The Replit sweep is bounded by time, never by
+  commit count: `-3` was the first shape and it silently drops the fourth
+  commit of a busy week, and a missed commit is indistinguishable from a
+  swept one. The sweep rides the first-push fetch because `fetch` and
+  `checkout` print nothing about authorship, so "a session that touches
+  `main` finds one" otherwise describes no actual moment.
+- *Never poll GitHub from bash.* `curl`/`wget` are refused by the guard and no
+  other bash transport returns usable data:
+  `.agents/memory/github-rest-api-blocked-from-bash.md`. If a `send_later`
+  ever prompts at the permission classifier, that is new information for the
+  workstream issue.
+- *Fable to explore, Opus to build (David, 2026-08-28).* Superseded the
+  2026-08-15 "session tier is a constant, switch-asks retired in both
+  directions", which assumed one tier per session. Cheap-looking is exactly
+  when the tier matters: the repo's one-line-that-broke-everything is #582.
+  Measured 2026-08-28: `.claude/settings.json` pinned `opus` and the session
+  ran Fable anyway, so the pin is not proof of the running tier.
+- *Subagent cap.* Opus 5 delegates eagerly; every subagent re-establishes
+  context, explores, reports back, and costs a read of its report.
+- *Replit.* Publishing is deferred until closer to launch. David's fast lane
+  was settled long before any given tweak is met, so a `Replit Agent` commit
+  on `main` is never an incident to escalate; the boundary is display vs.
+  behavior, not small vs. big (#588).
+- *Standing rituals.* The process-health numbers exist so David's
+  keep-going-or-re-evaluate call is informed rather than felt. "Recorded
+  dissents" joined them on 2026-09-03 as a count of overrides recorded under
+  the advice rule. It measures override frequency only: a zero is consistent
+  with every recommendation being accepted, so it prompts a question to
+  David rather than a conclusion (Codex, #607 round 2, correcting the
+  first wording, which read a zero as proof the rule wasn't working).
+
+---
+
 ### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable
 - **Decision:** Until launch, production's *product* data — facts, memes, users,
   membership rows — carries no value and may be replaced by a copy of the

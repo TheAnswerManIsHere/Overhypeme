@@ -13,6 +13,7 @@
     "worker:deploy": "pnpm --filter @workspace/og-router run deploy",
     "worker:dev": "pnpm --filter @workspace/og-router run dev",
     "check:docs": "node scripts/check-docs-accuracy.mjs",
+    "check:claude-budget": "node scripts/check-claude-md-budget.mjs",
     "check:codegen-drift": "bash scripts/check-codegen-drift.sh",
     "check:manual-tuning": "node scripts/check-manual-tuning-language.mjs",
     "check:return-to-parity": "pnpm --filter @workspace/api-server exec tsx ../../scripts/check-return-to-parity.mjs",

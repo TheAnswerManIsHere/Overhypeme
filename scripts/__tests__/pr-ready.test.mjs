@@ -170,6 +170,43 @@ test("Codex: a thumbs-up alone is NOT proof the review returned", () => {
   assert.match(res.detail, /reaction carries\s+neither identity nor time/);
 });
 
+/** The connector's summary comment, edited in place, with a completed Code Review row. */
+const summary = (sha, completedAt, trigger = "PR opened") => ({
+  user: { login: CODEX_BOT },
+  created_at: "2026-08-17T03:59:00Z",
+  body:
+    "<!-- codex-pull-request-review-summary -->\n## Codex Review Summary\n\n" +
+    "| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n" +
+    `| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="${completedAt}">${completedAt}</relative-time> | \`${sha.slice(0, 7)}\` | ${trigger} |\n`,
+});
+
+test("Codex: a Completed Code Review row in the summary comment is a pass on that commit (#608)", () => {
+  // Measured 2026-09-03: a clean pass arrived as a 👍 plus this row and no
+  // announcement. David decided a pass that found nothing suffices; the row
+  // is the structured evidence (commit + moment) a reaction lacks.
+  const res = checkCodex([summary(HEAD, "2026-08-17T04:10:00Z")], [], HEAD);
+  assert.equal(res.pass, true);
+  assert.match(res.detail, /automatic pass/);
+});
+
+test("Codex: the summary row answers a request when it postdates it and covers the head", () => {
+  const res = checkCodex(
+    [comment("me", "@codex review", "2026-08-17T04:00:00Z", { "+1": 1 }), summary(HEAD, "2026-08-17T04:10:00Z", "Manual request")],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, true);
+});
+
+test("Codex: a summary row for an EARLIER commit does not cover the head", () => {
+  const res = checkCodex(
+    [comment("me", "@codex review", "2026-08-17T04:00:00Z"), summary("b".repeat(40), "2026-08-17T04:10:00Z", "Manual request")],
+    [],
+    HEAD,
+  );
+  assert.equal(res.pass, false);
+});
+
 test("Codex: a pass on an EARLIER commit does not cover the head", () => {
   // "We never merge until that review is returned" means returned for the diff
   // that would merge. A push after the review needs a new round.

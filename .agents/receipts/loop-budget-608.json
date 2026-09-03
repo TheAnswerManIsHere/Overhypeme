@@ -1,0 +1,8 @@
+{
+  "pr": 608,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 30,
+  "artifact": "CLAUDE.md line-budget CI check + CODEOWNERS",
+  "declaredAt": "2026-09-03T18:05:31.251Z"
+}

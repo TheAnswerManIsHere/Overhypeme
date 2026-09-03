@@ -173,6 +173,15 @@ jobs:
       - name: Check contract-consistency guard logic
         run: node --test scripts/__tests__/check-contract-consistency.test.mjs
 
+      # CLAUDE.md loads into every session. It was pruned twice in two weeks
+      # (#543, #607) and regrew in between, so the budget makes every addition
+      # displace something. Raising it is a constraint change David merges.
+      - name: Check CLAUDE.md line budget
+        run: node scripts/check-claude-md-budget.mjs
+
+      - name: Check CLAUDE.md line-budget guard logic
+        run: node --test scripts/__tests__/check-claude-md-budget.test.mjs
+
       # /uat drives a run by enumerating "### " headings inside "## Steps" and
       # "## Regression". That rule is only safe if every doc has that shape.
       # The docs used to carry six-plus conventions for the regression section

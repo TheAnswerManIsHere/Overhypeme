@@ -412,9 +412,10 @@ adjudicator, the leash, and the David gate all in force. While watching an imple
   review needs a fresh round however small it was: what makes a push safe is
   not knowable from its own diff, which is the assumption that let PR #487 be
   reported ready. The merge gate enforces this rather than trusting the
-  judgement — `scripts/pr-ready.mjs` requires a `**Reviewed commit:**`
-  announcement matching the head sha, so a push after the last pass simply
-  fails the receipt.
+  judgement — `scripts/pr-ready.mjs` requires Codex's structured record of a
+  pass matching the head sha (the `**Reviewed commit:**` announcement, or the
+  summary comment's Completed Code Review row — David, 2026-09-03, #608), so
+  a push after the last pass simply fails the receipt.
   **Two conditions gate every re-request (the round-budget contract).**
   1. **A behavioral change since the last reviewed commit.** No re-request
      buys a round with prose edits: `node scripts/review-loop-record.mjs`
