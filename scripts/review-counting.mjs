@@ -58,6 +58,19 @@ const REVIEWED_COMMIT_MARKER = /\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i;
  * can add at most one pass that no announcement already names.
  */
 const SUMMARY_MARKER = /codex-pull-request-review-summary/;
+/**
+ * How close in time an announcement has to be to the summary row before the
+ * two are treated as records of the SAME pass rather than two passes.
+ *
+ * Matching on the commit alone was wrong (Codex, #608 round 2): a commit can
+ * be announced twice — #292 — so a later clean re-review of an
+ * already-announced sha would be swallowed by the older announcement. That is
+ * an UNDERCOUNT, the direction that hands the loop rounds it did not earn.
+ * The connector edits the summary within seconds of posting the announcement,
+ * while a genuinely separate second pass on one commit needs a fresh request
+ * and a full review run, so a window this wide separates them cleanly.
+ */
+const SAME_PASS_MS = 10 * 60 * 1000;
 const SUMMARY_CODE_REVIEW_ROW =
   /\|\s*(?:📝\s*)?\*\*Code Review\*\*\s*\|\s*(?:✅\s*)?\*\*Completed\*\*\s*<relative-time\s+datetime="([^"]+)"[^|]*\|\s*`([0-9a-f]{7,40})`/i;
 
@@ -216,10 +229,16 @@ export function reviewerPasses(reviews, issueComments = []) {
     });
   }
 
-  // The summary comment's completed row adds a pass only for a commit no
-  // announcement already names: when both exist they describe the same pass.
+  // The summary comment's completed row adds a pass unless an announcement
+  // already records that SAME pass — same commit AND within SAME_PASS_MS of
+  // it. Commit alone is not enough: see that constant.
   for (const s of summaryPasses(issueComments)) {
-    if (!passes.some((p) => sameCommit(p.commit, s.commit))) passes.push(s);
+    const alreadyRecorded = passes.some(
+      (p) =>
+        sameCommit(p.commit, s.commit) &&
+        Math.abs(Date.parse(p.at) - Date.parse(s.at)) <= SAME_PASS_MS,
+    );
+    if (!alreadyRecorded) passes.push(s);
   }
 
   return passes.sort((a, b) => new Date(a.at) - new Date(b.at));

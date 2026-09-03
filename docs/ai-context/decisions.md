@@ -61,18 +61,24 @@
 - **Revisit if:** a rule that was cut turns out to have been load-bearing in a
   way no skill or check covers — the fix is a check or a format requirement,
   not restoring the paragraph.
-- **Enforcement (same day, follow-up PR):** `scripts/check-claude-md-budget.mjs`
-  holds `CLAUDE.md` at the line count #607 landed (534) in CI, so every
-  addition displaces something; and `.github/CODEOWNERS` names David as owner
-  of `CLAUDE.md`, `.claude/`, `.github/`, the guard and receipt scripts, and
-  the two shared working-rule docs, plus the gate scripts' inputs and
-  `AGENTS.md` (Codex, #608 round 1), so that with "require review from Code
-  Owners" on the `main` ruleset David's approval of a carve-out is required
-  server-side rather than left to Claude Code's judgment. What CODEOWNERS
-  does not do (same round): restrict who clicks merge after approval —
-  GitHub has no per-path merge-actor rule — so "never merge a carve-out
-  myself" stays Claude Code's rule, backed by the receipt hook. Chosen over a
-  bigger prune because the size history says the lock, not the cut, lasts.
+- **Enforcement (same day, #608):** `scripts/check-claude-md-budget.mjs` holds
+  `CLAUDE.md` at the line and byte count that PR landed, in CI, so every
+  addition displaces something rather than extending the file. Chosen over a
+  bigger prune because the size history says the lock, not the cut, is what
+  lasts.
+- **A CODEOWNERS file was built alongside it and then dropped** (David,
+  2026-09-03, choosing that option after the finding below). **Claude Code and
+  David share one GitHub account**: every agent-opened PR is authored by
+  David's own login, and every agent merge records `merged_by` as him, so
+  GitHub cannot tell an agent PR from a human one. Requiring code-owner review
+  would therefore demand an approval the author is not allowed to give, or be
+  waived by the same account permissions that let David's Replit pushes reach
+  `main` — no constraint on Claude Code either way, and a file naming owners
+  would invite the belief that the carve-out was enforced when it was not.
+  **Do not re-propose a server-side identity control until Claude Code has a
+  GitHub identity of its own**; that is a real project, not a setting. What
+  does work is the layer that runs where Claude Code runs: the harness
+  classifier, the guard hook, the readiness receipt, and this CI check.
 
 **Relocated rationale, by the section it left:**
 

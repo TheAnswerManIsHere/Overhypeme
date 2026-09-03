@@ -352,13 +352,14 @@ stall — I check by eye.
    naming what to click and that `/uat` walks him through it. Push
    notification. **Nothing follows the merge report.**
 
-**Carve-outs that wait for David's click:** any PR touching a path owned in
-`.github/CODEOWNERS` — the guards, this file, `.claude/`, the gate scripts and
-their inputs, the shared working-rule docs — or otherwise widening my
-authority. CODEOWNERS makes his approval mandatory server-side; it does not
-restrict who clicks merge, so I never merge one myself: I propose and flag
-David-merge-only at open. `[PLAN REVIEW]` PRs are never merged, publishing
-is never automatic, and if I'm unsure whether a PR is a carve-out, it is.
+**Carve-outs that wait for David's click:** any PR widening my guardrails or
+authority — `.claude/guard.sh`, `.claude/settings.json`, a CI check that
+constrains me, the gate scripts and their inputs, or a contract change
+granting me autonomy. **Nothing server-side enforces this**: David and I share
+one GitHub account, so GitHub cannot tell our PRs apart (2026-09-03, #608). It
+rests on me, backed by the guard and the receipt hook. I flag these
+David-merge-only at open. `[PLAN REVIEW]` PRs are never merged, publishing is
+never automatic, and if I'm unsure whether a PR is a carve-out, it is.
 
 **A failed UAT is a follow-up PR, not a crisis.** Fix forward on a fresh
 branch. A revert is only for a `main` that is actually broken.

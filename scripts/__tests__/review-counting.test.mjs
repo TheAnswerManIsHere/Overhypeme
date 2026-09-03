@@ -440,3 +440,18 @@ test("a summary comment whose Code Review row is still Running is not a pass", (
   };
   assert.equal(reviewerPasses([], [running]).length, 0);
 });
+
+
+test("a later clean re-review of an already-announced commit is its own pass (#608 round 2)", () => {
+  // A commit CAN be announced twice (#292). Deduping the summary row on the
+  // commit alone swallowed the second pass, and an undercount hands the loop
+  // rounds it did not earn -- so the two records must also be close in time
+  // before they count as one pass.
+  const sha = "cccccccccccccccccccccccccccccccccccccccc";
+  const passes = reviewerPasses(
+    [announced(1, sha, "2026-09-03T12:00:00Z")],
+    [summaryComment(sha, "2026-09-03T14:30:00Z")],
+  );
+  assert.equal(passes.length, 2);
+  assert.deepEqual(passes.map((p) => p.source), ["review", "summary"]);
+});

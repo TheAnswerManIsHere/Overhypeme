@@ -5,12 +5,18 @@
 // The record: 2,446 lines on 2026-08-20, cut to 573 that day (#543), back to
 // 728 by 2026-09-03, cut to 534 (#607). A prune without a lock buys about two
 // weeks, because every lesson arrives as a longer paragraph and nothing pushes
-// back. This check is the push-back: the file may not exceed LINE_BUDGET lines
+// back. Both numbers are the file's exact size on the commit that set them, so
+// there is no slack to grow into: raising them is a visible one-line diff in a
+// PR David merges, which is the point -- growth becomes explicit instead of
+// silent. (This check caught its own PR, #608, when a fix added one line.)
+// This check is the push-back: the file may not exceed LINE_BUDGET lines
 // OR BYTE_BUDGET bytes, so every addition has to displace something. Both are
 // checked because either alone is gameable — lines by writing longer lines
 // (Codex, #608 round 1), bytes by nothing that matters, but the line count is
 // what a reader experiences. Raising either budget is a change to a constraint
-// on Claude Code and is David-merge-only (see CODEOWNERS).
+// on Claude Code, so David merges it. Nothing server-side can enforce that —
+// he and Claude Code share one GitHub account (decisions.md, 2026-09-03) —
+// which is the reason a CI check, running where Claude Code runs, is the lock.
 //
 // Dependency-free, runs in the Build job without install.
 // Run locally:  node scripts/check-claude-md-budget.mjs
@@ -19,8 +25,8 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const LINE_BUDGET = 534;
-export const BYTE_BUDGET = 31723;
+export const LINE_BUDGET = 535;
+export const BYTE_BUDGET = 31792;
 /** Kept for callers that predate the byte budget. */
 export const BUDGET = LINE_BUDGET;
 export const FILE = "CLAUDE.md";

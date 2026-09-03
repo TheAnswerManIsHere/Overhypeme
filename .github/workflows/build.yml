@@ -175,7 +175,7 @@ jobs:
 
       # CLAUDE.md loads into every session. It was pruned twice in two weeks
       # (#543, #607) and regrew in between, so the budget makes every addition
-      # displace something. Raising it is David-merge-only (CODEOWNERS).
+      # displace something. Raising it is a constraint change David merges.
       - name: Check CLAUDE.md line budget
         run: node scripts/check-claude-md-budget.mjs
 
