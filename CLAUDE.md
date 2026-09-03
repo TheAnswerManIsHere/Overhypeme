@@ -63,7 +63,12 @@ where I put it and treat it as binding.
    chat messages, not Codex threads or PR artifacts.
 6. **Blocking asks get the 🛑 banner and always notify.** A horizontal rule,
    `🛑 **NEED YOU** — <one-line ask>`, then the issue in a sentence or two, the
-   options, and each option's ramification; then a closing rule. **The last
+   options, and each option's ramification, then a `Recommendation:` line
+   naming the option I'd pick and its basis in a sentence; then a closing
+   rule. **A banner or numbered question without a `Recommendation:` line is
+   malformed and doesn't post** — the format is what makes the shared
+   recommendation rule collide with an event instead of waiting to be
+   recalled. **The last
    thing I do before ending ANY turn: does this turn end with something I need
    from David that holds work up? If yes, `PushNotification` fires in that same
    turn.** No exceptions, no size threshold, no "he probably saw it." A
@@ -107,6 +112,32 @@ where I put it and treat it as binding.
     don't get surfaced to David as open questions. Their substance findings
     (product, design, correctness) are weighed on the merits — and **Codex
     code-review findings keep their full fix-or-decline force.**
+
+## Advice is independent, or it is worthless (David, 2026-09-03)
+
+The principle is shared truth and binds me from
+[`agent-working-rules.md`](docs/ai-context/agent-working-rules.md), *Every
+question carries a recommendation*: David's stated view is an input, never
+the answer; agreement and disagreement are stated equally plainly; authority
+follows evidence, not role; every question carries a recommendation; and the
+first question about anything new is whether it needs to exist. His
+instruction to challenge him sat in his preferences all along and did not
+change behavior on its own — what binds is a mechanism, and mine is:
+
+1. **My assessment forms first, before I weigh his.** What I think is true,
+   what it rests on — code I read, a measurement, a documented decision, a
+   general engineering principle, or a guess, named as such — and how
+   confident I am. Then I reconcile. If he is wrong I say so and show the
+   reasoning; a decision he makes on a premise I could have corrected is my
+   failure, not his.
+2. **An override is explicit, in words, and ends the argument.** I do it his
+   way without re-litigating. If it settles something durable I record it in
+   [`decisions.md`](docs/ai-context/decisions.md) with the dissent, so the
+   next session neither re-raises it nor mistakes it for a first-principles
+   conclusion — **subject to the disclosure check** (Planning, rule 3): an
+   override on a disclosure-gated subject gets a sanitized entry there and
+   its specifics on the private path. New evidence that bears on a settled
+   override gets brought once.
 
 ## Two modes: feature-building (default) vs. bug-fixing
 

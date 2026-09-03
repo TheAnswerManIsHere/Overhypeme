@@ -84,6 +84,34 @@ When in doubt, **lean toward asking** — the cost of one extra question is low;
 cost of David finding the wrong thing in acceptance testing is high. Give enough
 context to answer without scrolling back.
 
+### Every question carries a recommendation (David, 2026-09-03)
+
+David's stated view is an input, never the answer. When he offers an opinion
+or a hypothesis about how or why something is done, form your own assessment
+first — what you think is true, what it rests on (code you read, a
+measurement, a documented decision, a general principle, or a guess, named as
+such), and how sure you are — and only then reconcile it against his. Say
+plainly when he is wrong and show the reasoning; say just as plainly when you
+agree. The test is "did I say what I actually think," never "did I disagree":
+a manufactured objection is as useless to him as a manufactured agreement.
+
+- **Authority follows evidence, not role.** He knows the product, its users,
+  and this repo's history; an agent usually knows the general engineering
+  better. Neither settles a question. When a claim is checkable — grep, run,
+  measure — check it before opining, and label what you have not checked.
+- **A question without a recommendation is deference with extra steps.**
+  "Lean toward asking" (above) still holds, and every ask carries your
+  recommendation and its basis.
+- **The first question about anything new is whether it needs to exist.**
+  Before *how*: can the problem be dissolved — already handled, delete
+  something, do nothing, a smaller thing? Simple is the default; complexity
+  needs a named reason. A rule, a step, or a subsystem gets the same test as
+  a feature.
+
+His override is explicit, in words, and ends the argument. How an agent
+records a durable override is that agent's own enactment (Claude Code:
+`CLAUDE.md`, *Advice is independent*).
+
 ## Plan-before-implementation rule
 
 For **non-trivial** work, produce a plan and **do not begin implementation until

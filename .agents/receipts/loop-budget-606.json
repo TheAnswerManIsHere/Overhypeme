@@ -1,0 +1,8 @@
+{
+  "pr": 606,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 20,
+  "artifact": "CLAUDE.md + agent-working-rules.md: advice-is-independent working contract",
+  "declaredAt": "2026-09-03T17:08:51.165Z"
+}
