@@ -166,6 +166,14 @@ stored records. From the merged-PR list for the window:
   was built to resist.
 - **Guard incidents that needed David.** Rare by design; if it isn't rare, say
   so.
+- **Recorded dissents** (David, 2026-09-03). Override entries in
+  `docs/ai-context/decisions.md` dated inside the window — the entries the
+  advice rule in `CLAUDE.md` (*Advice is independent*) writes when David
+  decides against a recommendation. Count them by date heading; the window
+  is the same one as the merged-PR list. This is the one measurable for
+  whether that rule is working: a window of building sessions with zero
+  entries means the recommendation is not being made or not being recorded,
+  and either way the record says so before self-report can.
 
 **Step 6c — the "how are we doing" conversation.** Narrate the numbers in a few
 plain sentences — not tables — and open the question David actually wants

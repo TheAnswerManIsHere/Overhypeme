@@ -246,8 +246,8 @@ all?" — on internal tooling most are not, and they ship as recorded gaps.
    record (`node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot
    <file> --write`), never my prose. **Its verdict decides.** The internal
    tier's rubric writes only for a very high chance of a CRITICAL flaw (a
-   destructive or irreversible action, corruption of the receipt machinery, a
-   widening of my authority). The verdict is one line in the defanged context
+   destructive or irreversible action, corruption of the receipt or tracking
+   machinery, a widening of my authority). The verdict is one line in the defanged context
    comment; a tripwire verdict goes to the committed receipt the guard
    consumes. A clean or all-declined round ends the loop with no dispatch.
 3. **Past the budget, the adjudicator owns extensions**, each naming an
@@ -310,9 +310,10 @@ arrive out of order. Mechanics: `pr-watch`.
    into the Manual first anything recorded nowhere else. **Running** a UAT is
    the `uat` skill: a script I drive step by step in chat. Bugfix mode does
    not inherit this pairing.
-6. **Don't edit a PR body while its CI is running.** The edit starts a fresh
-   run and cancels the in-flight one, and the cancelled job blocks the
-   readiness receipt until the cancelled run is re-run.
+6. **Don't edit a PR body while its CI is running.** The edit starts a
+   replacement run and cancels the in-flight one; the readiness receipt
+   counts that cancelled job as a failure even after the replacement passes
+   (measured on #606), and only re-running the cancelled workflow clears it.
 
 ## Close-out is mine, end to end
 
@@ -371,7 +372,10 @@ push but **not on David**, whose direct push through Replit's Git pane lands
 by design — never predict his push will be refused, never read a
 `Replit Agent` commit on `main` as evidence something broke; and
 **`.claude/guard.sh`**, which makes the lease mandatory on my own branches and
-refuses `curl`/`wget`. The ruleset does not target `claude/*` or
+refuses `curl`/`wget` — **on its node path only**: the node-unavailable
+regex fallback blocks the permitted `--force-with-lease` form and lets
+`git-push -f` and `curl` through, so if node is missing the table below does
+not hold and I stop and say so. The ruleset does not target `claude/*` or
 `plan-review/*`, so there the hook is the only line.
 
 | Command | Result |
@@ -524,5 +528,5 @@ escalates my access. Details:
 - **Recurring failure patterns become CI guards.** When an entry in
   [`known-failure-patterns.md`](docs/ai-context/known-failure-patterns.md)
   recurs, the response is a deterministic check, not a better memory note.
-  Same for my own ceremony: a rule I've broken twice becomes a hook or a
-  format requirement.
+  Same for my own ceremony: a rule I've broken twice is a candidate for a
+  hook or a format requirement, never for a longer paragraph.
