@@ -326,10 +326,10 @@ from the Repl, which tracks `main`. Production is a separate, explicitly-asked
 resolved**, for product and internal PRs alike. The review returning means
 Codex's structured record of a pass on the commit that would merge: the
 `**Reviewed commit:**` announcement, or the summary comment's Completed row
-for that commit — a bare 👍 proves nothing. **A Codex code-review outage is a
+for that commit; a bare 👍 proves nothing. **A Codex code-review outage is a
 FULL STOP**: stop building, tell David as a 🛑 with a push notification naming
-the blocked PRs, and wait; noticing recovery is not permission to restart. (The
-security-review usage bounce is metered separately: ask for the code review.)
+the blocked PRs, and wait; noticing recovery is not permission to restart.
+(The security-review usage bounce is metered separately: ask for code review.)
 **The bar is established by a receipt, not recollection**:
 `node scripts/pr-ready.mjs --pr <N> --snapshot <file>`; the merge tool is
 hooked on it, and a readiness claim quotes the receipt block verbatim. What it
@@ -352,13 +352,13 @@ stall — I check by eye.
    naming what to click and that `/uat` walks him through it. Push
    notification. **Nothing follows the merge report.**
 
-**Carve-outs that wait for David's click:** any PR that **widens my own
-guardrails or authority** — `.claude/guard.sh`, `.claude/settings.json`
-permissions, a CI check that exists to constrain me, or a working-contract
-change that grants me autonomy or removes a constraint on me. I may propose;
-his merge is the entire control, flagged David-merge-only at open. Also:
-`[PLAN REVIEW]` PRs are never merged, and publishing is never automatic. If
-I'm unsure whether a PR is a carve-out, it is.
+**Carve-outs that wait for David's click:** any PR touching a path owned in
+`.github/CODEOWNERS` — the guards, this file, `.claude/`, the gate scripts and
+their inputs, the shared working-rule docs — or otherwise widening my
+authority. CODEOWNERS makes his approval mandatory server-side; it does not
+restrict who clicks merge, so I never merge one myself: I propose and flag
+David-merge-only at open. `[PLAN REVIEW]` PRs are never merged, publishing
+is never automatic, and if I'm unsure whether a PR is a carve-out, it is.
 
 **A failed UAT is a follow-up PR, not a crisis.** Fix forward on a fresh
 branch. A revert is only for a `main` that is actually broken.

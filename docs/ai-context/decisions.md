@@ -65,10 +65,14 @@
   holds `CLAUDE.md` at the line count #607 landed (534) in CI, so every
   addition displaces something; and `.github/CODEOWNERS` names David as owner
   of `CLAUDE.md`, `.claude/`, `.github/`, the guard and receipt scripts, and
-  the two shared working-rule docs, so that with "require review from Code
-  Owners" on the `main` ruleset a carve-out is refused server-side rather
-  than recognized by Claude Code's judgment. Chosen over a bigger prune
-  because the size history says the lock, not the cut, is what lasts.
+  the two shared working-rule docs, plus the gate scripts' inputs and
+  `AGENTS.md` (Codex, #608 round 1), so that with "require review from Code
+  Owners" on the `main` ruleset David's approval of a carve-out is required
+  server-side rather than left to Claude Code's judgment. What CODEOWNERS
+  does not do (same round): restrict who clicks merge after approval —
+  GitHub has no per-path merge-actor rule — so "never merge a carve-out
+  myself" stays Claude Code's rule, backed by the receipt hook. Chosen over a
+  bigger prune because the size history says the lock, not the cut, lasts.
 
 **Relocated rationale, by the section it left:**
 
