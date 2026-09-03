@@ -44,6 +44,42 @@ export const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt
  */
 const REVIEWED_COMMIT_MARKER = /\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i;
 
+/**
+ * The connector's SECOND structured record of a completed pass: the "Codex
+ * Review Summary" issue comment it posts on PR open and edits in place, whose
+ * Code Review row reads `| 📝 **Code Review** | ✅ **Completed** <relative-time
+ * datetime="…"> | `<sha>` | <trigger> |`. Measured on #608 (2026-09-03): a
+ * clean pass arrived as a 👍 reaction plus this row and NO announcement, and
+ * the row carries exactly what a reaction lacks — the commit and the moment.
+ * David's decision that day: a pass that found nothing is sufficient for the
+ * merge receipt, in this structured form. A bare reaction still is not.
+ *
+ * Because the comment is edited in place it shows only the LATEST pass, so it
+ * can add at most one pass that no announcement already names.
+ */
+const SUMMARY_MARKER = /codex-pull-request-review-summary/;
+const SUMMARY_CODE_REVIEW_ROW =
+  /\|\s*(?:📝\s*)?\*\*Code Review\*\*\s*\|\s*(?:✅\s*)?\*\*Completed\*\*\s*<relative-time\s+datetime="([^"]+)"[^|]*\|\s*`([0-9a-f]{7,40})`/i;
+
+/**
+ * Passes evidenced by the summary comment's completed Code Review row —
+ * reviewer-authored comments only. Shape matches `reviewerPasses` entries.
+ */
+export function summaryPasses(issueComments = []) {
+  const out = [];
+  for (const comment of issueComments) {
+    if (!REVIEWER_LOGINS.has(comment?.user?.login)) continue;
+    const body = comment.body ?? "";
+    if (!SUMMARY_MARKER.test(body)) continue;
+    const row = SUMMARY_CODE_REVIEW_ROW.exec(body);
+    if (!row) continue;
+    const at = row[1];
+    if (!Number.isFinite(Date.parse(at))) continue;
+    out.push({ commit: row[2].toLowerCase(), at, reviewIds: [], records: 0, source: "summary" });
+  }
+  return out;
+}
+
 /** Whether two commit references name the same commit, one possibly abbreviated. */
 function sameCommit(a, b) {
   if (!a || !b) return false;
@@ -178,6 +214,12 @@ export function reviewerPasses(reviews, issueComments = []) {
       records: 0,
       source: "comment",
     });
+  }
+
+  // The summary comment's completed row adds a pass only for a commit no
+  // announcement already names: when both exist they describe the same pass.
+  for (const s of summaryPasses(issueComments)) {
+    if (!passes.some((p) => sameCommit(p.commit, s.commit))) passes.push(s);
   }
 
   return passes.sort((a, b) => new Date(a.at) - new Date(b.at));

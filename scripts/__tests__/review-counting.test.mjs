@@ -397,3 +397,46 @@ test("fromMcp accepts a comment with a stable thread id even without a discussio
 // ---------------------------------------------------------------------------
 
 
+
+
+/** The connector's summary comment, edited in place, with a completed Code Review row. */
+const summaryComment = (sha, completedAt, id = 800001) => ({
+  id,
+  user: BOT,
+  created_at: "2026-09-03T18:00:42Z",
+  body:
+    "<!-- codex-pull-request-review-summary -->\n## Codex Review Summary\n\n" +
+    "| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n" +
+    `| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="${completedAt}">${completedAt}</relative-time> | \`${sha.slice(0, 7)}\` | PR opened |\n` +
+    `| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="${completedAt}">${completedAt}</relative-time> | \`${sha.slice(0, 7)}\` | PR opened |\n`,
+});
+
+test("a completed Code Review row in the summary comment is a pass with no announcement (#608)", () => {
+  const sha = "3466d56814272e4d7d7fdafb39ef964c11eab1f4";
+  const passes = reviewerPasses([], [summaryComment(sha, "2026-09-03T18:03:11.215689Z")]);
+  assert.equal(passes.length, 1);
+  assert.equal(passes[0].source, "summary");
+  assert.equal(passes[0].commit, "3466d56");
+  assert.equal(passes[0].at, "2026-09-03T18:03:11.215689Z");
+});
+
+test("the summary row does not double-count a pass an announcement already names", () => {
+  const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const passes = reviewerPasses(
+    [announced(1, sha, "2026-09-03T18:03:00Z")],
+    [summaryComment(sha, "2026-09-03T18:03:11Z")],
+  );
+  assert.equal(passes.length, 1);
+  assert.equal(passes[0].source, "review");
+});
+
+test("a summary comment whose Code Review row is still Running is not a pass", () => {
+  const running = {
+    id: 800002,
+    user: BOT,
+    created_at: "2026-09-03T18:00:42Z",
+    body:
+      "<!-- codex-pull-request-review-summary -->\n| 📝 **Code Review** | 🔄 **Running** since <relative-time datetime=\"2026-09-03T18:00:39Z\">x</relative-time> | `3466d56` | PR opened |\n",
+  };
+  assert.equal(reviewerPasses([], [running]).length, 0);
+});

@@ -323,13 +323,13 @@ from the Repl, which tracks `main`. Production is a separate, explicitly-asked
 `publish_app`.
 
 **The bar: CI green + Codex review returned for the head commit + every thread
-resolved**, for product and internal PRs alike. The review returning means the
-`**Reviewed commit:**` announcement for the commit that would merge — a 👍
-reaction proves nothing, and a clean pass that arrives as a reaction alone goes
-to David. **A Codex code-review outage is a FULL STOP**: stop building, tell
-David as a 🛑 with a push notification naming the blocked PRs, and wait;
-noticing recovery is not permission to restart. (The security-review usage
-bounce is metered separately and just means "ask for the code review.")
+resolved**, for product and internal PRs alike. The review returning means
+Codex's structured record of a pass on the commit that would merge: the
+`**Reviewed commit:**` announcement, or the summary comment's Completed row
+for that commit — a bare 👍 proves nothing. **A Codex code-review outage is a
+FULL STOP**: stop building, tell David as a 🛑 with a push notification naming
+the blocked PRs, and wait; noticing recovery is not permission to restart. (The
+security-review usage bounce is metered separately: ask for the code review.)
 **The bar is established by a receipt, not recollection**:
 `node scripts/pr-ready.mjs --pr <N> --snapshot <file>`; the merge tool is
 hooked on it, and a readiness claim quotes the receipt block verbatim. What it
