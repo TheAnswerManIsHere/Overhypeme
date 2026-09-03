@@ -149,9 +149,11 @@
   behavior, not small vs. big (#588).
 - *Standing rituals.* The process-health numbers exist so David's
   keep-going-or-re-evaluate call is informed rather than felt. "Recorded
-  dissents" joined them on 2026-09-03 as the one measurable for whether the
-  advice rule is working: a run of building sessions with zero override
-  entries means it isn't, and the record says so before self-report can.
+  dissents" joined them on 2026-09-03 as a count of overrides recorded under
+  the advice rule. It measures override frequency only: a zero is consistent
+  with every recommendation being accepted, so it prompts a question to
+  David rather than a conclusion (Codex, #607 round 2, correcting the
+  first wording, which read a zero as proof the rule wasn't working).
 
 ---
 

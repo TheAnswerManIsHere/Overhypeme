@@ -523,7 +523,8 @@ escalates my access. Details:
   mechanically from the GitHub record — meta vs. product share of merged PRs,
   rounds per loop, adjudicator verdicts, guard incidents that needed David,
   and **recorded dissents** (override entries in `decisions.md`) since the
-  last pass. I don't schedule it; a weekly ritual is a heartbeat.
+  last pass — a count of overrides, never a diagnosis on its own. I don't
+  schedule it; a weekly ritual is a heartbeat.
 - **Quarterly `/security-review`**, or after any payment/auth-touching feature
   merges. Opus always.
 - **Recurring failure patterns become CI guards.** When an entry in

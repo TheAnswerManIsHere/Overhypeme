@@ -170,10 +170,13 @@ stored records. From the merged-PR list for the window:
   `docs/ai-context/decisions.md` dated inside the window — the entries the
   advice rule in `CLAUDE.md` (*Advice is independent*) writes when David
   decides against a recommendation. Count them by date heading; the window
-  is the same one as the merged-PR list. This is the one measurable for
-  whether that rule is working: a window of building sessions with zero
-  entries means the recommendation is not being made or not being recorded,
-  and either way the record says so before self-report can.
+  is the same one as the merged-PR list. It measures **override frequency**,
+  nothing more: a zero is consistent with David accepting every
+  recommendation, so it is never a diagnosis on its own. Report the count
+  and, when it is zero across a window of building sessions, put one
+  question to David in the step 6c conversation — were recommendations
+  being made and did any get overridden without a record — rather than
+  concluding anything from the absence.
 
 **Step 6c — the "how are we doing" conversation.** Narrate the numbers in a few
 plain sentences — not tables — and open the question David actually wants
