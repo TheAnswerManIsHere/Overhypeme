@@ -247,9 +247,9 @@ all?" — on internal tooling most are not, and they ship as recorded gaps.
    <file> --write`), never my prose. **Its verdict decides.** The internal
    tier's rubric writes only for a very high chance of a CRITICAL flaw (a
    destructive or irreversible action, corruption of the receipt or tracking
-   machinery, a widening of my authority). The verdict is one line in the defanged context
-   comment; a tripwire verdict goes to the committed receipt the guard
-   consumes. A clean or all-declined round ends the loop with no dispatch.
+   machinery, a widening of my authority). The verdict is one line in the
+   defanged context comment; a tripwire verdict goes to the committed
+   receipt the guard consumes. A clean or all-declined round ends the loop with no dispatch.
 3. **Past the budget, the adjudicator owns extensions**, each naming an
    actual unaddressed behavioral risk in this loop's territory, self-serving
    at most 3 rounds past the budget. **At budget + 3 stands the David gate,
