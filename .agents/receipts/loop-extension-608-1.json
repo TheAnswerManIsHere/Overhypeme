@@ -1,0 +1,14 @@
+{
+  "pr": 608,
+  "kind": "adjudication",
+  "verdict": "ship-with-gaps-recorded",
+  "grant": 0,
+  "risk": "",
+  "recordPath": ".agents/adjudications/608-1.json",
+  "decidedAt": "2026-09-03T20:43:30.000000Z",
+  "reasoning": "Internal tier at its cap (roundsSpent 3 of 3, criticality 30, trend 3→2→2, 3 of 7 findings outside the diff on the since-dropped CODEOWNERS). Both open premises were verified in the tree: SAME_PASS_MS is 10 minutes at scripts/review-counting.mjs:73 and LINE_BUDGET is 535 at scripts/check-claude-md-budget.mjs:28 with CLAUDE.md at exactly 535 lines. Neither finding clears the internal bar: the dedup gap undercounts by one round only when two genuine passes on one SHA land within ten minutes with the second delivered solely as a summary row, and it lives in the budget counter, not the merge gate (checkCodex concatenates summary passes without dedup, so it cannot fail open on unreviewed code); the 535-vs-534 discrepancy is a one-line drift between the PR's prose oracle and the constant, with zero slack left in the file. A continue would buy a fix plus a mandatory fourth round on a David-merge carve-out for two P2s of ordinary consequence; the artifact did grow a second deliverable (summary-row receipt acceptance), but both halves have been reviewed across all three rounds, so splitting now would manufacture new rounds for no safety gain.",
+  "gaps": [
+    "scripts/review-counting.mjs: reviewerPasses treats an announced pass and a summary-row pass on the same commit within SAME_PASS_MS (10 min) as one pass; a same-SHA retry that yields an announced pass followed by a separate summary-only clean pass inside that window undercounts the delivered-round count by one (thread PRRT_kwDOR3LTYs6fEoX_). Affects the budget counter, not the merge receipt.",
+    "scripts/check-claude-md-budget.mjs: LINE_BUDGET is 535, one above the 534-line baseline #607 landed and the PR body promised, because the guard was ratcheted to the file's post-fix size; the guard-introducing PR is itself the first one-line exception to the displacement rule, and the test cannot distinguish that from a legitimate baseline (thread PRRT_kwDOR3LTYs6fEoYG). Record the 535 baseline in decisions.md or cut one line in a follow-up David merges."
+  ]
+}
