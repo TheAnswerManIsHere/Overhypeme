@@ -13,6 +13,31 @@
 
 ---
 
+### 2026-09-03 · A Codex pass that found nothing is sufficient for the merge receipt
+- **Decision:** the merge receipt accepts Codex's structured record of a
+  completed pass on the head commit in either of its two shapes — the
+  `**Reviewed commit:**` announcement, or the "Codex Review Summary" comment's
+  Code Review row reading Completed for that commit (David, 2026-09-03, on
+  #608: "a Codex pass that found nothing is sufficient for the merge
+  receipt"). A bare 👍 reaction with neither is still not a pass.
+- **Why:** #608's automatic round completed with no findings and delivered
+  only a 👍 plus the summary row — no announcement — which was the exact flip
+  condition `pr-ready.mjs` had pre-registered for asking David. The old rule
+  refused reactions because a reaction carries neither the commit nor the
+  time; the summary row carries both, so accepting it keeps the head binding
+  the rule exists for while no longer blocking a mergeable PR on the
+  connector's choice of delivery shape. Claude Code's recommendation was this
+  structured form rather than accepting the reaction, and David's decision
+  was taken in that form.
+- **Reference:** PR #608 (`summaryPasses` in `scripts/review-counting.mjs`,
+  used by `pr-ready.mjs` and the round count); `known-failure-patterns.md`,
+  the 👍-only row, now closed.
+- **Revisit if:** the connector stops editing the summary comment in place or
+  changes the row format — the parser is one regex, and its test fixture is
+  the measured #608 shape.
+
+---
+
 ### 2026-09-03 · `CLAUDE.md` pruned to resident rules; its rationale and history relocated here
 - **Decision:** `CLAUDE.md` carries only what must hold with no skill loaded,
   stated as a rule with no story attached. Mechanics live in the skills; the
@@ -36,6 +61,24 @@
 - **Revisit if:** a rule that was cut turns out to have been load-bearing in a
   way no skill or check covers — the fix is a check or a format requirement,
   not restoring the paragraph.
+- **Enforcement (same day, #608):** `scripts/check-claude-md-budget.mjs` holds
+  `CLAUDE.md` at the line and byte count that PR landed, in CI, so every
+  addition displaces something rather than extending the file. Chosen over a
+  bigger prune because the size history says the lock, not the cut, is what
+  lasts.
+- **A CODEOWNERS file was built alongside it and then dropped** (David,
+  2026-09-03, choosing that option after the finding below). **Claude Code and
+  David share one GitHub account**: every agent-opened PR is authored by
+  David's own login, and every agent merge records `merged_by` as him, so
+  GitHub cannot tell an agent PR from a human one. Requiring code-owner review
+  would therefore demand an approval the author is not allowed to give, or be
+  waived by the same account permissions that let David's Replit pushes reach
+  `main` — no constraint on Claude Code either way, and a file naming owners
+  would invite the belief that the carve-out was enforced when it was not.
+  **Do not re-propose a server-side identity control until Claude Code has a
+  GitHub identity of its own**; that is a real project, not a setting. What
+  does work is the layer that runs where Claude Code runs: the harness
+  classifier, the guard hook, the readiness receipt, and this CI check.
 
 **Relocated rationale, by the section it left:**
 

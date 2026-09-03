@@ -44,6 +44,55 @@ export const REVIEWER_LOGINS = new Set(["chatgpt-codex-connector[bot]", "chatgpt
  */
 const REVIEWED_COMMIT_MARKER = /\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i;
 
+/**
+ * The connector's SECOND structured record of a completed pass: the "Codex
+ * Review Summary" issue comment it posts on PR open and edits in place, whose
+ * Code Review row reads `| 📝 **Code Review** | ✅ **Completed** <relative-time
+ * datetime="…"> | `<sha>` | <trigger> |`. Measured on #608 (2026-09-03): a
+ * clean pass arrived as a 👍 reaction plus this row and NO announcement, and
+ * the row carries exactly what a reaction lacks — the commit and the moment.
+ * David's decision that day: a pass that found nothing is sufficient for the
+ * merge receipt, in this structured form. A bare reaction still is not.
+ *
+ * Because the comment is edited in place it shows only the LATEST pass, so it
+ * can add at most one pass that no announcement already names.
+ */
+const SUMMARY_MARKER = /codex-pull-request-review-summary/;
+/**
+ * How close in time an announcement has to be to the summary row before the
+ * two are treated as records of the SAME pass rather than two passes.
+ *
+ * Matching on the commit alone was wrong (Codex, #608 round 2): a commit can
+ * be announced twice — #292 — so a later clean re-review of an
+ * already-announced sha would be swallowed by the older announcement. That is
+ * an UNDERCOUNT, the direction that hands the loop rounds it did not earn.
+ * The connector edits the summary within seconds of posting the announcement,
+ * while a genuinely separate second pass on one commit needs a fresh request
+ * and a full review run, so a window this wide separates them cleanly.
+ */
+const SAME_PASS_MS = 10 * 60 * 1000;
+const SUMMARY_CODE_REVIEW_ROW =
+  /\|\s*(?:📝\s*)?\*\*Code Review\*\*\s*\|\s*(?:✅\s*)?\*\*Completed\*\*\s*<relative-time\s+datetime="([^"]+)"[^|]*\|\s*`([0-9a-f]{7,40})`/i;
+
+/**
+ * Passes evidenced by the summary comment's completed Code Review row —
+ * reviewer-authored comments only. Shape matches `reviewerPasses` entries.
+ */
+export function summaryPasses(issueComments = []) {
+  const out = [];
+  for (const comment of issueComments) {
+    if (!REVIEWER_LOGINS.has(comment?.user?.login)) continue;
+    const body = comment.body ?? "";
+    if (!SUMMARY_MARKER.test(body)) continue;
+    const row = SUMMARY_CODE_REVIEW_ROW.exec(body);
+    if (!row) continue;
+    const at = row[1];
+    if (!Number.isFinite(Date.parse(at))) continue;
+    out.push({ commit: row[2].toLowerCase(), at, reviewIds: [], records: 0, source: "summary" });
+  }
+  return out;
+}
+
 /** Whether two commit references name the same commit, one possibly abbreviated. */
 function sameCommit(a, b) {
   if (!a || !b) return false;
@@ -178,6 +227,18 @@ export function reviewerPasses(reviews, issueComments = []) {
       records: 0,
       source: "comment",
     });
+  }
+
+  // The summary comment's completed row adds a pass unless an announcement
+  // already records that SAME pass — same commit AND within SAME_PASS_MS of
+  // it. Commit alone is not enough: see that constant.
+  for (const s of summaryPasses(issueComments)) {
+    const alreadyRecorded = passes.some(
+      (p) =>
+        sameCommit(p.commit, s.commit) &&
+        Math.abs(Date.parse(p.at) - Date.parse(s.at)) <= SAME_PASS_MS,
+    );
+    if (!alreadyRecorded) passes.push(s);
   }
 
   return passes.sort((a, b) => new Date(a.at) - new Date(b.at));

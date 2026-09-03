@@ -2056,7 +2056,7 @@ same zero.
 | Channel | What the collector reads | What it misses |
 |---|---|---|
 | Findings | inline **review threads** | a finding delivered in the review **body** — PR #447's round 1 raised a real one (broken TEST_RUN↔UAT sibling links), so the record reads `findings: 0` on a loop that had one |
-| Rounds | issue comments and review bodies carrying a `**Reviewed commit:**` marker | a **👍-only clean pass** — the connector's documented behaviour is "if Codex has suggestions, it will comment; otherwise it will react with 👍," and a reaction emits no marker, so PRs #414, #415 and #416 record `rounds: 0` |
+| Rounds | issue comments and review bodies carrying a `**Reviewed commit:**` marker | a **👍-only clean pass** — the connector's documented behaviour is "if Codex has suggestions, it will comment; otherwise it will react with 👍," and a reaction emits no marker, so PRs #414, #415 and #416 record `rounds: 0`. **Closed 2026-09-03 (#608):** the connector's summary comment carries a Completed Code Review row naming the commit and the moment, and `reviewerPasses` / `pr-ready.mjs` now read it as a pass; a bare 👍 still is not one |
 | Rounds | the same marker | a clean pass posted in the **`## Review Result`** comment format, which carries prose, a testing checklist and permalinks but **no marker at all** — unlike the older `Codex Review: Didn't find any major issues. **Reviewed commit:** <sha>` shape, which has one |
 
 **The third one is the most instructive, because it happened *to this entry's

@@ -54,7 +54,7 @@ import {
   validateExtension,
 } from "./review-budget.mjs";
 import { ADJUDICATIONS_DIR } from "./review-loop-record.mjs";
-import { reviewerPasses } from "./review-counting.mjs";
+import { reviewerPasses, summaryPasses } from "./review-counting.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const RECEIPT_DIR = join(HERE, "..", ".agents", "receipts");
@@ -431,11 +431,14 @@ export function checkCi(checkRuns, headSha = null) {
  * path is expected to cover clean passes too, and a 👍 is treated as a hint in
  * the failure message rather than as proof.
  *
- * FLIP CONDITION, stated so it is checkable rather than assumed: if a clean
- * pass ever arrives as a reaction with NO marker comment, this gate blocks a
- * mergeable PR and the fix is not to re-admit the inference -- it is to ask
- * David, with that observation as the evidence. Fail-closed here costs one
- * blocked merge; fail-open costs the failure this file exists to prevent.
+ * THE FLIP CONDITION FIRED on #608 (2026-09-03): a clean pass arrived as a 👍
+ * reaction with NO marker comment, the gate blocked a mergeable PR, and David
+ * decided that a pass which found nothing is sufficient for the receipt. The
+ * inference is still NOT re-admitted: what is accepted instead is the second
+ * structured record the connector leaves -- its "Codex Review Summary"
+ * comment's Code Review row, which names the commit and the completion time
+ * (`summaryPasses` in review-counting.mjs). A reaction with no summary row
+ * remains insufficient, for the same reason as before.
  */
 export function checkCodex(issueComments, reviews, headSha = null) {
   const requests = issueComments
@@ -452,7 +455,12 @@ export function checkCodex(issueComments, reviews, headSha = null) {
   const passes = [...reviews, ...issueComments]
     .filter((c) => authorOf(c) === CODEX_BOT && !SECURITY_BOUNCE.test(bodyOf(c)))
     .map((c) => ({ at: timeOf(c), sha: (bodyOf(c).match(REVIEWED_COMMIT_MARKER) ?? [])[1] ?? null }))
-    .filter((p) => p.sha);
+    .filter((p) => p.sha)
+    // Plus the summary comment's completed Code Review row (David, 2026-09-03,
+    // #608): the connector's other structured record of a pass, carrying the
+    // commit and the completion moment. Its `at` is the row's timestamp, not
+    // the comment's created_at, because the comment is edited in place.
+    .concat(summaryPasses(issueComments).map((p) => ({ at: Date.parse(p.at), sha: p.commit })));
 
   if (requests.length === 0) {
     // ZERO REQUESTS IS A LEGITIMATE COMPLETE STATE when the automatic pass
@@ -547,11 +555,13 @@ export function checkCodex(issueComments, reviews, headSha = null) {
         `round ${requests.length} was requested at ${new Date(requestedAt).toISOString()} and no completed ` +
         `pass both postdates it and covers ${headSha ? headSha.slice(0, 7) : "the head"} ` +
         `(passes seen: ${reviewed}). A pass announces \`**Reviewed commit:**\` -- in a review when it found ` +
-        `something, in a plain issue comment when it didn't.` +
+        `something, in a plain issue comment when it didn't -- or shows as a Completed Code Review row for ` +
+        `this commit in the connector's summary comment.` +
         (thumbsUp
           ? " There IS a 👍 on the latest request, which is not accepted on its own: a reaction carries " +
             "neither identity nor time, so it cannot show the pass came from Codex or that it covers this " +
-            "commit. Find the marker comment for this round, or request a fresh round on the current head."
+            "commit. Re-read the summary comment for a Completed row on this head, find the marker comment " +
+            "for this round, or request a fresh round on the current head."
           : " A security-review usage bounce is neither -- it is metered separately from code review."),
     };
   }
