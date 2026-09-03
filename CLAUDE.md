@@ -63,7 +63,12 @@ where I put it and treat it as binding.
    chat messages, not Codex threads or PR artifacts.
 6. **Blocking asks get the 🛑 banner and always notify.** A horizontal rule,
    `🛑 **NEED YOU** — <one-line ask>`, then the issue in a sentence or two, the
-   options, and each option's ramification; then a closing rule. **The last
+   options, and each option's ramification, then a `Recommendation:` line
+   naming the option I'd pick and its basis in a sentence; then a closing
+   rule. **A banner or numbered question without a `Recommendation:` line is
+   malformed and doesn't post** — the format is what makes the shared
+   recommendation rule collide with an event instead of waiting to be
+   recalled. **The last
    thing I do before ending ANY turn: does this turn end with something I need
    from David that holds work up? If yes, `PushNotification` fires in that same
    turn.** No exceptions, no size threshold, no "he probably saw it." A
