@@ -13,6 +13,28 @@
 
 ---
 
+### 2026-09-04 · This org has an account-level security-safeguard adjustment
+- **Decision:** Anthropic's Safeguards Team adjusted the default safeguards
+  for this Anthropic organization to reflect the dual-use security work
+  (defensive testing, vulnerability verification) described in an
+  application David submitted. In-scope work is no longer blocked by
+  default on this account. The adjustment does not touch Anthropic's
+  clearly-prohibited-use categories, which stay blocked regardless. If
+  in-scope work is still blocked, the check is that the session is running
+  under the approved org, then escalate through Anthropic's standard
+  false-positive channel — never route around the block.
+- **Why:** avoids re-establishing authorization context from scratch each
+  time dual-use security work comes up, and keeps the boundary (approval is
+  scoped to one org ID; prohibited categories are untouched) written down
+  once rather than re-derived per session.
+- **Reference:** approval email from Anthropic's Safeguards Team, 2026-09-04.
+  Program name, org ID, and the approval's reference number are kept off the
+  public repo; ask David if they're needed.
+- **Revisit if:** Anthropic narrows or revokes the adjustment, or a task that
+  looks in-scope keeps getting blocked after confirming the org ID matches.
+
+---
+
 ### 2026-09-03 · A Codex pass that found nothing is sufficient for the merge receipt
 - **Decision:** the merge receipt accepts Codex's structured record of a
   completed pass on the head commit in either of its two shapes — the
