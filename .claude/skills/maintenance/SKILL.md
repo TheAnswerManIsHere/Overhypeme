@@ -55,40 +55,52 @@ PRs") — the discipline stays visible, the report stays short.
 
 ## 2. Production errors (Sentry)
 
-The API read needs **two** things, not one: a `SENTRY_AUTH_TOKEN` in the
-environment **and** network egress to `sentry.io`. The Claude Code
-environment's network policy may block the host even when the token is
-present — a `403` on the proxy CONNECT tunnel is a policy denial, not a
-token problem, and per the environment README it is reported, never
-retried.
+Sentry is reachable through **native MCP tools** (`mcp__Sentry__*`) — no
+token, no network-policy question, no bash/curl involved. This retires the
+old REST-over-curl recipe below: it depended on a `SENTRY_AUTH_TOKEN` env var
+and egress to `sentry.io`, and became unusable anyway once 2026-08-17's guard
+hardening made curl/wget a categorical refusal in this environment, not just
+a GitHub-specific one. Kept as a historical note, not a fallback — if the MCP
+server is ever absent, that's a "the tool errors" case (see below), not a
+reason to reach for curl.
 
-- **If both hold** (token present AND `sentry.io` reachable), pull the
-  week's new/regressed issues for the project and summarize: top issues by
-  event count, anything new since last week, anything payment- or
-  auth-path-touching (those get flagged loudest).
-- **Otherwise fall back to the manual path** — whether the token is
-  missing, the host is blocked by network policy, or the call errors. Say
-  exactly which of the three it was, then give David the one-liner ask:
-  open the Sentry dashboard → Issues → sort by "New" for the last 7 days,
-  and paste anything that looks alarming into the chat for triage. Never
-  silently skip the section, and never retry a 403 policy denial.
+**Recipe (verified 2026-08-21).** Org slug is `overhypeme` — one org, no
+`find_organizations` query needed:
 
-**Verified working recipe (2026-07-23).** Org slug is `overhypeme`. The
-token is scoped **Issue & Event: Read only** (least privilege), which is
-enough for the one endpoint this section needs:
+```
+mcp__Sentry__search_issues(organizationSlug: "overhypeme", query: "is:unresolved", period: "7d", sort: "freq")
+```
+
+Summarize what comes back: top issues by event count (sort `freq` already
+orders by that), anything new since last week, anything payment- or
+auth-path-touching (flagged loudest). **An empty result is a real "clean
+week," not a failure** — confirmed live 2026-08-21 (0 unresolved issues in
+the trailing 7 days). Don't read "no issues found" as a broken query.
+
+**If the tool call itself errors** (missing connector auth, a genuine
+Sentry-side outage — not "0 results") — that's the one case that falls back
+to the manual path: give David the one-liner ask (open the Sentry dashboard →
+Issues → sort by "New" for the last 7 days, paste anything alarming into
+chat) and say exactly what failed. Never silently skip the section.
+
+<details>
+<summary>Retired: the pre-MCP curl recipe (2026-07-23–2026-08-21)</summary>
+
+The API read needed **two** things: a `SENTRY_AUTH_TOKEN` in the environment
+**and** network egress to `sentry.io`, with a `403` on the proxy CONNECT
+tunnel reported as a policy denial rather than retried. The token was scoped
+**Issue & Event: Read only**, enough for one endpoint:
 
 ```
 GET https://sentry.io/api/0/organizations/overhypeme/issues/?statsPeriod=7d&query=is:unresolved
     Authorization: Bearer $SENTRY_AUTH_TOKEN
 ```
 
-Each returned issue carries `title`, `culprit`, `count`, `permalink`, and
-a `shortId` whose prefix identifies the project. **A `403` from the
-list-projects (`/organizations/{org}/projects/`) or org-detail
-(`/organizations/{org}/`) endpoints is EXPECTED and not a failure** — those
-need `org:read`, which the token intentionally lacks. Do not read that 403
-as "no access" and fall back; only a failure on the issues endpoint above
-triggers the manual path.
+A `403` from the list-projects or org-detail endpoints was expected (those
+need `org:read`, which the token intentionally lacked) and not itself a
+trigger for the manual fallback. Superseded entirely by the MCP recipe above.
+
+</details>
 
 ## 3. CI health on main
 
