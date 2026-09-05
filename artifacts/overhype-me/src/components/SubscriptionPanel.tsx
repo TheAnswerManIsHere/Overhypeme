@@ -437,21 +437,43 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     : !!(sub?.cancel_at_period_end);
 
   const price = sub?.items?.data?.[0]?.price;
+
+  // WHICH BILLING CYCLE THIS SUBSCRIPTION IS ON -- app DB first, mirror second.
+  //
+  // The precedence this replaces was inverted, and the comment it carried says
+  // why it was meant to exist: "Live Stripe price data takes precedence over the
+  // DB-cached plan to avoid showing 'Switch to Annual' immediately after an
+  // upgrade (before webhook fires)." That intent is right. The premise was not:
+  // `price` comes from `sub`, which is the `stripe.subscriptions` MIRROR -- a row
+  // the webhook WRITES, not live Stripe data. So the value given precedence was
+  // precisely the one that lags, and the value demoted (`appSub.plan`, written
+  // synchronously by the entitlement refresh the moment a switch succeeds) was
+  // the one that was already correct. The result was the exact symptom the
+  // comment set out to prevent: an annual subscriber shown as Monthly, with
+  // "Switch to Annual" still offered on a plan they had just paid to leave.
+  //
+  // Same rule as `cancelAtPeriodEnd` and `periodEnd` above: the app DB is
+  // authoritative here, the mirror is a lagging cache.
+  const planInterval =
+    appSub?.plan === "annual" ? "year"
+    : appSub?.plan === "monthly" ? "month"
+    : price?.recurring?.interval ?? null;
+
+  // The charged AMOUNT exists only in the mirror -- there is no app-DB fallback
+  // for it, which is why it is not simply re-derived above. So it is shown only
+  // while the mirror still agrees about which plan is active: a stale amount
+  // beside a corrected plan label reads as authoritative and is wrong, and no
+  // amount is the honest answer until the sync catches up.
+  const priceAgreesWithPlan = price?.recurring?.interval === planInterval;
+
   const planLabel = isLifetime
     ? "Legendary for Life"
-    : price?.recurring?.interval === "year" ? "Annual"
-    : price?.recurring?.interval === "month" ? "Monthly"
-    : appSub?.plan === "annual" ? "Annual"
-    : appSub?.plan === "monthly" ? "Monthly"
+    : planInterval === "year" ? "Annual"
+    : planInterval === "month" ? "Monthly"
     : "Legendary";
 
   // isMonthly: active recurring monthly legendary subscriber (not lifetime).
-  // Live Stripe price data takes precedence over the DB-cached plan to avoid
-  // showing "Switch to Annual" immediately after an upgrade (before webhook fires).
-  const isMonthly = isLegendary && !isLifetime && (
-    price?.recurring?.interval === "month" ||
-    (!price?.recurring && appSub?.plan === "monthly")
-  );
+  const isMonthly = isLegendary && !isLifetime && planInterval === "month";
   const annualPriceAvailable = findAnnualPriceId(plans, price?.id) !== null;
   const savingsPercent = getAnnualSavingsPercent(plans, price?.id);
 
@@ -557,7 +579,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
             }
           />
 
-          {price && !isLifetime && (
+          {price && !isLifetime && priceAgreesWithPlan && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CreditCard className="w-4 h-4 text-primary" />
               <span>${(price.unit_amount / 100).toFixed(2)}{price.recurring ? `/${price.recurring.interval}` : " one-time"}</span>
