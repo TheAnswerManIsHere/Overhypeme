@@ -259,7 +259,13 @@ all?" — on internal tooling most are not, and they ship as recorded gaps.
    exactly that many more rounds from `asOf`, 0 endorses stopping). **A
    product-shaped blocker skips the leash entirely** — the adjudicator's
    `escalate`, or my own recognition that a finding is product-not-mechanical
-   — and goes to David at any round.
+   — and goes to David at any round. **A mechanical round is mine to grant**
+   — the head moved past the last reviewed commit only by bookkeeping
+   (receipts, records, machinery config, a merge of `main`) and no finding is
+   being written for. I record it as a `david`-kind receipt citing his
+   standing grant of 2026-09-07, name the commits, and request the pass; it
+   re-covers the head so the machinery can run. One per loop — a second is a
+   defect report, not another grant.
 4. **No re-request without a behavioral change since the last reviewed
    commit** — a skill file, this file, or a `docs/ai-context/` contract
    counts. **Every review request carries pre-registered flip conditions**:

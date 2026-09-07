@@ -3734,3 +3734,31 @@
   the frontend suite all pass DB-less).
 - **Revisit if:** Codex starts driving backend implementation rather than review,
   or the api-server suite becomes something a reviewer must execute to trust.
+
+### 2026-09-07 · Autonomy: mechanical work is Claude Code's to do, not to ask about
+- **Decision:** David: *"I'm granting you a much higher level of autonomy so
+  that you don't need to ask dumb questions and you don't need to bother me on
+  ceremony where it doesn't help build a better product."* Concretely: a review
+  round that exists only to re-cover a head moved by bookkeeping is Claude
+  Code's to grant and record, never to ask for; an enabling file whose values
+  already exist in the repository is added and reported, not asked about; a
+  size or budget consequence of content he has already authorised is decided
+  and reported. What stays his: product intent and design forks, priorities
+  and scope, and the click on anything that widens Claude Code's own
+  authority — that last one because the two share a GitHub account and
+  nothing server-side can tell them apart.
+- **Why:** *"The point of all these days of development is to build a machine
+  that is efficient at building software. If you can't take on simple things
+  on your own, we're building the wrong thing."* On this day one pull request
+  came back to him three times for blockers a machine should have cleared: a
+  missing configuration file whose two values were already committed
+  elsewhere in the repository, and a fourth review round needed only because
+  the two commits that enabled the independent check had moved the head past
+  the last reviewed one. Neither was a judgement; both were presented as one.
+- **Reference:** `CLAUDE.md`, *Review loops* rule 3 (the mechanical grant)
+  and *Interaction preferences* rule 6 (the escalation gate, corrected the
+  same day to admit decisions that are his, not only knowledge he holds);
+  Overhypeme #614.
+- **Revisit if:** a self-granted round is ever used to write for a finding.
+  That is the case the adjudicator's leash exists for, and this decision does
+  not touch it — loops ran to fourteen rounds before that leash existed.
