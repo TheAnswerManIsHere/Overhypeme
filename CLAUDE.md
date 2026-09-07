@@ -262,11 +262,13 @@ all?" — on internal tooling most are not, and they ship as recorded gaps.
    — and goes to David at any round. **A mechanical round is mine to grant**
    — the head moved past the last reviewed commit only by bookkeeping
    (receipts, records, machinery config, a merge of `main`) and no finding is
-   being written for. I record it as a `david`-kind receipt (`grant 1`)
-   citing his standing grant of 2026-09-07, name the commits, and request
-   the pass; when it returns clean or all-declined I close it with my own
-   `grant 0` under the same grant, which is what clears the merge gate. One
-   per loop — a second is a defect report, not another grant.
+   being written for. I **commit** a `david`-kind receipt (`grant 2`, `asOf`
+   the spent count) citing his standing grant of 2026-09-07 and naming the
+   commits, **then** request the pass — that order is the mechanism, since
+   the pass then covers the receipt and nothing is written after it. The
+   second round is headroom the gate arithmetic needs, never a round to
+   spend: spending it re-raises the gate. One per loop — a second is a
+   defect report, not another grant.
 4. **No re-request without a behavioral change since the last reviewed
    commit** — a skill file, this file, or a `docs/ai-context/` contract
    counts; rule 3's mechanical round is the one exception. **Every review

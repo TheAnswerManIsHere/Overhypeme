@@ -642,9 +642,25 @@ the safety net a non-code-reading product manager depends on.
 - **A product decision skips the leash entirely.** A product-shaped blocker —
   the adjudicator's `escalate`, or the loop's own recognition that a finding
   is product-not-mechanical — goes to David immediately, at any round.
+- **A mechanical round is the loop's own to grant, once** (David, 2026-09-07).
+  When the head has moved past the last reviewed commit **only** by bookkeeping
+  — receipts, records, machinery configuration, a merge of the base branch —
+  and no finding is being written for, the loop does not ask: nothing is being
+  decided, and the round exists so the machinery can run at all. It commits a
+  `david`-kind receipt granting **two** rounds from the spent count, citing that
+  standing authorization and naming the bookkeeping commits, and **then**
+  requests the pass.
+  **The order is the mechanism.** Committing the receipt first means the pass
+  covers it and nothing is written afterwards. A closing receipt written after
+  the pass would itself be an unreviewed commit, which is the same wall one
+  level up: whatever records that a loop ended is always the newest thing in
+  it. The second round is headroom the gate arithmetic needs, not a round to
+  spend — spending it re-raises the gate, so the grant cannot be used to slip
+  past one. One per loop; a second is a defect report, not another grant.
 - **No re-request without a behavioral change since the last reviewed commit.**
   A skill file, `CLAUDE.md`, or a context contract counts as behavioral, because
-  in this repo those change what agents do.
+  in this repo those change what agents do. **The mechanical round above is the
+  one exception**, and it is the only one.
 - **Every review request carries pre-registered flip conditions** — what
   finding, what count, what change of shape would end the loop, written before
   the round runs. This is the only judgment-shaped device with a working record

@@ -13,6 +13,30 @@
 
 ---
 
+### 2026-09-07 · A loop ends without writing anything after its last review
+- **Decision:** A mechanical review round is closed by *arithmetic*, not by a
+  closing receipt. The loop commits a `david`-kind receipt granting **two**
+  rounds from the spent count and **then** requests the pass, so the pass
+  covers the receipt and nothing is written after it. The second round is
+  headroom the gate needs; spending it re-raises the gate, so it cannot be used
+  to slip past one. David chose this over widening the merge gate, and asked
+  for the gate change to come later as its own reviewed PR.
+- **Why:** Every receipt-based ending regresses forever — whatever records that
+  a loop finished is itself a commit no reviewer has seen. Codex found this
+  twice in one loop on #615: first that a positive grant leaves the gate
+  standing once spent, then that the `grant 0` receipt written to close it is a
+  new unreviewed head. Ordering the one receipt *before* the pass removes the
+  regress entirely rather than moving it. Verified against the real functions:
+  with `grant 2, asOf 3` and four passes delivered the gate reads 5 and clears;
+  at five delivered it stands again.
+- **Reference:** `CLAUDE.md` review-loop rule 3;
+  [`working-modes.md`](./working-modes.md); Overhypeme #615, AI-Handbook #47.
+- **Revisit if:** the merge gate learns to accept a bookkeeping-only delta
+  (the deferred option). The headroom grant becomes unnecessary then, and
+  keeping both would be two mechanisms for one job.
+
+---
+
 ### 2026-09-07 · "Ready" is a reserved word, gated on the receipt
 - **Decision:** The words "ready", "waiting on you" and "yours to merge" may
   only appear in a message to David that quotes the `pr-ready.mjs` READY
