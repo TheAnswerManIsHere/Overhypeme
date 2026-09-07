@@ -13,6 +13,29 @@
 
 ---
 
+### 2026-09-07 · "Ready" is a reserved word, gated on the receipt
+- **Decision:** The words "ready", "waiting on you" and "yours to merge" may
+  only appear in a message to David that quotes the `pr-ready.mjs` READY
+  block. Any other state is reported as what is still open plus what Claude
+  Code is doing about it. A receipt that cannot say READY is a blocker to fix
+  or escalate, not a caveat to attach to a readiness claim.
+- **Why:** David: *"You often tell me that a PR is 'waiting on my merge' but
+  it's not yet in a mergable state. You shouldn't tell me that you're waiting
+  on me until you're really ready for me to click. Otherwise I'll merge it
+  before it's actually ready."* He reads the headline and acts on it; a
+  caveat two paragraphs down does not reach the click. Broken twice in one
+  day on #614 — once by calling it ready with four unreviewed commits on it,
+  once by calling it ready for his click in the same message that admitted
+  the receipt said NOT READY — and once on #615, called his while a review
+  round was still running. Broken twice means a format requirement, not a
+  longer paragraph, which is this file's own rule.
+- **Reference:** `CLAUDE.md` close-out section; Overhypeme #614, #615.
+- **Revisit if:** the receipt's own accuracy degrades to where READY stops
+  tracking the real bar. Then the fix is the receipt, not the vocabulary.
+
+
+---
+
 ### 2026-09-07 · Autonomy: mechanical work is Claude Code's to do, not to ask about
 - **Decision:** David: *"I'm granting you a much higher level of autonomy so
   that you don't need to ask dumb questions and you don't need to bother me on

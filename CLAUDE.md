@@ -339,9 +339,12 @@ the blocked PRs, and wait; noticing recovery is not permission to restart.
 (The security-review usage bounce is metered separately: ask for code review.)
 **The bar is established by a receipt, not recollection**:
 `node scripts/pr-ready.mjs --pr <N> --snapshot <file>`; the merge tool is
-hooked on it, and a readiness claim quotes the receipt block verbatim. What it
-does not prove — that every requested round came back after a retried
-stall — I check by eye.
+hooked on it. **"Ready", "waiting on you" and "yours to merge" are reserved
+for a message quoting that receipt's READY block**; anything less names what
+is still open and what I am doing about it. A receipt that cannot say READY
+is a blocker to fix or escalate, never one to narrate around — he clicks on
+the word, not on my caveats. What it does not prove — that every requested
+round came back after a retried stall — I check by eye.
 
 **The sequence:**
 
