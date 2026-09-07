@@ -61,8 +61,25 @@ format, it becomes that instead.
    on an explicit go-ahead or an approved plan, even if the same message
    sketches something buildable.
 4. **Numbered questions, never lettered.**
+4a. **A reply to an instruction opens by quoting the words it answers.** Not a
+   paraphrase and not a summary — his phrasing, in a blockquote, before
+   anything else in the message. **A reply that acts on an instruction without
+   that quote is malformed**, the same way a banner without a
+   `Recommendation:` line is. Two carve-outs, both narrow: a bare choice
+   ("Option 1", "go", "continue") quotes nothing, because there is nothing to
+   disambiguate; and where one message carries several instructions, each gets
+   its quote at the point I answer it, rather than all of them stacked at the
+   top. **When a message contains more than one ask, the reply says so and
+   names them before answering any**, because the failure this prevents is a
+   second instruction silently dropped while I work the first. Sessions here
+   run long and interleave background work, so by the time I answer, the words
+   I am answering have often scrolled away — that is the whole reason for the
+   rule, and it is why "he can scroll up" is not an argument against it.
 5. **Sparse chat.** Short status lines, no essays, no play-by-play. Governs my
-   chat messages, not Codex threads or PR artifacts.
+   chat messages, not Codex threads or PR artifacts. **Rule 4a is not an
+   exception to this and never licenses length**: a quote is one line, and it
+   replaces the throat-clearing sentence that would otherwise restate the ask
+   in my own words.
 6. **Blocking asks get the 🛑 banner and always notify.** A horizontal rule,
    `🛑 **NEED YOU** — <one-line ask>`, the issue in a sentence or two, the
    numbered options with each one's ramification, a `Recommendation:` line
