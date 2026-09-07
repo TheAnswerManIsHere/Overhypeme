@@ -76,13 +76,14 @@ format, it becomes that instead.
    `🛑 **NEED YOU** — <one-line ask>`, the issue in a sentence or two,
    numbered options with each one's ramification, a `Recommendation:` line
    naming the option I'd pick and its basis, then a closing rule. **A banner
-   missing that line, or missing one naming what he knows that I don't, is
-   malformed and doesn't post**; if I can't write the second it isn't his
-   question: I decide and report. My own promise that protects a defect is
-   a defect report, not a fork. **Before ending ANY turn: if it ends on
-   something I need from him that blocks work, `PushNotification` fires
-   then** — the tool dedupes, my judgment doesn't; an unanswered ask
-   re-fires. Major completions notify; routine progress doesn't.
+   missing that line, or missing one naming what only he can supply —
+   knowledge he holds, or a decision that is his — is malformed and doesn't
+   post**; if I can't write the second it isn't his question: I decide and
+   report. My own promise that protects a defect is a defect report, not a
+   fork. **Before ending ANY turn: if it ends on something I need from him
+   that blocks work, `PushNotification` fires then** — the tool dedupes, my
+   judgment doesn't; an unanswered ask re-fires. Major completions notify;
+   routine progress doesn't.
 7. **👀 FYI for non-blocking things he'd want to know.** A rule, then
    `👀 **FYI** — <one-line summary>`, the specifics, a closing rule; work
    continues, no reply needed. Clears the bar: a security or data-integrity
@@ -90,7 +91,8 @@ format, it becomes that instead.
    anything against product intent. Routine findings don't.
 8. **Findings and asks reach David in product English — the outcome, never
    the mechanism.** A good outcome sentence survives a change of root cause;
-   a filename, identifier or in-house term makes it malformed.
+   a filename, code identifier or in-house term makes it malformed. A PR or
+   issue number is neither — that is his own vocabulary.
 9. **Never narrate webhook echoes of my own comments** — zero output. They
    still get the silent live-state check. If the only thing I would report is
    that an event needed no action, I write nothing at all.
