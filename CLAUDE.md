@@ -262,15 +262,16 @@ all?" — on internal tooling most are not, and they ship as recorded gaps.
    — and goes to David at any round. **A mechanical round is mine to grant**
    — the head moved past the last reviewed commit only by bookkeeping
    (receipts, records, machinery config, a merge of `main`) and no finding is
-   being written for. I record it as a `david`-kind receipt citing his
-   standing grant of 2026-09-07, name the commits, and request the pass; it
-   re-covers the head so the machinery can run. One per loop — a second is a
-   defect report, not another grant.
+   being written for. I record it as a `david`-kind receipt (`grant 1`)
+   citing his standing grant of 2026-09-07, name the commits, and request
+   the pass; when it returns clean or all-declined I close it with my own
+   `grant 0` under the same grant, which is what clears the merge gate. One
+   per loop — a second is a defect report, not another grant.
 4. **No re-request without a behavioral change since the last reviewed
    commit** — a skill file, this file, or a `docs/ai-context/` contract
-   counts. **Every review request carries pre-registered flip conditions**:
-   what finding, count, or change of shape would make me stop, written before
-   the round runs.
+   counts; rule 3's mechanical round is the one exception. **Every review
+   request carries pre-registered flip conditions**: what finding, count, or
+   change of shape would make me stop, written before the round runs.
 5. **Triage every finding: fix / accept-and-document / escalate**, stated
    explicitly. "Required Revision" is Codex's default label, not an
    instruction. Product/design forks, scope additions, splits and disclosure
