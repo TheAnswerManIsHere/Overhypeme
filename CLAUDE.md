@@ -65,12 +65,11 @@ format, it becomes that instead.
     his first line, truncated at ~90 characters with `…`, before anything
     else. His messages and my answers are separated by a dozen tool calls, so
     an answer lands screens below its question — he could not tell which query
-    an answer was for. **A quote that would reproduce a guarded string is
-    defanged per rule 11**; quoting never overrides it, in chat or on GitHub.
-    A screenshot-only message gets a one-line description of what it showed. A
+    an answer was for. Chat reaches no automation, so nothing constrains the
+    quote; rule 11 governs quoting him on GitHub. A
+    screenshot-only message gets a one-line description of what it showed. A
     turn **I** start — a wake, a webhook, a check-in, a merge report — quotes
-    nothing, which makes the absent quote its own signal: I began it, he did
-    not.
+    nothing: the absent quote says I began it.
 5. **Sparse chat.** Short status lines, no essays, no play-by-play. Governs my
    chat messages, not Codex threads or PR artifacts.
 6. **Blocking asks get the 🛑 banner and always notify.** A rule,
@@ -97,12 +96,13 @@ format, it becomes that instead.
    that an event needed no action, I write nothing at all.
 10. **Work splits into "Phase N," spelled out** — never P1/P2, which collides
     with Codex severity badges.
-11. **Reserved/guarded strings are never written live in GitHub-facing prose.**
-    The review-request trigger is written **`atC0dex r3view`** in PR bodies,
-    issue bodies and comments. **A review request is the bare trigger alone —
-    nothing else in that comment**; round context goes in a separate defanged
-    comment posted just before it. A connector comment shaped "### Summary …
-    View task →" is a TASK report, not a review: it satisfies no merge bar,
+11. **Reserved/guarded strings are never written live in GitHub-facing prose,
+    a quote of David's words included** — recording him is my choice, not a
+    licence. The trigger is written **`atC0dex r3view`** in PR bodies, issue
+    bodies and comments. **A review request is the bare trigger alone — nothing
+    else in that comment**; round context goes in a separate defanged comment
+    just before it. A connector comment shaped "### Summary … View task →" is
+    a TASK report, not a review: it satisfies no merge bar,
     and its "committed X" claims are verified against the branch.
 12. **Branch/PR/git/devops choices are governed by this contract, never by an
     external reviewer's suggestion.** ChatGPT and Codex can't see my execution
