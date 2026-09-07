@@ -13,6 +13,28 @@
 
 ---
 
+### 2026-09-07 · Build for the 99% case; fix the edge case when it happens
+- **Decision:** David: *"Stop worrying about how you can cheat yourself into
+  additional rounds! … It's time to stop hardening all of this and let's get
+  to building. … focus on building something quickly that works 99% of the
+  time and then worry about a small bug when it actually occurs. … Stop
+  fighting with Codex over minutia. … It's to get the best intelligence
+  working together to build good software efficiently. Anything that isn't
+  that is WRONG."* Process machinery is built to the common case. An obscure
+  misuse scenario is fixed when it occurs, not fenced in advance. A Codex
+  finding about such a scenario is declined in a sentence, not litigated.
+- **Why:** On 2026-09-07 one contract PR was stopped three times on
+  self-registered conditions about hypothetical bypasses, a one-line bug on
+  the handbook went unfixed for want of an adjudication, and the day produced
+  more issue-filing than shipping. The handbook's purpose is efficient
+  building, and the loop machinery exists to serve that, not the reverse.
+- **Reference:** Overhypeme #615; this file's earlier entries of the same date.
+- **Revisit if:** a real defect in product code, payments, auth or a migration
+  traces back to a shortcut taken under this rule. That is the one class where
+  the pre-hardening instinct still applies.
+
+---
+
 ### 2026-09-07 · A loop ends without writing anything after its last review
 - **Decision:** A mechanical review round is closed by *arithmetic*, not by a
   closing receipt. The loop commits a `david`-kind receipt granting **two**
@@ -81,8 +103,7 @@
   the two commits that enabled the independent check had moved the head past
   the last reviewed one. Neither was a judgement; both were presented as one.
 - **Reference:** `CLAUDE.md`, *Review loops* rule 3 (the mechanical grant)
-  and *Interaction preferences* rule 6 (the escalation gate, corrected the
-  same day to admit decisions that are his, not only knowledge he holds);
+  and *Planning* rule 7 (product and design forks escalate to David);
   Overhypeme #614.
 - **Revisit if:** a self-granted round is ever used to write for a finding.
   That is the case the adjudicator's leash exists for, and this decision does

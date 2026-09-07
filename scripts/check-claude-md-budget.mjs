@@ -25,8 +25,8 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const LINE_BUDGET = 547;
-export const BYTE_BUDGET = 32779;
+export const LINE_BUDGET = 543;
+export const BYTE_BUDGET = 32503;
 /** Kept for callers that predate the byte budget. */
 export const BUDGET = LINE_BUDGET;
 export const FILE = "CLAUDE.md";
