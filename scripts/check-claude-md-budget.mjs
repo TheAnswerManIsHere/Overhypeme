@@ -3,12 +3,24 @@
 // session.
 //
 // The record: 2,446 lines on 2026-08-20, cut to 573 that day (#543), back to
-// 728 by 2026-09-03, cut to 534 (#607). A prune without a lock buys about two
-// weeks, because every lesson arrives as a longer paragraph and nothing pushes
-// back. Both numbers are the file's exact size on the commit that set them, so
-// there is no slack to grow into: raising them is a visible one-line diff in a
-// PR David merges, which is the point -- growth becomes explicit instead of
-// silent. (This check caught its own PR, #608, when a fix added one line.)
+// 728 by 2026-09-03, cut to 534 (#607), raised to 545 on 2026-09-07 (#614) to
+// admit the quote-the-instruction rule at full length. A prune without a lock
+// buys about two weeks, because every lesson arrives as a longer paragraph and
+// nothing pushes back. Both numbers are the file's exact size on the commit
+// that set them, so there is no slack to grow into: raising them is a visible
+// one-line diff in a PR David merges, which is the point -- growth becomes
+// explicit instead of silent. (This check caught its own PR, #608, when a fix
+// added one line, and #614, which is why this raise exists.)
+//
+// WHAT THE 2026-09-07 RAISE DECIDED, because a raised budget with no stated
+// reason is just a budget that gets raised again. The rule being admitted was
+// ALREADY AGREED and already written down -- in the shared payload, where it
+// never reached the file that loads -- so the choice was between carrying it
+// at full length, cutting ten lines of rationale from three rules I have
+// actually broken, and compressing it to three lines by dropping the reason it
+// exists. David chose the raise: the budget exists to stop drift, not to price
+// a rule he asked for twice, and rationale is what has made the surviving
+// rules stick. The alternative that is NOT available is leaving the rule out.
 // This check is the push-back: the file may not exceed LINE_BUDGET lines
 // OR BYTE_BUDGET bytes, so every addition has to displace something. Both are
 // checked because either alone is gameable — lines by writing longer lines
@@ -25,8 +37,8 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const LINE_BUDGET = 535;
-export const BYTE_BUDGET = 31792;
+export const LINE_BUDGET = 545;
+export const BYTE_BUDGET = 32541;
 /** Kept for callers that predate the byte budget. */
 export const BUDGET = LINE_BUDGET;
 export const FILE = "CLAUDE.md";

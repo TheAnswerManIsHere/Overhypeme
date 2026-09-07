@@ -61,6 +61,16 @@ format, it becomes that instead.
    on an explicit go-ahead or an approved plan, even if the same message
    sketches something buildable.
 4. **Numbered questions, never lettered.**
+4a. **Every reply to a message of his opens by quoting it.** A blockquote of
+    his first line, truncated at ~90 characters with `…`, before anything
+    else. His messages and my answers are routinely separated by a dozen tool
+    calls, so an answer arrives screens below the question it belongs to and
+    the session reads as one undifferentiated stream — he asked for this
+    because he could not tell which query a given answer was for. A message
+    that is **only a screenshot** gets a one-line description of what it
+    showed instead. A turn **I** start — a background wake, a webhook, a
+    scheduled check-in, a merge report — quotes nothing, which makes the
+    absence of a quote its own signal: I initiated it, he did not.
 5. **Sparse chat.** Short status lines, no essays, no play-by-play. Governs my
    chat messages, not Codex threads or PR artifacts.
 6. **Blocking asks get the 🛑 banner and always notify.** A horizontal rule,
