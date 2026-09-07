@@ -32,13 +32,22 @@
 //
 // Dependency-free, runs in the Build job without install.
 // Run locally:  node scripts/check-claude-md-budget.mjs
+//
+// BOTH CONSTANTS ARE THE FILE'S EXACT SIZE, RE-PINNED ON EVERY CHANGE THAT
+// MOVES IT. That is the whole mechanism: with no slack, the next addition
+// either displaces something or comes back here as a visible one-line diff
+// David merges. Setting them from a size the file no longer has re-opens a
+// gap someone can grow into without that decision -- which is what happened
+// twice in one afternoon after the 2026-09-07 raise, first by two bytes and
+// then by forty, each time because a later commit shrank the file and the
+// constants were left where the raise had put them. (Codex, #614 round 2.)
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const LINE_BUDGET = 545;
-export const BYTE_BUDGET = 32541;
+export const LINE_BUDGET = 544;
+export const BYTE_BUDGET = 32501;
 /** Kept for callers that predate the byte budget. */
 export const BUDGET = LINE_BUDGET;
 export const FILE = "CLAUDE.md";

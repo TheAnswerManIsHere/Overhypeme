@@ -52,3 +52,24 @@ test("the committed CLAUDE.md is within both committed budgets", () => {
     `CLAUDE.md is ${countLines(text)} lines / ${countBytes(text)} bytes, budgets ${LINE_BUDGET} / ${BYTE_BUDGET}`,
   );
 });
+
+test("both budgets are pinned to CLAUDE.md's EXACT size, with no slack", () => {
+  // The check's whole mechanism is that there is nothing to grow into: the
+  // next addition either displaces something or comes back as a visible
+  // one-line diff David merges. "Within budget" preserves none of that -- it
+  // is satisfied by a file with room left, and room left is exactly the state
+  // the mechanism exists to prevent.
+  //
+  // It drifted twice in one afternoon after the 2026-09-07 raise, first by two
+  // bytes and then by forty, each time because a later commit shrank the file
+  // and the constants stayed where the raise had put them. Both times the test
+  // above passed. A rule this file has broken twice becomes a check rather
+  // than a longer comment. (Codex, #614 round 2.)
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const text = readFileSync(resolve(root, "CLAUDE.md"), "utf8");
+  assert.deepEqual(
+    { lines: LINE_BUDGET, bytes: BYTE_BUDGET },
+    { lines: countLines(text), bytes: countBytes(text) },
+    "re-pin LINE_BUDGET and BYTE_BUDGET to the file's actual size in the same commit that changes it",
+  );
+});
