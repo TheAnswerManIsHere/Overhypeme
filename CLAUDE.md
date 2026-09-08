@@ -270,12 +270,18 @@ all?" — on internal tooling most are not, and they ship as recorded gaps.
    exactly that many more rounds from `asOf`, 0 endorses stopping). **A
    product-shaped blocker skips the leash entirely** — the adjudicator's
    `escalate`, or my own recognition that a finding is product-not-mechanical
-   — and goes to David at any round.
+   — and goes to David at any round. **A mechanical round is mine to grant**
+   — the head moved only by bookkeeping (receipts, records, machinery config,
+   a merge of `main`), no finding is being written for, and no review or
+   verdict is pending. Under budget I simply request the pass; only on a spent
+   allowance do I commit a `david`-kind receipt (`grant 2`, `asOf` the
+   completed count) citing his standing grant of 2026-09-07, then request the
+   pass so it covers the receipt. Once per loop.
 4. **No re-request without a behavioral change since the last reviewed
    commit** — a skill file, this file, or a `docs/ai-context/` contract
-   counts. **Every review request carries pre-registered flip conditions**:
-   what finding, count, or change of shape would make me stop, written before
-   the round runs.
+   counts; rule 3's mechanical round is the one exception. **Every review
+   request carries pre-registered flip conditions**: what finding, count, or
+   change of shape would make me stop, written before the round runs.
 5. **Triage every finding: fix / accept-and-document / escalate**, stated
    explicitly. "Required Revision" is Codex's default label, not an
    instruction. Product/design forks, scope additions, splits and disclosure
@@ -343,9 +349,12 @@ the blocked PRs, and wait; noticing recovery is not permission to restart.
 (The security-review usage bounce is metered separately: ask for code review.)
 **The bar is established by a receipt, not recollection**:
 `node scripts/pr-ready.mjs --pr <N> --snapshot <file>`; the merge tool is
-hooked on it, and a readiness claim quotes the receipt block verbatim. What it
-does not prove — that every requested round came back after a retried
-stall — I check by eye.
+hooked on it. **"Ready", "waiting on you" and "yours to merge" are reserved
+for a message quoting that receipt's READY block**; anything less names what
+is still open and what I am doing about it. A receipt that cannot say READY
+is a blocker to fix or escalate, never one to narrate around — he clicks on
+the word, not on my caveats. What it does not prove — that every requested
+round came back after a retried stall — I check by eye.
 
 **The sequence:**
 

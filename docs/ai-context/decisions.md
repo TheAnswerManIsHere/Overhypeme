@@ -13,6 +13,104 @@
 
 ---
 
+### 2026-09-07 · Build for the 99% case; fix the edge case when it happens
+- **Decision:** David: *"Stop worrying about how you can cheat yourself into
+  additional rounds! … It's time to stop hardening all of this and let's get
+  to building. … focus on building something quickly that works 99% of the
+  time and then worry about a small bug when it actually occurs. … Stop
+  fighting with Codex over minutia. … It's to get the best intelligence
+  working together to build good software efficiently. Anything that isn't
+  that is WRONG."* Process machinery is built to the common case. An obscure
+  misuse scenario is fixed when it occurs, not fenced in advance. A Codex
+  finding about such a scenario is declined in a sentence, not litigated.
+- **Why:** On 2026-09-07 one contract PR was stopped three times on
+  self-registered conditions about hypothetical bypasses, a one-line bug on
+  the handbook went unfixed for want of an adjudication, and the day produced
+  more issue-filing than shipping. The handbook's purpose is efficient
+  building, and the loop machinery exists to serve that, not the reverse.
+- **Reference:** Overhypeme #615; this file's earlier entries of the same date.
+- **Revisit if:** a real defect in product code, payments, auth or a migration
+  traces back to a shortcut taken under this rule. That is the one class where
+  the pre-hardening instinct still applies.
+
+---
+
+### 2026-09-07 · A loop ends without writing anything after its last review
+- **Decision:** A mechanical review round is closed by *arithmetic*, not by a
+  closing receipt. The loop commits a `david`-kind receipt granting **two**
+  rounds from the spent count and **then** requests the pass, so the pass
+  covers the receipt and nothing is written after it. The second round is
+  headroom the gate needs; spending it re-raises the gate, so it cannot be used
+  to slip past one. David chose this over widening the merge gate, and asked
+  for the gate change to come later as its own reviewed PR.
+- **Why:** Every receipt-based ending regresses forever — whatever records that
+  a loop finished is itself a commit no reviewer has seen. Codex found this
+  twice in one loop on #615: first that a positive grant leaves the gate
+  standing once spent, then that the `grant 0` receipt written to close it is a
+  new unreviewed head. Ordering the one receipt *before* the pass removes the
+  regress entirely rather than moving it. Verified against the real functions:
+  with `grant 2, asOf 3` and four passes delivered the gate reads 5 and clears;
+  at five delivered it stands again.
+- **Reference:** `CLAUDE.md` review-loop rule 3;
+  [`working-modes.md`](./working-modes.md); Overhypeme #615, AI-Handbook #47.
+- **Revisit if:** the merge gate learns to accept a bookkeeping-only delta
+  (the deferred option). The headroom grant becomes unnecessary then, and
+  keeping both would be two mechanisms for one job.
+
+---
+
+### 2026-09-07 · "Ready" is a reserved word, gated on the receipt
+- **Decision:** The words "ready", "waiting on you" and "yours to merge" may
+  only appear in a message to David that quotes the `pr-ready.mjs` READY
+  block. Any other state is reported as what is still open plus what Claude
+  Code is doing about it. A receipt that cannot say READY is a blocker to fix
+  or escalate, not a caveat to attach to a readiness claim.
+- **Why:** David: *"You often tell me that a PR is 'waiting on my merge' but
+  it's not yet in a mergable state. You shouldn't tell me that you're waiting
+  on me until you're really ready for me to click. Otherwise I'll merge it
+  before it's actually ready."* He reads the headline and acts on it; a
+  caveat two paragraphs down does not reach the click. Broken twice in one
+  day on #614 — once by calling it ready with four unreviewed commits on it,
+  once by calling it ready for his click in the same message that admitted
+  the receipt said NOT READY — and once on #615, called his while a review
+  round was still running. Broken twice means a format requirement, not a
+  longer paragraph, which is this file's own rule.
+- **Reference:** `CLAUDE.md` close-out section; Overhypeme #614, #615.
+- **Revisit if:** the receipt's own accuracy degrades to where READY stops
+  tracking the real bar. Then the fix is the receipt, not the vocabulary.
+
+
+---
+
+### 2026-09-07 · Autonomy: mechanical work is Claude Code's to do, not to ask about
+- **Decision:** David: *"I'm granting you a much higher level of autonomy so
+  that you don't need to ask dumb questions and you don't need to bother me on
+  ceremony where it doesn't help build a better product."* Concretely: a review
+  round that exists only to re-cover a head moved by bookkeeping is Claude
+  Code's to grant and record, never to ask for; an enabling file whose values
+  already exist in the repository is added and reported, not asked about; a
+  size or budget consequence of content he has already authorised is decided
+  and reported. What stays his: product intent and design forks, priorities
+  and scope, and the click on anything that widens Claude Code's own
+  authority — that last one because the two share a GitHub account and
+  nothing server-side can tell them apart.
+- **Why:** *"The point of all these days of development is to build a machine
+  that is efficient at building software. If you can't take on simple things
+  on your own, we're building the wrong thing."* On this day one pull request
+  came back to him three times for blockers a machine should have cleared: a
+  missing configuration file whose two values were already committed
+  elsewhere in the repository, and a fourth review round needed only because
+  the two commits that enabled the independent check had moved the head past
+  the last reviewed one. Neither was a judgement; both were presented as one.
+- **Reference:** `CLAUDE.md`, *Review loops* rule 3 (the mechanical grant)
+  and *Planning* rule 7 (product and design forks escalate to David);
+  Overhypeme #614.
+- **Revisit if:** a self-granted round is ever used to write for a finding.
+  That is the case the adjudicator's leash exists for, and this decision does
+  not touch it — loops ran to fourteen rounds before that leash existed.
+
+---
+
 ### 2026-09-04 · This org has an account-level security-safeguard adjustment
 - **Decision:** Anthropic's Safeguards Team adjusted the default safeguards
   for this Anthropic organization to reflect the dual-use security work
