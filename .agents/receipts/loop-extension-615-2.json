@@ -1,0 +1,8 @@
+{
+  "pr": 615,
+  "kind": "david",
+  "grant": 0,
+  "asOf": 4,
+  "authorization": "David, this session, 2026-09-08 UTC: \"Stop it, grant 0\" -- answering the David gate put to him after round 4 landed clean: one finding (pr-watch/SKILL.md not carrying the mechanical-round exception), declined for this round and filed as #617; all nine threads resolved; CI green on 95ff65d; Codex returned on that head. He endorses stopping the loop here.",
+  "createdAt": "2026-09-08T01:22:18.000Z"
+}
