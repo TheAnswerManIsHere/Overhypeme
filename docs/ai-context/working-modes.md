@@ -645,11 +645,13 @@ the safety net a non-code-reading product manager depends on.
 - **A mechanical round is the loop's own to grant, once** (David, 2026-09-07).
   When the head has moved only by bookkeeping — receipts, records, machinery
   configuration, a merge of the base branch — with no finding being written
-  for and no review or verdict pending, the loop does not ask. It commits a
-  `david`-kind receipt granting two rounds from the completed count, citing
-  that standing authorization, then requests the pass so the pass covers the
-  receipt. The second round is headroom for the gate arithmetic, not one to
-  spend.
+  for and no review or verdict pending, the loop does not ask. Under budget it
+  simply requests the pass. Only when the allowance is exhausted does it commit
+  a `david`-kind receipt granting two rounds from the completed count, citing
+  that standing authorization, then request the pass so the pass covers the
+  receipt — because an anchored receipt resets the allowance to its own anchor,
+  so writing one mid-budget would *shrink* the loop rather than extend it. The
+  second round is headroom for the gate arithmetic, not one to spend.
 - **No re-request without a behavioral change since the last reviewed commit.**
   A skill file, `CLAUDE.md`, or a context contract counts as behavioral, because
   in this repo those change what agents do. **The mechanical round above is the

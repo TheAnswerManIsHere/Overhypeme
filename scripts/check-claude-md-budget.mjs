@@ -3,12 +3,24 @@
 // session.
 //
 // The record: 2,446 lines on 2026-08-20, cut to 573 that day (#543), back to
-// 728 by 2026-09-03, cut to 534 (#607). A prune without a lock buys about two
-// weeks, because every lesson arrives as a longer paragraph and nothing pushes
-// back. Both numbers are the file's exact size on the commit that set them, so
-// there is no slack to grow into: raising them is a visible one-line diff in a
-// PR David merges, which is the point -- growth becomes explicit instead of
-// silent. (This check caught its own PR, #608, when a fix added one line.)
+// 728 by 2026-09-03, cut to 534 (#607), raised to 545 on 2026-09-07 (#614) to
+// admit the quote-the-instruction rule at full length. A prune without a lock
+// buys about two weeks, because every lesson arrives as a longer paragraph and
+// nothing pushes back. Both numbers are the file's exact size on the commit
+// that set them, so there is no slack to grow into: raising them is a visible
+// one-line diff in a PR David merges, which is the point -- growth becomes
+// explicit instead of silent. (This check caught its own PR, #608, when a fix
+// added one line, and #614, which is why this raise exists.)
+//
+// WHAT THE 2026-09-07 RAISE DECIDED, because a raised budget with no stated
+// reason is just a budget that gets raised again. The rule being admitted was
+// ALREADY AGREED and already written down -- in the shared payload, where it
+// never reached the file that loads -- so the choice was between carrying it
+// at full length, cutting ten lines of rationale from three rules I have
+// actually broken, and compressing it to three lines by dropping the reason it
+// exists. David chose the raise: the budget exists to stop drift, not to price
+// a rule he asked for twice, and rationale is what has made the surviving
+// rules stick. The alternative that is NOT available is leaving the rule out.
 // This check is the push-back: the file may not exceed LINE_BUDGET lines
 // OR BYTE_BUDGET bytes, so every addition has to displace something. Both are
 // checked because either alone is gameable — lines by writing longer lines
@@ -20,13 +32,22 @@
 //
 // Dependency-free, runs in the Build job without install.
 // Run locally:  node scripts/check-claude-md-budget.mjs
+//
+// BOTH CONSTANTS ARE THE FILE'S EXACT SIZE, RE-PINNED ON EVERY CHANGE THAT
+// MOVES IT. That is the whole mechanism: with no slack, the next addition
+// either displaces something or comes back here as a visible one-line diff
+// David merges. Setting them from a size the file no longer has re-opens a
+// gap someone can grow into without that decision -- which is what happened
+// twice in one afternoon after the 2026-09-07 raise, first by two bytes and
+// then by forty, each time because a later commit shrank the file and the
+// constants were left where the raise had put them. (Codex, #614 round 2.)
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const LINE_BUDGET = 543;
-export const BYTE_BUDGET = 32503;
+export const LINE_BUDGET = 555;
+export const BYTE_BUDGET = 33408;
 /** Kept for callers that predate the byte budget. */
 export const BUDGET = LINE_BUDGET;
 export const FILE = "CLAUDE.md";
