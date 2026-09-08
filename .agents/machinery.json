@@ -1,0 +1,10 @@
+{
+  "repo": "TheAnswerManIsHere/Overhypeme",
+  "requiredChecks": [
+    "Classify changed paths",
+    "Build",
+    "Test",
+    "Frontend Test",
+    "E2E Smoke"
+  ]
+}
