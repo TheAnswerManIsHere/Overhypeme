@@ -209,3 +209,129 @@ describe("SubscriptionPanel subscription controls", () => {
     expect(screen.queryByRole("button", { name: /Cancel Subscription/i })).toBeNull();
   });
 });
+
+/** After a successful monthly -> annual switch, before the Stripe webhook has
+ *  synced. The app DB says annual; the mirror still describes the old monthly
+ *  price. This is the #601 state. */
+const ANNUAL_APP_SUB = {
+  ...ACTIVE_MONTHLY_APP_SUB,
+  plan: "annual",
+  currentPeriodEnd: "2027-08-29T04:46:17.000Z",
+};
+
+/** The mirrored Stripe row once the webhook has caught up to annual. */
+const MIRRORED_ANNUAL_SUB = {
+  ...MIRRORED_MONTHLY_SUB,
+  items: {
+    data: [
+      {
+        price: {
+          id: ANNUAL_PRICE_ID,
+          unit_amount: 2499,
+          recurring: { interval: "year" },
+        },
+      },
+    ],
+  },
+};
+
+describe("SubscriptionPanel after a plan switch the mirror has not caught up to", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports the annual plan from the app DB while the mirror still says monthly", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: MIRRORED_MONTHLY_SUB,
+        appSubscription: ANNUAL_APP_SUB,
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    // The card must not re-offer a switch the user has already paid for.
+    await screen.findByRole("button", { name: /Cancel Subscription/i });
+    expect(screen.queryByRole("button", { name: /Switch to Annual/i })).toBeNull();
+  });
+
+  it("suppresses the charged amount rather than showing the pre-switch price", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: MIRRORED_MONTHLY_SUB,
+        appSubscription: ANNUAL_APP_SUB,
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByRole("button", { name: /Cancel Subscription/i });
+    // $3.99/month is the stale mirror amount. Showing it next to an Annual plan
+    // label would read as authoritative and be wrong.
+    expect(screen.queryByText(/\$3\.99/)).toBeNull();
+  });
+
+  it("shows the annual amount once the mirror agrees", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: MIRRORED_ANNUAL_SUB,
+        appSubscription: ANNUAL_APP_SUB,
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByRole("button", { name: /Cancel Subscription/i });
+    expect(screen.getByText(/\$24\.99/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Switch to Annual/i })).toBeNull();
+  });
+
+  it("still shows the monthly amount and the switch button when both agree", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: MIRRORED_MONTHLY_SUB,
+        appSubscription: ACTIVE_MONTHLY_APP_SUB,
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    expect(await screen.findByRole("button", { name: /Switch to Annual/i })).toBeTruthy();
+    expect(screen.getByText(/\$3\.99/)).toBeTruthy();
+  });
+
+  it("falls back to the mirror interval when the app DB has no plan", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: MIRRORED_MONTHLY_SUB,
+        appSubscription: { ...ACTIVE_MONTHLY_APP_SUB, plan: "" },
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    // With nothing authoritative to say otherwise, the mirror is still the best
+    // available answer -- the fix inverts precedence, it does not drop the mirror.
+    expect(await screen.findByRole("button", { name: /Switch to Annual/i })).toBeTruthy();
+  });
+});

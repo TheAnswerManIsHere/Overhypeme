@@ -15,19 +15,12 @@ and it only means anything while the Stripe mirror is genuinely still empty —
 which is why it carries a live check rather than a stopwatch. Everything after
 it is the surrounding flow.
 
-**Steps 4–6 are blocked behind #601** and cannot pass until that ships: after a
-successful switch the card keeps showing the pre-switch monthly state. Found in
-the pre-merge subset run of this same script. Don't start this run until #601
-has merged.
-
 ## Setup
 
 - [claude] Confirm the Repl is synced to `main` at the merge commit and the
   worktree is clean, so you are clicking the merged fix and not a stale build.
 - [claude] Report the current `stripe_live_mode` config value and confirm it
   reads `false`, so the run stays in Stripe test mode throughout.
-- [claude] Confirm #601 has merged and is in the build under test — steps 4–6
-  cannot pass otherwise.
 - [david] **This run needs three separate accounts.** They cannot be the same
   account, and the reason is mechanical rather than tidiness — each one ends
   the run in a state that disqualifies it from the others:
