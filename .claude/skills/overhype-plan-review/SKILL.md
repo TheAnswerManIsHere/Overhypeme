@@ -64,9 +64,14 @@ place claiming to define one concept is the failure this repo has hit most.
 Carried from what the old procedure was actually catching, and worth naming in
 the exchange rather than rediscovering:
 
-- **A plan that is really a direction.** A universal quantifier in the intent
-  sentence — "all", "every", "exclusively" — means the boundary is wrong: write
-  or update the direction, then cut the first increment from it.
+- **A plan that might be a direction.** A universal quantifier in the intent
+  sentence — "all", "every", "exclusively" — is worth *raising*: it can mean the
+  sentence describes an end state rather than a bounded increment, which makes
+  every later discovery in-scope by definition. Raise it; never split on the
+  wording alone. What decides is the increment test in
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md) and section 3
+  of the planning contract, not this bullet — which is why this one points
+  rather than restates.
 - **Enqueue treated as completion.** Async work is done when its *terminal*
   state says so. See
   [`docs/ai-context/async-ui-status.md`](../../../docs/ai-context/async-ui-status.md).
