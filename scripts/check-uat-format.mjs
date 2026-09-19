@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 // UAT document format guard.
 //
 // `/uat` drives a run by enumerating `### ` headings inside `## Steps` and
@@ -23,7 +24,7 @@
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve, dirname, basename } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const UAT_DIR = "docs/tests/UAT";
@@ -217,4 +218,4 @@ function main() {
   process.exitCode = 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

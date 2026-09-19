@@ -1,3 +1,4 @@
+// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scanDoc, uatFiles, UAT_DIR } from "../check-uat-format.mjs";

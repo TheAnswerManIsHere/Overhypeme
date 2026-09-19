@@ -3,6 +3,8 @@ name: maintenance
 description: Weekly repo maintenance ritual. Use when David says /maintenance or asks for the weekly maintenance pass. Triages the Dependabot PR queue (merges green minor/patch bumps, flags majors), reviews production errors (Sentry), checks CI health on main, and delivers a "what shipped this week" digest. Ops-shaped, Sonnet-tier work.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Weekly maintenance
 
 David invokes this roughly weekly (`/maintenance`). It is **ops work**, and
@@ -73,14 +75,25 @@ retried.
   and paste anything that looks alarming into the chat for triage. Never
   silently skip the section, and never retry a 403 policy denial.
 
-**Verified working recipe (2026-07-23).** Org slug is `overhypeme`. The
-token is scoped **Issue & Event: Read only** (least privilege), which is
-enough for the one endpoint this section needs:
+**The org slug is THIS repository's, and it is not written here.** This file
+is fleet payload: every product that receives it has its own Sentry
+organization, so a slug hardcoded in the recipe would point one product's
+maintenance pass at another product's incidents. Take the slug from this
+repo's own overlay or its Sentry connector, and if it is not recorded in
+either, ask rather than guess — a wrong slug returns a plausible-looking
+list of somebody else's errors.
+
+**Verified working recipe (2026-07-23).** The token is scoped **Issue &
+Event: Read only** (least privilege), which is enough for the one endpoint
+this section needs:
 
 ```
-GET https://sentry.io/api/0/organizations/overhypeme/issues/?statsPeriod=7d&query=is:unresolved
+GET https://sentry.io/api/0/organizations/<this-repo's-org-slug>/issues/?statsPeriod=7d&query=is:unresolved
     Authorization: Bearer $SENTRY_AUTH_TOKEN
 ```
+
+(The recipe was verified against Overhype.me's organization; that is the
+example it was proved on, not the value to use.)
 
 Each returned issue carries `title`, `culprit`, `count`, `permalink`, and
 a `shortId` whose prefix identifies the project. **A `403` from the
@@ -149,41 +162,63 @@ stored records. From the merged-PR list for the window:
 - **Meta vs. product share.** How many merged PRs were product-facing versus
   process/guard/docs-about-process. This is the number that started the
   2026-08-20 review: it was running about 70% meta over three weeks.
-- **Rounds per loop.** From the PRs' own review history — how many product
-  loops ran, and how long each took. **Build the inventory from BOTH merged
-  implementation PRs and closed `[PLAN REVIEW]` PRs in the window** (Codex,
-  #543): plan-review PRs always close without merging, so a merged-only list
-  silently drops every plan loop — often the longest ones — and understates
-  review cost.
-- **Adjudicator verdicts — both kinds** (Codex, #543 round 3). Exhaustion
-  verdicts are the committed `.agents/receipts/` files (a directory read).
-  Ordinary per-round verdicts never become receipts by design — they live as
-  one-liners in each loop's defanged context comments and findings ledgers —
-  so read them from the window's PR histories, or the count will show zero
-  precisely when the judge is doing its best work (stopping loops before
-  their cap). A run of `continue` verdicts would mean the adjudicator is
-  being talked into extensions, which is the mechanism failing in the way it
-  was built to resist.
-- **Guard incidents that needed David.** Rare by design; if it isn't rare, say
-  so.
-- **Recorded dissents** (David, 2026-09-03). Override entries in
-  `docs/ai-context/decisions.md` dated inside the window — the entries the
-  advice rule in `CLAUDE.md` (*Advice is independent*) writes when David
-  decides against a recommendation. Count them by date heading; the window
-  is the same one as the merged-PR list. It measures **override frequency**,
-  nothing more: a zero is consistent with David accepting every
-  recommendation, so it is never a diagnosis on its own. Report the count
-  and, when it is zero across a window of building sessions, put one
-  question to David in the step 6c conversation — were recommendations
-  being made and did any get overridden without a record — rather than
-  concluding anything from the absence.
+- **Rounds per loop.** From the PRs' own review history — how many code loops
+  ran, and how long each took. Include closed `[PLAN REVIEW]` PRs in a window
+  that reaches back before 2026-09-09; after that date there are none.
+  **Planning loops are no longer countable from GitHub** (Codex, #69 round 1):
+  they run in-session, their exchange files are gitignored, and since
+  2026-09-18 they reach David in chat, which is not a record either. So the
+  number comes from the **approval ask's trail, restated in the workstream
+  issue's harvest comment** — `plan-review-loop` requires exchanges-run there
+  for exactly this reason.
+  **Say so when a plan loop has no harvest comment**, rather than reporting a
+  rounds-per-loop figure that silently omits it: understating review cost is
+  the bias the old dual inventory existed to prevent, and it comes back the
+  moment a source is quietly dropped.
+- **Counted from GitHub at pass time, never from a ledger** (#89 cut,
+  2026-09-16). Merged PRs by `mode:` label for the meta-vs-product share, and
+  review-trigger comments per PR for rounds per loop. Nothing stores these any
+  more — the receipts, verdict files and position caches they used to be read
+  from are gone — and nothing should: a stored count is a cache of something
+  GitHub already holds, and it drifts.
+
+  **Two figures are dropped rather than re-sourced**, because the mechanisms
+  they measured no longer exist: adjudicator verdicts issued, and guard
+  incidents that needed David. Do not substitute a proxy for either; say the
+  mechanism is gone if anyone asks for the trend.
+
+- **The round translation, two numbers and no more** (David, 2026-09-12). How many round
+  translations ran, and how many flagged a disagreement with the builder's
+  account. **Read them from the close-out harvest comments**, the same source
+  plan-loop rounds come from: its receipts are gitignored evidence that dies
+  with its session, deliberately — making a gut-level count exact is the
+  accounting-precision class the worth rule
+  ([`review-judgment.md`](../../../docs/ai-context/review-judgment.md))
+  declines. **Say so when a
+  merged loop's harvest comment carries no translation line**, rather than reporting a
+  figure that silently omits it.
+
+  The shape to watch is the same one B1 has: a run of loops where the translation never
+  disagrees means it is agreeing with every account, which is what the
+  zero-for-fifteen retirement rule catches. The opposite shape counts too — a
+  translation disagreeing on every round is not obviously working either, and
+  either extreme is worth a sentence to David rather than a number.
+- **Recorded dissents** (David, 2026-09-03). Override entries in the repo's
+  `decisions.md` dated inside the window — the entries the advice rule writes
+  when David decides against a recommendation (the Claude core, *Advice is
+  independent*). Count them by date heading; the window is the same one as the
+  merged-PR list. It measures **override frequency**, nothing more: a zero is
+  consistent with David accepting every recommendation, so it is never a
+  diagnosis on its own. Report the count and, when it is zero across a window
+  of building sessions, put one question to David in the step 6c conversation
+  — were recommendations being made and did any get overridden without a
+  record — rather than concluding anything from the absence.
 
 **Step 6c — the "how are we doing" conversation.** Narrate the numbers in a few
 plain sentences — not tables — and open the question David actually wants
 answered: *are we doing better, and is there anything to improve?* Bring
-anything the week's loops suggest about the process itself: a budget that keeps
-being hit (a tier whose budget is wrong is a David conversation, not a silent
-adjustment), a decline pattern, a ceremony that looks mismatched to its
+anything the week's loops suggest about the process itself: a loop that keeps
+running long, a decline pattern, a ceremony that looks mismatched to its
 artifact. **He is the verdict mechanism** — there is no trial window and no
 automatic consequence; these numbers exist so his call is informed rather than
 vibes-only. If he judges the apparatus is still costing more than it returns,
@@ -318,7 +353,7 @@ approve or amend, never an open-ended "is the backlog still right?"
 2. **Re-check `queue:` priorities against the roadmap.** Anything labeled
    `queue:now` that hasn't been started in weeks is either mislabeled or
    genuinely blocked — say which. Anything in
-   [`current-roadmap.md`](../../../docs/ai-context/current-roadmap.md)'s
+   the repo's roadmap's
    near-term slices with no backlog issue is a **gap**: propose opening
    one, since an item only in prose is invisible to `/next`.
 3. **Sweep `Blocked by:` markers** — for each, is the named blocker still
@@ -351,9 +386,13 @@ A standing item, not a conditional one. **Each maintenance pass, exactly one
 judgment-shaped rule in `CLAUDE.md` is either converted into a mechanical
 check or deleted.**
 
-The rationale is the same evidence that produced the round-budget guard: on PR
+The rationale is the evidence that once produced the round-budget guard: on PR
 #488 the judgment-shaped stopping devices went 0-for-15 while pre-registered,
-mechanically-collided conditions went 2-for-2. A contract that only grows adds
+mechanically-collided conditions went 2-for-2. **The guard itself is gone, and
+that is the other half of this rule** — a check has to keep earning its place
+too, and the #89 audit deleted twelve thousand lines of checks that never once
+changed a decision. Converting and deleting are the same judgement pointed in
+two directions. A contract that only grows adds
 rules of the losing kind, and each one dilutes attention on the rules that
 work. Length is itself a failure mode — a rule nobody can hold in mind at the
 moment it applies is not a rule, it is a record of an intention.
@@ -366,16 +405,17 @@ How to run it:
    tightened more than once: the tightening count is the strongest available
    signal that judgment isn't carrying it.
 2. **Decide which of the two happens.** *Convert* when there is a real action
-   path to hang a check on (a tool call, a commit, a hook point) — that's the
-   `.claude/guard.sh` / build.yml pattern. *Delete* when there isn't one, or
+   path to hang a check on (a CI step, a server-side ruleset, a schema field
+   the answer must fill) — a ruleset is the strongest form, because it cannot
+   fail open. *Delete* when there isn't one, or
    when the rule turns out to be advice rather than a contract. **Deleting is
    a legitimate outcome, not a failure to find a check** — an unenforceable
    rule that stays in the file is worse than no rule, because it reads as
    coverage.
 3. **Propose, don't apply.** This is a `CLAUDE.md` edit, so it goes in the
    numbered decision list for David and lands through the normal PR path.
-   Guard and permission changes stay David-merge-only per CLAUDE.md's
-   close-out carve-outs.
+   Permission and ruleset changes take the same path; their PR body names the
+   latitude they grant (David, 2026-09-14).
 4. **Say which rule you picked and why, every pass** — including a pass where
    the honest answer is "the best candidate this week is weak." One line. A
    silent skip is how a standing item becomes a dead one.

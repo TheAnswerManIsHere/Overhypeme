@@ -1,0 +1,22 @@
+# Per-plan review-loop evidence: the round snapshots `plan-review.mjs` writes
+# under .agents/reviews/<slug>/.
+#
+# EPHEMERAL BY CONTRACT. A fresh container legitimately has none of it, and
+# re-running the round is the documented remedy rather than a workaround. What
+# must survive a loop is the approved plan itself, committed on the
+# implementation branch, and the approval comment on the workstream issue.
+#
+# WHY THIS FILE EXISTS. `plan-review.mjs` writes an ignore file for the
+# directories a plan loop creates, but only once it has run; a checkout that
+# has not yet run one was covered by nothing, and an ordinary `git add -A`
+# staged a snapshot of the material under review. (AI-Handbook #91 round 1,
+# where the uncovered directory was the code loop's; the code loop is gone and
+# the same hole remains for the plan loop.)
+#
+# WHY THERE ARE TWO COPIES. Git does not follow a symlinked .gitignore, so a
+# pointer is impossible and a real file at each root is the only option. The
+# handbook mirrors this one at .agents/reviews/.gitignore, and
+# scripts/check-root-wiring.mjs compares the pattern lines so the duplication
+# is enforced rather than merely intended. Edit THIS copy; the root follows.
+*
+!.gitignore

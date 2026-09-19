@@ -1,7 +1,9 @@
 ---
 name: document
-description: End-of-feature documentation pass — lock a finished feature's decisions, gotchas, and subsystem changes into the durable docs. Use when David says /document, "lock in the learnings", "document this feature", or "commit this feature's learnings to memory" at the end of a build. Harvests from the session + the feature's diff, routes each learning to its one canonical home in docs/ai-context/ / .agents/memory/, and creates or updates the touched area's chapter in the Overhype.me Manual (docs/manual/). Docs-only. NOT for "remember this" about a single item (that's immediate targeted persistence, not this ceremony).
+description: End-of-feature documentation pass — lock a finished feature's decisions, gotchas, and subsystem changes into the durable docs. Use when David says /document, "lock in the learnings", "document this feature", or "commit this feature's learnings to memory" at the end of a build. Harvests from the session + the feature's diff, routes each learning to its one canonical home in docs/ai-context/ / .agents/memory/, and creates or updates the touched area's chapter in the product Manual (docs/manual/). Docs-only. NOT for "remember this" about a single item (that's immediate targeted persistence, not this ceremony).
 ---
+
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
 
 # /document — the end-of-feature documentation ceremony (Claude enactment)
 
@@ -91,7 +93,7 @@ Decide by what "this" refers to (contract's trigger table):
   close-out contract. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
-  force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old
+  force-push** (a ruleset on `claude/**` refuses it); if a stale remote ref of my old
   feature branch exists (GitHub usually auto-deletes it post-squash-merge, but
   a same-branch-name push can recreate it), confirm the owning PR is actually
   merged/closed before deleting that stale ref.

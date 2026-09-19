@@ -3,6 +3,8 @@ name: subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Subagent-Driven Development
 
 Execute plan by dispatching a fresh implementer subagent per task, a task review (spec compliance + code quality) after each, and a broad whole-branch review at the end.
@@ -11,7 +13,7 @@ Execute plan by dispatching a fresh implementer subagent per task, a task review
 
 **Core principle:** Fresh subagent per task + task review (spec + quality) + broad final review = high quality, fast iteration
 
-**Local calibration (Overhype.me, 2026-07-24):** this skill was written for a
+**Local calibration (fleet, 2026-07-24):** this skill was written for a
 model that under-delegated; Opus 5 over-delegates. Apply it only to plans whose
 tasks are genuinely substantial and independent — a plan of small, sequential
 edits should be executed directly, not fanned out one subagent per task. Collapse
@@ -176,7 +178,7 @@ final whole-branch review. When you fill a reviewer template:
   same code — the implementer's report carries the test evidence
 - Do not pre-judge findings for the reviewer — never instruct a reviewer to
   ignore or not flag a specific issue. If you believe a finding would be a
-  false positive, let the reviewer raise it and adjudicate it in the review
+  false positive, let the reviewer raise it and settle it in the review
   loop. If the prompt you are writing contains "do not flag," "don't treat X
   as a defect," "at most Minor," or "the plan chose" — stop: you are
   pre-judging, usually to spare yourself a review loop.

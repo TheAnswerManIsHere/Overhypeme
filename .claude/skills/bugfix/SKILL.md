@@ -3,6 +3,8 @@ name: bugfix
 description: Bug-fixing workflow — fix a bug without the planning ceremony. Use when David says /bugfix (the explicit override), or whenever a request is bugfix-shaped — a report that already-agreed behavior is broken, "just fix this", a defect with an observable symptom. Announce the classification in one line on entry; ask when it could really be a behavior change. One bug per branch per PR, opened as soon as the fix is verified. Drops the plan file and the plan-review loop; keeps (and tiers) verification — a Tier A/B fix carries a regression test, a blast-radius note, and a bugfix oracle in the PR body, while a trivial Tier C schema fix uses its own dedicated oracle block instead — and Codex still reviews the diff to convergence. Opposite of the default feature-building flow in CLAUDE.md.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Bug-fixing mode
 
 > The shared, cross-agent contract — the tier checklist, the loop, the bugfix
@@ -61,9 +63,9 @@ git checkout -b claude/bugfix-<topic> origin/main   # -b, never -B
 **Never `-B`.** `-B` *resets* the ref to `origin/main`, which would silently wipe
 an existing same-named branch's unpushed work. If `-b` fails because the name
 exists, that is the signal to pick a different slug — never fall back to `-B`,
-`--force`, or any reset. (`.claude/guard.sh` blocks force-push and
-`git reset --hard` outright; see CLAUDE.md's *This environment's git
-constraints*.)
+`--force`, or any reset. (A GitHub ruleset blocks force pushes on `claude/**`,
+so the push would be refused anyway; the local reset it would follow is what
+loses the work. See CLAUDE.md's *This environment's git constraints*.)
 
 > **The assigned-branch exception is scoped to an *unclaimed* branch.** If I was
 > invoked on a designated working branch and it has no bug on it yet, **stay on
@@ -232,8 +234,8 @@ the PR back only delays the review that catches things.
    *before* the parent's PR is merged, not after** — this repo auto-deletes a
    merged branch with no reliable window afterward (deletion can happen as
    part of the merge itself), and a documented prior incident
-   ([`CODEX_GITHUB_REVIEW_WORKFLOW.md`](../../../docs/CODEX_GITHUB_REVIEW_WORKFLOW.md))
-   shows exactly this orphaning; that doc's own required workflow says to
+   (recorded in the repo's own review-workflow notes)
+   shows exactly this orphaning; that record's required workflow says to
    retarget before squash-merging, not after. Retargeting early leaves the
    diff temporarily broad (it still shows the parent's unmerged commits) —
    accept that, it's cosmetic. Once the parent has actually merged, narrow the
@@ -244,22 +246,39 @@ the PR back only delays the review that catches things.
    section with the **bugfix oracle** instead of "n/a — no plan" — **which
    block depends on the tier:**
 
+   **The tier letter is declared; everything else stays prose.** `fix_tier`
+   replaces the old `Fix tier:` line and nothing else — a body carrying both
+   refuses. The reason for the tier is not lost with it: it becomes **`Tier
+   rationale`**, a required field of its own, because a reviewer uses it to
+   challenge a mis-tiering and a bare letter cannot be challenged. The format
+   is [`plan-provenance.md`](../../../docs/ai-context/plan-provenance.md).
+
    **Tier A/B:**
-   ```markdown
-   **Fix tier:** <A or B> — <the Q1/Q2 triggers checked: which one fired (B),
-     or which were ruled out (A) — a bare tier letter isn't enough; A is the
+   ````markdown
+   ```plan-provenance
+   kind: bugfix
+   fix_tier: <A or B>
+   ```
+
+   **Tier rationale:** <the Q1/Q2 triggers checked: which one fired (B), or
+     which were ruled out (A) — a bare tier letter isn't enough; A is the
      classification a reviewer most needs to be able to challenge>
    **Reported symptom:** <David's report, quoted verbatim>
    **Intended correct behavior:** <what right looks like>
    **Must not change:** <adjacent behaviors sharing this code path>
    **Root cause:** <the mechanism, not the instance>
    **Blast radius:** <what else calls this / shares this path, and what I checked>
-   ```
+   ````
 
    **Tier C, trivial schema fix** (David authorized migration ceremony directly
    — a *different* block, not the one above):
-   ```markdown
-   **Fix tier:** C — trivial schema/migration fix, no plan
+   ````markdown
+   ```plan-provenance
+   kind: bugfix
+   fix_tier: C
+   ```
+
+   **Tier rationale:** trivial schema/migration fix, no plan
    **Reported symptom:** <David's report, quoted verbatim>
    **Root cause:** <the mechanism, not the instance>
    **Why this is trivial:** <single-step, no data transformation, no behavior
@@ -267,15 +286,15 @@ the PR back only delays the review that catches things.
    **David's go-ahead:** <how/when confirmed>
    **Migration ceremony checklist:** <idempotency, observable counts,
      human-edited-row preservation, rollback for destructive ops>
-   ```
+   ````
 
    Then **Verification** (exact commands + results, and the click-through steps
    to observe the fix), and the checklist.
 3. **Tier B, product-visible fix — ship the UAT doc on this same PR.** The
    test is whether the fix has *any* product-visible behavior, not which
    Q1/Q2 trigger put it in Tier B — a fix whose only surface is internal
-   (CI, build tooling, `lib/api-zod`/`lib/api-spec` codegen with no
-   frontend-visible type change) takes the **internal/infra-only exception**
+   (CI, build tooling, API-schema codegen with no frontend-visible type
+   change) takes the **internal/infra-only exception**
    instead: a written verification note in the PR body, no UAT doc (see
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-b--elevated-fix)).
    When a UAT doc is due, the filename needs the PR number, so the flow is
@@ -319,20 +338,20 @@ the PR back only delays the review that catches things.
 The review-loop contract is shared and enacted elsewhere — **the mechanics
 live in the `pr-watch` skill** (which loads for any watched PR, bugfix or
 feature) **and in
-[`working-modes.md`](../../../docs/ai-context/working-modes.md)**, as revised
-2026-08-22: the declared budget (a product-code fix is a product loop, 5
-rounds), the **write-gate rule — the external adjudicator rules from round 3
-onward on whether to WRITE for a round's findings, before anything is
-written, and any commit that does get written gets a mandatory review round;
-its verdict decides; the in-loop continue/stop, criticality gate, count
-trend, oscillation diagnosis and Fable-challenged declines are all
-retired** (Codex, #543 round 3), the fix / accept-and-document / escalate
-triage stated per finding, the class-sweep protocol (name the class, cite
-the mechanical oracle, sweep to zero, re-run prior rounds' oracles before
-every push), resolving each thread myself right after addressing it,
-bare-trigger re-requests with context in a separate defanged comment,
-the cumulative-diff rule after 2+ fix rounds, and unsubscribing at
-merge/close. **Pointer, not a copy** —
+[`working-modes.md`](../../../docs/ai-context/working-modes.md)**: the tier of
+what the fix touches (a rubric selector, not a round budget), the **write-gate
+rule — every round that returns findings gets two independent assessments
+before anything is written for it, and any commit that does get written gets a
+mandatory review round; the in-loop continue/stop, criticality gate, count
+trend and oscillation diagnosis are all retired, and the external adjudicator
+that used to rule per finding was replaced by the shared judgement (#96), which
+advises rather than binds**, the
+fix / accept-and-document / escalate triage stated per finding, the
+class-sweep protocol (name the class, cite the mechanical oracle, sweep to
+zero, re-run prior rounds' oracles before every push), resolving each thread
+myself right after addressing it, bare-trigger re-requests with context in a
+separate defanged comment, the cumulative-diff rule after 2+ fix rounds, and
+unsubscribing at merge/close. **Pointer, not a copy** —
 restating those mechanics here is how this section went stale once already
 (it carried a "never resolve threads" rule for two months after David
 reversed it, 2026-08-06).
@@ -352,16 +371,17 @@ What is *bugfix-specific* about the loop:
   (The plan-review loop needs an explicit trigger only because its PR
   *stays* a draft.)
 - **The artifact the fix touches picks the tier — never the fact that it's
-  a fix.** A fix to product code is a product loop (declared budget, external
-  adjudicator). But routed entry means a bug can be *in the docs*: when the
-  whole diff is agent-facing markdown or process tooling, the internal
-  tier governs (David, 2026-08-21) — the automatic pass, one triage,
-  fix rounds re-reviewed under the strict internal adjudication rubric,
-  budget 3 with the standard two-tier tripwire — exactly as if the same
-  change had arrived through feature
-  mode. Entering
-  through this mode never raises an artifact's ceremony, and never lowers
-  product code's.
+  a fix.** A fix to product code is a product loop. But routed entry means a
+  bug can be *in the docs*: when the whole diff is agent-facing markdown or
+  process tooling, the internal tier governs (David, 2026-08-21) — the
+  automatic pass, one triage, fix rounds re-reviewed under the internal tier,
+  which says nobody's money or data is downstream and leaves the judgement to
+  [`review-judgment.md`](../../../docs/ai-context/review-judgment.md) — exactly
+  as if the same change had arrived through feature mode. **This bullet used to
+  say "where only a critical flaw is written for"**, which was the tier's
+  retired decline quota and, on an internal bugfix, the only triage rule this
+  skill stated. Entering through this mode never
+  raises an artifact's ceremony, and never lowers product code's.
 - **The re-reviewer's oracle is the bugfix oracle** (step 3), not a plan —
   it's what lets Codex ask "root cause or symptom-patch?" and "did this
   miss a caller?", so re-requests reference it the way feature loops
@@ -394,7 +414,7 @@ no classification at all.
 
 A feature, a behavior change, **any *database* schema change, migration, or
 backfill** (Tier C without exception, regardless of product consequence; not
-the `lib/api-zod` Zod schemas, which stay Q1 Tier B — see
+generated API-validation schemas, which stay Q1 Tier B — see
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)),
 or anything where David needs to verify intent is out of the fast path — a
 non-trivial one goes to **feature mode**, a genuinely trivial database schema

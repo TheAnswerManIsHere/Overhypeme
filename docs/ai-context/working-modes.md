@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Working Modes: feature (default) vs. bugfix
 
 > The canonical, cross-agent statement of the two workflows David uses. **The
@@ -35,10 +37,9 @@ non-trivial database schema change of any kind (see *Tier C* below) needs a
 plan and David's approval before anything runs. A database schema change is
 feature mode by default; it stays out of the full plan only if it's genuinely
 trivial, in which case it runs migration ceremony directly per Tier C. (This
-is the *database* schema — Drizzle/`lib/db`, migrations, table structure —
-not the generated Zod API-validation schemas under `lib/api-zod`/
-`lib/api-spec`, which have their own explicit Tier B routing; see *Tier C*
-below.)
+is the *database* schema — migrations and table structure — not **generated
+API-validation schemas**, which have their own explicit Tier B routing; see
+*Tier C* below. A repo that generates such schemas names them in its overlay.)
 
 ### Feature-mode ceremony scales to blast radius, not to phrasing (David, 2026-08-05)
 
@@ -61,7 +62,7 @@ to review.
 | **Transient, single-use process docs** — handoff docs, one-off run notes, legacy TEST_RUN checklists (the TEST_RUN file itself is retired as of 2026-08-15 — new PRs carry a *Post-merge verification* PR-body section reviewed with the diff, per [`test-run-contract.md`](../tests/test-run-contract.md); this row still governs the legacy files while they run out), anything deleted after one execution | **Write it, ship it, never loop on it.** Codex's automatic first pass happens (it reviews every PR); its findings get one triage and the loop ends there — no re-request. The cap ends the *loop*, never a fix: the one triage still fixes anything safety-relevant (see the next column). | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and gets fixed in the single triage. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
 | **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **Write it, one review pass, ship.** No plan document, no convergence loop. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
 | **Product code** | Today's full feature ceremony — plan, review to convergence, approval. | Codex's review is a real net, but a subtly wrong behavior can reach users. |
-| **Migrations, backfills, auth, payments, the visual pipeline** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
+| **Migrations, backfills, auth, payments, and any subsystem the overlay marks sensitive** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
 
 For the floor tier, say so in the PR body's *What & why* ("transient
 checklist, deleted after one run — findings triaged once, no re-review"),
@@ -95,12 +96,19 @@ three rounds that ran 24 → 14 → 21 findings.
 - A **plan** builds **one bounded increment** toward a direction and **cites
   the direction it serves**. Its intent sentence says what *this increment*
   makes true — never what the end state is.
-- **The plan-review loop only ever runs on plans, never on a direction.** A
-  direction has no implementation to be wrong about, so adversarial review of
-  one produces specification rather than correction. (This is about the
-  `[PLAN REVIEW]` loop specifically — it says nothing about code-review loops
-  on implementation PRs, feature or bugfix, which keep running exactly as
-  described elsewhere in this doc and in the `bugfix` skill.)
+- **The plan-review loop only ever runs on an increment, never on a
+  direction.** A direction has no implementation to be wrong about, so
+  adversarial review of one produces specification rather than correction.
+  **This does not exclude round 0**, the scope gate's second opinion (David,
+  2026-09-09): round 0 reviews *this increment's agreed scope* before its plan
+  is written, which is the increment's own oracle rather than the standing
+  direction — so it is inside this rule, not an exception to it. Reading the
+  sentence as "never before a plan exists" would skip the loop's cheapest
+  round, which is the one that catches building the wrong thing at all.
+  (This is about the plan
+  loop specifically — it says nothing about code-review loops on implementation
+  PRs, feature or bugfix, which keep running exactly as described elsewhere in
+  this doc and in the `bugfix` skill.)
 
 **Why the split is load-bearing.** PR #404's Product Intent was David's own
 totalising sentence — "any and all permissions… exclusively… one source of
@@ -126,7 +134,7 @@ The front of the process worked. The artifact fed to it contained three
 projects.
 
 **A direction that duplicates or contradicts an existing canonical doc is not
-a new artifact — it's a routing bug.** [`product-direction.md`](./product-direction.md)
+a new artifact — it's a routing bug.** The repo's product direction
 already exists and already declares itself the winning source for current
 direction and settled decisions; most subsystems already have a canonical
 `docs/ai-context/<subsystem>.md`. Writing a direction means updating the
@@ -141,8 +149,9 @@ skip the step just because it's the "totalising" artifact type.
 **A direction is subject to the same public-disclosure check a plan is, before
 it is committed — not after.** A totalising end-state statement can itself
 contain unpatched-vulnerability details, an auth-bypass shape, or an
-abuse/fraud path, and unlike a plan-review PR (closed, unmerged, still public
-history but never on `main`), a direction that updates a canonical
+abuse/fraud path — and a direction is published where a plan now is not. A plan
+reviewed in-session is never committed and never pushed, so it has nothing to
+screen for publication; a direction that updates a canonical
 `docs/ai-context/` doc goes live on `main` directly. Run the canonical
 disclosure check —
 [`workstream-tracking.md`](./workstream-tracking.md#what-must-never-happen)'s
@@ -152,16 +161,37 @@ the same private/manual path a disclosure-carve-out workstream would.
 
 ### The increment test
 
-**A universal quantifier in the intent sentence means you're holding a
-direction, not a plan.** "All", "every", "everything", "any and all",
-"exclusively" — any of these, needed to say what the intent means, is the
-signal. Write or update the direction first (per the routing rule above), then
-cut the first increment out of it and plan that one. Don't narrow the
-requester's words to make the test pass — the totalising sentence stays intact
-in the direction, which is exactly where it belongs.
+**Establish what the increment makes true, what bounds it, and how completion
+will be recognised** (#124, 2026-09-18, replacing the categorical form below).
+Universal wording — "all", "every", "everything", "any and all", "exclusively" —
+can describe a bounded requirement holding across many affected paths, or an end
+state spanning several increments. **Determine which it describes; the wording
+alone does not decide.** Where the intent makes additional work belong merely
+because the eventual direction needs it, surface the boundary question before
+detailed planning: write or update the direction, then cut the first increment
+out of it. Don't narrow the requester's words to make a test pass — the
+totalising sentence stays intact in the direction, which is exactly where it
+belongs — and don't split work that is one coherent change merely because its
+sentence needed the word "every".
 
-**A *Phases* section that separates independently shippable pieces means each
-phase was probably its own plan.** The distinction is **independent
+**Why this replaced a categorical rule.** It used to read "a universal
+quantifier in the intent sentence *means* you're holding a direction", and the
+planning contract's scope assessment now says the opposite: phases, breadth and
+universal wording do not automatically require a split. A rule and its contract
+disagreeing on the entry path is worse than either, and the categorical form is
+the one that lost.
+
+**Attributed to the change rather than to David**, deliberately. He approved a
+planning contract that entails this, and never ruled on this wording — so a
+`(David, ...)` stamp here would put his name on a consequence someone else
+derived, which is exactly the kind of claim a later session cannot check and
+will not think to question. The rule stands on the contradiction above, not on
+whose initials are next to it.
+
+**A *Phases* section that separates independently shippable pieces is a reason
+to consider separate plans, not a verdict.** Assess whether separation reduces
+uncertainty, simplifies verification, or delivers useful outcomes sooner,
+against the dependencies and the cost of intermediate states. The distinction is **independent
 deliverability**, not the mere presence of ordered steps — a single increment
 can legitimately need an ordered migrate → rollout → verify sequence, and that
 is not a split signal. It's a split signal when a phase could ship, be
@@ -539,128 +569,108 @@ it is two mechanical things and one external judge.
 
 #### The write-gate rule: code written is code reviewed (David, 2026-08-22)
 
-**Every tier.** The adjudicator rules *before* code is written, not after it
-is pushed:
+**Every tier.** The judgement happens *before* code is written, not after it is
+pushed:
 
 1. A round returns findings.
-2. The adjudicator rules **write** or **stop**.
-3. **Write** → the fixes are pushed, and another review round is *automatic
-   and mandatory*. Back to 1.
-4. **Stop** → the loop ends there, on a head the last round already reviewed.
+2. The judgement is made per finding: on a code loop from two independent
+   assessments and the builder's own reading of them. (A planning loop is not
+   a review loop and this write gate does not govern it — see *Who judges*
+   below.)
+3. **Anything written** → the fixes are pushed, and another review round is
+   *automatic and mandatory*. Back to 1.
+4. **Nothing written** → the loop ends there, on a head the last round already
+   reviewed.
 
 Two invariants follow, and they are the reason for the shape: **no commit
 ever merges unreviewed**, and **a loop always terminates on a reviewed
 head**, because a stop precedes the existence of any new commit. The exit
-ramp from eternal looping is the judge refusing to write — never anyone
-skipping the review of something written.
+ramp from eternal looping is the judgement that nothing more is worth
+writing — never anyone skipping the review of something written.
 
 This supersedes the 2026-08-21 internal tier's ending, which deliberately
 stopped with the last fixes unreviewed and carried machinery to make that
-mergeable (a mid-budget terminal receipt, a distinct-commit proof, a rail
-look-through). All of it is deleted rather than repaired: it existed to make
-an unreviewed head safe, and an unreviewed head is now never mergeable. The
+mergeable. All of it is deleted rather than repaired: it existed to make an
+unreviewed head safe, and an unreviewed head is now never mergeable. The
 older "fix-round merge path" workarounds (David posting the trigger himself, <!-- retired-ok -->
 recutting the PR) stay retired for the same reason.
 
 **The cost, chosen rather than discovered:** fixing even a typo costs a full
-round. So the adjudicator's question is not "another round?" but **"is this
-finding worth writing code for at all?"** — and on internal tooling most are
-not.
+round. So the question is not "another round?" but **"is acting on this finding
+worthwhile?"** — answered by [`review-judgment.md`](review-judgment.md), which
+is the only statement of it and sets no target rate in either direction.
 
-#### Internal tooling: the strict rubric
+#### There is no budget any more (#89 cut, 2026-09-16)
 
-Guards, `scripts/`, skills, agent contracts (`CLAUDE.md`, `AGENTS.md`, these
-docs), process documentation and documentation harvests run the loop above
-with the `internal` tier:
+**Who judges.** On a **code** loop (#96, David 2026-09-17) **Astra and a Fable
+assessor advise independently and the builder decides from both**, investigating
+disputed facts itself; a purely technical disagreement that survives is the
+Fable assessor's to settle, and intended behaviour or an accepted user-facing
+shortfall is David's. Neither assessment binds, and neither substitutes for his
+answer.
 
-- **A clean automatic pass is the whole ceremony.** Round 1 fires on PR
-  open; finding nothing, it needs no budget, no receipts, no adjudication —
-  the merge receipt accepts an automatic pass covering the head.
-- **Findings go to the adjudicator**, which decides whether they are worth
-  writing for, under the internal rubric in `review-loop-adjudicator.md`:
-  write only for a **very high chance of a critical flaw** — a destructive
-  or irreversible action, corruption of the receipt/tracking machinery, a
-  widening of agent authority. Ordinary correctness nits, prose and
-  structure ship with gaps recorded.
-- **Budget 3, the same two-tier tripwire as every tier** (David, 2026-08-26,
-  superseding straight-to-David-at-3): the adjudicator's grants self-serve
-  to at most round 6, where the David gate stands.
+On a **planning** loop (David, 2026-09-18) there is no triage to perform,
+because there are no tiers to triage into: Astra and the builder are peers
+reading one contract, Astra returns Markdown, and **the builder states the next
+action explicitly** rather than deriving it from an assessment. A purely
+technical disagreement that survives investigation and discussion is the
+builder's to settle, with the reasoning recorded where it stays readable. The
+plan reaches David for approval, which nothing else substitutes for. Until that
+date the reviewer performed a required/recommended split in a schema field and
+the loop stopped on it; that verdict-driven design is what the redesign
+replaced.
 
-What the 2026-08-20 decision got right survives in the rubric, not in
+**What went, and what nothing replaced.** A declared per-PR round budget, its
+committed receipts, extension grants and their arithmetic, a round-count
+cache, a merge-readiness receipt, a translation-delivery gate, and the
+adjudicator that ruled from round 3. Measured across PR #91's ten rounds, not
+one of them changed a decision. **Termination is a judgement rather than a
+count**, and a loop that can conclude on the evidence needs no counter; the thing
+budgets were compensating for was a builder writing code for every finding
+because the decline was a paragraph it had to compose.
+
+**The tiers survive, and since 2026-09-17 they name what is downstream rather
+than how strictly to read a finding.** `product`, `sensitive`
+(auth/payments/migrations) and `internal` (guards, `scripts/`, skills, agent
+contracts, process documentation, documentation harvests) each say who or what
+bears the consequence, and nothing more. They set no threshold and select no
+rubric — that sentence said both things at once until round 4 of #120 caught
+it. The `internal` tier's old rubric
+wrote only for "a very high chance of a critical flaw" and declined everything
+else; that is a decline quota and it is retired with the fix quota it was built
+to correct. What the tier still supplies is the thing no rule can derive: with
+no money or data downstream, an internal consequence is weighed by its effect
+on David's ability to direct agents and understand results, recurring
+reversible disruption included.
+
+What the 2026-08-20 decision got right survives in that weighting, not in
 refusing review: every runaway loop this repo measured was internal tooling
-reviewed at product rigor (PR #488 ran 22 rounds on a ~10-line guard
-change; then #503, #526, #531, #534, #539), so the strictness lives in the
-write decision, sized to a class of artifact whose failure mode is
-wrongly-blocking and whose real protection is GitHub's server-side ruleset.
-One triage pass and one-line declines still govern engagement.
+reviewed at product rigor (PR #488 ran 22 rounds on a ~10-line guard change;
+then #503, #526, #531, #534, #539, and #91's ten), so the strictness lives in
+the write decision, sized to a class of artifact whose failure mode is
+wrongly-blocking and whose real protection is GitHub's server-side rulesets.
+Engagement stays one pass and a proportionate reply, never a form that makes
+declining harder to write than fixing.
 
 **Codex review of product code is unaffected and is not negotiable.** It is
 the safety net a non-code-reading product manager depends on.
 
-#### Product loops: a declared budget, then an external judge
+#### What still bounds a loop
 
-- **The budget is declared before round 1** — `product` (5 rounds) or
-  `sensitive` (5 rounds; auth/payments/migrations) — and enforced by
-  `scripts/review-budget.mjs`, which refuses the `@codex review` post when the
-  loop is out of rounds. Rounds are **counted fresh from GitHub every time**,
-  never stored: a committed tally is a cache of state GitHub already holds, and
-  it failed exactly that way when it was tried.
-- **From round 3 onward, the external adjudicator rules on any round that
-  returned findings — before anything is written for them** (David,
-  2026-08-22, superseding the 2026-08-20 beyond-the-first cadence). Rounds
-  1–2 findings are triaged and written for by default: the loop ledger's 41
-  reviewed loops contain zero clean round 1s and three round-2 convergences,
-  so a judge there only ever says "write", and round 3 heads the measured
-  runaway tail (26 of 41 loops ran 4+ rounds) — the one place a dispatch
-  changes outcomes. A clean or all-declined round at any point ends the loop
-  with no dispatch: nothing was written, so the head is already reviewed.
-  The judge's only input is the script-generated mechanical record
-  (`scripts/review-loop-record.mjs`), never the loop's own prose and never a
-  case for continuing written by the agent driving it. It returns continue /
-  stop / split-to-David, and **its verdict decides** — the agent does not
-  weigh it or adopt part of it.
-- **At exhaustion the adjudicator owns the extension, including its size**,
-  naming the specific unaddressed behavioral risk it covers. ("The last
-  round's fixes are unreviewed" is no longer that risk: under the write-gate
-  rule the round reviewing any pushed fixes has already run before the judge
-  is asked.)
-- **The David gate stands at budget + 3, on every tier** (David, 2026-08-26,
-  superseding the 2x-budget hard stop and sensitive's mandatory stop at 5).
-  Adjudicator grants self-serve at most that 3-round leash. At the gate a
-  fresh Fable adjudication runs and its verdict goes to David as a 🛑 — his
-  call on the recommendation — instead of taking effect on its own; his
-  answer is the committed `david`-kind receipt (a grant opens exactly those
-  rounds, default another 3-round leash with the gate repeating where it
-  runs out; 0 endorses stopping; every finite grant carries `asOf`, the
-  completed-round count when he granted, and opens exactly `asOf + grant` —
-  so a direct mid-stage grant discards the interrupted stage's unspent
-  remainder rather than stacking under his rounds, and a direct stop cites
-  its own mechanical record so the merge gate stays satisfiable). The gate
-  exists because pure judgment,
-  however well-positioned, is what failed to bound #488 — every round there
-  was locally rational.
-- **A product decision skips the leash entirely.** A product-shaped blocker —
-  the adjudicator's `escalate`, or the loop's own recognition that a finding
-  is product-not-mechanical — goes to David immediately, at any round.
-- **A mechanical round is the loop's own to grant, once** (David, 2026-09-07).
-  When the head has moved only by bookkeeping — receipts, records, machinery
-  configuration, a merge of the base branch — with no finding being written
-  for and no review or verdict pending, the loop does not ask. Under budget it
-  simply requests the pass. Only when the allowance is exhausted does it commit
-  a `david`-kind receipt granting two rounds from the completed count, citing
-  that standing authorization, then request the pass so the pass covers the
-  receipt — because an anchored receipt resets the allowance to its own anchor,
-  so writing one mid-budget would *shrink* the loop rather than extend it. The
-  second round is headroom for the gate arithmetic, not one to spend.
+- **A clean automatic pass on PR-open is the whole ceremony** for an internal
+  PR. Finding nothing, it needs no judge: nothing was written, so the head is
+  already reviewed.
 - **No re-request without a behavioral change since the last reviewed commit.**
-  A skill file, `CLAUDE.md`, or a context contract counts as behavioral, because
-  in this repo those change what agents do. **The mechanical round above is the
-  one exception**, and it is the only one.
+  A skill file, `CLAUDE.md`, or a context contract counts as behavioral,
+  because in this repo those change what agents do.
 - **Every review request carries pre-registered flip conditions** — what
   finding, what count, what change of shape would end the loop, written before
-  the round runs. This is the only judgment-shaped device with a working record
-  (6-for-6), and it works because a condition written in advance collides with
-  an event instead of waiting to be recalled.
+  the round runs, **each naming an observable read off the round rather than a
+  judgement made in the moment**. This is the only stopping device with a
+  working record (6-for-6), and it works because a condition written in
+  advance collides with an event instead of waiting to be recalled.
+- **A product decision goes to David immediately**, at any round, and is never
+  ground through mechanically.
 
 ### Findings are triaged against the artifact's real risk
 
@@ -737,40 +747,85 @@ decisions, the explicit scope boundaries (what is already decided to be
 **That agreement is the loop's authority to run autonomously to
 convergence** — it replaces the retired per-round check-in (below) as
 David's control point at the front of the loop, paired with explicit plan
-approval at the back. The corollary is the escalation rule: anything that
-would *change* the agreed scope of work — a mid-loop scope addition, a
-split, a product/design fork — is outside the loop's authority and goes to
-David, however the loop is otherwise pacing itself. (Claude's enactment of
-the gate's mechanics lives in the `plan-review-loop` skill; the SOW's
-content is the same material the plan-review PR body template already
-carries, agreed *before* the loop starts instead of discovered during it.)
+approval at the back. **The agreed scope of work is also the review oracle
+itself** — it is handed to the reviewer verbatim, every round, as the thing the
+plan is checked against. The corollary is the escalation rule: anything that
+would *change* the agreed scope of work — a mid-loop scope addition, a split, a
+change to intended behaviour, or a user-facing shortfall being knowingly
+accepted — is outside the loop's authority and goes to David, however the loop
+is otherwise pacing itself. (Claude's enactment of the gate's mechanics lives in
+the `plan-review-loop` skill.)
 
-### The post-round adjudication
+**A purely technical design fork is not one of them** (2026-09-18). Two
+approaches serving the same agreed behaviour, scope and explicit constraints are
+the loop's to settle — through investigation and discussion, and if the
+disagreement survives both, by the builder, with the reasoning recorded. This
+list used to name "a product/design fork", which a technical fork also satisfies,
+so an agent could read the escalation rule as negating the tie-break the same
+redesign grants and send David a question the loop was built to keep off his
+desk. **What does not become negotiable is a constraint David required
+explicitly**: a requirement does not stop being his because it happens to be
+about technology. (The code review loop's own escalation list, under *The
+post-round judgement* below, still names a product or design fork and is correct
+as written. **It is not that the code loop lacks a technical tie-break** — *Who
+judges* above gives a surviving purely technical disagreement to the Fable
+assessor there, and `claude-core.md` rule 4 says so on `main`. This parenthesis
+claimed the opposite for one round, which is this very paragraph's warning
+happening to the paragraph itself: added at #124 round 7 to stop an escalation
+rule negating the planning tie-break, it negated the code loop's in the same
+breath. Corrected at round 9 `4049773956`.)
+
+**The scope gate now carries a second opinion (David, 2026-09-09).** Before the
+plan is written, the reviewer is given the oracle alone and asked whether the
+thing should exist and whether the boundary is in the right place. David sees
+its answer beside the driving agent's before he says go. It is the cheapest
+place in the system to catch "we are about to build the wrong thing", and it
+costs one round against a document a page long.
+
+### The post-round judgement
 
 Every substantive round pauses before any fix is implemented: triage first
-(nature, affected area, verdict, and whether the finding is new ground,
-repairing an earlier round's fix, or impossible as specified), then the
-external adjudicator above decides continue or stop. The agent driving the loop
-does not make that call for itself — self-policing is precisely what the
-0-for-15 record measured.
+(nature, affected area, verdict, and whether the finding sits in code an
+earlier fix in this loop already changed), then the judgement is made per
+finding — on a code loop from two independent assessments the builder weighs but
+did not write. (A planning loop has no round to judge in this sense; *Who
+judges* above says what happens there instead.) The agent driving a code loop
+does not make that call alone:
+self-policing is precisely what the 0-for-15 record measured, and
+eleven-for-eleven on #91 measured it again after the worth rule was written.
 
-What still stops the loop for David, whatever the adjudicator says: a genuine
-product or design fork, a scope addition, a split, or a disclosure question.
+What still stops the loop for David, whatever the assessors say: a genuine
+product or design fork, a scope addition, a split, a disclosure question, and
+any change to intended behaviour or knowingly accepted user-facing shortfall.
 
-A round with **no findings** — or whose findings are all reasoned declines,
-so nothing gets written — needs no adjudication: the loop ends on the head
-that round reviewed. Note one status line so the discipline stays visible.
+A round with **no findings** needs no dispatch: there is nothing to assess,
+and the loop ends on the head that round reviewed.
 
-**Trivial nits no longer skip the judge** (David, 2026-08-22, the write-gate
-rule). Before round 3 they are simply fixed like any finding, and from round
-3 onward writing for them is the decision the judge exists to make: under
-this rule a typo fix costs a full mandatory review round, so "it's only a
-nit" is precisely the trade the loop must not settle for itself.
+**A round that did return findings is dispatched, whatever those findings look
+like** (David, 2026-09-18). The exemption here used to extend to a round "whose
+findings are all reasoned declines, so nothing gets written", which was
+coherent while a dispatch produced a binding verdict — a round that wrote
+nothing needed no verdict. Under two advisory assessments it is circular: a
+reasoned decline is what the assessments *produce*, so reading one's own guess
+that the findings will all be declined as grounds for skipping the assessments
+ends the round on the builder's judgement alone. That is the exact behaviour
+the shared judgement replaces. Note one status line either way, so the
+discipline stays visible.
+
+**Trivial nits do not skip the judgement** (David, 2026-08-22, the write-gate
+rule). Writing for them is exactly the decision it exists to make: under this
+rule a typo fix costs a full mandatory review round, so "it's only a nit" is
+precisely the trade the loop must not settle for itself — in either direction,
+since the same arithmetic that forbids skipping the judgement is what makes an
+unworthy fix expensive.
 
 **Scope: every review loop** — plan review and code review, feature and bugfix,
 whichever agent is driving it. Plan-review loops take the tier of what they are
 planning: a plan for product code is a product loop, because a wrong plan
-becomes wrong code.
+becomes wrong code. The tier names what is downstream; it is neither a
+threshold nor a number of rounds.
+
+**Plan approval is David's alone**, whatever a code loop does.
 
 
 ## Bugfix mode (routed or declared, one bug per PR, tiered by what the fix touches)
@@ -860,8 +915,8 @@ persisted state — and none of that is knowable until the cause is found.
 
 So: **diagnose first, then classify, then fix.** **Check Tier C first** (below)
 — **any** of its triggers (a behavior/product change; any *database* schema,
-migration, or backfill work — not the `lib/api-zod` Zod schemas, which are a
-Q1 trigger, not this one; a design flaw rather than a defect; needing a new
+migration, or backfill work — not generated API-validation schemas, which are
+a Q1 trigger, not this one; a design flaw rather than a defect; needing a new
 abstraction; needing an external vendor) is Tier C regardless of whether the
 change also trips a Q1/Q2 item; those triggers only decide Tier A vs. Tier B
 *within* work that's already confirmed to be a bug fix, not before. Once Tier
@@ -871,13 +926,13 @@ Tier B.** With this list, Tier A is the exception — that is intended, not a
 mis-calibration.
 
 **Q1 — Where does the fix land?** Any of these subsystems → **Tier B**:
-payments / auth / permissions / security headers; the tokenizer, grammar, or
-`render-fact`; the visual pipeline (planner, compiler, render policy, Visual
-Concept); the async job queue, worker lanes, or any enqueue helper; enrichment or
-moderation source-of-truth (`facts.*`, `resolveEnrichment`, override layers);
-`lib/api-zod/` or `lib/api-spec/` (the codegen allowlist trap — these are
-generated Zod *API-validation* schemas, distinct from Tier C's *database*
-schema trigger below; a fix confined to them is Q1 Tier B, not Tier C); dev-infra and
+payments / auth / permissions / security headers; the async job queue, worker
+lanes, or any enqueue helper; **generated API-validation schemas** (the codegen
+allowlist trap — these are distinct from Tier C's *database* schema trigger
+below; a fix confined to them is Q1 Tier B, not Tier C); **any subsystem this
+repo's overlay marks sensitive** — a product's own rendering pipeline, its
+source-of-truth layers, its domain engines; the overlay is where those are
+named, because only that repo knows them; dev-infra and
 build tooling (Vite/esbuild config, the dev supervisor, retry/reload paths, CI
 workflows).
 
@@ -964,9 +1019,9 @@ mode** (plan + David's approval).
 **A *database* schema change, migration, or backfill is Tier C without
 exception** — there is no size or scope of database schema change that stays
 on bugfix mode's fast path. **"Schema" here means the persisted database
-schema** (Drizzle/`lib/db`, migrations, table structure) — not the generated
-Zod API-validation schemas under `lib/api-zod`/`lib/api-spec`, which are Q1's
-own explicit Tier B trigger (the codegen allowlist trap); a fix confined to
+schema** (migrations, table structure) — not **generated API-validation
+schemas**, which are Q1's own explicit Tier B trigger (the codegen allowlist
+trap); a fix confined to
 those stays Q1/Q2-governed, not Tier C, unless it *also* changes the database
 schema, which puts it here on that separate basis. It always runs
 [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)'s
@@ -1082,12 +1137,18 @@ The feature oracle's fields map onto a Tier A/B fix directly:
 | Must not change | **Must not change** — the adjacent behaviors sharing this path |
 | Settled decisions | **Root cause** — the mechanism, in one or two lines |
 
-Plus **Blast radius** (from step 5) and the **fix tier with its reason** —
-**required for Tier A as much as Tier B.** A is the classification reviewers
-most need to be able to challenge, so "A (contained)" alone is not enough:
-name the Q1/Q2 items you checked and ruled out, not just the ones that would
-have fired. A bare tier letter with no reasoning is a mis-tiering risk
-whether or not the letter turns out to be right.
+Plus **Blast radius** (from step 5), and the fix tier — which is now two
+things in two places. The **letter** is `fix_tier` in the body's declared
+`plan-provenance` block ([`plan-provenance.md`](plan-provenance.md)); the
+**reason** is `**Tier rationale:**`, a required prose field. The split is
+deliberate: a letter is what a machine selects on, a reason is what a reviewer
+argues with, and folding the second into the first is how the reason nearly
+disappeared when the letter moved. It is **required for Tier A as much as Tier
+B.** A is the classification reviewers most need to be able to challenge, so
+"A (contained)" alone is not enough: name the Q1/Q2 items you checked and
+ruled out, not just the ones that would have fired. A bare tier letter with no
+reasoning is a mis-tiering risk whether or not the letter turns out to be
+right.
 
 This is cheap to write and it is what lets a reviewer ask the two questions that
 matter most on a fix: *is this the root cause or a symptom-level patch?* and *did
@@ -1155,7 +1216,7 @@ bugfix path — routed, `/bugfix`-forced, or prefix-declared — if it looks lik
 **building or changing product functionality** (a feature, a behavior
 change), or diagnosis reveals **any *database* schema change, migration, or
 backfill** (Tier C without exception, regardless of product consequence —
-not the `lib/api-zod` Zod schemas, which stay Q1 Tier B — see *Tier C*
+not generated API-validation schemas, which stay Q1 Tier B — see *Tier C*
 above), **do not silently treat it as a fix** — **ask** whether it should
 take the feature workflow, or (for a genuinely trivial database schema fix)
 proceed straight to migration ceremony per Tier C. Guessing wrong is
@@ -1167,7 +1228,7 @@ confirm costs one question.
 
 Features, behavior changes, **any *database* schema change, migration, or
 backfill** (Tier C without exception — see above; not gated on product
-consequence; not the `lib/api-zod` Zod schemas, which stay Q1 Tier B), or
+consequence; not generated API-validation schemas, which stay Q1 Tier B), or
 anything where David needs to verify intent — that's **feature mode**, or for a
 trivial database schema fix, migration ceremony run directly per Tier C. Don't
 use bugfix mode to sneak a feature through the lightweight path. **And a

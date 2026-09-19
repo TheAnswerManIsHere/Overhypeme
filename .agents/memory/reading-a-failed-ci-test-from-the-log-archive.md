@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Finding which test actually failed in CI — and why the obvious route is blocked
 
 **The problem.** `mcp__github__get_job_logs` returns the **tail** of a job's
@@ -15,18 +17,19 @@ archive (`actions_get` → `get_workflow_run_logs_url`, then download + `grep -r
 "not ok [0-9]* - "`) does contain it, and the signed
 `results-receiver.actions.githubusercontent.com` URL is a blob host rather than
 `api.github.com`. But downloading it needs `curl`/`wget`, and
-`scripts/guard-decision.mjs` **refuses those categorically** — no exception for
+The handbook's former shell guard **refused those categorically** — no exception for
 argument shape or host (see `github-rest-api-blocked-from-bash.md`). Do not
 plan around this by reaching for the fetch anyway.
 
 **What to do instead, in order:**
 
-1. **A repo script is unaffected** — the guard refuses a directly-typed `curl`,
-   not a script that runs one internally. If this recurs, the right fix is a
-   small committed script that fetches and greps a run's archive. That does not
-   exist yet.
-2. **Otherwise ask David**, which is what the guard's own refusal text says to
-   do when an ad-hoc fetch is genuinely needed.
+1. **A repo script is no better off.** The shell guard that used to refuse a
+   directly-typed `curl` is gone (#89 cut), but nothing changed for this note:
+   the refusal was never what blocked the fetch — **the agent proxy is**, and it
+   answers a script's `curl` exactly as it answers a typed one. If this recurs,
+   the right fix is still a small committed script, and it still needs a
+   transport that works. That does not exist yet.
+2. **Otherwise ask David** when an ad-hoc fetch is genuinely needed.
 
 **Before concluding "unrelated flake": trace imports, don't grep the file.**
 A zero direct-reference count proves nothing. Most integration tests here import

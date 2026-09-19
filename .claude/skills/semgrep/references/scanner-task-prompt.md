@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Scanner Subagent Task Prompt
 
 Use this prompt template when spawning scanner Tasks in Step 4. Use `subagent_type: semgrep-scanner`.

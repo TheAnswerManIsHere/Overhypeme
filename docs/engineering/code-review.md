@@ -1,6 +1,8 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Code Review Guide
 
-> A consistent checklist for reviewing Overhype.me changes (Codex, Claude, or
+> A consistent checklist for reviewing changes in any repo governed by this
 > human). Priorities match the root [`AGENTS.md`](../../AGENTS.md).
 >
 > **Status language depends on the delivery surface** (see
@@ -18,7 +20,7 @@ A code diff can be internally sound — well-tested, correctly implemented,
 sensibly scoped — and still be the wrong PR, because it quietly narrowed or
 dropped part of what David actually approved. Reviewing the diff against
 itself can't catch that; it needs an oracle outside the diff, same principle
-as the [plan-review contract](../ai-context/plan-review-contract.md#the-review-oracle-the-pr-body).
+as the [planning contract](../ai-context/planning-contract.md#2-turn-agreed-intent-into-an-executable-plan).
 
 For a PR built from a David-approved plan, the PR body's **Approved-plan
 oracle** section (see the
@@ -40,14 +42,48 @@ stated intent while violating its direction is exactly the "internally sound,
 quietly wrong" shape this oracle exists to catch. Missing Direction on a PR
 whose plan cited one is itself a finding.
 
-The oracle also carries **Approved-plan source** — the exact final revision
-those words came from (plan-review PR + final plan commit sha, or the plan
-filename + content hash on the private/manual path), plus the date David
-approved it. In a multi-round plan review, an oracle pasted from an earlier
-revision is a plausible failure and an invisible one: the PR looks correctly
-oracled while the code is checked against a plan David never approved. A
-missing source, or one that names only a title or a mutable branch, is itself
-a finding — the oracle can't be trusted until it's pinned.
+The oracle's provenance is a **declared `plan-provenance` block**, not a
+sentence — the exact final revision those words came from (plan-review PR +
+final plan commit sha, or the plan filename + content hash on the
+private/manual path), plus the date David approved it, as named keys
+([`plan-provenance.md`](../ai-context/plan-provenance.md)). In a multi-round
+plan review, an oracle pasted from an earlier revision is a plausible failure
+and an invisible one: the PR looks correctly oracled while the code is checked
+against a plan David never approved. Provenance that names only a title or a
+mutable branch is itself a finding — the oracle can't be trusted until it's
+pinned.
+
+**A body with no block is not a finding.** The legacy prose form still
+resolves, deliberately. A prose-selected oracle is the same oracle read a more
+fragile way, not weaker evidence. Reporting its absence would manufacture a
+finding on every PR written before this shipped and force a migration nothing
+asked for.
+
+**NOTHING VALIDATES THE BLOCK BEFORE IT REACHES YOU ANY MORE** (#89 cut,
+2026-09-16). This paragraph used to say the parser refused a malformed block by
+key name, so the only class that could reach you was a well-formed block whose
+values are false. That was true while `review-loop-record.mjs` read every PR
+body to build the adjudicator's record; the cut removed that script and with it
+the only runtime reader. The parser itself survives at
+`core/scripts/plan-provenance.mjs`, but its only caller is a test that compares
+the producer documents against it — **no code reads a PR body.**
+
+So the shape check is yours too, and it is cheap: the block opens with `kind`,
+its key set is exactly what that kind requires, and every key is one the format
+defines. A block that is **present but misspelled, malformed, or missing a key
+its `kind` requires** is now a finding, where before it was refused upstream.
+**"Missing" here means a missing key inside a block that is there** — a body
+carrying no block at all is still not a finding, per the legacy-prose paragraph
+above, and the two are easy to run together. `docs/ai-context/plan-provenance.md` is the
+format's only statement; read the keys from there rather than from memory.
+
+Everything below is unchanged, and is what was always yours: the block checks
+shapes, not truth, so every key's *value* is auditable by you alone.
+Cross-check, as applicable: the sha against the plan-review PR's final commit;
+the PR number, or each number in a split loop; the approval date; and that the
+combined branch is the one carrying that commit. A block can be perfectly
+formed and name the wrong approval, and those keys exist precisely to make the
+approval auditable.
 
 **On the private/manual path, "pinned" is as far as an independent reviewer
 can verify — and that's accepted, not a gap to close.** That path exists
@@ -74,14 +110,22 @@ over a falsely-ambiguous space*).
 
 So a bugfix PR carries its own oracle in the same body section — see
 [`working-modes.md`](../ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry).
-**This field list is for a Tier A/B PR**: **Fix tier**, **Reported symptom**
-(David's words, verbatim), **Intended correct behavior**, **Must not change**,
-**Root cause**, **Blast radius**. A Tier C PR (the trivial-schema-fix exception
-below) uses a **different**, dedicated oracle block — symptom, root cause, why
-it's trivial, David's go-ahead, the migration-ceremony checklist — with no
-*Intended correct behavior*, *Must not change*, or *Blast radius* fields; don't
-flag a correctly filled Tier C block as incomplete for lacking Tier A/B fields
-it was never meant to carry. Review the diff against whichever block applies,
+**The tier letter is not a prose field.** It is `fix_tier` in the body's
+declared block ([`plan-provenance.md`](../ai-context/plan-provenance.md)), and
+a body carrying both that key and a legacy `Fix tier:` line is refused. What
+stays in prose is the **reason** for the letter — **Tier rationale**, required
+for A, B and C alike — because that is the half a reviewer argues with.
+
+**This field list is for a Tier A/B PR**: **Tier rationale**, **Reported
+symptom** (David's words, verbatim), **Intended correct behavior**, **Must not
+change**, **Root cause**, **Blast radius**. A Tier C PR (the
+trivial-schema-fix exception below) uses a **different**, dedicated oracle
+block — **Tier rationale**, symptom, root cause, why it's trivial, David's
+go-ahead, the migration-ceremony checklist — with no *Intended correct
+behavior*, *Must not change*, or *Blast radius* fields; don't flag a correctly
+filled Tier C block as incomplete for lacking Tier A/B fields it was never
+meant to carry, and don't flag a declared body as incomplete for lacking the
+`Fix tier:` line the block replaced. Review the diff against whichever block applies,
 and specifically ask:
 
 - **Is this the root cause or a symptom-level patch?** Does the fix address the
@@ -107,7 +151,7 @@ and specifically ask:
 - **Is the tier right? Check Tier C first, then A vs. B.** The most
   consequential mis-tier is a PR labeled A or B that is actually **Tier C** —
   **any** of: a behavior/product change; any *database* schema, migration, or
-  backfill work (not the generated `lib/api-zod` Zod schemas, which are Q1's
+  backfill work (not generated API-validation schemas, which are Q1's
   own Tier B trigger); a design flaw rather than a defect; needing a new
   abstraction; or needing an external vendor (see
   [`working-modes.md`](../ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode))
@@ -128,9 +172,9 @@ and specifically ask:
   under-verified — flag the mis-tier, not just its consequences. Check
   **both** halves of the A/B checklist in
   [`working-modes.md`](../ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake):
-  the **subsystem** the fix lands in (payments/auth, tokenizer/grammar, the
-  visual pipeline, the async queue, enrichment/moderation, `lib/api-zod`,
-  dev-infra) as much as the fix's **shape** (shared code, a changed
+  the **subsystem** the fix lands in (payments/auth, the async queue,
+  generated API-validation schemas, dev-infra, and whatever the overlay marks
+  sensitive) as much as the fix's **shape** (shared code, a changed
   predicate/default, concurrency or async state, persisted data, a
   generalized fix, a shaky diagnosis, a previously untested path) — a leaf
   edit in a Tier B subsystem is Tier B even if none of the shape triggers
@@ -176,10 +220,11 @@ cost more than the defects they describe. This is the *depth* rule. The
 *continuation* rule is the internal tier (David, 2026-08-21, superseding
 the 2026-08-20 no-rounds carve-out): a clean automatic pass is the whole
 ceremony, but when the pass finds a real defect the pushed fixes are
-re-reviewed under the internal tier, with the external adjudicator's strict
-rubric deciding continuation on a 3-round budget under the standard
-two-tier tripwire (a self-serve leash to round 6, the David gate at 6 —
-David, 2026-08-26) — see
+re-reviewed under the internal tier, which says what is downstream rather than
+setting a threshold — there is no round budget and no leash, the tier's old
+"only a critical flaw is written for" rubric is retired as a decline quota, and
+the external adjudicator that used to rule went with the #89 cut (2026-09-16)
+and was replaced by two advisory assessments per round (#96) — see
 [`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)'s
 internal-tier section. The retired fix-round merge-path workarounds no
 longer apply.
@@ -219,11 +264,10 @@ mattered. The full reasoning is in
 
 ## Repository fit
 
-- Does it follow existing patterns (generated API hooks on the frontend, Drizzle
-  schema conventions, the async job queue, the engines catalogue)?
-- Does it reuse the right shared module rather than reimplementing (e.g.
-  `resolveEnrichment`, `render-fact`, `compileForSubjectRenderMode`,
-  `useTaxonomyHealthActions`)?
+- Does it follow this repo's existing patterns — its generated API hooks, its
+  schema conventions, its job queue, its domain catalogues?
+- Does it reuse the right shared module rather than reimplementing one? The
+  overlay names the shared modules a reviewer should know.
 
 ## Security & validation
 
@@ -309,8 +353,8 @@ What to take from it, as a reviewer or an author:
 ## Re-reviews (round 2 onward)
 
 A code review is a loop too: you review, the author pushes fixes, you review
-again. The plan-review contract's
-[*Re-reviews*](../ai-context/plan-review-contract.md#re-reviews-round-2-onward)
+again. The planning contract's
+[*Revise, discuss, and converge*](../ai-context/planning-contract.md#6-revise-discuss-and-converge)
 section is the plan-side analog of this one; these are the code-side
 invariants, and they are the engineering standard regardless of which agent is
 reviewing:
@@ -441,10 +485,10 @@ is equally one-directional.
 
 **Avoid:** construct the counter-example for the opposite direction *before*
 shipping the sentence, and prefer a **measured matrix to a comparative
-adjective** whenever the behaviour has more than one axis. `.claude/guard.sh`
-now carries a six-row block/allow table precisely because two successive
-adjectives were tried and both were false; a table has no direction to get
-backwards.
+adjective** whenever the behaviour has more than one axis. The git-constraints
+section of `claude-core.md` carries a block/allow table precisely because two
+successive adjectives were tried on the guard it then described and both were
+false; a table has no direction to get backwards, and it survived the guard.
 
 **The cheap test that would have caught all three:** ask *what would make the
 opposite true, and can I run it?* Each was falsifiable in under a minute —
@@ -547,9 +591,10 @@ sentence was not precise enough.
 **PR #504 is the worked example: five definitions of one boundary failed in
 sequence**, each refuted by a concrete counter-example, while the behaviour
 underneath never changed. The enumeration and what each attempt got wrong are
-in `CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* — not
-repeated here, since the instance belongs to that contract and only the
-generalization belongs in shared review practice.
+in `CLAUDE.md`'s *Model, cost, and routing*, under the rule that an
+unclassified judgement does not dispatch — not repeated here, since the
+instance belongs to that contract and only the generalization belongs in shared
+review practice.
 
 **What actually ended it was two things arriving together, and neither was a
 better sentence:** an owner resolving what a dispatched verdict is *worth*,
@@ -580,9 +625,11 @@ sees the sequence before the author admits it is one.
 
 ## Review output format
 
-**Two delivery surfaces exist; they don't support the same shape** — same split
-as the [plan-review contract's *Output*](../ai-context/plan-review-contract.md#output),
-adapted for a code diff instead of a markdown plan. Names for the two, used
+**Two delivery surfaces exist; they don't support the same shape.** This split
+is the code side's own. It used to be described as shared with the plan-review
+contract, which had the same two surfaces; the 2026-09-18 planning redesign left
+the plan side with one prose surface and no status label, so there is no longer a
+twin to point at. Nothing about the code surfaces changed. Names for the two, used
 throughout this doc: a **full assessment** (one complete document, with a
 status label) and a **structured defect pass** (diff-anchored findings only, no
 status label). Naming them is terminology, not permission to weaken either —
@@ -600,7 +647,8 @@ deciding them.
 
 ### Structured defect pass — GitHub structured review (the `@codex review` transport)
 
-Same confirmed limitation as the plan-review contract: this surface has no
+A confirmed limitation of this transport, and the code side's own to carry now
+that the planning contract describes a single prose surface: this surface has no
 freestanding top-level write-up, only diff-anchored inline findings, and no
 status-label or ledger channel. Don't ask this surface for the full-document
 shape above — it can't post it. Each finding is its own inline comment,
@@ -611,5 +659,5 @@ this is stronger evidence than on a plan (compiling, passing tests, and CI back
 it up), so — unlike the plan contract — silence here is a real, sufficient
 result, not a transport limitation to work around.
 
-(The `overhype-plan-review` skill defines the full plan-review format; this
+(The product's plan-review skill defines the full plan-review format; this
 section is the code-review analog.)

@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 ## GitHub Actions runs silently not starting can be a status.github.com outage, not a quota/billing problem
 
 Diagnosing "workflow checks aren't running" (PR #334, 2026-08-06): pushes

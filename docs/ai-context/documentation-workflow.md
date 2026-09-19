@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Documentation workflow — the `/document` end-of-feature ceremony
 
 > **Shared, cross-agent contract.** Claude Code and Codex both follow this.
@@ -9,9 +11,10 @@ When a feature is done, the durable learnings from building it — decisions
 and their *why*, gotchas, the new shape of a subsystem — should be locked
 into the repo's versioned docs before the chat that holds them evaporates.
 This is that ceremony. It turns the standing "memory lives in files" habit
-into an explicit fold-in pass, and it is how the human-facing
-[Overhype.me Manual](../manual/README.md) gets written, incrementally, one
-area at a time.
+into an explicit fold-in pass, and where a repo keeps a human-facing Manual
+(`docs/manual/`) it is how that Manual gets written, incrementally, one area
+at a time. A repo without one skips the Manual step; the harvest into
+`docs/ai-context/` and `.agents/memory/` is the part that always runs.
 
 **When it runs (David, 2026-08-20 — superseding the per-merge trigger):**
 **batched at `/maintenance`**, one pass covering every product feature merged
@@ -136,21 +139,21 @@ other mention links to it.
 | Settled decision + why | [`decisions.md`](./decisions.md) — append-only, newest first, its **date · title — Decision / Why / Reference / Revisit if** format |
 | Product-level failure pattern / retired mistake | [`known-failure-patterns.md`](./known-failure-patterns.md) |
 | Engineering/repo gotcha (build, tests, codegen, env) | A note in `.agents/memory/` **plus** its one-line entry in `.agents/memory/MEMORY.md` |
-| New term of art | [`glossary.md`](./glossary.md) |
-| Shipped slice / new open question | [`current-roadmap.md`](./current-roadmap.md) (move shipped work to "recently merged"; trim per its header) |
+| New term of art | the repo's glossary |
+| Shipped slice / new open question | the repo's roadmap (move shipped work to "recently merged"; trim per its header) |
 | Engineering practice changed (testing, migrations, review) | The matching `docs/engineering/` doc |
 | A brand-new context doc was created | Add it to [`AGENTS.md`](../../AGENTS.md) routing |
-| How the area works + why, for humans | The area's chapter in [`docs/manual/`](../manual/README.md) (Step 3) |
+| How the area works + why, for humans | The area's chapter in the repo's Manual, where it keeps one (Step 3) |
 
 Worked routing examples:
 
 | Example learning | Where it goes |
 | --- | --- |
 | "The Visual Concept is now the authoritative scene." | `decisions.md` (the decision + why) **+** `visual-pipeline.md` (the spec); the manual chapter links both |
-| "Never hand-edit the generated admin field reference." | Link to [`ADMIN_FIELD_REFERENCE.md`](../ADMIN_FIELD_REFERENCE.md); no restatement anywhere |
+| "Never hand-edit a generated reference." | Link to the generated document itself; no restatement anywhere |
 | "A command failed because the test DB was missing." | `.agents/memory/` **only if it recurs / generalizes**; a one-off run detail is not durable |
-| "We coined the term 'candidate concept'." | `glossary.md` |
-| "We want a manual-chapter backfill, but later." | `current-roadmap.md` deferred work |
+| "We coined a new term of art." | the repo's glossary |
+| "We want a manual-chapter backfill, but later." | the repo's roadmap, deferred work |
 
 **Edit the existing docs in place** — extend and correct them so they describe
 *current* truth. Do **not** append "learnings from PR #N" journal sections; the
@@ -159,7 +162,7 @@ chronology lives in `decisions.md` and git history.
 ## Step 3 — Update the manual chapter (only when it clears the quality bar)
 
 The manual is human-facing narrative — what an area does, how it behaves, and
-**why it's built that way** — governed by [`docs/manual/README.md`](../manual/README.md)
+**why it's built that way** — governed by the Manual's own README, where the repo keeps one
 (audience, tone, chapter template, TOC). Follow that charter.
 
 **Quality bar — no empty chapters.** Create a chapter *only* when there is
@@ -169,7 +172,7 @@ the relevant ai-context / decision / roadmap / memory doc (or an existing
 chapter) — it does **not** spawn a skeletal chapter with headings and no
 substance. When a real chapter is added, add it to the README's TOC in the
 same commit. **Link, don't fork:** deep spec stays in `docs/ai-context/` and
-generated references stay generated ([`ADMIN_FIELD_REFERENCE.md`](../ADMIN_FIELD_REFERENCE.md));
+generated references stay generated;
 the chapter links to them.
 
 ## Step 4 — Cross-check before committing
@@ -236,8 +239,9 @@ separation aids review). Placement:
   commit rides the maintenance docs PR alongside that week's
   `deferred-work.md` updates; it is an internal artifact, so it gets the
   automatic Codex pass and one triage — and, when that pass finds something
-  and fixes are pushed, the internal review tier (declare, re-request,
-  strict adjudication; David 2026-08-21) rather than an unreviewed merge. **No
+  and fixes are pushed, the internal review tier (re-request, and the shared
+  judgement deciding whether anything is written; David 2026-08-21, the
+  judgement reshaped 2026-09-17) rather than an unreviewed merge. **No
   per-feature harvest sub-issues**: the tracking is the harvest-notes comments
   already sitting on each feature's workstream issue, plus the maintenance
   report naming what was harvested. (The per-harvest sub-issue machinery below

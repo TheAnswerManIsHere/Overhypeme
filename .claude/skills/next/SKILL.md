@@ -3,6 +3,8 @@ name: next
 description: Answer "given where we are in our development lifecycle, what is the next thing we should be doing?" — the prioritized recommendation across all work, not one session's state. Use when David says /next, "what's next", "what should I work on", or has just finished something and needs the next task. Ranks work closest to done ahead of new starts, follows Blocked-by chains so an interrupted UAT is never lost, and names which candidates can safely run in parallel sessions. For "where does THIS session stand" use /status; for "what needs me across everything" use /status-all.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # /next — what should we work on now
 
 Three skills, three questions. Don't confuse them:
@@ -240,9 +242,9 @@ it, before concluding the queue is empty.
 Once it genuinely is empty, the question becomes **what should we build
 next**, and this is a real recommendation, not a menu:
 
-1. Read [`product-direction.md`](../../../docs/ai-context/product-direction.md)
-   and [`current-roadmap.md`](../../../docs/ai-context/current-roadmap.md) —
-   near-term slices, pre-launch hardening, open product questions.
+1. Read the repo's **product direction** and **roadmap** — the overlay names
+   them — for near-term slices, pre-launch hardening, and open product
+   questions.
 2. **Weight pre-launch hardening heavily.** The roadmap's own framing is
    that we're moving from prototype to production-ready; an item marked
    must-do-before-go-live outranks a new capability by default.

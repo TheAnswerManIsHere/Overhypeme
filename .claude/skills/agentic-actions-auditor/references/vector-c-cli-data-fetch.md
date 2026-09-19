@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector C: CLI Data Fetch
 
 The prompt instructs the AI agent to fetch attacker-controlled content at runtime using `gh` CLI commands. The prompt itself may contain no dangerous expressions or env vars with attacker data, but the AI is directed to pull attacker content from GitHub at execution time. This vector is invisible to static YAML analysis because the data fetch happens inside the AI agent's execution environment -- the workflow YAML looks clean.

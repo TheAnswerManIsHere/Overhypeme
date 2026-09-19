@@ -1,0 +1,24 @@
+# Dispatch receipts, and every one of them is EVIDENCE rather than a decision.
+#
+# One file describes one dispatch at one moment: which role ran, on which
+# model, against which head, and what it answered. It is worthless once the
+# moment passes and re-derivable by dispatching again, so it is session-local
+# and never repo history.
+#
+# THE COMMITTED HALF IS GONE (#89 cut, 2026-09-16). This directory used to
+# hold two kinds, split by that line: evidence ignored here, and DECISIONS --
+# review-loop budgets and their extension grants -- committed beside them so a
+# spent allowance survived the container. Budgets, extensions, round counts and
+# readiness receipts were all removed with the accounting machinery that read
+# them. Nothing in this directory is committed now, which is why the patterns
+# below are a single glob rather than the named-shape list they replace.
+#
+# Named by prefix rather than ignoring the directory outright, so this README
+# and this file stay tracked: git cannot re-include a file whose parent
+# directory is excluded, and written that way the negations read correctly and
+# do nothing.
+#
+# This lives in the directory it governs rather than in the repo root so that
+# it is an ordinary synced file — one copy in the handbook, carried to every
+# consumer. Patterns are relative to this directory.
+fable-*.json

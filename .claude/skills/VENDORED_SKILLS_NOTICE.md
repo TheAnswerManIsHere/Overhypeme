@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vendored / externally-installed skills
 
 Claude Code on the web doesn't support `/plugin` marketplace commands, so

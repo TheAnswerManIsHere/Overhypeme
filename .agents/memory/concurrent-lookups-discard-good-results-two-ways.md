@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Two ways a concurrent lookup pair throws away a result you already had
 
 When two independent lookups feed separate consumers, there are two distinct

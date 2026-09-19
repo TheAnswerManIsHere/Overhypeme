@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Workstream tracking — the board, the labels, and who updates what
 
 > **Shared, cross-agent contract.** Codex sees `Workstream: #N` in PR bodies
@@ -12,9 +14,9 @@
 David runs ~10 concurrent sessions and cannot tell where any of them stand,
 or which need him, without opening each one. This closes that gap using
 GitHub's own project management rather than a bespoke tracker: **one issue
-per workstream**, a private Project board
-([Overhype.me Workstreams](https://github.com/users/TheAnswerManIsHere/projects/1))
-for visual scanning, and a `/status-all` skill for the judgment the board can't
+per workstream**, a private Project board for visual scanning (each repo's
+board is named in its own `CLAUDE.md` overlay; the sync workflow takes it as
+`PROJECT_OWNER`/`PROJECT_NUMBER` rather than hardcoding one), and a `/status-all` skill for the judgment the board can't
 compute on its own (stall detection, plain-language restatement of what a
 David-gate is actually asking).
 
@@ -35,8 +37,8 @@ CI is green, the reviewer has converged, and every thread is resolved — see
 CLAUDE.md's close-out contract), and the **scope-of-work gate** was added
 the same day at the front of Planning (see
 [`working-modes.md`](./working-modes.md#the-scope-of-work-gate-david-2026-08-15)).
-The one exception that still holds Merge as a David-gate: a PR that widens
-the agent's own guardrails or authority, which stays David-merge-only.
+The last exception — a PR that widens the agent's own guardrails or
+authority — was retired on 2026-09-14; nothing holds Merge as a David-gate.
 **Known interim mismatch:** the Project board's verbatim Status option is
 still named `🛑 Merge` (the sync script maps labels onto the board's exact
 option names, and renaming an option is a board-config edit only David can
@@ -44,7 +46,7 @@ make, paired with a `sync-project-fields.mjs` + fixture code change) — so
 until that follow-up lands, ordinary self-merged workstreams passing
 through `stage:merge` briefly display the stop glyph on the board without
 meaning "needs David." The label semantics in this doc are the truth;
-`waiting:david` is what actually marks the carve-out case.
+`waiting:david` no longer occurs at Merge at all.
 
 ## Phased features: a parent issue, one sub-issue per phase
 
@@ -175,7 +177,7 @@ decided, what we explicitly ruled out. That's the half a roadmap bullet
 loses, and the half that makes an item resumable cold months later.
 
 **This does not replace the two prose backlogs.**
-[`current-roadmap.md`](./current-roadmap.md) stays the product narrative and
+the repo's roadmap stays the product narrative and
 [`deferred-work.md`](../engineering/deferred-work.md) stays the engineering
 one. A backlog issue is what gets created when something in either becomes
 a *specific, actionable unit of work* — not a mirror of every line in them.
@@ -341,7 +343,7 @@ work it's already doing — not as a separate reminder to go check the board:
 
 | Skill | Owns |
 | --- | --- |
-| `plan-review-loop` | `waiting` toggling `claude`/`codex` each review round; `stage:plan-approval` + `waiting:david` at convergence/close-out |
+| `plan-review-loop` | `waiting:claude` for the whole loop — a planning exchange is a local process the builder waits on, so there is no `waiting:codex` state; `stage:plan-approval` + `waiting:david` at the approval ask |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
 | `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
@@ -353,7 +355,7 @@ work it's already doing — not as a separate reminder to go check the board:
 | Moment | Who | What happens |
 | --- | --- | --- |
 | David approves a phased plan | `plan-review-loop` | Writes the **Phases checklist** into the parent issue, every phase listed, all `not yet opened`. Never opens a phase itself — its lifecycle ends at this approval handoff and doesn't run again for phase 2 onward. |
-| A phase starts (every phase, including the first) | `overhype-implementation` | Opens that phase's sub-issue with its own full label set, links it under the parent, updates the checklist line from `not yet opened` to the issue number — this is the one place phase-opening lives, so phase 1 and phase 8 work the same way |
+| A phase starts (every phase, including the first) | the product implementation skill | Opens that phase's sub-issue with its own full label set, links it under the parent, updates the checklist line from `not yet opened` to the issue number — this is the one place phase-opening lives, so phase 1 and phase 8 work the same way |
 | A phase's PR is under active review (each `waiting:` toggle) | `pr-watch` | Mirrors the same toggle onto the **parent's** `waiting:`, in the same edit — a phased parent's `waiting:` tracks whoever holds the *active* phase at every step, not just at close-out |
 | A phase's PR closes out | `pr-watch` | Ticks that phase's checkbox in the parent, and re-points the parent's `waiting:` at the next phase (`waiting:claude` if the next phase hasn't opened) |
 | The last phase closes out | `pr-watch` | Moves the **parent** straight to `stage:close-out` — per-phase UAT already covered verification, so there is no separate whole-feature UAT gate to enter |

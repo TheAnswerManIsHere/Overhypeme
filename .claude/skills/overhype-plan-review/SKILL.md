@@ -1,77 +1,84 @@
 ---
 name: overhype-plan-review
-description: Review a software-development plan (usually Claude Code's) for Overhype.me on David's behalf. Use when David asks to review, critique, improve, sanity-check, or give feedback on a plan. Produces prioritized feedback + a markdown review using review-status labels — never approval language (only David approves). Inspects repo context before finalizing; stops and says "repo context required" if it can't.
+description: The Overhype.me lens on a plan review. Use when David asks to review, critique, improve, sanity-check, or give feedback on a plan for this repo. It does not review anything itself — it supplies the product context the shared planning loop needs (what this repo's plans usually get wrong, which subsystems raise the stakes, what to read before judging) and hands that to `plan-review-loop`.
 ---
 
-# Overhype plan review
+# Overhype plan review — the product lens
 
-> **Thin enactment.** The review *substance* — non-negotiables, priority order,
-> required checks, the failure-pattern watchlist, external-claims handling,
-> status labels, finding structure — is the single canonical contract in
-> [`docs/ai-context/plan-review-contract.md`](../../../docs/ai-context/plan-review-contract.md),
-> shared with Codex (on the automated draft-PR loop) and ChatGPT (manual
-> upload). Apply that contract in full. This file adds only the delivery
-> mechanics specific to reviewing inside Claude Code — same relationship as the
-> `bugfix` skill ↔ `working-modes.md`. If the two ever disagree, the shared
-> contract wins and this file gets fixed.
+> **This skill reviews nothing.** Planning runs in one place for this repo: the
+> shared loop in [`plan-review-loop`](../plan-review-loop/SKILL.md), against the
+> contract at
+> [`docs/ai-context/planning-contract.md`](../../../docs/ai-context/planning-contract.md).
+> What this file adds is the part that loop cannot know: what a plan for
+> *Overhype.me* has to get right.
 
-Review an Overhype.me implementation plan and give David an independent, technical
-opinion, per the shared contract. **Assume the plan is from Claude Code** unless
-David says otherwise.
+**Why it is not a second reviewer.** It used to be — a standalone procedure with
+its own status labels and a twenty-heading report, enacting a
+`plan-review-contract.md` that the handbook cutover retired. The shared contract
+supplies the roles, the output and the tie-break through the dispatch, and it
+tells a reader who arrives without a role block to stop. A second procedure
+beside it would be two live instructions for one job, and either could fire.
 
-## Output
+## What to do
 
-This is the contract's **full-document delivery** surface (see the contract's
-*Output* section) — I'm posting one document, not diff-anchored GitHub review
-comments, so the full skeleton applies without the constraints that bind the
-Codex GitHub transport:
+**Invoke `plan-review-loop`**, and carry the three things below into its scope
+exchange as the emphasis and the reading list. Everything else — how exchanges
+run, who holds the plan, what happens to a disagreement, how David approves —
+is the shared loop's, unchanged.
 
-```markdown
-# Plan Review: <Plan Title>
+`overhype-implementation` names this skill as the step before it. That is still
+correct: this is how a plan for this repo gets reviewed. It is the route, not
+the destination.
 
-## Review Status
-<one status label — no approval language>
-## Lens Applied This Round
-<the angle attacked from — round 2 onward>
+## 1. Read before judging
 
-## Context Checked
-- Repository files inspected:
-- External docs / searches run:
-- Product clarifications needed from David before plan revision:
+A plan is judged against the repo, not against itself. At minimum:
 
-## Executive Summary
+- [`AGENTS.md`](../../../AGENTS.md) and [`.agents/PLANS.md`](../../../.agents/PLANS.md).
+- [`docs/ai-context/overlay-declarations.md`](../../../docs/ai-context/overlay-declarations.md)
+  — the sensitive subsystems, the schema modules, the async reference panel and
+  the shared modules a reviewer should know.
+- [`docs/ai-context/decisions.md`](../../../docs/ai-context/decisions.md) — a plan
+  that re-opens a settled decision needs to say so.
+- [`docs/ai-context/known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)
+  — what has already been paid for here.
+- The subsystem docs the plan touches, and the product direction it serves.
 
-## What Is Strong in the Plan
+**If the repository cannot be inspected, say "repo context required" and stop.**
+A plan review that never read the code is an opinion about a document.
 
-## Required Plan Revisions
+## 2. Where the stakes are higher
 
-## Strong Disagreements or Glaring Mistakes
+A plan landing in any subsystem `overlay-declarations.md` marks **sensitive**
+carries the specialist review as well, and its plan is held to more: the
+irreversibility, the migration and backfill shape, and what a subtly-wrong
+result would look like before anyone noticed.
 
-## Product Decisions for David
+**The source-of-truth question is this repo's recurring one.** `facts.*` versus
+the versions table, the Visual Concept as the authoritative scene, the
+render-time plan as the prompt source of truth. A plan that creates a second
+place claiming to define one concept is the failure this repo has hit most.
 
-## Recommended Improvements
+## 3. What Overhype plans get wrong
 
-## Verified Claims
-<what was checked against the repo, and how — not just the conclusion>
+Carried from what the old procedure was actually catching, and worth naming in
+the exchange rather than rediscovering:
 
-## Unable to Verify
-<repo-resolvable (still mine to close) vs. not observable from the repo>
+- **A plan that is really a direction.** A universal quantifier in the intent
+  sentence — "all", "every", "exclusively" — means the boundary is wrong: write
+  or update the direction, then cut the first increment from it.
+- **Enqueue treated as completion.** Async work is done when its *terminal*
+  state says so. See
+  [`docs/ai-context/async-ui-status.md`](../../../docs/ai-context/async-ui-status.md).
+- **A generated file edited by hand.** `lib/api-zod/src/index.ts` is rewritten
+  from the allowlist in `lib/api-spec/patch-generated.mjs`; an edit to it
+  survives until the next codegen run and no longer.
+- **Permission enforced in the client.** Server-side, always.
+- **A migration plan that edits an already-merged migration.** Forward-only.
 
-## Previous Findings          (round 2 onward)
-Resolved / Still Open / Superseded — never "Resolved" on wording alone
+---
 
-## Implementation Sequencing Guidance
-
-## Testing Requirements
-
-## Production Impact Note
-
-## Safe to Defer / Future Considerations
-
-## Required Response from Claude
-Claude should revise the plan to address the required revisions above and ask David
-for approval before implementation. Claude should not begin implementation from the
-current plan until David explicitly approves the revised plan.
-```
-
-Escalate design/architecture/trade-off calls to David — don't decide them yourself.
+**Product decisions stay David's.** A plan that changes intended behaviour, the
+agreed scope, or an accepted user-facing consequence goes to him as a numbered
+question — never absorbed into a revision, and never decided by this skill or
+the loop it feeds.

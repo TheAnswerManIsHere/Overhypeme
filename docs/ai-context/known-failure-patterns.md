@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Known Failure Patterns
 
 > Mistakes AI agents have repeatedly made (or nearly made) on Overhype.me. Each
@@ -7,6 +9,13 @@
 > pattern below; this one has been missed more than once because it doesn't
 > "feel" like visual-pipeline/enrichment/moderation/migration work, but it is
 > exactly this class of gotcha). Anchored IDs are linked from other docs.
+>
+> **A backticked path here is a claim that the file is really there, and CI
+> checks it** (`scripts/check-docs-accuracy.mjs`). So a path that no longer
+> exists is written **without backticks**, and said to be retired. That keeps
+> the check switched on for the many live paths below — the ones an entry sends
+> you to go and read — rather than switching it off for the file to accommodate
+> the few historical ones.
 
 Format per pattern: **what it looks like → why it's dangerous → how to avoid →
 Overhype example.**
@@ -99,7 +108,7 @@ the Runtime Compiled Prompt preview and production both go through
 hardcoding different names ("David" vs "David Franklin"); standardized on
 `RUNTIME_PREVIEW_DEFAULT_NAME`. (Residual prose difference is **temperature 0.4**,
 not caching — don't misdiagnose it.) See
-[`visual-pipeline.md`](./visual-pipeline.md#admin-previewdebug-surfaces-runtime-compiled-prompt).
+`visual-pipeline.md`.
 
 ## Human override overwrite
 
@@ -112,7 +121,7 @@ preserves overrides; bulk jobs skip admin-edited rows unless explicitly forced.
 (path-keyed) merged by `resolveEnrichment()`; `runEnrichmentForFact` is "sticky";
 `factEnrichmentBackfillJob` skips admin-edited rows unless
 `forceOverwriteAdminEdited`. See
-[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#re-enrichment-safety).
+`taxonomy-and-enrichment.md`.
 
 ## Raw AI context injected into the final prompt
 
@@ -139,7 +148,7 @@ like a broad, mysterious cascade (dozens of unrelated suites failing at load,
 including ones that pass in isolation), not an export problem. Earlier green runs
 were on a stale build that still had the export. **Root cause:** codegen OWNS
 `api-zod/src/index.ts` — it rewrites the file from the allowlist in
-[`lib/api-spec/patch-generated.mjs`](../../lib/api-spec/patch-generated.mjs)
+`lib/api-spec/patch-generated.mjs`
 (`apiZodIndexLines`). A hand-edit to `index.ts` is not a source of truth; the
 allowlist is. **The real fix:** add the new module to the `apiZodIndexLines`
 array in `patch-generated.mjs`, then run codegen and confirm the export survives
@@ -168,7 +177,7 @@ work and looks like a cascade of broken tests, not a one-line miss.
 **Now automated (2026-07-23, PR #236):** a doc reminder didn't stop this from
 recurring once already (PR #228), so the mechanical check above is no longer
 opt-in. CI's `Build` job runs `pnpm run check:codegen-drift`
-([`scripts/check-codegen-drift.sh`](../../scripts/check-codegen-drift.sh)) on
+(`scripts/check-codegen-drift.sh`) on
 every PR, which reruns codegen and fails the merge on any resulting drift —
 same command works locally. **One correctness detail if you ever touch that
 guard:** it checks `git status --porcelain -- lib/`, not
@@ -448,7 +457,7 @@ set (which the Stale-for-reprocess card's own docs note can be "nearly the
 whole corpus," especially after a "Mark major update" bump) in one call —
 caught by Codex review on PR #205, not by the original tests (which only
 exercised small id sets). See
-[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#known-failure-modes).
+`taxonomy-and-enrichment.md`.
 
 ## Dedupe key coalesces two distinct intents
 
@@ -469,7 +478,7 @@ force-enqueues `review_render_scenarios_prepare` with **no** key and guards the
 `concept_review → production_review` advance with a compare-and-set — two
 concurrent approvals yield exactly one force batch. Re-prep/regenerate is blocked
 while `visual_concept_status = "pending"` for the same reason. See
-[`moderation-workflow.md`](./moderation-workflow.md) and the PR #179 decision in
+`moderation-workflow.md` and the PR #179 decision in
 [`decisions.md`](./decisions.md).
 
 ## Repairing state on a caught async error races the thing it's repairing
@@ -506,7 +515,7 @@ next input. **Avoid:** fix the mechanism and add a test that asserts the
 `autoConjugatePersonSubjectVerbs` net solves the *general* "person-subject verb
 must agree" rule (not just "They keeps"), with a narrow anchor so it never
 mis-wraps non-person subjects ("Sharks have …"), plus idempotency tests. See
-[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#regression-examples-must-stay-green).
+`token-rendering-and-grammar.md`.
 
 ### When the mechanism cannot be fixed either: abandon the layer
 
@@ -555,15 +564,16 @@ the one direction this module must never move in.
   being inspected is not there.
 
 **Avoid:** refuse the whole class instead of judging instances of it. #488's
-decision module (`scripts/guard-decision.mjs`) refuses `curl` and `wget` with
+decision module (scripts/guard-decision.mjs, since retired — #94) refused
+`curl` and `wget` with
 no argument-shape exception, because that is the only version that is complete
 by construction. Accept and **write down** the residual gaps rather than
 closing them one at a time.
 
 **Scoped to the module deliberately, and this sentence is itself an instance of
-the pattern below.** The refusal lives in `guard-decision.mjs`, which
-`.claude/guard.sh` runs *only when `node` is available*; the node-less fallback
-has no fetcher alternative and lets a `curl` payload through. An earlier
+the pattern below.** The refusal lived in that decision module, which
+.claude/guard.sh ran *only when `node` was available*; the node-less fallback
+had no fetcher alternative and let a `curl` payload through. An earlier
 version of this paragraph said the guard "refuses `curl` and `wget` outright"
 with no qualifier — a blanket claim about a wrapper that does no such thing,
 written in the entry warning against exactly that. It survived a repo-wide
@@ -600,7 +610,7 @@ complementary `{NAME}`-subject *collapse*
 (`collapseNameSubjectConjugationPairs`) safely reaches further because it only
 removes an existing pair, bounded by clause/brace/punctuation stops — it never
 creates a new wrap. See
-[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#the-core-conjugation-invariant).
+`token-rendering-and-grammar.md`.
 
 ## Uniform default over a falsely-ambiguous space
 
@@ -625,7 +635,7 @@ assumed-ambiguous set was actually uniform. Fixed with
 `HAS_ONLY_FOLLOWING_WORDS`, a small next-word peek that resolves the
 unambiguous subset before falling back to the copula for truly ambiguous words
 (e.g. "done"). See
-[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#retiring-theys).
+`token-rendering-and-grammar.md`.
 
 ## Migration/backfill blind spots
 
@@ -696,7 +706,7 @@ hardcoding the pronoun instead of resolving it per-render. Caught by a Codex
 review before merge (PR #206); fixed by also requiring no plain subject
 pronoun, mirroring the check the sibling `hasNoLikelySubjectReference`
 predicate already had. See
-[`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206).
+`token-rendering-and-grammar.md`.
 
 ## Self-retriggering recovery with no bounded exit
 
@@ -744,7 +754,7 @@ surface to maintain and break, slower to launch, harder to review. **Avoid:** ma
 the **smallest coherent change** that satisfies the approved plan; defer
 speculative generality. **Overhype:** pre-launch priorities are stability + content
 quality — new external vendors and new abstractions need a strong reason and
-David's sign-off (see [`product-direction.md`](./product-direction.md)).
+David's sign-off (see `product-direction.md`).
 
 ## Security classification by URL path instead of resolved authorization
 
@@ -763,7 +773,7 @@ input. **Overhype:** cross-origin CORP is set in `setPublicCors()`
 (`cacheHeaders.ts`), called *only* on confirmed-public responses; private
 responses call `setNoStore` and stay `same-origin`. The style preview key goes
 through `safeStylePreviewKey()`. See
-[`security-model.md`](./security-model.md#http-security-headers-c5) (C5/C9).
+`security-model.md` (C5/C9).
 
 ## Trusting self-set mutable metadata as a security assertion across a deploy
 
@@ -779,7 +789,7 @@ Session line items), not the flag you wrote. **Overhype:** the one-time
 membership grant reads `session.line_items[].price.product` and ignores the
 `membership=true` PI stamp our own checkout set, closing the window where a
 legacy pre-allowlist session mints Legendary after deploy. See
-[`security-model.md`](./security-model.md#payment-trust--membership-grants-c6) (C6).
+`security-model.md` (C6).
 
 ## Head-of-line blocking in a shared background worker
 
@@ -804,12 +814,12 @@ drained all 9 queues through one loop; a pure-DB admin action (Taxonomy Health
 sit in "Queued…" for 30s+ behind unrelated LLM/image-gen or bulk-backfill work.
 Fixed in PR #216 by splitting into `fast` / `render` / `bulk` lanes — see
 [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes)
-and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
+and `architecture-map.md`.
 
 A related engineering gotcha surfaced while fixing this — defaulting a new
 lane-specific config knob to a fresh literal instead of the old shared knob's
 resolved value — is in
-[`.agents/memory/env-knob-split-preserve-legacy-default.md`](../../.agents/memory/env-knob-split-preserve-legacy-default.md).
+`.agents/memory/env-knob-split-preserve-legacy-default.md`.
 
 **A related but distinct lesson from the same claim-then-dispatch shape,
 caught during NCMEC phase 3 review (PR #349, known gap G15, not yet built):**
@@ -881,7 +891,7 @@ source for that input. **Overhype:**
   disagreed. Fixed by `prepareImagePromptAttemptInputs()` freezing a
   `PromptIdentitySnapshot` + `ResolvedRenderStyleSnapshot` once and rendering
   the fact text from that same identity (PR #223). See
-  [`visual-pipeline.md`](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility).
+  `visual-pipeline.md`.
 - The Queue Health surface's `abandoned_no_retry` classification re-resolved
   a queue's retry ceiling from **current** `admin_config` at read time for
   any row still carrying the `0` sentinel (the common case — no per-row
@@ -917,7 +927,7 @@ required-content overflow now surfaces `diagnostics.requiredBudgetOverflow`
 and the async worker fails terminal (`required_budget_overflow`) instead of
 shipping a truncated prompt; save-time validation (below) makes new
 over-budget content essentially unreachable. See
-[`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget).
+`visual-pipeline.md`.
 
 ## Predicting a downstream system's output by summing raw component inputs
 
@@ -945,7 +955,7 @@ overflow at render. Caught by Codex mid-review (PR #224); fixed by
 `measureModeratorAdditionsEmission()`, which compiles the fixed shape twice
 (once with worst-case-projected content, once empty) and takes the delta, so
 every fixed cost cancels and only the true additions contribution remains. See
-[`visual-pipeline.md`](./visual-pipeline.md#render-time-prompt-budget).
+`visual-pipeline.md`.
 
 ## Not merged ≠ not disclosed (public-repo PR history)
 
@@ -1018,7 +1028,7 @@ prices whose product carries the membership allowlist tag before doing so.
 `/api/stripe/plans` returns **every** active product in the catalog (not just
 membership ones), and the grant layer (`/stripe/checkout`, the confirm
 endpoint, the webhook — see
-[`security-model.md`](./security-model.md#payment-trust--membership-grants-c6))
+`security-model.md`)
 already enforces `overhype_membership=true` as the sole gate; a display/
 selection surface that skips the same filter can advertise a future
 non-membership SKU (render credits, merch, tips) as a Legendary plan, which
@@ -1123,7 +1133,7 @@ at all (use `invoicePayments.list` as the reverse lookup instead); and
 `(subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end`
 and stored `null` on every refreshed entitlement source until PR #287's round
 9 review caught it. See
-[`membership-entitlements.md`](./membership-entitlements.md#the-trust-boundary--w1a).
+`membership-entitlements.md`.
 
 ## A sequence's `last_value` is not a commit-order watermark
 
@@ -1149,7 +1159,7 @@ user's sources, then compared each source's `source_state_as_of` against it —
 exactly the race above, confirmed independently by review. Replaced with
 `loadSourceStateVersions`, which snapshots each source's own version before and
 after. See
-[`membership-entitlements.md`](./membership-entitlements.md#the-admin-surfaces-are-entitlements-not-fake-payments-or-a-tier-field).
+`membership-entitlements.md`.
 
 ## A transaction alone doesn't give two reads one consistent snapshot
 
@@ -1537,7 +1547,7 @@ third, separate lane"), which round 6 caught as the same lane count restated
 as an ordinal instead of removed; the round-6 fix describes the split
 qualitatively with no number in any form, which is what a genuine fix looks
 like for this pattern — but that fix was never independently re-reviewed
-before merge (see [`loop-ledger.md`](../../.agents/metrics/loop-ledger.md)
+before merge (see `loop-ledger.md`
 row 22), so its correctness is this PR's own claim, not a confirmed close.
 Separately, the guard's own detection had to grow across rounds to
 cover markdown emphasis/links hiding a value from the regex, a hard-wrapped
@@ -1591,7 +1601,7 @@ cannot execute) the actor available to the migration cannot actually
 provide. David cut the scope after the concentration became visible: the
 migration now creates the objects and reports the residual state; closing
 the boundary moved to a superuser runbook
-([`docs/engineering/ncmec-audit-ledger-hardening.md`](../engineering/ncmec-audit-ledger-hardening.md)).
+(`docs/engineering/ncmec-audit-ledger-hardening.md`).
 The tell was available well before round 17 — a scope-vs-blast-radius check
 at round 5 or so, once "every fix targets the same reachability model,"
 would have caught it much earlier than a David-initiated review of the
@@ -1679,7 +1689,7 @@ rule, a protocol-level restriction — already covers the actual risk. Size
 the defense to the *realistic* threat model (an honest mistake) rather than
 a fully adversarial one, when the two genuinely differ, and say so out loud
 rather than quietly absorbing round after round. **Overhype:**
-`.claude/guard.sh` / `scripts/guard-decision.mjs` (PR #329) — Codex review
+.claude/guard.sh / scripts/guard-decision.mjs (both since retired — #94; PR #329) — Codex review
 rounds found 11, then 11, then 12, then 19 parser gaps (fixing 9, 11, 11, 0).
 The count of newly-found gaps never fell across four rounds, even as each
 round's fixes landed. David stopped the loop there
@@ -1689,8 +1699,8 @@ server-side ruleset on `main` (which needs no Bash parsing at all — it
 rejects the actual git protocol operation), not chased to full-coverage
 completeness. See the
 [2026-08-05 `decisions.md` entry](./decisions.md#2026-08-05--the-bash-guard-is-narrowed-to-make-the-lease-mandatory-then-review-loop-iteration-stops-after-round-4-widened-instead-of-narrowed)
-and `scripts/guard-decision.mjs`'s own `ROUND 4, AND THE DECISION TO STOP`
-docstring section.
+and scripts/guard-decision.mjs's own `ROUND 4, AND THE DECISION TO STOP`
+docstring section (the file was retired in #94; the reasoning survives here).
 
 ## A plan that grew during its own review
 
@@ -1718,9 +1728,11 @@ definition*: the document has no way to say "true, and next," only "true, so
 in." **Avoid:** separate **directions** (end states, reviewed once, never
 looped) from **plans** (one bounded increment, citing its direction), per
 [`working-modes.md`](./working-modes.md#directions-and-plans-are-different-artifacts-david-2026-08-11);
-apply the increment test *before* writing (universal quantifier ⇒ direction;
-a *Phases* section whose phases are independently shippable ⇒ each phase was
-a plan — an ordered migrate/rollout/verify sequence within one increment is
+apply the increment test *before* writing — which since 2026-09-18 asks what
+the increment makes true and what bounds it, rather than reading a verdict off
+the vocabulary. Universal wording and independently shippable phases are
+reasons to examine the boundary (an ordered migrate/rollout/verify sequence
+within one increment is
 not this signal); record the plan's line count
 at round 1 and state it every round; and frame mid-flight scope as **now vs.
 next**, defaulting to next.
@@ -1747,6 +1759,107 @@ whose criticality never justified the rounds. This one is about a loop whose
 subject is legitimate and whose *boundary* keeps moving. The distinction
 decides the fix: the other entry's is to cut the subject or stop the loop;
 this one's is to **split the artifact and keep going on the smaller half**.
+
+## Each round finds a defect in the previous round's fix
+
+**Looks like:** a code loop that never converges, where every finding is
+correct and every fix is sound, and the thing each new finding is about is the
+code the last round added. **Dangerous:** it reads as diligence from inside —
+the reviewer keeps finding real bugs, so stopping feels like shipping known
+defects — and the cost is invisible because no single round is wrong. The loop
+ends when someone runs out of patience rather than when the code is right.
+
+**The tell, recognised by hand:** a round has a finding whose lines sit inside
+the diff of the last commit pushed for a finding, and so did the round before
+it. The unit is the round, never the finding — a single round returning several
+such findings is one observation, not several.
+
+**That tell was written up as a mandatory stop rule and the attempt failed.
+Read the next section before reaching for it again.**
+
+**Root cause: a fix written to satisfy a finding is local by construction, and
+the code this happens in has no edge to be local to.** Guards, parsers,
+counters, checks — anything defending an input space that is not enumerable.
+Each patch closes the reported case and creates a new boundary; the next round
+finds *that* boundary, because it is the newest and least-considered code in
+the diff. Two rounds of this is not bad luck, it is the shape.
+
+**Avoid — the response is never a third patch.** This part holds, and it is
+guidance rather than a trigger. One of three, in order of preference:
+**remove the mechanism** (if what it guards is inconsequential,
+[`review-judgment.md`](review-judgment.md) already says delete it);
+**derive the value** rather than check it (its *understand the source* step — a
+check whose two sides the same code owns guards nothing); or **change the
+operation**, which
+is the move that actually ends these.
+
+### The stop rule written from this entry did not work (AI-Handbook #91)
+
+AI-Handbook #91 turned the tell above into review-loop rule 7 in
+`claude-core.md`: a mandatory stop, keyed to that observable. **David removed
+it on 2026-09-15, after seven rounds.** The attempt is recorded here rather
+than deleted, because the next person to have this idea should meet the
+evidence instead of repeating it.
+
+**Four correct reviewer findings against that one paragraph, in seven rounds**,
+each refining a boundary and exposing the next:
+
+1. The trigger fired on line overlap alone, forbidding an ordinary
+   second-round fix (round 1).
+2. A clause inferred unboundedness from untestability (round 3). **That
+   inference is simply wrong, and it is the most reusable thing here:
+   testability and unboundedness are different properties.** Correcting a
+   sentence of contract prose, or a behaviour only reachable through an
+   integration the test environment lacks, has no class-level failing test and
+   is perfectly well bounded. Stated unconditionally it condemned every fix in
+   the pull request that introduced it. Narrowing it to "mechanisms already
+   shown to be unbounded" was rejected too: that turns the trigger back into a
+   judgement.
+3. The headline counted findings while every other statement of the rule
+   counted rounds (round 4).
+4. The trigger compared against the **last** fix commit, but a round's fixes
+   can span several, so a finding landing in an earlier one recorded nothing
+   and the counter could stay at zero forever (round 7).
+
+**And the decisive fact, which no amount of rewording touched: the rule never
+once fired on that loop, by its own observable, while that loop exhibited this
+exact pattern throughout.** Checked at rounds 4, 5 and 7; negative every time.
+
+**The lesson is not "observables don't work."** AI-Handbook #85's finding
+stands — a condition you have to interpret is one you will reinterpret. The
+lesson is the question #85 did not ask and #91 paid seven rounds to learn:
+**an observable trigger also has to be REACHABLE on a real loop, and nothing
+in the process asks that.** A trigger can be perfectly unambiguous, perfectly
+read-off-the-record, and still never fire — because the state it names is
+narrower than the situation it was written for. Test a proposed trigger
+against loops that already happened before making it binding.
+
+**AI-Handbook, four instances inside one workstream (#36), plus the one that
+shows the cure.** PR #28: two of round 2's findings were defects round 1's
+fixes introduced, and one slipped through a sweep whose exclusion pattern
+whitelisted its own target. PR #80: three rounds, each finding a defect on one
+failure path, two of them introduced by the previous round's fix. The translation plan
+loop: rounds 2 and 3 each found a defect in text the previous round's fix had
+added. **PR #83 is the sharpest, and it is also the cure**: the loop-position
+round count took *five* attempts — a snapshot glob, a typed count, a named
+file, a pass history, and a high-water floor that then trailed by one forever
+after the first loss — each a correct fix for the last one's defect. What ended
+it was not a sixth patch but the recognition that **counting was the wrong
+operation**; recording which passes have ever been seen per commit, and summing,
+converged in one round. Overhype PR #329's Bash guard is the same shape without
+the cure (9 → 11 → 12 → 19 findings against an unbounded parsing surface), and
+PR #293's 17 rounds refining one reachability model is its severe end.
+
+**Not the same as *a plan that grew during its own review*** (above). There the
+artifact's boundary moves and the fix is to split it. Here the boundary is
+fixed and the *approach* is wrong, so splitting changes nothing — the same
+patch-and-repatch runs on each half. **#36's B2 delta review was declined on this entry's strength**
+(David, 2026-09-14) — the argument being that a role reading the inter-round
+delta detects this only after it has recurred, while an observable read off
+the round would catch it the first time, for free. **That argument no longer
+stands as stated**: the free catch was rule 7, and rule 7 did not catch
+anything. Whether B2 earns building now is open, and belongs to the machinery
+audit (#89) rather than to this entry.
 
 ## PostgreSQL role/constraint verification traps that look safe and aren't
 
@@ -2169,7 +2282,7 @@ calls the gate. The ordering variant appeared *inside the fix for that*:
 resolving the fallback eagerly in `checkBudget`'s argument list put a fallible
 `engines` read ahead of the admin exemption, refusing admins a check they are
 exempt from. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop;
-see also [`security-model.md`](./security-model.md)'s generation-spend section.
+see also `security-model.md`'s generation-spend section.
 
 ## A boot-time check written as a statement runs after every import, not before
 
@@ -2660,6 +2773,66 @@ the sibling failure at the opposite end — there the check under-trusted the
 authoritative source and kept a redundant local copy; here it over-trusts a
 local proxy for a property only the outside world can confirm.
 
+## An observable scoped to the mechanism you had in mind, not the harm you were watching for
+
+**Looks like:** you do the disciplined thing. You write the stopping condition as
+an observable rather than a judgement, exactly as the rule demands. Or you scope
+a decline to a class rather than to the reviewer's example, exactly as the other
+rule demands. Then the thing you were guarding against happens in a form your
+words do not cover, and the guard sits there not firing while being, on its own
+terms, correctly evaluated.
+
+**These are one failure in two layers.** A fix scoped to the example and a flip
+condition scoped to the example are the same error — the words name the shape
+that was in your head, and the shape that arrives is a sibling of it. The
+observable rule and the class rule both survive intact; what neither of them
+supplies is the step where you ask *what is the harm, and what else produces it?*
+
+**The worked examples, all from AI-Handbook #124.** Three flip conditions in one
+pull request had their wording and their intent pull apart:
+
+- **Round 2.** *"Three or more findings landing on the corrections themselves"* —
+  counted two mechanically, and a defensible stricter reading counted three. Both
+  readings happened to agree the batch was sound, so nothing turned on it. Luck.
+- **Round 4.** *"Any finding that the new check can pass while the thing it checks
+  is broken"* — satisfied by **every check that has ever been written**, since a
+  stated-limits paragraph is a list of exactly that. A condition satisfied by
+  everything selects nothing, and it fired on a coverage gap it was not aimed at.
+- **Round 5.** *"Any finding that an **assessment** which should be allowed is now
+  refused"* — the thing refused was a *scope exchange*. The intent covered it
+  plainly; one noun kept it from tripping. Its instruction was "go to David",
+  which is where the question went anyway — again by luck, not by drafting.
+
+And the same error one layer down, in the same pull request: a fix that gave
+Claude's package record its own path stopped one role overwriting the other's,
+and left the *default* role overwriting it — because the fix was scoped to the
+role in the finding rather than to the mechanism. That was written one round
+after the builder recorded the class-not-example rule against himself.
+
+**Avoid:**
+
+1. **Write the observable, and write the harm beside it, in the same sentence.**
+   "Three or more findings on lines this batch wrote — the signal being that the
+   batch itself went wrong." The observable still decides; the harm is what tells
+   you, at evaluation time, whether you are looking at the thing you meant.
+2. **Before writing either kind of scope, name one sibling.** Not an exhaustive
+   enumeration — one. If the condition or the fix does not cover the sibling, the
+   wording is scoped to your example. The three cases above all had an obvious
+   sibling: findings on a correction's *missed twin*, a check that covers one
+   *layout*, an exchange that is not an *assessment*.
+3. **When the two disagree, that disagreement is the finding.** Record it, fix
+   the wording, and do not take whichever reading is more convenient. Three times
+   in one pull request the destination survived a bad reading by luck; that is
+   not a record to build on.
+4. **Have someone else evaluate it.** Every one of these was surfaced by an
+   independent assessor or a translator reading the same words, never by the
+   person who wrote them. The author of a condition is its worst reader.
+
+**Related:** *A guard that encodes the shape that occurred, and calls it a class*
+above is this same error in code rather than in prose, and *A decline scoped to
+the reviewer's example instead of the finding's class* below is its third face.
+The fact that it has three entries in this file is itself the finding.
+
 ## Building a second validator beside an existing one re-derives its gaps, not its answers
 
 **Looks like:** the repo already has a script that reads some external system,
@@ -2668,8 +2841,8 @@ a neighbouring decision, so you write it — reusing the obviously-shared helper
 and writing fresh everything else. Review then finds, one at a time, the
 defects the first script had already found and fixed years or weeks ago.
 
-**The worked example.** `scripts/review-budget.mjs` (PR #503) and
-`scripts/pr-ready.mjs` (PR #490) were built within days of each other, both
+**The worked example.** scripts/review-budget.mjs (PR #503) and
+scripts/pr-ready.mjs (PR #490) — both since retired in the #89 cut — were built within days of each other, both
 gating an action on a captured `pull_request_read` snapshot. Review of the
 second independently re-found: **snapshots must be bound to the repository, not
 just the PR number** (every repo has a #503); **receipt freshness must measure
@@ -2693,3 +2866,45 @@ it, or write down why it doesn't apply here. That is a ten-minute read against
 a review round per omission. If the two are close enough, extract the
 validation itself rather than the counting, which is the half that was actually
 hard-won.
+
+## A decline scoped to the reviewer's example instead of the finding's class
+
+**The pattern.** Triage weighs a finding's consequence and finds it small, so
+the finding ships as a recorded gap. But the consequence that was weighed is
+the one the *reviewer's example* reaches, not the one the *class* reaches — and
+a reviewer picks whichever instance it happened to see, not the worst one. The
+decline then reads as careful engineering while resting on a boundary nobody
+drew deliberately.
+
+This is the specific way a worth-based triage rule fails. The rule itself is
+sound and exists because, under a write-gate, every fix costs a full review
+round; what makes it dangerous is that mis-scoping the consequence is
+indistinguishable, in the moment and in the written reply, from applying it
+correctly.
+
+**The worked example (AI-Handbook #73).** Round 3 reported that
+`fable-dispatch.mjs` — since deleted, #95 — checked its `--out` path
+*lexically*, so a symlinked component could put the receipt outside the
+repository. The decline weighed
+that as *"what escapes is a single gitignored receipt JSON written to a
+directory I chose by hand"* — likelihood near zero, consequence trivial — and
+it shipped as a gap over an oracle that had genuinely been run.
+
+Round 4 returned the same class without the symlink: `--out .git/HEAD` is
+inside the repository, passes the containment check, and `writeFileSync`
+**truncates it**. Same code, same class, a destroyed checkout instead of a
+misplaced JSON. The question the triage answered was *where does the file
+land*; the question the class asked was *what does this write destroy*. Nothing
+about the reported instance hinted at the second one, which is the point.
+
+**Avoid:** state the class before the consequence, then answer the consequence
+*of that class at its worst*, not of the example in front of you. (This used to
+name the `Worth:` line of a fixed four-line reply form; the form was retired on
+2026-09-17 and the discipline was not.) The tell is a decline whose consequence clause quotes details
+specific to the reviewer's scenario — "gitignored", "one directory over", "a
+file I chose by hand". Those are properties of the example. Strip them and ask
+what remains reachable. And re-examine a class the reviewer raises a second
+time on its new evidence and scope, naming what the new instance shows that the
+first did not. **Repetition alone does not establish that the earlier judgement
+was wrong** (David, 2026-09-17): the rule used to say it did, which turned any
+persistent reviewer into an override.
