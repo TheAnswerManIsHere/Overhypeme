@@ -305,8 +305,9 @@ for the full topology.
   skipped for a docs-only PR. Every failure path falls back to running
   everything; push-to-main skips classification entirely.
 - **`Build`** — install, validate migration snapshots, the repo-health guards
-  (docs accuracy, codegen drift, UAT format, CI-classifier logic; the
-  review-loop machinery's checks were deleted with it in the handbook
+  (docs accuracy, codegen drift, UAT format, CI-classifier logic, and every
+  node suite under `scripts/__tests__/`, including the handbook machinery's;
+  the review-loop machinery's own checks were deleted with it in the handbook
   cutover, and the loop-metrics ledger guard with the loop ledger,
   2026-08-20), and
   `pnpm run build` (typecheck + build). **Never** skipped.

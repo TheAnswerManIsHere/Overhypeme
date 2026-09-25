@@ -185,6 +185,16 @@ jobs:
       - name: Check CI path classifier logic
         run: node --test scripts/__tests__/classify-ci-paths.test.mjs
 
+      # Every node suite in scripts/__tests__, by glob rather than by name. The
+      # handbook sync delivers its machinery's suites here, and a named list is
+      # what left eight of them unrun when it first did (PR #620). Several are
+      # layout-aware and one — entry-point-comparison — scans this repo's own
+      # scripts, so this job is the only place those checks can run at all.
+      # The four suites named above also run here; keeping their steps keeps
+      # their names and rationale. Dependency-free: node: builtins only.
+      - name: Check every script test suite (incl. the handbook's machinery)
+        run: node --test scripts/__tests__/*.test.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
