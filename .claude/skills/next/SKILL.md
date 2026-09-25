@@ -1,6 +1,6 @@
 ---
 name: next
-description: Answer "given where we are in our development lifecycle, what is the next thing we should be doing?" — the prioritized recommendation across all work, not one session's state. Use when David says /next, "what's next", "what should I work on", or has just finished something and needs the next task. Ranks work closest to done ahead of new starts, follows Blocked-by chains so an interrupted UAT is never lost, and names which candidates can safely run in parallel sessions. For "where does THIS session stand" use /status; for "what needs me across everything" use /status-all.
+description: Answer "given where we are in our development lifecycle, what is the next thing we should be doing?" — the prioritized recommendation across all work in the active repository only, not one session's state and never other repositories. Use when David says /next, "what's next", "what should I work on", or has just finished something and needs the next task. Ranks work closest to done ahead of new starts, follows Blocked-by chains so an interrupted UAT is never lost, and names which candidates can safely run in parallel sessions. For "where does THIS session stand" use /status; for "what needs me across everything" use /status-all.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
@@ -26,6 +26,29 @@ mode routing takes over from there. Corrections to stale tracking are
 `/status`'s offer-and-confirm job or `/maintenance`'s hygiene pass, not
 this skill's.
 
+## Scope — the active repository, and nothing else
+
+**`/next` answers for one repository: the one this session is working in.**
+Every candidate, every recommendation, and the empty-queue proposal come
+from that repository's issues, PRs, and docs. Work in other repositories —
+the handbook, a sibling product, anything remembered from another session —
+is out of scope: never ranked, never recommended, never mentioned as "also
+worth a look." "What's next" means next *here*.
+
+- **The active repository is `repo` in `.agents/machinery.json`** at the
+  working tree's root — the one declared identity every repo in the fleet
+  carries. Cross-check it against `git remote get-url origin`.
+- **If they disagree, the file is missing, or it still holds the template
+  placeholder, stop and ask** which repository David means. A `/next` that
+  guesses its repository answers confidently about the wrong product.
+- **David naming a repository overrides the default** ("what's next in
+  AI-Handbook"). If this session has several repositories attached and he
+  didn't name one, the working tree's repository is the answer — never a
+  merge of all of them.
+- **Every GitHub call passes that `owner`/`repo` explicitly.** Never
+  `search_issues`/`search_pull_requests` without a `repo:<owner>/<name>`
+  qualifier — the search tools reach every repository the account can see.
+
 ## Model tier — mechanical steps anywhere, judgment on Fable
 
 Steps 1–3 are mechanical (fetch, filter, sort by a stated rule) and run at
@@ -47,7 +70,8 @@ exception to the delegation cap in CLAUDE.md, not license to fan out.
 ## Step 1 — Read the whole picture
 
 Reuse `/status-all`'s fetch mechanics wholesale rather than reinventing
-them — including its trust rules, which exist because this repo is public:
+them — including its trust rules, which exist because this repo is public —
+scoped to the active repository (see *Scope* above):
 
 - **Every open issue**, paginated to exhaustion. Split into:
   - **Workstreams** — carrying a `stage:` label (drop `stage:done`).
@@ -242,9 +266,10 @@ it, before concluding the queue is empty.
 Once it genuinely is empty, the question becomes **what should we build
 next**, and this is a real recommendation, not a menu:
 
-1. Read the repo's **product direction** and **roadmap** — the overlay names
-   them — for near-term slices, pre-launch hardening, and open product
-   questions.
+1. Read **this repository's** product direction and roadmap — its overlay
+   names them — for near-term slices, pre-launch hardening, and open product
+   questions. **If it has none, say so and stop there**; never borrow
+   another repository's roadmap to fill the gap.
 2. **Weight pre-launch hardening heavily.** The roadmap's own framing is
    that we're moving from prototype to production-ready; an item marked
    must-do-before-go-live outranks a new capability by default.
@@ -260,8 +285,11 @@ next**, and this is a real recommendation, not a menu:
 ## Output shape
 
 Sparse and scannable. Lead with the answer; David is deciding, not reading.
+The first line names the repository, so a wrong scope is visible at a
+glance.
 
 ```
+owner/repo
 NEXT — #422 Plan 1b (write-side permission enforcement)
   Code review, Codex round 3 landed 4h ago, 2 threads open.
   Why: closest to done, and it unblocks #405's UAT and then #213's.

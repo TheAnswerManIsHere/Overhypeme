@@ -294,11 +294,11 @@ it doesn't cover: **closed-but-unmerged** PR branches, and branches with
 **no PR at all**.
 
 1. `mcp__github__list_branches`, paginated. Skip `main` and any branch
-   matching `plan-review/<slug>-combined` outright — that shape
-   deliberately has no PR (per the plan-review-loop skill's split-loop
-   close-out), so it's the one branch whose commit only the branch itself
-   retains (see CLAUDE.md's *Approved-plan source* note). Never a deletion
-   candidate, full stop, regardless of age.
+   matching `plan-review/<slug>-combined` outright. Plan review has opened no
+   branch and no PR at all since 2026-09-09, so no new branch of that shape is
+   produced; any survivor predates that change and is the one branch whose
+   commit only the branch itself retains. Never a deletion candidate, full
+   stop, regardless of age.
 2. For everything else, check PR state
    (`mcp__github__list_pull_requests` with `head:owner:branch`,
    `state: all`) rather than trusting the branch-list page's own PR-status
@@ -444,8 +444,12 @@ maintenance reports. This is now a standalone maintenance-skill rule.)
   (step 4) — recording a newly-parked item or updating an entry's status —
   and the batched documentation harvest (step 6a). Both are
   docs-only and zero behavior/dependency change, and both ship together in
-  **one maintenance docs PR per pass** (internal tier: the automatic Codex
-  pass, one triage, merge) — one PR for the whole pass, never one per
+  **one maintenance docs PR per pass** (internal by consequence and recoverability — a docs
+  pass touching no approvals, publication, credentials or destructive machinery — so the
+  two-review limit in
+  [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+  bounds it: the automatic pass, one batch of corrections
+  if any are warranted, a review of that head, then stop) — one PR for the whole pass, never one per
   harvested feature, per `documentation-workflow.md`'s batched delivery path. Neither is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
   (dependency or Action) still only ever becomes a reported decision item,

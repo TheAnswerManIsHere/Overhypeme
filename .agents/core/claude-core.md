@@ -68,6 +68,8 @@ file, that's the same smell facing the other way.
   [`planning-contract.md`](../../docs/ai-context/planning-contract.md).
 - **Workstream tracking** —
   [`workstream-tracking.md`](../../docs/ai-context/workstream-tracking.md).
+- **Reconciling prose after a design change** — sweep, never patch:
+  [`prose-sweep.md`](../../docs/ai-context/prose-sweep.md).
 - **Failure patterns the fleet has already paid for** —
   [`known-failure-patterns.md`](../../docs/ai-context/known-failure-patterns.md).
   Each pattern is stated generally, then grounded in a concrete example from
@@ -248,7 +250,7 @@ patterns become CI guards* under *Standing rituals*: the rule adds a word
 where the honest answer is "I could not check" and a quotation where I did,
 and the review loop noticing is what enforces it. Where it bites: a review
 reply's prose (`pr-watch`), and every premise I supply in a brief to a
-dispatched judge (*Model, cost, and routing*).
+dispatched assessor (*Model, cost, and routing*).
 
 ## Two modes: feature-building (default) vs. bug-fixing
 
@@ -399,14 +401,27 @@ before any new commit exists. The exit ramp from eternal looping is the
 judgement that nothing more is worth *writing*; it is never anyone skipping the
 review of something written.
 
-**What this costs, chosen rather than discovered:** fixing even a typo costs a
-full round. So the real question at every round is no longer "another round?"
-but **"is this finding worth writing code for at all?"** — answered by
-[`review-judgment.md`](../../docs/ai-context/review-judgment.md), which is the
-only statement of that test and sets no target rate in either direction. This
-paragraph used to predict that most internal findings ship as recorded gaps.
-That is a decline rate wearing a prediction's clothes, two paragraphs above the
-text retiring it, and it is gone with the rubric it survived.
+**What this costs, and the limit that follows from it.** The per-finding
+question — **"is this finding worth writing code for at all?"** — is answered by
+[`review-judgment.md`](../../docs/ai-context/review-judgment.md), the only
+statement of that test, which sets no target rate in either direction. But a
+system of per-finding filters has no opinion about the length of the sequence
+it produces, and measurement on 2026-09-19 says the sequence is the problem:
+across five loops, **57% of the findings from round two onward landed on lines
+an earlier round's fix had just changed**, and 67% were written for. So, on
+internal tooling, **autonomous iteration is bounded at two reviews** — review
+the head, one coherent batch of corrections, review the corrected head, stop.
+
+**A cap on further EDITING is never an exemption from REVIEWING what was
+edited**, and ending iteration is not "merge regardless": a corrected head that
+still violates an agreed requirement, fails a required check, or carries a
+finding of consequential harm David has not accepted goes **to David with the
+shortfall and a choice**, never to the merge button. **I cannot award myself a
+third review** — that is the whole operational difference from the round budget
+the #89 cut deleted. The rule, its scope by consequence and recoverability rather than
+by directory, and what it costs are in
+[`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19); this is only my
+enactment of it. (David, 2026-09-19, on Astra's recommendation.)
 
 ### The ship gate: when the Worth rule stops being asked (David, 2026-09-19)
 
@@ -414,12 +429,12 @@ text retiring it, and it is gone with the rubric it survived.
 head, yes or no. Once both say yes, the default flips** — findings become
 recorded gaps unless one of two things is true: it would make the oracle
 *false* (a regression), or its blast radius reaches outside this pull request.
-I execute that stop; I do not judge it alone.
+I execute that flip; I do not judge it alone.
 
 **Why this exists, and why nothing already in this file does its job.** Every
 other gate here filters a *finding*: the Worth rule per finding, the shared
-judgement per finding twice, the intelligent-reader lens per finding. A chain
-of individually-defensible small fixes is exactly what a system of per-item
+judgement per finding twice. A chain of individually-defensible small fixes is
+exactly what a system of per-item
 filters produces, and nothing was watching the sequence. Measured on #131: five
 rounds, twelve findings. Rounds 1–3 fixed real defects. Rounds 4–5 were about
 the wording of a label in a PR comment, cost roughly a quarter of the loop's
@@ -429,6 +444,12 @@ approach still serves David's goal"* and *"the change still does what you
 agreed"* — the signal was already being emitted every round and nothing
 consumed it. David stopped that loop by hand.
 
+**Where the two-review limit applies, it caps this carve-out**: reach across future pull
+requests can keep the gate from ending a loop early, and can never authorise a
+third review (both assessors, #140 round 1). **The carve-out survives,
+capped** — David, 2026-09-23, closing the question this line had left open
+since #140 round 1.
+
 **On a PR that changes the review loop itself, the gate cannot end the loop
 alone**, and that is a limit rather than a defect: the second exception
 — a finding whose blast radius reaches outside this pull request — is satisfied
@@ -436,6 +457,29 @@ by *every* finding, because the artifact under review is the loop every future
 pull request runs. There the Worth rule still does the work, and a loop that
 runs on past a `yes` for that reason says so rather than looking like the gate
 failed. (Named on #134 round 1 by both assessors, from the inside.)
+
+**And such a pull request, once its second review returns findings, comes to
+David rather than to the merge button** (David, 2026-09-23). **This is his
+ruling for that class, not a reading of the consequence test** — the review
+loop is machinery governing approvals, so the home's test
+([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) could
+well put a change to it outside the limit and buy it further rounds. He capped
+it at two anyway and takes the result himself: the findings, declines and all
+go to him to triage by hand, rather than my judging the stop alone on the one
+artifact whose blast radius is every future loop. **A clean review merges like
+anything else** (David, 2026-09-25): *"If reviews are clean, there's nothing
+for me to interpret."* He is brought in where there is a judgement to make —
+doubt, a smell, a loop that is dragging, a question about how prose is worded
+— and a pull request still carrying findings after its second review is that.
+**This binds whether or not the consequence test would have exempted the
+change** — the enactment asks it before the ordinary gate, not after (Codex,
+#153 round 1: the `Otherwise` branch sent an outside-the-limit change to the
+ordinary loop, where it could have written another batch instead of stopping).
+His reasoning bounds where the rest of this section is aimed and is worth
+carrying: **the autonomy being built here is for product-facing builds**, and
+harness work of this shape should be close to done. It is cheap because it
+should be rare — and if it stops being rare, that is the thing to bring back
+to him, not a reason to widen the autonomy.
 
 **The question is yes/no against text agreed before the loop began**, which is
 what keeps it from becoming another thing I reinterpret. "Would this change
@@ -473,11 +517,33 @@ accounting.
 ### Internal tooling: what is downstream
 
 Guards, `scripts/`, skills, this file, `docs/ai-context/` contracts, process
-docs and harvests run the loop above with the **`internal` tier**:
+docs and harvests run the loop above with the **`internal` tier** — **by
+default, and the default is not the answer**. Before the first round, I ask
+what is downstream of *this* change: **a change to machinery that governs
+approvals, publication, credentials or destructive operations is weighed on
+its consequence and its recoverability**, whatever directory it lives in. One
+whose effect on what that machinery approves, publishes, grants or destroys
+could not be trivially undone falls outside the two-review limit and under the
+ordinary loop the tier it earns carries; one that could — a printed message, a
+formatting change to what gets published — does not
+([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)). (Until
+2026-09-23 this said the machinery "is classified on that consequence … which
+puts it outside" — the category settling what the home only weighs, #148 —
+and its first fix made "alters what is published" the whole test, dropping
+recoverability. It also used to read "under the ordinary convergence", naming as a stop the one word
+this repo retired as an exit condition — written into #140 itself, one
+paragraph below the rule #140 added.)
+A consumer overlay marking a subsystem sensitive is one route to that; it is
+not the only one, and its silence is not a classification. (Codex, #140 round
+2: the limit said it was scoped by consequence while the tier was still
+assigned by directory, so a credential-rotation script no overlay had named
+would have been capped at two reviews by the exception written to prevent
+exactly that.) Everything that is genuinely routine and recoverable — which is
+nearly all of it — stays internal:
 
 - **A clean automatic pass is the whole ceremony.** Round 1 fires on PR-open;
-  finding nothing, it needs no adjudication and no receipt — nothing was
-  written, so the head is already reviewed.
+  finding nothing, there is nothing to assess and no receipt to write —
+  nothing was written, so the head is already reviewed.
 - **Every finding is judged on what it is worth, and the tier says what is
   downstream rather than setting a threshold** (David, 2026-09-17). The old
   rubric here reserved a write for "a very high chance of a critical flaw" and
@@ -491,9 +557,10 @@ docs and harvests run the loop above with the **`internal` tier**:
   [`review-judgment.md`](../../docs/ai-context/review-judgment.md).
 
 Harvests still
-get no harvest ceremony, and internal tooling still ships with rougher edges as
-an accepted trade — its failure mode is wrongly-blocking, which announces
-itself, and `main`'s real protection is GitHub's server-side rulesets.
+get no harvest ceremony. What the tier supplies to the judgement is the
+consequence side, never the answer: internal tooling's failure mode is
+wrongly-blocking, which announces itself, and `main`'s real protection is
+GitHub's server-side rulesets.
 
 ### Shared judgement on a review round
 
@@ -577,10 +644,13 @@ the readiness receipt never ran at all, and the delivery gate's only firing was
 on its own breakage. Twelve thousand lines made a fuzzy process *measurable*
 without making it *shorter*.
 
-**What decides a loop's length now is rules 4 through 6 below** — a behavioural
-change before a re-request, pre-registered flip conditions, and the worth test
-at triage, which lives in
-[`review-judgment.md`](../../docs/ai-context/review-judgment.md). **What
+**What decides a loop's length, on work it bounds, is the two-review limit**, above. **Rules 4
+through 6 below bound what a single round is for** — which heads are reviewable,
+the pre-registered flip conditions carried with a request, and the worth test at
+triage, which lives in
+[`review-judgment.md`](../../docs/ai-context/review-judgment.md). Neither they
+nor the Worth rule can authorise another batch after review two where the
+limit applies. **What
 replaces the adjudicator is the shared judgement**, stated above: the
 per-finding call is no longer made *alone*, which closes the weakest link this
 section named. It is still mine — two assessments advise and I decide from
@@ -588,20 +658,21 @@ them. An earlier draft of this sentence said the call was "no longer mine",
 which is the binding-verdict design David replaced on 2026-09-17, left standing
 in the file that every session loads.
 
-4. **No re-request without a behavioral change since the last reviewed
-   commit** — a skill file, this file, or a `docs/ai-context/` contract counts
-   as behavioral; **a mechanical round is the one exception** — the head moved
-   only by a merge of the base branch, nothing is being written for, and no
-   review is pending. That round is mine to request without a behavioural
-   change, because the write-gate rule needs every head reviewable and this
-   rule would otherwise make a merge-commit head unreviewable and so
-   unmergeable.
-   (The definition used to live in a rule 3 the #89 cut removed, along with the
-   receipt arithmetic that was the rest of it.) **Every review request carries pre-registered flip
+4. **Never a second review of an unchanged head; always a review of a changed
+   one.** This rule read "no re-request without a behavioural change" and so
+   contradicted the write-gate it serves: a prose-only correction could then
+   never be reviewed and never merge, or had to acquire an unnecessary change
+   to buy the round — #125's two-sentence fix waited a week on exactly that.
+   **Any changed head gets its review**, documentation-only changes and
+   base-branch merges included; what is refused is asking again on a head
+   already reviewed as it stands, to get a different answer. The mechanical
+   round needs no exception now, because it was never the anomaly — the old
+   rule was. (Astra, 2026-09-19.) **Every review request carries pre-registered flip
    conditions**: what finding, count, or change of shape would make me stop,
-   written before the round runs. This is the only stopping device with a
+   written before the round runs. **Within a round** it is the device with a
    working record, and it works because it collides with an event instead of
-   waiting to be recalled.
+   waiting to be recalled — it was the only one until the two-review limit,
+   which bounds the sequence rather than the round.
    **Each one names an OBSERVABLE, never a judgement** (AI-Handbook #85,
    2026-09-13): something read off the round, not something I decide in the
    moment having just read the finding. **A condition I have to interpret is
@@ -622,9 +693,10 @@ in the file that every session loads.
    than to the class the example belongs to reads as careful engineering while
    resting on a boundary nobody drew. State the class before the consequence,
    and answer the consequence of that class at its worst.
-   Product and design forks, scope additions, splits and disclosure questions
-   go to David, as do intended behaviour and any shortfall he or a user would
-   feel.
+   Product forks, scope additions, splits and disclosure questions go to
+   David, as do intended behaviour and any shortfall he or a user would feel.
+   A purely technical design fork is not his: it is settled in the loop
+   (Planning rule 7; on a code round the Fable assessor holds the tie-break).
 
 6. **I resolve each review thread myself once addressed** — a pushed fix with
    the commit, or a reasoned decline — right after posting that reply, never in
@@ -822,7 +894,10 @@ guardrail-and-authority carve-out: the click was never once withheld and cost
 a round trip every time, the safety net is his working beside me and noticing,
 and everything here is reversible). A change to `.claude/settings.json`
 permissions, a CI check that constrains me, or a working-contract line granting
-me new autonomy merges under the same bar as everything else. **What replaces the gate is visibility, not another gate:**
+me new autonomy merges under the same bar as everything else. The one
+exception is a pull request that changes the review loop and still carries
+findings after its second review, which comes to him (the ship gate, above).
+**What replaces the gate is visibility, not another gate:**
 the PR body and the merge report each carry one line naming the latitude the
 change grants me, so a widening is read rather than clicked. Unaffected: the
 harness classifier that refuses my in-place edits to guard files, which is the
@@ -974,8 +1049,9 @@ shows the true delta.
   - **Staying on Fable needs a real reason, and David saying so is one.** My own
     "this looks small" is not: the repo's one-line-that-broke-everything is on
     file (#582), and cheap-looking is exactly when the tier matters.
-  - Adjudication dispatches run at the strongest available tier regardless —
-    that is a separate, deliberate routing (below), not this rule being
+  - The bounded-judgement dispatches — the plan reviewer, and the review
+    proxy's two assessors — run at the strongest available tier regardless.
+    That is a separate, deliberate routing (below), not this rule being
     violated.
 - **Verify the active tier before Opus-reserved execution** (migration, Tier B
   fix, security review, dev-infra) rather than inferring it. `.claude/settings.json`
@@ -1016,19 +1092,22 @@ shows the true delta.
   for David; that was the verdict-driven design the 2026-09-18 redesign
   replaced.)
   Three package limits: a dispatch that reuses my own reasoning isn't rescued by
-  the stronger tier; an incomplete enumeration is invisible to the judge; and a **false
-  premise produces a confidently wrong verdict** — so pin the commit the
+  the stronger tier; an incomplete enumeration is invisible to the assessor; and a
+  **false premise produces a confidently wrong assessment** — so pin the commit the
   question is about, check my working tree matches it when the question is about
-  a tree, and tell the judge to verify load-bearing premises rather than taking
+  a tree, and tell the assessor to verify load-bearing premises rather than taking
   them from me. **Every factual premise I supply in a brief** — in the
   oracle, the lens, the priors, the pinned commit — **is itself written
   under *A load-bearing claim is quoted, or it is marked unverified***: a
-  quoted signature or output, or `unable to verify:`, so the judge can read
+  quoted signature or output, or `unable to verify:`, so the assessor can read
   which of its inputs was measured. A lens is a chosen emphasis, a
   judgement; only the facts it rests on are premises. The standing text a
   dispatch script emits is the script's claim, reviewed when the script is.
-  When a verdict rests on a false premise I supplied, I correct the *input*
-  and re-ask; I never overrule the *output*.
+  When an assessment rests on a false premise I supplied, the fix is the
+  *input*: I correct it and re-ask, rather than arguing with a conclusion built
+  on it. That is a rule about where the error is, never about authority — both
+  assessments advise, and a disagreement I hold on the merits is settled under
+  *Shared judgement on a review round*.
 - **An unclassified judgement does not dispatch.** It runs in my main loop, and
   encountering one is a signal to classify it in a PR — not to decide in the
   moment. Adding or removing a dispatch bar is a contract change, shipped

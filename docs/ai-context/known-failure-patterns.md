@@ -338,7 +338,8 @@ was right: the distinction has no operational content on the reader's side.
    one example, deliberately.
 2. **"It's only an example" is a rationalisation, not a defence**, and it is
    most tempting exactly when a stopping rule or a decline turns on it. Treat
-   reaching for it as the signal to route the call somewhere that isn't you.
+   reaching for it as the signal to put the question to an independent
+   assessment rather than settling it in your own head.
 
 **Avoid:** shipping an example you have not verified, in any document an agent
 will act on. The check is that an example offered to illustrate a property must
@@ -1220,9 +1221,9 @@ right in an earlier round but not the lock-ordering. Both fixed by exporting
 lock+count) and moving each handler's read + decision inside the
 transaction, after acquiring it, before the guard's count. The second
 recurrence — same root cause, sibling code path, found one round later — is
-also a worked example of *class recurrence* under this repo's own
-review-loop bucket rubric
-([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)):
+also a worked example of the rule that a finding names an instance and the
+fix owes the class
+([`working-modes.md`](./working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)):
 porting a fix to one of several similarly-shaped call sites and missing a
 sibling is common enough to specifically check for once a first instance of
 a shape like this is found, not just fixed in place.
@@ -1492,23 +1493,58 @@ the hard-coded fallback. Every writer records — except the one that reads its
 engine before its own `try`. The pull is structural, not careless, which is
 why instance-by-instance fixing never generalised across nine attempts.
 
-**A corollary worth knowing at the end of a loop, scoped to the artifacts it
-actually applies to:** for a PR whose class requires head-bound re-review, this
-repo's merge bar needs a completed reviewer pass on the **head** commit, so any
-further fix moves the head and costs another pass. That makes "just fix one
-more thing" mechanically expensive at loop end — a stopping force independent
-of anyone's judgment, worth counting when deciding whether a cheap fix is
-actually cheap. **It does not apply to the floor tier** — transient process
-docs and loop-ledger records keep their zero-re-request rule from
-[`working-modes.md`](working-modes.md)'s ceremony table, and a post-review fix
-there moves the head without owing a pass. Stating the corollary universally
-would have made those artifacts unmergeable in principle (Codex, #518).
+**A corollary worth knowing at the end of a loop, and it is now universal:**
+this repo's merge bar needs a completed reviewer pass on the **head** commit,
+so any further fix moves the head and costs another pass. That makes "just fix
+one more thing" mechanically expensive at loop end — a stopping force
+independent of anyone's judgment, worth counting when deciding whether a cheap
+fix is actually cheap. **The floor-tier exemption that stood here is gone**
+(David, 2026-09-19): transient process docs and ledger records were said to
+keep a "zero-re-request rule", so a post-review fix there moved the head
+without owing a pass — which is a commit merging unreviewed, the one thing the
+write-gate exists to refuse. What bounds those artifacts now is the
+**two-review limit** in [`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19), which caps how
+long iteration runs without ever exempting a changed head from being read. The
+worry that made the exemption (Codex, #518) — that stating the corollary
+universally leaves an artifact unmergeable in principle — was real under the
+old re-request rule and is answered by its replacement: every changed head gets
+its review, so nothing is unmergeable for want of one.
 
 **Avoid:** re-running the oracle that just passed and reading a clean result
 as convergence. Ask instead which of the three properties changed since it was
 written — scope, invocation, or the class's surface form. The instance history
 for this one lives in **#516**, which carries the extended oracle rather than
 restating it here.
+
+### Sub-pattern: the author of the new rule cannot sweep for the old one
+
+The three sub-patterns above all assume the same reader can derive a better
+method next round. AI-Handbook #96 is the case where that failed four times.
+Its design change landed in the mechanism; the prose did not follow; and three
+successive reconciliations — grep for the retired phrases, then read the
+sections end to end by decision path, then both plus an acceptance check — each
+missed instances the next review round found. Not one of the misses was
+somewhere unexpected. **All three of the last round's were within a screen of
+an edit that round's author had just made, and one was a context line inside
+the previous sweep's own diff hunk.**
+
+**Why, and it is not carelessness:** the author of the new model reads a stray
+clause of the old one as consistent, *because they know what was meant*. The
+sentence parses correctly against the intent in their head and never against
+the words on the page. That is a property of the reader, not of the method, so
+a fourth method run by the same reader has a poor prior whatever its shape —
+which is the honest generalisation the #458/#459 entry above already reached
+from the other direction ("self-review converges on *the method you already
+had*; an outside reviewer is what corrects the method").
+
+**The second half is that a retirement is never one proposition.** #96's was at
+least four, and each sweep hunted only the facet the last reviewer had named.
+When a cold read was finally run, the readers added two more — one of them
+proposed independently by three of the six.
+
+**Avoid:** patching the instances a reviewer named. Sweep instead, by the
+method in [`prose-sweep.md`](prose-sweep.md), which is its only statement and
+is not restated here.
 
 ## Satisfying a lexical guard by changing a value's form, not its meaning
 
@@ -1570,9 +1606,15 @@ tell is never a single finding — they're usually right — it is the **trend**
 plus the shape of the late-round fixes. **Avoid:** size ceremony to blast radius
 at intake, not to how the request was phrased
 ([`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05));
-require findings to fall round over round or stop and reassess with David; and
+carry pre-registered flip conditions naming an observable read off the round; and
 triage every finding into **fix / accept-and-document / escalate** rather than
-reading "Required Revision" as automatically meaning fix. **Overhype:** twice
+reading "Required Revision" as automatically meaning fix. **And where a change is
+internal by its consequence and recoverability, the sequence is bounded** by
+the two-review limit
+([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) — this entry's remedies
+were ceremony-sizing, an in-round bound and a per-finding test until
+2026-09-20, none of which answers "there is no natural stopping point", which
+is the entry's own diagnosis. **Overhype:** twice
 in one day, 2026-08-05 — PR #329's Bash guard (9 → 11 → 12 → 19 findings, an
 unbounded parsing surface; see the sub-pattern below) and PR #333's `/status`
 plan (12 → 1 → 4 → 6 → 12 findings, **six review rounds and a 660-line plan for
@@ -1621,10 +1663,12 @@ do with the product — the answer being "nothing," the fix was to **delete the
 findings' entire subject from the doc**, not repair it a fifth time. Where
 the first three instances were about *unachievable guarantees*, this one is
 about **criticality**: the loop's subject was achievable and simply not worth
-achieving. That question now has a formal gate — rate the artifact 1–100 on
-"what breaks in production if this is wrong" *before* requesting round 2, and
-single-digit artifacts never loop
-([`working-modes.md`](./working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target)).
+achieving. That question used to have a formal gate — rate the artifact 1–100 on
+"what breaks in production if this is wrong" before requesting round 2, and
+single-digit artifacts never loop. **That gate was deleted on 2026-08-20** with
+the rest of the self-policed apparatus, at 0-for-15. What asks the question now
+is the Worth rule, per finding, before anything is written
+([`review-judgment.md`](review-judgment.md)).
 
 **A fifth instance belongs to a different pattern, and is filed separately
 (PR #404, 2026-08-11).** The admin-permissions plan loop shares this entry's
@@ -1710,8 +1754,8 @@ round's fixes are correct. Each fix adds a mechanism (an endpoint, a
 reservation system, a lock, a column, a role). The next round then finds
 problems in the *previous round's solutions* rather than in the original
 design, and the loop silently converts itself from reviewing a document into
-writing one. **Dangerous:** every existing tripwire can read green. The
-finding-count rule only fires on a *rise*, and growth routinely happens while
+writing one. **Dangerous:** the tripwires that existed at the time all read
+green. The finding-count rule fired only on a *rise*, and growth routinely happens while
 counts fall — so the loop looks like convergence right up until the round
 where all the newly-added surface comes due at once.
 
@@ -1725,17 +1769,17 @@ the artifact that was approved for review.
 and a build plan.** A totalising Product Intent — "any and all X",
 "exclusively", "one source of truth" — makes every discovery in-scope *by
 definition*: the document has no way to say "true, and next," only "true, so
-in." **Avoid:** separate **directions** (end states, reviewed once, never
-looped) from **plans** (one bounded increment, citing its direction), per
+in." **Avoid:** separate **directions** (end states, reviewed for soundness but not
+iterated on the way a plan is — which never meant a corrected direction skips
+review of the correction; see `working-modes.md`) from **plans** (one bounded increment, citing its direction), per
 [`working-modes.md`](./working-modes.md#directions-and-plans-are-different-artifacts-david-2026-08-11);
 apply the increment test *before* writing — which since 2026-09-18 asks what
 the increment makes true and what bounds it, rather than reading a verdict off
 the vocabulary. Universal wording and independently shippable phases are
 reasons to examine the boundary (an ordered migrate/rollout/verify sequence
 within one increment is
-not this signal); record the plan's line count
-at round 1 and state it every round; and frame mid-flight scope as **now vs.
-next**, defaulting to next.
+not this signal); and frame mid-flight scope as **now vs. next**, defaulting
+to next.
 
 **Overhype:** PR #404 (workstream #405), 2026-08-10/11 — the admin-permissions
 plan ran three rounds at **24 → 14 → 21** findings while growing **877 →
@@ -1766,8 +1810,12 @@ this one's is to **split the artifact and keep going on the smaller half**.
 correct and every fix is sound, and the thing each new finding is about is the
 code the last round added. **Dangerous:** it reads as diligence from inside —
 the reviewer keeps finding real bugs, so stopping feels like shipping known
-defects — and the cost is invisible because no single round is wrong. The loop
-ends when someone runs out of patience rather than when the code is right.
+defects — and the cost is invisible because no single round is wrong. Before 2026-09-19 the
+loop ended when someone ran out of patience rather than when the code was
+right; what ends it now, where a change is internal by its consequence and
+recoverability, is the two-review limit
+([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)), which was built from
+this entry's measurement.
 
 **The tell, recognised by hand:** a round has a finding whose lines sit inside
 the diff of the last commit pushed for a finding, and so did the round before
@@ -2609,10 +2657,12 @@ reviewer passes a PR has had; the tally was a second copy of it.
 
 **The fix is deletion, not another layer.** The tally, `reconcile`, the
 durability check, and the commit-before-next-round rule were all removed in one
-commit (`0cd6f3c`). Rounds are now counted fresh from a validated GitHub
+commit (`0cd6f3c`). Rounds were then counted fresh from a validated GitHub
 snapshot at the moment of the decision, using the same `reviewerPasses()`
-function the loop ledger uses. Five of round 3's findings dissolved with the
-code they were about; nothing was left to keep coherent. A stalled round and
+function the loop ledger used — both of which went in the #89 cut
+(2026-09-16), so what stands here is the pattern, not a live pointer. Five of
+round 3's findings dissolved with the code they were about; nothing was left
+to keep coherent. A stalled round and
 its retry are now one round automatically, and the count self-corrects when the
 retry's pass lands — because nothing was written down to be wrong.
 
@@ -2622,18 +2672,27 @@ retry's pass lands — because nothing was written down to be wrong.
    system is authoritative for the event you are counting, you are writing a
    cache. Read it at decision time instead, and validate the read hard.
 2. **Persist decisions, not evidence.** PR #503 kept the *budget declaration*
-   and the *extension grants* committed — those are choices nobody else holds a
-   copy of, and which David gates have been passed, and what he granted at
-   each, has to survive the container or the second tripwire never fires. It
-   stopped committing the round count, which was evidence. The line between
+   and the *extension grants* committed — those were choices nobody else held a
+   copy of, and which David gates had been passed, and what he granted at each,
+   had to survive the container or the second tripwire never fired. It stopped
+   committing the round count, which was evidence. **Budgets, grants and
+   tripwires all went with the #89 cut**; the principle is what survives, and it
+   is about any decision, not about that machinery. The line between
    the two is the whole rule: evidence is session-local and re-derivable; a
    decision is not.
 3. **Treat "most of this round's findings are about the last round's fixes" as
    a design signal, not a diligence signal.** The self-policed oscillation
-   rule this used to cite was retired in 2026-08-20 at 0-for-15; what carries
-   the signal now is the external adjudicator, which sees the same shape in
-   the mechanical record and answers the sharper question — whether writing
-   more code for these findings is worth another round at all.
+   rule this used to cite was retired in 2026-08-20 at 0-for-15, and the external
+   adjudicator that replaced it went with the #89 cut. What carries the signal
+   now is the shared judgement — two assessments that read the round
+   independently and advise — asking the sharper question the self-policed rule
+   never could: whether writing more code for these findings is worth it at
+   all. **And where a change is internal by its consequence and
+   recoverability, the sequence itself is bounded** by the two-review limit ([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)),
+   which is what actually stops the pattern this item describes; the shared
+   judgement answers what is written *for*, one finding at a time. This item's
+   two sibling entries were given that pairing on 2026-09-20 and this one was
+   not.
 
 **Related:** *A derived metric that silently undercounts because its collector
 only reads one delivery channel* above is the opposite failure — there the
@@ -2680,10 +2739,12 @@ the check still worked by reading the working tree and then reconciling it
 against git, which is the identical cache-coherence structure as *A persistent
 counter of state the source of truth already holds* above, one layer down —
 "the working tree" being a cache of "the commit." The fix was the same fix:
-deletion. `readDurableJson`/`listDurable` now read the budget and extensions
-**only** from `git show`/`git ls-tree` against the branch's remote-tracking
-ref; there is no working-tree read to reconcile because there is no second
-copy. Pinned by a test that disables both filesystem readers entirely and
+deletion. `readDurableJson`/`listDurable` were changed to read the budget and
+extensions **only** from `git show`/`git ls-tree` against the branch's
+remote-tracking ref — all of it since removed in the #89 cut (2026-09-16), so
+the lesson is what stands here, not the code; there was no working-tree read
+to reconcile because there was no second copy. Pinned by a test that disables
+both filesystem readers entirely and
 asserts the loop still loads. Same lesson, restated because it recurred one
 layer inward: a "durable" check built on comparing a local copy to the source
 of truth should usually just read the source of truth.
@@ -2736,7 +2797,8 @@ pre-registered flip condition from round 2's request said exactly this in
 advance: *"if round 3 finds a third variant of the same question, that is a
 signal the predicate is the wrong shape rather than incomplete."* Round 3
 supplied three, and the request for round 4 was never sent — the loop's own
-declared round budget was spent, so continuing would have meant a self-serve
+declared round budget (since gone in the #89 cut) was spent, so continuing
+would have meant a self-serve
 extension to patch a predicate already shown to be open-ended, which is a
 worse trade than shipping the known gaps (the code being replaced was *more*
 easily fooled than any of these three cases, by a plain uncommitted `HEAD`
@@ -2832,6 +2894,73 @@ after the builder recorded the class-not-example rule against himself.
 above is this same error in code rather than in prose, and *A decline scoped to
 the reviewer's example instead of the finding's class* below is its third face.
 The fact that it has three entries in this file is itself the finding.
+
+## A stopping condition used as a triage rubric
+
+**Looks like:** you pre-register a flip condition before a review round — an
+observable that says when the loop should stop. The round returns a finding.
+You check it against the condition, it does not trip, and you read that as
+*"below my bar for fixing."* The step between those two readings is the error:
+**the complement of a stopping condition is not a decline list.**
+
+**Why this is not the entry above.** *A pre-registered condition scoped to the
+mechanism you had in mind* is about a condition whose **words** named one shape
+and whose sibling arrived instead — it miscopes, and its first avoidance step
+(name one sibling) catches it. Here the condition evaluates **correctly**
+against the harm it names. The harm is simply not the question being asked of
+it, so there is no sibling to name and that step does not fire. One is a
+drafting failure; this is a category error about what the device is for.
+
+**It runs in both directions, and each has its own cost.** A stopping rule read
+as a triage rule **declines too much**: applied consistently it declines every
+finding in every round that does not happen to end the loop, which is a decline
+quota rebuilt out of a stopping rule — the exact shape AI-Handbook #96 retired.
+A triage rule read as a stopping rule **writes too much**: "this is worth
+fixing" authorises the *fix*, never the *round*, and treating it as though it
+settled the round's cost buys a full write-gate round for a change nobody
+needed.
+
+**The worked examples, both from AI-Handbook #124.**
+
+- **Round 7, declining too much.** A finding naming an incomplete oracle
+  requirement — a fleet-wide instruction still cancelling the delegation the
+  whole pull request existed to grant — was nearly declined on the grounds that
+  it did not trip the stopping rule pre-registered for that round. Both
+  assessors named it independently and from different directions. Fable: *"A
+  pre-registered flip condition is a device for stopping a loop. It was never a
+  triage rubric."* Astra, which is the sharper statement of why it cannot be
+  allowed to work that way: *"Pre-registering that narrower rule does not
+  authorise narrowing David's requirements."*
+- **Round 14, writing too much — seven rounds later, same pull request.** A
+  triage rule ("a false sentence is a write") was invoked as though it bound
+  like a stopping rule, and bought a full round for a two-sentence change. The
+  round translation caught it; the builder did not.
+
+That both faces appeared in one loop, after the first had already been named in
+its own thread, is the measure of how easily the two devices swap places in
+one's own favour.
+
+**Avoid:**
+
+1. **Keep the two apart by the question each answers.** A stopping rule answers
+   *"is this loop still worth running?"* A triage rule answers *"is this finding
+   worth writing code for?"* Neither answers the other's question, and a
+   stopping rule's complement answers nothing at all.
+2. **A finding that does not trip a stopping condition has received no
+   disposition.** It is still owed the Worth rule
+   ([`review-judgment.md`](review-judgment.md)), in full, on its own merits.
+3. **A triage rule that says "write" has not said "and a round for it is worth
+   paying".** That is the ship gate's question and the Worth rule's, asked about
+   the round rather than the fix.
+4. **Say which device you are invoking, by name, in the reply that invokes it.**
+   Both errors above were invisible while the reasoning stayed unnamed and
+   obvious the moment it was written down for someone else.
+
+**Related:** [`review-judgment.md`](review-judgment.md) is the only statement of
+the triage rule; *A pre-registered condition scoped to the mechanism you had in
+mind, not the harm you were watching for* above is the adjacent-but-distinct
+drafting failure, and folding the two together is how this one goes back to
+being invisible.
 
 ## Building a second validator beside an existing one re-derives its gaps, not its answers
 

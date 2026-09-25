@@ -106,7 +106,12 @@ Subagent (general-purpose):
 
     ### Assessment
 
-    **Ready to merge?** [Yes | No | With fixes]
+    **Ready to merge?** [Yes | No | With fixes — and "with fixes" never means
+merge once they are applied: the corrected head gets its own review. That is
+the write-gate rule, which has no tier and holds for every kind of work
+reviewed here. It is not the two-review limit, which this cited until
+2026-09-23 — that rule answers how long iteration runs and to whom it applies,
+and this template has no idea what it is reviewing.]
 
     **Reasoning:** [1-2 sentence technical assessment]
 

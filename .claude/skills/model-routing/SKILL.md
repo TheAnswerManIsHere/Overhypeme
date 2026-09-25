@@ -110,8 +110,10 @@ is **state**, not difficulty:
   dispatched is the per-round judgement itself** — one `review-loop-adjudicator`
   reading a script-generated record rather than this session's context, which
   was the whole point: the value is a reader that did not produce the
-  conclusions, not the presence of a worker. The #89 cut removed that agent and
-  #96 rebuilds it; the reasoning is recorded here so the *watching* half isn't
+  conclusions, not the presence of a worker. The #89 cut removed that agent, and
+  #96 did not rebuild it: what dispatches now is two assessments that advise,
+  neither of which decides, so the dispatched thing is a reading rather than a
+  ruling. The reasoning is recorded here so the *watching* half isn't
   re-proposed as an obvious optimization meanwhile.
 - **Announce every dispatch, in both directions.** The announce-don't-sneak
   rule was written for expensive escalations; it applies just as much to a
@@ -402,14 +404,15 @@ Two sections lived here — the three structural adjudication triggers
 (any decline, any oracle-less finding, any swept-class recurrence) and the
 adversarial stopping-rule subagent. **Both were superseded by the single
 per-round judge** in `CLAUDE.md`'s *Review loops*; that judge was removed by
-the #89 cut, and #96 replaced it with **two independent assessments per round
-that advise rather than bind**. Reinstating the old per-finding and
-per-decline dispatches on top of them would re-create the parallel
+the #89 cut, and #96 replaced it with **two independent assessments on each
+round that returns findings, advising rather than binding**. Reinstating the
+old per-finding and per-decline dispatches on top of them would re-create the
+parallel
 self-refereeing the #541 review deleted (Codex, #543 round 3) — a round is
 covered by the two assessments, not by more dispatches.
 
 What survives from those sections, because it is about dispatch hygiene rather
 than dispatch law: announce every dispatch out loud (the assessors' tier
 spends well above Opus); a dispatch that reuses my own reasoning is not rescued
-by the tier; and the assessments run after triage but before fixes are
-implemented, so a decline can still prevent unnecessary fix work.
+by the tier; and the assessments run on the round's findings before anything is
+written for them, so a decline can still prevent unnecessary fix work.

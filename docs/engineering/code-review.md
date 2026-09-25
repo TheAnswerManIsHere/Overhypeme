@@ -217,11 +217,19 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
 cost more than the defects they describe. This is the *depth* rule. The
-*continuation* rule is the internal tier (David, 2026-08-21, superseding
-the 2026-08-20 no-rounds carve-out): a clean automatic pass is the whole
-ceremony, but when the pass finds a real defect the pushed fixes are
-re-reviewed under the internal tier, which says what is downstream rather than
-setting a threshold — there is no round budget and no leash, the tier's old
+*continuation* rule is the **two-review limit** (David, 2026-09-19 —
+[`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)): on docs
+internal by the change's consequence and recoverability, a clean automatic pass
+is the whole ceremony, and when the pass finds a real defect the pushed fixes
+are re-reviewed, once — a docs change to a contract governing approvals or
+publication is weighed like any other change, below. The internal tier (David, 2026-08-21,
+superseding the 2026-08-20 no-rounds carve-out) says what is downstream rather
+than setting a threshold, and is not the continuation rule — this paragraph
+named it as such while handing length to the limit four lines later, so a
+reader who stopped at the bolded clause got the superseded answer. **How long that re-reviewing runs is the two-review limit's**
+([`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) — this sentence used to
+add "there is no round budget and no leash", and while the limit is indeed not a
+round budget, "no leash" is exactly what it removed. The tier's old
 "only a critical flaw is written for" rubric is retired as a decline quota, and
 the external adjudicator that used to rule went with the #89 cut (2026-09-16)
 and was replaced by two advisory assessments per round (#96) — see
@@ -229,16 +237,30 @@ and was replaced by two advisory assessments per round (#96) — see
 internal-tier section. The retired fix-round merge-path workarounds no
 longer apply.
 
-**Internal tooling gets the light bar too, and loops only for its fixes
-(David, 2026-08-21).** Guards, `scripts/`, skills, agent contracts,
-process docs and documentation harvests are reviewed by the automatic pass
-when the PR opens; a clean pass ships, and findings get one triage with
-one-line declines. What changed from 2026-08-20: fixes that get pushed are
-re-requested under the internal tier rather than merged unreviewed. The
-reviewer should still raise genuine defects and skip prose, structure and
-completeness findings: the loops this repo measured on that class were 22
-rounds of correct findings against an artifact where none of them
-mattered. The full reasoning is in
+**Internal tooling: the depth is lighter, and how long it loops is not this
+file's to say (David, 2026-09-19).** Guards, `scripts/`, skills, agent
+contracts, process docs and documentation harvests are reviewed by the
+automatic pass when the PR opens, and a clean pass ships. Iteration beyond
+that is bounded by the **two-review limit** in
+[`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19) — review, one
+batch of corrections, review, stop — and every changed head still gets its
+review. **That list is where such work usually lives, not what decides it:**
+the limit is scoped by consequence and recoverability, asked of the change, so
+a change in it governing approvals, publication, credentials or destructive
+operations is weighed on that whatever directory it sits in. A `scripts/`
+entry is not internal by being in `scripts/`, and it is not exempt by being
+`sync.mjs` either — the question is what the change does.
+This paragraph used to add "loops only for its fixes" and "findings get one
+triage with one-line declines": a round budget and a decline form, both
+retired, sitting where a depth rule belongs.
+
+On **depth**, for a documentation-only pull request, the reviewer should raise
+genuine defects and skip prose, structure and completeness findings: the loops
+this repo measured on that class were 22 rounds of correct findings against an
+artifact where none of them mattered. **Executable tooling is reviewed for
+meaningful defects** — a lighter bar for `scripts/` would be the tier setting a
+threshold, which it does not do; what is downstream informs the Worth rule
+instead. The full reasoning is in
 [`working-modes.md`](../ai-context/working-modes.md#review-loops-need-a-stopping-rule-not-just-a-convergence-target).
 
 ## Runtime correctness
@@ -447,8 +469,12 @@ code-review outage, and testing for "no review **and** no bounce" would let
 that unrelated comment mask the outage indefinitely. That case still exists,
 and since 2026-08-17 it is a **development stop**, not a stakes-graded
 proceed: **every PR gets a code review, and nothing merges until it returns.**
-A PR's criticality governs how many rounds are worth requesting; it never
-governs whether the first one has to come back. So an agent that cannot get a
+How many rounds follow is the **two-review limit**'s
+([`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) on work it
+bounds; nothing governs whether the first one has to come back. The Worth rule
+per finding and the ship gate shape what is written *within* that bound — this
+sentence used to hand them the length question itself, which is a different
+question than either answers. So an agent that cannot get a
 code review stops and says so loudly to David rather than proceeding on a
 docs-only or low-criticality exemption — that exemption is retired. The retry
 limit in the implementing agent's ceremony (for Claude Code,
@@ -597,7 +623,7 @@ instance belongs to that contract and only the generalization belongs in shared
 review practice.
 
 **What actually ended it was two things arriving together, and neither was a
-better sentence:** an owner resolving what a dispatched verdict is *worth*,
+better sentence:** an owner resolving what a dispatched assessment is *worth*,
 and that same owner separately instructing that the boundary stop being
 defined at all. The first fact alone didn't stop the drafting — it was
 immediately spent deriving a sixth attempt, in the same breath as recording
@@ -642,8 +668,9 @@ language) — e.g. *No major technical disagreement · Directionally good, revis
 needed · Substantive technical concerns · Strong disagreement on direction · Human
 clarification required · Repo context required.* For each finding: what, why (tied
 to a priority above), and a concrete suggestion. Separate **must-fix** from
-**nice-to-have**. Escalate design/architecture/trade-off calls to David rather than
-deciding them.
+**nice-to-have**. Escalate product and behaviour calls — anything that would
+change intended behaviour or accept a user-facing shortfall — to David rather
+than deciding them; a purely technical design fork is settled inside the loop.
 
 ### Structured defect pass — GitHub structured review (the `@codex review` transport)
 

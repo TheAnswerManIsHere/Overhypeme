@@ -253,7 +253,7 @@ the other direction: a clean Codex pass delivered as a normal
 issue comment (`docs/ai-context/working-modes.md`'s own account of this
 shape) — it's only visible as a review object, with its own actor and
 submission timestamp. Skipping `get_reviews` means this specific "Codex
-converged, nothing left to fix" event is invisible to this report,
+returned a clean pass, nothing left to fix" event is invisible to this report,
 which can leave a `waiting:codex` workstream looking falsely stalled or
 its activity timestamp falsely stale. `get_commits` matters for Step 4's
 stall detection: a PR's raw `updated_at` advances on *any* update —
@@ -306,9 +306,9 @@ author + date (`get_commits`), the latest review comment's author +
 timestamp (`get_review_comments`), the latest issue comment's author +
 timestamp (`get_comments`), and **the latest formal review's actor +
 submission timestamp (`get_reviews`)**, all from step 3. A clean Codex
-convergence pass with no inline findings only shows up in this last
-collection — omitting it is exactly the gap that makes a genuinely
-converged, `waiting:codex` workstream look stalled or under-timestamped.
+pass with no inline findings only shows up in this last collection —
+omitting it is exactly the gap that makes a workstream whose head is
+genuinely reviewed, `waiting:codex`, look stalled or under-timestamped.
 **Never use the PR's raw
 `updated_at` as an activity signal on its own** — it advances on any
 update (a relabel, a David edit with no comment) but carries no author, so

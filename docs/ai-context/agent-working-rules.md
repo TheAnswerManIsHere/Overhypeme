@@ -246,6 +246,20 @@ wrong for internal tooling,
 and applying it uniformly is a bug in judgment, not diligence. **Before
 designing, state what tier the thing is and let that set the bar:**
 
+**These tiers set engineering depth and nothing else.** They are not the
+review loop's scope: how long a loop runs is the two-review limit's.
+**Product code is outside that limit outright** — the limit bounds internal
+tooling, and no weighing of a product change's consequence or recoverability
+brings it under the cap. *Within* internal tooling, the limit asks
+"internal?" of **the change** by its consequence and recoverability rather
+than of the artifact it lands in
+([`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)). Editing a
+credential-rotation script to change which credential it rotates is not
+internal by that test; editing the message it prints is, though both land in
+a file this list calls internal tooling. (Codex, #153 round 1, on an earlier
+version of this note that classified the script rather than the edit — the
+artifact-level reading the test exists to refuse.)
+
 - **Mission-critical** (payments, auth, data migrations, moderation): go as
   deep as the risk warrants. Nothing changes here.
 - **Internal tooling** (metrics, tracking, dev scripts, reporting): build the
@@ -332,7 +346,8 @@ in the product.
   See [`code-review.md`](../engineering/code-review.md#review-output-format)
   and [`planning-contract.md`](./planning-contract.md).
 - **Clear mechanical issue** (off-by-one, missing await, dead import, obvious lint,
-  a clear logic bug) → fix it, push, mention briefly. **Design/architecture/
+  a clear logic bug) → fix it, push, mention briefly — and the push owes a
+  round, as every write does ([`working-modes.md`](./working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22)). **Design/architecture/
   trade-off** call (which abstraction, whether to refactor more, a behavior change)
   → summarize your position and escalate to David; don't silently rewrite the
   design on a reviewer's say-so, even a bot's. David doesn't need to triage every

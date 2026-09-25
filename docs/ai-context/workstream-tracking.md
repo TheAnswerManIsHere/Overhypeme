@@ -33,8 +33,9 @@ Test run, and UAT like everything else.
 glyph used for the mid-task interruption banner in chat, deliberately: one
 symbol means "David," everywhere, not only in conversation. **Merge stopped
 being a David-gate on 2026-08-15** (the agent driving the PR merges it once
-CI is green, the reviewer has converged, and every thread is resolved — see
-CLAUDE.md's close-out contract), and the **scope-of-work gate** was added
+the close-out bar in CLAUDE.md is met — CI green, the reviewer's pass returned
+for the head commit, every thread resolved, the owed translations delivered),
+and the **scope-of-work gate** was added
 the same day at the front of Planning (see
 [`working-modes.md`](./working-modes.md#the-scope-of-work-gate-david-2026-08-15)).
 The last exception — a PR that widens the agent's own guardrails or

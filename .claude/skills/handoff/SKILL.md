@@ -49,7 +49,7 @@ but it is not automatic.
 1. **Mid-flight in a stateful ceremony** — a plan-review loop between rounds,
    a PR watch before close-out, an outstanding `@codex review`. CLAUDE.md
    already forbids routing a review loop to a cold *subagent* because round
-   number, declines, tripwires and the cumulative-diff rule are running
+   number, declines, flip conditions and the cumulative-diff rule are running
    state; a cold *session* is the identical argument. Finish the loop.
 2. **Live state no artifact can carry** — an in-flight debugging hypothesis
    chain, a background task still running, working-tree changes that are

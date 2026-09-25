@@ -66,7 +66,30 @@ labelled so a future re-vendor can spot and re-apply it:
 - `subagent-driven-development` — added a **Local calibration** paragraph
   limiting fan-out to substantial independent tasks.
 
-Rationale and the full policy live in `CLAUDE.md` → *Model, cost, and routing*.
+**Further local modifications (2026-09-20), from the cold-reader sweep for the
+two-review limit.** Upstream's review guidance is unbounded by design — review
+early and often, fix and carry on — which contradicts a fleet rule that ends
+autonomous iteration at two reviews on work that is internal by the
+consequence and recoverability of the change
+([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)).
+(Not on everything: the limit is scoped, and this sentence stated it unscoped
+until 2026-09-23.) Each is a clearly-marked block, same
+convention as above:
+
+- `requesting-code-review` and `receiving-code-review` — added a **Local
+  calibration** block naming the two-review limit and its home, and calling out
+  the two upstream habits that are wrong here: fixing findings one at a time
+  instead of batching them, and applying fixes with no review of what was
+  written.
+- `requesting-code-review/code-reviewer.md` — the "With fixes" merge verdict
+  now says the corrected head still gets its own review.
+- `subagent-driven-development` — the final whole-branch fix wave now gets a
+  review before the branch is finished; the flow previously ran it straight
+  into `finishing-a-development-branch`.
+
+Rationale and the full policy for the 2026-07-24 delegation calibrations live
+in `CLAUDE.md` → *Model, cost, and routing*; the two-review limit's are in its
+home, linked above.
 MIT permits modification; attribution above is unchanged.
 
 Not vendored: the plugin's `hooks/` (a SessionStart hook that auto-loads
