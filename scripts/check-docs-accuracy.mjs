@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 // Docs-accuracy gate for the repo-native agent context system.
 //
 // Two checks, run over the shared context docs:
@@ -36,6 +37,30 @@ const LIBRARY_DIRS = ["docs/ai-context", "docs/engineering", "docs/manual"];
 const LIBRARY_EXTRA = ["AGENTS.md", ".agents/PLANS.md"];
 const LINK_ONLY_EXTRA = ["CLAUDE.md"];
 const LINK_ONLY_DIRS = [".claude/skills"];
+
+// ── Historical records ────────────────────────────────────────────────────────
+// decisions.md is APPEND-ONLY by contract: an entry records what was decided
+// and why, at the time, and is never edited afterwards. When a decision retires
+// a document, every older entry that linked to it becomes a dead link BY
+// DESIGN -- there is nothing to repair without rewriting history. It is also
+// consumer-owned: it does not exist in this repository at all, so the handbook
+// cannot fix its citations even in principle. Both passes are exempt for it.
+//
+// NOTHING ELSE IS EXEMPT, and one near-miss is worth recording. An earlier
+// revision of this change also exempted known-failure-patterns.md from the
+// path pass, on the grounds that its worked examples cite where an incident
+// happened rather than where a file is. Measured on a rehearsal of the first
+// consumer cutover, that file names 41 checkable paths: 37 are LIVE paths in
+// the consumer, which entries actively send an agent to go and read, and 4
+// were retired handbook scripts. The exemption would have switched off 37 real
+// checks to permit 4 -- in the consumer, which is the only repository where
+// this check runs against that file. The four are written without backticks
+// instead, per the convention now stated in that file's own header.
+//
+// Files, never directories: a directory exemption would silently cover the
+// next document added beside it.
+const PATH_CHECK_EXEMPT = new Set(["docs/ai-context/decisions.md"]);
+const LINK_CHECK_EXEMPT = new Set(["docs/ai-context/decisions.md"]);
 
 // Nested CLAUDE.md memory files (e.g. lib/api-zod/CLAUDE.md) load contextually
 // when working under their directory and carry relative links that must
@@ -134,6 +159,7 @@ const errors = [];
 // authoring convention, substituted at runtime and never a literal repo path.
 const LINK_RE = /\]\((?!https?:\/\/|#|mailto:)([^)]+)\)/g;
 for (const file of linkFiles) {
+  if (LINK_CHECK_EXEMPT.has(file)) continue;
   const text = stripFencedBlocks(readFileSync(join(ROOT, file), "utf8"));
   const fileDir = dirname(join(ROOT, file));
   for (const m of text.matchAll(LINK_RE)) {
@@ -155,6 +181,7 @@ const TOP_LEVEL = /^(docs|lib|artifacts|scripts|cloudflare|\.agents|\.claude|\.g
 const SKIP_CHARS = /[*<>{}|()@=:\s…]/; // glob, placeholder, expression, or prose
 const BACKTICK_RE = /`([^`]+)`/g;
 for (const file of libraryFiles) {
+  if (PATH_CHECK_EXEMPT.has(file)) continue;
   const text = readFileSync(join(ROOT, file), "utf8");
   const seen = new Set();
   for (const m of text.matchAll(BACKTICK_RE)) {

@@ -3,6 +3,8 @@ name: a squash-merge deletes the remote branch, but a stale local remote-trackin
 description: git fetch --prune fixes a stop-hook or git-status report that claims unpushed local commits exist when the branch is actually fully merged and identical to origin/main.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # A deleted remote branch leaves a stale tracking ref behind
 
 ## What happened

@@ -1,489 +1,715 @@
 ---
 name: pr-watch
-description: Use after opening or being re-engaged on any PR (implementation or [PLAN REVIEW]), and whenever a github-webhook-activity event arrives for a watched PR.
+description: Use after opening or being re-engaged on any PR, and whenever a github-webhook-activity event arrives for a watched PR. Implementation PRs only — plan review runs in-session and opens no PR.
 ---
+
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
 
 # Watching the PRs I open
 
-Migrated out of `CLAUDE.md` so it loads when a PR is actually being watched.
-The three standing rules that must fire without this skill loaded — always
-subscribe (no tier gate), the bounded self-check-in contract, and resolve
-review threads once addressed — stay resident in `CLAUDE.md`.
+**This file was 1,182 lines before the #89 cut, and most of that was mechanics
+for machinery that no longer exists**: budget cadence, receipt shapes, snapshot
+recipes, round-count recovery and adjudicator dispatch. All of it is gone,
+along with the scripts it drove.
 
-### Subscribe rules (resident in CLAUDE.md — pointer, not a second copy)
+**What is here is what survived the deletion, plus the shared judgement.** The
+two assessments are step 3 and are live (#96); neither of them binds, and what
+happens next is the action step 6 states. What is still deliberately absent —
+the draft-first flow and the shared-vocabulary references — lands with the
+rulebook rewrite, beside #92, so a step below that reads thin is thin on
+purpose.
 
-The subscribe rule lives in `CLAUDE.md`'s *Watching the PRs I open* stub,
-which fires at PR-open time before this skill is ever invoked: **I subscribe
-immediately, on whatever tier the session is on — there is no model gate**
-(David, 2026-08-15, retiring the Sonnet gate), for implementation and
-`[PLAN REVIEW]` PRs alike. **Self-check-ins follow the bounded contract in
-`CLAUDE.md`'s *Scheduled self-check-ins*** (David, 2026-08-15, replacing the
-2026-07-07 blanket ban): allowed against a named external state that won't
-reliably wake me, bounded by **both** caps (3 consecutive no-op wakes, and 6
-wakes or 24 hours total), silent when nothing changed **except a terminal
-wake** — never a routine heartbeat.
+**The restoration, because a strip that overshoots is a deletion nobody
+approved.** Most of the old reply section was a second statement of
+`claude-core.md` rules 5 and 6, and losing a second copy is the point of this
+cut. But the class-level sweep lived *only* here and rule 6 still points at it.
+Stripping it would have left the always-loaded contract pointing at a spec that
+no longer exists, which is a worse outcome than the duplication. It is back in
+step 5, stated once, with the duplicated material left out. (The two escape
+valves this sentence also named belonged to the four-line `Class:` / `Worth:` /
+`Oracle:` / `Result:` reply form, which rule 6 retired on 2026-09-17; what
+replaced them is step 5's proportionate-evidence rule.)
+## The loop
 
-The old gate's companion rule — *"if the session gets switched to Sonnet
-later, that's the moment to subscribe any open unwatched PR"* — is retired
-with it: there is no tier moment to wait for any more. What survives is the
-substance underneath: **an open PR I created and am not yet watching gets
-subscribed the moment I notice it, without David re-asking.**
+1. **Subscribe, immediately, on whatever tier the session is on** (David,
+   2026-08-15, retiring the Sonnet gate). There is no model gate and no tier
+   gate. An open PR I created and am not yet watching gets subscribed the
+   moment I notice it, without David re-asking.
 
-**One explicit exception, and it is not optional (Codex, PR #458 round 1):
-a `/document` harvest PR is subscribed only at step 5 of
-[`documentation-workflow.md`](../../../docs/ai-context/documentation-workflow.md)** —
-after the workstream issue exists and the PR body's `Workstream:` line points
-at it. Subscribing performs label writes, so subscribing early labels an
-untracked draft against a missing or wrong issue; that doc says in as many
-words that deferring the *subscribe* is what defers labeling, since draft
-status alone does not. The old tier gate happened to enforce this ordering as
-a side effect of making me wait — with the gate gone, the ordering has to be
-stated outright or it silently breaks.
+   **One exception, and it is not optional** (Codex, PR #458 round 1): a
+   `/document` harvest PR is subscribed only at step 5 of
+   [`documentation-workflow.md`](../../../docs/ai-context/documentation-workflow.md),
+   after the workstream issue exists and the PR body's `Workstream:` line
+   points at it. Subscribing performs label writes, so subscribing early
+   labels an untracked draft against a missing or wrong issue.
 
-### The write-gate rule, and the internal tier (David, 2026-08-22)
+2. **Read live PR state on every event.** One batched `pull_request_read`:
+   threads, CI, latest commits. **Never judge a webhook event from its text
+   alone** — webhooks lag, drop CI successes and arrive out of order, so
+   silence is never "all clear". An echo of my own comment still gets the
+   silent live-state check and produces no output on either surface.
 
-**Any commit I push gets a review round. The loop stops when the adjudicator
-refuses to write more — never after a push.** So the order is: round returns
-findings → **dispatch the adjudicator BEFORE writing anything** → on *write*,
-push the fixes and re-request (that round is mandatory, not optional); on
-*stop*, the loop is over and the head is already reviewed. This supersedes
-2026-08-21's mid-budget terminal receipt, which existed to make an unreviewed
-head mergeable and is gone with it.
+3. **Get two independent assessments, then decide.** Every round that returns
+   findings, before anything is written for them, on every tier. The rule is
+   `claude-core.md`'s *Shared judgement on a review round*; what is here is how
+   it runs. What ends the loop is not here at all: on internal tooling it is
+   the **two-review limit** ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)),
+   and step 4 below is where this skill enacts it. The write-gate rule
+   ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22))
+   answers the other question — which heads must be reviewed, so that no
+   commit merges unreviewed — and every step below serves both.
 
-**If this PR is internal** — a guard, a script, a skill, an agent contract, a
-process doc, a documentation harvest:
+   **The oracle comes first, and it is agreed with David before round 1.** It
+   is the outcome he agreed the work should achieve — an approved plan, an
+   issue discussion, or an explicit request — recorded where it can be quoted,
+   normally a comment on the workstream issue. `assessmentBrief` refuses
+   without one. **Reaching round 1 with no agreed oracle is a 🛑 to David, not
+   a package I write myself.**
 
-- **Clean automatic pass on PR-open → merge on it.** No budget, no receipts,
-  no adjudication; the merge receipt accepts an automatic pass covering the
-  head.
-- **Rounds 1–2: the pass found things → triage once, decline out-of-scope
-  findings in one line, fix the rest, push — then declare `--tier internal`
-  and re-request.** No judge yet: the ledger says these rounds always carry
-  findings worth writing for, and the mandatory re-review of the push is
-  the write-gate working.
-- **Round 3's findings → the adjudicator, before anything is written.** On
-  this tier the entry point IS the cap decision: it rules under the internal
-  rubric (write only for a very high chance of a CRITICAL flaw), or
-  everything ships as recorded gaps on the round-3-reviewed head.
-- **Budget 3, two-tier tripwire like every tier** (David, 2026-08-26): the
-  adjudicator's grants self-serve to at most round 6, where the David gate
-  stands — a fresh Fable recommendation goes to David, and only his receipt
-  moves the loop.
+   1. **Collect this round's findings** from the live state read in step 2,
+      bounded to this round by the reviewer's own markers — the same
+      inclusive-current, exclusive-next window the translation step uses, and
+      for the same reason: `get_review_comments` returns every thread on the
+      pull request, so an unbounded read on round 2 hands the assessors round
+      1's findings again and collects fresh advice on settled work. Write them
+      as `[{ id, body, path, line }]`, with GitHub's own comment id.
+   2. **Write the oracle and the labelled history to files, in the session
+      scratchpad — never inside the repository.** The dispatch refuses on an
+      unclean tree and `git status --porcelain` lists untracked files, so an
+      input written at a repo-relative path refuses both assessments before
+      either starts. Under `.agents/reviews/` is not a safe answer either: that
+      directory is only made ignored by `prepareAssessmentPath`, which runs
+      *after* the checkout guard, so on a consumer that has never run this
+      script the first dispatch would still refuse. Labels are `David`,
+      `oracle`, `reviewer`, `builder`, `astra`, `fable`. Provenance is what lets
+      an assessor weigh them: mine and the reviewer's are claims to check,
+      **David's are authority**.
+   3. **Dispatch both, on the same package.** Astra through the script; the
+      Fable assessor as the **`fable-review-assessor`** subagent, given the
+      package `--prompt-only` emits with `--source fable`, and **dispatched
+      with `model: dispatchModel().agentModel`** the way the round-translation
+      step already does. The agent type is named here because it used to not
+      be: the step said "as a subagent" and nothing in the payload said which
+      one, so every dispatch of the second assessment was improvised (#126).
 
-### Declare the round budget at loop start (product loops only)
+      **Pass the argument even though the definition now declares the tier.**
+      `fable-review-assessor` carries `model:` and `effort:` in its frontmatter,
+      held equal to `strongestClaude` by `scripts/check-agent-models.mjs` — but
+      an argument outranks frontmatter, an edited definition can be served
+      stale, and a consumer's own pin reaches the dispatch only this way. The
+      two together are the belt and the braces; `model-routing` has the measured
+      resolution order and why neither alone is enough. What is at stake if both
+      are missed: on an ordinary Opus session the second assessment is Opus
+      wearing the Fable label while holding the tie-break, and the post does not
+      say so. **One brief serves both** — it says "the other
+      assessor" throughout — and the only difference between the two packages
+      is the identity block the script adds, which names who each reader is and
+      which of them holds the tie-break. A brief that named a role would be
+      wrong for exactly one of them, silently, and once was: the first version
+      shipped Astra's brief to the subagent unchanged, so it read that it
+      discussed with Fable and that Fable settled ties. **Neither sees the
+      other's answer** — that is what makes the readings independent rather
+      than merely separate, so do not pass one into the other.
 
-**Before round 1, in the same breath as subscribing**, a product loop declares
-its round budget:
+      ```
+      P=core/scripts/review-proxy.mjs; [ -f "$P" ] || P=scripts/review-proxy.mjs
+      node "$P" --pr <n> --round <n> --commit <reviewed sha> --tier <product|sensitive|internal> \
+        --oracle-file <path> --findings-file <path> [--history-file <path>] [--note "<where we are>"]
+      node "$P" --source fable --prompt-only --pr <n> --round <n> --commit <reviewed sha> --tier <…> \
+        --oracle-file <path> --findings-file <path> [--history-file <path>] [--note "<where we are>"]
+      ```
 
-```
-node scripts/review-budget.mjs declare --pr <n> --tier <product|sensitive|internal> \
-     --criticality <1-100> --artifact "<what is under review>"
-```
+      The dispatch **refuses unless the checkout is at that commit and clean**,
+      because both assessors read the live tree. Retry once on a transient
+      failure; a second failure goes to David, and one assessment alone is not
+      permission to proceed.
+   4. **Post both on the PR verbatim**, each under the header `prComment`
+      renders. Never summarise one away, and never drop the one I disagree
+      with. Astra's comment is printed by the dispatch itself; the Fable
+      assessment is written by a subagent this script does not run, so render
+      its comment rather than assembling one:
 
-`product` = 5 rounds, `sensitive` = 5 (auth, payments, migrations),
-`internal` = 3 (declared at the first re-request, not before round 1 — see
-the internal-tier section above). Every tier runs the same two-tier
-tripwire past its budget (David, 2026-08-26). The
-tier picks the number; it is not a field to fill in.
-**Commit the receipt AND PUSH IT**, then **state the budget in the PR body**.
+      ```
+      # an ordinary round — the scope comes from the round's findings file
+      node "$P" --render --source fable --pr <n> --round <n> \
+        --commit <reviewed sha> --findings-file <path>
 
-The push is not housekeeping — it is what makes the budget exist. Budgets and
-extensions are read from the branch's remote-tracking ref, never from the
-working tree, so an unpushed receipt reads as *no budget declared* and `check`
-refuses. (Committing without pushing gets a refusal that says exactly this,
-rather than sending you back to `declare`.)
+      # a follow-up — the scope is the subset the follow-up actually addressed
+      node "$P" --render --source fable --pr <n> --round <n> --follow-up <k> \
+        --commit <reviewed sha> --findings <id,id>
+      ```
 
-**Then, before every `@codex review` post, count the rounds fresh:**
+      **Two commands, and neither flag is optional.** A follow-up never reads
+      `--findings-file`, and an ordinary round never reads `--findings`. This
+      recipe used to show one command with both marked optional, which posted a
+      follow-up header naming no findings at all — the script refuses that now,
+      but the recipe is what a reader copies (Codex `4051974432`, #131 round 2).
 
-```
-node scripts/review-budget.mjs check --pr <n> --mcp-snapshot <file>
-```
+      **The header says what was asked for and the assessment's own
+      `_Running as:_` line says what it is running as** — line 2, under the ship
+      gate, which is line 1 for both assessors. Nothing here claims they match: this reads a
+      file and cannot interrogate what wrote it, and a control reporting success
+      having evaluated nothing is the one shape this repository's archive names
+      as the worst available. When the two lines disagree, that is an 👀 FYI to
+      David naming both, not a blocker and not a reason to discard the
+      assessment (David, 2026-09-18: *"a highly visible warning"*).
 
-The snapshot is `pull_request_read` (`get`, `get_reviews`, `get_comments`),
-paginated and attested complete, and it must also name its source
-(`repo: "TheAnswerManIsHere/Overhypeme"`) and the moment GitHub was read
-(`capturedAt`) — a PR number alone does not identify a pull request, and
-freshness is a property of the evidence rather than of when the command was
-typed. Bodies are required on every issue comment and every reviewer-authored
-review, because that is where the count actually reads. It writes an ephemeral
-round-check receipt that authorizes exactly **one** post — the same
-evidence-at-decision-time pattern the merge gate uses, because the round count
-is evidence, not something to remember. There is no tally to maintain and
-nothing to reconcile if a request stalls.
+      **The Fable header carries three facts and labels each one**, because the
+      assessor is reached by an alias and not by a version: `expected` is the
+      pin, which is what the self-report is compared against; `instructed alias` is
+      the family alias the recipe sends, derived from the pin — an instruction,
+      not an observation, since this script never makes the call; `definition …`
+      is what the
+      role's file declares, as read at render time. Only Astra's header says
+      `requested`, because only Astra is handed a full id and an effort per
+      call.
 
-**Post the request as an issue comment.** The guard refuses a trigger sent
-through a thread reply or a review body: those land where the round count
-cannot see them, so a request in flight there would be invisible as a pending
-round. The refusal says so and names the surface to use.
+      **Which of the two causes a model disagreement has is decided by the
+      answer's family, not by judgement.** Same family as the pin — the alias
+      resolves to a different version — is a drift between the pin and the
+      alias, which is David's one-line edit. A **different** family rules that
+      out entirely: `fable` cannot resolve to an Opus model, so the platform
+      served something else, which `model-routing` records as a content refusal.
+      `chatReport` applies exactly this test, so the FYI follows the line rather
+      than second-guessing it. (Before #131 round 4 this said to name the pin
+      first "unless something rules it out" without saying what does — a
+      judgement where an observable was available, which is the flip-condition
+      lesson one level down.) And `definition …` never means "what ran":
+      definitions are cached, so the file on disk may not be the one that
+      answered, and the assessor's own line is the only observation there is.
 
-**Known gap: an automatic review can be in flight unseen.** Codex has three
-triggers and only one is a comment — opening a non-draft PR and marking a
-draft ready also start a review, through calls this hook never sees. Those
-passes are counted correctly once they land, but while one is in flight
-`pending` reads 0, so marking a PR ready and immediately requesting a round
-can land two passes against one. Bounded at one round, and it needs that exact
-sequence. Avoid it by letting the automatic pass land before requesting.
+      **Effort is the weaker half of that comparison, and knowing why saves a
+      false alarm.** It has no argument at all, so the header can only report
+      what the definition declares. On the reporting side,
+      an assessor may not be able to name its effort at all: measured on this
+      PR's own round 1, the assessor answered `at unable to name` and said why —
+      its context shows reasoning effort as the number `80`, not one of the pin's
+      named levels. **So an effort the assessor could not name is not a
+      mismatch**; report it once as the limit it is and do not raise it every
+      round. A **model** it could not name, or one that disagrees, is the FYI
+      that matters.
+   5. **Decide, and say what I decided.** Investigate disputed facts myself in
+      the repository and the tests — an assessor should not be asked to settle
+      what a few tool calls answer. Where a real question of reasoning remains,
+      put it to both. **This costs no commit and no Codex round** — measured on
+      #120 round 6, the first time either was run.
 
-**Re-capture the snapshot for every check.** A snapshot must be strictly newer
-than the evidence behind the current receipt; re-presenting one that has
-already authorized a post is refused. That is what makes "one check, one post"
-true sequentially as well as concurrently.
+      **They are two different mechanisms, and one verb used to hide that.**
+      Astra's follow-up is a **cold re-dispatch**: a fresh `codex exec` that
+      remembers nothing, so the script rebuilds the whole package —
+      `--follow-up <n> --question … --findings <ids> --findings-file …
+      --oracle-file … --tier … --prior-file … [--fable-file …]`. The Fable
+      assessor's is a **transcript continuation**: the harness resumes the same
+      subagent, which still holds its own assessment and the evidence behind it,
+      so it is sent the question and nothing else — **plus the path to write to,
+      which is the one thing the continuation must be told.** Its retained
+      instruction still names the base assessment's file, so a continuation sent
+      without a new path would overwrite the assessment it is supposed to
+      supplement, and a continuation that then wrote nothing would leave the
+      base assessment looking like the follow-up. Name
+      `round-<n>.fable.followup-<k>.md` explicitly. (Codex, #120 round 7. It did
+      not bite on the one live run only because the subagent chose that path
+      itself.)
 
-**A retry of a stalled round is not a new round and costs nothing.** If a
-request produced no review, re-asking is allowed even at the cap — `pending`
-stays 1 until a pass lands, and the guard gates on delivered passes. The one
-retry limit below is still the rule; it is a judgement about when to stop
-asking, not a budget constraint.
+      **`k` counts attempts, not questions, so it is never reused.** List the
+      round's directory first and take the next unused number: a second attempt
+      at follow-up 1 is `followup-2`. Nothing can clear the old file for me —
+      `prepareAssessmentPath` is reached only through the CLI, and a Fable
+      continuation invokes no CLI at all — and `readAssessment` accepts any
+      non-empty file as an answer. The case that matters is not a plain retry,
+      where a stale answer is at least an answer to the same question: it is a
+      **corrected question landing on the answer to the old one**, which reads
+      as a reply to what I just asked and is not. Counting up eliminates the
+      state instead of clearing it, and the file name then says which attempt
+      produced it. (Codex, #120 round 8, deferred to #122; Fable held the
+      tie-break between this and clearing the destination.) That asymmetry is why the
+      Astra package took three rounds of guards to get right and the Fable side
+      needed none — and why a package guard is worth writing on one side only.
 
-This is not optional and not a reminder: `.claude/guard.sh` refuses the
-**first** `@codex review` post until the budget receipt exists, refuses any
-post without current counted evidence, and refuses again at the budget. The
-full contract — the per-round adjudicator, the adjudicator-sized extension
-inside the 3-round leash, and the David gate at budget + leash — is resident
-in `CLAUDE.md`'s *Review loops*
-section, because it has to hold whether or not this skill is loaded. What belongs here is the timing: **declare at loop
-start**, alongside the subscribe, and **check before each request**.
+      **The question carries the evidence**, in the form
+      `claude-core.md`'s *A load-bearing claim is quoted, or it is marked
+      unverified* already requires: command output and source lines quoted with
+      their origin, never paraphrased into my own assertion, and my inference
+      from them labelled as mine. There is no separate evidence input; one was
+      removed on #120 round 6 because it flattened multi-line output to a single
+      line under a label nothing validated, which is worse fidelity than the
+      question gives.
 
-I re-verify true PR state (threads + CI + mergeability) whenever a real
-webhook event arrives or David re-engages me. I may additionally schedule a
-wake-up **when a specific external state won't reliably deliver one** — a CI
-run that may never report success, a PR gone quiet before merge, a review
-request that produced no code review (a security bounce is irrelevant to that
-judgement) — under the bounded contract
-in `CLAUDE.md`. **A security-review usage-limit bounce is not one of these:**
-request the code review instead. Whenever a watched PR merges or closes, I unsubscribe and
-disarm any check-in still pending on it.
+      A purely
+      technical disagreement that survives is the Fable assessor's to settle,
+      with its reasoning recorded. **Intended behaviour and any accepted
+      user-facing shortfall go to David** as a 🛑 with a push notification, and
+      stay open until he answers — a later clean round never clears them, and
+      **neither does a default of mine.** A question of his that goes unanswered
+      is **re-asked**, not resolved by whatever I pre-registered as the fallback:
+      on #120 round 5 a question about his own ruling was closed by my default
+      and the loop carried on, which is this sentence being contradicted by the
+      loop that wrote it. A pre-registered default is for what *I* do while
+      waiting, never for what *he* decided.
+   6. **State the next action explicitly** in a `review-action` block
+      (`proceed`, `investigate`, `follow-up`, `ask-david`, `conclude`) with the
+      finding ids it covers. Nothing parses an assessment, so this block is
+      what says what happens; there is no `merge` action and agent agreement is
+      never David's approval.
 
-**The convergence-break and skip-review-if-docs-only rules below are
-for implementation PRs.** A `[PLAN REVIEW]` draft PR follows
-`plan-review-loop`'s own cadence instead — minimum 3 rounds even on a clean
-early pass, and every
-revision re-triggered regardless of whether the diff is docs-only, since
-the diff *is* the plan. Its stopping rule is the SAME declared budget and
-two-tier tripwire as every loop (a plan loop takes the tier of what it
-plans — see that skill's step 9): the budget guard's refusals apply to
-plan-review triggers exactly as to implementation ones, with the per-round
-adjudicator, the leash, and the David gate all in force. While watching an implementation PR:
+   **Sign-in before the first dispatch, not mid-round.** `$CODEX_BIN login
+   status` decides; the steps are in `claude-core.md`'s *Astra* section, and the
+   device code expires in about fifteen minutes, so the ask and the code go to
+   David in the same turn.
 
-- **Never judge a webhook event from its text alone — fetch the live PR state
-  first.** This is the rule I broke: a `<github-webhook-activity>` arrived that
-  looked like my own reply echoed back (it even carried the "Generated by Claude
-  Code" footer), so I dismissed it as "just my echo, no action needed" — when it
-  was actually evidence of a real Codex P1. Every time an event arrives — *even one
-  that looks like a duplicate, an echo of my own comment, or noise* — I first pull
-  the current state with `mcp__github__pull_request_read` (`get_review_comments`
-  for open/unresolved threads, plus CI status and the latest commits) and decide
-  from **that**, not from the event body. The webhook is a nudge to go look, not a
-  summary I can act on.
-- **Treat every Codex / bot review comment as feedback to act on, not noise.** I
-  read each one, decide if it's tractable, and either fix it (if small + I'm
-  confident) or escalate (if it's a real decision). A P1 left sitting because I
-  pattern-matched the event as an echo is a miss, not a no-op. When a thread looks
-  already-handled, I confirm it from the live thread (resolved? a real fix commit
-  referenced and present on the branch?) — never from the comment's author or
-  footer.
-- **Webhooks lag and are incomplete — don't treat silence, or an event's own
-  text, as "all clear."** They do **not** deliver CI *success*, new pushes, or
-  merge-conflict transitions, and events can arrive out of order or be my own
-  replies bouncing back. So whenever I'm re-engaged on a watched PR — by a real
-  webhook event or by David — I re-check its true state (threads + CI +
-  mergeability) rather than assuming the last event told the whole story.
-  **A scheduled wake-up supplements that, it does not replace it**: I use one
-  only when a named external state won't reliably deliver an event (CI
-  success is the classic drop), never as a general poll and never for a
-  security-review bounce. The contract — named condition, matched cadence,
-  exit condition, **both caps** (3 consecutive no-ops; 6 wakes or 24 hours
-  total), silent on no change **except a terminal wake** — is in `CLAUDE.md`'s
-  *Scheduled self-check-ins*.
-- **From round 3 onward, the external adjudicator decides whether to WRITE
-  for a round's findings — before anything is written (David, 2026-08-22).**
-  Rounds 1–2 are written for by default; a round with no findings (or all
-  declines) needs no verdict at all. Triage the round's findings first — nature,
-  affected area, verdict (fix / accept-and-document / escalate / decline), and
-  the causal flag (new ground vs. repairing an earlier round's fix vs.
-  impossible-as-specified). Then generate the mechanical record and dispatch:
+   **A loop stops at six hours and asks David to resume.** The clock is the PR's
+   `created_at`, or his last explicit resume, whichever is later — one quantity,
+   read from GitHub, with no judgement about what counted as attended. It covers
+   waits and retries and does not reset per dispatch. Expiry pauses and asks;
+   never convergence. **Check it at the top of every round**, because #120 wrote
+   this rule and then ran seven rounds without once reading it.
 
-  ```
-  node scripts/review-loop-record.mjs --pr <n> --mcp-snapshot <file> --write
-  ```
+4. **Check the limit BEFORE writing anything, then batch the fixes.** This
+   gate is first in this step because its whole job is to prevent a commit
+   that cannot then be reviewed. It has **exactly two branches, and the
+   predicate is stated once** — an earlier shape split it across three
+   sibling bullets and restated the complement as the negation of one
+   conjunct, which silently dropped product code at its second review. With
+   one predicate and one `Otherwise` there is nothing left to restate, so
+   nothing to restate wrong. (Codex, #143 round 1; both assessors, who also
+   caught that the disposition paragraph below had escaped the predicate
+   entirely and so applied to every round.) **A predicate may carry a
+   disjunct; what it may not do is grow a third bullet.** The review-loop
+   class is a disjunct *inside* the one predicate, asked first, and its
+   destination sits in the disposition where a destination is actually
+   decided. Written instead as a sibling bullet ahead of the two, it named no
+   round and changed no branch beneath it, so the reader either stopped at
+   round 1 with nothing corrected or read on and reached `Otherwise` and
+   close-out — neither of which is the ruling it was enacting. (Both
+   assessors, #154 round 1: three generations of this paragraph's bugs all
+   came of adding a predicate as new sibling text instead of into the one
+   stated predicate.)
 
-  Dispatch **one** `review-loop-adjudicator` subagent **on Fable**, passing
-  `model: "fable"` explicitly (a per-invocation model outranks frontmatter),
-  and announce the dispatch. Its only input is that record — never this
-  session's prose, and never a case for continuing written by me. **Its verdict
-  decides**: continue, stop, or split-to-David. I do not weigh it or adopt part
-  of it; if I think it is wrong, that is a disagreement for David, not license
-  to overrule.
+   - **Is this its SECOND review, AND is it either a change to the review loop
+     itself OR internal tooling by consequence?** **Ask the review-loop half
+     first**: its answer does not depend on the other, and asking it first is
+     what keeps the consequence test from being consulted for that class at
+     all — a review-loop change the test would put *outside* the limit
+     otherwise falls through to `Otherwise` and writes another batch (Codex,
+     #153 round 1; both assessors, #154 round 1).
+     **Answer the internal half by asking what THIS CHANGE does and how
+     recoverable it is** —
+     neither its directory nor the file's job title
+     ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)).
+     A change that governs approvals, publication, credentials or destructive
+     operations is weighed on those consequences whatever folder it sits in,
+     and that weighing can put it outside the limit. **It is the change, not
+     the file**: editing `sync.mjs`, which publishes the payload to every
+     consumer, is outside when it changes what gets published in a way that could
+     not be trivially undone, and inside when it changes a dry-run message
+     or the formatting of what it publishes, because those are trivially
+     recoverable. A consumer overlay marking a subsystem sensitive is one
+     route to the classification and not the only one, and its silence is not
+     a classification. Reach is not consequence: "this changes how future
+     agents work" disqualifies nothing, or every line in this repository would
+     be exempt. If this change is outside **and** it does not change the
+     review loop, the gate does not apply and the loop continues under the
+     Worth rule.
+     If yes — its second review, and either a review-loop change or internal
+     by consequence — **write nothing**; iteration is over. A batch written
+     here would be a changed head I am forbidden to request a review for,
+     which is a pull request that can neither merge nor move. (Codex, #140 round 2 — the ordering bug was
+     mine: this check sat in step 6, *after* the batching it exists to
+     prevent.)
 
-  **Delivery depends on the verdict, and only `continue` is followed by
-  another trigger** (Codex, #543 rounds 2 and 4). A per-round `continue` —
-  the budget not yet spent — goes as **one line in the separate defanged
-  context comment** that precedes the next bare trigger, never a file
-  (per-round receipts would rebuild the machinery this replaced) and never
-  inside the trigger comment itself, which stays bare — prose beside the
-  trigger is what spawns unintended tasks. A per-round **stop** ends the
-  loop right there: the verdict goes in a defanged comment and **no further
-  trigger is posted** — the loop proceeds to close-out on the rounds already
-  returned. (Under the write-gate rule a stop
-  precedes any new commit, so the head is already reviewed and no receipt is
-  written for it — the 2026-08-21 internal stop-receipt is gone; the only
-  committed verdict receipts are tripwire receipts, on any tier: at budget
-  exhaustion, and at a David gate.)
-  **Known gap, recorded rather than fixed (#553 rounds 4–5):** a standing
-  `split`/`escalate` on a tier that writes no receipt is invisible to
-  `checkRail`, so the readiness gate can mint READY on a PR whose own last
-  verdict handed it to David. Making those receipts mid-budget was tried and
-  reverted — every receipt is held to the exhaustion floor, so a blocking one
-  written earlier is rejected as malformed and **not even a David grant can
-  reopen that loop**. Covered by process instead: both verdicts go to David
-  as a 🛑 by construction, and READY is not a merge. A **split-to-David** likewise posts no trigger; it goes to David
-  as a 🛑. **A round with no adjudication keeps the normal next-round
-  trigger** — rounds 1 and 2 have no judge by design (measured: zero clean
-  round 1s and three round-2 convergences in the ledger's 41 reviewed
-  loops), and a zero-findings round dispatches none — so after those
-  rounds' fixes are pushed, the next bare trigger goes out as usual (it is
-  mandatory: pushed code is reviewed code): the rule gates on verdicts that
-  exist, and the absence of a dispatch is not a stop (Codex, #548). But a verdict at **budget exhaustion** is an
-  extension decision, on every tier (David, 2026-08-26 — sensitive and
-  internal loops write adjudication receipts like product ones now). The
-  guard reads extensions only from committed receipts — so that verdict is written to
-  `.agents/receipts/loop-extension-<pr>-<n>.json`, committed and pushed, per
-  the tripwire-1 refusal's own instructions; at a **David gate** the same
-  receipt is committed as the recommendation and David's answer follows it
-  as a `david`-kind receipt. A comment-only exhaustion verdict
-  leaves the allowance unchanged: the guard blocks the next request and tells
-  you to run the adjudication you already ran. The
-  self-refereeing that used to live here (count trend, growth tripwire,
-  oscillation diagnosis, criticality gate) is gone: 0-for-15 at stopping loops,
-  and the budget plus this judge replaced it.
+     **Then, of that corrected head, decide where it goes. If the diff
+     changes the review loop, it goes to David** — the findings, the declines
+     and all — for him to triage by hand. That is his ruling for the class
+     (2026-09-23) and it holds whichever way the consequence test fell, so
+     the three questions below are not asked of it: they choose between the
+     merge button and David, and for this class the answer is already David
+     ([`claude-core.md`](../../../.agents/core/claude-core.md#the-ship-gate-when-the-worth-rule-stops-being-asked-david-2026-09-19)).
 
-  **Skip-on-clean:** a round with **zero findings** (or whose findings are
-  all reasoned declines — nothing gets written) needs no adjudication: the
-  loop ends on the head that round reviewed. From round 3 onward, a round
-  with findings gets the verdict before anything is written, however
-  mechanical the findings look — under the write-gate rule writing code is
-  what commits me to another round, so "it's only a nit" is precisely the
-  judgment the external judge exists to make instead of me.
+     **For every other change, ask the three questions that decide whether it
+     stops.** Ending iteration and declaring the work not ready are
+     two different things. The limit's **"what ending iteration does NOT mean"**
+     paragraph in [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19) is the authority and
+     the only statement of these three; they are enumerated here because this
+     is the moment of action. (It is not step 3, which this cited until
+     2026-09-23: step 3 says to review the corrected head and turn acceptable
+     imperfections into recorded gaps. A reader who followed the citation to
+     check found a step that says something else.) Does it violate an agreed
+     requirement, does a required check fail, or does a finding establish
+     consequential harm David has not accepted? **Any one of those and it does
+     not merge** — the concrete shortfall goes to him with a choice: continue,
+     cut the scope, or stop. **None of them and the round's remaining findings
+     are recorded gaps and follow-up issues**, and the pull request goes to
+     close-out like any other.
+     (Codex, #140 round 3 — this branch escalated *every* second-review
+     finding, so a routine round-two nit would have turned each internal pull
+     request into a David-gated stop. An enactment that interrupts him more
+     often than the design it replaced is a worse answer than doing nothing,
+     and this whole limit exists because he said the looping overhead was
+     slowing him down.)
 
-  What still stops for a 🛑 whatever the adjudicator says: a genuine
-  design/architecture/product decision, a scope addition, a split, a disclosure
-  question. Anything reaching David is written in product English — outcomes,
-  never mechanics; the mechanics stay in the PR thread.
+   - **Otherwise** — any pull request's first review; and at any later round,
+     product code, or machinery the consequence test above puts outside the
+     limit, **the review loop excepted** — everything being written for goes
+     in one push, with
+     the repo's own fast checks run first: lint, format, typecheck, the
+     changed suites. One validated push beats three speculative ones, because
+     each push costs a full round.
 
-- **Every fix is class-level — the sweep protocol (David, 2026-08-08).** The
-  shared contract is
-  [`working-modes.md`](../../../docs/ai-context/working-modes.md#a-finding-names-an-instance-the-fix-owes-the-class-david-2026-08-08)'s
-  *"A finding names an instance; the fix owes the class."* My enactment,
-  per finding: the thread reply names the class, cites the mechanical
-  oracle (`grep`/`ls`/`find`/one-liner) and its post-fix zero-hits result;
-  when instance = class, the reply says so and that claim is the sweep.
-  **Before every push of a fix round, I re-run all prior rounds' oracles**
-  so a later fix can't reintroduce an earlier class.
-  **The three finding-level dispatch triggers that used to live here (any
-  decline, any oracle-less finding, any swept-class recurrence) are RETIRED
-  (2026-08-20, PR #543)** — superseded by the single external per-round
-  adjudicator, exactly as the `model-routing` skill records. Running
-  per-finding and per-decline Fable dispatches alongside the per-round judge
-  would re-create the parallel self-refereeing the #541 review deleted
-  (Codex, #543 round 4). Declines keep their full care without a dispatch:
-  each is a reasoned reply on the thread, and the adjudicator sees every
-  round's declined findings in the mechanical record. The sweep itself (name
-  the class, write the oracle, sweep to zero) and the recurrence
-  round-record flag apply throughout.
-- **A reply with no oracle in it is malformed (David, 2026-08-22).** The sweep
-  protocol above has been written down since 2026-08-08 and I kept not doing
-  it: on PR #553 I posted 20+ thread replies across five rounds citing **zero**
-  oracles. The replies read as thorough — they named the class, described what
-  I had checked, argued the fix was complete — and not one of them ran a
-  command. That is the failure mode this rule exists to make impossible:
-  **prose that sounds thorough is not an oracle that ran.**
+5. **Reply to every finding and resolve its thread**, right after posting that
+   reply, never in a batch, and never as a standalone summary comment in place
+   of per-thread replies. The shape is `claude-core.md` rule 6's and is not
+   restated here. What that rule points at and states nowhere else:
 
-  So the reply is not a paragraph that *should mention* a sweep. It has a
-  shape, and a reply missing any line of it does not get posted:
+   - **The sweep is class-level, always.** A fix closes the class the finding
+     belongs to, not the line the reviewer happened to land on, and a decline
+     answers the consequence that class reaches at its worst. Measured cost of
+     not doing this: on #553 I posted twenty-plus replies across five rounds
+     that read as thorough — naming the class, describing what I had checked —
+     and ran zero commands. **Prose that sounds thorough is not a check that
+     ran.**
 
-  ```
-  Class: <what the whole class of this finding is>
-  Oracle: `<the exact command>`
-  Result: <its output — a count, or "0 matches">
-  ```
+   - **Where a command settles the question, it runs before the reply is
+     written** and its real output is transcribed. Where the class is design
+     judgement or naming preference and no command can enumerate it, the reply
+     says so rather than going silent. **Neither is a fixed four-line form any
+     more** (David, 2026-09-17): that form made declining more burdensome to
+     write than fixing, which is the asymmetry this loop exists to remove.
 
-  Three things follow from that, and they are the point:
+   - **The prose is held to the same bar as any evidence.** A sentence
+     asserting a fact about the code — that an edit applied, that a flag
+     exists, that a class has no other member — is a load-bearing claim under
+     `claude-core.md`'s *A load-bearing claim is quoted, or it is marked
+     unverified*: it quotes what was read, or it carries `unable to verify:`.
+     The reply that motivated this is on file in AI-Handbook #113.
 
-  1. **The command runs before the reply is written**, not after. The Result
-     line is transcribed from real output; there is no version of this rule
-     where I predict what the grep would say.
-  2. **If I cannot write the command, I have not understood the finding.** An
-     unwritable oracle is a signal to go back to the code, not a licence to
-     reply in prose. If the class genuinely has no mechanical oracle (a design
-     judgement, a naming preference), the reply says *that* on the Oracle
-     line — `Oracle: none — <why this class is not mechanically enumerable>` —
-     which is a claim I can be held to, unlike silence.
-  3. **`instance = class` is still an oracle line**, not an exemption: the
-     Oracle line carries the command that proves the class has exactly one
-     member, and Result carries its `1`.
+   - **A decline is recorded, not just replied to**: a row in the PR body's
+     **Recorded gaps** table naming what ships unfixed and why, so the final
+     round and David can see it in one place rather than inside a resolved
+     thread nobody re-reads.
 
-  This applies to **every** thread reply — fixes, declines, and "no change
-  needed" alike. A decline especially: declining without an oracle is
-  asserting the class is empty without looking.
+6. **Re-request review on the actual head.**
 
-- **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
-  await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
-  brief note; I don't narrate every round. CI failures and nits of this class
-  are the skip-on-clean category — they don't wait on an adjudication, but they
-  do get the class sweep above (a lint error's class is "this lint rule,
-  everywhere in the diff").
-- **Escalate anything that's a real decision.** A design / architecture /
-  trade-off comment (which abstraction to use, whether to refactor more, a
-  behavior change) goes to David via AskUserQuestion — I do **not** silently
-  rewrite the design on a reviewer's say-so, even a bot's.
-- **The adjudicator breaks non-converging loops, not a count.** A round
-  dominated by failures of the previous round's fixes, or a fix that would be
-  contested, is exactly what the mechanical record surfaces and what the
-  adjudicator rules on. A loop still yielding new ground keeps running to its
-  budget; past the budget the adjudicator sizes the extension, and the 2x rail
-  sends it to David.
-- **Reply inline on each comment's own thread — never a standalone summary.**
-  When I act on (or decline) a reviewer comment (Codex or otherwise), I reply
-  **directly on that specific comment's thread**, one reply per comment, saying
-  what I did. I do **NOT** post a single new top-level PR comment summarizing
-  several fixes — David tracks "is every issue addressed?" by seeing a reply on
-  each thread, and a catch-all comment defeats that.
-- **Internal artifacts re-request only for pushed fixes, and continue only
-  on the strict rubric** (the internal-tier section at the top of this
-  skill). There is no criticality gate any more — the artifact's class
-  decides, not a rated number: internal means the automatic pass, re-review
-  of fixes, and the strict adjudicator; product means a declared budget and
-  the standard adjudicator. Every review request, either tier, names its
-  pre-registered flip conditions (what finding, count, or change of shape
-  would end the loop) and confirms there has been a behavioral change since
-  the last reviewed commit.
-- **A "usage limits for security reviews" bounce is NOT a code-review
-  outage — ignore it and request the code review (David, 2026-08-15,
-  correcting the 2026-08-08 rule that used to live here).** Codex meters
-  security reviews and general code reviews separately, and our code-review
-  capacity is effectively unlimited. **The canonical fact, the evidence, and
-  the standing rule live in
-  [`code-review.md`](../../../docs/engineering/code-review.md#codex-has-two-usage-limits--a-security-review-bounce-is-not-a-code-review-outage)**
-  — it binds every agent watching a PR, so it is not restated here. The
-  failure mode is in
-  [`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)'s
-  *Reading a scoped limit message as a blanket outage*; note that the rule
-  this replaced quoted the "for security reviews" wording and still drew the
-  unscoped conclusion, so having the evidence nearby is not protection.
-  - **My enactment:** post `@codex review` as normal and treat the bounce as
-    unrelated noise. A security-limit bounce never satisfies "converged,"
-    never justifies skipping or deferring a round, and never licenses a
-    merge.
-  - **A genuine code-review outage** — a request producing **no code
-    review**, judged *only* on whether the code review arrived. **A security
-    bounce is irrelevant noise and must not enter this test** (Codex, round
-    3): the two limits are independent, so a bounce can fire alongside a real
-    code-review outage, and an "and no bounce" conjunction would let that
-    unrelated comment mask the outage permanently — the one-retry
-    termination would never fire and a high-stakes PR would wait forever.
-    This is a real, separate case, and it is now a **full stop** rather than
-    a stakes split (David, 2026-08-17): *"We'll have to pause our development
-    until the token limit resets. You'll need to fail loudly."* **Every PR gets a Codex review, and nothing merges until
-    it returns, whatever the PR's stakes** — an internal PR gets exactly one
-    pass, but that one pass still has to come back. One retry, then stop re-asking and raise it with David as a
-    🛑 banner with a push notification. **A security-limit bounce does not
-    qualify.**
-- **Fix commits get re-reviewed — one `@codex review` per fix round (David,
-  2026-07-22).** Codex reviews the PR's *initial* diff, but a push does NOT
-  reliably re-trigger it — so the fixes I push in response to review comments or
-  CI failures would otherwise reach David's squash-merge unreviewed, and
-  reactive fix code is exactly where subtle mistakes hide. After I've addressed
-  a round of review feedback (fixes pushed, inline replies posted), I post
-  **one** explicit trigger comment so the new commits get reviewed — batched
-  per round, never per-comment, and it's the *commits* being reviewed, never my
-  prose replies. **The trigger comment is the bare trigger and NOTHING else**
-  (David, 2026-08-21): the connector interprets mention text, and
-  trigger-plus-prose has measurably spawned unintended code-writing tasks
-  (#490, #539, #472) while a bare trigger reliably starts a review. Round
-  context — flip conditions, trend, focus areas — goes in a **separate,
-  defanged comment posted immediately before** the trigger (reserved strings
-  in their leet form per CLAUDE.md, e.g. atC0dex r3view). **No minimum rounds, no convergence ceremony** — that
-  is the plan loop, not this: a clean/silent re-review ends it, and new
-  substantive findings just follow the rules above (fix the mechanical,
-  escalate real decisions, and let the adjudicator rule on the round).
-  **The old zero-risk exemption — a docs-only push or comment typo needing no
-  re-review — is RETIRED (David, 2026-08-17).** Nothing merges without a
-  completed pass covering the commit that would merge, so any push after a
-  review needs a fresh round however small it was: what makes a push safe is
-  not knowable from its own diff, which is the assumption that let PR #487 be
-  reported ready. The merge gate enforces this rather than trusting the
-  judgement — `scripts/pr-ready.mjs` requires Codex's structured record of a
-  pass matching the head sha (the `**Reviewed commit:**` announcement, or the
-  summary comment's Completed Code Review row — David, 2026-09-03, #608), so
-  a push after the last pass simply fails the receipt.
-  **Two conditions gate every re-request (the round-budget contract).**
-  1. **A behavioral change since the last reviewed commit.** No re-request
-     buys a round with prose edits: `node scripts/review-loop-record.mjs`
-     classifies the diff since the last reviewed commit and precomputes
-     `proseOnly`. A **skill file, `CLAUDE.md`, or a `docs/ai-context/`
-     contract counts as behavioral** — in this repo those change what
-     agents do — while comment wording, and a UAT doc do not. (This composes with the no-exemption rule above rather than
-     contradicting it: a prose-only push may not *buy a round*, and it also
-     doesn't *escape review* — it simply waits and rides the next
-     behavioral round, since the merge gate demands a pass covering the
-     final head either way.)
-  2. **Pre-registered flip conditions, in the request itself.** Name, before
-     the round runs, what would stop the loop: the finding that would end
-     it, the count that would trip it, the shape change that would mean
-     split. This is the only judgment-shaped device with a working record
-     (2-for-2 on PR #488, against 0-for-15 for everything else), and it
-     works precisely because a condition written in advance collides with an
-     event instead of waiting to be recalled. A missing flip condition — or
-     one that was already true when written — fires the adversarial subagent
-     before the round proceeds.
+   - **Every changed head gets its review; an unchanged one never gets a
+     second.** A prose-only push is a changed head and is reviewed like any
+     other — the rule here used to say it "waits and rides the next behavioural
+     round", which under the write-gate meant a documentation correction with
+     nothing behavioural behind it could never merge at all (#125 waited a week
+     on that reading). What is refused is re-requesting on a head already
+     reviewed as it stands, to get a different answer. (Astra, 2026-09-19.)
+   - **On internal tooling — judged by consequence, per step 4's gate and
+     [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19) — or on a pull request that
+     changes the review loop, the second review is the last one I request.**
+     Step 4's gate is what enforces that, before anything is written; by the
+     time a head exists here it is always reviewable. So this bullet has no
+     decision left to make — it records the shape: round 1, one coherent
+     batch, the review of that corrected head, and no more. Only David
+     reopens a loop beyond it.
+   - **Pre-registered flip conditions, in the request itself.** Name, before
+     the round runs, what would stop the loop. **Each names an OBSERVABLE,
+     never a judgement** (#85, 2026-09-13) — something read off the round ("a
+     silent omission", "more findings than the last round"), not something I
+     decide in the moment having just read the finding ("needs a new concept").
+     The second kind does not fire: on #83 a judgement-shaped pair was crossed
+     twice and caught once, by the round translation rather than by me, while
+     #85's observable pair fired twice and decided both times without my
+     judgement entering it. **A condition I have to interpret is one I will
+     reinterpret.**
+   - **One line naming what the round costs and what it protects**, in the same
+     comment, before it runs. The bill is **conditional and the condition is
+     the findings**: two assessments at roughly a hundred and fifty thousand
+     tokens each **only if the round returns findings**, since step 3
+     dispatches neither on a clean round; a translation when one is owed,
+     which the last round before a merge always is, so a clean terminal round
+     is not free; and my own turns either way. Then what is downstream if this
+     round finds nothing. When that reads "a sentence in a
+     comment two agents read", the disproportion is legible to both of us
+     *before* it is spent rather than after. The token counts are already
+     reported to me on every dispatch; this is putting them beside what they
+     bought, not building a ledger.
+   - **A fix I would only write because a round is already being written is
+     not written.** Sunk cost is not a reason: the round already happening does
+     not make the next one free, it causes it — and a fix written owes a round.
+   - **Name the branch head, never a specific SHA** (David, 2026-08-17). Codex
+     reviews the head at the moment it runs, not the SHA it was told, and the
+     `**Reviewed commit:**` line it emits is what binds.
+   - **The re-request says what to reconcile.** A bare trigger on a fix round
+     invites a review of just the new commits, so the round context names which
+     findings it was meant to close and asks for each to be confirmed resolved
+     in the code, not merely responded to.
+   - **The trigger comment carries no prose of mine** — the defanged trigger
+     `atC0dex r3view` and nothing else (`claude-core.md` interaction rule 11).
+     Round context and flip conditions go in a separate defanged comment posted
+     just before it.
+   - **Verify CI on the SHA that is actually HEAD**, not the one last looked
+     at. `get_check_runs` returning `total_count: 0` means checks have not
+     reported yet, which is not green and must never be reported as green.
 
-  The round count itself is no longer mine to track or remember: the guard
-  counts it from fresh GitHub evidence (a round-check receipt) and refuses
-  past the budget. Because a round is a *completed reviewer pass*, a request
-  that stalls and gets retried costs one round, not two — the count corrects
-  itself the moment the retry's pass lands, with nothing to reconcile.
+7. **Translate the round for David when I declined something in it, or when
+   something about it smells wrong — and always on the last round before a
+   merge** (David, 2026-09-19). Not every round: four translations on #131 were
+   the loop's single largest token line, and both of the translator's real
+   disagreements came on rounds carrying a decline. **After the trigger is
+   posted**, never before: a translation I could act on is an in-loop advisor
+   reading my own prose.
 
-  **Name the branch head, never a specific SHA, in a review request (David,
-  2026-08-17).** Codex reviews the head at the moment it runs, not the SHA it
-  was told — and the `**Reviewed commit:**` line it emits is what the merge
-  gate binds against and what the ledger keys on, so a request that names a
-  commit the reviewer will not review misstates its own target. Say "the
-  branch head" and let the cumulative-diff instruction carry the scope.
+   **The deliverable is a message in chat. There is no page** (David,
+   2026-09-16). There was one, and removing it is what #109 round 3 actually
+   found: it rendered HTML to a gitignored path, so the "delivery" was a file
+   nobody could open, and the contract's "page link posted on the PR" named a
+   link that never existed. Three of that round's four findings were the inside
+   of that hole — no receipt producer, no deploy step, no synchronisation — and
+   all three are gone with it rather than fixed. **Do not rebuild it.** Not an
+   Artifact, not an HTML file, not a receipt store, not a link. David reads
+   chat; a page is something he would have to go and open, and building a
+   delivery system for one agent telling him the answer is undoing the #89 cut
+   by hand.
 
-  **Verify CI on the SHA that is actually HEAD, not the one you last
-  looked at.** After a push, the previous SHA's green checks say nothing
-  about the current one, and `get_check_runs` returning `total_count: 0`
-  means *checks have not reported yet* — which is not green and must never
-  be reported as green.
+   **How it runs**, and it is five steps. Everything the translator needs to
+   locate the round is on the pull request; I pin two things and remember
+   nothing between rounds or sessions:
 
-  **The re-request says what to reconcile.** A bare `@codex review` on a fix round invites a
-  review of just the new commits, so I state in the comment which findings the
-  round was meant to close and ask Codex to confirm each is actually resolved
-  in the code — not merely responded to. **The reviewer's side of this is the
-  shared contract, not my ceremony**: what makes a prior finding genuinely
-  closed, and how deep a re-review has to look, live in
-  [`code-review.md`](../../../docs/engineering/code-review.md#re-reviews-round-2-onward)
-  so any reviewer and any future implementing agent get the same standard. What
-  stays mine here is who posts the trigger, what it names, and the git around
-  it.
-- **After 2+ fix rounds, ask for the cumulative diff, not just the latest
-  commits (David, 2026-07-25).** A per-round `@codex review` only shows Codex
-  the new commits since its last pass — fine for round 1's fix, but a fix in
-  file A can silently break something in file B that was part of the
-  *original* diff and isn't re-shown on round 2+. Once a PR has gone through
-  more than one fix round, I say so explicitly in the re-request and ask
-  Codex to check the branch's full diff against `main`
-  (`git diff origin/main...HEAD --stat` gives me the file list to reference),
-  not only the incremental commits — same "the diff is not the scope"
-  principle as the plan loop's re-reviews, applied to code, and now stated for
-  the reviewer as invariant 5 of
-  [`code-review.md`'s *Re-reviews*](../../../docs/engineering/code-review.md#re-reviews-round-2-onward).
-- **I resolve each thread myself right after I address it** (resident rule
-  in `CLAUDE.md`, reversed 2026-08-06): reply inline with the fix commit or
-  a reasoned decline, then resolve that thread — not a batch at the end, and
-  never a standalone summary comment in place of the reply.
-- I stay **frugal with GitHub replies** (only when genuinely necessary), and I
-  stop watching once the PR is merged or closed, or when David says stop.
+   1. **`prepareAnswerPath(root, pr, round)`** — the answer directory exists
+      and is ignored, and any earlier attempt's answer for this round is gone,
+      so a re-dispatch can never be read as its predecessor. Then **bind the
+      model once**: `dispatch = dispatchModel()`.
+   2. **Dispatch `fable-round-translation`** with `model: dispatch.agentModel`,
+      **passing the brief inline, never as a path.** That role's `tools:` list is
+      `ToolSearch`, the two GitHub readers and `Write` — **no file-reading
+      tool** — so a brief handed to it by path is unreachable. Measured on #131:
+      it could not open the file, reconstructed every coordinate from GitHub
+      correctly, and then wrote its answer to a *guessed* filename, which is the
+      shape `prepareAnswerPath` exists to prevent — a valid answer written where
+      `readAnswer` never looks reports as a FAILED translation of a round that
+      actually ran. A `tools:` list is a hard upper bound, and the assessor role
+      holding `Read` is not evidence that this one does.
+      passing `roundBrief({ root, pr, round, head, finalRound, priorAccounts })`.
+      **The activity window's upper bound is not passed** — `roundBrief` is the
+      moment of the dispatch, so it stamps that moment itself. There is no
+      `until` to capture, forget, or mistype (Codex, #109 round 6).
+      `head` is the branch head at dispatch — **where the evidence stops, not
+      the commit the reviewer reviewed**; the translator reads the reviewed
+      commit off the round's own marker. `run_in_background: false` may be
+      passed and costs nothing; it is **not** the synchronisation (below).
+   3. **Read only after the harness reports the dispatch complete**, whichever
+      way that arrives — in the tool result itself when the call blocked, or
+      as a later task notification when it did not — and never assume which.
+      Then `result = readAnswer(root, pr, round, { finalRound })`.
+   4. **Paste `chatReport(result, { askedModel: dispatch.id })` verbatim**,
+      and say nothing else about the round. If the completion signal lands in
+      a later turn, the paste happens then, under this round's number, even if
+      the next round's trigger has already been posted.
+   5. **Keep `result`** for the final round's `priorAccounts`. It is the
+      report-ready object, round number included, and a **failed** result is
+      passed too: a translation that was owed and did not arrive is a
+      limitation the final round has to be told about. A round the cadence
+      never owed a translation is **not** — `roundBrief` names it as the
+      ordinary case and tells the translator to read its threads directly.
+      **Pass nothing for such a round.** A `{ skipped: true }` object is worse
+      than passing nothing: `roundBrief` does not understand the flag, so it
+      falls through and renders an empty account wearing a clean one's
+      clothes.
+
+   - **The completion signal is the synchronisation. The flag is not.**
+     `run_in_background: false` has been measured **both ways** — it did not
+     block on 2026-09-11 and it did on 2026-09-16, both recorded with dates in
+     [`backgrounded-subagent-answer-is-in-its-own-transcript.md`](../../../.agents/memory/backgrounded-subagent-answer-is-in-its-own-transcript.md)
+     — and the earlier version of this step wrote a rule on the single
+     favourable sample, in the same commit that edited the note saying not
+     to (Codex, #109 round 4). What every observation shares is that **the
+     harness reports completion**, in the tool result when the call blocked
+     and as a later notification when it did not. A read before that signal
+     writes a failed round while the valid answer is still coming; that is
+     the only ordering error, and depending on the signal removes it with no
+     timeout to tune, no poll loop and no state.
+     **When no signal ever arrives** — the agent errored, the session was
+     interrupted — say nothing until the next event on this PR (interaction
+     rule 9 permits silence), then read **once**: a valid file is the answer;
+     no file is a `failed` round whose reason says *no completion signal and
+     no answer file*, never an unanswered one. Never re-dispatch on the
+     strength of a missing signal alone.
+   - **The report is the translator's words, not my summary of them.**
+     `chatReport` composes it from the validated answer's own fields; the only
+     text in it that is not the translator's is the labels — including the
+     deterministic "none reported" labels for an empty `disagreements` or
+     `known_gaps`, which state the field's value and evaluate nothing. **The translation
+     is a second account, not a ban on mine** (David, 2026-09-16: *"There's
+     no need to be so paranoid about the builder writing up an account and
+     giving it to me. That's not an issue at all."*). My own account of a
+     round is welcome beside the report, labelled as mine. What is never done
+     is editing the translator's account or presenting mine as it.
+   - **The answer comes from the file, never from the dispatch's own reply.**
+     Its location in the transcript has moved three times in a month in a
+     harness nobody here controls; a path this module derives cannot move. The
+     dispatch's own closing message arrives first and is not the answer.
+   - **`readAnswer` returns the round `chatReport` consumes** —
+     `{ pr, round, answer }` or `{ pr, round, failed: true, reason }` — so
+     step 3's output *is* step 4's input, with no adapter to forget. It used
+     to return a status object, and the documented flow printed
+     `round undefined` and rendered a FAILED read as "no builder account yet"
+     (Codex, #109 round 4, P1). All three delivery failures — no file,
+     unparseable, schema-invalid — are one honest **failed** state, reported
+     in plain words. **Never as quiet or skipped**: "no findings were raised"
+     over a failed round is a false clean bill of health. One failure is named
+     specially: an answer whose only problems are the final-round sections was
+     read with the wrong `finalRound` flag, and the reason says so rather than
+     blaming the translator.
+   - **Nothing is remembered between rounds, and nothing has to be.** The
+     activity window's lower bound, the commit the reviewer reviewed and the
+     previous round's boundary are all read off **Codex's own markers on the
+     pull request** — a formal review submission when a round has
+     findings, a `**Reviewed commit:**` issue comment when it has none
+     (measured on #115) — and the Nth marker is round N. The receipt store
+     that went with the page had been carrying those coordinates silently,
+     and a resumed session with nothing to pass re-attributed every earlier
+     round to the current one (Codex, #109 round 4). **Two selectors, and
+     they must not be swapped.** Code is selected by **ancestry** — the
+     commits between the markers' commits, and from this round's marker to
+     the head for the fixes claimed in reply; never by timestamp, since a
+     commit's date is its author date and a cherry-pick pushed during a round
+     carries an older one. Review activity is selected by **timestamp**, from
+     this round's marker inclusive to the next round's marker exclusive, and
+     never past `until` — with the role told exactly why each bound is open or
+     closed, because the inclusive-both-ends rule this replaced would have
+     collected 23 findings for #109's round 1 instead of 14 (Astra,
+     2026-09-16).
+   - **The upper bound is stamped, not supplied.** The comment reads are live
+     and this dispatch runs detached by design, so a slow round-N translation
+     can read round N+1's findings and replies — an account of a round that
+     never happened, filed under N's number and indistinguishable from a
+     correct one. `roundBrief` derives that bound because it *is* the moment of
+     the dispatch; accepted as an input, `null` left the window open at the top
+     and `"yesterday"` was interpolated as though it were a timestamp.
+   - **`finalRound` is stated on EVERY round, true or false, and omitting it
+     is refused** at all three entry points. `true` on the stopping round only,
+     which is what asks for `known_gaps` and `what_landed`. It used to default
+     to `false`, which is silently wrong in exactly one direction: omitted on
+     both the dispatch and the read, the two agree on "ordinary", the mismatch
+     check never fires, and the stopping round reads as translated with no
+     cumulative assessment at all (Codex, #109 round 8). The cumulative change that answers
+     `what_landed` is pinned to the head I pass: the live file-list endpoint
+     takes no commit, so the role uses it only after confirming — **in the same
+     breath as the read, never once at the start of the dispatch** — that the
+     pull request has not moved past that head, and otherwise composes the
+     cumulative view from the commits and says so (Codex, #109 round 7; the
+     adjacency is that round's translation correcting my own reply, which
+     claimed a guarantee the first version did not deliver). Pass the earlier rounds' **`readAnswer`
+     results** as `priorAccounts`, whole and unedited — never bare answers,
+     which carry no round number, and never file paths, since the role holds
+     no `Read` tool and cannot be given a narrow one (below). A result from a
+     **different pull request** is refused rather than quoted — one session can
+     hold several, and a foreign account presented as this PR's own earlier
+     work would steer the round David reads most carefully. `roundBrief`
+     quotes each one's `about` line, its findings list in the report's own
+     one-line-per-finding shape (outcome, whether it held, overbuilt),
+     whether the builder had replied, what it could not assess, what it took
+     on trust and every disagreement, and names each round that has no
+     account, so the final round can state the limitation the role requires
+     of it.
+   - **The report's order is David's** (2026-09-19, revising 2026-09-17):
+     `about` leads as his orientation, then the one-line ask, then
+     disagreements, then one line per finding tagged with its outcome and an
+     **OVERBUILT** flag where the builder wrote more than the finding was
+     worth, then the final-round sections. There is **no reasoning paragraph
+     and no trust footer** — he cut both (*"I don't care that you checked
+     everything. I assume you did"*, *"I trust you"*), the schema no longer
+     has `reasoning` and refuses an answer carrying it, and `took_on_trust` is
+     still collected for the next round's translator but never printed. He
+     relies on the per-finding lines to catch over-building in time to stop
+     it; the headline carries the overbuilt count for the same reason.
+     **Never reconstruct a field the schema dropped** — a round that tries
+     fails validation and he is told no account exists.
+   - **`builder_answered` comes from the role, not from a receipt.** "Agrees
+     with the builder's account" prints only when the translator says it saw a
+     builder reply. That used to be read off a receipt field whose only writer
+     was the record builder the #89 cut deleted — after which every round read
+     as answered and the favourable line printed over unanswered ones. An
+     absent or malformed value reads as **unanswered**: of the two wrong
+     accounts, the false favourable is the one that must never print. And an
+     unanswered round with a concern of the translator's own is headed as
+     exactly that — never as a disagreement *with the builder*, who has not
+     spoken (Codex, #109 round 4).
+   - **The model is disclosed, not observed — by choice, not by necessity.**
+     The role reports its own model and `chatReport` mentions it only on a
+     mismatch against `dispatch.id` or when it could not be determined. This
+     bullet used to say a dispatch *cannot* prove what answered it; the harness
+     does record the serving model per turn, independently of the subagent
+     (measured 2026-09-18), so it could. David ruled on 2026-09-19 that reading
+     it is not worth building — small blast radius, easily recoverable, and the
+     self-report gives essentially all of the tracking value. Keep the
+     disclosure honest about being a self-report; do not upgrade its wording to
+     sound like an observation.
+   - **A failed dispatch never blocks the loop.** The translation is off the critical path by
+     design: say so in plain English and carry on.
+
+   **A newly added agent type is not dispatchable immediately, and that is not
+   a broken definition.** Measured 2026-09-16: a dispatch attempted minutes
+   after the definition was created failed with `Agent type 'fable-round-translation' not found`,
+   and the same type became dispatchable later in the **same** session with no
+   restart. **Definitions are also cached against edits** — a dispatch after a
+   frontmatter change ran against the old definition — so a probe of a
+   definition change carries a freshness token planted in the same edit, or a
+   stale definition is indistinguishable from the result being looked for. If a
+   dispatch refuses, paste
+   `chatReport({ pr, round, skipped: true, reason: "the dispatch was refused: <error>" })`
+   so a failure to *launch* is told apart from a failure to *answer*, then
+   write the round up myself, labelled as my own account (David, 2026-09-16,
+   above: a builder-written account is not a concern; a failure notice with
+   no explanation is). Try again next round rather than concluding the file
+   is wrong.
+
+   **What the role actually holds, measured on the real dispatch:**
+   `ToolSearch`, `Write`, the GitHub read methods (deferred — it loads them
+   itself with `ToolSearch`), and the injected `SubagentHandback`. **No `Read`,
+   no `Edit`, no `Bash`, no `Grep`.** Per-method MCP names resolve in the
+   `tools:` list, so *which* tools it holds is a real boundary rather than an
+   asserted one.
+
+   **`Write` is NOT path-scoped, and calling the list "read-only" was wrong.**
+   `Write` is on it — I put it there and then described the list by the tools
+   absent from it. A **path specifier in an agent's `tools:` list is not
+   honoured**: the documentation says a specifier in a subagent's tool config
+   removes the whole tool rather than narrowing it, and what
+   `tools: Write(some/path/**)` grants is undocumented — possibly nothing,
+   which would break the role silently. So the bare grant is what ships, and
+   the exposure is named rather than papered over: **this role reads every
+   comment on the pull request, from anyone**, so an injected instruction could
+   direct its one write tool at any path in the checkout.
+   What actually bounds it, in descending order of how much I would rely on it:
+   the answer directory is `*`-gitignored, so the legitimate output can never
+   be committed; the container is ephemeral; and **the only route to `main` is a
+   commit I make**, so after any translation dispatch, read
+   `git status --porcelain`. That last one is an honest party looking, not a
+   lock on the same ring: the attacker here is a third party, not me.
+
+   **What counts as noise is exactly one thing: an UNTRACKED file inside
+   `.agents/reviews/`.** Everything else in that output is a finding, and in
+   particular **a modification to any TRACKED file is a finding wherever it
+   sits, that directory included**. The earlier rule said "treat anything
+   outside `.agents/reviews/` as a finding", which exempted the whole
+   directory — and `.agents/reviews/.gitignore` is a tracked payload file
+   living in it. So the one file whose contents decide whether answer files
+   can ever be committed was the one file a hostile write could change while
+   the check that exists to catch hostile writes called it noise. The answer
+   files are written from adversarial input, this repository is public, and
+   publication cannot be undone. (Codex, #109 round 9, P1.)
+   **Unable to verify in this session: whether a path specifier would in fact
+   scope `Write`.** Agent definitions are cached, so the probe needs a fresh
+   session. #114 carries it, and if scoping does work the bare grant narrows to
+   one line.
+
+8. **Merge, sync, report**, per `claude-core.md`'s *Close-out is mine, end to
+   end*: re-verify live state with a fresh `pull_request_read` — not cached
+   green — then squash-merge, trigger the Repl sync and verify it, execute the
+   Post-merge verification section, post the harvest-notes comment, and send
+   the merge report with both SHAs, the latitude line and the UAT handoff.
+   **No readiness receipt is minted or quoted**: `pr-ready.mjs` is gone, and
+   the four-item bar is read by eye.
+
+## One standing stop
+
+**A Codex code-review outage is a FULL STOP**, not the security-review
+usage-limit bounce. Stop building, tell David as a 🛑 with a push
+notification, say which PRs are blocked and in what state, and wait.
 
 ## Keeping the workstream issue's labels current
 
@@ -496,18 +722,19 @@ silently leaving the workstream unlabeled):
 - **PR opens / round 1 triggers** → `stage:code-review`, `waiting:codex`.
 - **Codex posts findings, I start responding** → `waiting:claude`.
 - **I post the next round's `@codex review` trigger** → `waiting:codex`.
-- **A genuine design/architecture decision goes to David** (the escalate
-  rule above) → `waiting:david`; `stage:code-review` stays put — the stage
+- **Intended behaviour or an accepted user-facing shortfall goes to David**
+  (step 3.5 above — a purely technical fork is settled in the loop, never
+  escalated) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
-- **CI is green and Codex has converged, and every thread is resolved** →
+- **The close-out bar is met** (CLAUDE.md's *Close-out*, all four items) →
   the ready bar is met and **I merge it myself per CLAUDE.md's close-out
   contract (David, 2026-08-15)** — re-verify live state, squash-merge, sync,
   verify, report — so `stage:merge` is normally a moment, not a resting
-  state. The exception is a carve-out PR (guardrail/authority-widening,
-  which stays David-merge-only): there, label `stage:merge`,
-  `waiting:david`, deliver the 🛑 merge ask, and don't let it sit at
-  `stage:code-review` — a ready-to-go workstream parked under the wrong
-  label is exactly what `/status-all` exists to surface.
+  state. There is no carve-out exception any more (David, 2026-09-14): a
+  guardrail- or authority-widening PR merges the same way, with the latitude
+  it grants named in the report. The one PR that does not is a change to the
+  review loop still carrying findings after its second review, which step 4
+  sends to David.
 - **The PR merges with a Post-merge verification section that has real
   content** → `stage:test-run`, `waiting:replit` — the lifecycle's own
   Test-run stage, between Merge and UAT, not a step to skip past. Per the
@@ -633,5 +860,6 @@ its own — only real state (a new commit, a new finding, an actual merge)
 moves a label.
 
 Codex (and other AI reviewers) remain the independent reviewers; my job while
-watching is to *respond* — fix the mechanical, escalate the substantive.
+watching is to *respond* — judge every finding under the Worth rule with both
+assessments in hand, and take to David only what is his.
 

@@ -4,6 +4,8 @@ description: "Detects fail-open insecure defaults (hardcoded secrets, weak auth,
 allowed-tools: Read Grep Glob Bash
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Insecure Defaults Detection
 
 Finds **fail-open** vulnerabilities where apps run insecurely with missing configuration. Distinguishes exploitable defaults from fail-secure patterns that crash safely.

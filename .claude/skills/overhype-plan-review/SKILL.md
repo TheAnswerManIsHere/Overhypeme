@@ -1,77 +1,50 @@
 ---
 name: overhype-plan-review
-description: Review a software-development plan (usually Claude Code's) for Overhype.me on David's behalf. Use when David asks to review, critique, improve, sanity-check, or give feedback on a plan. Produces prioritized feedback + a markdown review using review-status labels — never approval language (only David approves). Inspects repo context before finalizing; stops and says "repo context required" if it can't.
+description: Overhype.me's product lens over the shared planning loop. Use when planning Overhype.me work, or when David asks to review, critique or sanity-check a plan for this product. It adds only what is specific to Overhype.me (the subsystem docs a plan must be checked against, and a default --lens for the Astra exchange); the loop itself is the shared plan-review-loop skill.
 ---
 
-# Overhype plan review
+# Overhype.me planning lens
 
-> **Thin enactment.** The review *substance* — non-negotiables, priority order,
-> required checks, the failure-pattern watchlist, external-claims handling,
-> status labels, finding structure — is the single canonical contract in
-> [`docs/ai-context/plan-review-contract.md`](../../../docs/ai-context/plan-review-contract.md),
-> shared with Codex (on the automated draft-PR loop) and ChatGPT (manual
-> upload). Apply that contract in full. This file adds only the delivery
-> mechanics specific to reviewing inside Claude Code — same relationship as the
-> `bugfix` skill ↔ `working-modes.md`. If the two ever disagree, the shared
-> contract wins and this file gets fixed.
+> **A lens, not a loop.** The planning loop, the contract both parties read,
+> the checks, the evidence rules and the approval handoff are shared:
+> the `plan-review-loop` skill and
+> [`planning-contract.md`](../../../docs/ai-context/planning-contract.md).
+> This file adds only what a plan **for Overhype.me** has to be checked
+> against. If the two ever disagree, the shared contract wins and this file
+> gets fixed.
 
-Review an Overhype.me implementation plan and give David an independent, technical
-opinion, per the shared contract. **Assume the plan is from Claude Code** unless
-David says otherwise.
+Only David approves a plan. Agreement between agents is not approval.
 
-## Output
+## The default lens
 
-This is the contract's **full-document delivery** surface (see the contract's
-*Output* section) — I'm posting one document, not diff-anchored GitHub review
-comments, so the full skeleton applies without the constraints that bind the
-Codex GitHub transport:
+For an Overhype.me plan, pass this as `--lens` on an `assess` exchange unless
+the plan calls for a sharper one. It is under the script's 500-character cap:
 
-```markdown
-# Plan Review: <Plan Title>
-
-## Review Status
-<one status label — no approval language>
-## Lens Applied This Round
-<the angle attacked from — round 2 onward>
-
-## Context Checked
-- Repository files inspected:
-- External docs / searches run:
-- Product clarifications needed from David before plan revision:
-
-## Executive Summary
-
-## What Is Strong in the Plan
-
-## Required Plan Revisions
-
-## Strong Disagreements or Glaring Mistakes
-
-## Product Decisions for David
-
-## Recommended Improvements
-
-## Verified Claims
-<what was checked against the repo, and how — not just the conclusion>
-
-## Unable to Verify
-<repo-resolvable (still mine to close) vs. not observable from the repo>
-
-## Previous Findings          (round 2 onward)
-Resolved / Still Open / Superseded — never "Resolved" on wording alone
-
-## Implementation Sequencing Guidance
-
-## Testing Requirements
-
-## Production Impact Note
-
-## Safe to Defer / Future Considerations
-
-## Required Response from Claude
-Claude should revise the plan to address the required revisions above and ask David
-for approval before implementation. Claude should not begin implementation from the
-current plan until David explicitly approves the revised plan.
+```
+Overhype.me: check human moderation and admin overrides survive AI reprocessing; runtime matches admin preview; one source of truth per concept (facts, enrichment, render plans); async work shows per-item and aggregate status; permissions enforced server-side; migrations idempotent across old/new/partial/failed rows. Read the subsystem docs the plan touches before concluding.
 ```
 
-Escalate design/architecture/trade-off calls to David — don't decide them yourself.
+## What to read, by what the plan touches
+
+The general routes are in [`AGENTS.md`](../../../AGENTS.md), *Project context*.
+The ones a planning exchange most often skips:
+
+- **The visual pipeline** (planner, compiler, render policy, Visual Concept),
+  which is sensitive and gets the specialist review:
+  [`visual-pipeline.md`](../../../docs/ai-context/visual-pipeline.md), and
+  the `overhype-visual-pipeline` skill.
+- **Tokens, grammar and render-fact:**
+  [`token-rendering-and-grammar.md`](../../../docs/ai-context/token-rendering-and-grammar.md),
+  and the `overhype-token-rendering` skill.
+- **Taxonomy, enrichment and moderation source of truth:**
+  [`taxonomy-and-enrichment.md`](../../../docs/ai-context/taxonomy-and-enrichment.md),
+  [`moderation-workflow.md`](../../../docs/ai-context/moderation-workflow.md).
+- **Migrations or backfills:**
+  [`migrations-and-backfills.md`](../../../docs/engineering/migrations-and-backfills.md),
+  and the `overhype-migration-review` skill.
+- **Anything touching `lib/api-zod/`:** the codegen allowlist trap in
+  [`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md).
+
+Which subsystems are sensitive, and which shared modules a plan should reuse
+rather than reimplement:
+[`overlay-declarations.md`](../../../docs/ai-context/overlay-declarations.md).

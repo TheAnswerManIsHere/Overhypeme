@@ -3,6 +3,8 @@ name: subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Subagent-Driven Development
 
 Execute plan by dispatching a fresh implementer subagent per task, a task review (spec compliance + code quality) after each, and a broad whole-branch review at the end.
@@ -11,7 +13,7 @@ Execute plan by dispatching a fresh implementer subagent per task, a task review
 
 **Core principle:** Fresh subagent per task + task review (spec + quality) + broad final review = high quality, fast iteration
 
-**Local calibration (Overhype.me, 2026-07-24):** this skill was written for a
+**Local calibration (fleet, 2026-07-24):** this skill was written for a
 model that under-delegated; Opus 5 over-delegates. Apply it only to plans whose
 tasks are genuinely substantial and independent — a plan of small, sequential
 edits should be executed directly, not fanned out one subagent per task. Collapse
@@ -176,7 +178,7 @@ final whole-branch review. When you fill a reviewer template:
   same code — the implementer's report carries the test evidence
 - Do not pre-judge findings for the reviewer — never instruct a reviewer to
   ignore or not flag a specific issue. If you believe a finding would be a
-  false positive, let the reviewer raise it and adjudicate it in the review
+  false positive, let the reviewer raise it and settle it in the review
   loop. If the prompt you are writing contains "do not flag," "don't treat X
   as a defect," "at most Minor," or "the plan chose" — stop: you are
   pre-judging, usually to spare yourself a review loop.
@@ -224,6 +226,29 @@ final whole-branch review. When you fill a reviewer template:
   subagent with the complete findings list — not one fixer per finding.
   Per-finding fixers each rebuild context and re-run suites; a real
   session's final-review fix wave cost more than all its tasks combined.
+- **Then review that corrected head before finishing the branch — on every
+  kind of work.** The flow above used to run the final review straight into
+  `finishing-a-development-branch`, so a branch finished on code written after
+  its only broad review. Nothing written merges unreviewed; that invariant has
+  no tier.
+- **Where iteration STOPS depends on what the plan is building.** On internal
+  tooling it stops there — one batch, one review of it, and only David reopens
+  it, per the two-review limit
+  ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)).
+  **Product code is outside that limit, which bounds internal tooling — and so is any other
+  change whose consequences and recoverability put it there**, including a
+  change to internal machinery that governs approvals, publication,
+  credentials or destructive operations. The test is what this change does,
+  never the directory or the file's job, so a plan altering such machinery can
+  be outside the limit even though it is internal by class, while a
+  recoverable change to the same file is not. A corrected head outside the
+  limit that still has a real defect gets another pass; "repeat until approved" — below, under
+  *If reviewer finds issues*, which governs each task's review — is still not
+  the rule here, but the bound is the Worth rule per finding rather
+  than a count. This skill executes plans of both kinds, and the stop sentence
+  here carried no qualifier until 2026-09-22 — applying the internal cap to
+  product code, which is the one class the cap deliberately leaves out
+  (Codex, #141 round 6).
 
 ## File Handoffs
 
@@ -405,7 +430,8 @@ Done!
 **If reviewer finds issues:**
 - Implementer (same subagent) fixes them
 - Reviewer reviews again
-- Repeat until approved
+- Repeat until approved (per task; where the final whole-branch review stops
+  is set above, under the two-review limit)
 - Don't skip the re-review
 
 **If subagent fails task:**

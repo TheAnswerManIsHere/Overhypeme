@@ -51,7 +51,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MANUAL_DIR = join(ROOT, "docs/manual");
@@ -373,4 +373,4 @@ function main() {
   process.exitCode = 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main();

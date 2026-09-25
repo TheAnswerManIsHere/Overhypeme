@@ -1,10 +1,13 @@
 {
   "repo": "TheAnswerManIsHere/Overhypeme",
-  "requiredChecks": [
-    "Classify changed paths",
-    "Build",
-    "Test",
-    "Frontend Test",
-    "E2E Smoke"
-  ]
+  "models": {
+    "strongestClaude": {
+      "id": "claude-fable-5-1",
+      "effort": "xhigh"
+    },
+    "strongestCodex": {
+      "id": "gpt-6-astra",
+      "effort": "xhigh"
+    }
+  }
 }

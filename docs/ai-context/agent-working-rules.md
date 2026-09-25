@@ -1,6 +1,8 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Agent Working Rules
 
-> **Canonical, cross-agent working rules** for Overhype.me — how David wants any
+> **Canonical, cross-agent working rules** — how David wants any
 > AI agent (Codex, Claude, future agents) to work. The root
 > [`AGENTS.md`](../../AGENTS.md) is the short constitution that points here.
 > Claude Code's [`CLAUDE.md`](../../CLAUDE.md) keeps only Claude-specific
@@ -239,9 +241,24 @@ sign-off.
 Match engineering depth to actual stakes, not to how thorough it's possible to
 be (David, 2026-08-07). The default instinct — think through every
 conceivable failure and design against all of them — is correct for payments,
-auth, migrations, and the visual pipeline. It is wrong for internal tooling,
+auth, migrations, and whatever subsystems the overlay marks sensitive. It is
+wrong for internal tooling,
 and applying it uniformly is a bug in judgment, not diligence. **Before
 designing, state what tier the thing is and let that set the bar:**
+
+**These tiers set engineering depth and nothing else.** They are not the
+review loop's scope: how long a loop runs is the two-review limit's.
+**Product code is outside that limit outright** — the limit bounds internal
+tooling, and no weighing of a product change's consequence or recoverability
+brings it under the cap. *Within* internal tooling, the limit asks
+"internal?" of **the change** by its consequence and recoverability rather
+than of the artifact it lands in
+([`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)). Editing a
+credential-rotation script to change which credential it rotates is not
+internal by that test; editing the message it prints is, though both land in
+a file this list calls internal tooling. (Codex, #153 round 1, on an earlier
+version of this note that classified the script rather than the edit — the
+artifact-level reading the test exists to refuse.)
 
 - **Mission-critical** (payments, auth, data migrations, moderation): go as
   deep as the risk warrants. Nothing changes here.
@@ -317,24 +334,45 @@ in the product.
 - Codex and other AI reviewers are the **independent reviewers**; Claude Code is
   the product engineer. Codex is increasingly expected to **build** features too.
 - **Do not rubber-stamp another agent's plan or code.** Review it on its merits.
-- Reviewers use **review-status labels, not approval language** — only David
-  approves (see the `overhype-plan-review` skill). **This is the
-  full-document-surface expectation.** On the GitHub structured-review
-  transport (the `@codex review` connector), there is no status-label or
-  top-level write-up channel at all — only diff-anchored findings — so a
-  reviewer on that surface doesn't compute or post a label. This is a
-  confirmed transport limitation, not an exception to "no approval language":
-  the connector still never posts approval, it just has no label channel to
-  post anything in. See
-  [`code-review.md`](../engineering/code-review.md#review-output-format) and
-  [`plan-review-contract.md`](./plan-review-contract.md#output) for what each
-  surface does instead.
+- **No reviewer posts approval language — only David approves.** That holds on
+  every surface; what differs is whether a surface has a status label to post
+  instead. A code review's full-assessment surface has one. The GitHub
+  structured-review transport (the `@codex review` connector) has no
+  status-label or top-level write-up channel at all, only diff-anchored
+  findings, so a reviewer there doesn't compute or post one — a confirmed
+  transport limitation, not an exception. **A planning loop has no labels at
+  all** (2026-09-18): both parties write prose, and what happens next is stated
+  explicitly by the party holding the plan rather than derived from a field.
+  See [`code-review.md`](../engineering/code-review.md#review-output-format)
+  and [`planning-contract.md`](./planning-contract.md).
 - **Clear mechanical issue** (off-by-one, missing await, dead import, obvious lint,
-  a clear logic bug) → fix it, push, mention briefly. **Design/architecture/
+  a clear logic bug) → fix it, push, mention briefly — and the push owes a
+  round, as every write does ([`working-modes.md`](./working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22)). **Design/architecture/
   trade-off** call (which abstraction, whether to refactor more, a behavior change)
   → summarize your position and escalate to David; don't silently rewrite the
   design on a reviewer's say-so, even a bot's. David doesn't need to triage every
   nit, but he weighs in on anything that's a real decision.
+  **On either loop this bullet stops at the word "behavior"** (2026-09-18):
+  two approaches serving the same agreed behaviour, scope and explicit
+  constraints are the loop's own to settle — through investigation and
+  discussion, and if the disagreement survives both, by **whoever holds that
+  loop's tie-break**, with the reasoning recorded. The holder differs and is
+  the only thing that does: the party holding the plan on a **planning** loop
+  ([`planning-contract.md`](./planning-contract.md)), the Fable assessor on a
+  **code** round (`claude-core.md`'s *Shared judgement on a review round*).
+  What still reaches David on either is intended behaviour, scope, a knowingly
+  accepted user-facing shortfall, and approval; and a constraint he required
+  explicitly does not become negotiable for being technical.
+  **This paragraph asserted the opposite for one round.** Added at #124 round 7
+  to fix the planning half, it went on to say the code review loop "has no
+  technical tie-break" — contradicting `claude-core.md` rule 4,
+  `working-modes.md`'s *Who judges* and the reviewer's own brief, all of which
+  give a surviving purely technical disagreement to the Fable assessor, and the
+  first of those was already on `main`. A fix that introduces the very
+  contradiction it was closing is worth naming rather than quietly correcting:
+  the sweep checked the siblings against the fixer's memory of the rule instead
+  of against the rule (Codex, #124 round 9 `4049773956`; both assessors
+  concurred, and Astra found the second instance).
 - Keep external-facing chatter (GitHub replies) frugal and specific.
 
 ---

@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector H: Dangerous Sandbox Configurations
 
 AI action sandbox or safety configurations are set to values that disable protections entirely, giving the AI agent unrestricted shell access, filesystem access, or approval-free execution. These are configuration-level weaknesses that amplify the impact of any prompt injection vector -- turning "attacker can influence AI text output" into "attacker achieves RCE on the CI runner."

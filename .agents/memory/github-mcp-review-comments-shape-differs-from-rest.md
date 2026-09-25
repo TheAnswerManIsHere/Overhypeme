@@ -3,6 +3,8 @@ name: GitHub MCP pull_request_read shape differs materially from the REST API
 description: get_review_comments groups by thread with a bare author string, no numeric id, no in_reply_to_id, and no pull_request_review_id — and the reviewer bot's login has an inconsistent [bot] suffix across methods.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 ## Rule
 Never assume the GitHub MCP server's `pull_request_read` tool returns the
 same shape as the equivalent REST endpoint. Verify against a real, live call
@@ -42,7 +44,7 @@ conversation**, not the code.
 `resolved`.** A live `get_review_comments` response observed 2026-08-19 returns
 **`is_resolved` / `is_outdated` / `is_collapsed`** (snake_case) on each thread,
 while the tool's own description advertises **`isResolved` / `isOutdated` /
-`isCollapsed`**. `scripts/review-loop-record.mjs` reads `thread.isResolved` off
+`isCollapsed`**. The handbook's former `review-loop-record.mjs` read `thread.isResolved` off
 a captured snapshot and emits its own flattened `resolved` field, so all three
 spellings are live in this repo at different layers. **Check the shape of the
 snapshot in front of you** — a miss here reads `undefined`, which the record

@@ -4,6 +4,8 @@ description: "Identifies dependencies at heightened risk of exploitation or take
 allowed-tools: Read Write Bash Glob Grep
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Supply Chain Risk Auditor
 
 Activates when the user says "audit this project's dependencies".

@@ -3,6 +3,8 @@ name: handoff
 description: Decide whether this session's context should move to a new session, and if so make it survive the move. Use when David says /handoff, "let's start a fresh session", "should we hand this off", or when a session that finished one thing is about to start something else. First judges whether a handoff is actually needed and stops if it isn't. When it is, externalizes the session's load-bearing context onto the workstream issue and delivers a copy-pasteable prompt for the new session. NOT for durable end-of-feature learnings (that's /document) and NOT the cross-tool docs/handoff/ folder.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # /handoff — moving a session's context to a new session
 
 A session accumulates context that exists nowhere else: what we settled and
@@ -28,13 +30,13 @@ reason a `/document` harvest isn't routable.
 **That makes this a standing dispatch BAR under `CLAUDE.md`'s
 *Whether a judgement dispatches is fixed in advance*** — pre-registered here,
 in writing, rather than claimed in the moment. It is deliberately **not**
-overridden by the 2026-08-17 always-Fable rule for adjudications, and the
-reason is functional rather than a plea about context: an adjudication
-packages a **drafted verdict plus its evidence** for challenge, while the
+overridden by the 2026-08-17 always-Fable rule for dispatched judgements, and
+the reason is functional rather than a plea about context: a dispatched
+judgement packages **material plus its evidence** for a verdict, while the
 Step 1 verdict below is **enumeration from memory** — you cannot package what
 you have not yet noticed, and noticing is the whole task. A stronger model
 does not fix absent evidence. **Removing this bar is a contract change that
-ships in a PR David merges, never a mid-task call.**
+ships through the ordinary PR path, never a mid-task call.**
 
 ## Step 1 — Is a handoff actually required?
 
@@ -47,7 +49,7 @@ but it is not automatic.
 1. **Mid-flight in a stateful ceremony** — a plan-review loop between rounds,
    a PR watch before close-out, an outstanding `@codex review`. CLAUDE.md
    already forbids routing a review loop to a cold *subagent* because round
-   number, declines, tripwires and the cumulative-diff rule are running
+   number, declines, flip conditions and the cumulative-diff rule are running
    state; a cold *session* is the identical argument. Finish the loop.
 2. **Live state no artifact can carry** — an in-flight debugging hypothesis
    chain, a background task still running, working-tree changes that are
@@ -177,7 +179,26 @@ The block carries these seven, in order:
 2. **Read first** — `issue #N`, its State of Play and the handoff comment
    dated `<date>`.
 3. **Setup** — the branch and how to get on it, which PR to re-subscribe to,
-   what to verify live rather than trust.
+   what to verify live rather than trust, and — **whenever the work is in a
+   repository other than the new session's primary one** — the attach step,
+   named as the FIRST action and by its full tool name:
+
+   > Attach the repo before anything else: call
+   > `mcp__Claude_Code_Remote__add_repo` with owner `<owner>`, repo `<repo>`,
+   > access `<read|push>`. Run the clone command it returns, then call
+   > `mcp__Claude_Code_Remote__register_repo_root` with the clone path. If that
+   > tool does not resolve in your session, read the repo's `CLAUDE.md`
+   > directly — registration only triggers the automatic load. Do NOT pre-check
+   > the repo with `git ls-remote` or `curl` first — an unauthenticated probe
+   > returns 404 for a repo you do have access to, and sends you down the wrong
+   > path.
+
+   **This is a required line, not a reminder.** A session is scoped to its
+   own repository, so every GitHub call against another one fails until it
+   attaches — and a denied call is indistinguishable from "the issue does not
+   exist", so the new session concludes the handoff pointed it at something
+   imaginary. Name the tool with its server prefix: a bare `add_repo` does not
+   resolve, and the session then has to guess.
 4. **Mode and tier** — feature or bugfix, the ceremony tier, and which skill
    to invoke on entry (`/status` is the safe default first move).
 5. **Settled — do not re-open** — the inline list from the handoff comment.

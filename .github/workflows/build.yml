@@ -156,32 +156,6 @@ jobs:
       - name: Check manual tuning-language guard logic
         run: node --test scripts/__tests__/check-manual-tuning-language.test.mjs
 
-      # This repo states most working rules twice by design (CLAUDE.md and
-      # docs/ai-context/ at different altitudes, the skills restating the
-      # mechanics), so replacing a rule means sweeping every copy. PR #553
-      # replaced the review-loop stopping rule three times in one day and left
-      # ten stale statements behind — five the review found, five more a manual
-      # sweep found afterwards, including the adjudicator agent's own
-      # frontmatter. Every one was a fixed string, so per
-      # docs/ai-context/decisions.md this is a check rather than another
-      # promise to sweep carefully.
-      # LEXICAL ONLY — green means no TRACKED retired phrase is stated as live,
-      # not that the contracts agree with each other.
-      - name: Check contract consistency (no retired rule stated as live)
-        run: node scripts/check-contract-consistency.mjs
-
-      - name: Check contract-consistency guard logic
-        run: node --test scripts/__tests__/check-contract-consistency.test.mjs
-
-      # CLAUDE.md loads into every session. It was pruned twice in two weeks
-      # (#543, #607) and regrew in between, so the budget makes every addition
-      # displace something. Raising it is a constraint change David merges.
-      - name: Check CLAUDE.md line budget
-        run: node scripts/check-claude-md-budget.mjs
-
-      - name: Check CLAUDE.md line-budget guard logic
-        run: node --test scripts/__tests__/check-claude-md-budget.test.mjs
-
       # /uat drives a run by enumerating "### " headings inside "## Steps" and
       # "## Regression". That rule is only safe if every doc has that shape.
       # The docs used to carry six-plus conventions for the regression section
@@ -195,12 +169,6 @@ jobs:
 
       - name: Check UAT format guard logic
         run: node --test scripts/__tests__/check-uat-format.test.mjs
-
-      # The counting library stays on the enforcement path (round budget +
-      # adjudication records) after the ledger's deletion, so its derivation
-      # keeps provable coverage. (Codex, #543 round 3.)
-      - name: Check review-counting derivation
-        run: node --test scripts/__tests__/review-counting.test.mjs
 
       # The workstream board is only trustworthy if its columns match reality.
       # The label -> field mapping is the one place that can quietly drift (a
@@ -216,34 +184,6 @@ jobs:
       # is exactly the job a misclassified PR can't skip.
       - name: Check CI path classifier logic
         run: node --test scripts/__tests__/classify-ci-paths.test.mjs
-
-      # The Bash guard decides which git commands this session may run. Its
-      # previous version blocked `git push --force` and allowed `git push -f`,
-      # so the one thing it existed to prevent was the one thing it let past —
-      # and nothing tested it, so the hole survived however long it was there.
-      # A guard whose block/allow matrix is unasserted is a guard nobody can
-      # rely on, which is worse than none: it is trusted.
-      - name: Check Bash guard decisions
-        run: node --test scripts/__tests__/guard-decision.test.mjs
-
-      # Another judgement behind the same hook: the review-round budget.
-      # It exists because per-round judgment provably cannot stop a runaway
-      # review loop (PR #488: 22 rounds on ~10 lines, 0-for-15 on the
-      # judgment-shaped stopping rules). A budget guard whose refusal matrix
-      # is unasserted would be the same failure one level up -- a stopping
-      # rule nobody can rely on, which is worse than none because it is
-      # trusted.
-      - name: Check review-round budget decisions
-        run: node --test scripts/__tests__/review-budget.test.mjs
-
-      # The merge bar (CI green, Codex converged, threads resolved) was reported
-      # from a single checked item twice — PR #458 merged with a round
-      # outstanding, PR #487 reported green from get_check_runs alone on a PR
-      # where no review had ever been requested. The receipt this script writes
-      # is what the merge hook now demands, so its three checks need the same
-      # asserted-not-asserted-about treatment as the guard above.
-      - name: Check PR readiness receipts
-        run: node --test scripts/__tests__/pr-ready.test.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

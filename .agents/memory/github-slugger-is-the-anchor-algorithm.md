@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # `github-slugger` IS GitHub's anchor algorithm — never hand-roll a slug regex
 
 **Symptom.** A link checker, anchor validator or search index reports broken

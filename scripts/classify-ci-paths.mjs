@@ -40,6 +40,7 @@
  * list is built (build.yml's `changes` job) and by the workflow-side count
  * check against the PR's own changed_files total.
  */
+import { pathToFileURL } from "node:url";
 
 /**
  * True if this one file cannot affect the outcome of the heavy jobs.
@@ -105,7 +106,7 @@ async function main() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     // Any failure inside the classifier itself must land on the safe side:
     // emit run-heavy=true so the workflow runs everything, then exit 0 so

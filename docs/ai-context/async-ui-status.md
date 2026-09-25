@@ -1,10 +1,12 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Async Work Must SHOW Its Status
 
 > **Canonical, cross-agent principle** (applies to Codex, Claude, and any agent
 > building UI). This is the single source of truth for how asynchronous work must
-> report status; other docs link here rather than restating it. The **Taxonomy
-> Health panel is the reference implementation**
-> (`useTaxonomyHealthActions.ts`).
+> report status; other docs link here rather than restating it. Where a repo
+> already has a panel that does this well, its overlay should name it as **the
+> reference implementation** — copying a working one beats re-deriving this.
 
 We built the async job queue (`async_jobs`) so requests to external systems are
 robust — but the human watching the screen still needs to know exactly what's
@@ -44,8 +46,8 @@ must report status at **two altitudes**:
   reflects `done`/`failed`. The only reason the *frontend* stops polling early is an
   extreme stall (~24h of zero progress = a dead/stuck worker) — and then it says so
   loudly ("something went wrong"); it does not silently give up or pretend success.
-- **Prefer the existing polling helpers** (`async_jobs` job-status by id;
-  `useTaxonomyHealthActions` on the frontend) over inventing a new status channel.
+- **Prefer this repo's existing polling helpers** — a job-status-by-id endpoint
+  and whatever the frontend already uses — over inventing a new status channel.
 
 ## Enqueue is not completion
 

@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector F: Subshell Expansion in Restricted Tool Lists
 
 Tool restriction lists include commands that support subshell expansion (e.g., `echo`), allowing `echo $(env)` or `echo $(whoami)` to bypass the restriction and execute arbitrary commands. The tool appears safe, but the shell evaluates nested `$()` or backtick expressions BEFORE executing the outer command. A single "safe" command in the allowlist enables arbitrary command execution.

@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Bug-Class-Specific Verification
 
 Different bug classes require different verification approaches. After classifying the bug in Step 0, apply the class-specific requirements below **in addition to** the generic verification phases.
