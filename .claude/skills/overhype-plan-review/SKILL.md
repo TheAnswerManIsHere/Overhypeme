@@ -21,7 +21,7 @@ For an Overhype.me plan, pass this as `--lens` on an `assess` exchange unless
 the plan calls for a sharper one. It is under the script's 500-character cap:
 
 ```
-Overhype.me: check human moderation and admin overrides survive AI reprocessing; runtime matches admin preview; one source of truth per concept (facts, enrichment, render plans); async work shows per-item and aggregate status; permissions enforced server-side; migrations idempotent across old/new/partial/failed rows. Read the subsystem docs the plan touches before concluding.
+Overhype.me: check moderator decisions and admin overrides on facts survive AI enrichment and reprocessing; one source of truth for facts, enrichment and render plans; what the admin preview and debug surfaces show matches what renders at runtime; the tokenizer and render-fact handle every name and pronoun set. Read the subsystem docs the plan touches before concluding.
 ```
 
 ## What to read, by what the plan touches
@@ -29,8 +29,7 @@ Overhype.me: check human moderation and admin overrides survive AI reprocessing;
 The general routes are in [`AGENTS.md`](../../../AGENTS.md), *Project context*.
 The ones a planning exchange most often skips:
 
-- **The visual pipeline** (planner, compiler, render policy, Visual Concept),
-  which is sensitive and gets the specialist review:
+- **The visual pipeline** (planner, compiler, render policy, Visual Concept):
   [`visual-pipeline.md`](../../../docs/ai-context/visual-pipeline.md), and
   the `overhype-visual-pipeline` skill.
 - **Tokens, grammar and render-fact:**
