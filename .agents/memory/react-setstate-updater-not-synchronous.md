@@ -3,6 +3,8 @@ name: React setState functional-updater callback isn't synchronous
 description: Why writing to a ref inside a setState(prev => …) updater doesn't fix a same-tick stale-read race — and what does.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # A `setState(prev => …)` updater's side effects are not guaranteed to run before your very next line
 
 Symptom: a "commit the current value right now" primitive

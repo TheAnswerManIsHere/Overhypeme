@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector E: Error Log Injection
 
 CI error output, build logs, or test failure messages are fed to an AI agent as context. An attacker crafts code that produces prompt injection payloads in compiler errors, test failure output, or log messages. When these logs are passed to the AI prompt, the AI processes attacker-controlled error messages as trusted instructions.

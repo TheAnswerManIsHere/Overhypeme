@@ -3,6 +3,8 @@ name: A CI guard that skips on missing inputs is indistinguishable from one that
 description: check-ledger-coverage.mjs's coverage half returned exit 0 both when it ran the real check and when GITHUB_TOKEN/PR_NUMBER were absent and it silently skipped. First CI run showed green either way — indistinguishable from the check status a reader sees without opening the job log, whose stdout does differ between the two paths.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # A CI guard that skips on missing inputs is indistinguishable from one that verified everything, by CI status alone
 
 ## What happened

@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Testing CLAUDE.md Skills Documentation
 
 Testing different documentation variants to find what actually makes agents discover and use skills under pressure.

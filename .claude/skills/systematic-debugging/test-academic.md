@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Academic Test: Systematic Debugging Skill
 
 You have access to the systematic debugging skill at skills/debugging/systematic-debugging

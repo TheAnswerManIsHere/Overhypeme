@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 ## Writing a GitHub Action that mutates issue labels concurrently with agents/humans
 
 > **The worked example is retired; the pattern is not.**

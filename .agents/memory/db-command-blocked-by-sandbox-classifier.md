@@ -3,6 +3,8 @@ name: `pnpm --filter @workspace/db push-force` blocked by the sandbox's auto-mod
 description: Even with a session-provisioned test DB running, the drizzle-kit push-force command was denied by the Claude Code auto-mode permission classifier as a category, not a one-off. Rely on equivalent CI evidence instead of fighting it.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Local DB-schema-push command blocked, even with a working test DB
 
 ## What happened

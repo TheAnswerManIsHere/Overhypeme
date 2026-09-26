@@ -6,5 +6,16 @@
     "Test",
     "Frontend Test",
     "E2E Smoke"
-  ]
+  ],
+  "models": {
+    "strongestClaude": {
+      "id": "claude-fable-5-1",
+      "effort": "xhigh"
+    },
+    "strongestCodex": {
+      "id": "gpt-6-astra",
+      "effort": "xhigh"
+    }
+  },
+  "_models": "The strongest model available from each family, by TIER rather than by version (David, 2026-09-11). Every role definition and every reviewer pin names a tier -- `strongestClaude`, `strongestCodex` -- and this is the one place a tier becomes a version. A new model release is an edit here and nowhere else. `id` must be a full model id, never an alias: a dispatch stamps the id it asked for against the id that answered, and an alias cannot be compared. `effort` is the reasoning depth that tier runs at. The values below are a derived copy of the handbook's own pin, held equal to it by `scripts/check-agent-models.mjs` there, so a repository enrolled today is seeded with what was current when the sync ran rather than with whatever this file last remembered. Once seeded, this file is yours: the sync never overwrites it, so a later handbook bump does not reach you and changing tier is an edit here."
 }

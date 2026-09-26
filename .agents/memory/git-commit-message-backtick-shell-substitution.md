@@ -3,6 +3,8 @@ name: Git commit message backticks trigger shell command substitution
 description: A `-m "..."` string with backtick-quoted code spans gets executed by bash before git ever sees it — write the message to a file and use `-F` instead.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 ## Rule
 Never pass a commit message containing backtick-quoted text (e.g. `` `--pr <number>` ``,
 `` `chatgpt-codex-connector[bot]` ``) directly to `git commit -m "..."`. Write the

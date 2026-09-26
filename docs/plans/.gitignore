@@ -1,0 +1,18 @@
+# A plan under development is never published, and this is what makes that true
+# rather than merely intended: `git add -A` during implementation would
+# otherwise stage it, and a plan is exactly the document that might name an
+# unpatched vulnerability, an auth-bypass specific, a customer or an embargoed
+# launch.
+#
+# A plan reaches `main` only when David asks for it, deliberately, with the
+# disclosure check in front of it.
+#
+# THIS FILE SHIPS, AND THAT IS THE POINT. `ensurePlansIgnored` also writes it on
+# demand, but only from an exchange that already has a plan -- the scope
+# exchange does not, and the documented sequence drafts the plan between the
+# two. A script-written copy is also untracked, so it does not survive a fresh
+# clone or a new container. Arriving through the sync means the protection
+# exists before the first plan is drafted, in a file the repository commits.
+# The root copy's pattern lines are held identical by
+# `scripts/check-root-wiring.mjs` (#124).
+PLAN_*.md

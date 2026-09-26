@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector B: Direct Expression Injection
 
 Direct `${{ github.event.* }}` expressions embedded in AI prompt fields. The YAML engine evaluates the expression at workflow runtime, embedding the attacker's raw text directly into the prompt string before the AI processes it. This pattern is visually obvious in the YAML -- the `${{ }}` expressions are right there in the prompt field -- but still commonly deployed because workflow authors assume the AI will handle untrusted input responsibly.

@@ -1,0 +1,99 @@
+{
+  "type": "object",
+  "properties": {
+    "recommendation": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "One line: what, if anything, David should do. \"Nothing needed from you\" is a real answer. Do not justify it -- he assumes you checked, and a paragraph saying so was cut for being useless (David, 2026-09-19)."
+    },
+    "about": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "One sentence: what this round was about. It leads the report, so it is the reader's orientation, not a summary of your work."
+    },
+    "disagreements": {
+      "type": "array",
+      "description": "Where your reading differs from the builder's account. An empty array is a real answer. This is the section David values most per word, so when trimming for length, trim everything else first.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": { "type": "string", "minTrimmedLength": 1, "description": "The builder's account, and yours." },
+          "why_it_matters": { "type": "string", "minTrimmedLength": 1, "description": "What it means for David if you are right." }
+        },
+        "required": ["what", "why_it_matters"],
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "One entry per finding the reviewer raised this round, in the reviewer's order. Empty when the round raised none.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "raised": { "type": "string", "minTrimmedLength": 1, "description": "What could have gone wrong, one clause, outcome not mechanism." },
+          "done": { "type": "string", "minTrimmedLength": 1, "description": "What the builder did about it, one clause; its size when that is the point." },
+          "outcome": { "type": "string", "enum": ["fixed", "declined", "unanswered"] },
+          "holds": { "type": ["boolean", "null"], "description": "Fix: the diff does what the reply claims. Decline: its reasoning stands. null when unanswered." },
+          "overbuilt": { "type": "boolean", "description": "true when the builder wrote more than the finding was worth." }
+        },
+        "required": ["raised", "done", "outcome", "holds", "overbuilt"],
+        "additionalProperties": false
+      }
+    },
+    "took_on_trust": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "What you saw and accepted without checking. Almost never empty. NOT shown to David -- it is read by a later round's translator as the list worth rechecking, so write it for that reader."
+    },
+    "could_not_assess": {
+      "type": ["string", "null"],
+      "minTrimmedLength": 1,
+      "description": "One sentence when something was beyond your reach; null when nothing was."
+    },
+    "model": {
+      "type": ["string", "null"],
+      "minTrimmedLength": 1,
+      "description": "The model id you are actually running as. null, never prose, when you cannot determine it."
+    },
+    "builder_answered": {
+      "type": "boolean",
+      "description": "Whether the builder (the pull request's author) had replied to this round's findings when you read them."
+    },
+    "known_gaps": {
+      "type": "array",
+      "description": "FINAL ROUND ONLY. What is shipping unfixed. Empty means nothing is.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": { "type": "string", "minTrimmedLength": 1, "description": "What could happen, not what the code does." },
+          "reasonable": { "type": "boolean", "description": "Whether shipping it is reasonable." },
+          "why": { "type": "string", "minTrimmedLength": 1, "description": "Why; plainly, when you disagree with the decline." }
+        },
+        "required": ["what", "reasonable", "why"],
+        "additionalProperties": false
+      }
+    },
+    "what_landed": {
+      "type": "object",
+      "description": "FINAL ROUND ONLY. The description's stated intent held against what the diff does.",
+      "properties": {
+        "landed": { "type": "string", "minTrimmedLength": 1, "description": "What the change actually does." },
+        "does_not_do": { "type": "string", "minTrimmedLength": 1, "description": "What it does not do that David might assume it does." },
+        "now_trusting": { "type": "string", "minTrimmedLength": 1, "description": "What David is now trusting that he was not before." }
+      },
+      "required": ["landed", "does_not_do", "now_trusting"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "recommendation",
+    "about",
+    "disagreements",
+    "findings",
+    "took_on_trust",
+    "could_not_assess",
+    "model",
+    "builder_answered"
+  ],
+  "additionalProperties": false
+}

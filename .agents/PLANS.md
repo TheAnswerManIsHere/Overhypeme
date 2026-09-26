@@ -1,6 +1,8 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Implementation Plan Template
 
-> Use this template for **non-trivial** implementation work on Overhype.me. **Do
+> Use this template for **non-trivial** implementation work. **Do
 > not begin implementation until David approves the plan** (explicitly, in words —
 > see [`../docs/ai-context/agent-working-rules.md`](../docs/ai-context/agent-working-rules.md)).
 > Trivial, well-scoped fixes don't need the full template; a "bug fix" that is
@@ -15,10 +17,12 @@
 
 **Run the increment test before filling in anything below** —
 [`../docs/ai-context/working-modes.md`](../docs/ai-context/working-modes.md#the-increment-test)
-defines it (universal quantifier ⇒ direction; a *Phases* section separating
-independently-shippable pieces ⇒ each phase was its own plan) and where a
-direction lives once you write one. If either check trips, stop and split
-before filling in anything below. Scope that arrives *later* — during planning
+defines it, and it asks what this increment makes true, what bounds it, and how
+completion will be recognised. **Universal wording and independently shippable
+phases are reasons to examine the boundary, never grounds for an automatic
+split** (#124, 2026-09-18): a bounded requirement may legitimately hold across
+many paths. Where the boundary is genuinely wrong, recommend the split and its
+benefit — David decides changes to agreed scope. Scope that arrives *later* — during planning
 or during review — is framed **now vs. next**, defaulting to **next** unless
 this plan cannot be *correct* without it. Adding it because the end state
 needs it is what the direction is for.
