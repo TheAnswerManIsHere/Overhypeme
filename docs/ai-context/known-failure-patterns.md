@@ -1546,6 +1546,25 @@ proposed independently by three of the six.
 method in [`prose-sweep.md`](prose-sweep.md), which is its only statement and
 is not restated here.
 
+### Sub-pattern: a deleted thing was a container
+
+Every sweep above hunts **references to** what was removed. None can find what
+the removed thing **held** that something surviving still needs, because an
+absence has no text to match. The #89 cut (AI-Handbook #102) hit it three times
+in two rounds: a skill section deleted as duplicate also held the only
+definition of three procedures the always-loaded contract still named; a rule
+deleted for its arithmetic had a definition wrapped inside it that a surviving
+rule invoked, which deadlocked any PR needing a base-branch merge; and a memory
+note's workaround was true only because of the guard being deleted beside it.
+Each was found by a reviewer looking at something else.
+
+**Avoid:** when removing a rule, section, or mechanism whole, read the
+**removed** text for what nothing else says — a definition stated there, a
+numbered rule or heading something surviving points at, a procedure a surviving
+document routes to — before the removal merges. The cross-reference half is
+mechanical (one grep for the removed rule's number would have caught the
+deadlock); definitions and procedures need a reader.
+
 ## Satisfying a lexical guard by changing a value's form, not its meaning
 
 **Looks like:** a CI text guard flags a stated value in prose. The fix changes

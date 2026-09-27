@@ -37,7 +37,9 @@ worth a look." "What's next" means next *here*.
 
 - **The active repository is `repo` in `.agents/machinery.json`** at the
   working tree's root — the one declared identity every repo in the fleet
-  carries. Cross-check it against `git remote get-url origin`.
+  carries. Cross-check it against `git remote get-url origin`: they agree
+  when the URL's path ends in that same `owner/name`, compared
+  case-insensitively and ignoring a trailing `.git`.
 - **If they disagree, the file is missing, or it still holds the template
   placeholder, stop and ask** which repository David means. A `/next` that
   guesses its repository answers confidently about the wrong product.

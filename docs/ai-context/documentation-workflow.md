@@ -239,12 +239,14 @@ separation aids review). Placement:
   commit rides the maintenance docs PR alongside that week's
   `deferred-work.md` updates; it is internal **by consequence and
   recoverability** — a docs pass touching no approvals, publication,
-  credentials or destructive machinery — so the
-  **two-review limit** governs it
-  ([`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)): the automatic
-  Codex pass, one coherent batch of corrections if any are warranted, a review
-  of that corrected head, then iteration stops — never an unreviewed merge, and
-  never a third round the builder grants itself. **No
+  credentials or destructive machinery — so it is the **Documentation review
+  class**
+  ([`working-modes.md`](working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)):
+  one Astra and Fable pass over the change, Codex's output not read, one
+  coherent batch of corrections if any are warranted, then merge, with the
+  merge report saying what the batch changed. (Until 2026-09-25 this was the
+  two-review limit's loop: the Codex pass, a batch, a review of the corrected
+  head.) **No
   per-feature harvest sub-issues**: the tracking is the harvest-notes comments
   already sitting on each feature's workstream issue, plus the maintenance
   report naming what was harvested. (The per-harvest sub-issue machinery below

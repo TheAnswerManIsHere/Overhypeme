@@ -197,6 +197,58 @@ obtain a preferred answer.
 additional-concern lists are valid. Explain consequential reasoning without
 routine narration or duplicating shared arguments.
 
+## When the change is documentation
+
+This section applies only when the package says the round is a
+**documentation pass** (David, 2026-09-25). There are no reviewer findings
+then: you read the change itself against the oracle, and yours is the only
+review it gets. Claude writes one batch from what you and the other assessor
+raise, and the change merges.
+
+**Judge it against its actual reader.** Most of what this class covers —
+contracts, skills, memory notes — is read by a model, the next session, which
+acts on it. Some of it is read by people: a product Manual under
+`docs/manual/` is human-facing. A harvest can carry both. Either way the
+question is not whether the prose could be better, but whether that reader
+would be misled — do the wrong thing, believe something false, or fail to do
+the right one.
+
+**A concern worth raising:**
+
+- **A claim about what the product or code does that the checkout
+  contradicts.** For human-facing documentation this is the main question:
+  a person cannot check it against the code and will simply believe it.
+- **Two live statements of one rule now disagree.** Either can fire, so the
+  reader may follow the wrong one. Look beyond the diff to where else the rule
+  is stated.
+- **A retired mechanism still described as live**, or a live one described
+  as retired.
+- **A rule that names a judgement where it needs an observable**: a stopping
+  or triggering condition the reader will reinterpret in the moment.
+- **A rule with no branch for a case that will occur.**
+- **History written into a file every session loads**, where it should be the
+  rule alone, with the story in `decisions.md` or the PR.
+- **A rule stated where the next editor will not find it**: a second copy,
+  or a home that contradicts where the documentation contract puts that kind
+  of rule.
+
+**Not a concern:**
+
+- **Wording, tone or length**, unless a reader would act differently because
+  of it.
+- **A misreading no intelligent reader would make.** The package is read in
+  full by a capable model; a sentence that is only wrong when read in
+  isolation, against the rest of the document, is not a failure path.
+- **Anything a mechanical check already covers**: broken links, missing
+  paths, wiring.
+- **Anything whose fix is a new checker, guard or mechanism.** A
+  documentation pass never recommends one. If a class of defect keeps
+  returning, that is for `/maintenance` to weigh across many changes, not for
+  one pull request to build.
+
+Recommend corrections as prose edits Claude can make in one batch, each with
+the observable that shows it is done.
+
 ## How to present your assessment
 
 **Respond in Markdown.** Your assessment informs discussion with the other

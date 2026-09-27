@@ -112,7 +112,8 @@ toggle on the active phase's PR, not just at that phase's close-out, so the
 parent never displays a stale holder mid-review. When no phase is active
 but phases remain, the parent is `waiting:claude` — that's an unstarted
 next phase, which is work, not a resting state. Once every phase is
-checked off, the parent moves straight to `stage:close-out` — there is no
+checked off, the parent moves straight to `stage:close-out` and is closed
+out in the same pass (*Closing an issue*, below) — there is no
 separate whole-feature UAT stage to pass through first, since per-phase UAT
 already verified the feature as it shipped.
 
@@ -134,7 +135,7 @@ whole state machine:
 
 - **`queue:`, no `stage:`** — decided, not started. Invisible to
   `/status-all` by construction (its Step 1 filters to issues carrying a
-  `stage:` label), which is correct: the fleet view is about active work,
+  `stage:` label), which is correct: the all-sessions view is about active work,
   and padding it with the backlog would bury the things that actually need
   someone. Don't "fix" that filter.
 - **The moment work starts** — the item gains `stage:`/`waiting:` and
@@ -330,6 +331,14 @@ prefixes:
   would lose it.
 - **`mode:<kind>`** — `feature`, `bugfix`, `docs`, or `devops`.
 
+One label sits outside the three prefixes: **`gap`** marks a follow-up
+issue filed from a review round for an imperfection accepted rather than
+fixed — recorded to *revisit*, never a promise of future work. It carries
+`queue:later` and a `mode:` like any backlog item and no `stage:`, since it
+is not a workstream; `/maintenance` step 9 re-asks now/next/never of every
+open `gap` issue by label (#98). Like every label here, GitHub does not
+create it on first use — a consumer creates it by hand once.
+
 Two labels sharing a prefix (e.g. two `stage:` labels on one issue) is a
 real data error, not a style nit — the sync script throws rather than
 guessing which one wins (`labelsToFieldValues` in
@@ -346,9 +355,9 @@ work it's already doing — not as a separate reminder to go check the board:
 | --- | --- |
 | `plan-review-loop` | `waiting:claude` for the whole loop — a planning exchange is a local process the builder waits on, so there is no `waiting:codex` state; `stage:plan-approval` + `waiting:david` at the approval ask |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
-| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch |
+| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch. A workstream reaching `stage:close-out` this way (no UAT owed) goes on to `stage:done` and is closed in the same pass (*Closing an issue*, below). Also the labels on a follow-up issue it files from a review round: `gap`, the workstream's `mode:`, `queue:later` (#98) |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
-| `/uat` | The exit from `stage:uat` — the one stage no agent could previously move, since only David could run it. `Accepted` and `Accepted with issues` both reach `stage:close-out` (his acceptance is what converts that run's bugs from blockers into independently-tracked work); a `Blocked` run holds at `stage:uat`. `waiting:claude` either way — the next real action is a fix or a close-out, not something David can click. Also owns the `Blocked by:` + failed-step record at the moment a run finds a bug, executing `bugfix`'s intake contract earlier, while the context is still in front of it — but **not** the `waiting:` flip, which waits until the run actually stops, since a run David chooses to continue is still David-held |
+| `/uat` | The exit from `stage:uat` — the one stage no agent could previously move, since only David could run it. `Accepted` and `Accepted with issues` both reach `stage:close-out` (his acceptance is what converts that run's bugs from blockers into independently-tracked work); a `Blocked` run holds at `stage:uat`. `waiting:claude` either way — the next real action is a fix or a close-out, not something David can click. An accepted run drives close-out through to `stage:done` and closes the issue. Also owns the `Blocked by:` + failed-step record at the moment a run finds a bug, executing `bugfix`'s intake contract earlier, while the context is still in front of it — but **not** the `waiting:` flip, which waits until the run actually stops, since a run David chooses to continue is still David-held |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
 
 **Phase ownership rides the same trigger points**, with no new maintainer:
@@ -359,8 +368,8 @@ work it's already doing — not as a separate reminder to go check the board:
 | A phase starts (every phase, including the first) | the product implementation skill | Opens that phase's sub-issue with its own full label set, links it under the parent, updates the checklist line from `not yet opened` to the issue number — this is the one place phase-opening lives, so phase 1 and phase 8 work the same way |
 | A phase's PR is under active review (each `waiting:` toggle) | `pr-watch` | Mirrors the same toggle onto the **parent's** `waiting:`, in the same edit — a phased parent's `waiting:` tracks whoever holds the *active* phase at every step, not just at close-out |
 | A phase's PR closes out | `pr-watch` | Ticks that phase's checkbox in the parent, and re-points the parent's `waiting:` at the next phase (`waiting:claude` if the next phase hasn't opened) |
-| The last phase closes out | `pr-watch` | Moves the **parent** straight to `stage:close-out` — per-phase UAT already covered verification, so there is no separate whole-feature UAT gate to enter |
-| **A phase that held at `stage:uat` is accepted** | **`/uat`** | The same two rows above, performed by `/uat` instead — tick the phase's checkbox, re-point the parent's `waiting:`, and move the parent to `stage:close-out` if this was the last phase. `pr-watch` cannot: it finished when the PR merged, and a UAT acceptance is not a PR event, so nothing wakes it again. Without this the parent keeps a finished phase marked active and `/next` recommends it |
+| The last phase closes out | `pr-watch` | Moves the **parent** straight to `stage:close-out` and closes it out in the same pass (*Closing an issue*) — per-phase UAT already covered verification, so there is no separate whole-feature UAT gate to enter |
+| **A phase that held at `stage:uat` is accepted** | **`/uat`** | The same two rows above, performed by `/uat` instead — tick the phase's checkbox, re-point the parent's `waiting:`, and, if this was the last phase, move the parent to `stage:close-out` and close it out in the same pass. `pr-watch` cannot: it finished when the PR merged, and a UAT acceptance is not a PR event, so nothing wakes it again. Without this the parent keeps a finished phase marked active and `/next` recommends it |
 
 A phase sub-issue is a workstream issue like any other — it carries the
 same three label prefixes and its own State of Play block, because a phase
@@ -370,6 +379,41 @@ Each skill's own file carries the concrete instruction at its trigger
 point; this doc is the shared vocabulary they point back to, not a
 restatement.
 
+## Closing an issue
+
+**Merge is not verification, and it is not the reason an issue stays
+open either.** What keeps a merged workstream open is a UAT still owed.
+Where none is owed, nothing remains for anyone to verify after the
+close-out sync, so the issue closes then. (David, 2026-09-25. Before this,
+the only step that closed an issue was an accepted `/uat` run. Every
+workstream with no UAT — every docs, devops and Tier A bugfix PR, and in
+AI-Handbook nearly every PR — parked at `stage:close-out` with "David's to
+set" `stage:done`, and nothing ever asked him to.)
+
+- **Close-out is a moment, not a resting state.** Whoever moves a
+  workstream to `stage:close-out` finishes what remains in it (the
+  harvest-notes comment for a product feature, any item the State of Play
+  lists), then sets `stage:done` and closes the issue as *completed*, in
+  the same pass. The closing comment names the PR(s) that did the work. A
+  workstream waits at `stage:close-out` only while a named item really
+  cannot be finished now, and its State of Play names that item.
+- **Who that is:** `pr-watch` when no UAT doc is owed (at the verified
+  sync, per its transition), `/uat` on an accepted run, and `pr-watch` or
+  `/uat` for a phased parent when its last phase reaches close-out.
+- **A product-visible change that shipped no UAT doc** (the Tier A case)
+  still closes. The closing comment carries the one-line pointer the State
+  of Play used to: where to look next time David is in the app, and to
+  reopen the issue if the symptom persists. Reopening takes one click, so
+  closing never loses the thread.
+- **Other issues a PR completes outright** — a gap, backlog or bug issue
+  that is not the PR's workstream and owes no UAT of its own — are named
+  with `Closes #N` in the PR body, so GitHub closes them at merge. A PR that
+  only *advances* such an issue says `Refs #N` and says what remains, on
+  the issue. When a PR already merged without the keyword, the agent that
+  notices closes the issue by hand, naming the PR.
+- **An issue closed by mistake is reopened.** It is never left closed to
+  save face; being able to reopen is what makes closing cheap.
+
 ## What must never happen
 
 - **`Pull request merged → Done`, the Project's built-in workflow, stays
@@ -378,8 +422,15 @@ restatement.
   correct in practice: PR #311 merged and correctly stayed at `🛑 UAT`, not
   `Done`.)
 - **`Auto-close issue` stays off**, for the same reason one step worse.
-- **PR bodies say `Workstream: #N`, never `Closes #N`.** The latter would
-  auto-close the issue at merge and skip UAT entirely.
+- **A PR body never says `Closes #N` for its own workstream** — it says
+  `Workstream: #N`. Auto-closing at merge would skip UAT on the work that
+  owes one, and the agent that reaches close-out closes the issue instead
+  (*Closing an issue*, above). `Closes #N` is for a *different* issue the
+  PR completes outright — see that section.
+- **A workstream never rests at `stage:close-out` with nothing left in
+  it.** An open issue whose work is finished is not neutral: `/next` and
+  `/status-all` keep surfacing it, and it hides the issues that are really
+  open.
 - **Sensitive / disclosure-carve-out workstreams never become public
   issues.** They're draft Project items instead — this repo is public, and
   an issue body is public even though the Project itself is private. This
@@ -405,10 +456,13 @@ restatement.
 ## `/status`, `/status-all`, and `/next`
 
 Three skills, three questions (`/status` split from `/status-all`
-2026-08-05; `/next` added 2026-08-15):
+2026-08-05; `/next` added 2026-08-15). `/status-all` and `/next` answer only
+for the repository the session is working in — each skill's *Scope* section
+says how that is resolved:
 
-- **`/status-all`** (`.claude/skills/status-all/SKILL.md`) — the **fleet**
-  view, and the original skill unchanged: every open workstream, grouped
+- **`/status-all`** (`.claude/skills/status-all/SKILL.md`) — the
+  **all-sessions** view of **the active repository only**, never other
+  repositories (2026-09-25): every open workstream, grouped
   🛑 NEEDS YOU / ⚠️ STALLED / IN PROGRESS, recomputed directly from issues +
   labels + PR state (it can't read the Project board either, per the tooling
   gap above). **Read-only.** Works from any session, including a fresh
@@ -419,7 +473,7 @@ Three skills, three questions (`/status` split from `/status-all`
   (`WORKING` / `WAITING ON YOU` / `WATCHING` / `STALLED` / `DONE`), what's
   next, and how it fits the roadmap.
 - **`/next`** (`.claude/skills/next/SKILL.md`) — **what should we pick up
-  now**, ranked. The only one of the three that takes a position rather
+  now** in the active repository, ranked. The only one of the three that takes a position rather
   than reporting state. It reads everything above plus the backlog,
   `Blocked by:` chains, and Phases checklists, ranks by **closest to done
   wins** with rank inheriting down each blocked chain, and names which

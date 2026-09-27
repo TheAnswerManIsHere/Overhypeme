@@ -68,13 +68,10 @@ Decide by what "this" refers to (contract's trigger table):
     tracking is the harvest-notes comments already on each feature's
     workstream issue. Internal **by consequence and recoverability** — a docs
     harvest that touches no approvals, publication, credentials or
-    destructive machinery — so the
-    **two-review limit** governs this path exactly as it governs the other
-    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)): automatic pass,
-    one coherent batch of corrections if any are warranted, **a review of that
-    corrected head**, then stop. It never meant a corrected head merges
-    unreviewed — this bullet read "automatic pass, one triage, merge", which
-    said it did. Everything below this bullet describes the AD-HOC path's
+    destructive machinery — so it is the **Documentation review class**
+    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)): one Astra and Fable pass over the change, Codex's output not read,
+    one coherent batch of corrections if any are warranted, merge. (Until
+    2026-09-25 this path was the two-review limit's Codex loop.) Everything below this bullet describes the AD-HOC path's
     **delivery mechanics** only; the termination rule above is common to both.
   - **Ad-hoc standalone invocation** (David asks for one feature directly):
     **default to assuming the feature's PR is
@@ -98,12 +95,10 @@ Decide by what "this" refers to (contract's trigger table):
   the stated oracle — a harvest is internal by consequence when it touches no
   approvals, publication, credentials or destructive machinery, and a Type 1
   harvest that edits a contract governing those is weighed on its consequence
-  and recoverability like any other such change, so the **two-review
-  limit** applies ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) and nothing here is a separate cap: the
-  automatic pass,
-  one coherent batch of corrections if any are warranted, **a review of that
-  corrected head**, then iteration stops. It never meant a pushed fix merges
-  unreviewed. Once the ready bar is met I self-merge per CLAUDE.md's
+  and recoverability like any other such change, which keeps it in the
+  standard loop. Otherwise it is the **Documentation review class**
+  ([`working-modes.md`](../../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)): that oracle is what the pass reads the change against, one batch of
+  corrections follows, and the change merges. Once the ready bar is met I self-merge per CLAUDE.md's
   close-out contract. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never

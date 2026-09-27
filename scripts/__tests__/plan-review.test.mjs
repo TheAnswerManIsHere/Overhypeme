@@ -61,7 +61,6 @@ import {
   slugFromPlanPath,
   stablePrefix,
 } from "../plan-review.mjs";
-import { planProvenanceDeclaration, DECLARATION_INFO } from "../plan-provenance.mjs";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "plan-review.mjs");
 
@@ -1035,7 +1034,7 @@ test("a plan edited while the exchange ran refuses it rather than pinning the wr
   drop(root);
 });
 
-test("an untouched plan costs nothing, and its digest is recorded in full for the provenance block", () => {
+test("an untouched plan costs nothing, and its digest is recorded in full for the PR body's oracle-source line", () => {
   const root = fixtureRoot({ plan: { path: "docs/plans/PLAN_X.md", text: PLAN } });
   assert.equal(runMain(root, ["--kind", "assess", "--round", "1", "--tier", "internal", "--plan", "docs/plans/PLAN_X.md"]).code, 0);
   const meta = JSON.parse(readFileSync(join(root, ".agents/reviews/x/round-1.meta.json"), "utf8"));
@@ -1147,26 +1146,6 @@ test("bad arguments are refused with the usage, never guessed at", () => {
     assert.equal(log.length > 0, true);
   }
   drop(root);
-});
-
-// ── the approval boundary, described accurately ────────────────────────────
-
-test("the provenance parser refuses a plan-backed PR that records no approver or date", () => {
-  // WHAT THIS DOES AND DOES NOT ESTABLISH. It proves the parser refuses a
-  // `private-plan` block that omits who approved the plan or when. It does NOT
-  // prove that David approved, and it does not prove approval came before the
-  // code: this check runs when the pull request opens, by which time the work
-  // exists. The actual boundary is an operating instruction -- "plan approval is
-  // explicit only; when unsure whether I have it, I assume I have not" -- and no
-  // mechanism gates it. Saying that here, beside the narrower thing that IS
-  // tested, is the point of this test.
-  const block = (lines) => [`\`\`\`${DECLARATION_INFO}`, ...lines, "```"].join("\n");
-  const complete = ["kind: private-plan", "plan_filename: PLAN_X.md", `plan_sha256: ${"a".repeat(64)}`, "approved_by: David", "approved_on: 2026-09-18"];
-  assert.equal(planProvenanceDeclaration(block(complete))?.refuse, undefined);
-  for (const drop of ["approved_by: David", "approved_on: 2026-09-18"]) {
-    const parsed = planProvenanceDeclaration(block(complete.filter((l) => l !== drop)));
-    assert.match(parsed.refuse, /approved_(by|on)/, `a block omitting ${drop} must refuse`);
-  }
 });
 
 // ── what only a live exchange can establish ────────────────────────────────

@@ -262,8 +262,7 @@ export function splitFrontmatter(text) {
   // reported. That turns a loud refusal into a check that passes having
   // checked nothing. (Astra, #131 round 2, naming the insufficiency; the
   // Fable assessor weighed the same finding as unreachable and said folding
-  // in a one-token fix costs nothing. `plan-provenance.mjs` already splits
-  // this way.)
+  // in a one-token fix costs nothing.)
   //
   // SCOPE IS THIS FUNCTION, DELIBERATELY. Four other readers still split on
   // `"\n"` -- `check-docs-accuracy.mjs`, `check-uat-format.mjs`,
@@ -463,8 +462,17 @@ export function validate(value, schema, at = "$") {
 
 const describe = (v) => (v === null ? "null" : Array.isArray(v) ? "an array" : typeof v);
 
-/** Keywords `validate` actually enforces. Anything else is a silent pass, so refuse it. */
+/**
+ * Keywords `validate` actually enforces. Anything else is a silent pass, so refuse it.
+ *
+ * `$comment` is the one entry enforced by having nothing to enforce: JSON Schema
+ * defines it as a note to readers with no effect on validation, so accepting it
+ * cannot let an output through. It is here because a schema file is payload,
+ * and a payload file carries the sync header the deleting sync keys on (#55);
+ * `$comment` is the only place JSON has for one.
+ */
 const SUPPORTED_KEYWORDS = new Set([
+  "$comment",
   "type",
   "required",
   "additionalProperties",

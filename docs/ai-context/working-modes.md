@@ -68,7 +68,7 @@ that wherever it appears in this table.
 | Artifact class | Planning ceremony and review depth | Why |
 | --- | --- | --- |
 | **Transient, single-use process docs** — handoff docs, one-off run notes, legacy TEST_RUN checklists (the TEST_RUN file itself is retired as of 2026-08-15 — new PRs carry a *Post-merge verification* PR-body section reviewed with the diff, per [`test-run-contract.md`](../tests/test-run-contract.md); this row still governs the legacy files while they run out), anything deleted after one execution | **No plan document. No plan-review loop.** Review *depth* is the docs-only light bar in [`code-review.md`](../engineering/code-review.md). How long iteration runs is **not** this row's to say — that is the two-review limit below, and this column used to claim "one triage and the loop ends there — no re-request", which let a commit merge that no review had read. | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and is worth writing for. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
-| **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **No plan document, no plan-review loop** — write the real file and ship it. Iteration is bounded by the two-review limit below, not by this row — and that limit asks its question of the change, by consequence and recoverability, so a change to a contract or prompt in this class that governs approvals, publication, credentials or destructive operations is weighed on that. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
+| **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **No plan document, no plan-review loop** — write the real file and ship it. **Its review is the Documentation class** (below, *Two classes outside the review loop*) unless it changes the review loop or an agent's latitude. Iteration is bounded by the two-review limit below, not by this row — and that limit asks its question of the change, by consequence and recoverability, so a change to a contract or prompt in this class that governs approvals, publication, credentials or destructive operations is weighed on that. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
 | **Product code** | Today's full feature ceremony — plan, review, approval. (Outside the two-review limit, which bounds internal tooling; that does not make "to convergence" its stop, which is a name this repo retired.) | Codex's review is a real net, but a subtly wrong behavior can reach users. |
 | **Migrations, backfills, auth, payments, and any subsystem the overlay marks sensitive** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
 
@@ -77,9 +77,10 @@ deleted after one run"), so the reviewer and any later reader can calibrate from
 the same line. **It says what the artifact is, never how many reviews it
 gets** — that line used to promise "findings triaged once, no re-review", which
 is a commitment to the reviewer that a changed head would go unread.
-Review *depth* on any docs-only PR is governed by
+Review *depth* on any docs-only PR still in the standard loop is governed by
 [`code-review.md`](../engineering/code-review.md#documentation-only-prs-get-a-light-review-david-2026-08-08),
-which is that rule's only statement, and the review request states its bar
+which is that rule's only statement — most docs-only PRs are the
+Documentation class instead (below, *Two classes outside the review loop*), and the review request states its bar
 explicitly. Depth is what a reviewer *raises*; what is worth writing for once
 raised is the Worth rule ([`review-judgment.md`](review-judgment.md)), and no
 tier or artifact class predetermines that answer.
@@ -600,9 +601,50 @@ is how a section headed *what stops a loop* came to answer with three rules
 that do not stop one. (An external adjudicator whose verdict decided stood here
 until the #89 cut removed it; nothing dispatched now decides anything.)
 
+#### Two classes outside the review loop: Trivial and Documentation (David, 2026-09-25)
+
+**This is the rule's home.** Everything else in this section is the
+**standard** loop, and each statement of it elsewhere — here, in
+[`code-review.md`](../engineering/code-review.md), in
+[`documentation-workflow.md`](documentation-workflow.md), in `claude-core.md`
+— applies to the standard loop and points back here for these two.
+
+**Trivial — "just do it."** **Only David declares it**, in words, for a
+specific change; no agent assigns it, and the PR body quotes his words. No
+review of any kind is requested: no Codex round, no assessment, no
+translation. The change merges on green CI. Codex's automatic pass on PR-open
+still runs; it is read for one thing, **a P1, which holds the merge until
+David answers**, and nothing else in it is acted on. Each Codex thread is
+resolved with one line citing his ruling, because the `main` ruleset will not
+merge with a thread open. His reason: *"I might be wrong but I need that lever
+to pull when I want quick changes."*
+
+**Documentation — one Astra and Fable pass, and no Codex.** For a change whose
+substance is prose: contracts, skills, memory notes, docs sweeps, harvests,
+Manual chapters. Both assessors read the change itself, from where the
+reviewed commit left `main`, against its intent, under the documentation
+section of their shared brief (`.agents/roles/review-proxy.md`). **The
+oracle is the decision the prose records, quoted** — David's words, or the
+issue or merged PR where the rule changed — so a sweep needs no fresh
+agreement. One batch of corrections follows and the change merges on green
+CI; the batch is not reviewed again, and the merge report says what it
+changed. **Codex's output is not read and not given to the assessors**; its
+threads are resolved with one line saying so. His reason: Codex reviews prose
+adversarially, marks a word choice P1, and the loop then builds fixes and
+guards for it, while Astra and Fable judge prose better. **It is a trial**:
+after five Documentation PRs, the question is whether the pass caught the
+class that matters most in prose — two live statements of one rule that
+disagree — without Codex. If not, the repair is to hand Codex's output to the
+assessors as one input, not to put it back in charge.
+
+**Neither class covers** a change to a script, a check, CI, a setting, a
+permission or an agent role's definition, or one granting an agent latitude,
+unless David has declared that specific change Trivial. Those stay in the
+standard loop, and so does any change to the review loop itself.
+
 #### The write-gate rule: code written is code reviewed (David, 2026-08-22)
 
-**Every tier.** The judgement happens *before* code is written, not after it is
+**Every tier**, in the standard loop (not the two classes above). The judgement happens *before* code is written, not after it is
 pushed:
 
 1. A round returns findings.
@@ -780,7 +822,7 @@ the safety net a non-code-reading product manager depends on.
 #### What still bounds a loop
 
 - **A clean automatic pass on PR-open is the whole ceremony** for an internal
-  PR. Finding nothing, it needs no judge: nothing was written, so the head is
+  PR in the standard loop (Trivial and Documentation are outside it, above). Finding nothing, it needs no judge: nothing was written, so the head is
   already reviewed.
 - **Never a second review of an unchanged head; always a review of a changed
   one.** The rule here used to read "no re-request without a behavioural
@@ -789,7 +831,9 @@ the safety net a non-code-reading product manager depends on.
   be reviewed and never merge, or had to acquire an unnecessary change to buy
   the round. Measured: #125's two-sentence fix waited a week under exactly that
   reading. **Any changed head gets review before merge** — documentation-only
-  changes and base-branch merges included. What is refused is a round requested
+  changes and base-branch merges included — in the standard loop; a Trivial
+  change gets none and a Documentation batch merges unreviewed, by design
+  (above). What is refused is a round requested
   merely to get a different answer on a head already reviewed as it stands.
   (Astra, 2026-09-19.)
 - **The two-review limit bounds how long iteration runs**, above. These bound
@@ -909,7 +953,8 @@ until 2026-09-20 and is now narrowed the same way. This parenthesis used to
 call it "correct as written", which is how the defect survived a round that
 was looking straight at it — vouching for a sentence is not reading it. **It is not that the code loop lacks a technical tie-break** — *Who
 judges* above gives a surviving purely technical disagreement to the Fable
-assessor there, and `claude-core.md` rule 4 says so on `main`. This parenthesis
+assessor there, and `claude-core.md` (*Shared judgement on a review round*, rule
+4) says so on `main`. This parenthesis
 claimed the opposite for one round, which is this very paragraph's warning
 happening to the paragraph itself: added at #124 round 7 to stop an escalation
 rule negating the planning tie-break, it negated the code loop's in the same
@@ -1245,7 +1290,9 @@ oracle and the Tier A/B bugfix oracle below.
    bug and the fix.
 8. **Open the PR** with the applicable oracle — the Tier A/B oracle below for a
    Tier A/B fix, or the dedicated Tier C block described above for a trivial
-   schema fix — and engage the review under the write-gate rule.
+   schema fix — plus the `Oracle source:` line naming the tier
+   ([`claude-core.md` Pull requests rule 4](../../.agents/core/claude-core.md#pull-requests)),
+   and engage the review under the write-gate rule.
 9. **At close, harvest what generalizes (David, 2026-08-09).** A root cause
    that reaches past this one bug is captured before the workstream closes:
    a [`known-failure-patterns.md`](./known-failure-patterns.md) entry, a
@@ -1283,13 +1330,12 @@ The feature oracle's fields map onto a Tier A/B fix directly:
 | Must not change | **Must not change** — the adjacent behaviors sharing this path |
 | Settled decisions | **Root cause** — the mechanism, in one or two lines |
 
-Plus **Blast radius** (from step 5), and the fix tier — which is now two
-things in two places. The **letter** is `fix_tier` in the body's declared
-`plan-provenance` block ([`plan-provenance.md`](plan-provenance.md)); the
-**reason** is `**Tier rationale:**`, a required prose field. The split is
-deliberate: a letter is what a machine selects on, a reason is what a reviewer
-argues with, and folding the second into the first is how the reason nearly
-disappeared when the letter moved. It is **required for Tier A as much as Tier
+Plus **Blast radius** (from step 5), and the fix tier. The **letter** goes on
+the body's `Oracle source:` line
+([`claude-core.md` Pull requests rule 4](../../.agents/core/claude-core.md#pull-requests));
+the **reason** is `**Tier rationale:**`, a required prose field, because a
+reviewer challenges a mis-tiering by arguing with the reason and a bare letter
+gives them nothing to argue with. It is **required for Tier A as much as Tier
 B.** A is the classification reviewers most need to be able to challenge, so
 "A (contained)" alone is not enough: name the Q1/Q2 items you checked and
 ruled out, not just the ones that would have fired. A bare tier letter with no

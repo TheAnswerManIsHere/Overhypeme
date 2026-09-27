@@ -1,3 +1,4 @@
+# SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 # A plan under development is never published, and this is what makes that true
 # rather than merely intended: `git add -A` during implementation would
 # otherwise stage it, and a plan is exactly the document that might name an

@@ -1,3 +1,4 @@
+// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 /**
  * The skill's own recipe text, RUN.
  *
@@ -12,9 +13,8 @@
  * command. The script was thoroughly tested; the sentence telling an agent how
  * to reach the script was not tested at all.
  *
- * IT READS THE REAL FILE, for the reason `plan-provenance-producers.test.mjs`
- * gives for doing the same: "A test that transcribed their templates would be a
- * third statement of the format and would drift from both."
+ * IT READS THE REAL FILE, because a test that transcribed the recipes would be
+ * another statement of them, and would drift from the file it claims to check.
  *
  * WHAT IT DOES NOT COVER, and this list is load-bearing rather than modest --
  * a check advertised as "the recipes are verified" would earn back the overclaim

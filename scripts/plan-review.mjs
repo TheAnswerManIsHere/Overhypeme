@@ -898,8 +898,7 @@ export function assemblePackage(parts) {
  * NOTHING PARSES AN ASSESSMENT TO GET HERE. The contract is explicit that an
  * assessment does not command the harness, and that agent agreement does not
  * substitute for David's approval. This renders the stated selection as a block
- * a reader can find, in the shape `plan-provenance` and `review-action` already
- * use.
+ * a reader can find, in the shape `review-action` already uses.
  */
 export function actionBlock({ action, concerns = [], note = "" }) {
   if (!ACTIONS.includes(action)) {
@@ -1922,7 +1921,7 @@ export function main(argv = process.argv.slice(2), { root = REPO_ROOT, run = spa
     //
     // That digest is not decoration. With no commit and no PR page holding the
     // approved revision, it is the ONLY thing pinning which text David approved
-    // once it reaches an implementation PR's `private-plan` block. If the file
+    // once an implementation PR's `Oracle source:` line cites it. If the file
     // moved, the digest names a document the assessment does not describe.
     //
     // So a moved plan REFUSES the exchange rather than reconciling it. Nothing
@@ -1952,10 +1951,10 @@ export function main(argv = process.argv.slice(2), { root = REPO_ROOT, run = spa
       // plan, and the snapshot below is written on exactly that condition.
       planDigest: planText !== null ? sha256(planText) : null,
       // The FULL digest of the plan THIS EXCHANGE ASSESSED. It is NOT the
-      // provenance pin: the redesign lets agreed edits reach David without
-      // another assessment, so the last exchange's digest can predate the plan
-      // he approves. The skill takes the provenance digest from the plan file at
-      // the moment of approval. (Codex, #124 round 1; both assessors agreed the
+      // digest a PR body cites as its oracle source: the redesign lets agreed
+      // edits reach David without another assessment, so the last exchange's
+      // digest can predate the plan he approves. The skill takes that digest
+      // from the plan file at the moment of approval. (Codex, #124 round 1; both assessors agreed the
       // correction belongs in the instruction, not here.)
       planSha256: planText !== null ? sha256Full(planText) : null,
       planSnapshot: planText !== null ? `plan-round-${round}.md` : null,

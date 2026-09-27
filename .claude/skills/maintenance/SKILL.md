@@ -341,22 +341,50 @@ recommendation. David's standing instruction is that he can react well but
 can't track state, so this step brings him a **concrete proposed diff** to
 approve or amend, never an open-ended "is the backlog still right?"
 
-1. **List both label families** — open issues carrying a `queue:` label,
-   and open issues carrying a `stage:` label (`mcp__github__list_issues`,
-   paginated, both label sets). Steps 3–4 below sweep `Blocked by:` chains
+1. **List every open issue, then sort it into three sets** — those
+   carrying a `queue:` label, those carrying a `stage:` label, and **the
+   rest: issues carrying neither** (`mcp__github__list_issues`, paginated to
+   exhaustion, no label filter — a filtered fetch cannot return the
+   unlabelled set). Steps 4–5 below sweep `Blocked by:` chains
    and Phases checklists, and both live on `stage:` workstream issues, not
    `queue:` backlog ones — fetching only the backlog set leaves this pass
    unable to see the data it's meant to validate. For the backlog set,
    check the cheap staleness signals: has it been superseded by something
    merged since it was filed? Has its rationale been overtaken? Is it a
    duplicate of another backlog item?
-2. **Re-check `queue:` priorities against the roadmap.** Anything labeled
+2. **Triage the third set, plus every open `gap`-labelled issue whatever
+   `queue:` it carries — now, next or never** (David, 2026-09-16, #98). The
+   third set is the follow-ups a review round or a session filed and nobody
+   ranked; `/next` and `/status-all` treat an issue with neither prefix as
+   *not part of this system*, so until it is labelled it is invisible to
+   every tool that decides what gets worked on. Measured on 2026-09-25: ten
+   issues filed over the preceding eight days carried no labels at all. The
+   `gap` issues are in the set **by label, not by lack of one**: `pr-watch`
+   files every gap already carrying `queue:later`, so a set defined as
+   "unlabelled" would hold no gaps, and the revisit David asked for would
+   never be asked by name. For each, read the body and check the checkout
+   for whether it is already addressed, then propose one of: **now**
+   (`queue:now`), **next** (`queue:next`), **later** (`queue:later`), or
+   **never** (close as *not planned*, with the reason and what would reopen
+   it); a `mode:` label rides along, and a gap already done is closed as
+   *completed* naming the PR. The proposed diff carries a line only where
+   the call would change — a gap that stays `queue:later` costs a read, not
+   a line — and a gap whose body argues for a bump is where that argument
+   is finally weighed. A recorded gap is a thing to *revisit*, never a
+   promise of future work — the triage is where that decision gets made,
+   and this step is the only place it recurs. The evidence-gathering (read,
+   grep, quote) is subagent-eligible; the now/next/never call is not, and
+   it reaches David through step 6's proposed diff like every other line
+   here. The disclosure exception holds: a gap on a disclosure-gated
+   workstream lives on the private path, and the public record says only
+   that a gap exists and where its details are.
+3. **Re-check `queue:` priorities against the roadmap.** Anything labeled
    `queue:now` that hasn't been started in weeks is either mislabeled or
    genuinely blocked — say which. Anything in
    the repo's roadmap's
    near-term slices with no backlog issue is a **gap**: propose opening
    one, since an item only in prose is invisible to `/next`.
-3. **Sweep `Blocked by:` markers** — for each, is the named blocker still
+4. **Sweep `Blocked by:` markers** — for each, is the named blocker still
    open? A marker pointing at a closed issue is stale and should be
    removed. Flag two shapes specifically, because both are the
    UAT-descent stack going wrong rather than working:
@@ -367,18 +395,18 @@ approve or amend, never an open-ended "is the backlog still right?"
    - **A cycle** (A blocked by B, B transitively blocked by A) — a real
      data error that would make every item in it permanently
      non-actionable. Report it; don't guess which edge to cut.
-4. **Sweep Phases checklists** — for each parent issue carrying one, does
+5. **Sweep Phases checklists** — for each parent issue carrying one, does
    it match reality? A phase whose PR merged but whose checkbox is
    unticked makes `/next` recommend work that's already done.
-5. **Deliver as a numbered proposed diff**, e.g. "close #431 (superseded by
+6. **Deliver as a numbered proposed diff**, e.g. "close #431 (superseded by
    #440); drop #418 `queue:now` → `queue:later`; open a backlog issue for
    *Record the Stripe mode on every entitlement source*; remove the stale
    `Blocked by: #405` from #422." David approves, amends, or declines each
    line — **then I apply the approved ones in that same session.** Same
    posture as `/status`: proposed, confirmed, then written, never
    unattended.
-6. If nothing's drifted, one line: "backlog hygiene: N queued items, M
-   blocked, no drift."
+7. If nothing's drifted, one line: "backlog hygiene: N queued items, M
+   blocked, 0 unlabelled, G gaps revisited, no drift."
 
 ## 10. Contract diet — one rule out, every pass (David, 2026-08-17)
 
