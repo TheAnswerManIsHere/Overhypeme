@@ -8,9 +8,10 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
      tracked (see docs/ai-context/workstream-tracking.md; AGENTS.md's
      workstream-tracking contract). Never "Closes #N" for THIS workstream —
      that auto-closes it at merge and skips Test run/UAT. A different gap,
-     backlog or bug issue this PR completes outright is the opposite case:
-     name it with "Closes #N" so it closes on merge, or "Refs #N" for one the
-     PR only advances. The ONLY exemption to the Workstream line is a
+     backlog or bug issue this PR completes outright, and that owes no UAT of
+     its own, is the opposite case: name it with "Closes #N" so it closes on
+     merge. Use "Refs #N" for one the PR only advances, or one still owing a
+     UAT. The ONLY exemption to the Workstream line is a
      sensitive/disclosure-carve-out workstream, tracked as a private draft
      Project item instead of a public issue — leave this line blank/deleted
      only for that case. Keep "Workstream: #N" as the very first thing on its

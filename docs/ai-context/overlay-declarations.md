@@ -19,21 +19,22 @@ day the contract arrived.
 ## Sensitive subsystems
 
 **Asked by:** `claude-core.md` (the feature-building ceremony, and the Replit
-direct-push sweep), `agent-working-rules.md`, `working-modes.md` (the tier
-table, and bugfix Tier B's Q1), `code-review.md`. **What being sensitive
-changes is theirs to say**, and so are the universal entries — migrations,
-backfills, auth, payments, permissions, the async job queue, generated
-API-validation schemas, dev-infra. This section names only what those rules
-cannot know: Overhype's own subsystems.
-**If unanswered:** the universal entries still route; these stop routing.
+direct-push sweep), `agent-working-rules.md`, `working-modes.md` (the artifact
+tier table under *Feature mode*, and Q1 under *Bugfix mode*), `code-review.md`.
+Those rules name the universal classes themselves and say what each routing
+changes; this section names only Overhype's own subsystems, and which of the
+two routings each one takes.
+**If unanswered:** these subsystems stop routing; the universal classes are
+unaffected.
 
-**Sensitive** — the tier table's specialist-review row, and Q1 for a bug fix:
+**Sensitive** — the tier table's "any subsystem the overlay marks sensitive"
+row, and Q1:
 
 - **The visual pipeline** — planner, compiler, render policy, Visual Concept.
   See [`visual-pipeline.md`](./visual-pipeline.md).
 
-**Q1 only** — a bug fix landing here is Tier B, and feature work gets the
-ordinary product-code ceremony, not the specialist review:
+**Q1 only** — named for bugfix routing, not for the tier table's
+sensitive row:
 
 - **The tokenizer, the grammar, and `render-fact`**
   (`artifacts/overhype-me/src/lib/render-fact.ts`).
@@ -43,8 +44,8 @@ ordinary product-code ceremony, not the specialist review:
   [`moderation-workflow.md`](./moderation-workflow.md).
 
 That split is how each was routed before the handbook cutover: the old
-`CLAUDE.md` added the specialist review for the visual pipeline alone, and its
-Tier B list named the other two.
+`CLAUDE.md` gave the specialist review to the visual pipeline alone among
+these, and the old `working-modes.md` named the other two in Q1.
 
 ## Modules that generate API-validation schemas
 
