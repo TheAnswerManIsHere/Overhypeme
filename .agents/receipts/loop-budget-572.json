@@ -1,0 +1,8 @@
+{
+  "pr": 572,
+  "tier": "sensitive",
+  "budget": null,
+  "criticality": 80,
+  "artifact": "Plan: refuse to boot against the wrong Stripe account (required, fatal, pre-mutation account check)",
+  "declaredAt": "2026-08-26T03:47:23.885Z"
+}
