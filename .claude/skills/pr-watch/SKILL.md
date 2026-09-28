@@ -368,18 +368,19 @@ requires it.
      cut the scope, or stop. **None of them and the round's remaining findings
      are recorded gaps and follow-up issues**, and the pull request goes to
      close-out like any other. **A follow-up issue is filed with its labels**:
-     `gap`, the workstream's `mode:`, and **`queue:later`, always** — the
-     one label whose definition fits a gap ("revisit rather than schedule";
-     `queue:next` is approved work and `queue:now` would start today), and
-     the triage call is David's, made through `/maintenance` step 9's
-     proposed diff, never applied unattended. If the finding's consequence
-     argues for sooner, that case goes in the body for step 9 to propose;
-     anything establishing consequential harm he has not accepted was
-     already his under the three questions above and never reaches this
-     sentence. An issue with no `queue:` and no `stage:` label is invisible
-     to `/next` and `/status-all` until `/maintenance` finds it (its step 9,
-     item 2), and ten such issues accumulated in eight days before that step
-     existed (#98). The label is in the shared vocabulary
+     `gap` and the workstream's `mode:`, and **no `queue:` label** — so it
+     stays out of `/next` until David has triaged it (David, 2026-09-28: a
+     recorded gap is not a candidate for work before he has said it is).
+     The triage call is his, made through `/maintenance` step 9's proposed
+     diff, never applied unattended; that step finds every gap by its `gap`
+     label, which is why the missing `queue:` label cannot lose one. If the
+     finding's consequence argues for sooner, that case goes in the body for
+     step 9 to propose; anything establishing consequential harm he has not
+     accepted was already his under the three questions above and never
+     reaches this sentence. (Until 2026-09-28 a gap was filed with
+     `queue:later`, which `/next` reads as wanted work, so an untriaged gap
+     could be recommended — Codex on Overhype #622.) The label is in the
+     shared vocabulary
      ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md));
      GitHub does not create a label on first use, so a consumer creates
      `gap` by hand once, like every other label the vocabulary names.

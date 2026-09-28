@@ -72,6 +72,15 @@ that wherever it appears in this table.
 | **Product code** | Today's full feature ceremony — plan, review, approval. (Outside the two-review limit, which bounds internal tooling; that does not make "to convergence" its stop, which is a name this repo retired.) | Codex's review is a real net, but a subtly wrong behavior can reach users. |
 | **Migrations, backfills, auth, payments, and any subsystem the overlay marks sensitive** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
 
+**The specialist-review row names migrations, backfills, auth and payments,
+and stops there** (David, 2026-09-28). Permissions, security headers, the
+async job queue, generated API-validation schemas and dev-infra are Q1
+triggers — a bug fix there is Tier B — but feature work on them gets the
+ordinary product-code ceremony unless a product's overlay marks the specific
+subsystem sensitive. The question was raised on Overhype #625, when a
+consumer overlay that had promoted them all was cut back to its pre-cutover
+routing; he kept the list as it is.
+
 For the floor tier, say so in the PR body's *What & why* ("transient checklist,
 deleted after one run"), so the reviewer and any later reader can calibrate from
 the same line. **It says what the artifact is, never how many reviews it
