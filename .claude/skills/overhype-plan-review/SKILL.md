@@ -49,10 +49,11 @@ A plan review that never read the code is an opinion about a document.
 
 ## 2. Where the stakes are higher
 
-A plan landing in any subsystem `overlay-declarations.md` marks **sensitive**
-carries the specialist review as well, and its plan is held to more: the
-irreversibility, the migration and backfill shape, and what a subtly-wrong
-result would look like before anyone noticed.
+Which of Overhype's subsystems raise the stakes is declared in
+[`overlay-declarations.md`](../../../docs/ai-context/overlay-declarations.md);
+what that changes about a plan's ceremony and review is the shared
+[`working-modes.md`](../../../docs/ai-context/working-modes.md) tier table's to
+say, not this skill's.
 
 **The source-of-truth question is this repo's recurring one.** `facts.*` versus
 the versions table, the Visual Concept as the authoritative scene, the

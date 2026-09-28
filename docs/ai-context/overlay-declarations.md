@@ -19,44 +19,46 @@ day the contract arrived.
 ## Sensitive subsystems
 
 **Asked by:** `claude-core.md` (the feature-building ceremony, and the Replit
-direct-push sweep), `agent-working-rules.md`, `working-modes.md` (the tier
-table and Tier B routing), `code-review.md`.
-**If unanswered:** migrations, auth and payments still route to the specialist
-review — they are named in the shared rules — but everything below stops
-getting it.
+direct-push sweep), `agent-working-rules.md`, `working-modes.md` (the artifact
+tier table under *Feature mode*, and Q1 under *Bugfix mode*), `code-review.md`.
+Those rules name the universal classes themselves and say what each routing
+changes; this section names only Overhype's own subsystems, and which of the
+two routings each one takes.
+**If unanswered:** these subsystems stop routing; the universal classes are
+unaffected.
 
-A change landing in any of these is **sensitive**: full ceremony plus the
-relevant specialist review, and Tier B at minimum for a bug fix.
+**Sensitive** — the tier table's "any subsystem the overlay marks sensitive"
+row, and Q1:
 
-- **Payments, auth, permissions, security headers.**
-- **The tokenizer, the grammar, and `render-fact`.**
 - **The visual pipeline** — planner, compiler, render policy, Visual Concept.
-- **The async job queue**, worker lanes, and any enqueue helper.
-- **Enrichment and moderation source-of-truth** — `facts.*`,
-  `resolveEnrichment`, the override layers.
-- **The generated API-validation schemas** — `lib/api-zod/`, `lib/api-spec/`.
-  See the next section: these are Tier B, and are *not* the database-schema
-  trigger.
-- **Dev-infra and build tooling** — Vite/esbuild config, the dev supervisor,
-  the retry and reload paths, the CI workflows.
+  See [`visual-pipeline.md`](./visual-pipeline.md).
 
-**Not on this list, and deliberately:** the *database* schema — Drizzle,
-`lib/db`, migrations, table structure — which the shared rules already route by
-name, at a higher tier than this list carries.
+**Q1 only** — named for bugfix routing, not for the tier table's
+sensitive row:
+
+- **The tokenizer, the grammar, and `render-fact`**
+  (`artifacts/overhype-me/src/lib/render-fact.ts`).
+- **Enrichment and moderation source-of-truth** — `facts.*`,
+  `resolveEnrichment`, the override layers. See
+  [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) and
+  [`moderation-workflow.md`](./moderation-workflow.md).
+
+That split is how each was routed before the handbook cutover: the old
+`CLAUDE.md` gave the specialist review to the visual pipeline alone among
+these, and the old `working-modes.md` named the other two in Q1.
 
 ## Modules that generate API-validation schemas
 
-**Asked by:** `working-modes.md` Tier B/C routing.
-**If unanswered:** a schema change routes to the wrong tier.
+**Asked by:** `working-modes.md`, which says how these are routed and how they
+differ from the database schema.
+**If unanswered:** an agent cannot tell which directories that rule means.
 
-**`lib/api-zod/` and `lib/api-spec/`.**
+**`lib/api-zod/` and `lib/api-spec/`.** The database schema is `lib/db/`.
 
-These generate the Zod **API-validation** schemas. They are **distinct from the
-database schema**, and the distinction decides the tier: a fix confined to these
-is Tier B, not Tier C. The trap they exist to flag is the codegen allowlist —
-`lib/api-zod/src/index.ts` is rewritten from the allowlist in
-`lib/api-spec/patch-generated.mjs`, so a hand-edit to it is silently reverted by
-the next codegen run. That incident is
+The trap in these directories is the codegen allowlist:
+`lib/api-zod/src/index.ts` is rewritten from the list in
+`lib/api-spec/patch-generated.mjs` on every codegen run, so a hand-edit to the
+index alone is silently reverted. That incident is
 [`known-failure-patterns.md`](./known-failure-patterns.md)'s codegen-revert
 pattern.
 
