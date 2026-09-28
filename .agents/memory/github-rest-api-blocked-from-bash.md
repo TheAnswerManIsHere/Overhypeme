@@ -3,6 +3,8 @@ name: The agent proxy blocks ALL direct api.github.com calls from bash — GitHu
 description: Any curl/fetch to api.github.com from a Bash tool call returns 403 "GitHub access is not enabled for this session", whatever the endpoint, token or URL. A poll loop built on it does not fail — it silently returns nothing and sleeps, which looks exactly like "still waiting". Use mcp__github__* for every GitHub read.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # There is no bash path to the GitHub API in this environment
 
 ## The mechanic

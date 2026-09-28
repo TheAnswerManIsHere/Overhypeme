@@ -3,6 +3,8 @@ name: restart the branch onto origin/main BEFORE exploring/planning, not just be
 description: Why an Explore/Plan pass can silently read a stale local working tree after a prior PR on the same branch squash-merged, and produce a wrong plan a live-code check would have caught.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Explore/plan against a stale local checkout after a squash-merge
 
 ## What happened
@@ -65,7 +67,7 @@ it will report local-file truth as if it were repo truth.
 
 This surfaced on the Stale-Fact Refresh PR4 build (session ending in PR #205).
 See the corrected vocabulary in
-[`moderation-workflow.md`](../../docs/ai-context/moderation-workflow.md)
+`moderation-workflow.md`
 (Step 2 = `concept_review`, Step 3 = `production_review`) and the "Stale
 historical docs treated as current truth" entry in
 [`known-failure-patterns.md`](../../docs/ai-context/known-failure-patterns.md) —

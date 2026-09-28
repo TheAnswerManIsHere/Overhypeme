@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Testing Anti-Patterns
 
 **Load this reference when:** writing or changing tests, adding mocks, or tempted to add test-only methods to production code.

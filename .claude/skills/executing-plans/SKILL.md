@@ -3,6 +3,8 @@ name: executing-plans
 description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Executing Plans
 
 ## Overview

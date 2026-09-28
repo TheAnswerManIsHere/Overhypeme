@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Action Security Profiles
 
 Security-relevant configuration fields, default behaviors, dangerous configuration patterns, and remediation guidance for each supported AI action. Referenced by SKILL.md Step 5 for action-specific remediation.

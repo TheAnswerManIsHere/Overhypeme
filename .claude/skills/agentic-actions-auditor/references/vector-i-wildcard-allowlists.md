@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector I: Wildcard User Allowlists
 
 User allowlist fields are set to wildcard values (`"*"`) that permit ANY GitHub user -- including external contributors, anonymous users, and potential attackers -- to trigger the AI agent. This removes the last line of defense (user-based gating) that might prevent an external attacker from triggering the AI agent via issues or comments.

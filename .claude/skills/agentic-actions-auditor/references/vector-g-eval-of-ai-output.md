@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector G: Eval of AI Output
 
 AI agent response is consumed by a subsequent workflow step that passes it through `eval`, `exec`, shell expansion, or other code execution sinks. If an attacker can influence the AI's output (via any prompt injection vector), the crafted response can escape the expected format and execute arbitrary shell commands. The risk is in the CONSUMING step, not the AI action itself.

@@ -3,6 +3,8 @@ name: Signal-safe spawn loops need the PID published inside a critical section
 description: Publishing a spawned child's PID to a cleanup-visible array "immediately after" the spawn still leaves a real bash safe-point gap a signal can land in; close it with a defer-flag, not just tighter ordering.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # A spawn (`&`) and its PID-recording append are two separate commands — a signal can land between them
 
 `artifacts/api-server/scripts/run-tests-sharded.sh` backgrounds several worker

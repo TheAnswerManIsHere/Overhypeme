@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 ## A stacked PR gets no workflow run at all — but zero runs does NOT prove that
 
 `.github/workflows/build.yml` triggers on `pull_request` with `branches: [main]`.

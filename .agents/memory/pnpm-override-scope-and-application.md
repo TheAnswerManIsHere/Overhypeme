@@ -3,6 +3,8 @@ name: pnpm workspace `overrides:` — bare entries can silently no-op; scope is 
 description: A bare package-name override in pnpm-workspace.yaml didn't change the resolved version even after `pnpm install --force`; `pnpm update <pkg> -r` was what actually worked. Separately, a workspace-wide override does not force a package's own direct dependency specifier for that same package.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # pnpm `overrides:` — two gotchas discovered forcing `fast-uri` and `esbuild` versions
 
 ## What happened (PR #246, patching Dependabot CVE alerts)

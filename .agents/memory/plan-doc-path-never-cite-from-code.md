@@ -3,6 +3,8 @@ name: Never cite a docs/plans/ path from code — it won't exist on the merged b
 description: A module docstring cited docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md as the tracking location for a deferred decision; that file only ever existed on the never-merged plan-review branch, so the citation was dangling from the first commit.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # A `docs/plans/PLAN_*.md` path is never a valid citation from implementation code
 
 The Codex plan-review loop (the `plan-review-loop` skill) commits the plan

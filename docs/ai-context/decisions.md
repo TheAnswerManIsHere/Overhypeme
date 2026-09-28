@@ -13,6 +13,313 @@
 
 ---
 
+### 2026-09-07 · Build for the 99% case; fix the edge case when it happens
+- **Decision:** David: *"Stop worrying about how you can cheat yourself into
+  additional rounds! … It's time to stop hardening all of this and let's get
+  to building. … focus on building something quickly that works 99% of the
+  time and then worry about a small bug when it actually occurs. … Stop
+  fighting with Codex over minutia. … It's to get the best intelligence
+  working together to build good software efficiently. Anything that isn't
+  that is WRONG."* Process machinery is built to the common case. An obscure
+  misuse scenario is fixed when it occurs, not fenced in advance. A Codex
+  finding about such a scenario is declined in a sentence, not litigated.
+- **Why:** On 2026-09-07 one contract PR was stopped three times on
+  self-registered conditions about hypothetical bypasses, a one-line bug on
+  the handbook went unfixed for want of an adjudication, and the day produced
+  more issue-filing than shipping. The handbook's purpose is efficient
+  building, and the loop machinery exists to serve that, not the reverse.
+- **Reference:** Overhypeme #615; this file's earlier entries of the same date.
+- **Revisit if:** a real defect in product code, payments, auth or a migration
+  traces back to a shortcut taken under this rule. That is the one class where
+  the pre-hardening instinct still applies.
+
+---
+
+### 2026-09-07 · A loop ends without writing anything after its last review
+- **Decision:** A mechanical review round is closed by *arithmetic*, not by a
+  closing receipt. The loop commits a `david`-kind receipt granting **two**
+  rounds from the spent count and **then** requests the pass, so the pass
+  covers the receipt and nothing is written after it. The second round is
+  headroom the gate needs; spending it re-raises the gate, so it cannot be used
+  to slip past one. David chose this over widening the merge gate, and asked
+  for the gate change to come later as its own reviewed PR.
+- **Why:** Every receipt-based ending regresses forever — whatever records that
+  a loop finished is itself a commit no reviewer has seen. Codex found this
+  twice in one loop on #615: first that a positive grant leaves the gate
+  standing once spent, then that the `grant 0` receipt written to close it is a
+  new unreviewed head. Ordering the one receipt *before* the pass removes the
+  regress entirely rather than moving it. Verified against the real functions:
+  with `grant 2, asOf 3` and four passes delivered the gate reads 5 and clears;
+  at five delivered it stands again.
+- **Reference:** `CLAUDE.md` review-loop rule 3;
+  [`working-modes.md`](./working-modes.md); Overhypeme #615, AI-Handbook #47.
+- **Revisit if:** the merge gate learns to accept a bookkeeping-only delta
+  (the deferred option). The headroom grant becomes unnecessary then, and
+  keeping both would be two mechanisms for one job.
+
+---
+
+### 2026-09-07 · "Ready" is a reserved word, gated on the receipt
+- **Decision:** The words "ready", "waiting on you" and "yours to merge" may
+  only appear in a message to David that quotes the `pr-ready.mjs` READY
+  block. Any other state is reported as what is still open plus what Claude
+  Code is doing about it. A receipt that cannot say READY is a blocker to fix
+  or escalate, not a caveat to attach to a readiness claim.
+- **Why:** David: *"You often tell me that a PR is 'waiting on my merge' but
+  it's not yet in a mergable state. You shouldn't tell me that you're waiting
+  on me until you're really ready for me to click. Otherwise I'll merge it
+  before it's actually ready."* He reads the headline and acts on it; a
+  caveat two paragraphs down does not reach the click. Broken twice in one
+  day on #614 — once by calling it ready with four unreviewed commits on it,
+  once by calling it ready for his click in the same message that admitted
+  the receipt said NOT READY — and once on #615, called his while a review
+  round was still running. Broken twice means a format requirement, not a
+  longer paragraph, which is this file's own rule.
+- **Reference:** `CLAUDE.md` close-out section; Overhypeme #614, #615.
+- **Revisit if:** the receipt's own accuracy degrades to where READY stops
+  tracking the real bar. Then the fix is the receipt, not the vocabulary.
+
+
+---
+
+### 2026-09-07 · Autonomy: mechanical work is Claude Code's to do, not to ask about
+- **Decision:** David: *"I'm granting you a much higher level of autonomy so
+  that you don't need to ask dumb questions and you don't need to bother me on
+  ceremony where it doesn't help build a better product."* Concretely: a review
+  round that exists only to re-cover a head moved by bookkeeping is Claude
+  Code's to grant and record, never to ask for; an enabling file whose values
+  already exist in the repository is added and reported, not asked about; a
+  size or budget consequence of content he has already authorised is decided
+  and reported. What stays his: product intent and design forks, priorities
+  and scope, and the click on anything that widens Claude Code's own
+  authority — that last one because the two share a GitHub account and
+  nothing server-side can tell them apart.
+- **Why:** *"The point of all these days of development is to build a machine
+  that is efficient at building software. If you can't take on simple things
+  on your own, we're building the wrong thing."* On this day one pull request
+  came back to him three times for blockers a machine should have cleared: a
+  missing configuration file whose two values were already committed
+  elsewhere in the repository, and a fourth review round needed only because
+  the two commits that enabled the independent check had moved the head past
+  the last reviewed one. Neither was a judgement; both were presented as one.
+- **Reference:** `CLAUDE.md`, *Review loops* rule 3 (the mechanical grant)
+  and *Planning* rule 7 (product and design forks escalate to David);
+  Overhypeme #614.
+- **Revisit if:** a self-granted round is ever used to write for a finding.
+  That is the case the adjudicator's leash exists for, and this decision does
+  not touch it — loops ran to fourteen rounds before that leash existed.
+
+---
+
+### 2026-09-04 · This org has an account-level security-safeguard adjustment
+- **Decision:** Anthropic's Safeguards Team adjusted the default safeguards
+  for this Anthropic organization to reflect the dual-use security work
+  (defensive testing, vulnerability verification) described in an
+  application David submitted. In-scope work is no longer blocked by
+  default on this account. The adjustment does not touch Anthropic's
+  clearly-prohibited-use categories, which stay blocked regardless. If
+  in-scope work is still blocked, the check is that the session is running
+  under the approved org, then escalate through Anthropic's standard
+  false-positive channel — never route around the block.
+- **Why:** avoids re-establishing authorization context from scratch each
+  time dual-use security work comes up, and keeps the boundary (approval is
+  scoped to one org ID; prohibited categories are untouched) written down
+  once rather than re-derived per session.
+- **Reference:** approval email from Anthropic's Safeguards Team, 2026-09-04.
+  Program name, org ID, and the approval's reference number are kept off the
+  public repo; ask David if they're needed.
+- **Revisit if:** Anthropic narrows or revokes the adjustment, or a task that
+  looks in-scope keeps getting blocked after confirming the org ID matches.
+
+---
+
+### 2026-09-03 · A Codex pass that found nothing is sufficient for the merge receipt
+- **Decision:** the merge receipt accepts Codex's structured record of a
+  completed pass on the head commit in either of its two shapes — the
+  `**Reviewed commit:**` announcement, or the "Codex Review Summary" comment's
+  Code Review row reading Completed for that commit (David, 2026-09-03, on
+  #608: "a Codex pass that found nothing is sufficient for the merge
+  receipt"). A bare 👍 reaction with neither is still not a pass.
+- **Why:** #608's automatic round completed with no findings and delivered
+  only a 👍 plus the summary row — no announcement — which was the exact flip
+  condition `pr-ready.mjs` had pre-registered for asking David. The old rule
+  refused reactions because a reaction carries neither the commit nor the
+  time; the summary row carries both, so accepting it keeps the head binding
+  the rule exists for while no longer blocking a mergeable PR on the
+  connector's choice of delivery shape. Claude Code's recommendation was this
+  structured form rather than accepting the reaction, and David's decision
+  was taken in that form.
+- **Reference:** PR #608 (`summaryPasses` in `scripts/review-counting.mjs`,
+  used by `pr-ready.mjs` and the round count); `known-failure-patterns.md`,
+  the 👍-only row, now closed.
+- **Revisit if:** the connector stops editing the summary comment in place or
+  changes the row format — the parser is one regex, and its test fixture is
+  the measured #608 shape.
+
+---
+
+### 2026-09-03 · `CLAUDE.md` pruned to resident rules; its rationale and history relocated here
+- **Decision:** `CLAUDE.md` carries only what must hold with no skill loaded,
+  stated as a rule with no story attached. Mechanics live in the skills; the
+  reasons and the supersession history live in this log (David, 2026-09-03,
+  "I want the contract pruning done now"). The file's own first paragraph had
+  said so since July; the pass makes it true. Every paragraph of rationale
+  that came out is preserved below, grouped by the section it left, so nothing
+  is lost — it is just no longer loaded into every session.
+- **Why:** the file had grown to ~730 lines by accretion, each new lesson
+  arriving as a longer paragraph and each superseded rule leaving its history
+  in place. Attention per rule dilutes with length, and a rule that has to be
+  recalled competes with every other one. Claude Code's own assessment (same
+  conversation) was that the contract's four dominant failure patterns —
+  overweighting text in front of it against fetched state, substituting
+  machinery for judgment, changing a rule in one place and leaving stale
+  copies, and misjudging cheap-looking changes — were each answered with more
+  prose, and that only the rules which collide with an event (a required
+  format line, a receipt the guard refuses, a hook) have a working record.
+- **Reference:** the pruning PR (2026-09-03), and PR #606 for the advice rule
+  it followed.
+- **Revisit if:** a rule that was cut turns out to have been load-bearing in a
+  way no skill or check covers — the fix is a check or a format requirement,
+  not restoring the paragraph.
+- **Enforcement (same day, #608):** `scripts/check-claude-md-budget.mjs` holds
+  `CLAUDE.md` at the line and byte count that PR landed, in CI, so every
+  addition displaces something rather than extending the file. Chosen over a
+  bigger prune because the size history says the lock, not the cut, is what
+  lasts.
+- **A CODEOWNERS file was built alongside it and then dropped** (David,
+  2026-09-03, choosing that option after the finding below). **Claude Code and
+  David share one GitHub account**: every agent-opened PR is authored by
+  David's own login, and every agent merge records `merged_by` as him, so
+  GitHub cannot tell an agent PR from a human one. Requiring code-owner review
+  would therefore demand an approval the author is not allowed to give, or be
+  waived by the same account permissions that let David's Replit pushes reach
+  `main` — no constraint on Claude Code either way, and a file naming owners
+  would invite the belief that the carve-out was enforced when it was not.
+  **Do not re-propose a server-side identity control until Claude Code has a
+  GitHub identity of its own**; that is a real project, not a setting. What
+  does work is the layer that runs where Claude Code runs: the harness
+  classifier, the guard hook, the readiness receipt, and this CI check.
+
+**Relocated rationale, by the section it left:**
+
+- *Interaction preference 11 (defanged trigger, bare request).* Measured
+  2026-08-21: a trigger comment with prose attached ALSO started a
+  code-writing task on #490, #539 and #472, and did not on #503's seven
+  requests — probabilistic, so the only safe input is the bare trigger. On
+  #490 the connector's task sandbox prepared a PR, so its "committed X" claims
+  are verified against the branch rather than assumed unreachable.
+- *Advice is independent.* David's user-preferences block had said "challenge
+  my assumptions, first principles" all along and it did not change behavior
+  on its own; that is why the rule is a mechanism (assessment-first ordering,
+  a required `Recommendation:` line, an override ledger) rather than a
+  restatement. Two of his premises were corrected in the same conversation:
+  that Claude Code "knows more" (true for general engineering, false for the
+  product, its users, and this repo's history — so the rule keys on evidence,
+  not role) and that "push back" is the target (it invites performative
+  contrarianism — so the rule keys on honesty, not disagreement).
+- *Memory lives in files.* A long chat re-reads its whole transcript on every
+  return; versioned files don't. That is the whole reason working notes go in
+  files.
+- *Planning, Preflight.* The routing is to the Preflight as a whole,
+  deliberately: an earlier version of that line named two of the four checks,
+  and a checklist that lists some of its items invites skipping the ones it
+  omits.
+- *Write-gate rule (David, 2026-08-22).* It superseded the 2026-08-21 design,
+  whose internal tier deliberately ended with the last fixes unreviewed and
+  carried machinery to make that mergeable — a mid-budget terminal receipt, a
+  distinct-commit proof, a rail look-through. All of it was deleted rather
+  than fixed: it existed to make an unreviewed head safe, and an unreviewed
+  head is now simply never mergeable. The internal tier's accepted trade is
+  rougher edges: its failure mode is wrongly-blocking, which announces itself,
+  and `main`'s real protection is GitHub's server-side ruleset.
+- *Round count never stored.* A committed tally is a cache of state GitHub
+  already holds, and it failed exactly that way when it was tried: the count
+  drifted from the record and the guard trusted the drift.
+- *Adjudicator from round 3 (David, 2026-08-22, superseding the 2026-08-20
+  beyond-the-first cadence).* The loop ledger's 41 reviewed loops contained
+  zero clean round 1s and three round-2 convergences, so a dispatch before
+  round 3 only ever said "write" — the dead criticality gate reborn. Round 3
+  headed the measured runaway tail (26 of 41 loops ran 4+ rounds), which is
+  where the one dispatch pays. All in-loop self-refereeing — the criticality
+  gate, count trend, growth tripwire and oscillation diagnosis — was 0-for-15
+  at stopping loops and the budget replaced it. The verdict lives in the
+  defanged context comment and never in a file, because per-round receipts
+  would rebuild the receipt machinery this replaced; the 2026-08-21
+  internal-tier mid-budget receipt went with the write-gate rule, since a
+  stop now precedes any new commit and there is no unreviewed head to unwedge.
+- *David gate at budget + 3 (David, 2026-08-26).* Superseded the 2×-budget
+  hard stop and the sensitive tier's stop-for-him-at-5, and the internal
+  tier's straight-to-David-at-3. "The last round's fixes are unreviewed" is
+  not available as an extension's named risk and no such flag exists in the
+  record, because under the write-gate rule the round reviewing any pushed
+  fixes has already run before the judge is dispatched. Receipt semantics the
+  guard enforces (so the prose no longer needs to): every finite grant carries
+  `asOf`, the completed-round count when David granted, and opens exactly
+  `asOf + grant`, so a direct mid-stage grant discards the interrupted stage's
+  unspent remainder rather than stacking under his rounds; a direct stop
+  (grant 0 before any gate receipt exists) cites its own mechanical record,
+  which is what keeps the merge gate satisfiable.
+- *Flip conditions.* The only judgment-shaped device with a working record,
+  and it works because it collides with an event instead of waiting to be
+  recalled. This is the principle the whole prune rests on.
+- *Triage, not auto-fix.* Treating Codex's "Required Revision" as
+  automatically meaning *fix* is how a GitHub label write ended up with
+  compare-and-swap semantics.
+- *`Class:` / `Oracle:` / `Result:` on declines too.* Declining without an
+  oracle asserts the class is empty without looking. The two escape valves
+  (a design finding with no mechanical oracle, and a finding on a file the
+  command cannot reach) are in `pr-watch`.
+- *Never stacked (David, 2026-08-20).* A dependent bug waits for its parent
+  to merge and branches off fresh `main`, or the two are one bug in one PR.
+- *UAT docs.* David confirms a run complete and the doc is deleted in that
+  same close-out (David, 2026-08-22), harvesting into the Manual first
+  anything recorded nowhere else. Running a UAT became the `uat` skill
+  (David, 2026-08-21): a script driven step by step in chat, no longer a file
+  he reads alone and no longer an Artifact page.
+- *Close-out bar.* CI and Codex catch *broken*; David's UAT catches *wrong*,
+  after the sync. For a carve-out PR no hook sees his click, so the receipt
+  is the whole control. What the receipt cannot prove: that every requested
+  round came back — a permitted retry needs no push, so two requests can name
+  one commit and a single pass satisfies both.
+- *Git constraints.* David's direct-push path to `main` through Replit's Git
+  pane was settled 2026-08-09 (`replit-environment.md`); a session once
+  escalated a `Replit Agent` commit as an incident, and that false alarm is
+  recorded in
+  `.agents/memory/replit-direct-push-to-main-is-sanctioned.md`. Both of
+  `guard.sh`'s jobs live in `guard-decision.mjs` and are absent from the
+  node-unavailable fallback. The Replit sweep is bounded by time, never by
+  commit count: `-3` was the first shape and it silently drops the fourth
+  commit of a busy week, and a missed commit is indistinguishable from a
+  swept one. The sweep rides the first-push fetch because `fetch` and
+  `checkout` print nothing about authorship, so "a session that touches
+  `main` finds one" otherwise describes no actual moment.
+- *Never poll GitHub from bash.* `curl`/`wget` are refused by the guard and no
+  other bash transport returns usable data:
+  `.agents/memory/github-rest-api-blocked-from-bash.md`. If a `send_later`
+  ever prompts at the permission classifier, that is new information for the
+  workstream issue.
+- *Fable to explore, Opus to build (David, 2026-08-28).* Superseded the
+  2026-08-15 "session tier is a constant, switch-asks retired in both
+  directions", which assumed one tier per session. Cheap-looking is exactly
+  when the tier matters: the repo's one-line-that-broke-everything is #582.
+  Measured 2026-08-28: `.claude/settings.json` pinned `opus` and the session
+  ran Fable anyway, so the pin is not proof of the running tier.
+- *Subagent cap.* Opus 5 delegates eagerly; every subagent re-establishes
+  context, explores, reports back, and costs a read of its report.
+- *Replit.* Publishing is deferred until closer to launch. David's fast lane
+  was settled long before any given tweak is met, so a `Replit Agent` commit
+  on `main` is never an incident to escalate; the boundary is display vs.
+  behavior, not small vs. big (#588).
+- *Standing rituals.* The process-health numbers exist so David's
+  keep-going-or-re-evaluate call is informed rather than felt. "Recorded
+  dissents" joined them on 2026-09-03 as a count of overrides recorded under
+  the advice rule. It measures override frequency only: a zero is consistent
+  with every recommendation being accepted, so it prompts a question to
+  David rather than a conclusion (Codex, #607 round 2, correcting the
+  first wording, which read a zero as proof the rule wasn't working).
+
+---
+
 ### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable
 - **Decision:** Until launch, production's *product* data — facts, memes, users,
   membership rows — carries no value and may be replaced by a copy of the

@@ -11,6 +11,8 @@ description: >-
 allowed-tools: Bash Read Glob Task AskUserQuestion TaskCreate TaskList TaskUpdate
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Semgrep Security Scan
 
 Run a Semgrep scan with automatic language detection, parallel execution via Task subagents, and merged SARIF output.

@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # SARIF jq Query Reference
 
 Ready-to-use jq queries for common SARIF parsing tasks.

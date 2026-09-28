@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 # Resolve and ensure the working-tree directory SDD uses for its short-lived
 # artifacts: task briefs, implementer reports, review packages, and the
 # progress ledger. Print the directory's absolute path.

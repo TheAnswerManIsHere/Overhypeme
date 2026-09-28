@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Deep Verification
 
 Full task-based verification for complex bugs. Use when routing from SKILL.md selects the deep path, or when standard verification escalates.
@@ -71,7 +73,7 @@ Delegate these agents to their respective phases. Pass the bug description and a
 
 Phases 3 (Impact Assessment), 5 (Devil's Advocate), and the Gate Review are handled directly — they require synthesizing results across phases and should not be delegated.
 
-**That is a standing dispatch BAR** under `CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* — pre-registered here in writing, not decided at dispatch time, and **not overridden by the 2026-08-17 always-Fable rule for adjudications**. That rule governs which model a dispatch uses, never whether one happens. Removing this bar is a contract change that ships in a PR David merges. (Codex, #504 round 2, which found this bar missing from that section's registry.)
+**That is a standing dispatch BAR** under `CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* — pre-registered here in writing, not decided at dispatch time, and **not overridden by the 2026-08-17 always-Fable rule for dispatched judgements**. That rule governs which model a dispatch uses, never whether one happens. Removing this bar is a contract change that ships through the ordinary PR path, never a mid-dispatch call. (Codex, #504 round 2, which found this bar missing from that section's registry.)
 
 ## Phase Requirements
 

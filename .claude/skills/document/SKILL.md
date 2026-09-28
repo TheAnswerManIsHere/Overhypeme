@@ -1,7 +1,9 @@
 ---
 name: document
-description: End-of-feature documentation pass — lock a finished feature's decisions, gotchas, and subsystem changes into the durable docs. Use when David says /document, "lock in the learnings", "document this feature", or "commit this feature's learnings to memory" at the end of a build. Harvests from the session + the feature's diff, routes each learning to its one canonical home in docs/ai-context/ / .agents/memory/, and creates or updates the touched area's chapter in the Overhype.me Manual (docs/manual/). Docs-only. NOT for "remember this" about a single item (that's immediate targeted persistence, not this ceremony).
+description: End-of-feature documentation pass — lock a finished feature's decisions, gotchas, and subsystem changes into the durable docs. Use when David says /document, "lock in the learnings", "document this feature", or "commit this feature's learnings to memory" at the end of a build. Harvests from the session + the feature's diff, routes each learning to its one canonical home in docs/ai-context/ / .agents/memory/, and creates or updates the touched area's chapter in the product Manual (docs/manual/). Docs-only. NOT for "remember this" about a single item (that's immediate targeted persistence, not this ceremony).
 ---
+
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
 
 # /document — the end-of-feature documentation ceremony (Claude enactment)
 
@@ -64,8 +66,13 @@ Decide by what "this" refers to (contract's trigger table):
     PR** alongside that pass's other doc updates. No per-feature branch, no
     per-feature PR, no harvest sub-issue, no separate subscription: the
     tracking is the harvest-notes comments already on each feature's
-    workstream issue. Internal tier — automatic pass, one triage, merge.
-    Everything below this bullet describes the AD-HOC path only.
+    workstream issue. Internal **by consequence and recoverability** — a docs
+    harvest that touches no approvals, publication, credentials or
+    destructive machinery — so it is the **Documentation review class**
+    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)): one Astra and Fable pass over the change, Codex's output not read,
+    one coherent batch of corrections if any are warranted, merge. (Until
+    2026-09-25 this path was the two-review limit's Codex loop.) Everything below this bullet describes the AD-HOC path's
+    **delivery mechanics** only; the termination rule above is common to both.
   - **Ad-hoc standalone invocation** (David asks for one feature directly):
     **default to assuming the feature's PR is
   already merged** (David's stated workflow),
@@ -85,13 +92,17 @@ Decide by what "this" refers to (contract's trigger table):
   the merged diffs, contradiction or duplication with existing docs; out of
   scope — prose style, structure preferences, completeness beyond the
   session's actual learnings.* Out-of-scope findings are declined against
-  the stated oracle in one triage pass — a harvest is an internal artifact,
-  so the carve-out applies: the automatic pass, one triage, no re-requested
-  rounds — and once the ready bar is met I self-merge per CLAUDE.md's
+  the stated oracle — a harvest is internal by consequence when it touches no
+  approvals, publication, credentials or destructive machinery, and a Type 1
+  harvest that edits a contract governing those is weighed on its consequence
+  and recoverability like any other such change, which keeps it in the
+  standard loop. Otherwise it is the **Documentation review class**
+  ([`working-modes.md`](../../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)): that oracle is what the pass reads the change against, one batch of
+  corrections follows, and the change merges. Once the ready bar is met I self-merge per CLAUDE.md's
   close-out contract. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
-  force-push** (`.claude/guard.sh` blocks it); if a stale remote ref of my old
+  force-push** (a ruleset on `claude/**` refuses it); if a stale remote ref of my old
   feature branch exists (GitHub usually auto-deletes it post-squash-merge, but
   a same-branch-name push can recreate it), confirm the owning PR is actually
   merged/closed before deleting that stale ref.

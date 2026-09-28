@@ -3,6 +3,8 @@ name: verification-before-completion
 description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Verification Before Completion
 
 ## Overview
@@ -23,7 +25,7 @@ If you haven't run the verification command in this message, you cannot claim it
 
 ## Scope: this is a truthfulness rule, not a "verify more" rule
 
-**Local calibration for Opus 5 (Overhype.me, 2026-07-24).** Opus 5 already
+**Local calibration for Opus 5 (fleet, 2026-07-24).** Opus 5 already
 verifies its own work without being told to, and instructions that tell it to
 verify produce redundant re-checking with no gain in correctness. This skill is
 deliberately **not** that instruction. Read it as governing *what you may

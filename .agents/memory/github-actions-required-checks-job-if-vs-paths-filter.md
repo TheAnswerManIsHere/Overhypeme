@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 ## Skipping CI on some PRs: job-level `if:`, never workflow-level `paths:`
 
 To skip a required check on PRs that provably can't affect it (e.g. a

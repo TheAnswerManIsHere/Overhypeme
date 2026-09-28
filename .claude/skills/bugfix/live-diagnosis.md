@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Live-environment evidence during diagnosis
 
 Loaded from step 2 of [`SKILL.md`](SKILL.md) when a bug's root cause or tier
@@ -39,7 +41,7 @@ Three sources, and picking the wrong one is the common waste:
 
 | Question | Source |
 |---|---|
-| What did production actually throw, with what stack and how often | **Sentry** — see [`maintenance/SKILL.md`](../maintenance/SKILL.md) §2 and [`docs/SENTRY.md`](../../../docs/SENTRY.md) |
+| What did production actually throw, with what stack and how often | **Sentry** — see [`maintenance/SKILL.md`](../maintenance/SKILL.md) §2 and the repo's own Sentry notes |
 | What does dev data/config/schema actually look like right now | **The Repl**, via the connector |
 | What does the code do with that input | **The repo** — read it, don't ask an agent to summarize it |
 

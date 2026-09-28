@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Insecure Defaults: Examples and Counter-Examples
 
 This document provides detailed examples for each category in the Quick Verification Checklist, showing both vulnerable patterns (report these) and secure patterns (skip these).

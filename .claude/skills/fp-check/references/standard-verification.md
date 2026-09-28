@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Standard Verification
 
 Linear single-pass checklist for straightforward bugs. No task tracking — work through each step sequentially and document findings inline.

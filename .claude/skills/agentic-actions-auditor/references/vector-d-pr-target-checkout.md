@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector D: pull_request_target + PR Head Checkout
 
 An attacker opens a fork pull request against a repository that uses `pull_request_target` to trigger an AI agent workflow. Because `pull_request_target` runs the workflow definition from the **base branch** (not the fork), the workflow has access to repository secrets. If the workflow then checks out the PR head commit, the AI agent reads attacker-modified files from disk while running with those secrets. This combines trusted execution context with untrusted code.

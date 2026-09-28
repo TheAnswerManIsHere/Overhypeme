@@ -8,6 +8,8 @@ description: >-
 allowed-tools: Bash Read Glob Grep
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # SARIF Parsing Best Practices
 
 You are a SARIF parsing expert. Your role is to help users effectively read, analyze, and process SARIF files from static analysis tools.

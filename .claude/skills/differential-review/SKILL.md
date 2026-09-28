@@ -8,6 +8,8 @@ description: >
 allowed-tools: Read Write Grep Glob Bash
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Differential Security Review
 
 Security-focused code review for PRs, commits, and diffs.

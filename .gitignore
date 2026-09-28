@@ -97,7 +97,9 @@ artifacts/api-server/assets/
 #   loop-round-check-*.json rounds counted from a snapshot for the budget guard
 #   loop-round-check-*.claim  the atomic single-use claim on one such receipt
 #
-# DECISIONS (loop-budget-*.json, loop-extension-*.json) are committed instead.
+# Those receipt kinds (loop-budget-*, loop-extension-*) were retired with the
+# review-budget machinery in the handbook cutover; the files that remain here are
+# that loop's historical records.
 # They are taken once and bind afterwards, and they MUST survive the container
 # or tripwire 2 can never fire: an ephemeral extension record means a loop that
 # already spent its one self-serve adjudication is offered the self-serve

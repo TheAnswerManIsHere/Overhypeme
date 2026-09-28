@@ -1,0 +1,8 @@
+{
+  "pr": 604,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 55,
+  "artifact": "removal of the git-lock sweeper, its two Replit workflows, and the supervisor's startup sweep",
+  "declaredAt": "2026-09-01T21:53:11.333Z"
+}

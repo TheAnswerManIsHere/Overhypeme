@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Visual Companion Guide
 
 Browser-based visual brainstorming companion for showing mockups, diagrams, and options.

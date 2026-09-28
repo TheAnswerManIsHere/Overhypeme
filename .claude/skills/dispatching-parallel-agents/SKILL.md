@@ -3,6 +3,8 @@ name: dispatching-parallel-agents
 description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Dispatching Parallel Agents
 
 ## Overview
@@ -13,7 +15,7 @@ When you have multiple unrelated failures (different test files, different subsy
 
 **Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
 
-## Local calibration: delegate less than this skill implies (Overhype.me, 2026-07-24)
+## Local calibration: delegate less than this skill implies (fleet, 2026-07-24)
 
 This skill was written for a model that **under**-delegated and needed
 encouragement. Opus 5 has the opposite bias — it reaches for subagents readily —

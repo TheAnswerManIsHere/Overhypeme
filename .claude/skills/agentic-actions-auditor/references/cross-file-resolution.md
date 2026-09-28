@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Cross-File Resolution: Composite Actions and Reusable Workflows
 
 AI agents can be hidden inside composite actions and reusable workflows, invisible when analyzing only the caller workflow file. This reference documents how to classify `uses:` references, resolve the referenced files, trace input mappings across file boundaries, and report unresolved references.

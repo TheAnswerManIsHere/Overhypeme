@@ -1,0 +1,8 @@
+{
+  "pr": 607,
+  "tier": "internal",
+  "budget": 3,
+  "criticality": 25,
+  "artifact": "CLAUDE.md prune + decisions.md relocation entry",
+  "declaredAt": "2026-09-03T17:36:34.499Z"
+}

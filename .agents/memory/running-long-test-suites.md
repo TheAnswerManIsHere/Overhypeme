@@ -3,6 +3,8 @@ name: Running long test suites in the bash tool
 description: How to reliably run the multi-minute test suites without the bash tool killing the process mid-run
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Running long test suites without losing output
 
 **Symptom:** running a multi-minute suite in the foreground piped to `tail`

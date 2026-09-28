@@ -6,8 +6,12 @@
 
 Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
      tracked (see docs/ai-context/workstream-tracking.md; AGENTS.md's
-     workstream-tracking contract). Never "Closes #N" — that auto-closes the
-     issue at merge and skips Test run/UAT. The ONLY exemption is a
+     workstream-tracking contract). Never "Closes #N" for THIS workstream —
+     that auto-closes it at merge and skips Test run/UAT. A different gap,
+     backlog or bug issue this PR completes outright, and that owes no UAT of
+     its own, is the opposite case: name it with "Closes #N" so it closes on
+     merge. Use "Refs #N" for one the PR only advances, or one still owing a
+     UAT. The ONLY exemption to the Workstream line is a
      sensitive/disclosure-carve-out workstream, tracked as a private draft
      Project item instead of a public issue — leave this line blank/deleted
      only for that case. Keep "Workstream: #N" as the very first thing on its
@@ -25,42 +29,45 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
 
 <!-- Every PR needs an oracle — something OUTSIDE the diff to check it against,
      so a reviewer can catch a PR that is internally sound but quietly narrowed
-     its scope or broke a neighbor. Which form you fill in depends on the mode;
-     see docs/engineering/code-review.md#the-review-oracle-the-pr-body.
+     its scope or broke a neighbor. See
+     docs/engineering/code-review.md#the-review-oracle-the-pr-body.
+
+     TWO PARTS, and they are different things.
+
+     PART 1 — THE SOURCE, one plain line. Nothing parses it; it points a
+     reviewer at where the oracle was agreed (claude-core.md Pull requests
+     rule 4, and docs/engineering/code-review.md#the-review-oracle-the-pr-body).
+     Write it as the first live line below, replacing the placeholder, with
+     exactly one of:
+       - a planned feature: the approved plan's filename and its full sha256
+         digest (`shasum -a 256` on the exact file approved — an in-session
+         plan is never committed, so the digest is what pins it);
+       - work agreed in conversation: the issue where the scope was agreed;
+       - a bugfix: its tier letter, A, B or C (a Tier C database schema fix
+         names C, and its Tier rationale below says why);
+       - `no plan`, for a genuinely trivial change with no plan and no bug
+         behind it.
+     (Until 2026-09-25 this was a fenced `plan-provenance` block with a fixed
+     key set per kind. It was retired, AI-Handbook #103; do not write one.)
+
+     PART 2 — THE ORACLE PROSE, which the source line does not replace. Fill in the
+     live fields for your mode below and delete the other mode's fields.
 
      FEATURE MODE — paste the approved plan's Product Intent / Must Not Change /
-     Settled Decisions verbatim, from the plan-review PR body or the final
-     approved plan doc. Delete the bugfix block.
+     Settled Decisions verbatim, from the final approved plan.
 
-     Approved-plan source identifies the EXACT final revision these words came
-     from — not a title or a mutable branch — so a reviewer can tell the
-     approved plan apart from earlier review-round versions. Use:
-       Plan-review PR #<N>, final plan commit `<sha>`, approved by David on `YYYY-MM-DD`.
-     or, for the private/manual review path (plan never committed):
-       `<final-plan-filename>.md`, sha256 `<hash>`, approved by David on `YYYY-MM-DD`.
-     (`shasum -a 256 <file>` on the exact file delivered for approval.)
-
-     BUGFIX MODE (Tier A/B) — fill the bugfix oracle instead; delete the feature
-     and Tier C blocks. See
+     BUGFIX MODE — fill the bugfix fields instead. See
      docs/ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry.
+     A *database* schema/migration/backfill fix (not the generated Zod schemas
+     under lib/api-zod / lib/api-spec, which are a Q1 Tier B trigger) is always
+     Tier C: out of bugfix mode's fast path, but a genuinely trivial one may run
+     migration ceremony directly with David's go-ahead. It still has a bug
+     behind it, so its source line names tier C — never `no plan`. See
+     docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode. -->
 
-     BUGFIX MODE, TIER C, TRIVIAL DATABASE SCHEMA FIX — a *database* schema/
-     migration/backfill fix (not the generated Zod schemas under
-     lib/api-zod/lib/api-spec, which are a Q1 Tier B trigger, not this one) is
-     always Tier C (out of bugfix mode's fast path), but a genuinely trivial
-     one is allowed to run migration ceremony directly, with David's go-ahead,
-     instead of a full plan (see
-     docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode).
-     It still has a bug behind it, so it isn't "n/a — no plan" — fill the Tier C
-     block instead; delete the feature and A/B blocks. A NON-trivial database
-     schema change gets a full plan and uses the FEATURE MODE block above, not
-     this one.
-
-     Only a genuinely trivial change with no plan and no bug behind it (a typo,
-     a comment) writes "n/a — no plan" and deletes all three blocks. -->
+Oracle source: <!-- see PART 1 above -->
 
 <!-- Feature mode -->
-**Approved-plan source:**
 **Direction:** <!-- the direction this plan cited, linked, if any — carries the
      product decisions constraining every increment beneath it. A plan whose
      Product Intent is deliberately narrower than the direction (see
@@ -71,28 +78,21 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
 **Must not change:**
 **Settled decisions:**
 
-<!-- Bugfix mode, Tier A/B -->
-**Fix tier:** <!-- A or B, PLUS the reason either way — for B, the specific Q1/Q2
+<!-- Bugfix mode -->
+**Tier rationale:** <!-- why this tier, either way — for B, the specific Q1/Q2
      trigger that fired; for A, the triggers you actually checked and ruled out
-     (not just "A (contained)" with no reasoning — A is the classification a
-     reviewer most needs to be able to challenge). See
+     (not just "contained" with no reasoning — A is the classification a
+     reviewer most needs to be able to challenge); for C, why it is trivial
+     enough to skip a full plan, and how/when David gave the go-ahead. See
      docs/ai-context/working-modes.md#the-tier-is-chosen-after-diagnosis-never-at-intake. -->
 **Reported symptom:** <!-- David's report, quoted verbatim -->
 **Intended correct behavior:**
 **Must not change:** <!-- adjacent behaviors sharing this code path -->
 **Root cause:** <!-- the mechanism, not the instance -->
 **Blast radius:** <!-- what else calls this / shares this path, and what you checked -->
-
-<!-- Bugfix mode, Tier C trivial schema fix -->
-**Fix tier:** C — trivial schema/migration fix, no plan
-**Reported symptom:** <!-- David's report, quoted verbatim -->
-**Root cause:** <!-- the mechanism, not the instance -->
-**Why this is trivial:** <!-- single-step, no data transformation, no behavior
-     change — the specific reason it doesn't need a full plan -->
-**David's go-ahead:** <!-- how/when confirmed, since this ran without a written plan -->
-**Migration ceremony checklist:** <!-- idempotency, observable counts,
-     human-edited-row preservation, rollback for destructive ops — see
-     docs/engineering/migrations-and-backfills.md -->
+**Migration ceremony checklist:** <!-- Tier C schema fixes only: idempotency,
+     observable counts, human-edited-row preservation, rollback for destructive
+     ops — see docs/engineering/migrations-and-backfills.md -->
 
 ## Verification
 

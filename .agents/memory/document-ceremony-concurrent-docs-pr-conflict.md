@@ -3,6 +3,8 @@ name: A /document harvest branch can hit a real merge conflict against another c
 description: Restarting a /document ceremony's branch fresh off origin/main only fixes staleness — if another PR merged in the meantime and touched the same shared docs files, popping stashed edits produces genuine content conflicts, not just a rebase formality.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 ## Rule
 The `/document` ceremony's default placement rule
 ([`documentation-workflow.md`](../../docs/ai-context/documentation-workflow.md#step-5--report--commit))

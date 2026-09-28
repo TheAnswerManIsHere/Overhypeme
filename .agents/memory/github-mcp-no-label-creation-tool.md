@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # No GitHub label-creation tool in this environment's MCP surface
 
 The GitHub MCP server available here (Claude Code on the web) has `get_label`

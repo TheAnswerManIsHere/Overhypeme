@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # A brand-new workflow can't be `workflow_dispatch`-triggered until it exists on the default branch
 
 **What happened:** while building the workstream-board sync (PR #318), I

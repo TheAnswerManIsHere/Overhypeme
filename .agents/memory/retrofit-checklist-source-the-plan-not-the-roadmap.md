@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Retrofitting durable, mechanically-read state: source the plan, not the roadmap summary
 
 `current-roadmap.md` is deliberately a *short, current* summary — its own

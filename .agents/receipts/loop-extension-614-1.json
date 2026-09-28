@@ -1,0 +1,9 @@
+{
+  "pr": 614,
+  "kind": "david",
+  "grant": 1,
+  "asOf": 3,
+  "authorization": "Option 1",
+  "createdAt": "2026-09-07T20:20:00.000Z",
+  "note": "David's grant, taken without an adjudication because none could be produced: the record generator refuses a head no reviewer has seen, and the two commits that enabled it to run at all (naming this repository to its own machinery, and re-declaring the budget in the current format) moved the head past round 3's reviewed commit 1bf1b2a. Reviewing the new head needs a fourth round; the budget has three. He was given that deadlock and three options and chose to grant one round with the two open findings fixed inside it, so a single pass covers the enabling commits and the fixes together. A clean round then ends the loop on a reviewed head with no verdict needed; a round with findings leaves a reviewed head the record can finally be generated on."
+}

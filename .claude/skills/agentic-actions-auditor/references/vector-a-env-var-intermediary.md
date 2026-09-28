@@ -1,3 +1,5 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Vector A: Env Var Intermediary
 
 Attacker data flows from GitHub event context into `env:` blocks, and the AI prompt references those env var names -- the AI agent reads the attacker content from environment variables at runtime. The prompt field contains zero `${{ }}` expressions, making this pattern invisible to tools that only scan for direct expression injection.

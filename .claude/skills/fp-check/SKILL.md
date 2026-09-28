@@ -4,6 +4,8 @@ description: "Systematically verifies suspected security bugs to eliminate false
 allowed-tools: Read Grep Glob LSP Bash Task Write Edit AskUserQuestion TaskCreate TaskUpdate TaskList TaskGet
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # False Positive Check
 
 ## When to Use

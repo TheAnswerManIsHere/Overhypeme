@@ -3,6 +3,8 @@ name: Authenticated Git sync
 description: Shell HTTPS pushes can fail even when Replit's authenticated Git sync works.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 When publishing to a GitHub remote from this workspace, prefer the authenticated Git sync integration over a direct shell `git push` if HTTPS credentials are rejected.
 
 **Why:** The repository remote uses GitHub HTTPS, and the shell environment may not have a usable GitHub username/token even though the workspace's connected GitHub account can push successfully.

@@ -3,6 +3,8 @@ name: a Replit Agent commit on main is sanctioned policy, not an incident — re
 description: Why a session escalated a routine David-originated Replit commit as a production and history risk, when both the direct-push path and its retrospective sweep had been settled policy in the repo for weeks.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Escalating a Replit commit that policy already covered
 
 ## What happened
@@ -67,7 +69,7 @@ ref.** Do not reason about production from what is on `main`.
   free: a blocking ask on settled policy spends David's attention and asks him
   to re-litigate his own decision. Checking the doc first costs one `Read`.
 
-## Overhype specifics
+## Where the policy lives
 
 The fast lane David settled in this same conversation now lives in
 [`replit-environment.md`](../../docs/ai-context/replit-environment.md) §

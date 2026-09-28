@@ -1,18 +1,26 @@
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Web research — WebFetch and the Firecrawl connector
 
-> Claude Code's web-research tooling. Not a product dependency: Overhype.me has
+> Claude Code's web-research tooling. Not a product dependency: the products have
 > no scraping in any of its own code paths, and this connector must never become
 > one. `CLAUDE.md` keeps the authorization boundaries resident; this file is the
 > usage guide, loaded on demand.
 
 ## Configuration
 
-`.mcp.json` at the repo root declares the hosted server
-(`https://mcp.firecrawl.dev/v2/mcp`) and reads the credential from
-`${FIRECRAWL_API_KEY}`. That variable is set in the **cloud environment settings
-at claude.ai**, which only David can edit — the key is never committed, because
-this repo is public. Cloud sessions load project-scoped MCP servers without an
-approval prompt, so the committed file is sufficient config on its own. There is
+**`.mcp.json` at the repo root is a required consumer file — it is not synced.**
+It declares the hosted server (`https://mcp.firecrawl.dev/v2/mcp`) and reads the
+credential from `${FIRECRAWL_API_KEY}`. It stays consumer-owned because a repo's
+MCP declaration is where its *other* servers are declared too, and overwriting
+it on every sync would delete them. A repo without one has no Firecrawl tools,
+and the fallback below (`WebFetch`) is the whole story there.
+
+That variable is set in the **cloud environment settings at claude.ai**, which
+only David can edit — the key is never committed, and in a public repo it must
+not be. Cloud sessions load project-scoped MCP servers without an approval
+prompt, so a committed `.mcp.json` plus the environment variable is sufficient
+config on its own. There is
 no direct URL for that setting: it lives behind the cloud icon in the row above
 the message box at [claude.ai/code](https://claude.ai/code).
 
@@ -26,6 +34,23 @@ the mitigation is the **choice of credential**, not the storage: keep this a
 and reaches no customer data, no payment path, and no other system. Never put a
 credential with real blast radius (Stripe, OpenAI, the database, GitHub) in this
 env block on the strength of this precedent.
+
+**The same rule, applied to the Codex CLI's ChatGPT sign-in (David,
+2026-09-09).** When Codex CLI runs inside a cloud session — as the in-session
+GPT-6 plan reviewer does — it is signed in **per session, by device code**:
+the session runs `codex login --device-auth`, David opens the printed URL on
+his phone and enters the one-time code, and the token bundle lives in
+`$CODEX_HOME/auth.json` for the life of that container and nowhere else. Never
+store that bundle in the environment block, never hand it through chat or a
+sent file so it can be pasted somewhere durable, and never substitute an API
+key for it on the assumption that it draws on the ChatGPT subscription — no
+API key does; the API is metered separately. OpenAI documents seeding
+`auth.json` onto headless runners, so persistence was available and was
+declined on purpose: the bundle is the whole ChatGPT account, uncapped, and
+the harness classifier refuses to write it out for hand-off, which is the rule
+working. A session that needs the reviewer and finds no sign-in asks for the
+thirty-second phone step as a 🛑 with a push notification; it does not look
+for a stored copy.
 
 **A missing key degrades, it does not break.** Claude Code still loads a
 `.mcp.json` whose variable is unset; it warns and passes the literal

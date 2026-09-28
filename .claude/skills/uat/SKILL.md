@@ -3,6 +3,8 @@ name: uat
 description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, present one step at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT doc — that's `pr-docs`.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # /uat — I run the test session, David does the judging
 
 The UAT doc stopped being something David reads and became the **script I
@@ -363,13 +365,18 @@ Then, in one edit:
   there.** An accepted UAT is the last David-gate; what remains of close-out
   is mine (the harvest-notes comment for a product feature, any outstanding
   item the State of Play lists). Do what remains, and when nothing is left,
-  set `stage:done` and close the issue. Only when a real close-out item
+  set `stage:done` and close the issue as completed, with a comment naming
+  the PR(s) — the shared rule is
+  [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#closing-an-issue)'s
+  *Closing an issue*. Only when a real close-out item
   genuinely can't be finished now does the workstream sit at
   `stage:close-out`, with that item named in the State of Play.
 - **If this workstream is a phase sub-issue and the verdict reached
   close-out, do the parent edits too** — tick this phase's line in the
-  parent's Phases checklist, re-point the parent's `waiting:`, and move the
-  parent to `stage:close-out` if this was the last phase. `pr-watch`
+  parent's Phases checklist, re-point the parent's `waiting:`, and if this
+  was the last phase, move the parent to `stage:close-out` and close it out
+  in the same pass under the same shared rule (its own State of Play items,
+  `stage:done`, closed naming the phase PRs, or held with a named item). `pr-watch`
   normally owns those edits at the moment a phase reaches `stage:close-out`,
   but it finished when the PR merged and nothing wakes it again — so if I
   skip them, nothing performs them and `/next` keeps treating a finished

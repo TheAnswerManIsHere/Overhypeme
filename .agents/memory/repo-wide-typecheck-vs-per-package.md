@@ -3,6 +3,8 @@ name: Per-package tsc -b can pass while the repo-wide `pnpm typecheck` fails
 description: A new cross-package workspace import needs the consuming package's tsconfig.json project reference updated, or `tsc -b`'s stricter resolution fails elsewhere in the repo than the package you were checking.
 ---
 
+<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+
 # Checking one package's `tsc -b` doesn't catch a missing project reference in another
 
 `tsc -b` (TypeScript's project-reference build mode) resolves a workspace
