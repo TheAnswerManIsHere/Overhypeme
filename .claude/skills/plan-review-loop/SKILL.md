@@ -373,7 +373,8 @@ before the loop starts, not mid-exchange:
 2. `$CODEX_BIN login --device-auth </dev/null`, detached — the poller must stay
    alive to collect the token when David approves.
 3. Hand David the URL and code as a 🛑 with a push notification, **in the same
-   turn**: the code expires in about 15 minutes.
+   turn**: the code expires in about 15 minutes. The code goes in its own
+   fenced code block so he can copy it with one tap (`claude-core.md`, *Astra*).
 
 The bundle stays in `$CODEX_HOME` for the container's life. It is never written
 to the environment block, never sent through chat, never handed over in a file.
@@ -416,16 +417,11 @@ link.
    A private-path workstream has no public issue — its tracking is the draft
    Project item, and the same trail goes in that item's note.
 
-**Provenance for the implementation PR declares `private-plan`:**
+**The implementation PR's `Oracle source:` line names the plan and its
+digest** (`claude-core.md` Pull requests rule 4):
 
 ````markdown
-```plan-provenance
-kind: private-plan
-plan_filename: PLAN_<SLUG>.md
-plan_sha256: <the 64-char digest>
-approved_by: David
-approved_on: <YYYY-MM-DD>
-```
+Oracle source: PLAN_<SLUG>.md, sha256 <the 64-char digest>, approved by David <YYYY-MM-DD>
 ````
 
 **Take the digest from the plan file as it stands at the moment David approves
@@ -433,37 +429,21 @@ it** — `sha256sum docs/plans/PLAN_<SLUG>.md` — and never by copying an
 exchange's `planSha256`. Those were the same thing under the old loop, which
 forced another round after every revision. They are not the same now: agreed
 edits reach David without another assessment, so the last exchange's digest can
-predate the plan he approved, and nothing would catch it — `plan_sha256` is
-validated as sixty-four hexadecimal characters and compared to no bytes
-anywhere. A wrong digest is worse than none, because the block claims to pin
-what he approved. (Codex and both assessors, #124 round 1.)
+predate the plan he approved, and nothing would catch it — nothing parses the
+line, and no reviewer holds the plan's bytes to recompute it. A wrong digest is
+worse than none, because the line claims to pin what he approved. (Codex and
+both assessors, #124 round 1.)
 
 An exchange's `planSha256` still identifies what *that exchange* assessed, which
-is a different and still useful fact. Keys and grammars:
-[`plan-provenance.md`](../../../docs/ai-context/plan-provenance.md).
+is a different and still useful fact.
 
-**What that block does and does not establish.** The block's job is to record,
-in a fixed shape, that a plan was approved and by whom — so a plan-backed PR
-cannot silently claim an approval it never names. **Nothing reads it at
-runtime.** `planProvenanceDeclaration` has no caller outside its own tests;
-what checks the block is the reviewer, by eye, which
-[`code-review.md`](../../../docs/engineering/code-review.md) already assigns —
-a missing, malformed or key-short block is a finding. So the block does not
-establish that David approved, and no machinery refuses one that omits the
-approver or the date.
-
-This paragraph claimed the opposite until #124 round 9 (`4049773976`): that the
-parser "refuses" such a block "when the PR opens". It runs nowhere, and two
-other documents already said so —
-[`plan-provenance.md`](../../../docs/ai-context/plan-provenance.md) ("Nothing
-reads a PR body's block at runtime now") and `code-review.md`, which records
-that the runtime reader went in the #89 cut. **A protection described but not
-built is worse than an absent one**, because the author relies on it. Both
-assessors advised correcting the description rather than building the check:
-rebuilding that reader to make a sentence true would restore machinery the cut
-removed, for a block whose only consumer reads it by eye. The real boundary is
-item 3 above, and it is stronger stated plainly: an operating instruction, with
-nothing mechanical gating it.
+**What the line does not establish: that David approved.** It records which
+text the PR claims was approved, so a plan-backed PR cannot silently claim an
+approval it never names; nothing checks it but a reviewer reading it. The real
+boundary is item 3 above — an operating instruction, with nothing mechanical
+gating it. (A fenced `plan-provenance` block and its parser stood here until
+2026-09-25, when both were retired, #103; the block never gated approval
+either, which #124 round 9 had already had to correct.)
 
 ## The workstream issue
 

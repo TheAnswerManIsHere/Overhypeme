@@ -42,62 +42,28 @@ stated intent while violating its direction is exactly the "internally sound,
 quietly wrong" shape this oracle exists to catch. Missing Direction on a PR
 whose plan cited one is itself a finding.
 
-The oracle's provenance is a **declared `plan-provenance` block**, not a
-sentence — the exact final revision those words came from (plan-review PR +
-final plan commit sha, or the plan filename + content hash on the
-private/manual path), plus the date David approved it, as named keys
-([`plan-provenance.md`](../ai-context/plan-provenance.md)). In a multi-round
-plan review, an oracle pasted from an earlier revision is a plausible failure
-and an invisible one: the PR looks correctly oracled while the code is checked
-against a plan David never approved. Provenance that names only a title or a
-mutable branch is itself a finding — the oracle can't be trusted until it's
-pinned.
+**The body names the oracle's source on one plain line**, `Oracle source:` —
+the approved plan's filename and full sha256 digest, the issue where the scope
+was agreed, the bugfix tier, or `no plan`
+([`claude-core.md` Pull requests rule 4](../../.agents/core/claude-core.md#pull-requests)).
+Nothing parses it. In a multi-round plan review, an oracle pasted from an
+earlier revision is a plausible failure and an invisible one: the PR looks
+correctly oracled while the code is checked against a plan David never
+approved. A source that names only a title or a mutable branch, or a
+non-trivial PR with no source at all, is itself a finding — the oracle can't
+be trusted until it's pinned. When the source is an issue, read it: the scope
+agreed there is the oracle. (Until 2026-09-25 this was a fenced
+`plan-provenance` block with a fixed key set per kind; it was retired, #103.)
 
-**A body with no block is not a finding.** The legacy prose form still
-resolves, deliberately. A prose-selected oracle is the same oracle read a more
-fragile way, not weaker evidence. Reporting its absence would manufacture a
-finding on every PR written before this shipped and force a migration nothing
-asked for.
-
-**NOTHING VALIDATES THE BLOCK BEFORE IT REACHES YOU ANY MORE** (#89 cut,
-2026-09-16). This paragraph used to say the parser refused a malformed block by
-key name, so the only class that could reach you was a well-formed block whose
-values are false. That was true while `review-loop-record.mjs` read every PR
-body to build the adjudicator's record; the cut removed that script and with it
-the only runtime reader. The parser itself survives at
-`core/scripts/plan-provenance.mjs`, but its only caller is a test that compares
-the producer documents against it — **no code reads a PR body.**
-
-So the shape check is yours too, and it is cheap: the block opens with `kind`,
-its key set is exactly what that kind requires, and every key is one the format
-defines. A block that is **present but misspelled, malformed, or missing a key
-its `kind` requires** is now a finding, where before it was refused upstream.
-**"Missing" here means a missing key inside a block that is there** — a body
-carrying no block at all is still not a finding, per the legacy-prose paragraph
-above, and the two are easy to run together. `docs/ai-context/plan-provenance.md` is the
-format's only statement; read the keys from there rather than from memory.
-
-Everything below is unchanged, and is what was always yours: the block checks
-shapes, not truth, so every key's *value* is auditable by you alone.
-Cross-check, as applicable: the sha against the plan-review PR's final commit;
-the PR number, or each number in a split loop; the approval date; and that the
-combined branch is the one carrying that commit. A block can be perfectly
-formed and name the wrong approval, and those keys exist precisely to make the
-approval auditable.
-
-**On the private/manual path, "pinned" is as far as an independent reviewer
-can verify — and that's accepted, not a gap to close.** That path exists
-specifically because the plan must never be committed anywhere (a
-security-sensitive or embargoed plan disclosed by its own review trail would
-defeat the purpose of keeping it private), so no reviewer — Codex or human —
-has access to the bytes the filename + hash claim to identify, and can't
-recompute the hash to check it. A reviewer on this path confirms the field is
-*present and specific* (a real filename, a real hash, a real date — not "n/a"
-or something vague) and stops there; verifying the hash actually matches the
-approved artifact is David's check alone, made when he compares the
-implementation PR's oracle text against the file he personally approved. Don't
-flag an unresolvable-by-you hash as a finding on this path — that's expected,
-not a defect.
+**A plan's digest is as far as an independent reviewer can verify — and
+that's accepted, not a gap to close.** An in-session plan is never committed,
+so no reviewer — Codex or human — has the bytes the filename and digest
+identify, and none can recompute the digest. Confirm it is *present and
+specific* (a real filename, a full 64-character digest — not "n/a" or
+something vague) and stop there; verifying that it matches the approved plan
+is David's check alone, made when he compares the implementation PR's oracle
+text against the plan he approved. Don't flag an unverifiable-by-you digest as
+a finding.
 
 ### The bugfix oracle (a PR with no plan)
 
@@ -110,11 +76,10 @@ over a falsely-ambiguous space*).
 
 So a bugfix PR carries its own oracle in the same body section — see
 [`working-modes.md`](../ai-context/working-modes.md#the-bugfix-oracle-what-the-pr-body-must-carry).
-**The tier letter is not a prose field.** It is `fix_tier` in the body's
-declared block ([`plan-provenance.md`](../ai-context/plan-provenance.md)), and
-a body carrying both that key and a legacy `Fix tier:` line is refused. What
-stays in prose is the **reason** for the letter — **Tier rationale**, required
-for A, B and C alike — because that is the half a reviewer argues with.
+The tier **letter** is named on the body's `Oracle source:` line
+(`claude-core.md` Pull requests rule 4), and the oracle carries the **reason**
+for it — **Tier rationale**, required for A, B and C alike — because that is
+the half a reviewer argues with.
 
 **This field list is for a Tier A/B PR**: **Tier rationale**, **Reported
 symptom** (David's words, verbatim), **Intended correct behavior**, **Must not
@@ -124,8 +89,7 @@ block — **Tier rationale**, symptom, root cause, why it's trivial, David's
 go-ahead, the migration-ceremony checklist — with no *Intended correct
 behavior*, *Must not change*, or *Blast radius* fields; don't flag a correctly
 filled Tier C block as incomplete for lacking Tier A/B fields it was never
-meant to carry, and don't flag a declared body as incomplete for lacking the
-`Fix tier:` line the block replaced. Review the diff against whichever block applies,
+meant to carry. Review the diff against whichever block applies,
 and specifically ask:
 
 - **Is this the root cause or a symptom-level patch?** Does the fix address the
@@ -200,6 +164,12 @@ style nit.
 
 ### Documentation-only PRs get a light review (David, 2026-08-08)
 
+**Most documentation PRs no longer get a Codex review at all.** Since
+2026-09-25 they are the **Documentation class**: one Astra and Fable pass over
+the change, Codex's output not read, one batch, merge ([`working-modes.md`](../ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25), the rule's
+home). What follows is the bar for a docs-only PR that stays in the standard
+loop — one that changes the review loop or an agent's latitude.
+
 When a PR changes only documentation — UAT docs, `docs/ai-context/`,
 `docs/engineering/`, skills, READMEs, the manual — the review bar drops to:
 **is it generally correct, with no glaring issues?** A glaring issue means an
@@ -240,7 +210,9 @@ longer apply.
 **Internal tooling: the depth is lighter, and how long it loops is not this
 file's to say (David, 2026-09-19).** Guards, `scripts/`, skills, agent
 contracts, process docs and documentation harvests are reviewed by the
-automatic pass when the PR opens, and a clean pass ships. Iteration beyond
+automatic pass when the PR opens, and a clean pass ships — except the prose
+among them that is the Documentation class, and anything David declares
+Trivial, which leave this loop ([`working-modes.md`](../ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)). Iteration beyond
 that is bounded by the **two-review limit** in
 [`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19) — review, one
 batch of corrections, review, stop — and every changed head still gets its

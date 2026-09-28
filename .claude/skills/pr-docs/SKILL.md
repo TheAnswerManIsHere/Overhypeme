@@ -116,11 +116,9 @@ one phase of a phased feature (see
   phase. Without it a reviewer can't tell an out-of-scope-for-this-phase
   gap from a silently dropped requirement — and the whole point of the
   oracle is catching a PR that quietly narrowed the approved scope. Cite
-  the parent issue for the plan itself, alongside the body's declared
-  `plan-provenance` block
-  ([`plan-provenance.md`](../../../docs/ai-context/plan-provenance.md)). The
-  scope line is oracle prose, not a selector: the block names the approved
-  revision, and the scope line stays beside it in prose.
+  the parent issue for the plan itself; the body's `Oracle source:` line
+  (`claude-core.md` Pull requests rule 4) names the approved plan and its
+  digest, and the scope line stays beside it in prose.
 
 **Workstream label.** Per
 [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),

@@ -246,19 +246,15 @@ the PR back only delays the review that catches things.
    section with the **bugfix oracle** instead of "n/a — no plan" — **which
    block depends on the tier:**
 
-   **The tier letter is declared; everything else stays prose.** `fix_tier`
-   replaces the old `Fix tier:` line and nothing else — a body carrying both
-   refuses. The reason for the tier is not lost with it: it becomes **`Tier
-   rationale`**, a required field of its own, because a reviewer uses it to
-   challenge a mis-tiering and a bare letter cannot be challenged. The format
-   is [`plan-provenance.md`](../../../docs/ai-context/plan-provenance.md).
+   **The tier letter goes on the body's `Oracle source:` line**
+   (`claude-core.md` Pull requests rule 4); everything else stays prose. The
+   reason for the tier is its own required field, **`Tier rationale`**,
+   because a reviewer uses it to challenge a mis-tiering and a bare letter
+   cannot be challenged.
 
    **Tier A/B:**
    ````markdown
-   ```plan-provenance
-   kind: bugfix
-   fix_tier: <A or B>
-   ```
+   Oracle source: bugfix, Tier <A or B>
 
    **Tier rationale:** <the Q1/Q2 triggers checked: which one fired (B), or
      which were ruled out (A) — a bare tier letter isn't enough; A is the
@@ -273,10 +269,7 @@ the PR back only delays the review that catches things.
    **Tier C, trivial schema fix** (David authorized migration ceremony directly
    — a *different* block, not the one above):
    ````markdown
-   ```plan-provenance
-   kind: bugfix
-   fix_tier: C
-   ```
+   Oracle source: bugfix, Tier C
 
    **Tier rationale:** trivial schema/migration fix, no plan
    **Reported symptom:** <David's report, quoted verbatim>

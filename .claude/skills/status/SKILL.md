@@ -1,6 +1,6 @@
 ---
 name: status
-description: Answer "what is THIS session working on, where does it stand, and how does it fit the bigger picture" — scoped to one workstream, not the fleet. Use when David says /status, "where are we", "what's the state of this", or picks this session back up and needs re-orienting. Reports one of five states and offers to fix the workstream issue when its stored tracking is out of date. For the fleet-wide "what needs me across everything", use /status-all instead.
+description: Answer "what is THIS session working on, where does it stand, and how does it fit the bigger picture" — scoped to one workstream, not the fleet. Use when David says /status, "where are we", "what's the state of this", or picks this session back up and needs re-orienting. Reports one of five states and offers to fix the workstream issue when its stored tracking is out of date. For the repo-wide "what needs me across everything", use /status-all instead.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->

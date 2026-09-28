@@ -294,8 +294,13 @@ test("the brief carries the schema, nested field names included", () => {
   for (const key of ["why_it_matters", "does_not_do", "now_trusting", "builder_answered", "could_not_assess", "overbuilt", "took_on_trust"]) {
     assert.ok(b.includes(`"${key}"`), `schema key ${key} missing from the brief`);
   }
-  // The quoted schema is the shipped one, so the two cannot drift.
-  assert.ok(b.includes(JSON.stringify(JSON.parse(fs.readFileSync(schemaPath(), "utf8")), null, 2)));
+  // The quoted schema is the shipped one, so the two cannot drift -- less its
+  // `$comment`, which is the sync header and addressed to a person editing
+  // the file, not to the writer of an answer.
+  const { $comment, ...shipped } = JSON.parse(fs.readFileSync(schemaPath(), "utf8"));
+  assert.match($comment, /^SYNCED FROM AI-Handbook/);
+  assert.ok(b.includes(JSON.stringify(shipped, null, 2)));
+  assert.ok(!b.includes("SYNCED FROM"), "the header does not reach the brief");
 });
 
 test("prior accounts are readAnswer results, quoted whole, on the final round only", () => {

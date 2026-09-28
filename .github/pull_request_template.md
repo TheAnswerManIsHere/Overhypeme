@@ -30,41 +30,23 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
 
      TWO PARTS, and they are different things.
 
-     PART 1 — PROVENANCE, a declared block. Exactly one fenced
-     `plan-provenance` block, whose `kind` selects a fixed key set. The keys,
-     the value grammars, and what the block does NOT replace are in
-     docs/ai-context/plan-provenance.md, which is the format's only statement.
-     An unknown, repeated, missing, forbidden or malformed key refuses naming
-     it, and two blocks refuse as a contradiction. Copy the one that applies,
-     fill it in, and delete the rest of this comment's examples.
+     PART 1 — THE SOURCE, one plain line. Nothing parses it; it points a
+     reviewer at where the oracle was agreed (claude-core.md Pull requests
+     rule 4, and docs/engineering/code-review.md#the-review-oracle-the-pr-body).
+     Write it as the first live line below, replacing the placeholder, with
+     exactly one of:
+       - a planned feature: the approved plan's filename and its full sha256
+         digest (`shasum -a 256` on the exact file approved — an in-session
+         plan is never committed, so the digest is what pins it);
+       - work agreed in conversation: the issue where the scope was agreed;
+       - a bugfix: its tier letter, A, B or C (a Tier C database schema fix
+         names C, and its Tier rationale below says why);
+       - `no plan`, for a genuinely trivial change with no plan and no bug
+         behind it.
+     (Until 2026-09-25 this was a fenced `plan-provenance` block with a fixed
+     key set per kind. It was retired, AI-Handbook #103; do not write one.)
 
-     Feature, planned through the in-session loop — the ordinary case, since
-     that loop never commits or pushes the plan:
-       ```plan-provenance
-       kind: private-plan
-       plan_filename: PLAN_<NAME>.md
-       plan_sha256: <64 lowercase hex — `shasum -a 256` on the exact file approved>
-       approved_by: David
-       approved_on: <YYYY-MM-DD>
-       ```
-
-     Bugfix (any tier). The tier's REASON is a live field below, not a key:
-       ```plan-provenance
-       kind: bugfix
-       fix_tier: <A, B or C>
-       ```
-
-     Genuinely trivial — no plan and no bug behind it (a typo, a comment):
-       ```plan-provenance
-       kind: trivial
-       ```
-
-     `approved-plan` and `approved-plan-split` are still valid declarations and
-     are still correct on the PRs that used them, but they require a
-     plan-review PR, which the in-session loop does not produce. Do not reach
-     for them on new work.
-
-     PART 2 — THE ORACLE PROSE, which the block does not replace. Fill in the
+     PART 2 — THE ORACLE PROSE, which the source line does not replace. Fill in the
      live fields for your mode below and delete the other mode's fields.
 
      FEATURE MODE — paste the approved plan's Product Intent / Must Not Change /
@@ -76,9 +58,10 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
      under lib/api-zod / lib/api-spec, which are a Q1 Tier B trigger) is always
      Tier C: out of bugfix mode's fast path, but a genuinely trivial one may run
      migration ceremony directly with David's go-ahead. It still has a bug
-     behind it, so it declares `kind: bugfix` with `fix_tier: C` — never
-     `trivial`. See
+     behind it, so its source line names tier C — never `no plan`. See
      docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode. -->
+
+Oracle source: <!-- see PART 1 above -->
 
 <!-- Feature mode -->
 **Direction:** <!-- the direction this plan cited, linked, if any — carries the

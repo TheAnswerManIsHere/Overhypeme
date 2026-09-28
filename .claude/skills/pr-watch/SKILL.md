@@ -29,6 +29,29 @@ step 5, stated once, with the duplicated material left out. (The two escape
 valves this sentence also named belonged to the four-line `Class:` / `Worth:` /
 `Oracle:` / `Result:` reply form, which rule 6 retired on 2026-09-17; what
 replaced them is step 5's proportionate-evidence rule.)
+
+**Two classes do not run this loop** (David, 2026-09-25; the rule is in
+`claude-core.md`, *Two classes that leave the loop*). I still subscribe to
+them (step 1), and every Codex thread is still resolved, because the ruleset
+requires it.
+
+- **Trivial**, declared by David alone: no review requested of anyone. Read
+  Codex's automatic pass for a P1 only; a P1 holds the merge and goes to
+  David. Resolve each thread with one line citing his ruling, then merge on
+  green CI.
+- **Documentation**: one pass, `review-proxy.mjs --documentation --round 1`,
+  with the Fable assessor dispatched on the same package (`--prompt-only
+  --source fable`). The range is derived from where the reviewed commit left
+  `main`; nothing is typed. **The oracle file is the decision the prose
+  records, quoted** — David's words, or the issue or merged PR where the rule
+  changed — so a docs sweep needs no new agreement from David, and step 3's
+  🛑 on a missing oracle applies only when no such decision can be quoted.
+  Both assessments are posted verbatim (step 3's mechanics, using its
+  documentation render command). I write one batch, resolve each Codex thread
+  with one line saying the class does not read it, and merge on green CI. No
+  translation, no second pass. The merge report says what the batch changed,
+  in my words.
+
 ## The loop
 
 1. **Subscribe, immediately, on whatever tier the session is on** (David,
@@ -137,10 +160,15 @@ replaced them is step 5's proportionate-evidence rule.)
       # a follow-up — the scope is the subset the follow-up actually addressed
       node "$P" --render --source fable --pr <n> --round <n> --follow-up <k> \
         --commit <reviewed sha> --findings <id,id>
+
+      # a documentation pass — no findings; the header carries the derived range
+      node "$P" --render --source fable --pr <n> --round 1 \
+        --commit <reviewed sha> --documentation
       ```
 
-      **Two commands, and neither flag is optional.** A follow-up never reads
-      `--findings-file`, and an ordinary round never reads `--findings`. This
+      **Three commands, and each one's scope flag is mandatory for it.** A
+      follow-up never reads `--findings-file`, an ordinary round never reads
+      `--findings`, and a documentation pass reads neither. This
       recipe used to show one command with both marked optional, which posted a
       follow-up header naming no findings at all — the script refuses that now,
       but the recipe is what a reader copies (Codex `4051974432`, #131 round 2).
@@ -339,7 +367,22 @@ replaced them is step 5's proportionate-evidence rule.)
      not merge** — the concrete shortfall goes to him with a choice: continue,
      cut the scope, or stop. **None of them and the round's remaining findings
      are recorded gaps and follow-up issues**, and the pull request goes to
-     close-out like any other.
+     close-out like any other. **A follow-up issue is filed with its labels**:
+     `gap`, the workstream's `mode:`, and **`queue:later`, always** — the
+     one label whose definition fits a gap ("revisit rather than schedule";
+     `queue:next` is approved work and `queue:now` would start today), and
+     the triage call is David's, made through `/maintenance` step 9's
+     proposed diff, never applied unattended. If the finding's consequence
+     argues for sooner, that case goes in the body for step 9 to propose;
+     anything establishing consequential harm he has not accepted was
+     already his under the three questions above and never reaches this
+     sentence. An issue with no `queue:` and no `stage:` label is invisible
+     to `/next` and `/status-all` until `/maintenance` finds it (its step 9,
+     item 2), and ten such issues accumulated in eight days before that step
+     existed (#98). The label is in the shared vocabulary
+     ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md));
+     GitHub does not create a label on first use, so a consumer creates
+     `gap` by hand once, like every other label the vocabulary names.
      (Codex, #140 round 3 — this branch escalated *every* second-review
      finding, so a routine round-two nit would have turned each internal pull
      request into a David-gated stop. An enactment that interrupts him more
@@ -765,15 +808,24 @@ silently leaving the workstream unlabeled):
   be a gate with nothing to run against it. "Has product-visible behavior"
   is *not* the test by itself — a Tier A fix can be product-visible and
   still ship no UAT doc, which is what makes checking for the doc the right
-  test, not the behavior. **When that straight-to-close-out case is a
-  product-visible fix that shipped no UAT doc (the Tier A case), the
-  close-out State of Play's *What you need to do* aims David instead of
-  saying "nothing" (David, 2026-08-09):** one line — where in the app to
-  glance next time he's there, and to reopen the workstream if the symptom
-  persists. No gate, no extra stage — David is the acceptance test whether
-  or not a stage tracks it; this just points him. Never `stage:done` at
-  merge — that's David's to set once he's actually verified it, the same
-  reason the Project's built-in `PR merged → Done` workflow is off.
+  test, not the behavior. **The straight-to-close-out case does not stop
+  at close-out** (David, 2026-09-25): with no UAT owed there is nothing
+  left to verify, so in the same pass I finish whatever close-out items
+  remain, set `stage:done`, and close the issue as completed with a comment
+  naming the PR, per
+  [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#closing-an-issue)'s
+  *Closing an issue*. **When it is a product-visible fix that shipped no
+  UAT doc (the Tier A case), the closing comment aims David** (David,
+  2026-08-09, moved from the State of Play): one line — where in the app to
+  glance next time he's there, and to reopen the issue if the symptom
+  persists. Still never `stage:done` at the merge click: the verified sync
+  comes first, the same reason the Project's built-in `PR merged → Done`
+  workflow is off. (This line used to say `stage:done` was David's to set.
+  Nothing ever asked him to, so every workstream with no UAT stayed open
+  for good.)
+- **Any other issue this PR completes** — named with `Closes #N` in the
+  body, so GitHub closes it at merge. If the PR completes an issue whose
+  number the body left out, I close it by hand at close-out, naming the PR.
 
 **If this PR is one phase of a phased feature, every `waiting:` toggle
 updates the parent too — not just close-out.** Per
@@ -811,7 +863,11 @@ checklist**, in the same edit as the phase's own transition:
   `waiting:claude` when the next phase hasn't been opened yet, since an
   unstarted next phase is work owed, not a resting state.
 - **If this was the last phase**, move the parent straight to
-  `stage:close-out`. There is no separate whole-feature UAT gate — every
+  `stage:close-out` and close it out in the same pass, per
+  `workstream-tracking.md`'s *Closing an issue*: finish what its State of
+  Play lists, set `stage:done`, and close it as completed with a comment
+  naming the phase PRs. It holds at close-out only with a named remaining
+  item. There is no separate whole-feature UAT gate — every
   phase already ran its own UAT wherever it was product-visible, per
   `workstream-tracking.md`'s *Phased features* section, so a UAT stage here
   would be a gate with nothing left to run against it.

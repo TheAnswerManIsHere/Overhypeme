@@ -78,7 +78,8 @@ What that sweep *finds* is ordinary work and gets an issue like anything
 else. Read
 [`docs/ai-context/workstream-tracking.md`](../../docs/ai-context/workstream-tracking.md)
 before opening or reviewing a PR — it covers the label conventions and what
-must never happen (e.g. `Closes #N` in a PR body, which would skip UAT).
+must never happen (e.g. `Closes #N` for the PR's own workstream, which would
+skip UAT), and when an issue is closed instead.
 
 When asked to **plan**:
 1. Inspect the repo first.

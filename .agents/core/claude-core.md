@@ -122,7 +122,11 @@ where I put it and treat it as binding.
    turn.** No exceptions, no size threshold, no "he probably saw it." A
    still-unanswered ask re-fires on the next turn. "He's clearly active" is not
    a reason to skip — the tool dedupes, my judgment doesn't. Major completions
-   that hand the turn back also notify; routine progress doesn't.
+   that hand the turn back also notify; routine progress doesn't. **And the
+   ask is the last text of the turn, after every tool call, the notification
+   included** (David, 2026-09-25): text written between tool calls reaches
+   him as a paraphrase, and only the final message arrives verbatim
+   ([`chat-text-between-tool-calls-is-summarised.md`](../../.agents/memory/chat-text-between-tool-calls-is-summarised.md)).
 7. **👀 FYI for non-blocking things he'd want to know.** A rule, then
    `👀 **FYI** — <one-line summary>`, the specifics, a closing rule. Work
    continues; no reply needed. Clears the bar: a security/data-integrity
@@ -274,7 +278,9 @@ surface); `/bugfix` is the explicit override.
   review. **Tier A** ships a regression test, a blast-radius note, and the
   bugfix oracle in the PR body; **Tier B** (sensitive subsystem or structurally
   risky fix) I write myself — not routable to a subagent — and adds a UAT doc
-  if behavior is product-visible; **Tier C** means it isn't a bug fix. Codex
+  if behavior is product-visible; **Tier C** means it isn't a bug fix: it
+  stops and goes to David, and the one path that continues is a trivial
+  database schema fix he green-lights, straight to migration ceremony. Codex
   still reviews every bugfix diff. My enactment: `.claude/skills/bugfix/`.
 
 Both modes: pause and ask on genuine ambiguity (a "bug" that's really a
@@ -383,9 +389,35 @@ never routed to a cheaper subagent. Mechanics: `plan-review-loop` skill.
 **Codex review of PRODUCT code is David's safety net. That is the one thing
 never in question.** Everything below governs what may be layered on top.
 
+### Two classes that leave the loop: Trivial and Documentation (David, 2026-09-25)
+
+The rule and David's reasons live in
+[`working-modes.md`](../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25);
+this is my enactment. Everything else in this section is the **standard**
+loop, and each of its rules below — the write-gate, shared judgement, review
+rule 4's "any changed head gets its review", translation and the close-out bar
+— applies to the standard loop only.
+
+- **Trivial: only David declares it**, in words, for that change; I never
+  assign it, and the PR body quotes him. I request no review of any kind and
+  merge on green CI. Codex's automatic pass is read for one thing: **a P1
+  holds the merge and goes to David**, and I do nothing further until he
+  answers. Each Codex thread is resolved with one line citing his ruling.
+- **Documentation: one Astra and Fable pass, and no Codex.** For prose:
+  contracts, skills, memory notes, docs sweeps, harvests, Manual chapters.
+  `review-proxy.mjs --documentation`, with the oracle being **the decision the
+  prose records, quoted**. One batch, merge on green CI, and the merge report
+  says in my words what the batch changed. Codex's threads are resolved with
+  one line saying the class does not read them. **A trial of five PRs**, then
+  David and I look at whether it caught contradictions without Codex.
+- **Neither covers** a script, a check, CI, a setting, a permission, an agent
+  role's definition, latitude for me, or the review loop itself — unless David
+  declares that specific change Trivial.
+
 ### The write-gate rule (David, 2026-08-22) — every tier
 
-**If code was written, it gets reviewed. The loop stops when the judgement is
+(Trivial and Documentation are outside it, above.) **If code was written, it
+gets reviewed. The loop stops when the judgement is
 that nothing more is worth writing, never after a push.** Stated as the
 sequence: a round returns findings → the judgement is made, *write* or *stop*
 → if write, the fixes are pushed and **another review round is automatic and
@@ -541,7 +573,8 @@ would have been capped at two reviews by the exception written to prevent
 exactly that.) Everything that is genuinely routine and recoverable — which is
 nearly all of it — stays internal:
 
-- **A clean automatic pass is the whole ceremony.** Round 1 fires on PR-open;
+- **A clean automatic pass is the whole ceremony** (standard loop; Trivial and
+  Documentation are outside it, above). Round 1 fires on PR-open;
   finding nothing, there is nothing to assess and no receipt to write —
   nothing was written, so the head is already reviewed.
 - **Every finding is judged on what it is worth, and the tier says what is
@@ -600,7 +633,10 @@ The loop:
 
 - **The oracle is agreed with David before the first round runs.** The script
   refuses to compose a package without one, which is what makes the agreement
-  happen up front. **My PR body is my own prose and is never the oracle.**
+  happen up front. **The assessors take it from where it was agreed — the
+  plan, the issue, David's words — never from my PR body.** The body carries
+  a verbatim copy for Codex (Pull requests rule 3), but a copy I wrote is my
+  prose, and a slip in it would reach both assessors unchecked.
 - **What happens next is what I state, in a `review-action` block.** Nothing
   parses an assessment, so no phrase in one can authorise work.
 - **A failed dispatch is not permission to proceed on one assessment alone.**
@@ -664,7 +700,9 @@ in the file that every session loads.
    never be reviewed and never merge, or had to acquire an unnecessary change
    to buy the round — #125's two-sentence fix waited a week on exactly that.
    **Any changed head gets its review**, documentation-only changes and
-   base-branch merges included; what is refused is asking again on a head
+   base-branch merges included — in the standard loop; a Trivial change gets
+   none and a Documentation batch merges unreviewed, by design (*Two classes
+   that leave the loop*, above). What is refused is asking again on a head
    already reviewed as it stands, to get a different answer. The mechanical
    round needs no exception now, because it was never the anomaly — the old
    rule was. (Astra, 2026-09-19.) **Every review request carries pre-registered flip
@@ -732,7 +770,7 @@ reading has caught things — on #131 both of the translator's real
 disagreements came on rounds carrying a decline, and one was a defect no
 assessor had found. A round where I wrote for every finding has less to catch
 and costs the same, and four translations on #131 were the single largest
-token line in the loop. **The last round before a merge is always translated**,
+token line in the loop. **In the standard loop, the last round before a merge is always translated**,
 whatever its shape, so nothing merges unaccounted. The translation reads the
 round itself — findings, my replies, the diff — not my account of it, and
 comes **after** the trigger is posted, never before: a translation I could act
@@ -793,19 +831,20 @@ design. Mechanics:
    must not change, root cause, blast radius. "n/a — no plan" only for a
    genuinely trivial change. Verbatim carries a guarded string in its defanged
    form (interaction rule 11).
-4. **Approved-plan provenance is a declared block, not a sentence.** The body
-   carries one fenced `plan-provenance` block whose `kind` selects a fixed key
-   set — `approved-plan`, `approved-plan-split`, `private-plan`, `bugfix`,
-   `trivial` or `plan-review`. No optional keys: an unknown, repeated,
-   missing, forbidden or malformed one refuses naming it, and two blocks
-   refuse as a contradiction. The keys, the grammars, and what the block does
-   *not* replace are in
-   [`plan-provenance.md`](../../docs/ai-context/plan-provenance.md), which is
-   the format's only statement — never restate it here. The block replaces the
-   legacy selector for its kind and a body carrying both refuses; the oracle
-   prose a reviewer reads is untouched. A plan approved through the in-session
-   loop was never committed, so it declares `private-plan` — `approved-plan`
-   requires a review PR that this loop does not produce.
+4. **The body says in one plain line what the code is judged against.**
+   `Oracle source:` then one of: the approved plan's filename and full sha256
+   digest (an in-session plan is never committed, so the digest is what pins
+   the text David approved); the issue where the scope was agreed in
+   conversation; the bugfix tier (A, B or C — a Tier C schema fix names `C`);
+   or `no plan`, for the "n/a — no plan" change rule 3 allows. (It read
+   `trivial` until 2026-09-25, when Trivial became a review class David alone
+   declares; one word meaning two things is how a label starts granting what it
+   only described.) Nothing parses it — it points
+   a reviewer at the oracle, and rule 3 is what carries it. (David,
+   2026-09-25, #103: the fenced `plan-provenance` block, its parser and its
+   format document are retired. Nothing had read the block at runtime since
+   the #89 cut, and its fixed grammar forced a false declaration on work
+   agreed in conversation with no plan file, #110.)
 5. **Post-merge verification + UAT doc** for product-visible feature PRs, per
    the `pr-docs` skill and
    [`test-run-contract.md`](../../docs/tests/test-run-contract.md). The PR is not done
@@ -829,7 +868,11 @@ can click. Production is a separate, explicitly-asked `publish_app`.
 **The bar: CI green + Codex review returned for the head commit + every thread
 resolved + the translations that were owed delivered** (every decline round,
 plus the last round before the merge). That is the whole bar, for
-product and internal PRs alike. CI and Codex catch *broken*; David's UAT
+product and internal PRs alike — except the two classes that leave the loop
+(*Review loops*, above): a **Trivial** PR merges on green CI and resolved
+threads unless Codex's automatic pass posts a P1, and a **Documentation** PR
+on green CI, resolved threads and its one assessed batch, with no Codex review
+and no translation owed. CI and Codex catch *broken*; David's UAT
 catches *wrong*, after the sync.
 
 **No receipt proves any of the four now** — `pr-ready.mjs` went with the #89
@@ -838,7 +881,9 @@ GitHub UI and checked the bar by eye). All four are reads I do. The one item
 GitHub itself enforces is *every thread resolved*: the `main` ruleset requires
 conversation resolution, so the Merge button is inert while a thread is open.
 
-- **Every PR gets a Codex review and none merges before it returns.** A round I
+- **Every PR in the standard loop gets a Codex review and none merges before
+  it returns** (Trivial waits only for the automatic pass, to catch a P1;
+  Documentation waits for none). A round I
   requested but haven't received is not convergence. A pass on a commit I have
   since pushed past has not reviewed the diff that would merge. What counts as
   the review returning is the `**Reviewed commit:**` announcement — or, on a
@@ -1247,7 +1292,10 @@ afterwards.
   it as `$CODEX_BIN` throughout. `$CODEX_BIN login status` decides. Not
   signed in means `$CODEX_BIN login --device-auth </dev/null`, detached;
   then the URL and code to David as a 🛑 with a push notification **in the
-  same turn**, since the code expires in about fifteen minutes. The bundle lives in `$CODEX_HOME` for the container's
+  same turn**, since the code expires in about fifteen minutes. **The code
+  goes in a fenced code block of its own**, nothing else inside it, so he can
+  copy it with one tap; highlighting it in chat is hard on a phone (David,
+  2026-09-25). The bundle lives in `$CODEX_HOME` for the container's
   life and is never stored, sent or written anywhere else
   ([`web-research.md`](../../docs/ai-context/web-research.md)). No sign-in
   means the Astra review is reported as not run — never replaced by my

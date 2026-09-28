@@ -403,7 +403,9 @@ export function roundBrief({
     "The file must be one JSON object satisfying this schema exactly — these field names, no others, nested as shown. It is quoted here because you hold no tool that can open the schema file.",
     "",
     "```json",
-    JSON.stringify(loadSchema(), null, 2),
+    // Without the `$comment`: it is the sync header, addressed to a person
+    // editing the file, and means nothing to a translator shaping an answer.
+    JSON.stringify((({ $comment, ...shape }) => shape)(loadSchema()), null, 2),
     "```",
     "",
     "Write the JSON object to that path and nothing else to it.",
