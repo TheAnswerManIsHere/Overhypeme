@@ -191,6 +191,15 @@ jobs:
       - name: Check CI path classifier logic
         run: node --test scripts/__tests__/classify-ci-paths.test.mjs
 
+      # A script that decides "was I run directly?" with a hand-built
+      # `file://` string never runs main() in a checkout whose path needs
+      # escaping (a space, a `#`), and exits 0 -- a check reporting success
+      # having checked nothing. This test refuses that form in every script
+      # here, Overhype's own included (#619). Named, not globbed: this job is
+      # on Node 20, where `node --test` does not expand a glob.
+      - name: Check script entry points
+        run: node --test scripts/__tests__/entry-point-comparison.test.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

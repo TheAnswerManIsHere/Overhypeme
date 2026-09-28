@@ -41,14 +41,15 @@
  * check against the PR's own changed_files total.
  */
 
+import { pathToFileURL } from "node:url";
+
 /**
  * True if this one file cannot affect the outcome of the heavy jobs.
  * "Cannot affect" is judged against what Test / Frontend Test / E2E Smoke
  * actually execute (artifacts/**, lib/**, package configs, lockfile — via
  * pnpm install + the suites), NOT against whether the file matters to CI at
- * all: .claude/guard.sh, the ledger, and the docs are all exercised by the
- * always-on Build job, so they can change freely without re-running the
- * suites that never read them.
+ * all: the scripts and docs the always-on Build job exercises can change
+ * freely without re-running the suites that never read them.
  *
  * Deliberately NOT inert, even though some individual files would be safe:
  *   - `.github/**` — workflow edits define the jobs themselves, and carving
@@ -105,7 +106,7 @@ async function main() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     // Any failure inside the classifier itself must land on the safe side:
     // emit run-heavy=true so the workflow runs everything, then exit 0 so
