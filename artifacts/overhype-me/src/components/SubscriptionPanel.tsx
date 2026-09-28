@@ -421,10 +421,17 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   // The `|| isLifetime` is a defensive fallback in case the tier hasn't synced yet.
   const isLegendary = membershipTier === "legendary" || isLifetime;
 
-  const periodEnd = sub?.current_period_end
-    ? new Date(sub.current_period_end * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
-    : appSub?.currentPeriodEnd
+  // App DB first, mirror second -- the same precedence as `cancelAtPeriodEnd`
+  // and `planInterval` below. The entitlement refresh writes `currentPeriodEnd`
+  // in the same live-Stripe retrieval that writes `plan`, so right after a
+  // monthly -> annual switch it already holds the annual renewal date while the
+  // mirror still carries the monthly one. Mirror-first here left the card
+  // reading "Annual" above next month's date. The mirror still answers when the
+  // app DB has no date.
+  const periodEnd = appSub?.currentPeriodEnd
     ? new Date(appSub.currentPeriodEnd).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    : sub?.current_period_end
+    ? new Date(sub.current_period_end * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
     : null;
 
   // Prefer the app DB (appSub.cancelAtPeriodEnd) over the Stripe sync table

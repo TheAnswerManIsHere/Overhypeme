@@ -263,6 +263,26 @@ describe("SubscriptionPanel after a plan switch the mirror has not caught up to"
     expect(screen.queryByRole("button", { name: /Switch to Annual/i })).toBeNull();
   });
 
+  it("shows the annual renewal date from the app DB, not the mirror's monthly one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: MIRRORED_MONTHLY_SUB,
+        appSubscription: ANNUAL_APP_SUB,
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByRole("button", { name: /Cancel Subscription/i });
+    // App DB: 2027-08-29 (a year out). Mirror: 2026-09-29 (the old monthly
+    // period). "Annual" above next month's date is the #602 round-1 defect.
+    expect(screen.getByText(/August 2\d, 2027/)).toBeTruthy();
+    expect(screen.queryByText(/September 2\d, 2026/)).toBeNull();
+  });
+
   it("suppresses the charged amount rather than showing the pre-switch price", async () => {
     vi.stubGlobal(
       "fetch",
