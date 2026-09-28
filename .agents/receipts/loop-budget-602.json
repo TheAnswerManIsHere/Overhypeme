@@ -1,0 +1,8 @@
+{
+  "pr": 602,
+  "tier": "sensitive",
+  "budget": 5,
+  "criticality": 55,
+  "artifact": "SubscriptionPanel billing-cycle derivation (payments surface) + regression tests, and the PR602 UAT script",
+  "declaredAt": "2026-08-29T05:23:21.671Z"
+}
