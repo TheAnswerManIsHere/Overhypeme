@@ -333,11 +333,15 @@ prefixes:
 
 One label sits outside the three prefixes: **`gap`** marks a follow-up
 issue filed from a review round for an imperfection accepted rather than
-fixed — recorded to *revisit*, never a promise of future work. It carries
-`queue:later` and a `mode:` like any backlog item and no `stage:`, since it
-is not a workstream; `/maintenance` step 9 re-asks now/next/never of every
-open `gap` issue by label (#98). Like every label here, GitHub does not
-create it on first use — a consumer creates it by hand once.
+fixed — recorded to *revisit*, never a promise of future work. It is
+filed with a `mode:` and **no `queue:`**, and never a `stage:`, since it
+is not a workstream. **A gap with no `queue:` label is untriaged, and
+untriaged gaps are invisible to `/next` by design** (David, 2026-09-28):
+`/next` recommends only issues carrying a `queue:` or `stage:` label.
+`/maintenance` step 9 asks now/next/never of every open `gap` issue by
+label (#98); its answer is what gives a gap a `queue:` label, or closes it.
+Like every label here, GitHub does not create it on first use — a
+consumer creates it by hand once.
 
 Two labels sharing a prefix (e.g. two `stage:` labels on one issue) is a
 real data error, not a style nit — the sync script throws rather than
@@ -355,7 +359,7 @@ work it's already doing — not as a separate reminder to go check the board:
 | --- | --- |
 | `plan-review-loop` | `waiting:claude` for the whole loop — a planning exchange is a local process the builder waits on, so there is no `waiting:codex` state; `stage:plan-approval` + `waiting:david` at the approval ask |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
-| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch. A workstream reaching `stage:close-out` this way (no UAT owed) goes on to `stage:done` and is closed in the same pass (*Closing an issue*, below). Also the labels on a follow-up issue it files from a review round: `gap`, the workstream's `mode:`, `queue:later` (#98) |
+| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch. A workstream reaching `stage:close-out` this way (no UAT owed) goes on to `stage:done` and is closed in the same pass (*Closing an issue*, below). Also the labels on a follow-up issue it files from a review round: `gap` and the workstream's `mode:`, with no `queue:` until `/maintenance` triages it (#98; David, 2026-09-28) |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
 | `/uat` | The exit from `stage:uat` — the one stage no agent could previously move, since only David could run it. `Accepted` and `Accepted with issues` both reach `stage:close-out` (his acceptance is what converts that run's bugs from blockers into independently-tracked work); a `Blocked` run holds at `stage:uat`. `waiting:claude` either way — the next real action is a fix or a close-out, not something David can click. An accepted run drives close-out through to `stage:done` and closes the issue. Also owns the `Blocked by:` + failed-step record at the moment a run finds a bug, executing `bugfix`'s intake contract earlier, while the context is still in front of it — but **not** the `waiting:` flip, which waits until the run actually stops, since a run David chooses to continue is still David-held |
 | `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |

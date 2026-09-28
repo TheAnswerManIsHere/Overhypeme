@@ -359,17 +359,21 @@ approve or amend, never an open-ended "is the backlog still right?"
    *not part of this system*, so until it is labelled it is invisible to
    every tool that decides what gets worked on. Measured on 2026-09-25: ten
    issues filed over the preceding eight days carried no labels at all. The
-   `gap` issues are in the set **by label, not by lack of one**: `pr-watch`
-   files every gap already carrying `queue:later`, so a set defined as
-   "unlabelled" would hold no gaps, and the revisit David asked for would
-   never be asked by name. For each, read the body and check the checkout
+   `gap` issues are in the set **by label, not by lack of one**: a gap
+   that has been triaged carries a `queue:` label, so a set defined as
+   "unlabelled" would miss it, and the revisit David asked for would never
+   be asked of it by name. **A gap with no `queue:` label has never been
+   triaged**: `pr-watch` files every gap without one so that `/next`
+   cannot recommend it before David has decided (David, 2026-09-28), and
+   this step is where it gets one. For each, read the body and check the checkout
    for whether it is already addressed, then propose one of: **now**
    (`queue:now`), **next** (`queue:next`), **later** (`queue:later`), or
    **never** (close as *not planned*, with the reason and what would reopen
    it); a `mode:` label rides along, and a gap already done is closed as
-   *completed* naming the PR. The proposed diff carries a line only where
-   the call would change — a gap that stays `queue:later` costs a read, not
-   a line — and a gap whose body argues for a bump is where that argument
+   *completed* naming the PR. The proposed diff carries a line for every
+   untriaged gap, and otherwise only where the call would change — a
+   triaged gap that stays `queue:later` costs a read, not a line — and a
+   gap whose body argues for a bump is where that argument
    is finally weighed. A recorded gap is a thing to *revisit*, never a
    promise of future work — the triage is where that decision gets made,
    and this step is the only place it recurs. The evidence-gathering (read,
