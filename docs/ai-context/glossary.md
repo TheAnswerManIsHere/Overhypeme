@@ -353,6 +353,19 @@ publishes the fact) or sends it back to the Visual Concept step. A
 re-approval always renders **fresh** — no prior batch is ever reused.
 → [visual-pipeline](./visual-pipeline.md)
 
+### Hero render
+
+A fact's moderation-approved renders, published as the fact's own image assets
+and offered to free users as the base of their memes (launch definition, *What
+ships → Image memes*). Decided 2026-10-06 as a **hard gate on going live**: a
+fact cannot be active without approved hero renders, and there is no
+"no-hero fallback". **Not a [render scenario](#render-scenario) in the code
+today** — which scenarios' renders become a fact's heroes, and the approval
+minimum, are #628 Phase 7's decisions. Distinct from the two existing uses of
+"hero": the home-page billboard fact (`GET /api/facts/hero`) and the meme
+builder's example media (`hero_examples`).
+→ [launch-definition](./launch-definition.md)
+
 ### Visual gag
 
 How the joke works *as a picture* — what a moderator is approving when they
@@ -364,11 +377,13 @@ no test render has run yet at the moment of the decision.
 ### Waiver
 
 An auditable record that a moderator approved despite missing or stale test
-renders. For every render scenario except the hero, test renders are review
-*aids*, not hard gates — so approving anyway is allowed, but it is recorded
-rather than silently skipped. **The hero scenario is a hard gate** (David,
-2026-10-06): a fact cannot go live without approved hero images, and no
-waiver covers it. See [launch-definition](./launch-definition.md).
+renders. Today every required render scenario is waivable: test renders are
+review *aids*, not hard gates, so approving anyway is allowed but recorded
+rather than silently skipped. **Decided, not yet shipped:** a fact's
+[hero renders](#hero-render) become a hard gate on going live (David,
+2026-10-06) when the launch programme's image phase (#628 Phase 7) lands the
+publication model; the waiver will not cover them. See
+[launch-definition](./launch-definition.md).
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Send back to review

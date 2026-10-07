@@ -285,14 +285,16 @@ or by anyone downstream, as if it did.
   the gag *before* spending on images.
 - **No render history.** A bounce discards the old batch and renders fresh; there
   is no "compare to the previous render" view.
-- **Approved hero images are a hard gate; other test renders are review aids.**
-  A fact cannot go live without confirmed, approved hero renders — there is no
-  "no-hero fallback" (decided 2026-10-06; see the
-  [launch definition](../ai-context/launch-definition.md)). For every other
-  render scenario a moderator can approve despite
-  missing/[stale renders](../ai-context/glossary.md#stale-render), which
-  records an [auditable waiver](../ai-context/glossary.md#waiver) — not a
-  silent skip. ([Stock images](../ai-context/glossary.md#stock-image) were a
+- **Test renders are review aids, not hard gates — today.** A moderator can
+  approve despite missing/[stale renders](../ai-context/glossary.md#stale-render),
+  which records an [auditable waiver](../ai-context/glossary.md#waiver) — not
+  a silent skip. **Decided for launch, not yet built:** a fact's
+  [hero renders](../ai-context/glossary.md#hero-render) will be a hard gate —
+  a fact will not go live without confirmed, approved hero renders, and there
+  is no "no-hero fallback" (decided 2026-10-06; see the
+  [launch definition](../ai-context/launch-definition.md)). Until the launch
+  programme's image phase ships that gate, approval works as the first
+  sentence says. ([Stock images](../ai-context/glossary.md#stock-image) were a
   further review aid; Pexels is removed in the launch programme's cut phase.)
 - **Visual ideas can fail or be absent.** Generation is a real AI call; a failed
   or never-generated state blocks gag approval with a clear "regenerate" action

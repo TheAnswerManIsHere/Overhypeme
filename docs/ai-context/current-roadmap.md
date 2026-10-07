@@ -21,8 +21,9 @@ security hardening; analytics and ops; UX polish; then Seed → Soft launch →
 Full launch US → Full launch Global). Each phase is a sub-issue of #628 with
 its own plan, PR(s) and UAT; the parent's Phases checklist is the live
 state. A factory freeze holds during launch work, with one exception:
-handbook work a launch phase needs and a second app would need identically.
-See [`product-direction.md`](./product-direction.md).
+handbook work a launch phase needs and a second app would need identically;
+`/maintenance` continues through the freeze. See
+[`product-direction.md`](./product-direction.md).
 
 ## Recently merged or completed work
 

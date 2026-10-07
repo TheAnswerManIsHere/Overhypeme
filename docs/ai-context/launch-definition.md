@@ -68,7 +68,8 @@ supported because growth is what will make the site valuable"*); working Open
 Graph previews for meme pages (#592) and fact pages; public creator pages;
 reactions (🔥 😂 ❤️ 🤯, one per person per item) with a time-decayed "heat"
 driving Trending and the hero pick, while the Wilson score on thumbs stays the
-all-time ranking; "load more" on the feed if launching with more than ~50
+all-time ranking (the heat weighting is David's sign-off in the loop phase's
+decision batch, #628 Phase 6 — not yet decided); "load more" on the feed if launching with more than ~50
 facts; search, with the user's own search history shown on the search screen;
 the leaderboard all-time only, dead pills removed.
 
@@ -99,15 +100,18 @@ face in the scene**. Photo upload accepts PNG and HEIC; caption and split
 caption; speech bubbles **finished** on the moderation side; style presets
 reviewed against the winning engine; private memes read from the entitlement
 grid (#395 fixed); hearts respect visibility (#375 fixed); only a user's own
-uploads or creations are offered to them; anonymous visitors preview only, and
+uploads or creations are offered to them as personal media, alongside the
+fact's shared, approved hero renders (generic, no faces by construction — the
+inventory's D9 boundary); anonymous visitors preview only, and
 download, save and share need a verified account; budget-reached states.
 
 **Membership (monthly only at launch; no existing purchases to honour):**
 Legendary = face-in-scene AI memes, private memes, custom avatar, the branded
 watermark removed (free downloads carry one), a monthly face-render allowance
-with a visible meter, multiple saved reference photos, early access (the beta
-overlay, on). Ad-free and priority rendering are grid rows with nothing to
-gate yet. **The entitlement grid is the definition.** Checkout, confirm,
+with a visible meter, multiple saved reference photos. Early access, ad-free
+and priority rendering are grid rows with nothing to gate yet; the beta
+opt-in overlay that would give "early access" something to show is
+post-launch (see the cut list). **The entitlement grid is the definition.** Checkout, confirm,
 cancel, reactivate, portal, payment history, grace window, refunds and
 disputes; `livemode` on every entitlement source with all pre-existing rows
 treated as test-mode; an operator-run reconciliation runbook; the Stripe
@@ -139,7 +143,10 @@ policy, community guidelines, likeness consent at upload, marketing and cookie
 consent, the NCMEC reporting path (complete the capability or a
 counsel-confirmed manual procedure), evidence retention per statute with a
 purge job, data rights (deletion now; export with GDPR readiness), the
-geography policy above.
+geography policy above — with counsel's statement of what sanctions
+compliance requires beyond geo-blocking (OFAC designates people and entities
+as well as countries; whether party or payment screening is needed at this
+scale is counsel's call in the compliance phase, not settled here).
 
 **Analytics and ops:** GA4 (measurement ID set) plus **PostHog**, fed by one
 event call and a defined funnel event list; Sentry alerts routed to David and
@@ -188,7 +195,7 @@ accounts, never admin-only evidence (admins are exempt from the budget gate).
 Handbook-shaped parts of that build (lane tags, the acceptance workflow, the
 readiness table as a reusable artefact) land in the handbook so a second app
 inherits them: the one named exception to the factory freeze that otherwise
-holds during launch work.
+holds during launch work. `/maintenance` continues through the freeze.
 
 ## Readiness criteria, by stage
 

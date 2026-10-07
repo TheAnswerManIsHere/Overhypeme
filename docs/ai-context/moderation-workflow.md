@@ -197,16 +197,20 @@ tweaking. The moderator:
 
 ## Test renders, the hero gate, and Pexels
 
-**Approved hero images are a hard gate: a fact cannot go live without them**
-(David, 2026-10-06, [launch definition](./launch-definition.md)). A successful
-moderation is one that ends with confirmed, approved hero renders; there is no
-"no-hero fallback". For every *other* render scenario, test renders remain
-**review tools, not hard gates**: a moderator may approve despite missing/stale
-renders, and doing so records a `visualRenderApprovalWaiver` on the review (an
-auditable override, not a silent skip). The waiver is retired for the hero
-scenario. *(Until #628's image phase lands this in code, the waiver still
-covers the hero scenario at runtime; this paragraph states the decided
-behaviour, and the phase's PR updates it to the shipped one.)*
+**Today:** test renders are **review tools, not hard gates**. A moderator may
+approve despite missing/stale required render scenarios, and doing so records
+a `visualRenderApprovalWaiver` on the review (an auditable override, not a
+silent skip). No render scenario is designated "hero" in the code.
+
+**Decided, not yet shipped (David, 2026-10-06,
+[launch definition](./launch-definition.md)):** a fact's
+[hero renders](./glossary.md#hero-render) — its moderation-approved renders,
+published as its own image assets — are a **hard gate on going live**. A
+successful moderation is one that ends with confirmed, approved hero renders;
+there is no "no-hero fallback", and the waiver will not cover them. Which
+scenarios' renders become a fact's heroes, and the approval minimum, are
+decided in #628 Phase 7, whose PR replaces this paragraph with the shipped
+behaviour. Every other render scenario stays waivable.
 
 Pexels stock images were a second review aid and the source of user-facing
 stock backgrounds; **Pexels is deleted entirely** in the launch programme's
