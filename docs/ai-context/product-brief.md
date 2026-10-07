@@ -1,7 +1,12 @@
 # Overhype.me Product Brief
 
-> Current, concise product truth. If this conflicts with an older note or an
-> agent's memory, **this file wins** (and if it's wrong, fix it here). For the
+> Current, concise product truth **as built today**. If this conflicts with an
+> older note or an agent's memory, **this file wins** (and if it's wrong, fix
+> it here). For what *launches* — the feature set, the cuts (video, merch,
+> templates, stock photos, annual and lifetime plans among them) and the
+> readiness bar — [`launch-definition.md`](./launch-definition.md) wins where
+> the two differ; this brief is swept to match as each cut phase of #628
+> lands. For the
 > *why/priorities* see [`product-direction.md`](./product-direction.md) and
 > [`current-roadmap.md`](./current-roadmap.md); for *how it's built* see
 > [`architecture-map.md`](./architecture-map.md); for term definitions see the

@@ -7,15 +7,22 @@
 ## Current product bet
 
 Overhype.me is **pre-launch**, betting on a **personalized impossible-facts →
-meme** loop. The two things that matter now:
+meme** loop. **Launch is now defined**, in checkable terms, in
+[`launch-definition.md`](./launch-definition.md): the feature set, the cuts,
+the readiness criteria and the four stages (Seed → Soft launch → Full launch
+US → Full launch Global). The phased programme that makes it true is #628.
+The two things that matter now:
 
-1. **Get to launch / stability** — reduce regressions, harden the end-to-end
-   pipeline.
+1. **Get to launch** — make the launch definition true, phase by phase, with
+   the scripted-verification build first so every phase ships verified.
 2. **Content volume & quality** — more approved facts live, faster, that *render
-   well and land the joke*.
+   well and land the joke*; at Seed, every fact comes from a real user who is
+   not David.
 
-Growth and conversion optimization are real but **come after** stability + content
-quality.
+Growth and conversion optimization are real but **come after** launch; the
+one growth surface that *is* launch-critical is the share loop itself
+(personalised share links, "make this about you", Open Graph previews, share
+by every modality) — see *Launch-critical vs deferrable work* below.
 
 ## Current AI/media direction
 
@@ -31,15 +38,29 @@ quality.
   — not any enrichment-time preview (that's retired).
 - **Readable in-scene text is allowed** when the concept/strategy requires it; there
   is no blanket text ban.
-- Video memes go through PuLID stylization → image-to-video (Kling) → captions.
+- **Video is deferred past launch** (David, 2026-10-05). The video pipeline,
+  the legacy one-shot path, the PuLID stage and the video engines are deleted
+  in the launch programme's cut phase and video is rebuilt post-launch on top
+  of the image pipeline. **PuLID is removed everywhere**: *"We're going to be
+  using a much stronger model."*
+- **Free-tier image memes are the fact's moderation-approved hero renders**,
+  captioned by the user; templates, stock photos and user-facing
+  text-to-image are gone. Legendary is *your face in the scene*. The default
+  image engine is chosen by an evaluation of the latest models on the same
+  facts (the planner/compiler split stays; the engine behind the compiler may
+  change).
 
 ## Moderation direction
 
 - **Staged moderation**: no paid enrichment/render work runs at submission —
   explicit cheap human triage comes first, then paid prep against a **staging
   fact**, then production review, then approval flips the fact live.
-- Pexels + test renders are **review tools, not hard gates** (approving despite
-  stale/missing renders records an auditable waiver).
+- **Approved hero images are a hard gate: a fact cannot go live without
+  them** (David, 2026-10-06). There is no "no-hero fallback"; the
+  render-approval waiver is retired for the hero scenario and remains an
+  auditable override for any other render scenario. Pexels is deleted
+  entirely (it was a review aid and the source of user-facing stock
+  backgrounds; both are cut).
 - Near-term focus: **reduce manual moderation toil** (faster approve, better queue
   ergonomics, smoother taxonomy-health remediation).
 - See [`moderation-workflow.md`](./moderation-workflow.md).
@@ -62,9 +83,10 @@ quality.
   Compiled Prompt preview is a contract with production.
 - **Async work must show per-item + aggregate status** at all times (Taxonomy
   Health is the reference implementation).
-- Orthogonal boolean roles (`is_admin`, `is_tester`) layered over the
-  membership tier — **not** a general multi-role RBAC system. See
-  *Permissions direction* below.
+- One orthogonal boolean role (`is_admin`) layered over the membership tier —
+  **not** a general multi-role RBAC system. The tester role is gone from the
+  docs (David, 2026-10-05): the invite gate is the Seed gate, and a beta
+  opt-in overlay follows post-launch. See *Permissions direction* below.
 
 ## Permissions direction
 
@@ -102,9 +124,10 @@ including numeric limits (spend, upload and rate caps), not just on/off
 switches. `admin_config` keeps global tuning that is identical for everybody.
 That boundary is what decides where the *next* setting goes.
 
-**Overlays are unions, never overrides.** `admin` and `tester` add to the
-account's tier; more permissive wins. An admin who also pays never loses a
-feature by being an admin.
+**Overlays are unions, never overrides.** `admin` adds to the account's
+tier; more permissive wins. An admin who also pays never loses a feature by
+being an admin. (The `tester` overlay was retired from the launch scope on
+2026-10-05; the union rule is unchanged for any overlay that exists.)
 
 **Tier privileges are an upsell surface, not just plumbing** (David,
 2026-08-11). Withholding a capability from lower tiers and unlocking it on
@@ -142,21 +165,36 @@ audit and privacy policy, out of scope for the permission architecture itself.
 
 ## Launch-critical vs deferrable work
 
+The authoritative list is [`launch-definition.md`](./launch-definition.md);
+this section is the direction behind it. Two reversals of the earlier text
+here are David's (2026-10-05), recorded in `decisions.md`: **video is
+deferred** (it was launch-critical) and **Open Graph previews and the share
+loop are launch-critical** (sharing polish was deferrable).
+
 **Launch-critical (do these):**
 
-- Moderation speed & tooling (cut reviewer toil).
-- Render/enrichment quality (memes that land the joke; robust versioned refresh;
-  clean stale-render handling).
-- Video meme pipeline maturity **including its user-facing status/experience**.
+- The scripted-verification build first; every later phase ships with its
+  mechanical checks scripted.
+- The loop, rebuilt properly: personalisation, sharing by every modality,
+  "make this about you" on every shared meme page, Open Graph previews for
+  meme and fact pages, public creator pages, reactions and heat.
+- Moderation speed & tooling (cut reviewer toil), with the hero-render hard
+  gate and finished speech bubbles.
+- Render/enrichment quality (memes that land the joke; robust versioned
+  refresh; clean stale-render handling); the engine evaluation.
+- The safety, legal and compliance package; spend controls; security
+  hardening with every key rotated — all gates for Seed.
 - Pipeline stability / regression reduction across the board.
 
-**Deferrable (fine to touch when it serves a launch goal, not where to spend
-energy now):**
+**Deferrable (post-launch, by decision):**
 
-- Broad public-growth surfaces (leaderboard/search/sharing/OG polish).
-- Free→Legendary conversion optimization.
+- Video, rebuilt on the image pipeline.
+- Public-growth surfaces beyond the loop; free→Legendary conversion
+  optimization; Legendary Pro; NSFW mode; the beta overlay.
+- Annual and lifetime membership as new sales.
 - R2 storage consolidation.
 - New content formats beyond "facts."
+- Data export (lands with GDPR readiness at the Global stage).
 
 ## Decisions agents should not reverse without David
 
@@ -172,13 +210,19 @@ before proposing to reverse one.)*
 - **On-by-default, no rollout-flag gating** pre-launch.
 - **No new external vendors** without David's sign-off.
 - The **two permission rails** — entitlements in the grid, privileges in code
-  — and the union (never override) semantics of the `admin` / `tester`
-  overlays. See *Permissions direction* above.
+  — and the union (never override) semantics of overlays. See *Permissions
+  direction* above.
+- **Approved hero images as a hard gate** on going live (2026-10-06).
+- **The four launch stages and the full readiness bar before Seed**; the
+  Stripe evidence split; the geography rule (everyone except GDPR territories
+  and OFAC countries at the US launch). See
+  [`launch-definition.md`](./launch-definition.md).
 
 ## Open questions for David
 
 *(None blocking as of this writing. Add here when a direction is genuinely
-ambiguous rather than guessing. Candidates an agent might surface:)*
+ambiguous rather than guessing.)*
 
-- Whether any render scenario should become a **hard** approval gate (today all are
-  waivable). **Needs David confirmation.**
+- *(Answered 2026-10-06: the hero scenario is a hard gate; every other render
+  scenario stays waivable. Decisions David makes at each launch phase
+  boundary are listed on #628, not here.)*

@@ -195,13 +195,26 @@ tweaking. The moderator:
   submission is never rejected here — a render that isn't working is the
   admin's job to fix, per **Rejection paths** below.)
 
-## Pexels and test renders
+## Test renders, the hero gate, and Pexels
 
-Pexels stock images and test renders are **review tools, not hard gates** — they
-help the moderator judge how a fact will render. A moderator may approve despite
-missing/stale required render scenarios; doing so records a
-`visualRenderApprovalWaiver` on the review (an auditable override, not a silent
-skip). *(If the repo later makes any render a hard gate, update this line.)*
+**Today:** test renders are **review tools, not hard gates**. A moderator may
+approve despite missing/stale required render scenarios, and doing so records
+a `visualRenderApprovalWaiver` on the review (an auditable override, not a
+silent skip). No render scenario is designated "hero" in the code.
+
+**Decided, not yet shipped (David, 2026-10-06,
+[launch definition](./launch-definition.md)):** a fact's
+[hero renders](./glossary.md#hero-render) — its moderation-approved renders,
+published as its own image assets — are a **hard gate on going live**. A
+successful moderation is one that ends with confirmed, approved hero renders;
+there is no "no-hero fallback", and the waiver will not cover them. Which
+scenarios' renders become a fact's heroes, and the approval minimum, are
+decided in #628 Phase 7, whose PR replaces this paragraph with the shipped
+behaviour. Every other render scenario stays waivable.
+
+Pexels stock images were a second review aid and the source of user-facing
+stock backgrounds; **Pexels is deleted entirely** in the launch programme's
+cut phase (David, 2026-10-05).
 
 ## Final production approval
 

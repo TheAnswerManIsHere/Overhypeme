@@ -19,6 +19,7 @@ Start with:
 - [`docs/ai-context/product-brief.md`](docs/ai-context/product-brief.md)
 - [`docs/ai-context/architecture-map.md`](docs/ai-context/architecture-map.md)
 - [`docs/ai-context/current-roadmap.md`](docs/ai-context/current-roadmap.md)
+- [`docs/ai-context/launch-definition.md`](docs/ai-context/launch-definition.md) — what "launch" means, the readiness criteria and the four stages; the per-item decisions behind it are [`launch-feature-inventory.md`](docs/ai-context/launch-feature-inventory.md)
 - [`docs/ai-context/glossary.md`](docs/ai-context/glossary.md) — term lookup
 - [`docs/ai-context/decisions.md`](docs/ai-context/decisions.md) — why settled decisions are settled
 - [`docs/manual/`](docs/manual/README.md) — the human-facing narrative manual
