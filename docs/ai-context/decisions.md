@@ -13,6 +13,152 @@
 
 ---
 
+### 2026-10-07 · Country eligibility at the US launch: everyone except GDPR territories and OFAC countries
+- **Decision:** David: *"I'm happy to have users from anywhere other than
+  GDPR and OFAC countries."* At the Full launch (US) stage the service admits
+  every country except the GDPR territories (the EEA — the EU plus Norway,
+  Iceland and Liechtenstein — and the UK under UK GDPR) and OFAC
+  comprehensively sanctioned countries. The blocks come off region by region
+  at the Global stage as GDPR readiness lands.
+- **Why:** "US-first" had been read two ways (block everyone outside the US,
+  or block only the named exclusions); the two differ for someone in Canada
+  or Australia. GDPR is the obligation that needs a readiness build; OFAC is
+  the legal line; nothing else requires blocking a visitor. Enforced at the
+  deployment edge and proven unbypassable through any other public origin.
+- **Reference:** #628 (concern S9 of the planning loop);
+  [`launch-definition.md`](./launch-definition.md).
+- **Revisit if:** counsel names a further jurisdiction with GDPR-like
+  obligations the compliance phase cannot meet by launch.
+
+---
+
+### 2026-10-07 · Every credential is rotated before Seed; Mythos runs the offensive security lane
+- **Decision:** David: *"We should probably also rotate all keys."* Every
+  credential the server, CI and the edge read is rotated before the first
+  real account exists, the old value revoked at the vendor, and the inventory
+  is read from the code rather than remembered. David turns the keys only he
+  holds; nothing is pasted into chat or the repo. Defensive testing in the
+  security-hardening phase uses **Claude Mythos 5.1** — the same model as the
+  Fable tier without the cyber-capability safeguards — against a disposable
+  copy, never production.
+- **Why:** the repository is public and has had a production dump in its
+  history; keys have been set in environments many agents can read; and a
+  fresh production database already revokes every session by construction,
+  so rotating the rest completes the clean slate. Fable silently routes
+  flagged security queries to a weaker model, so the offensive half of a
+  review done on Fable is done by something weaker than it claims.
+- **Reference:** #628 Phase 15; `launch-definition.md` readiness row 5.
+- **Revisit if:** a vendor's rotation would break something the launch needs
+  and cannot be re-issued in time — then it is an explicit, recorded exception.
+
+---
+
+### 2026-10-06 · Approved hero images are a hard gate; no "no-hero fallback"
+- **Decision:** David: *"I don't think there's any concept of a no-hero
+  fallback on a fact. We should define a successful fact moderation as having
+  confirmed, approved hero images. Without them, the fact cannot go live."*
+  The render-approval waiver is retired for the hero scenario and remains an
+  auditable override for every other render scenario. This answers the
+  standing open question in `product-direction.md` ("should any render
+  scenario become a hard gate?") for the one scenario that matters.
+- **Why:** the free tier at launch *is* the fact's approved hero renders —
+  templates, stock photos and user-facing text-to-image are gone — so a fact
+  without them has no meme to offer and the loop breaks at that fact.
+- **Reference:** #628 (oracle amendment 6); `moderation-workflow.md`,
+  *Test renders, the hero gate, and Pexels*; `launch-feature-inventory.md`
+  Journey D round two.
+- **Revisit if:** the image offering changes so a fact can carry a meme
+  without a hero render.
+
+---
+
+### 2026-10-06 · Deleted features are preserved: a retired-feature record and a `pre-cut/` tag per cut
+- **Decision:** David: *"I'd like to confirm that any features/functions that
+  we delete are still in the repository … don't want to throw the baby out
+  with the bathwater."* Every feature the launch programme deletes gets a
+  record under `docs/retired/<feature>.md` (what it did, why it was cut, where
+  the code was, what a rebuild should know) and a git tag
+  `pre-cut/<feature>` on the last commit carrying it, before the deleting PR
+  merges.
+- **Why:** git keeps the code, but not the knowledge of where to look or why
+  it was shaped that way; video in particular is to be rebuilt post-launch on
+  the image pipeline, and the lessons of the first pipeline should survive
+  its deletion.
+- **Reference:** #628 Phase 4; `launch-definition.md`, *Cut, deleted or
+  deferred*.
+- **Revisit if:** never; the cost is a page per cut.
+
+---
+
+### 2026-10-06 · Four launch stages, and the full readiness bar holds before Seed
+- **Decision:** Seed → Soft launch → Full launch (US) → Full launch (Global),
+  one feature set built once. Seed is the full build on a fresh production
+  database behind an invite gate; a trusted group submits facts and makes
+  memes from them; 50 approved facts, each from a real user who is not David.
+  David: *"Hold the full bar prior to seed. There's no reason to seed prior."*
+  and *"Seed should be able to make memes too."* Security review with no open
+  highs, the operational safety path, spend controls, the finished admin
+  console and every compliance page and consent flow are all Seed gates.
+- **Why:** the first draft lowered the bar for an invited trial (security a
+  "should", compliance "pages live"); Astra's review (S6) pointed out that
+  friends create durable accounts, submit content and upload photographs,
+  that public shared pages are reachable outside the group, and that
+  test-mode payments remove none of those exposures. The invited trial
+  supplies evidence; it does not substitute for protection.
+- **Reference:** #628 (S1, S6); `launch-definition.md`, *Four launch stages*.
+- **Revisit if:** never silently; a lowered bar for any stage is David's
+  explicit call, recorded here.
+
+---
+
+### 2026-10-06 · The Stripe evidence split replaces a live-mode rehearsal
+- **Decision:** the monthly lifecycle and every adverse event (failed payment,
+  cancel, refund, dispute, duplicate and out-of-order webhooks, interrupted
+  processing) are proven **in test mode** with the reconciliation runbook
+  demonstrated; retained test purchases are shown unable to grant live
+  benefits after the mode switch; the live account, price, credentials,
+  webhook and boot guard are verified on the deployed site; genuine payments
+  are observed under the launch watch. Accepted limitation, David's: no
+  adverse outcome occurs against real money before the first real customer.
+- **Why:** Stripe prohibits testing with real payment details in live mode,
+  so the oracle's literal "rehearse every adverse event live" was not
+  available; manufacturing a live dispute is not a prerequisite anyone should
+  meet. Calling test-mode evidence "live" because the app is deployed would
+  not satisfy the criterion.
+- **Reference:** #628 (S7); `launch-definition.md`, readiness row 3.
+- **Revisit if:** Stripe's testing policy changes.
+
+---
+
+### 2026-10-05 · Launch scope: video deferred, the share loop and Open Graph previews launch-critical, and the rest of the feature walk
+- **Decision:** 222 features walked item by item; every decision is in
+  [`launch-feature-inventory.md`](./launch-feature-inventory.md) and the
+  resulting definition in [`launch-definition.md`](./launch-definition.md).
+  The two reversals of the written direction: **video is deferred** past
+  launch and its pipeline deleted (*"We're going to want to build the video
+  pipeline from the ground up on top of the image pipeline"*), and **the share
+  loop with Open Graph previews is launch-critical** (*"Sharing by email is
+  critical. Any modality for sharing should be supported because growth is
+  what will make the site valuable"*; fact-page OG: *"must have"*). Also:
+  verified email gates every authenticated action; monthly membership only
+  (*"Everything is test data"*); spend controls are their own phase and a
+  launch gate (*"super locked down and defined before we launch so that
+  there's no runaway cost"*; *"I'm not venture backed and can't afford to
+  cover user spend at scale"*); the tester role leaves the docs; Pexels,
+  templates, stock photos, merch, Debug mode and PuLID are cut; PostHog and
+  Turnstile are the two approved new vendors; Fact of the Day is free for
+  everyone; no CSV seeding (*"every fact attributable to a real user who
+  isn't me"*); a UX polish pass across every journey closes the build.
+- **Why:** the direction had named launch-critical directions with no finish
+  line. A per-item walk is the only way a go/no-go can be read against
+  something concrete, and it is what let the cuts be decided deliberately
+  instead of by neglect.
+- **Reference:** #628; the inventory; the definition.
+- **Revisit if:** a phase plan finds a decision here cannot be built as
+  stated — it goes back to David with the shortfall, never silently.
+
+---
+
 ### 2026-09-07 · Build for the 99% case; fix the edge case when it happens
 - **Decision:** David: *"Stop worrying about how you can cheat yourself into
   additional rounds! … It's time to stop hardening all of this and let's get

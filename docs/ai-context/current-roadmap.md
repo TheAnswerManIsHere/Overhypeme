@@ -5,20 +5,24 @@
 > deadlines. Items not verifiable from the repo are marked **Needs David
 > confirmation**.
 >
-> *Snapshot date: 2026-07-22 (through PR #229) — the visual-enrichment cleanup
-> (PR #189, #192/#198, #206), the stale-fact-refresh arc (through PR #205), the
-> security remediation arc (through PR #221), the async-jobs lane split
-> (PR #216), the NB2 prompt-restructure + render-pipeline hardening arc
-> (PR #222–#224), and speech/thought bubble controls (PR #229) are all
-> reflected below; read `git log` for anything more recent.*
+> *Snapshot date: 2026-10-07 (launch definition approved, #628). The
+> "recently merged" section below is still the 2026-07-22 snapshot through
+> PR #229; read `git log` for anything more recent.*
 
 ## Active area of focus
 
-The **moderation + visual-render pipeline**: making moderation faster and the
-rendered memes better, plus maturing the video pipeline. This maps to the current
-business goals (launch/stability + content volume & quality) and near-term
-priorities (moderation speed, render/enrichment quality, video). See
-[`product-direction.md`](./product-direction.md).
+**Getting to launch.** Launch is defined in
+[`launch-definition.md`](./launch-definition.md) and the phased programme that
+makes it true is **#628** (21 phases: define; the scripted-verification build
+as a prerequisite to everything product; data and environments; cut and
+prune; account; the loop; the image offering; engine evaluation; community
+and takedown; membership; spend controls; email; admin console; compliance;
+security hardening; analytics and ops; UX polish; then Seed → Soft launch →
+Full launch US → Full launch Global). Each phase is a sub-issue of #628 with
+its own plan, PR(s) and UAT; the parent's Phases checklist is the live
+state. A factory freeze holds during launch work, with one exception:
+handbook work a launch phase needs and a second app would need identically.
+See [`product-direction.md`](./product-direction.md).
 
 ## Recently merged or completed work
 
@@ -670,6 +674,14 @@ priorities (moderation speed, render/enrichment quality, video). See
 
 ## Pre-launch hardening (must-do before go-live)
 
+> **Superseded by the readiness criteria in
+> [`launch-definition.md`](./launch-definition.md)** (2026-10-07), which carry
+> both items below (row 3: `livemode` with all pre-existing rows treated as
+> test-mode, moot after the fresh production build but still required; row 5:
+> `ADMIN_API_KEY` scoped or gone, and every credential rotated). They are
+> kept here for their detail until the phases that own them (#628 Phases 10
+> and 15) land.
+
 - **Record the Stripe mode on every entitlement source.** Sits here rather than
   in the deferred list because the thing that triggers it *is* a go-live action.
   Provider-backed sources in `membership_entitlements` store only the Stripe
@@ -719,10 +731,13 @@ priorities (moderation speed, render/enrichment quality, video). See
   reading `not yet opened` is the intended steady state, not a gap to fill
   upfront.
 - **Moderation-speed / reviewer-toil reductions** — ergonomics of the review +
-  visual-review flow. **Needs David confirmation** on specifics.
+  visual-review flow; the moderation UI/UX is rebuilt once the pipeline
+  changes (bubbles, hero options, comment rebuild) land (#628 Phase 13).
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render
-  handling.
-- **Video meme pipeline** — maturity + user-facing status/experience.
+  handling; the engine evaluation (#628 Phase 8).
+- ~~**Video meme pipeline** — maturity + user-facing status/experience.~~
+  Deferred past launch and deleted in the cut phase (David, 2026-10-05); see
+  [`launch-definition.md`](./launch-definition.md).
 
 ## Explicitly deferred work
 
@@ -739,7 +754,11 @@ priorities (moderation speed, render/enrichment quality, video). See
   post-composited/SVG bubble rendering; per-bubble placement, color, and font
   styling; a "Use scene only" partial candidate-pick action; OCR-based
   exactness scoring (PR #229).
-- Broad public-growth surfaces and free→Legendary conversion optimization.
+- **Video**, rebuilt post-launch on top of the image pipeline (the current
+  pipeline is deleted, with a retired-feature record and a `pre-cut/` tag).
+- Public-growth surfaces beyond the share loop and free→Legendary conversion
+  optimization; Legendary Pro; NSFW mode; the beta opt-in overlay; annual and
+  lifetime membership as new sales; data export (lands at the Global stage).
 - R2 storage consolidation (images currently on Google Cloud Storage).
 - New content formats beyond "facts."
 - A multi-role admin permission model.
@@ -761,7 +780,9 @@ priorities (moderation speed, render/enrichment quality, video). See
   backstop — the global one is a blast-radius ceiling, not a
   per-endpoint-abuse control, so this is a genuinely separate question from
   the one CodeQL was flagging.
-- Should any render scenario become a **hard** approval gate (today all waivable)?
+- ~~Should any render scenario become a **hard** approval gate (today all waivable)?~~
+  Answered 2026-10-06: approved hero images are a hard gate; other scenarios
+  stay waivable. See [`decisions.md`](./decisions.md).
 - Should any subset of a refresh (e.g. one where only non-render-affecting
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk
   send-back only initiates; see the PR #168/#205 entry in

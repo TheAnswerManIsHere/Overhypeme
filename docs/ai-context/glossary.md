@@ -364,8 +364,11 @@ no test render has run yet at the moment of the decision.
 ### Waiver
 
 An auditable record that a moderator approved despite missing or stale test
-renders. Stock images and test renders are review *aids*, not hard gates — so
-approving anyway is allowed, but it is recorded rather than silently skipped.
+renders. For every render scenario except the hero, test renders are review
+*aids*, not hard gates — so approving anyway is allowed, but it is recorded
+rather than silently skipped. **The hero scenario is a hard gate** (David,
+2026-10-06): a fact cannot go live without approved hero images, and no
+waiver covers it. See [launch-definition](./launch-definition.md).
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Send back to review

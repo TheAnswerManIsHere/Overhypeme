@@ -17,6 +17,12 @@ The brief below is the current truth and wins over anything remembered.
   [`product-brief.md`](docs/ai-context/product-brief.md),
   [`product-direction.md`](docs/ai-context/product-direction.md),
   [`current-roadmap.md`](docs/ai-context/current-roadmap.md).
+- **Launch definition** —
+  [`launch-definition.md`](docs/ai-context/launch-definition.md): the feature
+  set, the cuts, the readiness criteria and the four stages (Seed → Soft →
+  Full US → Full Global); the per-item decisions are
+  [`launch-feature-inventory.md`](docs/ai-context/launch-feature-inventory.md);
+  the phased programme is #628.
 - **Architecture** — [`architecture-map.md`](docs/ai-context/architecture-map.md).
 - **Glossary** — [`glossary.md`](docs/ai-context/glossary.md).
 - **Settled decisions and why** — [`decisions.md`](docs/ai-context/decisions.md).
