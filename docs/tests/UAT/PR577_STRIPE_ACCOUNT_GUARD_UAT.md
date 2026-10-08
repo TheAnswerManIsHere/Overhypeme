@@ -58,6 +58,8 @@ deployment as a whole.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 19 — the rendered value is labelled with its instance`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. The report agrees with the mode chip
 
 **Do:** Compare the green box against the "Stripe Mode" chip on the same panel.
@@ -84,7 +86,9 @@ something reports a failure.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5 — a refused target leaves the stored mode unchanged and returns a non-success naming the mismatch`
+**Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5 — a refused target leaves the stored mode unchanged and returns a non-success naming the mismatch`; `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5c — a valid toggle still works end to end`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:uses the server's message rather than the hardcoded fallback`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 5. Paying still works, unchanged
 

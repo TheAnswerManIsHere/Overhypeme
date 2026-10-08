@@ -109,6 +109,8 @@ revenue — could not tell a comp from a real sale.
 
 **Check:** `artifacts/api-server/src/__tests__/entitlementVerification.test.ts:produces a grant that carries actor, label and reason`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 7. Revoking a grant drops the user
 
 **Do:** Click "Revoke" on that grant.
@@ -506,6 +508,8 @@ layer still refuses to upgrade, is PR214's doc.)
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R7. Deactivating and reinstating a user restores the right tier
 

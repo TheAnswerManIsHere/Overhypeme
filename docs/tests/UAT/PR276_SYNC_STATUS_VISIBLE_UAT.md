@@ -51,6 +51,8 @@ synced just now."*
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all complete → ok, with the most recent stamp`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. The green summary survives a reload
 
 **Do:** Reload the page.
@@ -75,6 +77,8 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 5. The Plans row itself shows the failure
 
@@ -141,6 +145,8 @@ blank — "never ran" and "still working" must not look alike.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all-idle with no stamps → never synced, not success`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 10. The "Last synced" stamp survives a server restart
 
 **Do:** After a sync, have Replit restart the server (or come back after a
@@ -153,6 +159,8 @@ in-memory value that resets on restart.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:preserves syncedCount across a simulated server restart (regression: counts survive process loss)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Regression
 
@@ -178,6 +186,8 @@ disables then re-enables.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:full run invokes every tracked resource sequentially in SYNC_RESOURCES order`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R3. The LIVE / TEST badge still shows the right mode
 

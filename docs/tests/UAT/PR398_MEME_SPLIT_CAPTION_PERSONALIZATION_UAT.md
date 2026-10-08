@@ -50,7 +50,7 @@ does **not** read "{NAME} MAKES".
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`
 
 ### 2. The caption underneath was never broken and still isn't
 
@@ -77,6 +77,8 @@ out, and no `{` or `}` anywhere on the picture.
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 4. Splitting with the name on the bottom half
 
 **Do:** Build another meme from a fact where your name is in the **middle
@@ -90,6 +92,8 @@ cry because of …"), and drag the split slider so the name lands on the
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 5. Splitting with the name on the top half
 
 **Do:** On the same meme, drag the split slider again so the name lands on
@@ -100,6 +104,8 @@ the **top** half.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes {NAME} in both split halves`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 6. Pronoun and verb agreement — they/them
 

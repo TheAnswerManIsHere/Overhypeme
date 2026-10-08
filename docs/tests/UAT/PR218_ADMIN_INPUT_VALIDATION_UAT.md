@@ -79,6 +79,8 @@ grinding through. Splitting into smaller batches still works.
 
 **Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. A huge CSV import is refused
 
 **Do:** Try importing a CSV over ~2000 rows or ~2 MB.

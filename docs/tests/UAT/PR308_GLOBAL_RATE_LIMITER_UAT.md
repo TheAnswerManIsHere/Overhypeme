@@ -159,6 +159,8 @@ pre-existing limit.
 
 **Check:** `artifacts/api-server/src/__tests__/phase5.og.routes.test.ts:returns 200 with full og:* tags and 1h cache`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ## Not bugs
 
 - **You cannot make this trigger by clicking around, even deliberately.**

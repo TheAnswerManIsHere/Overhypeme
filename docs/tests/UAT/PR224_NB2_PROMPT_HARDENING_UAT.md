@@ -47,6 +47,8 @@ once names are filled in."
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. Trimming an over-budget Concept lets it save
 
 **Do:** Trim either over-budget Concept from step 1 or step 2 back under
@@ -83,6 +85,8 @@ forever or shipping a degraded image.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/asyncJobs.test.ts:terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:signals required_budget_overflow instead of silently truncating required content (§10.5)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 6. Built-in style descriptions are shorter but look the same
 

@@ -67,6 +67,8 @@ old failure: the card silently continuing to say Monthly with no notice.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:reports the annual plan from the app DB while the mirror still says monthly`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. No price line rather than the wrong price
 
 **Do:** Look at where the `$X/month` line sat before the switch, just below the
@@ -109,6 +111,8 @@ not have removed the ordinary path.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:still shows the monthly amount and the switch button when both agree`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R2. PR #600's fix still holds
 
 **Do:** In that same moment — right after the purchase in R1, before any sync —
@@ -132,6 +136,8 @@ switch, no cancel.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Not bugs
 

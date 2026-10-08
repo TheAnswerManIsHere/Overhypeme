@@ -46,6 +46,8 @@ block. It reads like a page, not like a text file.
 
 **Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders a chapter as prose with real headings and lists`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. A cold deep link parks on the right heading
 
 **Do:** Open `/admin/help/11-admin-console#managing-people` in a **brand-new
@@ -94,7 +96,7 @@ chapter, and not a different one.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:a cold deep link parks on its heading, not the chapter top`
 
 ### 7. Search holds up on other terms
 
@@ -164,7 +166,7 @@ undisturbed.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:generated help content opens every off-manual link in a new tab, and no in-app link`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:generated help content opens every off-manual link in a new tab, and no in-app link`; `artifacts/overhype-me/src/components/admin/helpContent.test.ts:rewrites intra-manual links to in-app routes and off-manual links to GitHub`
 
 ### 13. A stale bookmark fails tidily
 

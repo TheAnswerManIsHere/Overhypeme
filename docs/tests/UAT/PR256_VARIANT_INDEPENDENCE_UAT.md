@@ -110,6 +110,8 @@ line shows "N of M done" as jobs complete.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill images' confirms before firing and posts to backfill-images`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 9. Re-clicking Backfill images while jobs run is safe
 
 **Do:** Re-click "Backfill images" while jobs from the previous step are
@@ -224,6 +226,8 @@ complete") so it's never silently missed.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:returns the fact, its rank, and link/variant arrays on success`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R3. Send-back for a root with no variants is unchanged
 

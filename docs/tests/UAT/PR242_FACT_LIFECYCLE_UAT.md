@@ -64,7 +64,7 @@ existing facts and things already in the queue.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.import.test.ts:skips items whose text already exists as an UNRESOLVED review`
+**Check:** `artifacts/api-server/src/__tests__/routes.import.test.ts:skips items whose text already exists as an UNRESOLVED review`; `artifacts/api-server/src/__tests__/routes.import.test.ts:skips items whose text already exists as a FACT`
 
 ### 5. Adding a variant queues it instead of publishing instantly
 
@@ -92,6 +92,8 @@ under the parent after you approve it for production.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 7. Toggling an inactive fact to Active is rejected
 
 **Do:** In the admin Facts editor, find an inactive fact and try to toggle
@@ -113,7 +115,7 @@ live again."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts:cascades: deactivating an active root also deactivates its active children`
+**Check:** `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts:cascades: deactivating an active root also deactivates its active children`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:deactivating a root via this PATCH cascades to its active variants`
 
 ### 9. An inactive fact shows a Resubmit for Moderation button
 

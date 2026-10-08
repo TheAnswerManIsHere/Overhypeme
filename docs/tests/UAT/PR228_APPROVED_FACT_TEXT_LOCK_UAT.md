@@ -82,6 +82,8 @@ fact now displays the new wording.
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:valid confirmation → commits, clears signature, preserves enrichmentStatus, writes ONE audit row`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 7. The edit is recorded in history
 
 **Do:** Scroll down to "Approved text edit history" on the fact and expand
@@ -94,6 +96,8 @@ reason you typed.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:returns fact-scoped entries newest-first with a deleted-actor fallback`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 8. A non-text edit is not gated
 
 **Do:** On a live fact, change only a non-text field (e.g. toggle Active,
@@ -105,6 +109,8 @@ for a real text change.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:accepts isActive=true on an ALREADY-ACTIVE fact as a harmless no-op`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 9. Cancelling the modal preserves your draft
 
@@ -131,6 +137,8 @@ that prep is restarting.
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 11. A restarted staging fact re-enters prep and blocks approval
 
 **Do:** Back in Moderation, check that review's stage after the text edit
@@ -143,6 +151,8 @@ complete.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)` `artifacts/api-server/src/__tests__/moderationWorkflow.guards.test.ts:canProductionApprove: still production_review-only (never concept_review)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 12. A variant mid-review does not block the root fact's re-word
 
@@ -202,6 +212,8 @@ field, and Save.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Not bugs
 

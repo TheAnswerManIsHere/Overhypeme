@@ -55,6 +55,8 @@ which validates the resulting configuration before applying it."*
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. A refused save doesn't actually write
 
 **Do:** Reload the page after the failed save in the previous step (the
@@ -120,6 +122,8 @@ step 4's note).
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:still writes ncmec_safety_alert_email, which is deliberately not reserved`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R4. NCMEC Submission Enabled still refuses to save
 

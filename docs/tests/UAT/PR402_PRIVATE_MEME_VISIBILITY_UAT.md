@@ -54,7 +54,7 @@ renders for you, the creator.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for an admin whose membership tier is only registered`
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for an admin whose membership tier is only registered`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
 
 ### 2. A private meme is not reachable logged out
 
@@ -69,6 +69,8 @@ exactly what you saw.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:an unauthenticated caller gets 404`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 3. The creator can still see it afterward
 
@@ -89,7 +91,7 @@ it **Public**.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`
+**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`
 
 ### 5. A public meme appears in listings
 
@@ -112,7 +114,7 @@ traded one entitled account for another.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for a legendary user`
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for a legendary user`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:an unauthenticated caller gets 404`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
 
 ### 7. A plain registered account is still offered the upgrade, not the feature
 
@@ -136,6 +138,8 @@ selected with your in-progress meme intact.
 
 **Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 9. A registered account's meme still saves public
 
 **Do:** Save it, then open the permalink logged-out.
@@ -145,7 +149,7 @@ hasn't changed.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`
 
 ### 10. Logged-out visitors still see no control
 

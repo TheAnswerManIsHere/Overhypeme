@@ -57,6 +57,8 @@ medium words mixed in.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 4. Style lives in its own section when a style is selected
 
 **Do:** Pick a visual style (e.g. Anime) in the style control, re-open
@@ -69,6 +71,8 @@ the style doesn't appear twice.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 5. Readable in-scene text is quoted
 

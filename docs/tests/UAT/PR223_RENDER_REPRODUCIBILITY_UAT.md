@@ -92,6 +92,8 @@ of the old behavior where it quietly rendered with no style at all.
 
 **Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:returns a typed style_invalid error for an inactive style (never silently 'no style')`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. Re-enabling the style lets the same generate succeed
 
 **Do:** Re-enable the style you deactivated in step 5, then repeat the same

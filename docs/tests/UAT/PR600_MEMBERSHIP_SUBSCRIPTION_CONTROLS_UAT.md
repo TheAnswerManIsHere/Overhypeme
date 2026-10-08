@@ -73,6 +73,8 @@ leave it carrying two subscriptions, only one of which the UI can reach.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers Switch to Annual and Cancel while the Stripe mirror has not synced the subscription yet`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. The savings figure is right
 
 **Do:** Read the "Switch to Annual — save N%" button text.
@@ -84,6 +86,8 @@ $3.99/month and $24.99/year that is 48%. Not `0`, not blank, not a number over
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/components/subscriptionHelpers.test.ts:computes savings from the same product as the current price`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 3. The switch dialog previews the real proration
 
@@ -131,6 +135,8 @@ switch to. "Cancel Subscription" and "Manage billing & receipts" both remain.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:reports the annual plan from the app DB while the mirror still says monthly`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. The charge is recorded
 
 **Do:** **Reload the page**, then scroll to Payment History. The reload is
@@ -166,6 +172,8 @@ on.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R2. A free account still sees the Free Plan block
 
 **Do:** Sign in as **Account C** — registered, never paid — and open the
@@ -177,6 +185,8 @@ cancel controls anywhere on the card.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a non-member`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R3. A cancelling subscription offers Reactivate, not the controls
 

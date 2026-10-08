@@ -42,6 +42,8 @@ approving" message, and the save is refused.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.candidateEnrichmentEditing.test.ts:PATCH refuses`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. A blank Visual Concept blocks Approve
 
 **Do:** With the concept still blank, try to Approve the visual gag.
@@ -63,6 +65,8 @@ before.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:succeeds with a non-empty saved Visual Concept (presence-based — no enable toggle)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 5. The Core Scene field is gone from Advanced Options
 

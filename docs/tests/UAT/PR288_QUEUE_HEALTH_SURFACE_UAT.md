@@ -82,6 +82,8 @@ no-more-retries counts, an oldest age when those apply, and a trailing
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. A queue that has never run still appears
 
 **Do:** Find a queue that has never run.
@@ -227,7 +229,7 @@ user.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:GET /admin/queue-health`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:GET /admin/queue-health`; `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:GET /admin/queue-health/jobs`
 
 ### R6. No new database connection errors appear
 

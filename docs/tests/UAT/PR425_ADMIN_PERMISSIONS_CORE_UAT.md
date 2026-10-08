@@ -285,6 +285,8 @@ and not a generic error.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 rejects a standalone avatarSource:photo selection from an unentitled user`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 18. An entitled account can select the same photo
 
 **Do:** On your admin (or a Legendary) account, select an uploaded photo
@@ -294,7 +296,7 @@ as your avatar.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 allows a standalone avatarSource:photo selection from an entitled user`
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 allows a standalone avatarSource:photo selection from an entitled user`; `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows an entitled user's selected photo`
 
 ### 19. An unselected identity photo doesn't leak next to a submission or comment
 
@@ -448,6 +450,8 @@ one.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:PATCH /users/me/notifications updates both flags for admin users`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R9. PuLID (stylized photo) memes still work
 
