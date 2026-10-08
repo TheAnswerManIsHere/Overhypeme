@@ -38,6 +38,10 @@ triple-tap the **wordmark** (the "overhype.me" logo in the top bar).
 
 **Expect:** you land in `/admin` as the admin, exactly like before.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — grants when enabled (non-prod preview)`
+
 ### 2. Triple-tap does nothing when the secret is unset
 
 **Do:** Remove `ENABLE_DEV_ADMIN_LOGIN` from the preview's secrets (or
@@ -46,12 +50,20 @@ use a preview where it was never set), then triple-tap the wordmark.
 **Expect:** nothing happens — you stay where you are, no admin. That's
 the fail-closed default.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — inert when disabled`
+
 ### 3. Triple-tap does nothing in production, regardless
 
 **Do:** On the deployed/production site, triple-tap the wordmark.
 
 **Expect:** nothing happens, no matter what — the endpoint isn't
 reachable there. (To be admin in production, use a real admin login.)
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set`
 
 ## Regression
 
@@ -62,12 +74,20 @@ triple-tap the wordmark.
 
 **Expect:** logs in as admin, as before.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — grants when enabled (non-prod preview)`
+
 ### R2. Preview with the secret unset does nothing
 
 **Do:** In a Replit preview with `ENABLE_DEV_ADMIN_LOGIN` unset,
 triple-tap the wordmark.
 
 **Expect:** does nothing (fail-closed).
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — inert when disabled`
 
 ### R3. Production deploy does nothing regardless of the variable
 
@@ -76,11 +96,19 @@ env var is set to.
 
 **Expect:** does nothing (always off).
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set`
+
 ### R4. Normal login is unaffected
 
 **Do:** Log in with normal email/password, Google, and Apple.
 
 **Expect:** all unaffected by this change.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.localAuth.test.ts:returns a session on the happy path` `artifacts/api-server/src/__tests__/routes.google.callback.test.ts:completes sign-in: no 500, session cookie set` `artifacts/api-server/src/__tests__/routes.apple.callback.test.ts:completes sign-in: real generateAppleClientSecret runs, no 500, session cookie set`
 
 ## Not bugs
 
