@@ -40,6 +40,10 @@ toggle still works and now explains itself, and that paying still works exactly 
 **Expect:** Directly beneath the mode toggle there is a new bordered box, green, reading
 **"Payments verified"**.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`
+
 ### 2. That report says which instance it speaks for
 
 **Do:** Read the line of small text inside that green box, below the "Payments verified" heading.
@@ -48,6 +52,10 @@ toggle still works and now explains itself, and that paying still works exactly 
 that other instances of the deployment may differ. It does **not** claim anything about the
 deployment as a whole.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 19 — the rendered value is labelled with its instance`
+
 ### 3. The report agrees with the mode chip
 
 **Do:** Compare the green box against the "Stripe Mode" chip on the same panel.
@@ -55,6 +63,10 @@ deployment as a whole.
 **Expect:** The chip reads **TEST**, and the green box reports verified — i.e. the page is telling
 you the test-mode credentials belong to the test account, which is the state the pre-merge check
 confirmed.
+
+**Lane:** live
+
+**Check:** `ask_question` via the Replit connector: read-only, report `stripe_live_mode` and the boot-log line confirming the Stripe account was verified for that mode
 
 ### 4. The mode toggle still works, and explains itself either way
 
@@ -68,6 +80,10 @@ message appears naming a specific reason — an account mismatch, or a named mis
 you must **not** see is the bare words "Failed to update", or a chip that flips to LIVE while
 something reports a failure.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5 — a refused target leaves the stored mode unchanged and returns a non-success naming the mismatch`
+
 ### 5. Paying still works, unchanged
 
 **Do:** With the chip back on **TEST**, go through checkout as a normal user with a Stripe test card
@@ -75,6 +91,10 @@ something reports a failure.
 
 **Expect:** The purchase completes and your account shows as Legendary, exactly as before this
 change — same screens, same wording, no new message anywhere in the flow.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe test-card checkout
 
 ## Regression
 
@@ -85,17 +105,29 @@ change — same screens, same wording, no new message anywhere in the flow.
 **Expect:** The list of environment-variable checkmarks renders as it did before, with no missing
 rows and no errors.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the connection checklist render has no check yet
+
 ### R2. A manual Stripe sync still runs
 
 **Do:** On the Billing page, click "Sync Stripe data" and wait for it to report.
 
 **Expect:** The sync starts and reports progress per resource as it always has.
 
+**Lane:** scripted
+
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
 ### R3. The subscriber counts still load
 
 **Do:** Read the active-subscriber and registered-member numbers on the Billing page.
 
 **Expect:** Both show numbers, not a loading spinner that never resolves and not an error.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the subscriber-count render has no check yet
 
 ## Not bugs
 

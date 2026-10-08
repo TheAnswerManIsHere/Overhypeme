@@ -42,6 +42,10 @@ subscription membership.
 **Expect:** You land back on the profile page as Legendary, same as
 before.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe test-mode subscription checkout
+
 ### 2. The purchase shows up as Legendary everywhere
 
 **Do:** After the purchase in the previous step, check your profile and
@@ -50,11 +54,19 @@ Admin → Users.
 **Expect:** Your profile shows Legendary, and Admin → Users shows
 Legendary for that user.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a completed Stripe purchase
+
 ### 3. The Membership screen records the purchase
 
 **Do:** Check Admin → the user's Membership screen for that purchase.
 
 **Expect:** It shows the purchase, with its amount and currency.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a completed Stripe purchase
 
 ### 4. A Legendary-for-Life one-time purchase works the same way
 
@@ -67,12 +79,20 @@ different source type and takes a different code path, but the outcome is
 the same: Legendary on your profile and Admin → Users, and the purchase
 recorded with amount and currency on the Membership screen.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe one-time checkout
+
 ### 5. Granting Legendary for Life makes the user Legendary
 
 **Do:** Go to Admin → Users, pick a registered user, open Membership, and
 click "Grant" in the "Legendary for Life" section.
 
 **Expect:** The user becomes Legendary.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the grant route and its effect on the tier have no route-level check yet
 
 ### 6. A grant is recorded distinctly from a purchase — the real fix
 
@@ -85,11 +105,19 @@ purchase with an invented payment-intent id and an amount of £0, so anyone
 reading the payment records — including you, later, trying to reconcile
 revenue — could not tell a comp from a real sale.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/entitlementVerification.test.ts:produces a grant that carries actor, label and reason`
+
 ### 7. Revoking a grant drops the user
 
 **Do:** Click "Revoke" on that grant.
 
 **Expect:** The user drops to Registered.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the revoke route has no route-level check yet
 
 ### 8. A revoked grant stays in the history
 
@@ -98,11 +126,19 @@ revenue — could not tell a comp from a real sale.
 **Expect:** The grant is still listed, marked revoked, with who revoked
 it. It is not deleted — that history is the point.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the revoked-grant history has no check yet
+
 ### 9. A revoked user can be granted again
 
 **Do:** Grant Legendary to the same user again.
 
 **Expect:** It works.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — re-granting after a revoke has no check yet
 
 ### 10. A second grant is refused, not silently stacked
 
@@ -114,12 +150,20 @@ active admin grant"* — not a second silent grant. Before, two grants could
 both land, and a later revoke would clear one and leave the user Legendary
 anyway.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the already-has-an-active-grant refusal in the admin route has no check yet
+
 ### 11. A full refund drops the user's access
 
 **Do:** Refund a test membership purchase in full from the Stripe
 dashboard.
 
 **Expect:** The user drops to Registered within a few seconds.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
 
 ### 12. A refunded purchase stays on record, marked refunded
 
@@ -129,12 +173,20 @@ previous step.
 **Expect:** It still shows the purchase, marked refunded — the record is
 kept, the entitlement is not.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
+
 ### 13. A full refund sends the access-revoked email once
 
 **Do:** Check whether the user received an access-revoked email after the
 full refund.
 
 **Expect:** They get the access-revoked email once.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook and a delivered email
 
 ### 14. A partial refund does not revoke access
 
@@ -146,6 +198,10 @@ their history and does not revoke anything. Previously the handler could
 not tell partial from full at all — the charge amount it needed to compare
 against was not even passed to it.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe partial-refund webhook
+
 ### 15. Cancelling one of two memberships keeps the other
 
 **Do:** Give a test user both a Legendary-for-Life purchase and an active
@@ -154,12 +210,20 @@ subscription, then cancel the subscription.
 **Expect:** They stay Legendary, because the lifetime purchase still
 entitles them.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
+
 ### 16. Removing the last membership finally drops the user
 
 **Do:** Now refund the lifetime purchase too, from the setup in the
 previous step.
 
 **Expect:** They drop to Registered.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
 
 ### 17. An admin grant holds a user up through a cancelled subscription
 
@@ -169,6 +233,10 @@ then cancel the subscription.
 **Expect:** The user stays Legendary, because the admin grant still holds
 them up.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
+
 ### 18. A dispute revokes access immediately
 
 **Do:** Open a dispute on a test charge from the Stripe dashboard.
@@ -177,6 +245,10 @@ them up.
 behaviour, and deliberate: we don't give paid features to someone actively
 charging back.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:holds access while a non-terminal dispute exists, on any source type`
+
 ### 19. A dispute sends the admin alert
 
 **Do:** Check for the admin alert after opening the dispute in the
@@ -184,12 +256,20 @@ previous step.
 
 **Expect:** You get the admin alert.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe dispute webhook
+
 ### 20. Winning a dispute restores access
 
 **Do:** Mark the dispute won in Stripe.
 
 **Expect:** The user goes back to Legendary, because the underlying
 purchase was always fine.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe dispute-won webhook
 
 ### 21. Losing a dispute is permanent
 
@@ -199,11 +279,19 @@ purchase was always fine.
 Stripe later reports the subscription as active again. A lost chargeback
 is permanent.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:disqualifies permanently on a lost chargeback, even when the provider says active`
+
 ### 22. Your own profile shows the correct tier
 
 **Do:** Check your own profile's tier.
 
 **Expect:** Correct tier.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:returns membershipTier='legendary' for legendary users (no isPremium field)`
 
 ### 23. The Users list shows the correct tier per user
 
@@ -211,11 +299,19 @@ is permanent.
 
 **Expect:** Correct tier per user.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the admin Users list tier column has no check yet
+
 ### 24. The Stripe summary counts add up
 
 **Do:** Check Admin → the Stripe summary counts.
 
 **Expect:** Legendary + Registered counts look right and add up.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:moves a lapsed member between the two dashboard counts, not out of both`
 
 ### 25. Private memes are still Legendary-only
 
@@ -223,11 +319,19 @@ is permanent.
 
 **Expect:** Legendary-only, as before.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — private-meme gating by tier has no check yet
+
 ### 26. PuLID / identity memes are still Legendary-only
 
 **Do:** Try PuLID / identity memes.
 
 **Expect:** Legendary-only, as before.
+
+**Lane:** ci
+
+**Deferred:** #628 — Phase 4 (cut and prune) — PuLID / identity memes are retired with the cut
 
 ### 27. Daily upload limits still favor Legendary
 
@@ -235,11 +339,19 @@ is permanent.
 
 **Expect:** Legendary gets the higher limit.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the tiered daily upload limit has no check yet
+
 ### 28. Fact-of-the-day email still goes to Legendary members
 
 **Do:** Check the fact-of-the-day email list.
 
 **Expect:** Goes to Legendary members.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:drops a lapsed member from the mailing recipient list`
 
 ### 29. A member with failing payment can now cancel
 
@@ -249,6 +361,10 @@ window), try to cancel your subscription.
 **Expect:** You can now cancel it — previously the person actively being
 chased for payment was the one person unable to stop it.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe subscription in a failing-payment state
+
 ### 30. The convergence strip reads healthy under normal conditions
 
 **Do:** Go to Admin → Refunds & Disputes and look at the status strip at
@@ -257,12 +373,20 @@ the top.
 **Expect:** Grey text reading "Healthy · last converged N ago" — not
 alarming.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the convergence strip render has no check yet
+
 ### 31. The convergence strip is honest right after a deploy
 
 **Do:** Look at the status strip right after a deploy.
 
 **Expect:** "Not yet run · waiting Nm since start" — honest, not a fake
 "healthy".
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the convergence strip render has no check yet
 
 ### 32. The convergence strip refreshes itself
 
@@ -271,12 +395,20 @@ alarming.
 **Expect:** It refreshes itself every 30 seconds; you never need to
 reload.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the convergence strip refresh has no check yet
+
 ### 33. The pending-convergence count is shown
 
 **Do:** Check the pending-convergence count on the status strip.
 
 **Expect:** "No users pending convergence" normally, or a number if some
 users are lagging.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the pending-convergence count render has no check yet
 
 ### 34. An amber convergence strip is a label problem, not an access one
 
@@ -285,6 +417,10 @@ users are lagging.
 **Expect:** It means stored tiers are drifting — access is still correct,
 this is a label problem, not an access problem.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the drifted-tier amber state has no check yet
+
 ### 35. A partial refund is labelled and does not remove access
 
 **Do:** If you have a partial refund, find it in the Admin → Refunds &
@@ -292,6 +428,10 @@ Disputes list.
 
 **Expect:** It appears with its own "partial refund" label and does not
 remove the member's access — only a full refund does.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe partial-refund webhook
 
 ## Regression
 
@@ -302,6 +442,10 @@ remove the member's access — only a full refund does.
 **Expect:** Completely unchanged — this PR does not touch the catalog
 display path.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the pricing-page render has no check yet
+
 ### R2. A non-membership checkout is refused outright
 
 **Do:** Try to check out with a non-membership price, if you have one.
@@ -311,11 +455,19 @@ no Stripe Checkout Session is created at all. It does not complete. (The
 deeper case, where a non-membership payment lands anyway and the grant
 layer still refuses to upgrade, is PR214's doc.)
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — the refusal sits in front of Stripe checkout and its check needs the Stripe fake
+
 ### R3. Cancelling a subscription still shows the period-end message
 
 **Do:** Cancel a subscription.
 
 **Expect:** Shows "cancels at period end", as before.
+
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe cancel
 
 ### R4. Reactivating a cancelling subscription is unchanged
 
@@ -323,17 +475,29 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Expect:** As before.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe reactivate
+
 ### R5. Switching monthly to annual keeps the user Legendary
 
 **Do:** Switch monthly → annual.
 
 **Expect:** As before, and the user stays Legendary.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — needs a Stripe plan switch
+
 ### R6. Payment history still lists everything
 
 **Do:** Check payment history on the profile.
 
 **Expect:** Still lists purchases, refunds, disputes.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`
 
 ### R7. Deactivating and reinstating a user restores the right tier
 
@@ -344,11 +508,19 @@ better: reinstating now re-checks Stripe first. Before, if the user's
 subscription had been cancelled while a webhook went missing, reinstating
 them would have handed Legendary back based on a stale local row.
 
+**Lane:** live
+
+**Deferred:** #566 — the Stripe fake — reinstating re-checks Stripe
+
 ### R8. Creating a user with Legendary records an admin grant
 
 **Do:** Create a user from Admin → Users.
 
 **Expect:** Works; picking "Legendary" gives them a recorded admin grant.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the create-user grant has no check yet
 
 ## Not bugs
 - **Two race conditions are watch-for-if-you-see-it, not required steps**
