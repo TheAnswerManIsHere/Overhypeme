@@ -95,6 +95,8 @@ you'd normally check).
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R3. A meme completes — image flow
 
 **Do:** Make a meme using the image flow.

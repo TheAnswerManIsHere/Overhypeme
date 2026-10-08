@@ -66,6 +66,8 @@ only blocks malformed ids you'd never type by hand.)
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 5. A huge paste-list import is refused
 
 **Do:** Try importing more than 1000 facts at once via paste list.
@@ -87,6 +89,8 @@ grinding through. Splitting into smaller batches still works.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 7. A bad email on set-password is refused
 
@@ -131,6 +135,8 @@ email (e.g. `notanemail`).
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R4. Import an oversized batch
 
 **Do:** Import more than 1000 facts, or a CSV over the size/row cap.
@@ -140,6 +146,8 @@ email (e.g. `notanemail`).
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R5. Set-password with a malformed email
 

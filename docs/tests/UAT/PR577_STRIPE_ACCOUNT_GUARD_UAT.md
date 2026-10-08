@@ -44,6 +44,8 @@ toggle still works and now explains itself, and that paying still works exactly 
 
 **Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. That report says which instance it speaks for
 
 **Do:** Read the line of small text inside that green box, below the "Payments verified" heading.
@@ -92,7 +94,7 @@ something reports a failure.
 **Expect:** The purchase completes and your account shows as Legendary, exactly as before this
 change — same screens, same wording, no new message anywhere in the flow.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe test-card checkout
 
@@ -118,6 +120,8 @@ rows and no errors.
 **Lane:** scripted
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
 
 ### R3. The subscriber counts still load
 

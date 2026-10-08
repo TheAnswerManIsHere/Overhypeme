@@ -42,6 +42,8 @@ triple-tap the **wordmark** (the "overhype.me" logo in the top bar).
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — grants when enabled (non-prod preview)`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. Triple-tap does nothing when the secret is unset
 
 **Do:** Remove `ENABLE_DEV_ADMIN_LOGIN` from the preview's secrets (or
@@ -54,6 +56,8 @@ the fail-closed default.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — inert when disabled`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. Triple-tap does nothing in production, regardless
 
 **Do:** On the deployed/production site, triple-tap the wordmark.
@@ -64,6 +68,8 @@ reachable there. (To be admin in production, use a real admin login.)
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Regression
 

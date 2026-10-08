@@ -79,6 +79,8 @@ instantly.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. A queued variant carries its parent and nests only after approval
 
 **Do:** Check the moderation queue for the variant from step 5.
@@ -135,6 +137,8 @@ queue at Stage 1."
 
 **Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 11. The resubmitted review reuses the same fact id
 
 **Do:** Go to Admin → Reviews and find the review from step 10.
@@ -145,6 +149,8 @@ again), reusing the same fact id — not a duplicate.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 12. A second resubmit while one is in progress is rejected
 
@@ -172,6 +178,8 @@ Back to Review.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:404 for a missing fact; 409 ALREADY_ACTIVE`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 14. Production approval is still blocked without a Visual Concept
 
 **Do:** Take a fact through moderation to the production-approval step
@@ -184,6 +192,8 @@ live.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts:throws ConceptMissingError and does NOT activate a conceptless fact`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 15. Existing live facts stayed live, with placeholders backfilled
 

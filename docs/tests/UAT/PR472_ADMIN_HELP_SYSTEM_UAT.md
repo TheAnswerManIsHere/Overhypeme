@@ -83,6 +83,8 @@ belongs to.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index is populated and attributes every entry to a real chapter section`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. A search result lands where it says
 
 **Do:** Click any result from step 5.
@@ -103,6 +105,8 @@ chapter, and not a different one.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 8. Plumbing inside links is not searchable
 
@@ -244,6 +248,8 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the same Access-Denied selector does match when access is genuinely refused`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Not bugs
 

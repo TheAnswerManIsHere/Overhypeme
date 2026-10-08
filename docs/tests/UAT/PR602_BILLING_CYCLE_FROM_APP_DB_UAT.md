@@ -54,6 +54,8 @@ old failure: the card silently continuing to say Monthly with no notice.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:shows the annual renewal date from the app DB, not the mirror's monthly one`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. The switch is no longer offered
 
 **Do:** Stay on the card once step 1 has settled.

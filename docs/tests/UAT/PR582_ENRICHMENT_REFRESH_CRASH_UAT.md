@@ -49,6 +49,10 @@ not moved is **not** a failure on its own — check it against the captured
 `next_attempt_at` times first; jobs still inside their backoff window have not
 been retried yet.
 
+**Lane:** live
+
+**Check:** `ask_question` (read-only): report the enrichment lane's queued/working/done/failed counts and any async_jobs row whose last error contains the forEach message; compare to the setup capture
+
 ### 2. The stuck facts start clearing on the Moderation screen
 
 **Do:** Go to **Admin → Moderation** and read the banner plus the rows that were
@@ -58,6 +62,10 @@ showing `AI prep running`.
 now shows `Enrichment ✓ ready` with a concept-stage label —
 `Generating visual ideas…` or `Ready for concept review`. Rows still inside
 their backoff window may legitimately still read `Preparing…`.
+
+**Lane:** live
+
+**Check:** `ask_question` (read-only): list review rows in prep_pending and their enrichment status and workflow stage; compare to the setup capture
 
 ### 3. A fresh send-back completes end to end
 
@@ -71,6 +79,10 @@ to eligible. Then watch that fact's row on **Admin → Moderation**.
 `Ready for concept review`. It does not sit on the `Preparing…` spinner, and
 Queue Health shows no new job carrying the `forEach` error.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — a send-back enqueues a real enrichment job that calls the model
+
 ### 4. A fact carrying a moderator visual override refreshes
 
 **Do:** Open a fact that has a visual-strategy override with content in it — a
@@ -82,6 +94,10 @@ Health**, then watch it on **Admin → Moderation**.
 as in step 3, and reopening its enrichment editor shows the same override
 content you noted before the refresh, word for word.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — a refresh of a fact carrying a visual override runs a real enrichment job
+
 ### 5. An empty override is still reported as empty
 
 **Do:** Open the enrichment editor for a fact that has **no** visual override,
@@ -90,6 +106,10 @@ or one whose override is an empty scaffold.
 **Expect:** No "manual override" / visual-override signal is shown for it. (Step
 4 already confirmed the opposite case — a fact with content still shows one.)
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override that is a bare version stub` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)`
+
 ### 6. Saving a visual override still works
 
 **Do:** In the enrichment editor for any fact, add or edit a required visual
@@ -97,6 +117,10 @@ detail on its visual override and save.
 
 **Expect:** The save succeeds with no error, and reopening the editor shows the
 edited value.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
 
 ## Regression
 
@@ -108,6 +132,10 @@ edited value.
 **Expect:** It reaches a classified state with `Enrichment ✓ ready`, exactly as
 before this PR.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 2 (ordinary test users + test mailbox) — needs a signed-in non-admin user to submit a fact, plus a real enrichment job
+
 ### R2. The enrichment editor still opens on a normal fact
 
 **Do:** Open **Admin → Moderation**, pick any fact with completed enrichment and
@@ -115,6 +143,10 @@ open its enrichment editor.
 
 **Expect:** The editor loads with its classification fields populated — archetype,
 subtype, fit — and no error banner.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test asserts the enrichment editor opens with classification fields populated and no error banner
 
 ### R3. PR216 step 3 is reachable again
 
@@ -124,6 +156,10 @@ finishes correctly"**.
 **Expect:** The step can actually run — sent-back facts resolve rather than
 hanging, so the step reaches a real pass or fail on its own merits instead of
 being blocked.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — depends on sent-back facts completing a real enrichment job
 
 ## Not bugs
 

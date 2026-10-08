@@ -82,6 +82,8 @@ granting it.
 
 **Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics the admin overlay ADDS rather than replaces`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. Unchecking the Admin cell actually removes the capability
 
 **Do:** In Admin → Features, uncheck `custom_avatar` for **Admin**, wait
@@ -95,6 +97,8 @@ decorative and the core of this PR did not land.
 
 **Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. Re-checking the Admin cell restores it
 
 **Do:** Re-check `custom_avatar` for **Admin** in Admin → Features, wait
@@ -105,6 +109,8 @@ about a minute, then reload your Profile.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 4. A Legendary account keeps the feature independent of the Admin cell
 
@@ -189,6 +195,8 @@ registered member, and registered members don't get private memes.
 
 **Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization view-as-user normalizes to registered, not to the account's own paid tier`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 11. Admin console access ignores the preview toggle
 
 **Do:** While still previewing as a user, try to reach `/admin`.
@@ -213,6 +221,8 @@ return to the meme builder for the same fact and pick Image again.
 
 **Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization an admin not previewing keeps their own tier and the overlay`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 13. Private memes still save private — the #402 regression
 
 **Do:** As admin, `/facts/39/meme` → Image → pick a photo → set
@@ -224,6 +234,8 @@ return to the meme builder for the same fact and pick Image again.
 
 **Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:POST /api/memes — private visibility gate stores isPublic=false for an admin whose membership tier is only registered`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 14. A private meme is still invisible logged out
 
 **Do:** Open the permalink from step 13 in a **private/incognito window**.
@@ -233,6 +245,8 @@ return to the meme builder for the same fact and pick Image again.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement an unauthenticated caller gets 404`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 15. Photo upload during onboarding is never gated
 
@@ -299,6 +313,8 @@ all — a pre-existing bug closed on the way past.)
 
 **Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 20. The same account's own profile also withholds the photo
 
 **Do:** View that account's own Profile page.
@@ -358,6 +374,8 @@ out.
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement a public meme is visible to anyone`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R2. Commenting captcha is unchanged for a registered user
 
 **Do:** Post a comment as a registered user.
@@ -387,6 +405,8 @@ out.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R5. AI backgrounds still generate
 

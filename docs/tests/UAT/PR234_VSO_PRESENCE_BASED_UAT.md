@@ -27,6 +27,10 @@ This does three things you asked for:
 **Expect:** the Visual Concept card sits near the top, with a red `*` in
 its header.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test asserts the required marker on the Visual Concept card header
+
 ### 2. A blank Visual Concept blocks Save
 
 **Do:** Clear the Visual Concept (delete all its text) and try to Save.
@@ -34,11 +38,19 @@ its header.
 **Expect:** a blocking "Required — describe the picture before saving or
 approving" message, and the save is refused.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.candidateEnrichmentEditing.test.ts:PATCH refuses`
+
 ### 3. A blank Visual Concept blocks Approve
 
 **Do:** With the concept still blank, try to Approve the visual gag.
 
 **Expect:** it's blocked too, with the `CONCEPT_MISSING` reason.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:409 CONCEPT_MISSING when the concept is blank`
 
 ### 4. A real Visual Concept saves and advances normally
 
@@ -47,6 +59,10 @@ waterfall"), Save, then Approve.
 
 **Expect:** Save saves it; Approve advances the review to Step 3 as
 before.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:succeeds with a non-empty saved Visual Concept (presence-based — no enable toggle)`
 
 ### 5. The Core Scene field is gone from Advanced Options
 
@@ -58,6 +74,10 @@ toggle anywhere in the override UI. The other override fields
 still there, and each applies on its own when filled — no toggle to flip
 first.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test asserts the Core Scene field and master toggle are absent from Advanced Options
+
 ### 6. The Facts page enforces the same requirement
 
 **Do:** On the Facts page, open an existing fact's enrichment, blank its
@@ -66,6 +86,10 @@ Visual Concept, and Save.
 **Expect:** the same Visual Concept card appears, required the same way,
 and the save is refused with the same message.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the Facts-page enrichment PATCH has no test for refusing a blank Visual Concept
+
 ### 7. A filled override field applies without any toggle
 
 **Do:** With the Visual Concept present, fill in a Forbidden Visual Detail
@@ -73,11 +97,19 @@ and Save.
 
 **Expect:** it takes effect in renders without you enabling anything.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:a populated override emits its section regardless of any (removed) toggle`
+
 ### 8. Clearing an override field turns it off
 
 **Do:** Clear that Forbidden Visual Detail and Save.
 
 **Expect:** it stops applying — clearing is how you turn a field off now.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:KEYSTONE: an empty override compiles byte-identically to no override (presence-based)`
 
 ## Regression
 
@@ -87,6 +119,10 @@ and Save.
 filled in, and Save without blanking it.
 
 **Expect:** it saves normally, same as Moderation Step 2.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
 
 ## Not bugs
 

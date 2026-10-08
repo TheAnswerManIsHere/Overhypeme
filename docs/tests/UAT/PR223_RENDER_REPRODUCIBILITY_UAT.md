@@ -35,6 +35,10 @@ subject, and the finished meme's caption reads your full display name
 exactly as stored. Nothing about the visible result should feel different
 from `main`.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — needs a legendary user, a reference-photo upload and a real render
+
 ### 2. Generate without a reference photo
 
 **Do:** Generate a meme for the same fact, this time with no reference photo
@@ -42,6 +46,10 @@ uploaded (the text-to-image path).
 
 **Expect:** the render completes as before, and the caption reads your full
 display name exactly as stored.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — needs a legendary user and a real text-to-image render
 
 ### 3. A long display name doesn't leak into the caption
 
@@ -53,6 +61,10 @@ name you set, exactly ("David Franklin The Third"). The caption is
 independent of what the image model receives either way, so this alone
 does not prove the split — step 3b is what actually checks it.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — needs a legendary user with a long display name and a real render
+
 ### 4. The compiled prompt itself only carries the first name
 
 **Do:** As admin, open the fact you just generated a meme for in
@@ -62,6 +74,12 @@ Admin → Facts, and expand its **Runtime Compiled Prompt Preview**.
 only your first name ("David"), not the full display name — this is the
 actual oracle for the split; step 3's caption is a red herring for it.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:renders fact text from the SAME reduced identity the snapshot carries (user path)` `artifacts/api-server/src/__tests__/promptIdentity.test.ts:prefers firstName when present`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 5. A disabled style is rejected, not silently dropped
 
 **Do:** As admin, deactivate a look-style, then try to generate a meme
@@ -70,12 +88,20 @@ selecting that style.
 **Expect:** a clear "style unavailable" rejection — not enqueued — instead
 of the old behavior where it quietly rendered with no style at all.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:returns a typed style_invalid error for an inactive style (never silently 'no style')`
+
 ### 6. Re-enabling the style lets the same generate succeed
 
-**Do:** Re-enable the style you deactivated in step 4, then repeat the same
+**Do:** Re-enable the style you deactivated in step 5, then repeat the same
 generate.
 
 **Expect:** it succeeds and the style is applied as normal.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix`
 
 ## Regression
 
@@ -85,6 +111,10 @@ generate.
 
 **Expect:** the style is applied as before.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:renders fact text from the SAME reduced identity the snapshot carries (user path)`
+
 ### R2. An anonymous / no-profile render still falls back
 
 **Do:** Generate a meme without a signed-in profile (or from an account with
@@ -92,12 +122,20 @@ no display name set).
 
 **Expect:** it falls back to the canonical test identity and still renders.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:falls back to canonical identity when there is no user`
+
 ### R3. Older renders still display correctly
 
 **Do:** Open an older, already-completed render (or re-poll one from before
 this PR).
 
 **Expect:** it still displays correctly — legacy attempts are untouched.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test yet opens a render that predates the frozen identity/style snapshot
 
 ## Not bugs
 

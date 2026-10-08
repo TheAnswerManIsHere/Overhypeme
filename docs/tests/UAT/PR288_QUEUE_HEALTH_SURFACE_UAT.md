@@ -216,6 +216,8 @@ present and working.
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:renders inside the admin console for an admin`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R5. The new endpoints are admin-gated
 
 **Do:** Visit both new admin endpoints as a non-admin user.

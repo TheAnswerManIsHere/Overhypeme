@@ -94,7 +94,7 @@ dollars, with one or more line items describing the credit for unused monthly
 time and the charge for the annual plan, and the two reconciling to the total.
 Not a spinner that never resolves, and not an error banner.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — the proration preview comes from Stripe
 
@@ -116,7 +116,7 @@ outcomes — both are correct:
 The card silently continuing to show **Monthly**, at the monthly price, with
 "Switch to Annual" still offered and no amber notice, is the #601 failure.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — the switch is executed against Stripe and settles by webhook
 
@@ -145,7 +145,7 @@ whether the charge was recorded server-side at all. A charge that never reached
 our records is webhook delivery in the Repl, not a defect in this panel, and it
 is recorded as Blocked rather than Fail.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — the charge reaches payment history by Stripe webhook
 
@@ -190,7 +190,7 @@ on A, which would leave it billing two subscriptions.
 offers "Reactivate Subscription". "Switch to Annual" and "Cancel Subscription"
 are both gone. Click Reactivate and confirm both controls come back.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — cancel and reactivate are executed against Stripe
 

@@ -31,6 +31,10 @@ guardrails out.
 **Expect:** a specific rejection explaining it's over the prompt budget by
 raw length, instead of it saving and quietly breaking the render.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
+
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 
 **Do:** Paste a Visual Concept stuffed with many `{NAME}` tokens (short raw
@@ -39,12 +43,20 @@ length, but large once names are filled in) and click Save.
 **Expect:** a specific rejection saying it "expands to up to N characters
 once names are filled in."
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap`
+
 ### 3. Trimming an over-budget Concept lets it save
 
 **Do:** Trim either over-budget Concept from step 1 or step 2 back under
 budget and Save again.
 
 **Expect:** it saves normally.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)`
 
 ### 4. Excessive aggregate visual guidance is rejected
 
@@ -55,6 +67,10 @@ additions together until the combined total is very large, then Save.
 budget. Individual normal entries are fine on their own — it's the
 aggregate that's capped.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool`
+
 ### 5. A deterministically-broken render fails fast with a specific reason
 
 **Do:** Trigger a render that can't succeed for a fixed reason — corrupt
@@ -64,6 +80,10 @@ prompt.
 **Expect:** it fails fast with a specific reason instead of retrying
 forever or shipping a degraded image.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/asyncJobs.test.ts:terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:signals required_budget_overflow instead of silently truncating required content (§10.5)`
+
 ### 6. Built-in style descriptions are shorter but look the same
 
 **Do:** Open the style picker and read the built-in style descriptions,
@@ -71,6 +91,8 @@ then render using one of them (e.g. cinematic or anime).
 
 **Expect:** the copy is shorter and cleaner, but the rendered style look is
 unchanged from before.
+
+**Lane:** human
 
 ## Regression
 
@@ -82,11 +104,19 @@ Save.
 
 **Expect:** it saves with no change from before.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override`
+
 ### R2. A valid fact still renders end-to-end
 
 **Do:** Render a valid fact, any style.
 
 **Expect:** it renders as before.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — needs a real fal render of a valid fact
 
 ## Not bugs
 

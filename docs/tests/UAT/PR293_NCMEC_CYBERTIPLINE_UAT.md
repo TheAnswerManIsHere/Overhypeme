@@ -97,6 +97,8 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R2. A normal config key still saves
 
 **Do:** Edit a normal (non-NCMEC) config key.
@@ -129,6 +131,8 @@ after a page reload.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R5. Ordinary product use is unaffected
 

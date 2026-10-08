@@ -42,7 +42,7 @@ subscription membership.
 **Expect:** You land back on the profile page as Legendary, same as
 before.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe test-mode subscription checkout
 
@@ -54,7 +54,7 @@ Admin → Users.
 **Expect:** Your profile shows Legendary, and Admin → Users shows
 Legendary for that user.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a completed Stripe purchase
 
@@ -64,7 +64,7 @@ Legendary for that user.
 
 **Expect:** It shows the purchase, with its amount and currency.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a completed Stripe purchase
 
@@ -79,7 +79,7 @@ different source type and takes a different code path, but the outcome is
 the same: Legendary on your profile and Admin → Users, and the purchase
 recorded with amount and currency on the Membership screen.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe one-time checkout
 
@@ -161,7 +161,7 @@ dashboard.
 
 **Expect:** The user drops to Registered within a few seconds.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
 
@@ -173,7 +173,7 @@ previous step.
 **Expect:** It still shows the purchase, marked refunded — the record is
 kept, the entitlement is not.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
 
@@ -184,7 +184,7 @@ full refund.
 
 **Expect:** They get the access-revoked email once.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook and a delivered email
 
@@ -198,7 +198,7 @@ their history and does not revoke anything. Previously the handler could
 not tell partial from full at all — the charge amount it needed to compare
 against was not even passed to it.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe partial-refund webhook
 
@@ -214,6 +214,8 @@ entitles them.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 16. Removing the last membership finally drops the user
 
 **Do:** Now refund the lifetime purchase too, from the setup in the
@@ -221,7 +223,7 @@ previous step.
 
 **Expect:** They drop to Registered.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
 
@@ -236,6 +238,8 @@ them up.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 18. A dispute revokes access immediately
 
@@ -256,7 +260,7 @@ previous step.
 
 **Expect:** You get the admin alert.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe dispute webhook
 
@@ -267,7 +271,7 @@ previous step.
 **Expect:** The user goes back to Legendary, because the underlying
 purchase was always fine.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe dispute-won webhook
 
@@ -293,6 +297,8 @@ is permanent.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:returns membershipTier='legendary' for legendary users (no isPremium field)`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 23. The Users list shows the correct tier per user
 
 **Do:** Check the Admin → Users list.
@@ -312,6 +318,8 @@ is permanent.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:moves a lapsed member between the two dashboard counts, not out of both`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 25. Private memes are still Legendary-only
 
@@ -361,7 +369,7 @@ window), try to cancel your subscription.
 **Expect:** You can now cancel it — previously the person actively being
 chased for payment was the one person unable to stop it.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe subscription in a failing-payment state
 
@@ -429,7 +437,7 @@ Disputes list.
 **Expect:** It appears with its own "partial refund" label and does not
 remove the member's access — only a full refund does.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe partial-refund webhook
 
@@ -455,7 +463,7 @@ no Stripe Checkout Session is created at all. It does not complete. (The
 deeper case, where a non-membership payment lands anyway and the grant
 layer still refuses to upgrade, is PR214's doc.)
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — the refusal sits in front of Stripe checkout and its check needs the Stripe fake
 
@@ -465,7 +473,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Expect:** Shows "cancels at period end", as before.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe cancel
 
@@ -475,7 +483,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Expect:** As before.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe reactivate
 
@@ -485,7 +493,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Expect:** As before, and the user stays Legendary.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — needs a Stripe plan switch
 
@@ -508,7 +516,7 @@ better: reinstating now re-checks Stripe first. Before, if the user's
 subscription had been cancelled while a webhook went missing, reinstating
 them would have handed Legendary back based on a stale local row.
 
-**Lane:** live
+**Lane:** scripted
 
 **Deferred:** #566 — the Stripe fake — reinstating re-checks Stripe
 

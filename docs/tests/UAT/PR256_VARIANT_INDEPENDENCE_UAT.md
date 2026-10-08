@@ -122,6 +122,8 @@ rather than double-running.
 
 **Check:** `artifacts/api-server/src/__tests__/factPexelsJobs.test.ts:is stable per fact id`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 10. Backfill AI memes follows the same pattern
 
 **Do:** Click "Backfill AI memes" and confirm.
@@ -173,6 +175,8 @@ button, and it's no longer picked up by "Send next 50 stale" automatically.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
 
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 14. A flagged fact can still be retried deliberately
 
 **Do:** Check that fact's row box and use "Send selected".
@@ -183,6 +187,8 @@ way to clear the flag.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 15. Bulk send-back reports any facts it excluded
 

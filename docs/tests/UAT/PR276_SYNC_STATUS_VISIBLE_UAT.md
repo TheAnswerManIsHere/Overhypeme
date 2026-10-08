@@ -38,6 +38,8 @@ bug.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+
 ### 2. A green summary when the last sync worked
 
 **Do:** Click "Sync Stripe data" and let it finish.
@@ -59,6 +61,8 @@ doesn't revert to a bare product count.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:surfaces stored row state (running / complete / error) and per-resource counts derived from the data tables`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 4. A failed sync shows a red summary — the main event
 
@@ -82,6 +86,8 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+
 ### 6. The failure survives a reload
 
 **Do:** Reload the page after the failed sync.
@@ -93,6 +99,8 @@ and you'd see a cheerful product count instead.
 **Lane:** scripted
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
 
 ### 7. The summary names which resource failed
 
@@ -159,6 +167,8 @@ disables then re-enables.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+
 ### R2. Full sync still works across all resources
 
 **Do:** Click "Full sync".
@@ -178,6 +188,8 @@ disables then re-enables.
 **Lane:** scripted
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
 
 ### R4. The product count is still accurate
 
