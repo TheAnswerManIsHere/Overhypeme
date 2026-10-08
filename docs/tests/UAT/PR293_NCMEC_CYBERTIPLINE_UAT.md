@@ -36,6 +36,10 @@ three are freely editable like any other setting: `NCMEC Safety Alert
 Email`, `NCMEC Submit — Max Attempts`, and `NCMEC Submit — 4th Retry
 Delay (ms)`.
 
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 14 (compliance)
+
 ### 2. A reserved setting refuses to save
 
 **Do:** Find "NCMEC Submission Enabled" (or any of: "NCMEC ISPWS
@@ -47,6 +51,10 @@ message: *"This key controls NCMEC CyberTipline filing and cannot be
 written through the generic config route. Use the safety admin surface,
 which validates the resulting configuration before applying it."*
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
+
 ### 3. A refused save doesn't actually write
 
 **Do:** Reload the page after the failed save in the previous step (the
@@ -55,6 +63,10 @@ doesn't reset the field on its own).
 
 **Expect:** The value is back to what it was before your edit — your
 attempt did not take effect.
+
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 14 (compliance)
 
 ### 4. Unrelated config keys still work normally
 
@@ -69,6 +81,10 @@ it's fine to edit and set back like any other key.
 **Expect:** Works exactly as before — this PR only added a refusal for
 the five NCMEC keys named in step 2, nothing else on the page changed.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ## Regression
 
 ### R1. `/admin/config` loads normally
@@ -77,11 +93,19 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 
 **Expect:** Loads normally, all existing keys still present.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+
 ### R2. A normal config key still saves
 
 **Do:** Edit a normal (non-NCMEC) config key.
 
 **Expect:** Saves normally.
+
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ### R3. NCMEC Safety Alert Email is editable like any unreserved key
 
@@ -91,6 +115,10 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 save button — but don't actually save to it if it's currently empty (see
 step 4's note).
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:still writes ncmec_safety_alert_email, which is deliberately not reserved`
+
 ### R4. NCMEC Submission Enabled still refuses to save
 
 **Do:** Edit "NCMEC Submission Enabled" and save.
@@ -98,12 +126,20 @@ step 4's note).
 **Expect:** Fails with the inline red refusal message; value unchanged
 after a page reload.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
+
 ### R5. Ordinary product use is unaffected
 
 **Do:** Sign in, browse facts, and make a meme.
 
 **Expect:** All unaffected — this PR touches only the admin config route
 and a new, uncalled backend client.
+
+**Lane:** scripted
+
+**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
 
 ## Not bugs
 

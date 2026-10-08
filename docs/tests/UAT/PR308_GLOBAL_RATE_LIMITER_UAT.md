@@ -46,6 +46,10 @@ pages, make a meme, whatever your usual click-through covers.
 **Expect:** Nothing looks or feels different. No new errors, no slowdowns,
 no unexpected redirects.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 2. A video or image generation completes normally
 
 **Do:** Start a real video generation (or a PuLID image generation) and let
@@ -54,12 +58,20 @@ it run to completion, the way you normally would.
 **Expect:** The loading screen behaves exactly as before — progress bar
 moves, stages transition, and it lands on the finished result.
 
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 4 (cut and prune; video and PuLID generation retired with the cut)
+
 ### 3. Admin pages still load
 
 **Do:** Open any admin screen (Taxonomy Health, moderation queue, whatever
 you'd normally check).
 
 **Expect:** Loads normally, no new errors.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ## Regression
 
@@ -69,17 +81,29 @@ you'd normally check).
 
 **Expect:** Works normally.
 
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 5 (account and identity)
+
 ### R2. The facts feed browses normally
 
 **Do:** Browse the facts feed.
 
 **Expect:** Works normally, no slowdown.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+
 ### R3. A meme completes — image flow
 
 **Do:** Make a meme using the image flow.
 
 **Expect:** Completes normally.
+
+**Lane:** scripted
+
+**Deferred:** #631 — increment 3 (storage double)
 
 ### R4. A meme completes — video flow
 
@@ -88,6 +112,10 @@ you'd normally check).
 **Expect:** Completes normally, including the "forging your likeness" and
 "setting you in motion" stages.
 
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 4 (cut and prune; video flow retired with the cut)
+
 ### R5. Fact submission is unaffected
 
 **Do:** Submit a fact.
@@ -95,11 +123,19 @@ you'd normally check).
 **Expect:** Works normally — still protected by its own stricter,
 pre-existing limit.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+
 ### R6. Admin Taxonomy Health loads
 
 **Do:** Open Admin → Taxonomy Health.
 
 **Expect:** Loads normally.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### R7. Admin Queue Health loads
 
@@ -107,11 +143,19 @@ pre-existing limit.
 
 **Expect:** Loads normally.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:renders inside the admin console for an admin`
+
 ### R8. A shared meme link still unfurls
 
 **Do:** Share a meme link (unfurl preview on iMessage/Slack/etc.).
 
 **Expect:** The preview image still renders.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/phase5.og.routes.test.ts:returns 200 with full og:* tags and 1h cache`
 
 ## Not bugs
 

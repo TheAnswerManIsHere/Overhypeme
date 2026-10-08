@@ -23,6 +23,10 @@ fact page / meme builder.
 is correct, intended behavior: it means the variant hasn't been backfilled
 yet (see step 8), not that something is broken.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:a variant with no images of its own shows none — it does NOT inherit its root's pexelsImages/aiMemeImages (variant independence)`
+
 ### 2. A variant's Pexels panel is now visible in the Facts editor
 
 **Do:** Open a variant (not a root) in the admin Facts editor.
@@ -30,12 +34,20 @@ yet (see step 8), not that something is broken.
 **Expect:** The "Pexels Image Pipeline" panel is visible and usable for the
 variant — previously it was hidden entirely, root-only.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 3. A variant can refresh its own images
 
 **Do:** Click "Refresh images" on the variant from the previous step.
 
 **Expect:** It succeeds and generates the variant's own stock images,
 independent of its root's.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:a variant (parentId set) is accepted — images are no longer root-only (variant independence)`
 
 ### 4. A variant can generate its own AI meme background
 
@@ -45,6 +57,10 @@ variant fact.
 **Expect:** It's accepted and generates — previously rejected with "AI meme
 generation only supported on root facts."
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts:a variant (parentId set) is accepted — AI image generation is no longer root-only (variant independence)`
+
 ### 5. Editing a root's text no longer blocks on its variants
 
 **Do:** Edit a root fact's text (with the confirmation phrase) while one of
@@ -52,6 +68,10 @@ its variants has an unresolved review or an active enrichment job in flight.
 
 **Expect:** The root edit goes through immediately — it's no longer blocked
 waiting on the variant.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:does NOT block a root edit when a child is mid-review`
 
 ### 6. Editing a root's text no longer marks its variants stale
 
@@ -62,6 +82,10 @@ enrichment / `stale_for_reprocess` state.
 edit would mark every child variant stale, forcing them to re-enrich for no
 reason.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:does NOT clear child variant signatures on a confirmed root edit`
+
 ### 7. Bulk Media Backfill panel is on Taxonomy Health
 
 **Do:** Go to Admin → Taxonomy Health.
@@ -69,6 +93,10 @@ reason.
 **Expect:** A new "Bulk Media Backfill" section appears near the top, with
 three buttons: Backfill images, Backfill Pexels, Backfill AI memes. It's
 visible regardless of which health card filter is selected.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:is visible regardless of the selected card filter (not gated like send-back)`
 
 ### 8. Backfill images enqueues durable jobs
 
@@ -78,6 +106,10 @@ visible regardless of which health card filter is selected.
 for every active fact (root or variant) missing images, and a live status
 line shows "N of M done" as jobs complete.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill images' confirms before firing and posts to backfill-images`
+
 ### 9. Re-clicking Backfill images while jobs run is safe
 
 **Do:** Re-click "Backfill images" while jobs from the previous step are
@@ -86,6 +118,10 @@ still running.
 **Expect:** It's safe — already-queued facts dedupe onto their existing job
 rather than double-running.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/factPexelsJobs.test.ts:is stable per fact id`
+
 ### 10. Backfill AI memes follows the same pattern
 
 **Do:** Click "Backfill AI memes" and confirm.
@@ -93,6 +129,10 @@ rather than double-running.
 **Expect:** The same confirm → enqueue → live status pattern as Backfill
 images; the confirmation message notes this one calls paid OpenAI/fal.ai
 APIs.
+
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ### 11. A root with an active variant can be sent back to review
 
@@ -105,12 +145,20 @@ touching its variants first, since the root's refresh can no longer
 invalidate them. (Previously this failed with "This fact has active
 variants. Refresh the variants individually instead of the root.")
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them`
+
 ### 12. Bulk send-back now picks up roots with active variants
 
 **Do:** Click "Send next 50 stale" (the corpus-wide bulk button).
 
 **Expect:** It now picks up roots with active variants too, instead of
 silently skipping them forever.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a stale root with an active variant is eligible — variants classify from their own text, so a root refresh can't invalidate them`
 
 ### 13. Repeated-failure protection flags a fact after 3 failures
 
@@ -121,12 +169,20 @@ Taxonomy Health row.
 **Expect:** It shows a "3 failed attempts" badge next to the send-back
 button, and it's no longer picked up by "Send next 50 stale" automatically.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
+
 ### 14. A flagged fact can still be retried deliberately
 
 **Do:** Check that fact's row box and use "Send selected".
 
 **Expect:** It works normally, with no special rejection — this is the only
 way to clear the flag.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
 
 ### 15. Bulk send-back reports any facts it excluded
 
@@ -137,6 +193,10 @@ repeated-failure protection.
 after repeated failures — investigate before considering the migration
 complete") so it's never silently missed.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ## Regression
 
 ### R1. Root fact images, memes, and enrichment are unchanged
@@ -145,11 +205,19 @@ complete") so it's never silently missed.
 
 **Expect:** Unchanged — still works exactly as before.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### R2. The public fact feed / detail page for roots is unchanged
 
 **Do:** View the public feed and detail page for a root fact.
 
 **Expect:** Unchanged.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:returns the fact, its rank, and link/variant arrays on success`
 
 ### R3. Send-back for a root with no variants is unchanged
 
@@ -157,17 +225,29 @@ complete") so it's never silently missed.
 
 **Expect:** Unchanged.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:starts a refresh cycle: candidate + new review, createdBy = the admin, ids echoed`
+
 ### R4. Single-fact "Refresh images" on a root is unchanged
 
 **Do:** Click "Refresh images" on a single root fact (not the bulk panel).
 
 **Expect:** Unchanged.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### R5. The Facts editor for a root fact is unchanged
 
 **Do:** Open the Facts editor for a root fact.
 
 **Expect:** Unchanged.
+
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ## Not bugs
 
