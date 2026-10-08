@@ -124,6 +124,28 @@ worst available: pass every feature step, declare `Accepted`, never run the
 sweep. A false pass makes this session *worse* than the file it replaced.
 Hence one format, one rule (David, 2026-08-22; #554, #560).
 
+**Lanes decide who verifies each step, and only `human` reaches David**
+(David, 2026-10-07; [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
+Before the first human step, I resolve every machine-lane step myself and
+show him the result in one block — never one per turn, and never as a
+question:
+
+- **`ci`** — I confirm the cited check ran and passed **on the commit under
+  test** (the check runs of that commit, or the test file run locally at that
+  commit). A green run on a different commit is not evidence.
+- **`scripted`** — I run the cited spec, script or command, or read evidence
+  recorded **for this commit**, and keep the output.
+- **`live`** — I run the cited check through the live-environment connector,
+  read-only unless the step says otherwise, and quote what it printed.
+- **`Deferred:`** — not run; listed as outstanding with its owner. Never a
+  pass, never a skip he can wave through.
+
+Each gets the same four statuses as a human step, with its evidence in the
+record. A machine-lane step that fails is a failure like any other: section 4
+applies, and I file it before he sees the first human step. **He sees the
+machine block, then only the human steps** — so the preview says both counts
+("9 machine-lane checks, all passed; 3 steps for you").
+
 **One step per turn.** What to do, what to expect, nothing else. Not the
 next step, not the section after, not the reasoning behind the expectation
 unless he asks. He is clicking, not reading.
@@ -330,7 +352,7 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks included**. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The doc-wrong case counts only re-run per section 3 |
+| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks and machine lanes included**; a `Deferred:` step is never a pass, so a doc whose only evidence for a claimed behaviour is deferred cannot be Accepted. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The doc-wrong case counts only re-run per section 3 |
 | **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
 | **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
 
@@ -363,7 +385,7 @@ Then, in one edit:
 
 - **On an accepted verdict, drive close-out to done rather than parking
   there.** An accepted UAT is the last David-gate; what remains of close-out
-  is mine (the harvest-notes comment for a product feature, any outstanding
+  is mine (the harvest-notes comment for a production-phase product feature — a prototype-phase one posts none, per [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26) — any outstanding
   item the State of Play lists). Do what remains, and when nothing is left,
   set `stage:done` and close the issue as completed, with a comment naming
   the PR(s) — the shared rule is
@@ -442,4 +464,6 @@ The walkthrough is conversational and cheap; the judgement calls in it are
 not. Severity reads, the is-this-a-bug-or-a-design-change split, and the
 bug intake all happen in **my main loop** — never routed to a subagent,
 which would be a cold worker guessing at a session it didn't sit through.
-No tier switch, no ask; the session is Opus.
+No tier switch and no ask: a walkthrough is not building, so it runs on
+whatever the session is (`CLAUDE.md`'s *Model, cost, and routing* asks for
+Opus only before product code).

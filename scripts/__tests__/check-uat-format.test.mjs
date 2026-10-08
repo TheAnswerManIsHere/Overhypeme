@@ -17,12 +17,12 @@ const doc = ({ title, setup, steps, regression, tail = "" } = {}) =>
     "",
     "## Steps",
     "",
-    steps ?? ["### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual."].join("\n"),
+    steps ?? ["### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", "**Lane:** human"].join("\n"),
     "",
     "## Regression",
     "",
     regression ??
-      ["### R1. Sidebar unchanged", "", "**Do:** Look at it.", "", "**Expect:** Same items."].join("\n"),
+      ["### R1. Sidebar unchanged", "", "**Do:** Look at it.", "", "**Expect:** Same items.", "", "**Lane:** human"].join("\n"),
     "",
     tail,
   ].join("\n");
@@ -216,4 +216,47 @@ test('a heading after "None." is validated normally, not silently exempted', () 
   const found = scanDoc(NAME, doc({ regression: withHeading }));
   assert.ok(found.length > 0, "a heading after None. must still be checked");
   assert.ok(found.some((p) => p.includes("Do:") || p.includes("Expect:")));
+});
+
+// --- lanes ------------------------------------------------------------------
+
+const step = (...fields) =>
+  ["### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", ...fields].join("\n");
+const real = (rel) => rel === "e2e/help.spec.ts" || rel === "src/__tests__/help.test.ts";
+const scan = (steps) => scanDoc(NAME, doc({ steps }), { exists: real });
+
+test("every lane is accepted, and a machine lane with an existing check passes", () => {
+  assert.deepEqual(scan(step("**Lane:** human")), []);
+  assert.deepEqual(scan(step("**Lane:** ci", "", "**Check:** `src/__tests__/help.test.ts`")), []);
+  assert.deepEqual(scan(step("**Lane:** scripted", "", "**Check:** `e2e/help.spec.ts:opens the manual`")), []);
+  assert.deepEqual(scan(step("**Lane:** live", "", "**Check:** `curl -sI https://example.test/help`")), []);
+});
+
+test("a step with no lane, two lanes, or an unknown lane is a finding", () => {
+  assert.ok(scan(step()).some((p) => p.includes("0 **Lane:** lines")));
+  assert.ok(scan(step("**Lane:** human", "**Lane:** ci")).some((p) => p.includes("2 **Lane:** lines")));
+  assert.ok(scan(step("**Lane:** manual")).some((p) => p.includes('lane "manual"')));
+});
+
+test("a regression check needs a lane too", () => {
+  const found = scanDoc(NAME, doc({ regression: "### R1. Still there\n\n**Do:** Look.\n\n**Expect:** Yes." }), { exists: real });
+  assert.ok(found.some((p) => p.includes('"R1. Still there"') && p.includes("**Lane:**")));
+});
+
+test("a machine lane without a check, or with an unbackticked one, is a finding", () => {
+  for (const lane of ["ci", "scripted", "live"]) {
+    assert.ok(scan(step(`**Lane:** ${lane}`)).some((p) => p.includes("no **Check:**")), lane);
+  }
+  assert.ok(scan(step("**Lane:** ci", "**Check:** the help test")).some((p) => p.includes("backticked")));
+});
+
+test("a check citing a file that does not exist is a finding; a command is not checked as a path", () => {
+  assert.ok(scan(step("**Lane:** ci", "**Check:** `src/__tests__/gone.test.ts`")).some((p) => p.includes("does not exist")));
+  assert.deepEqual(scan(step("**Lane:** scripted", "**Check:** `pnpm run e2e:acceptance`")), []);
+});
+
+test("a deferred machine step needs an owner but no check; a human step needs no check", () => {
+  assert.deepEqual(scan(step("**Lane:** ci", "**Deferred:** #631 — the storage double lands first")), []);
+  assert.ok(scan(step("**Lane:** ci", "**Deferred:** later")).some((p) => p.includes("without an owner")));
+  assert.deepEqual(scan(step("**Lane:** human", "**Deferred:** #628 — rebuilt in Phase 7")), []);
 });

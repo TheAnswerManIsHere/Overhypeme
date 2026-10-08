@@ -18,6 +18,12 @@
 // real oracle or whether a regression check is worth running -- those stay
 // human. It catches the one class that is regular: a doc `/uat` cannot drive.
 //
+// It also checks LANES: every step names where it is verified (ci, scripted,
+// live, human), and a machine-lane step cites the check that runs it, unless
+// it is Deferred to a named owner. It cannot tell whether the cited check
+// really asserts what the step expects -- that stays with review -- but it
+// does refuse a citation that points at a file that is not there.
+//
 // Dependency-free, like the other docs guards.
 //
 // Run locally:  node scripts/check-uat-format.mjs
@@ -30,6 +36,22 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const UAT_DIR = "docs/tests/UAT";
 
 const SETUP_TAGS = ["[claude]", "[david]", "[restore]"];
+
+/**
+ * The four verification lanes (uat-doc-format.md, *Lanes*). Every step names
+ * exactly one. Only `human` reaches David; the other three are run by a
+ * machine, so each must say which check runs it.
+ */
+export const LANES = ["ci", "scripted", "live", "human"];
+
+/**
+ * A `**Check:**` must cite something a reader can go and run: a backticked
+ * repo path or a backticked command. A path-shaped citation (it contains a
+ * slash and ends in a file extension, optionally followed by `:<anything>`
+ * naming a test inside the file) must exist, so a check cannot quietly point
+ * at a file that was renamed or never written.
+ */
+const PATHISH = /^([\w./@-]+\/[\w.@-]+\.[a-z0-9]+)(?::.*)?$/i;
 
 /** Section boundaries, in the order the format requires them. */
 const REQUIRED = ["## Setup", "## Steps", "## Regression"];
@@ -47,7 +69,7 @@ export function uatFiles(root = ROOT) {
  * Structural findings for one doc. Exported so the guard's own behaviour is
  * testable without the filesystem, matching the other docs guards.
  */
-export function scanDoc(filename, text) {
+export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT, rel)) } = {}) {
   const problems = [];
   const lines = text.split("\n");
   const say = (msg) => problems.push(msg);
@@ -181,6 +203,44 @@ export function scanDoc(filename, text) {
     const heading = lines[startLine - 1].replace(/^### /, "");
     if (dos !== 1) say(`${startLine}: step "${heading}" has ${dos} **Do:** lines, needs exactly 1`);
     if (exps !== 1) say(`${startLine}: step "${heading}" has ${exps} **Expect:** lines, needs exactly 1`);
+
+    // --- the lane, and for a machine lane the check that runs it ----------
+    // Without a lane the step defaults to David, which is the failure the
+    // lanes exist to end: a mechanical step reaching the slowest verifier.
+    const field = (marker) => body.filter((l) => l.trim().startsWith(marker)).map((l) => l.trim().slice(marker.length).trim());
+    const lanes = field("**Lane:**");
+    const checks = field("**Check:**");
+    const deferred = field("**Deferred:**");
+    if (lanes.length !== 1) {
+      say(`${startLine}: step "${heading}" has ${lanes.length} **Lane:** lines, needs exactly 1 (one of ${LANES.join(" / ")})`);
+      return;
+    }
+    const lane = lanes[0].replace(/[`.]/g, "").trim();
+    if (!LANES.includes(lane)) {
+      say(`${startLine}: step "${heading}" has lane "${lanes[0]}", must be one of ${LANES.join(" / ")}`);
+      return;
+    }
+    if (checks.length > 1) say(`${startLine}: step "${heading}" has ${checks.length} **Check:** lines, needs at most 1`);
+    if (deferred.length > 1) say(`${startLine}: step "${heading}" has ${deferred.length} **Deferred:** lines, needs at most 1`);
+    if (deferred.length === 1 && !/#\d+/.test(deferred[0])) {
+      say(`${startLine}: step "${heading}" is **Deferred:** without an owner — name the issue that owns it (#N)`);
+    }
+    // A deferred step is not yet runnable in its lane, so it may not have a
+    // check yet; every other machine-lane step must cite one.
+    if (lane !== "human" && deferred.length === 0) {
+      if (checks.length === 0) {
+        say(`${startLine}: step "${heading}" is lane "${lane}" with no **Check:** — name the test, script or command that runs it`);
+      } else {
+        const cited = [...checks[0].matchAll(/`([^`]+)`/g)].map((m) => m[1].trim());
+        if (cited.length === 0) {
+          say(`${startLine}: step "${heading}" **Check:** must cite a backticked repo path or command`);
+        }
+        for (const c of cited) {
+          const m = PATHISH.exec(c);
+          if (m && !exists(m[1])) say(`${startLine}: step "${heading}" **Check:** cites \`${m[1]}\`, which does not exist`);
+        }
+      }
+    }
   });
 
   return problems;

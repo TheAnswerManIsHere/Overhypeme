@@ -181,9 +181,11 @@ scenario; it remains an auditable override for any other render scenario.
 
 ## Verification is a prerequisite
 
-The scripted-verification build (Phase 2 of #628) completes **before any
-product phase starts**, so every later phase ships with its mechanical checks
-scripted and David's share of a UAT is the human residue. The four-lane model:
+The scripted-verification build (Phase 2 of #628, plan on #631) completes
+**before any product phase starts**, so every later phase ships with its
+mechanical checks scripted and David's share of a UAT is the human residue.
+One part runs in parallel instead: the Stripe fake (#566) gates only
+Phase 10, membership (David, 2026-10-08). The four-lane model:
 a CI test for an invariant; a scripted proof with evidence, re-runnable on
 demand; a live check on the deployed origin; and David's judgement. Only the
 first enters the per-PR gate. Every remaining UAT step maps to one of four

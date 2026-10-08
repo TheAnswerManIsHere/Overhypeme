@@ -13,6 +13,33 @@
 
 ---
 
+### 2026-10-08 · UAT steps carry a verification lane; the Stripe fake gates only Phase 10; the legacy fixture keeps shapes and approved fact text
+- **Decision:** Launch Phase 2's plan (#631) approved by David: *"1:
+  Approved."* Three consequences recorded here. (1) **Every UAT step names a
+  lane** — `ci`, `scripted`, `live` or `human` — and only `human` reaches
+  David; a machine-lane step cites the check that runs it, and a step that
+  cannot run in its lane yet is `Deferred:` to a named owner and is never a
+  pass (`docs/tests/uat-doc-format.md`, now shipped by the handbook). (2)
+  **The Stripe fake gates only Phase 10** — *"Gate only Phase 10"* — so
+  Phases 3–9 start once Phase 2's other increments land; Astra recommended
+  keeping the original gate as the agreed order, recorded as dissent. (3)
+  **The legacy test fixture is shapes only, committed, with approved live
+  fact text kept**: every identity, credential, Stripe id and image becomes
+  synthetic; rejected, pending and reported facts get placeholder text; the
+  2026-08-28 excluded row classes never leave the source.
+- **Why:** David is the slowest verifier and most UAT steps are mechanical;
+  a lane makes that visible per step and lets `/uat` show him only judgement.
+  The Stripe fake is the slowest, riskiest Phase 2 piece and only Phase 10
+  needs it; paid-user journeys run without it because paid users are granted
+  through the entitlement model. The fixture's value is old row shapes, the
+  repository is public, and approved facts are meant to be public anyway.
+- **Reference:** #631; TheAnswerManIsHere/AI-Handbook#187 (the lane format).
+- **Revisit if:** a step's lane hides a real gap (a `ci` check that does not
+  assert what the step expects) — the fix is the check, not a return to
+  manual steps.
+
+---
+
 ### 2026-10-07 · Country eligibility at the US launch: everyone except GDPR territories and OFAC countries
 - **Decision:** David: *"I'm happy to have users from anywhere other than
   GDPR and OFAC countries."* At the Full launch (US) stage the service admits
