@@ -28,10 +28,11 @@ context *is* the subject matter, and a subagent has none of it — the same
 reason a `/document` harvest isn't routable.
 
 **That makes this a standing dispatch BAR under `CLAUDE.md`'s
-*Whether a judgement dispatches is fixed in advance*** — pre-registered here,
+*Model, cost, and routing* (an unclassified judgement does not dispatch; a dispatch bar is a contract change)** — pre-registered here,
 in writing, rather than claimed in the moment. It is deliberately **not**
-overridden by the 2026-08-17 always-Fable rule for dispatched judgements, and
-the reason is functional rather than a plea about context: a dispatched
+one of the core's named strongest-tier judgements (and was not overridden by
+the 2026-08-17 always-Fable rule while that stood, until David narrowed it on
+2026-10-04), and the reason is functional rather than a plea about context: a dispatched
 judgement packages **material plus its evidence** for a verdict, while the
 Step 1 verdict below is **enumeration from memory** — you cannot package what
 you have not yet noticed, and noticing is the whole task. A stronger model
@@ -199,8 +200,11 @@ The block carries these seven, in order:
    exist", so the new session concludes the handoff pointed it at something
    imaginary. Name the tool with its server prefix: a bare `add_repo` does not
    resolve, and the session then has to guess.
-4. **Mode and tier** — feature or bugfix, the ceremony tier, and which skill
-   to invoke on entry (`/status` is the safe default first move).
+4. **Mode, phase and tier** — feature or bugfix, the feature's phase
+   (production, or prototype by David's declaration, with the regime —
+   [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)),
+   the ceremony tier, and which skill to invoke on entry (`/status` is the safe
+   default first move).
 5. **Settled — do not re-open** — the inline list from the handoff comment.
 6. **First action** — one concrete instruction, not a menu.
 7. **Out of scope** — what this session is explicitly not doing, so it

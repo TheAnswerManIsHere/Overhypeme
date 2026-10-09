@@ -44,7 +44,11 @@ whose plan cited one is itself a finding.
 
 **The body names the oracle's source on one plain line**, `Oracle source:` —
 the approved plan's filename and full sha256 digest, the issue where the scope
-was agreed, the bugfix tier, or `no plan`
+was agreed, the bugfix tier, `no plan`, or `prototype phase — <feature>` with
+the questions file named beside it and, for a first version or a later one
+David asked a loop for, the approved plan's digest — otherwise a
+prototype-phase PR has no plan and no bug behind it and is judged by its
+owner alone ([`working-modes.md`](../ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26))
 ([`claude-core.md` Pull requests rule 4](../../.agents/core/claude-core.md#pull-requests)).
 Nothing parses it. In a multi-round plan review, an oracle pasted from an
 earlier revision is a plausible failure and an invisible one: the PR looks
@@ -123,8 +127,10 @@ and specifically ask:
   regardless of which of those five it trips. Flag that first. **A
   behavior/product change is unconditionally a full-plan finding —
   there is no trivial exception for it, ever**; a bugfix PR can't carry
-  approval for a behavior change it has no plan for, full stop. The trivial
-  exception is narrower than "Tier C" and applies **only** to a
+  approval for a behavior change it has no plan for, full stop (a
+  prototype-phase PR claims no tier and, when its version had no plan — a
+  later one David asked no loop for — is oracled by its owner, above). The
+  trivial exception is narrower than "Tier C" and applies **only** to a
   schema/migration/backfill fix, per `working-modes.md`'s Tier C section: a
   **non-trivial** one needs a full plan and David's approval before it ran,
   which a bugfix PR obviously can't have; a genuinely **trivial** one is
@@ -164,9 +170,10 @@ style nit.
 
 ### Documentation-only PRs get a light review (David, 2026-08-08)
 
-**Most documentation PRs no longer get a Codex review at all.** Since
+**Most documentation PRs no longer get a Codex review round.** Since
 2026-09-25 they are the **Documentation class**: one Astra and Fable pass over
-the change, Codex's output not read, one batch, merge ([`working-modes.md`](../ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25), the rule's
+the change, with Codex's automatic pass on PR-open as one input to it (since
+2026-10-04), one batch, merge ([`working-modes.md`](../ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25), the rule's
 home). What follows is the bar for a docs-only PR that stays in the standard
 loop — one that changes the review loop or an agent's latitude.
 
@@ -440,7 +447,9 @@ two limits are independent, so a security bounce can fire *during* a real
 code-review outage, and testing for "no review **and** no bounce" would let
 that unrelated comment mask the outage indefinitely. That case still exists,
 and since 2026-08-17 it is a **development stop**, not a stakes-graded
-proceed: **every PR gets a code review, and nothing merges until it returns.**
+proceed: **every PR in the standard loop gets a code review, and nothing
+merges until it returns** (a prototype-phase change never enters the loop —
+working-modes.md, *The prototype phase, per feature*).
 How many rounds follow is the **two-review limit**'s
 ([`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) on work it
 bounds; nothing governs whether the first one has to come back. The Worth rule
@@ -588,11 +597,10 @@ sentence was not precise enough.
 
 **PR #504 is the worked example: five definitions of one boundary failed in
 sequence**, each refuted by a concrete counter-example, while the behaviour
-underneath never changed. The enumeration and what each attempt got wrong are
-in `CLAUDE.md`'s *Model, cost, and routing*, under the rule that an
-unclassified judgement does not dispatch — not repeated here, since the
-instance belongs to that contract and only the generalization belongs in shared
-review practice.
+underneath never changed. The rule that survived is in `CLAUDE.md`'s *Model,
+cost, and routing* — an unclassified judgement does not dispatch — and the five
+attempts themselves are recorded only in #504's own review threads; what
+belongs in shared review practice is the generalization.
 
 **What actually ended it was two things arriving together, and neither was a
 better sentence:** an owner resolving what a dispatched assessment is *worth*,

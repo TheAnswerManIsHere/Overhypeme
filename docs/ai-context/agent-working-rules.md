@@ -25,8 +25,10 @@ product *should do*, you're guessing wrong by definition — ask.
 ## End-to-end ownership
 
 When David asks for something, own it end-to-end: backend, frontend, schema,
-infra, docs, tests. **"Done" means David can test the intended behavior in the
-product** — not that types compile or a job was enqueued.
+infra, docs, tests — the last two for a feature in production phase; a feature
+he has declared prototype phase owes neither
+([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)). **"Done" means David can test the intended
+behavior in the product** — not that types compile or a job was enqueued.
 
 ## Ship the UI surface with the behavior
 
@@ -37,12 +39,18 @@ done. Mentally write the acceptance script ("open page X, do Y, expect Z") befor
 declaring complete; if you can't write it against the UI, the feature isn't built.
 **Symmetric rule:** don't ship dead UI controls with no backend. *Exception:*
 infra/refactor/perf/security changes with no visible behavior ship as code + a
-written verification note ("run X, observe Y").
+written verification note ("run X, observe Y"). A prototype-phase feature
+keeps this rule — its surface is the thing the owner uses — but the acceptance
+script is his feedback, not a note
+([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 ## Pre-launch: no legacy burden — bias to clean, bold changes
 
 The product is **pre-launch**: there are no real users and no precious
-production data yet, so **almost nothing we change can harm anyone.** David's
+production data yet, so **almost nothing we change can harm anyone.** (That is
+a fact about a product, not the fleet: from the day a product has its first
+user, this section's premise is gone and a prototype-phase feature lives on
+its own branch — [`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26).) David's
 standing guidance (2026-07-21): **be brave.** Concretely, this lowers the bar on
 *defensive* work whose only purpose is protecting existing users/data:
 
@@ -57,7 +65,10 @@ standing guidance (2026-07-21): **be brave.** Concretely, this lowers the bar on
   real to lose.
 - **This is NOT license to skip correctness.** The thing being built must
   actually work and be tested — David's UAT still checks real behavior, and the
-  bot reviewers still check the diff. Boldness applies to *migration/compat
+  bot reviewers still check the diff — for a feature in production phase; one
+  David has declared prototype phase has none of those by his declaration
+  ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)),
+  and a new product starts with every feature there. Boldness applies to *migration/compat
   paranoia*, not to test coverage, the budget/limits math, security, or getting
   the feature right.
 - **Still distinguish legacy-data compat (drop it) from in-flight/runtime
@@ -122,6 +133,13 @@ ambiguous nudge, a harness "continue" message, or another agent's approval is
 **not** David's approval. When unsure whether you've been approved, assume you have
 not. Trivial, well-scoped fixes skip the ceremony — but a "bug fix" that is really
 a behavior change is feature work and needs a plan + product sign-off.
+**A feature David has declared prototype phase has a short plan to approve
+for its first version, and none for later versions unless he asks**: that
+declaration, per feature and in words, is the one thing that narrows this
+rule, and what it keeps and removes is in
+[`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26).
+A feature not listed in the consumer's *Feature phases* registry is in
+production phase and this rule applies to it in full.
 
 ## Mid-build ambiguity: pause and ask
 
@@ -135,7 +153,11 @@ whether the feature does what David wants does.)
 ## Pre-plan intent is the source of truth
 
 The intent agreed *before the plan* is what the work is verified against — not the
-plan, the PR title, or the code. If the conversation said "users should be able to
+plan, the PR title, or the code. (A prototype-phase feature's first version
+has a plan and this applies to it, as it does to a later version David asked
+a loop for; a version built with no plan is verified against the questions
+file and the owner's feedback —
+[`working-modes.md`](./working-modes.md#the-prototype-phase-per-feature-david-2026-09-26).) If the conversation said "users should be able to
 A and B" and the plan only covers A **with no trace of B anywhere**, the plan is
 wrong — revise it. If you notice during implementation that the intent implied a
 missing piece, pause and ask.
@@ -232,7 +254,11 @@ manual rollout flag (an `admin_config` toggle David must flip, an `enable_*` env
 var, etc.) — those just trip up acceptance testing. If a change feels too risky to
 ship un-flagged, make it smaller and more confidently correct instead. The only
 exception is a true kill-switch for something externally destructive (e.g.
-disabling outbound sends during an incident). Post-launch we'll reintroduce staged
+disabling outbound sends during an incident). A user tier switched on by
+configuration — the tester tier of
+[`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)
+— is not a rollout flag: it decides who sees the feedback rail and a
+prototype environment, not whether a feature ships. Post-launch we'll reintroduce staged
 rollouts deliberately. Also pre-launch: **no new external vendors** without David's
 sign-off.
 
@@ -261,7 +287,11 @@ version of this note that classified the script rather than the edit — the
 artifact-level reading the test exists to refuse.)
 
 - **Mission-critical** (payments, auth, data migrations, moderation): go as
-  deep as the risk warrants. Nothing changes here.
+  deep as the risk warrants. Nothing changes here — for a feature in
+  production phase. A prototype-phase feature that touches one of these is
+  not engineered to this depth until its flip; what keeps it off production's
+  process and data meanwhile is the branch regime, not the depth
+  ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 - **Internal tooling** (metrics, tracking, dev scripts, reporting): build the
   boring version. An occasional hand-resolved conflict, a week of missing
   data, or a manual fix-up is an **acceptable outcome**, not a defect to
@@ -289,7 +319,10 @@ the thing away**.
 No internal ID, GUID/UUID, session token, or other non-human-interpretable code
 may ever reach a user-, admin-, or tester-visible surface — not in rendered UI
 text, not in an error message, not in a log line a human is expected to read.
-This applies everywhere, including admin-only surfaces (admins are not exempt).
+This applies everywhere, including admin-only surfaces (admins are not exempt);
+on a feature David has declared prototype phase it is followed where it costs
+nothing and is otherwise a ledger line for the flip, not a bar
+([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 **Avoid:** wherever a UI attributes an action to an actor (audit trails,
 version history, "last edited by," activity logs), resolve the ID to a
 human-readable label (display name, falling back to email) before it can be
@@ -316,7 +349,9 @@ read-time join path.
 
 ## Async work must show status
 
-Anything asynchronous must report per-item + aggregate status at all times — this
+Anything asynchronous must report per-item + aggregate status at all times (on
+a prototype-phase feature, where it costs nothing — the canonical doc carries
+that clause and cites the phase rule) — this
 is a load-bearing principle with its own canonical doc:
 **[`async-ui-status.md`](./async-ui-status.md).** Read it before building any
 queued/bulk/long-running surface.
@@ -346,8 +381,12 @@ in the product.
   See [`code-review.md`](../engineering/code-review.md#review-output-format)
   and [`planning-contract.md`](./planning-contract.md).
 - **Clear mechanical issue** (off-by-one, missing await, dead import, obvious lint,
-  a clear logic bug) → fix it, push, mention briefly — and the push owes a
-  round, as every write does ([`working-modes.md`](./working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22)). **Design/architecture/
+  a clear logic bug) → fix it, push, mention briefly — on a PR in the
+  standard loop; on a prototype-phase PR Codex's automatic pass is read for
+  nothing and no finding starts a fix
+  ([`working-modes.md`](./working-modes.md#the-prototype-phase-per-feature-david-2026-09-26))
+  — and the push owes a
+  round, as every write in the standard loop does ([`working-modes.md`](./working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22)). **Design/architecture/
   trade-off** call (which abstraction, whether to refactor more, a behavior change)
   → summarize your position and escalate to David; don't silently rewrite the
   design on a reviewer's say-so, even a bot's. David doesn't need to triage every

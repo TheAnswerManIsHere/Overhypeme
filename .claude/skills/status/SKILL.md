@@ -53,6 +53,11 @@ Two rules that matter more than the table:
 
 2. **Read live state.** `issue_read` for labels and body; where a PR exists,
    one batched `pull_request_read` (`get` + `get_status` + `get_review_comments`).
+   A feature David has declared prototype phase under the branch regime has
+   no PR by design: the consumer's *Feature phases* registry names its
+   `prototype/<feature>` branch, and that branch's commits are its activity,
+   so read them before calling it `STALLED`
+   ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
    Find the PR by regex `^Workstream:[ \t]*#(\d+)` (multiline, anchored to the
    start of a line) over `list_pull_requests(state: all, sort: updated,
    perPage: 50)` — the same convention `/status-all` and
@@ -107,5 +112,6 @@ stages are named.
 
 ## Model tier
 
-Ops-shaped, checkable, no product surface → **Sonnet**. No need to flag a
+Ops-shaped, checkable, no product surface → **Sonnet**, per `CLAUDE.md`'s
+*Model, cost, and routing* (mechanical work routes down). No need to flag a
 mismatch if invoked higher.

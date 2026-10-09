@@ -23,15 +23,19 @@ no-empty-chapter quality bar, proportionality, boundaries). I don't restate it
 here.
 
 **This runs batched at `/maintenance`, not per merge (David, 2026-08-20).**
-One pass covers every product feature merged since the last maintenance run.
+One pass covers every production-phase feature merged since the last
+maintenance run; a prototype-phase feature waits for the close-out of the
+hardening PR that follows its flip
+([`documentation-workflow.md`](../../../docs/ai-context/documentation-workflow.md)).
 Process PRs — guards, scripts, skills, contracts, process docs — get no harvest
 at all: anything worth keeping from those is a Type 1 learning, persisted the
 moment it was learned.
 
 **There is no run/don't-run judgement dispatch any more.** It existed to decide
 whether a single merge warranted the whole ceremony; with the ceremony batched
-and a harvest-notes comment posted at every close-out, there is nothing left to
-judge.
+and a harvest-notes comment posted at every production-phase close-out (a
+prototype-phase PR posts none — the phase rule cited above), there is nothing
+left to judge.
 
 **The harvest never runs in a subagent.** Its richest sources are the build
 sessions' own decisions and rejected alternatives, which a cold worker does not
@@ -69,8 +73,8 @@ Decide by what "this" refers to (contract's trigger table):
     workstream issue. Internal **by consequence and recoverability** — a docs
     harvest that touches no approvals, publication, credentials or
     destructive machinery — so it is the **Documentation review class**
-    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)): one Astra and Fable pass over the change, Codex's output not read,
-    one coherent batch of corrections if any are warranted, merge. (Until
+    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)): one Astra and Fable pass over the change, Codex's automatic pass as
+    one input, one coherent batch of corrections if any are warranted, merge. (Until
     2026-09-25 this path was the two-review limit's Codex loop.) Everything below this bullet describes the AD-HOC path's
     **delivery mechanics** only; the termination rule above is common to both.
   - **Ad-hoc standalone invocation** (David asks for one feature directly):
@@ -93,16 +97,16 @@ Decide by what "this" refers to (contract's trigger table):
   scope — prose style, structure preferences, completeness beyond the
   session's actual learnings.* Out-of-scope findings are declined against
   the stated oracle — a harvest is internal by consequence when it touches no
-  approvals, publication, credentials or destructive machinery, and a Type 1
-  harvest that edits a contract governing those is weighed on its consequence
-  and recoverability like any other such change, which keeps it in the
-  standard loop. Otherwise it is the **Documentation review class**
+  approvals, publication, credentials or destructive machinery. A harvest
+  that is one of the changes the Documentation class does not cover (that
+  list is `working-modes.md`'s, *Two classes outside the review loop*) stays
+  in the standard loop. Otherwise it is the **Documentation review class**
   ([`working-modes.md`](../../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)): that oracle is what the pass reads the change against, one batch of
   corrections follows, and the change merges. Once the ready bar is met I self-merge per CLAUDE.md's
   close-out contract. I only
   commit to the feature's own branch instead when I have clear **session
   evidence** its PR is still open (e.g. `/document` invoked mid-build). **Never
-  force-push** (a ruleset on `claude/**` refuses it); if a stale remote ref of my old
+  force-push** (a ruleset refuses it on every branch); if a stale remote ref of my old
   feature branch exists (GitHub usually auto-deletes it post-squash-merge, but
   a same-branch-name push can recreate it), confirm the owning PR is actually
   merged/closed before deleting that stale ref.
@@ -116,7 +120,8 @@ Decide by what "this" refers to (contract's trigger table):
 - **Manual is scaffolded, not backfilled here** — I create/update only the
   chapter for the area this feature touched, and only if it clears the quality
   bar. The one-time backfill of all existing areas is separate deferred work.
-- **The harvest is its own tracked workstream** — a shared-contract
+- **An ad-hoc harvest is its own tracked workstream** (the batched one, above,
+  is not) — a shared-contract
   requirement (`documentation-workflow.md`'s *The harvest itself is a
   tracked workstream*), not Claude-specific, so I don't restate the *why*
   or the disclosure/parentless branching here. My tooling specifics:

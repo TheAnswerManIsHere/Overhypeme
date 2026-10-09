@@ -2,6 +2,17 @@
 
 # Logic Prototype
 
+> **Local note (AI-Handbook #168).** Read this file for its *technique*. Where it
+> says where a prototype lives, how it is handed over, captured or hidden —
+> the throwaway branch out of `main`, the throwaway route, the
+> `NODE_ENV` gate on the switcher, the double-clicked file — [SKILL.md](SKILL.md)'s
+> *Local adaptations* replace it: a prototype here is a product feature in
+> prototype phase, it stays where the phase puts it, and the tester tier, not
+> the build mode, decides who sees it; and the one-line plan this file writes
+> before building is, for a first version, the short plan the planning loop
+> reviews and David approves ([SKILL.md](SKILL.md), *Ceremony*)
+> ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+
 A single, self-contained HTML file (a **shareable demo**) that lets anyone drive a state model by clicking buttons. Use this when the question is about **business logic, state transitions, or data shape**: the kind of thing that looks reasonable on paper but only feels wrong once you push it through real cases.
 
 Because it's one file with nothing to install, you can hand it to a non-developer (a designer, a PM, a domain expert) and let them feel the model for themselves. So it speaks their language, not the code's.

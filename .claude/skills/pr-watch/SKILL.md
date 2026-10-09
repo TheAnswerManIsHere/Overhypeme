@@ -7,6 +7,15 @@ description: Use after opening or being re-engaged on any PR, and whenever a git
 
 # Watching the PRs I open
 
+**Not a prototype-phase PR.** It merges in the same turn it opens (or, on a
+`prototype/<feature>` branch, there is no PR), so nothing here fires for it:
+no subscription, no labels, no rounds. **Nor one of the phase's one-line
+registry PRs** — at a prototype's start under the branch regime, at its flip
+and at its abandonment — which are Trivial by David's phase declaration,
+carry `Refs #N` rather than `Workstream: #N`, and own no lifecycle: no
+subscription, no labels (Codex, #168 round 7). The rule is working-modes.md,
+*The prototype phase, per feature*.
+
 **This file was 1,182 lines before the #89 cut, and most of that was mechanics
 for machinery that no longer exists**: budget cadence, receipt shapes, snapshot
 recipes, round-count recovery and adjudicator dispatch. All of it is gone,
@@ -31,8 +40,9 @@ valves this sentence also named belonged to the four-line `Class:` / `Worth:` /
 replaced them is step 5's proportionate-evidence rule.)
 
 **Two classes do not run this loop** (David, 2026-09-25; the rule is in
-`claude-core.md`, *Two classes that leave the loop*). I still subscribe to
-them (step 1), and every Codex thread is still resolved, because the ruleset
+`claude-core.md`, *Two classes and a phase that leave the loop*). I still subscribe to
+them (step 1) — except the phase's registry PRs, top of this file — and every
+Codex thread is still resolved, because the ruleset
 requires it.
 
 - **Trivial**, declared by David alone: no review requested of anyone. Read
@@ -41,14 +51,23 @@ requires it.
   green CI.
 - **Documentation**: one pass, `review-proxy.mjs --documentation --round 1`,
   with the Fable assessor dispatched on the same package (`--prompt-only
-  --source fable`). The range is derived from where the reviewed commit left
-  `main`; nothing is typed. **The oracle file is the decision the prose
+  --source fable`). Wait for Codex's automatic pass first — its review-summary
+  row reading **Completed**; a draft is reviewed only once marked ready — and
+  pass its inline findings as `--findings-file` (step 3's findings shape), so
+  both assessors weigh them, or `--codex-clean` when it reported Completed with
+  none. The script refuses a pass given neither. There is no timeout: a pass
+  that never comes back is the outage in *One standing stop*, below. The
+  range is derived from where the reviewed commit left `main`; nothing is
+  typed. **The oracle file is the decision the prose
   records, quoted** — David's words, or the issue or merged PR where the rule
   changed — so a docs sweep needs no new agreement from David, and step 3's
   🛑 on a missing oracle applies only when no such decision can be quoted.
   Both assessments are posted verbatim (step 3's mechanics, using its
-  documentation render command). I write one batch, resolve each Codex thread
-  with one line saying the class does not read it, and merge on green CI. No
+  documentation render command, with the same `--findings-file` or
+  `--codex-clean`). I write one
+  batch, answer each Codex thread as review rule 6 answers any finding — fixed
+  in a named commit, or declined with the reason and the assessment it rests
+  on — resolve it, and merge on green CI. No
   translation, no second pass. The merge report says what the batch changed,
   in my words.
 
@@ -59,7 +78,9 @@ requires it.
    gate. An open PR I created and am not yet watching gets subscribed the
    moment I notice it, without David re-asking.
 
-   **One exception, and it is not optional** (Codex, PR #458 round 1): a
+   **Three exceptions, and none is optional.** A prototype-phase PR is never
+   subscribed, and neither is one of the phase's one-line registry PRs (top
+   of this file). And (Codex, PR #458 round 1) a
    `/document` harvest PR is subscribed only at step 5 of
    [`documentation-workflow.md`](../../../docs/ai-context/documentation-workflow.md),
    after the workstream issue exists and the PR body's `Workstream:` line
@@ -161,14 +182,17 @@ requires it.
       node "$P" --render --source fable --pr <n> --round <n> --follow-up <k> \
         --commit <reviewed sha> --findings <id,id>
 
-      # a documentation pass — no findings; the header carries the derived range
+      # a documentation pass — the header carries the derived range, and the
+      # Codex findings it weighed when its automatic pass returned any
       node "$P" --render --source fable --pr <n> --round 1 \
-        --commit <reviewed sha> --documentation
+        --commit <reviewed sha> --documentation (--findings-file <path> | --codex-clean)
       ```
 
       **Three commands, and each one's scope flag is mandatory for it.** A
       follow-up never reads `--findings-file`, an ordinary round never reads
-      `--findings`, and a documentation pass reads neither. This
+      `--findings`, and a documentation pass takes whichever of `--findings-file`
+      and `--codex-clean` it composed with, so the header names what the
+      assessment covered. This
       recipe used to show one command with both marked optional, which posted a
       follow-up header naming no findings at all — the script refuses that now,
       but the recipe is what a reader copies (Codex `4051974432`, #131 round 2).
@@ -720,8 +744,10 @@ requires it.
    direct its one write tool at any path in the checkout.
    What actually bounds it, in descending order of how much I would rely on it:
    the answer directory is `*`-gitignored, so the legitimate output can never
-   be committed; the container is ephemeral; and **the only route to `main` is a
-   commit I make**, so after any translation dispatch, read
+   be committed; the container is ephemeral; and **the only route from this
+   checkout to `main` is a commit I make**, reaching it through a merged PR like
+   every change (`claude-core.md`, *This environment's git constraints*), so
+   after any translation dispatch, read
    `git status --porcelain`. That last one is an honest party looking, not a
    lock on the same ring: the attacker here is a third party, not me.
 
@@ -743,7 +769,7 @@ requires it.
 
 8. **Merge, sync, report**, per `claude-core.md`'s *Close-out is mine, end to
    end*: re-verify live state with a fresh `pull_request_read` — not cached
-   green — then squash-merge, trigger the Repl sync and verify it, execute the
+   green — then squash-merge, check the Repl for its own commits and then sync and verify it (close-out step 3), execute the
    Post-merge verification section, post the harvest-notes comment, and send
    the merge report with both SHAs, the latitude line and the UAT handoff.
    **No readiness receipt is minted or quoted**: `pr-ready.mjs` is gone, and
@@ -753,7 +779,10 @@ requires it.
 
 **A Codex code-review outage is a FULL STOP**, not the security-review
 usage-limit bounce. Stop building, tell David as a 🛑 with a push
-notification, say which PRs are blocked and in what state, and wait.
+notification, say which PRs are blocked and in what state, and wait. A
+Documentation-class PR still waiting on Codex's automatic pass is one of
+them; a prototype-phase PR owes Codex nothing and is not (`claude-core.md`,
+*Close-out*).
 
 ## Keeping the workstream issue's labels current
 
@@ -761,9 +790,16 @@ Per [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
 `pr-watch` owns `stage:code-review` and everything downstream of it for the
 PR's workstream issue (found via `Workstream: #N` in the PR body — if it's
 missing, that PR skipped the tracking convention; flag it rather than
-silently leaving the workstream unlabeled):
+silently leaving the workstream unlabeled — unless it is one of the phase's
+registry PRs, which carry `Refs #N` by design and are never subscribed, top
+of this file, or one of David's display-only Replit tweaks, which carries no
+issue by design and is its own record (`agents-core.md`, *Workstream
+tracking*), so it has no labels to keep):
 
-- **PR opens / round 1 triggers** → `stage:code-review`, `waiting:codex`.
+- **PR opens / round 1 triggers** → `stage:code-review`, `waiting:codex` — on
+  a Documentation-class PR too, while its one pass waits for Codex's
+  automatic pass; `waiting:claude` once that pass reports Completed, since the
+  assessed pass and its batch are mine to run.
 - **Codex posts findings, I start responding** → `waiting:claude`.
 - **I post the next round's `@codex review` trigger** → `waiting:codex`.
 - **Intended behaviour or an accepted user-facing shortfall goes to David**
@@ -772,8 +808,7 @@ silently leaving the workstream unlabeled):
   hasn't moved, but the turn has.
 - **The close-out bar is met** (CLAUDE.md's *Close-out*, all four items) →
   the ready bar is met and **I merge it myself per CLAUDE.md's close-out
-  contract (David, 2026-08-15)** — re-verify live state, squash-merge, sync,
-  verify, report — so `stage:merge` is normally a moment, not a resting
+  contract (David, 2026-08-15)** — re-verify live state, squash-merge, check and sync the Repl, verify, report — so `stage:merge` is normally a moment, not a resting
   state. There is no carve-out exception any more (David, 2026-09-14): a
   guardrail- or authority-widening PR merges the same way, with the latitude
   it grants named in the report. The one PR that does not is a change to the
@@ -806,7 +841,8 @@ silently leaving the workstream unlabeled):
   and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
   internal (per `working-modes.md`'s Tier B exception): all three go
   straight to `stage:close-out` instead, since holding them at `uat` would
-  be a gate with nothing to run against it. "Has product-visible behavior"
+  be a gate with nothing to run against it (a prototype-phase PR ships none
+  either, and never reaches this step — top of this file). "Has product-visible behavior"
   is *not* the test by itself — a Tier A fix can be product-visible and
   still ship no UAT doc, which is what makes checking for the doc the right
   test, not the behavior. **The straight-to-close-out case does not stop

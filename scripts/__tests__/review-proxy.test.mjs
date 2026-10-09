@@ -1181,24 +1181,39 @@ test("Astra's header is unchanged, because Astra really is handed both values", 
 });
 
 // ---------------------------------------------------------------------------
-// The Documentation review class (David, 2026-09-25): no reviewer findings,
-// one Astra + Fable pass over the change itself.
+// The Documentation review class (David, 2026-09-25): one Astra + Fable pass
+// over the change itself, with Codex's automatic pass as one input (David,
+// 2026-10-04, ending the trial that kept it out).
 // ---------------------------------------------------------------------------
 
 const BASE = "0ad3a9e";
 
-test("a documentation pass sends the change itself to both assessors, and no reviewer findings", () => {
+test("a documentation pass with a clean Codex pass sends the change itself, and says there is no reviewer input", () => {
   const pkg = brief({ findings: [], documentationBase: BASE });
   assert.match(pkg, /## \[change\] A documentation pass: read the change itself/);
   assert.ok(pkg.includes(`git diff ${BASE}..${COMMIT}`), "the diff to read is not named");
   assert.match(pkg, /When the change is documentation/);
   assert.doesNotMatch(pkg, /## \[reviewer\]/);
+  assert.match(pkg, /reported Completed with no findings, so there is no reviewer/);
   // Same brief and Worth rule as a code round: only the evidence section differs.
   assert.ok(pkg.includes(fs.readFileSync(briefPath(), "utf8").trim()));
 });
 
-test("a documentation pass refuses reviewer findings rather than silently dropping them", () => {
-  assert.throws(() => brief({ documentationBase: BASE }), /not part of this class/);
+test("a documentation pass carries Codex's automatic findings as one input, every one by id", () => {
+  const pkg = brief({ documentationBase: BASE, findings: [finding({ id: 4175734251, body: "CODEX-ARGUMENT" })] });
+  assert.match(pkg, /## \[change\] A documentation pass: read the change itself/);
+  assert.match(pkg, /## \[reviewer\] Codex's automatic pass on this commit: one input, not a reviewer in charge/);
+  assert.match(pkg, /### Finding `4175734251`/);
+  assert.ok(pkg.includes("CODEX-ARGUMENT"), "the finding's argument did not reach the assessors");
+  assert.doesNotMatch(pkg, /returned no findings/);
+  // The change section still comes first: Codex is an input to the pass, not the pass.
+  assert.ok(pkg.indexOf("[change]") < pkg.indexOf("[reviewer]"));
+});
+
+test("a documentation pass holds Codex's findings to the same id-and-body rules as a code round", () => {
+  assert.throws(() => brief({ documentationBase: BASE, findings: [finding({ body: "  " })] }), /has no body/);
+  assert.throws(() => brief({ documentationBase: BASE, findings: [finding(), finding()] }), /appears twice/);
+  assert.throws(() => brief({ documentationBase: BASE, findings: "c1" }), /must be an array/);
   assert.throws(() => brief({ findings: [], documentationBase: "  " }), /needs the commit the change is measured from/);
 });
 
@@ -1232,18 +1247,25 @@ test("the CLI takes no base, and the class has no follow-up", () => {
   fs.writeFileSync(findingsFile, JSON.stringify([{ id: "c1", body: "b" }]));
   const argv = ["--pr", String(PR), "--round", "1", "--commit", COMMIT, "--tier", "internal", "--oracle-file", oracle];
   const opts = { root, run: () => assert.fail("nothing may run"), git: docGit(), log: () => {} };
-  assert.equal(main([...argv, "--documentation", "--base", BASE, "--prompt-only"], opts), 2, "--base is not a flag");
-  assert.equal(main([...argv, "--documentation", "--follow-up", "1"], opts), 2, "follow-up");
-  assert.equal(main([...argv, "--documentation", "--findings-file", findingsFile, "--prompt-only"], opts), 2, "findings");
+  assert.equal(main([...argv, "--documentation", "--codex-clean", "--base", BASE, "--prompt-only"], opts), 2, "--base is not a flag");
+  assert.equal(main([...argv, "--documentation", "--codex-clean", "--follow-up", "1"], opts), 2, "follow-up");
   let printed = "";
   const stdout = process.stdout.write;
   process.stdout.write = (chunk) => ((printed += chunk), true);
   try {
-    assert.equal(main([...argv, "--documentation", "--prompt-only", "--source", "fable"], opts), 0);
+    assert.equal(main([...argv, "--documentation", "--codex-clean", "--prompt-only", "--source", "fable"], opts), 0);
   } finally {
     process.stdout.write = stdout;
   }
   assert.ok(printed.includes(`git diff ${BASE}..${COMMIT}`), "the derived range is not the one the assessors are told to read");
+  printed = "";
+  process.stdout.write = (chunk) => ((printed += chunk), true);
+  try {
+    assert.equal(main([...argv, "--documentation", "--findings-file", findingsFile, "--prompt-only", "--source", "fable"], opts), 0);
+  } finally {
+    process.stdout.write = stdout;
+  }
+  assert.match(printed, /### Finding `c1`/, "Codex's findings did not reach the package");
 });
 
 test("a documentation assessment renders with its derived range in the header and no findings flag", () => {
@@ -1254,7 +1276,7 @@ test("a documentation assessment renders with its derived range in the header an
   process.stdout.write = (chunk) => ((out += chunk), true);
   let code;
   try {
-    code = main(["--render", "--pr", String(PR), "--round", "1", "--commit", COMMIT, "--documentation"], {
+    code = main(["--render", "--pr", String(PR), "--round", "1", "--commit", COMMIT, "--documentation", "--codex-clean"], {
       root,
       io: pinIo(root),
       git: docGit(),
@@ -1266,4 +1288,101 @@ test("a documentation assessment renders with its derived range in the header an
   assert.equal(code, 0, out);
   assert.ok(out.includes(`documentation pass over \`${BASE}..${COMMIT}\``), out);
   assert.doesNotMatch(out, /findings `/);
+  assert.ok(out.includes("Codex's automatic pass: clean"), "a clean pass is not named in the header");
+});
+
+test("a documentation pass is refused unless Codex's automatic pass is stated, never inferred from a missing file", () => {
+  // Codex `4179754463`, #184 round 1: with no file, the package used to tell
+  // both assessors Codex had returned nothing -- which a pass still running, or
+  // never run, also looks like.
+  const root = tmpRoot();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proxy-doc-"));
+  const oracle = path.join(dir, "o.md");
+  fs.writeFileSync(oracle, "ORACLE");
+  const findingsFile = path.join(dir, "f.json");
+  fs.writeFileSync(findingsFile, JSON.stringify([{ id: "c1", body: "b" }]));
+  const argv = ["--pr", String(PR), "--round", "1", "--commit", COMMIT, "--tier", "internal", "--oracle-file", oracle];
+  const logged = [];
+  const opts = { root, run: () => assert.fail("nothing may run"), git: docGit(), log: (m) => logged.push(m) };
+  assert.equal(main([...argv, "--documentation", "--prompt-only", "--source", "fable"], opts), 2, "neither stated");
+  assert.match(logged.join("\n"), /a pass that has not returned is not a clean one/);
+  assert.equal(
+    main([...argv, "--documentation", "--codex-clean", "--findings-file", findingsFile, "--prompt-only", "--source", "fable"], opts),
+    2,
+    "both stated",
+  );
+  assert.equal(main(["--render", "--pr", String(PR), "--round", "1", "--commit", COMMIT, "--documentation"], opts), 2, "render, neither");
+  assert.equal(main([...argv, "--findings-file", findingsFile, "--codex-clean", "--prompt-only"], opts), 2, "clean outside a documentation pass");
+});
+
+test("an empty findings file is refused on a documentation pass: the clean case has its own flag", () => {
+  // Codex `4179811296`, #184 round 2: a file holding [] passed the presence
+  // check and the package told both assessors Codex had come back clean -- the
+  // case round 1 meant to close, reached through a path its fix missed.
+  const root = tmpRoot();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proxy-doc-"));
+  const oracle = path.join(dir, "o.md");
+  fs.writeFileSync(oracle, "ORACLE");
+  const empty = path.join(dir, "empty.json");
+  fs.writeFileSync(empty, "[]");
+  const argv = ["--pr", String(PR), "--round", "1", "--commit", COMMIT, "--tier", "internal", "--oracle-file", oracle];
+  const logged = [];
+  const opts = { root, run: () => assert.fail("nothing may run"), git: docGit(), log: (m) => logged.push(m) };
+  assert.equal(main([...argv, "--documentation", "--findings-file", empty, "--prompt-only", "--source", "fable"], opts), 2, "compose");
+  assert.match(logged.join("\n"), /holds no findings, which states nothing about whether Codex's automatic pass returned/);
+  assert.equal(main([...argv, "--documentation", "--findings-file", empty], opts), 2, "dispatch");
+  assert.equal(
+    main(["--render", "--pr", String(PR), "--round", "1", "--commit", COMMIT, "--documentation", "--findings-file", empty], opts),
+    2,
+    "render",
+  );
+});
+
+test("the dispatch path names a clean Codex pass in Astra's header, as the render path does", () => {
+  // Codex `4179811301`, #184 round 2: only --render forwarded the flag, so on
+  // the default path Astra's posted header was silent where Fable's was not.
+  const root = tmpRoot();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proxy-doc-"));
+  const oracle = path.join(dir, "o.md");
+  fs.writeFileSync(oracle, "ORACLE");
+  const argv = ["--pr", String(PR), "--round", "1", "--commit", COMMIT, "--tier", "internal", "--oracle-file", oracle, "--documentation", "--codex-clean"];
+  const run = (_bin, args) => {
+    if (args[0] === "login") return { status: 0, stdout: "Logged in using ChatGPT" };
+    fs.writeFileSync(args[args.indexOf("--output-last-message") + 1], "Oracle met at this head: yes\n\nNo concerns.");
+    return { status: 0 };
+  };
+  let printed = "";
+  const stdout = process.stdout.write;
+  process.stdout.write = (chunk) => ((printed += chunk), true);
+  try {
+    assert.equal(main(argv, { root, run, git: docGit(), log: () => {} }), 0);
+  } finally {
+    process.stdout.write = stdout;
+  }
+  assert.ok(printed.includes("Codex's automatic pass: clean"), printed);
+});
+
+test("a documentation assessment that weighed Codex's findings names them in its header", () => {
+  const root = tmpRoot();
+  fs.writeFileSync(prepareAssessmentPath(root, PR, 1, { source: "astra" }), "Oracle met at this head: yes\n\nNo concerns.");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proxy-doc-"));
+  const findingsFile = path.join(dir, "f.json");
+  fs.writeFileSync(findingsFile, JSON.stringify([{ id: "c1", body: "b" }, { id: "c2", body: "b" }]));
+  let out = "";
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk) => ((out += chunk), true);
+  let code;
+  try {
+    code = main(["--render", "--pr", String(PR), "--round", "1", "--commit", COMMIT, "--documentation", "--findings-file", findingsFile], {
+      root,
+      io: pinIo(root),
+      git: docGit(),
+      log: () => {},
+    });
+  } finally {
+    process.stdout.write = write;
+  }
+  assert.equal(code, 0, out);
+  assert.ok(out.includes("findings `c1`, `c2`"), out);
+  assert.ok(out.includes(`documentation pass over \`${BASE}..${COMMIT}\``), out);
 });

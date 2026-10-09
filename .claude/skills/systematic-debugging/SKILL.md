@@ -7,6 +7,12 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 
 # Systematic Debugging
 
+> **Local note (AI-Handbook #168).** A defect on a feature David has declared
+> prototype phase is not a bug to fix under this skill: it is the next
+> version through the `prototype` skill, with no failing test required
+> ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)). The registry is read
+> before this skill's own trigger fires.
+
 ## Overview
 
 Random fixes waste time and create new bugs. Quick patches mask underlying issues.

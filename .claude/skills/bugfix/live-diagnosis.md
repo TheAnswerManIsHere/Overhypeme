@@ -60,7 +60,10 @@ a reproduction there can silently exercise different code from the branch I am
 diagnosing. Ask for `git rev-parse HEAD` and `git status` in the same breath as
 the diagnostic, and compare the SHA against the revision I mean to be testing.
 Both halves matter: a matching SHA with a dirty worktree ran something other
-than that commit, and a clean worktree on a stale SHA is simply behind. A
+than that commit, and a clean worktree on a different SHA is either behind or
+carrying commits made in the Repl, which `git status -sb` tells apart (a commit
+there is moved to a branch, never synced over: `claude-core.md`, *This
+environment's git constraints*). A
 reproduction whose revision I never established is an anecdote, not evidence
 for a root cause or a tier.
 
@@ -107,10 +110,10 @@ busy; re-invoking there opens a brand-new agent turn.
 ## What this never becomes
 
 **Diagnosis only. The fix goes through the pipeline.** Branch → PR → Codex
-review → merge → sync. A repair applied through the connector has had no Codex
-review and no GitHub Actions gate before reaching `main` — **not** "no CI":
-Replit runs its own internal review/testing loop, which is real and is simply
-not ours. Routing my own unreviewed patch through Replit is laundering, not
+review → merge → sync. A repair made through the connector reaches `main` only
+as a pull request, like every change (`claude-core.md`, *This environment's git
+constraints*), and that PR takes its review like any other. Replit's own
+internal review/testing loop is real and is simply not ours. Routing my own unreviewed patch through Replit is laundering, not
 shipping — a sanctioned live repair has to be David-originated.
 
 Ephemeral probes are fine and are reverted in the same session. **Never commit or

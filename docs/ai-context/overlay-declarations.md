@@ -98,6 +98,47 @@ catalogue.
 
 ---
 
+## Feature phases
+
+**Asked by:** `working-modes.md` *The prototype phase, per feature*; the
+`prototype` skill; the entry routing in `.agents/core/claude-core.md` *Two
+modes*.
+**If unanswered:** every feature is treated as production phase, so a
+prototype gets the full loop — the one declaration that fails toward *more*
+ceremony, never less.
+
+**No feature of Overhype.me is in prototype phase.** Every feature is in
+production phase and takes the full ceremony. David declares a phase in words,
+and the declaration is recorded here by its own one-line registry PR before the
+first version's planning loop opens, as one row:
+
+| Feature | Phase | Last changed | Regime / branch | Prototype directory |
+| --- | --- | --- | --- | --- |
+| *(none)* | | | | |
+
+Overhype.me has users downstream of `main` once it launches (#628), so a
+prototype declared after launch takes the **branch regime** —
+`prototype/<feature>`, its own environment and database — and needs the
+*Tester tier* declaration below before it starts.
+
+---
+
+## Tester tier
+
+**Asked by:** `working-modes.md` *The prototype phase, per feature*; the
+`prototype` skill.
+**If unanswered:** no branch-regime prototype may start — the tier is built
+through the normal pipeline first, so a missing declaration holds the
+prototype rather than running it with a feedback rail nobody can see.
+
+**Not yet declared.** Overhype.me has no tester tier and no branch-regime
+prototype. When the first one is declared, this section names the user tier,
+the configuration setting that switches it on, and the CI workflow's `push`
+trigger on `prototype/**` (a branch that opens no PR fires no pull-request
+run).
+
+---
+
 ## Adding a further declaration
 
 **A new question gets a new section here, never a new file**, and a matching row

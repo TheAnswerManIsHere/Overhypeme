@@ -407,29 +407,29 @@ export function assessmentBrief({
         "recorded where it can be quoted. Pass it from there, not from the PR body: the body's copy is the builder's prose.",
     );
   }
-  // A DOCUMENTATION PASS HAS NO REVIEWER FINDINGS, BY DESIGN (David,
-  // 2026-09-25). Codex reviews prose adversarially, marks a word choice P1, and
-  // the loop then builds fixes and guards for it; Astra and Fable read prose
-  // better. So in this class the assessors read the change itself against its
-  // intent, and Codex's output is not part of the package at all -- refused
-  // here rather than silently dropped, so a caller who passes it learns the
-  // class does not use it.
+  // A DOCUMENTATION PASS READS THE CHANGE ITSELF, AND CODEX'S AUTOMATIC PASS
+  // AS ONE INPUT (David, 2026-10-04, ending the five-PR trial of 2026-09-25).
+  // The class began with Codex's output kept out of the package entirely:
+  // Codex reviews prose adversarially and the loop used to build fixes and
+  // guards for a word choice. Seven trial PRs said the assessors alone miss
+  // what Codex catches -- 17 of its 26 findings were raised by neither
+  // assessor, and the two left unread on #170 were still on `main` -- so its
+  // findings now reach both assessors as an input they weigh, never as a
+  // reviewer in charge. Zero findings is a valid documentation pass: Codex's
+  // automatic pass may have come back clean.
   const documentation = documentationBase !== null;
   if (documentation) {
     if (typeof documentationBase !== "string" || documentationBase.trim() === "") {
       throw new Error("review-proxy: a documentation pass needs the commit the change is measured from (documentationBaseFor derives it)");
     }
-    if (Array.isArray(findings) && findings.length) {
-      throw new Error(
-        "review-proxy: a documentation pass reads the change itself, not reviewer findings -- Codex's output is not " +
-          "part of this class (David, 2026-09-25); drop --findings-file",
-      );
+    if (!Array.isArray(findings)) {
+      throw new Error(`review-proxy: findings must be an array, got ${typeof findings}`);
     }
   } else if (!Array.isArray(findings) || findings.length === 0) {
     throw new Error("review-proxy: the assessors are dispatched on a round that RETURNED findings; there are none here");
   }
   const seen = new Set();
-  for (const f of documentation ? [] : findings) {
+  for (const f of findings) {
     // GitHub's review-comment ids are integers and JSON keeps them integers, so
     // the id is coerced rather than demanded as a string. (Codex, #120 round 1.)
     const id = f == null || f.id == null ? "" : String(f.id).trim();
@@ -505,8 +505,8 @@ export function assessmentBrief({
     lines.push(
       "## [change] A documentation pass: read the change itself",
       "",
-      "There are no reviewer findings in this round, deliberately: this is the **Documentation** review class",
-      "(David, 2026-09-25), and Codex's output is not part of it. Read the change in the checkout --",
+      "This is the **Documentation** review class (David, 2026-09-25; Codex's automatic pass added as an input",
+      "2026-10-04). Read the change in the checkout --",
       `\`git diff ${documentationBase.trim()}..${reviewedCommit}\` -- against the oracle, applying the brief's section`,
       "*When the change is documentation*. This is the only review pass the change gets: Claude writes one batch",
       "from it and the change merges, so an empty list of concerns is a valid and useful answer.",
@@ -514,6 +514,27 @@ export function assessmentBrief({
       "Label each concern you raise `D1`, `D2`, ... so Claude can answer each by name.",
       "",
     );
+    if (findings.length) {
+      lines.push(
+        "## [reviewer] Codex's automatic pass on this commit: one input, not a reviewer in charge",
+        "",
+        "Codex reviewed this pull request when it opened. Its findings are below. Weigh each one by the Worth rule",
+        "like any finding -- say whether it is real and whether it is worth writing for -- and cover every one,",
+        "using these IDs exactly. A finding you would also have raised is answered under its ID, not repeated as a D-item.",
+        "",
+      );
+      for (const f of findings) {
+        lines.push(`### Finding \`${String(f.id).trim()}\``, "");
+        if (f.path) lines.push(`- Location: \`${f.path}\`${f.line ? `:${f.line}` : ""}`);
+        lines.push("", String(f.body ?? "").trim(), "");
+      }
+    } else {
+      lines.push(
+        "Codex's automatic pass on this pull request reported Completed with no findings, so there is no reviewer",
+        "input this round.",
+        "",
+      );
+    }
   } else {
     lines.push("## [reviewer] This round's findings", "", "Cover every one, using these IDs exactly.", "");
     for (const f of findings) {
@@ -712,7 +733,7 @@ const SOURCE_NAMES = { astra: "Astra", fable: "Fable" };
  * assessment, which findings -- because asking a model to restate facts nobody
  * was missing spends the reader's attention for nothing.
  */
-export function prComment(result, { reviewedCommit = null, findingIds = [], requested = null, documentationBase = null } = {}) {
+export function prComment(result, { reviewedCommit = null, findingIds = [], requested = null, documentationBase = null, codexClean = false } = {}) {
   const who = SOURCE_NAMES[result.source] ?? result.source;
   const what = result.followUp ? `round ${result.round}, follow-up ${result.followUp}` : `round ${result.round}`;
   if (result.failed) {
@@ -738,6 +759,7 @@ export function prComment(result, { reviewedCommit = null, findingIds = [], requ
   if (reviewedCommit) facts.push(`Assessed at \`${reviewedCommit}\``);
   if (findingIds.length) facts.push(`findings ${findingIds.map((id) => `\`${String(id).trim()}\``).join(", ")}`);
   if (documentationBase) facts.push(`documentation pass over \`${documentationBase}..${reviewedCommit ?? "?"}\``);
+  if (documentationBase && codexClean) facts.push("Codex's automatic pass: clean");
   // EVERY FACT LABELLED BY WHAT IT IS, AND "REQUESTED" ONLY WHERE THIS SCRIPT
   // PASSED THE VALUE (David, 2026-09-18: *"any model call must report loudly if
   // the requested model doesn't match the used model"*). The header states what
@@ -868,12 +890,13 @@ export const USAGE = [
   `    node ${INVOCATION} --pr <n> --round <n> --commit <sha> --tier <t> \\`,
   "        --oracle-file <path> --findings-file <path.json> [--history-file <path.json>] [--note <text>]",
   "",
-  "  Documentation pass (the Documentation review class: no reviewer findings, one pass):",
+  "  Documentation pass (the Documentation review class: one pass, one batch):",
   `    node ${INVOCATION} --pr <n> --round 1 --commit <sha> --tier internal --documentation \\`,
-  "        --oracle-file <path> [--history-file <path.json>] [--note <text>]",
+  "        --oracle-file <path> (--findings-file <path.json> | --codex-clean) [--history-file <path.json>] [--note <text>]",
   `                  Both assessors read the diff from where --commit left ${DOCUMENTATION_BASE_REF} (derived,`,
-  "                  never typed) against the oracle. There is no follow-up in this class and no",
-  "                  --findings-file: Codex's output is not part of it.",
+  "                  never typed) against the oracle. Run it once Codex's automatic pass has reported",
+  "                  Completed: --findings-file carries its findings, as one input, or --codex-clean",
+  "                  says it returned none. One of the two is required. There is no follow-up in this class.",
   "",
   "  Focused follow-up (same revision, no new commit, no new Codex round):",
   `    node ${INVOCATION} --pr <n> --round <n> --commit <sha> --tier <t> --follow-up <n> \\`,
@@ -924,10 +947,11 @@ const FLAGS = {
   render: "render",
   source: "source",
   documentation: "documentation",
+  "codex-clean": "codexClean",
 };
 
 const NUMERIC = new Set(["pr", "round", "followUp"]);
-const BOOLEAN = new Set(["promptOnly", "render", "documentation"]);
+const BOOLEAN = new Set(["promptOnly", "render", "documentation", "codexClean"]);
 
 /**
  * The finding ids the header names — derived the same way for both paths.
@@ -1020,6 +1044,50 @@ export function main(
     log(`review-proxy: the Documentation class is one pass and one batch; it has no follow-up\n\n${USAGE}`);
     return 2;
   }
+  // CODEX'S AUTOMATIC PASS IS STATED, NEVER INFERRED (Codex `4179754463`,
+  // #184 round 1). A documentation pass is composed only after that pass
+  // reports Completed, and its result arrives one of two ways: its findings,
+  // as --findings-file, or --codex-clean when it came back with none. A pass
+  // given neither is refused, so a review that never returned cannot reach the
+  // assessors -- or the posted header -- dressed as a clean one. So is a
+  // findings file holding no findings (Codex `4179811296`, #184 round 2): an
+  // empty collection says nothing about whether Codex returned -- a pass not
+  // yet back and a collection that missed its threads both produce one -- and
+  // the clean case already has its own explicit flag.
+  if (documentation && !followUp) {
+    if (flags.findingsFile && flags.codexClean) {
+      log(`review-proxy: --findings-file and --codex-clean contradict each other; Codex's automatic pass either returned findings or came back clean\n\n${USAGE}`);
+      return 2;
+    }
+    if (!flags.findingsFile && !flags.codexClean) {
+      log(
+        "review-proxy: a documentation pass needs Codex's automatic pass on this pull request -- --findings-file with " +
+          "its findings, or --codex-clean when it reported Completed with none. Wait for it; a pass that has not " +
+          `returned is not a clean one\n\n${USAGE}`,
+      );
+      return 2;
+    }
+    if (flags.findingsFile) {
+      let parsed;
+      try {
+        parsed = JSON.parse(fs.readFileSync(flags.findingsFile, "utf8"));
+      } catch (err) {
+        log(`review-proxy: cannot read --findings-file ${flags.findingsFile}: ${err.message}`);
+        return 2;
+      }
+      if (Array.isArray(parsed) && parsed.length === 0) {
+        log(
+          "review-proxy: --findings-file holds no findings, which states nothing about whether Codex's automatic pass " +
+            "returned. A pass that reported Completed with none is --codex-clean, with the file dropped; otherwise " +
+            `wait for it, or collect its findings again\n\n${USAGE}`,
+        );
+        return 2;
+      }
+    }
+  } else if (flags.codexClean) {
+    log(`review-proxy: --codex-clean belongs to a documentation pass\n\n${USAGE}`);
+    return 2;
+  }
   let documentationBase = null;
   if (documentation) {
     try {
@@ -1070,7 +1138,8 @@ export function main(
               definitionModel: agentFrontmatter(root, ASSESSOR_AGENT, "model"),
               definitionEffort: agentFrontmatter(root, ASSESSOR_AGENT, "effort"),
             };
-      const ids = documentation ? [] : headerFindingIds({ followUp, findings: flags.findings, findingsFile: flags.findingsFile });
+      const ids =
+        documentation && !flags.findingsFile ? [] : headerFindingIds({ followUp, findings: flags.findings, findingsFile: flags.findingsFile });
       // AN EMPTY SCOPE IS REFUSED, NOT PRINTED. Round 1 gave both paths one
       // derivation and stopped there; the input that derivation needs never
       // reached the operator-facing recipe, so a follow-up posted exactly as
@@ -1078,7 +1147,9 @@ export function main(
       // asymmetry as `--commit`, where the render path accepted less than the
       // dispatch path requires. Every round dispatched here has at least one
       // finding (`assessmentBrief` refuses otherwise), so an empty list is
-      // always a missing flag and never a quiet round. Uniform on the
+      // always a missing flag and never a quiet round -- outside a
+      // documentation pass, whose clean case is stated by --codex-clean and
+      // checked above. Uniform on the
       // failed-dispatch shape too: the operator composed the package from the
       // same file minutes earlier. (Codex `4051974432`; both assessors said to
       // put the refusal in the script rather than only in the recipe.)
@@ -1087,7 +1158,7 @@ export function main(
         log(`review-proxy: ${flag} is required to render ${followUp ? "a follow-up" : "a round"} — the header names the findings the assessment covers, and a comment claiming no scope is worse than one that was not posted\n\n${USAGE}`);
         return 2;
       }
-      rendered = prComment(read, { reviewedCommit: flags.commit, findingIds: ids, requested, documentationBase });
+      rendered = prComment(read, { reviewedCommit: flags.commit, findingIds: ids, requested, documentationBase, codexClean: Boolean(flags.codexClean) });
     } catch (err) {
       log(`review-proxy: ${err.message}`);
       return 2;
@@ -1128,9 +1199,8 @@ export function main(
         assessmentFile: file,
       });
     } else if (documentation) {
-      if (flags.findingsFile) {
-        throw new Error("review-proxy: a documentation pass reads the change itself; Codex's output is not part of this class -- drop --findings-file");
-      }
+      const findings = flags.findingsFile ? JSON.parse(fs.readFileSync(flags.findingsFile, "utf8")) : [];
+      if (findings.length) findingIds = headerFindingIds({ followUp, parsed: findings });
       prompt = assessmentBrief({
         source,
         pr: flags.pr,
@@ -1142,6 +1212,7 @@ export function main(
         builderNote: flags.note ?? "",
         assessmentFile: file,
         documentationBase,
+        findings,
       });
     } else {
       const findings = JSON.parse(fs.readFileSync(flags.findingsFile, "utf8"));
@@ -1234,7 +1305,7 @@ export function main(
         reason: `the reviewer process exited ${result.status ?? "(no status)"}${result.signal ? ` on signal ${result.signal}` : ""}`,
       };
   process.stdout.write(
-    `${prComment(read, { reviewedCommit: flags.commit, findingIds, requested: result.reviewer, documentationBase })}\n`,
+    `${prComment(read, { reviewedCommit: flags.commit, findingIds, requested: result.reviewer, documentationBase, codexClean: Boolean(flags.codexClean) })}\n`,
   );
   return read.failed ? 1 : 0;
 }

@@ -455,10 +455,11 @@
   round came back — a permitted retry needs no push, so two requests can name
   one commit and a single pass satisfies both.
 - *Git constraints.* David's direct-push path to `main` through Replit's Git
-  pane was settled 2026-08-09 (`replit-environment.md`); a session once
-  escalated a `Replit Agent` commit as an incident, and that false alarm is
-  recorded in
-  `.agents/memory/replit-direct-push-to-main-is-sanctioned.md`. Both of
+  pane was settled 2026-08-09 (`replit-environment.md`) and retired 2026-10-03
+  when he removed every ruleset's bypass; a session once escalated a
+  `Replit Agent` commit as an incident, and that false alarm and the lane's
+  retirement are recorded in
+  `.agents/memory/replit-commits-reach-main-only-through-a-pr.md`. Both of
   `guard.sh`'s jobs live in `guard-decision.mjs` and are absent from the
   node-unavailable fallback. The Replit sweep is bounded by time, never by
   commit count: `-3` was the first shape and it silently drops the fourth
@@ -662,8 +663,10 @@
 - **Reference:** [`replit-environment.md`](./replit-environment.md) §§ *The
   fast lane* and *The one thing that IS ours*;
   [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md)
-  step 7; [`replit-direct-push-to-main-is-sanctioned.md`](../../.agents/memory/replit-direct-push-to-main-is-sanctioned.md)
-  for the false alarm that prompted the conversation.
+  step 7; [`replit-commits-reach-main-only-through-a-pr.md`](../../.agents/memory/replit-commits-reach-main-only-through-a-pr.md)
+  for the false alarm that prompted the conversation and the lane's
+  retirement on 2026-10-03 (every change to `main` now arrives through a PR;
+  a Repl commit is moved to a branch and opened as one).
 - **Revisit if:** a sweep finds a real defect that reached David's UAT through
   the lane (the boundary is drawn in the wrong place, or needs a narrower
   definition of "display"), or opportunistic sweeps turn out to be so rare that

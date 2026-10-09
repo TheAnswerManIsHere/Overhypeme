@@ -7,6 +7,14 @@ description: Use when implementation is complete, all tests pass, and you need t
 
 # Finishing a Development Branch
 
+> **Local note (AI-Handbook #168).** A `prototype/<feature>` branch is never
+> finished through the menu below: while its feature is in prototype phase it
+> merges nowhere and opens no PR, its environment tracks it, and the flip's
+> hardening PR is what eventually ends it — the rule is
+> [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26).
+> The "exactly 4 options" rule applies to every other branch; upstream text
+> below is untouched.
+
 ## Overview
 
 Guide completion of development work by presenting clear options and handling chosen workflow.

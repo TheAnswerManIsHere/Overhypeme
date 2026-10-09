@@ -7,6 +7,12 @@ description: Use when implementing any feature or bugfix, before writing impleme
 
 # Test-Driven Development (TDD)
 
+> **Local note (AI-Handbook #168).** The "ask your human partner" exception
+> below for a throwaway prototype is already answered for a feature David has
+> declared prototype phase: the declaration removes tests, and the `prototype`
+> skill is the entry point
+> ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+
 ## Overview
 
 Write the test first. Watch it fail. Write minimal code to pass.

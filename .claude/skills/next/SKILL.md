@@ -54,13 +54,15 @@ worth a look." "What's next" means next *here*.
 ## Model tier — mechanical steps anywhere, judgment on Fable
 
 Steps 1–3 are mechanical (fetch, filter, sort by a stated rule) and run at
-any tier. **Three things are judgment and run on Fable 5:**
+any tier. **Three things are judgment and run on Fable 5** — they are on the
+core's list of named strongest-tier judgements (`claude-core.md`, *Model,
+cost, and routing*), which is what keeps them there:
 
 1. The **severe-bug preemption** call (step 3's override).
 2. **Parallel-lane independence** where it isn't mechanically decidable.
 3. The **empty-queue feature recommendation** (step 5) — always, without
-   exception. This is product-direction reasoning, the row the tier table
-   marks Opus-or-above precisely because a wrong call here is uncatchable.
+   exception. This is product-direction reasoning — judgement, not building —
+   and it runs on Fable precisely because a wrong call here is uncatchable.
 
 **If the session is already on Fable, do them inline. Otherwise dispatch a
 Fable subagent for those steps only** — per the `model-routing` skill's
@@ -170,6 +172,19 @@ close-out > uat > test-run > merge > code-review > coding
   > queue:now > queue:next > queue:later
 ```
 
+A feature David has declared prototype phase ranks at `planning` or
+`plan-approval` while a plan of its is in the loop (its first version's, or
+a later version's David asked a loop for), otherwise at `coding` for as long
+as the phase lasts, and under the branch regime its activity is on the
+`prototype/<feature>` branch the consumer's *Feature phases* registry names,
+not on a PR — read the registry before calling it idle
+([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+Under that regime a product has **one** prototype environment, and the
+registry names the branch it tracks: a second branch-regime prototype whose
+branch is not that one is **Blocked** on the environment — until it frees
+at the first's flip or abandonment, or David declares a second — never
+Actionable and never a parallel lane (Codex, #168 round 7).
+
 Why this rule and not a hand-maintained list of special cases: a workstream
 parked mid-lifecycle is **decaying context** — every day it sits, resuming
 costs more, because the person who held it in their head has moved on.
@@ -251,7 +266,11 @@ sessions**. Two candidates are independent only if **all** hold:
    `Artifacts` fields and the roadmap's subsystem grouping; this is the
    judgment component — route it to Fable when it isn't obvious).
 4. **Neither is a migration.** Migrations serialize against everything —
-   the sharpest edge in the tier table, and not worth the concurrency.
+   the sharpest edge in the fleet, and not worth the concurrency.
+5. **They are not two branch-regime prototypes of one product.** One
+   prototype environment per product, the registry naming the branch it
+   tracks; the second waits for it (the ladder paragraph above, and the
+   rule's home).
 
 Say plainly when nothing is safely parallel. A wrong independence call
 costs a merge conflict and a wasted session, so the honest answer beats
@@ -275,9 +294,11 @@ next**, and this is a real recommendation, not a menu:
    names them — for near-term slices, pre-launch hardening, and open product
    questions. **If it has none, say so and stop there**; never borrow
    another repository's roadmap to fill the gap.
-2. **Weight pre-launch hardening heavily.** The roadmap's own framing is
-   that we're moving from prototype to production-ready; an item marked
-   must-do-before-go-live outranks a new capability by default.
+2. **Weight pre-launch hardening heavily.** An item marked
+   must-do-before-go-live outranks a new capability by default, and a
+   feature's flip out of prototype phase is the per-feature form of the same
+   weight — the repository never flips as a whole
+   ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 3. **Make an argued recommendation on Fable**: what to build, why now, what
    it unblocks, what it costs, and the strongest case against it.
 4. **Surface the "Needs David confirmation" items** — a roadmap line
@@ -337,6 +358,8 @@ looks thin:
 
 - **Work with no issue** — a Discovery conversation that never opened one
   is invisible. If the picture looks emptier than David expects, say this.
+- **A prototype branch** — a `prototype/<feature>` branch opens no PR, so
+  the PR sweep never finds it; only the registry and the branch itself do.
 - **Sensitive / disclosure-carve-out workstreams**, which are private draft
   Project items by design, not issues.
 - **A stale backlog.** `/next` computes from `queue:` labels, `Blocked by:`

@@ -6,8 +6,9 @@
 > and `stage:`/`waiting:`/`mode:` labels during code review and should never
 > remove or contradict them without understanding why they're there. Claude's
 > enactment is spread across the skills that already have a natural trigger
-> point for updating a label — `plan-review-loop`, `bugfix`, `pr-watch`,
-> `pr-docs` — each of which points back here rather than restating this.
+> point for updating a label — `plan-review-loop`, `bugfix`, `prototype`,
+> `pr-watch`, `pr-docs` — each of which points back here rather than
+> restating this.
 
 ## Why this exists
 
@@ -27,14 +28,21 @@ Code review → Merge → Test run → 🛑 UAT → Close-out → Done
 
 Bug-fixing mode (`/bugfix`) branches straight from Discovery to Coding,
 skipping Planning and Plan approval — it still lands in Code review, Merge,
-Test run, and UAT like everything else.
+Test run, and UAT like everything else. A feature David has declared
+prototype phase runs Discovery, Planning and Plan approval for its first
+version, then enters Coding and stays there, alternating between his
+feedback and the next version, with no Code review, Test run or UAT until
+it flips (*Promotion is a real operation*, below; the rule is
+[`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 🛑 marks a **David-gate** — a stage only he can move past. It's the same
 glyph used for the mid-task interruption banner in chat, deliberately: one
 symbol means "David," everywhere, not only in conversation. **Merge stopped
 being a David-gate on 2026-08-15** (the agent driving the PR merges it once
-the close-out bar in CLAUDE.md is met — CI green, the reviewer's pass returned
-for the head commit, every thread resolved, the owed translations delivered),
+the close-out bar in CLAUDE.md is met — for the standard loop, CI green, the
+reviewer's pass returned for the head commit, every thread resolved, the owed
+translations delivered; the two classes and the prototype phase carry their
+own bars there),
 and the **scope-of-work gate** was added
 the same day at the front of Planning (see
 [`working-modes.md`](./working-modes.md#the-scope-of-work-gate-david-2026-08-15)).
@@ -61,7 +69,7 @@ what the other seven were. The design settled 2026-08-05 and is built as of
   holds `mode:feature` and a **Phases checklist** (below). There is no
   separate whole-feature UAT gate — the next bullet is why.
 - **Each phase is a GitHub sub-issue** of that parent (the native sub-issue
-  relationship, the same one `/document` harvests use), with its own
+  relationship, the same one an ad-hoc `/document` harvest uses), with its own
   `stage:`/`waiting:`/`mode:` labels, its own PR carrying
   `Workstream: #<phase-issue>`, and its own merge.
 - **Phases merge sequentially, never stacked.** No phase PR bases on
@@ -145,8 +153,34 @@ whole state machine:
 **Promotion is a real operation, not an implicit side effect of "work
 starts."** Whichever skill is the one that first opens or reuses a
 workstream issue for a given piece of work — `plan-review-loop` for a
-phased or unphased feature plan, `bugfix` for a fix — owns performing it,
-and does so **before** creating a fresh issue:
+phased or unphased feature plan, `bugfix` for a fix, `prototype` for a
+feature David has declared prototype phase, from its first version's
+approval onward (that version's issue is opened by `plan-review-loop` at
+`stage:planning`, like any feature's) — owns performing it,
+and does so **before** creating a fresh issue. **A prototype-phase feature
+reaches `stage:coding` / `waiting:claude` on its first version's approval**
+(and again on the approval of any later version David asked a loop for),
+and until a version David can use exists, the agent is the
+holder. It moves to `waiting:david` when a usable version is delivered (on
+`main`, or on the prototype environment) and back to `waiting:claude` when
+his feedback starts another revision, so the board asks him to act only
+while there is something to act on. Its issue names the questions file and,
+in the branch regime, the `prototype/<feature>` branch; its PR, where one
+exists, carries `Workstream: #N` like any other; no `stage:code-review` ever
+follows, because no code-review loop runs on any version. **The flip is a relabel of the same issue,
+performed by the `prototype` skill before `plan-review-loop` starts**: it
+first lands the registry change on `main` (the entry reads production, by a
+one-line `Refs #N` PR that moves no label), then
+locates the feature's issue by its `Workstream:` line or title, moves it to
+`stage:planning` / `waiting:david`, and records the declaration in the
+State of Play — so the planning loop finds an issue already at
+`stage:planning` and reuses it rather than opening a second one, and the
+feature has one issue across both phases. **A later prototype version
+David asks a loop for takes the same relabel**, minus the registry change:
+the `prototype` skill moves the feature's existing issue from `stage:coding`
+to `stage:planning` / `waiting:david` before `plan-review-loop` starts, the
+loop reuses it, and his approval returns it to `stage:coding`. The rule is
+working-modes.md, *The prototype phase, per feature*:
 
 1. **Search first**: does an open issue already carry `queue:` and
    describe this work (`search_issues`, title/body match, or David names
@@ -154,7 +188,9 @@ and does so **before** creating a fresh issue:
    issue **is** the workstream issue — reuse it, don't open a second one.
 2. **Promote it**: remove the `queue:` label, add the full `stage:`/
    `waiting:` set for wherever this skill is entering the lifecycle
-   (`stage:planning` for a feature plan, `stage:coding` for a bugfix), and
+   (`stage:planning` for a feature plan, a prototype's first version
+   included; `stage:coding` for a bugfix, or for a prototype-phase feature
+   after that approval, at `waiting:claude`), and
    write the State of Play block fresh (the backlog body's nuance carries
    forward as narrative, not as a field to preserve verbatim).
 3. **Only if no matching backlog issue exists** does the normal fresh-issue
@@ -211,7 +247,11 @@ from prose several lines later, or match an example inside a quoted plan.
   public and anyone can open an issue, but outside accounts cannot apply
   labels — so an issue with no `stage:` and no `queue:` label is not part
   of this system and its markers are ignored. Same trust posture
-  `/status-all` applies to PR bodies.
+  `/status-all` applies to PR bodies. **That holds only because an
+  outsider's issue is adopted by the owner filing their own issue, never by
+  labelling the outsider's**: a label leaves the author able to rewrite the
+  text, and `/maintenance` reads a labelled issue's body only when the owner
+  wrote it (its step 9).
 
 ## When UAT finds a bug: the descent stack
 
@@ -220,8 +260,8 @@ exists to survive: he starts UAT on a merged feature, hits an error, and
 the error turns out to be a real bug — sometimes a small one, sometimes an
 entire subsystem rebuild. (PR #213's private-meme UAT is the worked
 example: it surfaced what became the whole admin-permission rebuild, #405
-and #422.) Pre-launch, chasing those is deliberate — we're moving from
-prototype to production-ready — so the risk isn't chasing them, it's
+and #422.) Pre-launch, chasing those is deliberate — we're moving the product to
+launch-ready — so the risk isn't chasing them, it's
 **losing the way back to the interrupted UAT**.
 
 The `Blocked by:` chain *is* the record of the way back — a call stack made
@@ -282,9 +322,9 @@ of the workstream issue's body, with these fields:
 in the same edit** — the two must never drift apart, since a label with a
 stale narrative behind it is worse than an honest gap. That means the same
 skills that own label transitions
-(`plan-review-loop`, `bugfix`, `pr-watch`, `pr-docs`, `/uat`) own keeping
-this block current at those same trigger points. There is no separate
-maintainer beyond those five **for label-driven updates**.
+(`plan-review-loop`, `bugfix`, `prototype`, `pr-watch`, `pr-docs`, `/uat`)
+own keeping this block current at those same trigger points. There is no
+separate maintainer beyond those six **for label-driven updates**.
 
 **Exactly two writers update this block without any label change:
 `/handoff` and `/uat`.** `/handoff`
@@ -359,10 +399,11 @@ work it's already doing — not as a separate reminder to go check the board:
 | --- | --- |
 | `plan-review-loop` | `waiting:claude` for the whole loop — a planning exchange is a local process the builder waits on, so there is no `waiting:codex` state; `stage:plan-approval` + `waiting:david` at the approval ask |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
+| `prototype` | The workstream from `stage:coding` / `waiting:claude` onward for a feature David has declared prototype phase (its first version's issue is opened at `stage:planning` by `plan-review-loop`, above), `mode:feature`; `waiting:david` when a usable version is delivered and back when his feedback starts a revision; the relabel to `stage:planning` / `waiting:david` before `plan-review-loop` starts, at the flip and for a later version David asked a loop for (*Promotion is a real operation*, above) |
 | `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch. A workstream reaching `stage:close-out` this way (no UAT owed) goes on to `stage:done` and is closed in the same pass (*Closing an issue*, below). Also the labels on a follow-up issue it files from a review round: `gap` and the workstream's `mode:`, with no `queue:` until `/maintenance` triages it (#98; David, 2026-09-28) |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
 | `/uat` | The exit from `stage:uat` — the one stage no agent could previously move, since only David could run it. `Accepted` and `Accepted with issues` both reach `stage:close-out` (his acceptance is what converts that run's bugs from blockers into independently-tracked work); a `Blocked` run holds at `stage:uat`. `waiting:claude` either way — the next real action is a fix or a close-out, not something David can click. An accepted run drives close-out through to `stage:done` and closes the issue. Also owns the `Blocked by:` + failed-step record at the moment a run finds a bug, executing `bugfix`'s intake contract earlier, while the context is still in front of it — but **not** the `waiting:` flip, which waits until the run actually stops, since a run David chooses to continue is still David-held |
-| `/document` | A harvest is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row |
+| `/document` | An **ad-hoc** harvest (one feature, invoked directly) is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row. The **batched** harvest at `/maintenance` gets no sub-issue: it rides the maintenance docs PR, and its tracking is the harvest-notes comments already on each feature's issue ([`documentation-workflow.md`](documentation-workflow.md)) |
 
 **Phase ownership rides the same trigger points**, with no new maintainer:
 
@@ -386,9 +427,21 @@ restatement.
 ## Closing an issue
 
 **Merge is not verification, and it is not the reason an issue stays
-open either.** What keeps a merged workstream open is a UAT still owed.
-Where none is owed, nothing remains for anyone to verify after the
-close-out sync, so the issue closes then. (David, 2026-09-25. Before this,
+open either.** What keeps a merged workstream open is a UAT still owed —
+or, for a feature David has declared prototype phase, the phase itself: its
+merges have no close-out, its issue stays at `stage:coding` from its first
+version's approval through every later version (back at `stage:planning`
+only while a loop David asked for runs), and it closes at the
+close-out of the hardening PR that follows
+the flip — or, when David declares the feature abandoned, as *not planned*
+once its teardown is confirmed (in the branch regime that may wait on
+David's host step, and the issue stays open at `waiting:david` until then),
+with a comment naming the
+decision (*Promotion is a real operation*, above; the rule is
+[`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+The one-line registry PRs the phase uses — at the start under the branch
+regime, at the flip, at abandonment — say `Refs #N` and own no lifecycle. Where none is owed, nothing remains for anyone to
+verify after the close-out sync, so the issue closes then. (David, 2026-09-25. Before this,
 the only step that closed an issue was an accepted `/uat` run. Every
 workstream with no UAT — every docs, devops and Tier A bugfix PR, and in
 AI-Handbook nearly every PR — parked at `stage:close-out` with "David's to
@@ -402,8 +455,10 @@ set" `stage:done`, and nothing ever asked him to.)
   workstream waits at `stage:close-out` only while a named item really
   cannot be finished now, and its State of Play names that item.
 - **Who that is:** `pr-watch` when no UAT doc is owed (at the verified
-  sync, per its transition), `/uat` on an accepted run, and `pr-watch` or
-  `/uat` for a phased parent when its last phase reaches close-out.
+  sync, per its transition), `/uat` on an accepted run, `pr-watch` or
+  `/uat` for a phased parent when its last phase reaches close-out, and the
+  `prototype` skill for a prototype-phase feature David declares abandoned
+  (as *not planned*, above).
 - **A product-visible change that shipped no UAT doc** (the Tier A case)
   still closes. The closing comment carries the one-line pointer the State
   of Play used to: where to look next time David is in the app, and to
@@ -421,7 +476,8 @@ set" `stage:done`, and nothing ever asked him to.)
 ## What must never happen
 
 - **`Pull request merged → Done`, the Project's built-in workflow, stays
-  off.** A merge is followed by Test run and UAT — the board must never
+  off.** A merge is followed by Test run and UAT — or, for a prototype-phase
+  PR, by his feedback at `stage:coding` — and the board must never
   claim work is verified before David has actually verified it. (Confirmed
   correct in practice: PR #311 merged and correctly stayed at `🛑 UAT`, not
   `Done`.)
@@ -440,7 +496,9 @@ set" `stage:done`, and nothing ever asked him to.)
   an issue body is public even though the Project itself is private. This
   is the **canonical definition** of the disclosure check that gates
   opening a public workstream issue, referenced (not restated) by
-  `plan-review-loop`, `working-modes.md`'s bugfix disclosure check, and
+  `plan-review-loop` (which opens a prototype's first-version issue too), the
+  `prototype` skill before a questions file or ledger's first push,
+  `working-modes.md`'s bugfix disclosure check, and
   `documentation-workflow.md`'s harvest-tracking section: before a
   workstream — a plan, a bug report, or a `/document` harvest — becomes a
   public issue, confirm it contains none of unpatched-vulnerability

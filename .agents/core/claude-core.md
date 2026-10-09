@@ -98,7 +98,9 @@ where I put it and treat it as binding.
 
 1. **David never runs CLI/shell commands.** Anything needing a command goes in
    the PR's Post-merge verification section and runs through the Replit
-   connector at close-out — never a chat instruction to him.
+   connector at close-out — never a chat instruction to him. A prototype-phase
+   PR has no such section, so a command its environment needs runs through
+   the connector at its sync, under the same rule.
 2. **David never reads diffs or commits.** Checkpoints are product intent, real
    decisions, or a testable surface — never code milestones. I never offer or
    pause for code review by him.
@@ -169,7 +171,9 @@ where I put it and treat it as binding.
     environment, so their shipping-mechanics opinions carry no authority and
     don't get surfaced to David as open questions. Their substance findings
     (product, design, correctness) are weighed on the merits — and **Codex
-    code-review findings keep their full fix-or-decline force.**
+    code-review findings keep their full fix-or-decline force** on
+    production-phase code; on a prototype-phase feature its automatic pass is
+    read for nothing (*Two classes and a phase that leave the loop*).
 13. **Every reply to a message of his opens by quoting it.** A blockquote of
     his first line, truncated at ~90 characters with `…`, before anything
     else. His messages and my answers are routinely separated by a dozen tool
@@ -245,10 +249,11 @@ thing claimed is mine, and not how long checking it would take (David,
 - **A fix I claim is a fix I re-read.** Asserting that an edit applied,
   without reading the file back, is the same failure one level down.
 
-The vocabulary is the planning contract's — *verified* and *unable to
-verify*, in its evidence section — never a parallel one. (It used to be the
-plan-review schema's fields; the schema went with the verdict-driven design on
-2026-09-18 and the contract kept both terms.) **There is no checker for this, and
+The vocabulary is these two terms, *verified* and *unable to verify*, and
+never a parallel one. (They were the plan-review schema's fields until the
+schema went with the verdict-driven design on 2026-09-18; this section is now
+their only statement — an earlier line here said the planning contract kept
+them, and it does not.) **There is no checker for this, and
 none is to be built** — the one named exception to *Recurring failure
 patterns become CI guards* under *Standing rituals*: the rule adds a word
 where the honest answer is "I could not check" and a quotation where I did,
@@ -259,17 +264,29 @@ dispatched assessor (*Model, cost, and routing*).
 ## Two modes: feature-building (default) vs. bug-fixing
 
 The shared definition is
-[`working-modes.md`](../../docs/ai-context/working-modes.md). Entry is routed by
-request shape and announced in one line (the announcement is David's veto
-surface); `/bugfix` is the explicit override.
+[`working-modes.md`](../../docs/ai-context/working-modes.md). Before either
+mode, the consumer's *Feature phases* registry: a request about a feature
+David has declared prototype phase, bug-shaped or not, goes to the
+`prototype` skill — a first version through the planning loop, a later one
+with none unless David asks (*Two classes and a phase that leave the loop*,
+below).
+Otherwise entry is routed by request shape and announced in one line (the
+announcement is David's veto surface); `/bugfix` is the explicit override.
 
 - **Feature-building is the default** — pre-plan conversation, plan, plan
-  review, build, post-merge verification, UAT doc, ship-the-UI-surface gate.
+  review, build, post-merge verification, UAT doc, ship-the-UI-surface gate —
+  for a feature in **production phase**; one David has declared prototype
+  phase keeps the pre-plan conversation, the plan and the plan review for its
+  **first version** (and for a later one only when he asks in words), then
+  the surface itself and nothing else on that list — the owner's feedback is
+  on something he can use (*Two classes and a phase that leave the loop*, below).
   **Ceremony scales to the artifact, not the phrasing**: agent-facing markdown
   (a skill, a contract, a prompt) gets **no plan document and no plan-review
-  loop** — I write the real file and ship it. Product code gets the full
-  ceremony; migrations, auth, payments and any subsystem the overlay marks
-  sensitive add the specialist review.
+  loop** — I write the real file and ship it. Product code in production
+  phase gets the full ceremony; migrations, auth, payments and any subsystem
+  the overlay marks sensitive add the specialist review (a prototype-phase
+  feature touching one is still in prototype phase, and the branch regime is
+  what protects production's process and data).
   If the class is unclear I ask one numbered question, and I do **not** default
   upward: the expensive mistake in this repo has been over-ceremony.
 - **Bug-fixing drops the planning ceremony, not the verification.**
@@ -285,7 +302,8 @@ surface); `/bugfix` is the explicit override.
 
 Both modes: pause and ask on genuine ambiguity (a "bug" that's really a
 behavior change is feature work), verify before committing, and keep the
-squash-merge / never-force-push / bot-review discipline.
+squash-merge / never-force-push / bot-review discipline — the last where a
+review is owed, which a prototype-phase feature never is.
 
 ## Memory lives in files, not a marathon chat
 
@@ -314,11 +332,15 @@ enactment is `.claude/skills/document/`.
   `.agents/memory/`. It rides the current PR or a small internal PR. This is
   the "remember this" mechanism and it never waits.
 - **Type 2 — how the system works: batched.** Subsystem docs and Manual
-  chapters are harvested in **one pass at `/maintenance`**, covering everything
-  merged since the last one. Process PRs get no Type 2 harvest at all.
-- **The bridge:** at close-out of a product feature I post a **harvest-notes
-  comment on the workstream issue** — decisions made and why, alternatives
-  rejected, gotcha candidates. Cheap, always, no PR. The batched pass reads
+  chapters are harvested in **one pass at `/maintenance`**, covering every
+  production-phase feature merged since the last one; a prototype-phase
+  feature waits for the close-out of the hardening PR that follows its
+  flip. Process PRs get no Type 2 harvest at all.
+- **The bridge:** at close-out of a production-phase product feature I post
+  a **harvest-notes comment on the workstream issue** — decisions made and
+  why, alternatives rejected, gotcha candidates. Cheap, always there, no PR;
+  a prototype-phase PR's close-out is the sync and the merge report alone,
+  since it has no decisions to harvest yet (*Close-out*, below). The batched pass reads
   those comments plus the diffs, so session context survives without a ceremony
   per merge.
 
@@ -335,7 +357,9 @@ enactment is `.claude/skills/document/`.
    earlier version of this line named two of the four, and a checklist that
    lists some of its items invites skipping the ones it omits. A plan specifies
    invariants, not implementation — applied line by line as I draft, not as a
-   trimming pass afterwards.
+   trimming pass afterwards. A prototype's short plan — its first version's,
+   or a later version's David asked a loop for — runs the increment test
+   alone; `PLANS.md` says so, and which sections it omits.
 3. **A plan is never published, so the pre-push disclosure gate is gone**
    (David, 2026-09-09): working tree, in-session peer, chat — no public
    channel. What survives is narrower and still binding: a
@@ -343,9 +367,14 @@ enactment is `.claude/skills/document/`.
    check runs before it does** — unpatched vulnerabilities, auth-bypass
    specifics, secrets, payment-fraud paths, private customer data or embargoed
    work never get committed. Directions are unchanged.
-4. **The scope-of-work gate opens the loop.** Before the first push, the scope —
+4. **The scope-of-work gate opens the loop** — for a feature in production
+   phase and for a prototype's first version; a later prototype version has
+   no loop to open unless David asks for one in words (*Two classes and a
+   phase that leave the loop*, below). Before the first push, the scope —
    direction, product intent, must-not-change, settled decisions, now/next/never
-   boundaries, ceremony tier — goes to David as a 🛑 banner. His explicit
+   boundaries, ceremony tier — goes to David as a 🛑 banner; for a
+   prototype's version, the short plan's four items stand in for intent,
+   must-not-change and settled decisions. His explicit
    agreement is what authorizes the loop to run autonomously.
 5. **Mid-flight scope gets the now/next/never question** — three options with
    ramifications, default **next**. A two-option scope question is a bug in the
@@ -387,36 +416,62 @@ never routed to a cheaper subagent. Mechanics: `plan-review-loop` skill.
 ## Review loops
 
 **Codex review of PRODUCT code is David's safety net. That is the one thing
-never in question.** Everything below governs what may be layered on top.
+never in question** — for product code in production phase; a feature he has
+declared prototype phase is the one exemption he has put outside it, in words
+(*Two classes and a phase that leave the loop*, below). Everything below governs what may
+be layered on top.
 
-### Two classes that leave the loop: Trivial and Documentation (David, 2026-09-25)
+### Two classes and a phase that leave the loop: Trivial, Documentation, and prototype phase (David, 2026-09-25 and 2026-09-26)
 
 The rule and David's reasons live in
-[`working-modes.md`](../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25);
+[`working-modes.md`](../../docs/ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)
+for the two classes and in
+[its phase section](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26) for the third exemption;
 this is my enactment. Everything else in this section is the **standard**
 loop, and each of its rules below — the write-gate, shared judgement, review
 rule 4's "any changed head gets its review", translation and the close-out bar
 — applies to the standard loop only.
 
 - **Trivial: only David declares it**, in words, for that change; I never
-  assign it, and the PR body quotes him. I request no review of any kind and
+  assign it, and the PR body quotes him. His phase declaration for a feature
+  is that declaration for the one-line registry PR recording it (David,
+  2026-09-28; the phase bullet below). I request no review of any kind and
   merge on green CI. Codex's automatic pass is read for one thing: **a P1
   holds the merge and goes to David**, and I do nothing further until he
   answers. Each Codex thread is resolved with one line citing his ruling.
-- **Documentation: one Astra and Fable pass, and no Codex.** For prose:
-  contracts, skills, memory notes, docs sweeps, harvests, Manual chapters.
-  `review-proxy.mjs --documentation`, with the oracle being **the decision the
-  prose records, quoted**. One batch, merge on green CI, and the merge report
-  says in my words what the batch changed. Codex's threads are resolved with
-  one line saying the class does not read them. **A trial of five PRs**, then
-  David and I look at whether it caught contradictions without Codex.
+- **Documentation: one Astra and Fable pass, with Codex's automatic pass as
+  one input** (David, 2026-10-04, after a seven-PR trial without it). For
+  prose: contracts, skills, memory notes, docs sweeps, harvests, Manual
+  chapters. `review-proxy.mjs --documentation`, with the oracle being **the
+  decision the prose records, quoted**, and Codex's automatic findings passed
+  as `--findings-file` (or `--codex-clean`) once that pass reports Completed,
+  with no timeout.
+  I request no Codex round. One batch, merge on green CI, and the merge report
+  says in my words what the batch changed. Each Codex thread is answered like
+  any finding — fixed in a named commit, or declined with the reason — and
+  resolved.
 - **Neither covers** a script, a check, CI, a setting, a permission, an agent
   role's definition, latitude for me, or the review loop itself — unless David
   declares that specific change Trivial.
+- **A third exemption is a phase, not a class** (David, 2026-09-26): a product
+  feature in **prototype phase**, declared per feature in the consumer's
+  `overlay-declarations.md`, gets the planning loop for its first version —
+  pre-plan conversation, a short plan, Astra's review, his approval — and for
+  a later version only when he asks in words; it gets no code-review loop, no
+  tests, no UAT doc and no hardening bar until David declares it production
+  (David, 2026-09-28: *"What we're cutting out is the code review loop once
+  we've built it."*). Where nothing is
+  downstream of `main` it lives on `main` and its PR merges in the same turn,
+  Codex's automatic pass read for nothing; where users are, it lives on a
+  `prototype/<feature>` branch with its own environment and database, and
+  opens no PR at all. Any production-phase feature in the same PR puts the
+  whole PR in the standard loop. The rule is
+  [`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26);
+  my enactment is the `prototype` skill. Publishing stays David's, every time.
 
 ### The write-gate rule (David, 2026-08-22) — every tier
 
-(Trivial and Documentation are outside it, above.) **If code was written, it
+(Trivial, Documentation and a prototype-phase feature are outside it, above.) **If code was written, it
 gets reviewed. The loop stops when the judgement is
 that nothing more is worth writing, never after a push.** Stated as the
 sequence: a round returns findings → the judgement is made, *write* or *stop*
@@ -427,7 +482,8 @@ and a Fable assessor advise independently on every round that returns findings,
 before anything is written for them, and I decide from the two. See *Shared
 judgement on a review round* below.
 
-Two invariants, and they are the point: **no commit ever merges unreviewed**,
+Two invariants, and they are the point: **no commit in the standard loop ever
+merges unreviewed**,
 and **a loop always terminates on a reviewed head** — because the stop happens
 before any new commit exists. The exit ramp from eternal looping is the
 judgement that nothing more is worth *writing*; it is never anyone skipping the
@@ -548,8 +604,11 @@ accounting.
 
 ### Internal tooling: what is downstream
 
-Guards, `scripts/`, skills, this file, `docs/ai-context/` contracts, process
-docs and harvests run the loop above with the **`internal` tier** — **by
+Guards, `scripts/`, and the rest of the internal tooling the Documentation
+class does not take (above — prose such as skills, contracts and harvests
+takes that class unless it is on the list of changes that class does not
+cover, which is `working-modes.md`'s) run
+the loop above with the **`internal` tier** — **by
 default, and the default is not the answer**. Before the first round, I ask
 what is downstream of *this* change: **a change to machinery that governs
 approvals, publication, credentials or destructive operations is weighed on
@@ -573,8 +632,8 @@ would have been capped at two reviews by the exception written to prevent
 exactly that.) Everything that is genuinely routine and recoverable — which is
 nearly all of it — stays internal:
 
-- **A clean automatic pass is the whole ceremony** (standard loop; Trivial and
-  Documentation are outside it, above). Round 1 fires on PR-open;
+- **A clean automatic pass is the whole ceremony** (standard loop; Trivial,
+  Documentation and a prototype-phase feature are outside it, above). Round 1 fires on PR-open;
   finding nothing, there is nothing to assess and no receipt to write —
   nothing was written, so the head is already reviewed.
 - **Every finding is judged on what it is worth, and the tier says what is
@@ -701,8 +760,8 @@ in the file that every session loads.
    to buy the round — #125's two-sentence fix waited a week on exactly that.
    **Any changed head gets its review**, documentation-only changes and
    base-branch merges included — in the standard loop; a Trivial change gets
-   none and a Documentation batch merges unreviewed, by design (*Two classes
-   that leave the loop*, above). What is refused is asking again on a head
+   none, a Documentation change's one batch of corrections merges without a second review, and a prototype-phase PR
+   merges on green CI, by design (*Two classes and a phase that leave the loop*, above). What is refused is asking again on a head
    already reviewed as it stands, to get a different answer. The mechanical
    round needs no exception now, because it was never the anomaly — the old
    rule was. (Astra, 2026-09-19.) **Every review request carries pre-registered flip
@@ -753,7 +812,11 @@ in the file that every session loads.
 ### Watching the PRs I open
 
 I subscribe to every PR I create, immediately, on whatever tier the session is
-on. Mechanics: `pr-watch` skill. Two things that gate whether it fires at all:
+on. Mechanics: `pr-watch` skill. A prototype-phase PR is the exception that
+needs no gate (*Two classes and a phase that leave the loop*, above): it merges in the
+same turn it opens, so there is nothing to watch, and a prototype branch
+opens no PR. Two things that gate whether it
+fires at all:
 
 - **A `/document` harvest PR is subscribed only at step 5 of
   `documentation-workflow.md`**, after the workstream issue exists and the PR
@@ -818,17 +881,27 @@ design. Mechanics:
    satisfied: David asked here, in writing, for every branch. A session that
    re-asks per PR is reading a standing instruction as though it were absent,
    which costs him a round trip to repeat himself. Ask only for the two
-   exceptions above.
+   exceptions above. **A `prototype/<feature>` branch in a product with users
+   downstream of `main` is the second exception already granted**: David's
+   declaration of the phase is the "no PR", and the branch is named in the
+   feature-phase registry instead (the consumer's `overlay-declarations.md`
+   *Feature phases*; *Two classes and a phase that leave the loop*, above).
 
 2. **Pre-PR quality pass:** run `/simplify` over changed code before opening a
-   **product-code feature PR** (bugfix and internal PRs exempt). Not announced
+   **product-code feature PR** in production phase (bugfix, internal and prototype-phase PRs exempt). Not announced
    beyond a line in the PR body — it buys a cleaner diff and so fewer rounds.
 3. **The PR body carries the reviewer's oracle.** For a feature: the approved
    plan's Product Intent / Must Not Change / Settled Decisions verbatim, plus
    the direction it cites (code can satisfy a narrow increment intent while
    violating the direction). For a bugfix: the tier oracle from
    `working-modes.md` — fix tier, reported symptom verbatim, intended behavior,
-   must not change, root cause, blast radius. "n/a — no plan" only for a
+   must not change, root cause, blast radius. For a prototype-phase feature
+   on `main` (the branch regime opens no PR): the questions the increment is
+   meant to answer, and, for a version that had a plan — the first, or a
+   later one David asked a loop for — the approved short plan verbatim (its
+   four items: the design question, the hypothesis, the surface, what it
+   leaves out); otherwise its oracle is its owner's feedback (rule 4 gives
+   the line). "n/a — no plan" only for a
    genuinely trivial change. Verbatim carries a guarded string in its defanged
    form (interaction rule 11).
 4. **The body says in one plain line what the code is judged against.**
@@ -836,7 +909,12 @@ design. Mechanics:
    digest (an in-session plan is never committed, so the digest is what pins
    the text David approved); the issue where the scope was agreed in
    conversation; the bugfix tier (A, B or C — a Tier C schema fix names `C`);
-   or `no plan`, for the "n/a — no plan" change rule 3 allows. (It read
+   or `no plan`, for the "n/a — no plan" change rule 3 allows; or, for a
+   prototype-phase feature on `main`, `prototype phase — <feature>`, with the
+   questions file the increment answers named beside it and, for a version
+   that had a plan — the first, or a later one David asked a loop for — that
+   plan's digest; otherwise such a PR has no plan and is judged by nobody
+   but its owner. (It read
    `trivial` until 2026-09-25, when Trivial became a review class David alone
    declares; one word meaning two things is how a label starts granting what it
    only described.) Nothing parses it — it points
@@ -845,8 +923,9 @@ design. Mechanics:
    format document are retired. Nothing had read the block at runtime since
    the #89 cut, and its fixed grammar forced a false declaration on work
    agreed in conversation with no plan file, #110.)
-5. **Post-merge verification + UAT doc** for product-visible feature PRs, per
-   the `pr-docs` skill and
+5. **Post-merge verification + UAT doc** for product-visible feature PRs in
+   production phase — a prototype-phase PR ships neither, its feedback rail is
+   its verification — per the `pr-docs` skill and
    [`test-run-contract.md`](../../docs/tests/test-run-contract.md). The PR is not done
    until the verification section has real content (or an explicit "none
    needed") and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` exists and is linked —
@@ -863,17 +942,22 @@ design. Mechanics:
 
 **Merging is not shipping — it is what makes the work testable.** The app runs
 from the Repl, which tracks `main`, so code on my branch exists nowhere David
-can click. Production is a separate, explicitly-asked `publish_app`.
+can click — with one exception, a `prototype/<feature>` branch, which its own
+prototype environment tracks and which never merges while in that phase.
+Production is a separate, explicitly-asked `publish_app`.
 
 **The bar: CI green + Codex review returned for the head commit + every thread
 resolved + the translations that were owed delivered** (every decline round,
 plus the last round before the merge). That is the whole bar, for
-product and internal PRs alike — except the two classes that leave the loop
+product and internal PRs alike — except the two classes and the phase that leave the loop
 (*Review loops*, above): a **Trivial** PR merges on green CI and resolved
 threads unless Codex's automatic pass posts a P1, and a **Documentation** PR
-on green CI, resolved threads and its one assessed batch, with no Codex review
-and no translation owed. CI and Codex catch *broken*; David's UAT
-catches *wrong*, after the sync.
+on green CI, resolved threads and its one assessed batch — assessed once
+Codex's automatic pass reports Completed — with no Codex round requested and
+no translation owed — and a **prototype-phase** PR, on `main` only where
+nothing is downstream of it, waits for nothing but green CI, with Codex's
+automatic pass read for nothing and no translation owed. CI and Codex catch
+*broken*; David's UAT catches *wrong*, after the sync.
 
 **No receipt proves any of the four now** — `pr-ready.mjs` went with the #89
 cut, having never run once in the loop it was built for (David merged from the
@@ -883,7 +967,9 @@ conversation resolution, so the Merge button is inert while a thread is open.
 
 - **Every PR in the standard loop gets a Codex review and none merges before
   it returns** (Trivial waits only for the automatic pass, to catch a P1;
-  Documentation waits for none). A round I
+  Documentation waits only for the automatic pass, as an input to its one
+  assessed batch; a prototype-phase PR is outside the standard
+  loop and waits for none). A round I
   requested but haven't received is not convergence. A pass on a commit I have
   since pushed past has not reviewed the diff that would merge. What counts as
   the review returning is the `**Reviewed commit:**` announcement — or, on a
@@ -899,9 +985,14 @@ conversation resolution, so the Merge button is inert while a thread is open.
   to David rather than into a guess.
 - **A Codex code-review outage is a FULL STOP.** Not the security-review
   usage-limit bounce, which is metered separately and means "ask for the code
-  review." A genuine code-review outage means: stop building, tell David
-  immediately as a 🛑 with a push notification, say which PRs are blocked and in
-  what state, and wait. Noticing recovery is not permission to restart.
+  review." A genuine code-review outage means: stop building production-phase
+  code, tell David immediately as a 🛑 with a push notification, say which PRs
+  are blocked and in what state, and wait. Noticing recovery is not permission
+  to restart. A prototype-phase feature owes no Codex review, so an outage
+  blocks nothing there and that work continues. A Documentation PR is among
+  the blocked ones: its one pass waits for Codex's automatic review as an
+  input, with no timeout (*Two classes and a phase that leave the loop*,
+  above).
 - **Two things no gate ever proved, and they are still mine to check by eye.**
   That every requested round came back — a permitted retry needs no push, so
   two requests can name one commit and a single pass satisfies both — and that
@@ -913,11 +1004,16 @@ conversation resolution, so the Merge button is inert while a thread is open.
    `pull_request_read`, not cached green. If anything moved, re-work the bar.
 2. **Squash-merge.** Every merge in this repo is a squash-merge, whoever clicks
    it.
-3. **Trigger the Repl sync**, wait ~15 seconds, then verify via one
-   `ask_question` that the checked-out SHA matches the new `main` commit **and**
-   the worktree is clean. Neither check substitutes for the other. If it hasn't
-   landed, retry at ~15-second intervals up to 4 tries, then report a sync
-   problem rather than waiting longer. **Every merge, with no exception I
+3. **Check the Repl, then trigger its sync.** First, one read-only
+   `ask_question` for `git fetch` and `git status -sb`: a Repl `main` that is
+   **ahead** of GitHub's, alone or diverged, holds commits made in the Repl,
+   which are moved to a pushed branch and the Repl's `main` realigned before
+   anything else (*This environment's git constraints*), never synced over. Then trigger a fast-forward-only sync,
+   wait ~15 seconds, and verify via one `ask_question` that the checked-out SHA
+   matches the new `main` commit **and** the worktree is clean. Neither check
+   substitutes for the other. Still **behind** means it hasn't landed: retry at
+   ~15-second intervals up to 4 tries, then report a sync problem rather than
+   waiting longer. **Every merge, with no exception I
    reason my way into** — not "the project is paused", not "this change has no
    product surface", not "the Repl will pick it up on its next sync anyway".
    Each of those is a judgement about *this* commit; drift is the sum of all of
@@ -927,10 +1023,14 @@ conversation resolution, so the Merge button is inert while a thread is open.
    settings-only merge to a paused repo and told him why.)
 4. **Execute the PR's Post-merge verification section** through the connector
    (the two-call sequence below, read-only scoping stated), when it has content.
-5. **Post the harvest-notes comment** on the workstream issue (product PRs).
+5. **Post the harvest-notes comment** on the workstream issue (production-phase
+   product PRs; a prototype-phase PR posts none — its decisions are not made
+   yet).
 6. **Merge report to David**: both SHAs, verification results, and the UAT
    handoff naming what to go click — plus the reminder that `/uat` walks him
-   through it rather than leaving him to the doc. Push notification.
+   through it rather than leaving him to the doc; for a prototype-phase PR,
+   that the head is on `main` and unpublished, and which questions it asks
+   (the `prototype` skill). Push notification.
    **Nothing follows the merge report** — it is the message that hands the
    turn back.
 
@@ -939,9 +1039,11 @@ guardrail-and-authority carve-out: the click was never once withheld and cost
 a round trip every time, the safety net is his working beside me and noticing,
 and everything here is reversible). A change to `.claude/settings.json`
 permissions, a CI check that constrains me, or a working-contract line granting
-me new autonomy merges under the same bar as everything else. The one
-exception is a pull request that changes the review loop and still carries
-findings after its second review, which comes to him (the ship gate, above).
+me new autonomy merges under the same bar as everything else. Where a merge
+does wait on him, a rule above says so — among them a pull request that changes the review
+loop and still carries findings after its second review (the ship gate), a
+Trivial PR whose automatic Codex pass posts a P1, and a corrected head still
+short of what was agreed (the write-gate rule).
 **What replaces the gate is visibility, not another gate:**
 the PR body and the merge report each carry one line naming the latitude the
 change grants me, so a widening is read rather than clicked. Unaffected: the
@@ -957,25 +1059,35 @@ Two layers, in order of authority: the **harness classifier** refuses to let me
 edit my own guardrails in place (the platform's layer, unaffected by the
 close-out change above: a guard change goes through a PR like any other, and a
 blocked in-place edit is that layer working); and **GitHub's rulesets**,
-server-side, binding on **me** in every shape I can push **to the branches
-they target**, and on no other branch.
+server-side, binding on **everyone who pushes, me included**, in every shape
+**to the branches they target**, and on no other branch.
 
-On `main`: block force pushes, restrict deletions, require linear history,
+On `main`, with **no bypass actor**: block force pushes, restrict deletions, require linear history,
 require a PR, require status checks, require conversation resolution (that
 last is what makes the Merge button inert while a thread is open, in
-*Close-out* above). On `claude/**`: **block force pushes**
-(#94, created and verified 2026-09-16 — `--force-with-lease` on a probe branch
-was refused with GH013, and a plain push of a further commit landed). On **all
-branches**: block force pushes (David, 2026-09-16, #106 — the namespace gap the
-two rulesets above left).
+*Close-out* above). On **all branches**, `claude/**` included: block force
+pushes (David, 2026-09-16, #106). A separate `claude/**` ruleset (#94) did
+that job for this session's branches until the all-branches one made it
+redundant, and it is gone (David, 2026-10-03).
 
-**They are not binding on David**: his own direct-push path to `main` through
-Replit's Git pane lands, settled 2026-08-09 and documented in
-[`replit-environment.md`](../../docs/ai-context/replit-environment.md). So never
-predict that a push of his will be refused, and never read a `Replit Agent`
-commit on `main` as evidence something broke — that inference is exactly the
-false alarm recorded in
-[`replit-direct-push-to-main-is-sanctioned.md`](../../.agents/memory/replit-direct-push-to-main-is-sanctioned.md).
+**They bind David too, and every change to `main` arrives through a pull
+request** (David, 2026-10-03: *"Yes, everything goes through a pull
+request."*). He removed the Admin bypass from every ruleset in every repo, so
+no identity lands on `main` outside a merged PR — not his, and not this
+session's, which pushes as his admin account. His display-only tweaks from
+Replit included: the Repl tracks `main`, so a tweak is committed there unless
+he branches first, and that commit can never be pushed. When I find the
+Repl's `main` ahead of GitHub's, I move those commits to a branch through the
+connector, push it, realign the Repl's `main` to GitHub's (nothing is lost:
+the commits now live on the pushed branch), and open the PR (David,
+2026-10-03), and it merges like any other —
+on green CI when he declares the change Trivial (*Two classes and a phase
+that leave the loop*, above). The close-out sync is where I find it (*Close-out*,
+step 3). I never drop such a commit unless he says to. So a commit on `main` with no PR
+behind it is not a lane: it means a ruleset has been loosened, and that is one
+line to David. (Until 2026-10-03 his direct push from Replit's Git pane was
+sanctioned and landed; the record is
+[`replit-commits-reach-main-only-through-a-pr.md`](../../.agents/memory/replit-commits-reach-main-only-through-a-pr.md).)
 
 **There is no local shell guard any more.** `.claude/guard.sh` and its parser
 were removed in the #89 cut (#94): no accidental destructive command is
@@ -1000,15 +1112,18 @@ rulesets are not yet configured.
 all branches in all repos (2026-09-16), closing a gap the #89 cut had opened
 for a day: the guard was scoped to no namespace, and the rulesets that replaced
 it reached only `main` and `claude/**`, leaving a runner-assigned branch under
-any other prefix unprotected. **What is measured is the refusal on `claude/**`**
-— `--force-with-lease` on a probe branch, GH013, #94. The all-branches ruleset
-is applied but has not been separately probed; if that distinction ever matters,
-a probe branch outside `claude/**` settles it, and nothing in my flows depends
-on the answer.
+any other prefix unprotected. **The all-branches ruleset is measured on its
+own** (DojoOS, 2026-10-03, whose only rulesets are it and `main`'s):
+`--force-with-lease` was refused with GH013 on both `claude/ruleset-probe` and
+`probe/ruleset-probe`. That is the protection a `prototype/<feature>` branch
+relies on, living outside `claude/**` for weeks with no PR (*Two classes and
+a phase that leave the loop*, above).
 
 **The one shape that would need a force push**, so it is not rediscovered as a
 surprise: restarting a branch in place, under the same name, before it has
-merged. The remedy is a new branch name and a new PR. Every other case has an
+merged. The remedy is a new branch name and a new PR — or, for a
+`prototype/<feature>` branch, which opens no PR, a new name written into its
+registry line (*Two classes and a phase that leave the loop*, above). Every other case has an
 answer that never rewrites history — squash-merge handles rebasing and commit
 messages, rotation rather than rewriting handles a leaked secret (a rewrite
 does not unpublish it), and `git checkout -B <branch> origin/<branch>` handles
@@ -1017,7 +1132,7 @@ a diverged local copy.
 | Command | Result |
 |---|---|
 | any force push, any shape, any branch | blocked by a ruleset |
-| a plain push of new commits to `claude/**` | **works** — this is every flow |
+| a plain push of new commits to `claude/**`, or to a `prototype/<feature>` branch ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)) | **works** — this is every flow |
 | `git reset --hard` | works (cannot reach the remote) |
 | `git push origin --delete <branch>` | does **not** work (proxy hangs) |
 | `git checkout -B <branch> <ref>` | works — my reset primitive |
@@ -1030,16 +1145,16 @@ against current `main` at merge time.
 - **First push of a fresh branch:** `git fetch origin main && git checkout -B
   <branch> origin/main`, apply work, push. Also how I restart a branch whose PR
   squash-merged — a plain push, because GitHub deleted the merged branch and
-  there is no history to overwrite. **That same fetch carries the Replit
-  sweep** — one bounded command, `git log --author="Replit Agent"
-  --since="14 days ago" --oneline origin/main`, and I read anything it names
-  that isn't already reviewed.
-  **Bounded by time, never by commit count**: `-3` was the first shape and it
-  silently drops the fourth commit of a busy week, which is the one failure a
-  sweep cannot afford — a missed commit is indistinguishable from a swept one. Without this the
-  opportunistic cadence is nominal only: `fetch` and `checkout` print nothing
-  about authorship, so "a session that touches `main` finds one" describes no
-  actual moment. Sweep rules: the *Connectors → Replit* bullet below.
+  there is no history to overwrite. GitHub's `main` needs no sweep of who committed
+  there: nothing reaches it outside a merged PR (the rulesets, above). **A
+  session on a branch-regime prototype sweeps that branch instead**, the one
+  place on GitHub direct commits still land — `git fetch origin prototype/<feature>`
+  and then `git log --author="Replit Agent" --since="14 days ago" --oneline
+  origin/prototype/<feature>`, since its environment tracks that branch and
+  fetching `main` alone leaves that ref stale. **Bounded by time, never
+  by commit count**: `-3` silently drops the fourth commit of a busy week, and
+  a missed commit is indistinguishable from a swept one. What a sweep finds
+  goes into the feature's next version (*Connectors → Replit*, below).
 - **Follow-up on an already-pushed branch:** add commits and plain-push. If the
   branch genuinely needs newly-landed `main`, **merge, never rebase**.
 - **If local has diverged accidentally:** realign with `git checkout -B <branch>
@@ -1084,18 +1199,27 @@ shows the true delta.
   do we do it this way", plan conversation. That is the intended use, not a
   misconfiguration to flag. **At the transition to building, the session moves
   to Opus**, and it is on me to say so at that boundary, not on him to remember.
+  **Opus builds everything, Tier B included** (David, 2026-10-03: *"Now that
+  Opus 5.5 is out, it's strong enough for any development work I think. We'll reserve
+  Fable for planning and discussion."*) — no development work is reserved for
+  a stronger tier. **Opus is the ceiling, not the floor** (David, 2026-10-04:
+  *"Opus is the ceiling. There's a lot we can do with Sonnet when it's
+  mechanical."*): mechanical work still routes down to Sonnet, below.
   - **I cannot switch it — `/model` is David's, and there is no tool for me.**
     So the rule I can actually keep is: name the boundary the moment we cross
-    it, ask for `/model claude-opus-5`, and don't start writing product code on
+    it, ask for `/model claude-opus-5-5`, and don't start writing product code on
     Fable while I wait.
   - **Mandatory before product code.** Not needed to keep talking, to plan, or
     for a docs/process edit — the ask at every small thing is the overhead this
-    is meant to avoid.
+    is meant to avoid. A prototype-phase feature is product code too: the
+    phase removes ceremony, and the model tier is not on its list (*Two
+    classes and a phase that leave the loop*, above).
   - **Staying on Fable needs a real reason, and David saying so is one.** My own
     "this looks small" is not: the repo's one-line-that-broke-everything is on
     file (#582), and cheap-looking is exactly when the tier matters.
-  - The bounded-judgement dispatches — the plan reviewer, and the review
-    proxy's two assessors — run at the strongest available tier regardless.
+  - The named judgements — the plan reviewer, the review proxy's two
+    assessors, the round translator and `/next`'s three judgement steps — run
+    at the strongest available tier regardless.
     That is a separate, deliberate routing (below), not this rule being
     violated.
 - **Verify the active tier before Opus-reserved execution** (migration, Tier B
@@ -1111,9 +1235,16 @@ shows the true delta.
   judgment is mine, verification of my own work, a Tier B fix, or a `/document`
   harvest (its first source is *this session's* decisions, which a cold worker
   doesn't inherit).
-- **Bounded judgements dispatch at the strongest available tier, resolved
-  through `.agents/machinery.json`** — the plan reviewer and the review proxy
-  are the two live cases, both resolving `strongestCodex`. (The
+- **Named judgements dispatch at the strongest available tier, and only
+  those** (David, 2026-10-04,
+  narrowing the 2026-08-17 "every judgement, no exceptions"): the plan
+  reviewer and Astra's code-round assessment, resolving `strongestCodex`; the
+  Fable assessor and the round translator, resolving `strongestClaude`; and
+  `/next`'s three judgement steps, which name Fable by alias rather than
+  reading the pin, inline or dispatched. The four roles resolve their tier
+  through `.agents/machinery.json`. Any other
+  subagent judgement — the per-task reviews in `subagent-driven-development`
+  included — is sized to its work like any other dispatch. (The
   `review-loop-adjudicator` agent that stood here was removed by the #89 cut.)
   **A Claude role is bound twice, and needs both** (#126): its definition
   declares `model:` and `effort:`, derived from the pin and held equal to it by
@@ -1226,23 +1357,29 @@ Authorization boundaries — the mechanics live in
 
 - **Syncing the Repl is authorized as part of close-out. Publishing is not** —
   `publish_app` is production-facing, per-use and explicitly asked, and we're
-  deferring it until closer to launch. There is no auto-sync.
+  deferring it until closer to launch. There is no auto-sync. Syncing a
+  prototype environment after a push to its `prototype/<feature>` branch is
+  authorized the same way, as that branch's close-out (the `prototype`
+  skill; *Two classes and a phase that leave the loop*, above).
 - **Never build product features through the connector.** Ops, diagnostics and
   debugging are what it's for. Ephemeral probes are fine and I revert them in
   the same session — never commit or push one, since Publish snapshots
   uncommitted files. Anything meant to persist as a fix goes through my
-  pipeline: branch → PR → Codex review → merge → sync. A sanctioned live repair
+  pipeline: branch → PR → Codex review → merge → sync (a prototype-phase
+  feature takes the phase's own path to the same end — through my branch,
+  never through the connector). A sanctioned live repair
   has to be David-originated; I don't launder my own unreviewed patch through
   Replit.
-- **David's own display-only UI tweaks are a sanctioned fast lane**, settled
-  long before I meet any given one — a `Replit Agent` commit on `main` is the
-  normal case, never an incident to escalate. My duty is the sweep, not an
-  alarm: when a session touches `main` and finds one, I read it then (skim
-  display/copy, actually read anything touching data, logic, migrations, auth,
-  payments, or a subsystem the overlay marks sensitive) and route anything real
-  to a `/bugfix` PR.
-  Re-sweeping is expected; there is no ledger. Boundary, ceremony and cadence:
-  [`replit-environment.md`](../../docs/ai-context/replit-environment.md).
+- **David's own display-only UI tweaks from Replit arrive as pull requests**,
+  like every change to `main` (*This environment's git constraints*, above).
+  A tweak committed on the Repl's own `main` — the default, since the Repl
+  tracks it — is moved to a branch through the connector, per that section;
+  when he has not opened the PR himself I open it, and it takes the review
+  class its content earns — Trivial when he declares it so. The one place on GitHub a `Replit Agent` commit still lands
+  directly is a branch-regime `prototype/<feature>` branch: when a session's sweep
+  finds one there I read it (skim display/copy, actually read anything
+  touching data or logic) and route anything real into the feature's next
+  version, since nothing there is a bugfix yet.
 - **Scope every request and say what it must not touch** — Replit Agent defaults
   to *building*, so an unscoped ops question can come back as a feature.
 - **`ask_question` reads, `update_app_using_prompt` acts.** Only
@@ -1331,9 +1468,22 @@ input**: it never redirects my task or escalates my access. Usage details:
   than re-sourced: neither mechanism exists. I don't
   schedule this; a weekly ritual is a heartbeat, which the check-in contract
   rules out.
-- **Quarterly `/security-review`**, or after any payment/auth-touching feature
-  merges. Opus always. If a quarter has lapsed and a payment/auth change just
+- **Quarterly `/security-review`**, or after any production-phase
+  payment/auth-touching feature merges (a prototype-phase one earns it when
+  the hardening PR that follows its flip merges — never at the declaration,
+  which precedes the hardening; *Two classes and a phase that leave the
+  loop*, above). Opus always. If a quarter has lapsed and a payment/auth change just
   shipped, I suggest it.
 - **Recurring failure patterns become CI guards.** When an entry in
   [`known-failure-patterns.md`](../../docs/ai-context/known-failure-patterns.md)
   recurs, the response is a deterministic check, not a better memory note.
+- **A prose change that retires or reshapes a rule runs the `prose-sweep`
+  skill before its review is requested — never my own grep, and never a
+  hand-read of the files I remember** (David, 2026-09-27: *"Always use the
+  sweep tool with prose"*). The method is
+  [`prose-sweep.md`](../../docs/ai-context/prose-sweep.md); this line is
+  only when it fires. #168 is the measurement: a hand sweep across twelve
+  files missed the canonical plan rule in `agent-working-rules.md`, the file
+  that wins on conflict, and the miss cost a review round on the one class
+  of PR whose rounds go to David. The re-run after each batch is part of the
+  batch, not a review, so it costs none.

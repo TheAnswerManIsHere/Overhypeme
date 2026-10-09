@@ -73,7 +73,7 @@ Delegate these agents to their respective phases. Pass the bug description and a
 
 Phases 3 (Impact Assessment), 5 (Devil's Advocate), and the Gate Review are handled directly — they require synthesizing results across phases and should not be delegated.
 
-**That is a standing dispatch BAR** under `CLAUDE.md`'s *Whether a judgement dispatches is fixed in advance* — pre-registered here in writing, not decided at dispatch time, and **not overridden by the 2026-08-17 always-Fable rule for dispatched judgements**. That rule governs which model a dispatch uses, never whether one happens. Removing this bar is a contract change that ships through the ordinary PR path, never a mid-dispatch call. (Codex, #504 round 2, which found this bar missing from that section's registry.)
+**That is a standing dispatch BAR** under `CLAUDE.md`'s *Model, cost, and routing* (an unclassified judgement does not dispatch; a dispatch bar is a contract change) — pre-registered here in writing, not decided at dispatch time, and **not one of the core's named strongest-tier judgements** (nor overridden by the 2026-08-17 always-Fable rule while it stood, until 2026-10-04). Which model a dispatch uses is a separate question from whether one happens. Removing this bar is a contract change that ships through the ordinary PR path, never a mid-dispatch call. (Codex, #504 round 2, which found this bar missing from the list that section then kept.)
 
 ## Phase Requirements
 

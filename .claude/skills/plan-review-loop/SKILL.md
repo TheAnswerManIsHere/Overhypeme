@@ -26,7 +26,11 @@ P=core/scripts/plan-review.mjs; [ -f "$P" ] || P=scripts/plan-review.mjs
 Every command below uses `$P`. Run it from the repository root.
 
 **This is the planning loop only. The Codex GitHub review of CODE is untouched
-and remains David's safety net** — every implementation PR still gets it.
+and remains David's safety net** — every implementation PR in production phase
+still gets it; a prototype-phase feature enters **this** loop for its first
+version, and for a later one only when David asks in words, and gets no code
+review at any version
+([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 ## One contract, two roles
 
@@ -121,9 +125,13 @@ full view by naming it in a discussion — **settled is not closed**.
 
 Unchanged, and still the thing that authorizes the loop to run autonomously: the
 direction served, this increment's product intent, must-not-change, settled
-decisions, the now/next/never calls already made, the ceremony tier and the
-1–100 criticality, as a 🛑 NEED YOU banner with its push notification. See
+decisions, the now/next/never calls already made and the ceremony tier, as a
+🛑 NEED YOU banner with its push notification. See
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-scope-of-work-gate-david-2026-08-15).
+For a prototype's version the banner carries the short plan's four items —
+the design question, the hypothesis, the surface, what it leaves out — in
+place of product intent, must-not-change and settled decisions, since nothing
+about a prototype is settled yet; the tier and the now/next/never calls stay.
 
 That agreed scope **is the oracle**. Write it to a file under
 `.agents/reviews/<slug>/` — the script refuses to run without one, and that
@@ -156,7 +164,9 @@ any other.
 ### Assessing the plan
 
 Write the plan to `docs/plans/PLAN_<SLUG>.md` in the working tree, with the
-oracle as a fenced `plan-oracle` block at its head. Tell David it is drafted and
+oracle as a fenced `plan-oracle` block at its head — for a prototype's version,
+the short plan `PLANS.md` describes, whose product is the questions file the
+`prototype` skill names. Tell David it is drafted and
 **keep going** — v1 changes anyway, and waiting buys nothing. He interjects
 whenever he likes.
 
@@ -411,9 +421,13 @@ link.
 4. **The plan file reaches `main` only if David asks.** Otherwise it stays in
    the working tree. What survives a loop by default is the approved plan's
    oracle, quoted verbatim into the implementation PR body, plus the harvest
-   comment on the workstream issue.
+   comment on the workstream issue (a prototype's version posts none, so the
+   short plan verbatim in its PR body is its record).
 5. **Exchanges run go in the workstream issue's harvest comment.** With no PR,
    that comment is the only place `/maintenance` can read planning cost from.
+   A prototype's version posts no harvest comment, so its exchanges-run line
+   goes in the issue's State of Play block at approval, where `/maintenance`
+   reads it instead.
    A private-path workstream has no public issue — its tracking is the draft
    Project item, and the same trail goes in that item's note.
 
@@ -422,6 +436,14 @@ digest** (`claude-core.md` Pull requests rule 4):
 
 ````markdown
 Oracle source: PLAN_<SLUG>.md, sha256 <the 64-char digest>, approved by David <YYYY-MM-DD>
+````
+
+For a prototype's version the line keeps its phase form and carries the
+digest beside it, and the body carries the short plan verbatim (rules 3 and
+4; the `prototype` skill's ceremony bullet):
+
+````markdown
+Oracle source: prototype phase — <feature>, <questions file>; PLAN_<SLUG>.md, sha256 <digest>, approved by David <YYYY-MM-DD>
 ````
 
 **Take the digest from the plan file as it stands at the moment David approves
@@ -466,7 +488,19 @@ this at the scope gate, before the first label below is touched:
    bad bookkeeping, so when it is unclear, treat it as sensitive and ask David.
    An unnecessary draft item costs nothing; a public issue cannot be
    unpublished.
-1. **The issue may already exist** at `stage:planning`. Nothing to do.
+1. **The issue may already exist** at `stage:planning`. Nothing to do. A
+   feature just flipped from prototype phase arrives here this way: the
+   `prototype` skill relabels its existing issue to `stage:planning` before
+   this loop starts ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md),
+   *Promotion is a real operation*), so a flip never reaches step 3. A
+   **later prototype version David asked a loop for** arrives the same way:
+   the `prototype` skill relabels the feature's existing issue from
+   `stage:coding` to `stage:planning` / `waiting:david` before this loop
+   starts, exactly as at the flip minus the registry change, so the issue is
+   reused rather than duplicated. A prototype's **first version** has no
+   special entry: its issue is a `queue:` item or nothing, so steps 2 and 3
+   promote or open it like any feature's, and David's approval returns it to
+   `stage:coding` (below).
 2. **Otherwise check the backlog first**, per
    [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md).
    This may be exactly a `queue:`-labeled item David is now starting. If a

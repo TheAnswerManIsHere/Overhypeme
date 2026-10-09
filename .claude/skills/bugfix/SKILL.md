@@ -37,6 +37,12 @@ feature-shaped request arriving mid-run simply gets the feature workflow
 branch discipline in step 1 — skipping it is how a second bug lands on the
 first bug's already-pushed branch, silently breaking one-bug-per-PR.
 
+**Never for a feature David has declared prototype phase.** A defect there is
+the next version through the `prototype` skill, not a bugfix PR — nothing
+about a prototype is agreed behaviour yet, and no review loop runs on it
+([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)). The registry is read
+before this mode is entered.
+
 **The one-line summary of what this mode is:** it drops the *planning* ceremony
 (plan file, pre-plan conversation, the multi-round Codex plan-review loop), not
 the *verification*. A small-looking fix can still have wide consequences, so the
@@ -63,7 +69,7 @@ git checkout -b claude/bugfix-<topic> origin/main   # -b, never -B
 **Never `-B`.** `-B` *resets* the ref to `origin/main`, which would silently wipe
 an existing same-named branch's unpushed work. If `-b` fails because the name
 exists, that is the signal to pick a different slug — never fall back to `-B`,
-`--force`, or any reset. (A GitHub ruleset blocks force pushes on `claude/**`,
+`--force`, or any reset. (A GitHub ruleset blocks force pushes on every branch,
 so the push would be refused anyway; the local reset it would follow is what
 loses the work. See CLAUDE.md's *This environment's git constraints*.)
 
@@ -180,7 +186,7 @@ the PR. Tier A is the exception, by design.
   boundary is product code, and a bugfix crosses it: reproducing the symptom,
   reading the failing path and classifying the tier are all thinking, so a
   Fable session does them without ceremony — then names the boundary and asks
-  for `/model claude-opus-5` before the first edit. **A Tier B fix never starts
+  for `/model claude-opus-5-5` before the first edit. **A Tier B fix never starts
   on Fable at all**, since it is Opus-reserved execution. Triage and
   diagnosis stay in my main loop. A **bounded** piece of the work — reproduce
   the symptom, find every caller of X — is eligible for a Sonnet subagent;
@@ -205,8 +211,9 @@ the PR. Tier A is the exception, by design.
   tier there — but a genuinely **trivial database schema fix that David
   explicitly green-lights runs migration ceremony directly, without
   restarting anywhere** (see *When NOT to use this mode*), and that path is
-  **Opus, always** per the tier table's migrations row, never the Sonnet
-  triage tier it was diagnosed on.
+  **Opus, always** — a migration is Opus-reserved execution (`CLAUDE.md`'s
+  *Model, cost, and routing*) — never the Sonnet triage tier it was
+  diagnosed on.
 
 ## 3. Ship it — PR immediately, no waiting
 
@@ -393,8 +400,11 @@ The reviewer's own standard is shared, not my ceremony:
 ## When the next request isn't a bug
 
 There is no mode to exit — classification is per-request. A feature-shaped
-request ("let's build / add / change X") simply gets the feature workflow,
-and the classification announcement makes the switch visible. Two cases
+request ("let's build / add / change X") simply gets the feature workflow —
+after the registry read at the top of this file, which sends a
+prototype-phase feature to the `prototype` skill instead (where a first
+version still plans) — and the
+classification announcement makes the switch visible. Two cases
 still deserve care:
 
 - **A request that could be either** — a "fix" that might really mean
@@ -418,7 +428,8 @@ generated API-validation schemas, which stay Q1 Tier B — see
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-c--this-is-not-a-bug-fix-leave-bugfix-mode)),
 or anything where David needs to verify intent is out of the fast path — a
 non-trivial one goes to **feature mode**, a genuinely trivial database schema
-fix runs migration ceremony directly per Tier C. Don't use `/bugfix` to sneak a
+fix runs migration ceremony directly per Tier C, and one on a feature the
+registry lists in prototype phase goes to the `prototype` skill. Don't use `/bugfix` to sneak a
 feature through the fast path — and don't let a fix quietly become one
 mid-build; that's Tier C.
 

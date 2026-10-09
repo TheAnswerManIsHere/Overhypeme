@@ -225,20 +225,22 @@ export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT
     if (deferred.length === 1 && !/#\d+/.test(deferred[0])) {
       say(`${startLine}: step "${heading}" is **Deferred:** without an owner — name the issue that owns it (#N)`);
     }
-    // A deferred step is not yet runnable in its lane, so it may not have a
-    // check yet; every other machine-lane step must cite one.
-    if (lane !== "human" && deferred.length === 0) {
-      if (checks.length === 0) {
-        say(`${startLine}: step "${heading}" is lane "${lane}" with no **Check:** — name the test, script or command that runs it`);
-      } else {
-        const cited = [...checks[0].matchAll(/`([^`]+)`/g)].map((m) => m[1].trim());
-        if (cited.length === 0) {
-          say(`${startLine}: step "${heading}" **Check:** must cite a backticked repo path or command`);
-        }
-        for (const c of cited) {
-          const m = PATHISH.exec(c);
-          if (m && !exists(m[1])) say(`${startLine}: step "${heading}" **Check:** cites \`${m[1]}\`, which does not exist`);
-        }
+    // Two separate questions. Is a check REQUIRED? Only for a machine-lane
+    // step that is not deferred -- a deferred step is not yet runnable in its
+    // lane. Is a SUPPLIED check valid? Always, deferred or not: a deferred
+    // step that keeps partial evidence for its owner must keep it pointing at
+    // something that exists, or the evidence rots unnoticed.
+    if (lane !== "human" && deferred.length === 0 && checks.length === 0) {
+      say(`${startLine}: step "${heading}" is lane "${lane}" with no **Check:** — name the test, script or command that runs it`);
+    }
+    if (checks.length > 0) {
+      const cited = [...checks[0].matchAll(/`([^`]*)`/g)].map((m) => m[1].trim()).filter(Boolean);
+      if (cited.length === 0) {
+        say(`${startLine}: step "${heading}" **Check:** must cite a non-empty backticked repo path or command`);
+      }
+      for (const c of cited) {
+        const m = PATHISH.exec(c);
+        if (m && !exists(m[1])) say(`${startLine}: step "${heading}" **Check:** cites \`${m[1]}\`, which does not exist`);
       }
     }
   });

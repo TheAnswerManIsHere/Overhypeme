@@ -18,8 +18,12 @@ model that under-delegated; Opus 5 over-delegates. Apply it only to plans whose
 tasks are genuinely substantial and independent — a plan of small, sequential
 edits should be executed directly, not fanned out one subagent per task. Collapse
 the per-task reviewer into your own review when the task is small; the
-whole-branch review at the end plus Codex on the PR is the real safety net, and
-a reviewer subagent per trivial task is pure overhead. Full rules: CLAUDE.md →
+whole-branch review at the end plus Codex on the PR is the real safety net
+(this flow executes a production-phase plan; a prototype's first version
+has a plan too, but it is built without Codex or any code review, so this
+flow is never used for it —
+[`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)), and a reviewer subagent per trivial task
+is pure overhead. Full rules: CLAUDE.md →
 *Subagent delegation is capped*.
 
 **Narration:** between tool calls, narrate at most one short line — the
@@ -115,13 +119,15 @@ Use the least powerful model that can handle each role to conserve cost and incr
 
 **Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): use a standard model.
 
-**Architecture and design tasks**: use the most capable available model.
-The final whole-branch review is one of these — dispatch it on the most
-capable available model, not the session default.
+**Architecture and design tasks**: use Opus — they write code, and building
+never goes above Opus (the fleet ceiling, below). The final whole-branch
+review is a review, so the ceiling does not bind it; it is sized like the
+others, below — usually the largest diff this skill reviews.
 
 **Review tasks**: choose the model with the same judgment, scaled to the
-diff's size, complexity, and risk. A small mechanical diff does not need the
-most capable model; a subtle concurrency change does.
+diff's size, complexity, and risk (David, 2026-10-04: these are not among the
+core's named strongest-tier judgements). A small mechanical diff does not need
+the most capable model; a subtle concurrency change does.
 
 **Always specify the model explicitly when dispatching a subagent.** An
 omitted model inherits your session's model — often the most capable and
@@ -138,7 +144,18 @@ that implementer. Single-file mechanical fixes also take the cheapest tier.
 **Task complexity signals (implementation tasks):**
 - Touches 1-2 files with a complete spec → cheap model
 - Touches multiple files with integration concerns → standard model
-- Requires design judgment or broad codebase understanding → most capable model
+- Requires design judgment or broad codebase understanding → Opus
+
+**Fleet ceiling (David, 2026-10-03): implementation never goes above Opus.**
+Fable is reserved for planning and discussion, so "most capable" for anything
+that writes code — an implementer, or a re-dispatch of a stuck one — means
+Opus — architecture and design tasks included, since in this skill they are
+plan tasks that write code. Opus is a ceiling, not a floor: the cheaper tiers
+above still take mechanical work (David, 2026-10-04). Only work that does not
+write code may go above Opus — a review whose diff earns it, sized as above,
+and design or diagnosis handed off as such (see `model-routing`, *Reaching
+Fable 5 without a session switch*). The rule's home is `claude-core.md`,
+*Model, cost, and routing*.
 
 ## Handling Implementer Status
 
@@ -152,7 +169,7 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 
 **BLOCKED:** The implementer cannot complete the task. Assess the blocker:
 1. If it's a context problem, provide more context and re-dispatch with the same model
-2. If the task requires more reasoning, re-dispatch with a more capable model
+2. If the task requires more reasoning, re-dispatch with a more capable model, up to Opus (the fleet ceiling above)
 3. If the task is too large, break it into smaller pieces
 4. If the plan itself is wrong, escalate to the human
 

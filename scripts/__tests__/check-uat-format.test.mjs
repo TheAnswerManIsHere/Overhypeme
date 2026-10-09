@@ -260,3 +260,18 @@ test("a deferred machine step needs an owner but no check; a human step needs no
   assert.ok(scan(step("**Lane:** ci", "**Deferred:** later")).some((p) => p.includes("without an owner")));
   assert.deepEqual(scan(step("**Lane:** human", "**Deferred:** #628 — rebuilt in Phase 7")), []);
 });
+
+test("a whitespace-only or empty citation is refused in every machine lane", () => {
+  for (const lane of ["ci", "scripted", "live"]) {
+    assert.ok(scan(step(`**Lane:** ${lane}`, "**Check:** `   `")).some((p) => p.includes("non-empty")), lane);
+    assert.ok(scan(step(`**Lane:** ${lane}`, "**Check:** ``")).some((p) => p.includes("non-empty")), lane);
+  }
+});
+
+test("a check supplied on a deferred step is still validated", () => {
+  const deferred = "**Deferred:** #631 — partial evidence kept";
+  assert.deepEqual(scan(step("**Lane:** ci", "**Check:** `src/__tests__/help.test.ts`", deferred)), []);
+  assert.ok(scan(step("**Lane:** ci", "**Check:** `src/__tests__/gone.test.ts`", deferred)).some((p) => p.includes("does not exist")));
+  assert.ok(scan(step("**Lane:** ci", "**Check:** the help test", deferred)).some((p) => p.includes("backticked")));
+  assert.deepEqual(scan(step("**Lane:** ci", deferred)), []);
+});

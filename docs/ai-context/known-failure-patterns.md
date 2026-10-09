@@ -398,7 +398,10 @@ goes undefined. **Avoid:** for every check in a workflow, ask *where does the
 thing being tested physically live at this moment, and can the tester reach
 it?* **Overhype:** the app runs from the Repl, and the Repl tracks `main`, so
 **everything that tests running behavior is post-merge** — David's UAT and
-Replit's `TEST_RUN` alike. Merge + sync is what makes a build testable;
+Replit's `TEST_RUN` alike (the one later exception is a `prototype/<feature>`
+branch, tested on its own prototype environment with no merge at all —
+[`working-modes.md`](./working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+Merge + sync is what makes a build testable;
 production is the separate, deferred `publish_app` step. This misfired twice
 in one day on PR #413 (2026-08-11): Codex caught a `TEST_RUN`-as-merge-gate
 example, and David caught the same shape in the close-out contract two turns
@@ -1493,7 +1496,9 @@ the hard-coded fallback. Every writer records — except the one that reads its
 engine before its own `try`. The pull is structural, not careless, which is
 why instance-by-instance fixing never generalised across nine attempts.
 
-**A corollary worth knowing at the end of a loop, and it is now universal:**
+**A corollary worth knowing at the end of a loop, and it is now universal in
+the standard loop** (not the classes and the phase outside it, per
+[`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)):
 this repo's merge bar needs a completed reviewer pass on the **head** commit,
 so any further fix moves the head and costs another pass. That makes "just fix
 one more thing" mechanically expensive at loop end — a stopping force

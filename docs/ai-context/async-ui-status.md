@@ -17,7 +17,10 @@ the job; legible status is the other half.
 
 Whenever you build or touch anything asynchronous — a queued job, a batch/bulk
 action, a long external call, a poll-style request — the surface that triggers it
-must report status at **two altitudes**:
+must report status at **two altitudes** (on a feature David has declared
+prototype phase this is followed where it costs nothing and is otherwise a
+ledger line, not a bar —
+[`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)):
 
 - **Per item, in place.** Every individual thing being worked (each fact, each
   row, each recipient) shows its own live state right where the user is looking:

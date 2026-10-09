@@ -50,8 +50,15 @@ when the step is written, not when the run starts.
 |---|---|---|---|
 | `ci` | an automated test in the per-PR gate | every PR | `**Check:**` citing the test file (optionally `file:test name`) |
 | `scripted` | a scripted proof, re-runnable on demand — an acceptance journey, a script with recorded evidence | on demand, and before the run is accepted | `**Check:**` citing the spec, script or command |
-| `live` | a check against the deployed environment or a real vendor, through the live-environment connector | at run time | `**Check:**` citing the command or procedure |
+| `live` | a **read-only** check against the deployed environment or a real vendor, through the live-environment connector | at run time | `**Check:**` citing the command or procedure; any state it needs is a Setup `[claude]` line with its `[restore]` |
 | `human` | David's judgement: taste, legibility, whether it reads right, or something only his own account or device can do | in the `/uat` session | nothing extra |
+
+**A machine-lane check is self-contained.** It never depends on state a
+human step produces, so every machine step can be resolved before David
+starts. A check that can only be answered after his own action belongs to
+that human step's record (read after his "yes", before recording Pass), or
+the step is `human`. The rule below about one step needing what an earlier
+step created is a rule for human steps.
 
 **A step is `human` only when no machine can answer it.** "The banner reads
 '4 of 4 done'" is not judgement; it is an assertion a test can make.
@@ -61,9 +68,12 @@ the step is machine-lane and its check is written in the same PR.
 **`**Deferred:** #N — <why>`** marks a step that cannot run in its lane yet
 — its feature is being rebuilt, or the double its check needs does not exist
 yet. It names the issue that owns it. A deferred step is **never a pass**:
-`/uat` lists it as outstanding and the run cannot be Accepted while it is
-the only evidence for a behaviour the PR claims. A deferred machine-lane
-step may omit its `**Check:**` until it is no longer deferred.
+`/uat` lists it as outstanding, and when it is the only evidence for a
+behaviour the PR claims, the run cannot be Accepted. A deferred machine-lane
+step may omit its `**Check:**`; one it does carry (partial evidence kept for
+the owner) is validated like any other. The PR that lands #N replaces the line with
+its runnable `**Check:**` in every doc still deferring to it. A behaviour a
+*later* PR delivers has no step here at all: it belongs in the oracle's scope line, not in this doc.
 
 **Three records, never merged.** The **lane** (where and how a step is
 verified) lives in this doc. Whether the obligation is met now, deferred, or
@@ -214,8 +224,11 @@ in that same PR. See [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md).
 
 `node scripts/check-uat-format.mjs` enforces the structure and the lanes: a
 lane per step, a backticked check for every non-deferred machine-lane step,
-a cited file that exists, an owner on every deferral. It cannot tell whether
-a cited check really asserts what the step expects; that stays with review.
+every supplied check non-empty and backticked with any cited file existing,
+deferred or not, and an owner on every deferral. It checks formatting and
+file existence only — not that a named test exists in the file, and not
+whether a cited check really asserts what the step expects; that stays with
+review.
 
 **A UAT doc is deleted when David confirms its run is complete** (David,
 2026-08-22) — by `/uat`, in the same close-out, unless it carries behavior
