@@ -13,6 +13,33 @@
 
 ---
 
+### 2026-10-08 · UAT steps carry a verification lane; the Stripe fake gates only Phase 10; the legacy fixture keeps shapes and approved fact text
+- **Decision:** Launch Phase 2's plan (#631) approved by David: *"1:
+  Approved."* Three consequences recorded here. (1) **Every UAT step names a
+  lane** — `ci`, `scripted`, `live` or `human` — and only `human` reaches
+  David; a machine-lane step cites the check that runs it, and a step that
+  cannot run in its lane yet is `Deferred:` to a named owner and is never a
+  pass (`docs/tests/uat-doc-format.md`, now shipped by the handbook). (2)
+  **The Stripe fake gates only Phase 10** — *"Gate only Phase 10"* — so
+  Phases 3–9 start once Phase 2's other increments land; Astra recommended
+  keeping the original gate as the agreed order, recorded as dissent. (3)
+  **The legacy test fixture is shapes only, committed, with approved live
+  fact text kept**: every identity, credential, Stripe id and image becomes
+  synthetic; rejected, pending and reported facts get placeholder text; the
+  2026-08-28 excluded row classes never leave the source.
+- **Why:** David is the slowest verifier and most UAT steps are mechanical;
+  a lane makes that visible per step and lets `/uat` show him only judgement.
+  The Stripe fake is the slowest, riskiest Phase 2 piece and only Phase 10
+  needs it; paid-user journeys run without it because paid users are granted
+  through the entitlement model. The fixture's value is old row shapes, the
+  repository is public, and approved facts are meant to be public anyway.
+- **Reference:** #631; TheAnswerManIsHere/AI-Handbook#187 (the lane format).
+- **Revisit if:** a step's lane hides a real gap (a `ci` check that does not
+  assert what the step expects) — the fix is the check, not a return to
+  manual steps.
+
+---
+
 ### 2026-10-07 · Country eligibility at the US launch: everyone except GDPR territories and OFAC countries
 - **Decision:** David: *"I'm happy to have users from anywhere other than
   GDPR and OFAC countries."* At the Full launch (US) stage the service admits
@@ -428,10 +455,11 @@
   round came back — a permitted retry needs no push, so two requests can name
   one commit and a single pass satisfies both.
 - *Git constraints.* David's direct-push path to `main` through Replit's Git
-  pane was settled 2026-08-09 (`replit-environment.md`); a session once
-  escalated a `Replit Agent` commit as an incident, and that false alarm is
-  recorded in
-  `.agents/memory/replit-direct-push-to-main-is-sanctioned.md`. Both of
+  pane was settled 2026-08-09 (`replit-environment.md`) and retired 2026-10-03
+  when he removed every ruleset's bypass; a session once escalated a
+  `Replit Agent` commit as an incident, and that false alarm and the lane's
+  retirement are recorded in
+  `.agents/memory/replit-commits-reach-main-only-through-a-pr.md`. Both of
   `guard.sh`'s jobs live in `guard-decision.mjs` and are absent from the
   node-unavailable fallback. The Replit sweep is bounded by time, never by
   commit count: `-3` was the first shape and it silently drops the fourth
@@ -635,8 +663,10 @@
 - **Reference:** [`replit-environment.md`](./replit-environment.md) §§ *The
   fast lane* and *The one thing that IS ours*;
   [`.claude/skills/maintenance/SKILL.md`](../../.claude/skills/maintenance/SKILL.md)
-  step 7; [`replit-direct-push-to-main-is-sanctioned.md`](../../.agents/memory/replit-direct-push-to-main-is-sanctioned.md)
-  for the false alarm that prompted the conversation.
+  step 7; [`replit-commits-reach-main-only-through-a-pr.md`](../../.agents/memory/replit-commits-reach-main-only-through-a-pr.md)
+  for the false alarm that prompted the conversation and the lane's
+  retirement on 2026-10-03 (every change to `main` now arrives through a PR;
+  a Repl commit is moved to a branch and opened as one).
 - **Revisit if:** a sweep finds a real defect that reached David's UAT through
   the lane (the boundary is drawn in the wrong place, or needs a narrower
   definition of "display"), or opportunistic sweeps turn out to be so rare that

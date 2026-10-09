@@ -78,6 +78,12 @@ select it as your avatar.
 stored tier is `registered` — the Admin column in Admin → Features is
 granting it.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics the admin overlay ADDS rather than replaces`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. Unchecking the Admin cell actually removes the capability
 
 **Do:** In Admin → Features, uncheck `custom_avatar` for **Admin**, wait
@@ -87,12 +93,24 @@ about a minute, then reload your Profile.
 falls back to the generated icon. If nothing changed, the column is still
 decorative and the core of this PR did not land.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. Re-checking the Admin cell restores it
 
 **Do:** Re-check `custom_avatar` for **Admin** in Admin → Features, wait
 about a minute, then reload your Profile.
 
 **Expect:** It's back — the custom-avatar option is available again.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 4. A Legendary account keeps the feature independent of the Admin cell
 
@@ -103,6 +121,10 @@ account, log in as it.
 **Expect:** It still has the custom avatar — its own tier grants it, not
 the admin overlay.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants`
+
 ### 5. The admin account loses the feature when only its own cell is off
 
 **Do:** On your admin account (stored tier `registered`), check whether
@@ -112,12 +134,20 @@ the custom-avatar option is still available.
 row, never the Admin row instead of its tier — so an admin who also pays
 for Legendary can never lose a feature by being an admin.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants`
+
 ### 6. Exiting admin mode switches you to a normal view
 
 **Do:** As admin, tap your avatar in the top-right — it opens your
 **Profile** page — and click **Exit Admin** there.
 
 **Expect:** The site reloads as a registered user would see it.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin drops the Admin row's entitlements, and leaves a way back`
 
 ### 7. A way back into admin is always visible
 
@@ -128,6 +158,10 @@ was.
 wasn't one — every entry point was hidden unless admin mode was already on,
 so once you left, you were stuck.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin drops the Admin row's entitlements, and leaves a way back`
+
 ### 8. Visiting /admin while previewing explains itself instead of refusing
 
 **Do:** While still in "view as user", navigate to **`/admin`**.
@@ -135,11 +169,19 @@ so once you left, you were stuck.
 **Expect:** A **"Viewing as a user"** panel explaining the state, with a
 working **Resume admin** button — *not* "Access Denied".
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:/admin while previewing explains the state instead of refusing`
+
 ### 9. Resume Admin actually restores admin
 
 **Do:** Click **Resume admin**.
 
 **Expect:** You're back to full admin, and `/admin` renders normally.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Resume admin restores the console`
 
 ### 10. Preview mode hides Legendary features too
 
@@ -148,6 +190,12 @@ fact and open the meme builder, pick Image, pick a photo.
 
 **Expect:** The **Private** pill is **locked** — you're previewing as a
 registered member, and registered members don't get private memes.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization view-as-user normalizes to registered, not to the account's own paid tier`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 11. Admin console access ignores the preview toggle
 
@@ -158,12 +206,22 @@ deliberately ignore the preview toggle; only product *features* preview.
 That split is the safety property: nothing you can toggle in Features, and
 no preview state, can ever cost you console access.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:/admin while previewing explains the state instead of refusing`
+
 ### 12. Resuming admin restores Legendary features
 
 **Do:** Go back to your Profile page and click **Resume Admin**, then
 return to the meme builder for the same fact and pick Image again.
 
 **Expect:** The Private pill is available again.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization an admin not previewing keeps their own tier and the overlay`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 13. Private memes still save private — the #402 regression
 
@@ -172,11 +230,23 @@ return to the meme builder for the same fact and pick Image again.
 
 **Expect:** Saves normally, lands on the permalink, renders for you.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:POST /api/memes — private visibility gate stores isPublic=false for an admin whose membership tier is only registered`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 14. A private meme is still invisible logged out
 
 **Do:** Open the permalink from step 13 in a **private/incognito window**.
 
 **Expect:** Does **not** load.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement an unauthenticated caller gets 404`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 15. Photo upload during onboarding is never gated
 
@@ -188,12 +258,20 @@ onboarding and upload a photo.
 upload is also the identity photo the meme and video generators use, so
 gating the upload would break free onboarding.)
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user`
+
 ### 16. The public avatar stays generic until upgraded
 
 **Do:** On the same account, check your public avatar.
 
 **Expect:** It stays the **generated icon** — the photo is stored but not
 shown.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`
 
 ### 17. Selecting the photo as avatar is refused with an upgrade prompt
 
@@ -203,12 +281,22 @@ screen.
 **Expect:** A clear refusal with an upgrade prompt — not a silent no-op
 and not a generic error.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 rejects a standalone avatarSource:photo selection from an unentitled user`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 18. An entitled account can select the same photo
 
 **Do:** On your admin (or a Legendary) account, select an uploaded photo
 as your avatar.
 
 **Expect:** It works, and the avatar shows.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 allows a standalone avatarSource:photo selection from an entitled user`; `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows an entitled user's selected photo`
 
 ### 19. An unselected identity photo doesn't leak next to a submission or comment
 
@@ -223,17 +311,31 @@ identity photo was still displayed publicly next to submissions and
 comments, because those two listings never looked at the avatar setting at
 all — a pre-existing bug closed on the way past.)
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 20. The same account's own profile also withholds the photo
 
 **Do:** View that account's own Profile page.
 
 **Expect:** It shows the generated icon too.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 21. Video generation still works before any toggle
 
 **Do:** As admin or Legendary, generate a video from a fact.
 
 **Expect:** Works as before.
+
+**Lane:** ci
+
+**Deferred:** #628 — Phase 4 (cut and prune): video generation is retired with the cut
 
 ### 22. Switching video_generation off actually blocks it
 
@@ -246,12 +348,20 @@ all — the server re-asserted the seeded values on every restart, so any
 change survived until the next deploy and then silently reverted. That
 re-seeding is gone.)
 
+**Lane:** ci
+
+**Deferred:** #628 — Phase 4 (cut and prune): video generation is retired with the cut
+
 ### 23. Switching it back on restores it
 
 **Do:** Re-check `video_generation` for **Legendary** and **Admin**, then
 wait about a minute.
 
 **Expect:** Working again.
+
+**Lane:** ci
+
+**Deferred:** #628 — Phase 4 (cut and prune): video generation is retired with the cut
 
 ## Regression
 
@@ -262,11 +372,21 @@ out.
 
 **Expect:** All load normally, no login wall.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement a public meme is visible to anyone`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R2. Commenting captcha is unchanged for a registered user
 
 **Do:** Post a comment as a registered user.
 
 **Expect:** Captcha behaves as before.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
 
 ### R3. Admins and Legendary still bypass the comment captcha
 
@@ -274,11 +394,21 @@ out.
 
 **Expect:** No captcha.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+
 ### R4. Fact submission is unchanged
 
 **Do:** Submit a fact as a registered user.
 
 **Expect:** Rate limit and captcha behave as before.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R5. AI backgrounds still generate
 
@@ -287,11 +417,19 @@ one.
 
 **Expect:** Generate works.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles)
+
 ### R6. Ad slots still follow tier
 
 **Do:** Browse as a registered user, then as Legendary.
 
 **Expect:** Ads show for registered, none for Legendary.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
 
 ### R7. The rest of the admin console still loads
 
@@ -299,11 +437,21 @@ one.
 
 **Expect:** Each loads exactly as before.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+
 ### R8. Admin notification preferences still work
 
 **Do:** Go to Profile → notification preferences as admin.
 
 **Expect:** Visible and editable.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:PATCH /users/me/notifications updates both flags for admin users`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R9. PuLID (stylized photo) memes still work
 
@@ -311,11 +459,19 @@ one.
 
 **Expect:** Works.
 
+**Lane:** ci
+
+**Deferred:** #628 — Phase 4 (cut and prune): PuLID is retired with the cut
+
 ### R10. Profile edits still save
 
 **Do:** Change display name, pronouns, and avatar style.
 
 **Expect:** Saves.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:PATCH /users/me — success trims and persists string fields`
 
 ## Not bugs
 

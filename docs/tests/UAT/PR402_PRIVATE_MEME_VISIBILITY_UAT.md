@@ -52,6 +52,10 @@ photo, set the control above **Make my meme** to **Private**, and save.
 **Expect:** It saves normally. You land on the permalink and the meme
 renders for you, the creator.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for an admin whose membership tier is only registered`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
+
 ### 2. A private meme is not reachable logged out
 
 **Do:** Copy the permalink from step 1 and open it in a
@@ -62,11 +66,21 @@ permission" page. A private meme shouldn't even admit it exists. Before
 this PR that link would have rendered for the logged-out window, which is
 exactly what you saw.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:an unauthenticated caller gets 404`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. The creator can still see it afterward
 
 **Do:** Signed back in as the creator, open the same permalink again.
 
 **Expect:** The link still works.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
 
 ### 4. The public path is untouched
 
@@ -75,11 +89,19 @@ it **Public**.
 
 **Expect:** Saves normally, and the permalink opens fine logged-out.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`
+
 ### 5. A public meme appears in listings
 
 **Do:** While logged out, check the fact's meme list and the gallery.
 
 **Expect:** The public meme shows up in both.
+
+**Lane:** scripted
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ### 6. A real Legendary account still gets privacy
 
@@ -90,12 +112,20 @@ Private, save, and check the permalink logged-out.
 This is the path that was always supposed to work; the fix must not have
 traded one entitled account for another.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for a legendary user`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:an unauthenticated caller gets 404`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
+
 ### 7. A plain registered account is still offered the upgrade, not the feature
 
 **Do:** Log in as your **plain registered** account and start a meme.
 
 **Expect:** The control is visible, and **Private** is dimmed with the
 `LEGEND` badge.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`
 
 ### 8. Tapping Private for a registered account opens the upgrade modal
 
@@ -104,6 +134,12 @@ traded one entitled account for another.
 **Expect:** The upgrade modal opens, and closing it leaves **Public**
 selected with your in-progress meme intact.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 9. A registered account's meme still saves public
 
 **Do:** Save it, then open the permalink logged-out.
@@ -111,11 +147,19 @@ selected with your in-progress meme intact.
 **Expect:** It loads — a registered user's meme is public; that rule
 hasn't changed.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`
+
 ### 10. Logged-out visitors still see no control
 
 **Do:** Logged out, open `/facts/39/meme`.
 
 **Expect:** No visibility control at all — unchanged.
+
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 7 (image offering; private/public meme privacy model revisited)
 
 ### 11. Video memes still work
 
@@ -123,6 +167,10 @@ hasn't changed.
 
 **Expect:** Works normally. Video memes have no privacy field at all —
 that's the pre-existing gap #394 flagged, not something this PR touches.
+
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 4 (cut and prune; video memes retired with the cut)
 
 ## Regression
 
@@ -132,6 +180,10 @@ that's the pre-existing gap #394 flagged, not something this PR touches.
 finish.
 
 **Expect:** Completes normally, same as before this PR.
+
+**Lane:** scripted
+
+**Deferred:** #631 — increment 3 (storage double)
 
 ## Not bugs
 

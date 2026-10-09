@@ -9,6 +9,13 @@ description: Use when starting any conversation - establishes how to find and us
 If you were dispatched as a subagent to execute a specific task, ignore this skill.
 </SUBAGENT-STOP>
 
+> **Local note (AI-Handbook #168).** The routing below goes by the request's
+> phrasing. Before it, the consumer's *Feature phases* registry: a request
+> about a feature David has declared prototype phase — "build X" or "fix
+> this" alike — goes to the `prototype` skill, whose first version runs the
+> pre-plan conversation (brainstorming's questions are asked there) and whose
+> later versions go to neither brainstorming nor debugging first ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+
 <EXTREMELY-IMPORTANT>
 If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.
 

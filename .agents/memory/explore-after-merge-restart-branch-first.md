@@ -49,6 +49,14 @@ if there's genuinely unmerged work to preserve — rebase it) **before** running
 any exploration. A subagent has no way to know the tree it's reading is stale;
 it will report local-file truth as if it were repo truth.
 
+**This is a rule about a branch headed for a PR.** A `prototype/<feature>`
+branch is the one standing exception: it is always behind `origin/main`, every
+commit on it is unmerged by design, and it takes `main` in by merge, never by
+restart or rebase
+([`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+On that branch the session-start check is `git fetch origin main` and a
+merge if the prototype needs newer product code — never `checkout -B`.
+
 ## Why this is easy to miss
 
 - The mistake produces *confident, well-cited* output — the subagent quotes

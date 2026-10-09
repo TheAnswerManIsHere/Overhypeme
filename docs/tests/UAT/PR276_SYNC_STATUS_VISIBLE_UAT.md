@@ -34,6 +34,12 @@ line at the top. Previously this panel only appeared while a sync was
 actively running, and vanished on reload — that disappearing act was the
 bug.
 
+**Lane:** scripted
+
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+
 ### 2. A green summary when the last sync worked
 
 **Do:** Click "Sync Stripe data" and let it finish.
@@ -41,12 +47,24 @@ bug.
 **Expect:** A green line reads *"Last sync completed successfully. Last
 synced just now."*
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all complete → ok, with the most recent stamp`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 3. The green summary survives a reload
 
 **Do:** Reload the page.
 
 **Expect:** The green line is still there, and still says it synced. It
 doesn't revert to a bare product count.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:surfaces stored row state (running / complete / error) and per-resource counts derived from the data tables`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 4. A failed sync shows a red summary — the main event
 
@@ -56,11 +74,23 @@ the simulate step).
 **Expect:** A red summary line reads *"Last sync failed — plans did not
 complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 5. The Plans row itself shows the failure
 
 **Do:** Look at the Plans row after the failed sync in the previous step.
 
 **Expect:** It shows a red ✗ and the error text.
+
+**Lane:** scripted
+
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
 
 ### 6. The failure survives a reload
 
@@ -70,6 +100,12 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 there. This is the entire point — before this PR both vanished on reload
 and you'd see a cheerful product count instead.
 
+**Lane:** scripted
+
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+
 ### 7. The summary names which resource failed
 
 **Do:** Read the summary line's wording after the failed sync.
@@ -77,6 +113,10 @@ and you'd see a cheerful product count instead.
 **Expect:** It names which resource failed, so you know whether it's your
 catalog (products/prices/plans) or something peripheral
 (charges/invoices).
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`
 
 ### 8. A partial failure is reported as failed, not success
 
@@ -86,6 +126,10 @@ catalog (products/prices/plans) or something peripheral
 The "Last synced" stamp still appears, because both facts matter —
 something did sync, and something didn't; it should never round up to
 "all good."
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:a partial run is reported as failed, never rounded up to success`
 
 ### 9. A never-synced install says so, in amber
 
@@ -97,6 +141,12 @@ synced plenty), look at the summary line.
 populate the catalog."* It is amber and actionable, not a spinner and not
 blank — "never ran" and "still working" must not look alike.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all-idle with no stamps → never synced, not success`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 10. The "Last synced" stamp survives a server restart
 
 **Do:** After a sync, have Replit restart the server (or come back after a
@@ -105,6 +155,12 @@ deploy), then reload Admin → Billing.
 **Expect:** The "· Last synced: …" stamp in the Plans header is still
 correct — it's read from each resource's own timestamp rather than from an
 in-memory value that resets on restart.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:preserves syncedCount across a simulated server restart (regression: counts survive process loss)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Regression
 
@@ -115,11 +171,23 @@ in-memory value that resets on restart.
 **Expect:** Rows animate pending → syncing → ✓ as before; the button
 disables then re-enables.
 
+**Lane:** scripted
+
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+
 ### R2. Full sync still works across all resources
 
 **Do:** Click "Full sync".
 
 **Expect:** Same animation, across all eight resources.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:full run invokes every tracked resource sequentially in SYNC_RESOURCES order`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R3. The LIVE / TEST badge still shows the right mode
 
@@ -127,11 +195,21 @@ disables then re-enables.
 
 **Expect:** Still shows the right mode.
 
+**Lane:** scripted
+
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
+**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+
 ### R4. The product count is still accurate
 
 **Do:** Check the "N products found" count after a sync.
 
 **Expect:** Still accurate.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the product-count render has no check yet
 
 ### R5. The product list still renders correctly
 
@@ -139,11 +217,19 @@ disables then re-enables.
 
 **Expect:** Names, descriptions, and prices render as before.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the product-list render has no check yet
+
 ### R6. The Setup Checklist rows are unchanged
 
 **Do:** Check the Setup Checklist rows.
 
 **Expect:** Unchanged by this PR.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the Setup Checklist render has no check yet
 
 ### R7. Toggling live/test mode is unchanged
 
@@ -151,12 +237,20 @@ disables then re-enables.
 
 **Expect:** Behaves as it did before — untouched here.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5c — a valid toggle still works end to end`
+
 ### R8. The customer pricing page is completely unchanged
 
 **Do:** Open the customer `/pricing` page.
 
 **Expect:** Completely unchanged. If anything differs, that's a bug — this
 PR is admin-only.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the pricing-page render has no check yet
 
 ## Not bugs
 

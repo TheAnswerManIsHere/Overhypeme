@@ -11,13 +11,14 @@ went its whole life without CI until it was retargeted.
 The trap is that `get_check_runs` returns `total_count: 0` — byte-identical to
 CI simply not having reported yet — so the natural reading is "wait longer."
 
-**Zero workflow runs is an AMBIGUOUS symptom, not a diagnosis.** At least two
-causes produce it, and they need opposite responses:
+**Zero workflow runs is an AMBIGUOUS symptom, not a diagnosis.** At least
+three causes produce it, and they need different responses:
 
 | Cause | How to confirm | Response |
 | --- | --- | --- |
 | Base-branch mismatch (this note) | The PR's base is not `main`; **other** PRs in the repo are getting runs normally | Retarget to `main` |
 | GitHub Actions incident | `githubstatus.com` incident history; other PRs *also* have no runs, or runs stuck `queued` | Wait; it self-resolves |
+| A `prototype/<feature>` branch, which opens no PR by design | The registry lists the feature in the branch regime; the workflow has no `push` trigger for `prototype/**` | Add the push trigger — the rule's home: [`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26) |
 
 See [`github-actions-outage-mimics-quota.md`](./github-actions-outage-mimics-quota.md)
 for the incident case, which cost a full round of wrong investigation on PR #334

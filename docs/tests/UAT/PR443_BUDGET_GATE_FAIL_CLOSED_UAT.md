@@ -68,12 +68,20 @@ generate an **AI meme image** (the standard, no-reference path).
 
 **Expect:** It generates exactly as before — no new error, no new delay.
 
+**Lane:** live
+
+**Deferred:** #631 — increment 4 (AI doubles) — needs a real fal generation to show the standard path is unaffected
+
 ### 2. Reference-photo (PuLID) generation still works
 
 **Do:** Generate a meme image using a **reference photo** (the PuLID /
 face path).
 
 **Expect:** Generates normally, same as before.
+
+**Lane:** live
+
+**Deferred:** #628 — Phase 4 (cut and prune) — PuLID / reference-photo generation is retired with the cut
 
 ### 3. Video generation still works
 
@@ -82,6 +90,10 @@ face path).
 **Expect:** Starts and completes normally. If any of steps 1–3 now fails
 where it used to work, that's the one way this fix could do real
 harm — the gate denying when it should allow.
+
+**Lane:** live
+
+**Deferred:** #628 — Phase 4 (cut and prune) — video generation is retired with the cut
 
 ### 4. Being genuinely out of budget still says "out of budget" — image
 
@@ -93,11 +105,19 @@ AI meme image **using a reference photo**.
 budget** — the usual out-of-budget wording, pointing you at upgrading.
 It is *not* a "try again" message, and *not* a generic server error.
 
+**Lane:** live
+
+**Deferred:** #628 — Phase 11 (spend controls) — budget gate is rebuilt there, and the reference-photo path it exercises is retired with the cut
+
 ### 5. Being genuinely out of budget still says "out of budget" — video
 
 **Do:** With the limit still at `0.01`, try a **video** generation too.
 
 **Expect:** Same as step 4: refused as over budget, with the upgrade path.
+
+**Lane:** live
+
+**Deferred:** #628 — Phase 11 (spend controls) — budget gate is rebuilt there, and video is retired with the cut
 
 ### 6. Admins are still exempt
 
@@ -106,6 +126,10 @@ It is *not* a "try again" message, and *not* a generic server error.
 
 **Expect:** It generates. Admins are exempt from budget limits, and still
 are.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/budgetGate.test.ts:admins are exempt and always allowed with infinite limit`
 
 ## Regression
 

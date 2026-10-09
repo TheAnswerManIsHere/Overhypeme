@@ -69,6 +69,12 @@ buttons too, so it proves nothing. We re-run it on a fresh purchase, **on
 another account with no qualifying membership** — retrying on this one would
 leave it carrying two subscriptions, only one of which the UI can reach.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers Switch to Annual and Cancel while the Stripe mirror has not synced the subscription yet`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. The savings figure is right
 
 **Do:** Read the "Switch to Annual — save N%" button text.
@@ -76,6 +82,12 @@ leave it carrying two subscriptions, only one of which the UI can reach.
 **Expect:** N is a plausible whole-number percentage — with the test catalogue's
 $3.99/month and $24.99/year that is 48%. Not `0`, not blank, not a number over
 100.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/subscriptionHelpers.test.ts:computes savings from the same product as the current price`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 3. The switch dialog previews the real proration
 
@@ -85,6 +97,10 @@ $3.99/month and $24.99/year that is 48%. Not `0`, not blank, not a number over
 dollars, with one or more line items describing the credit for unused monthly
 time and the charge for the annual plan, and the two reconciling to the total.
 Not a spinner that never resolves, and not an error banner.
+
+**Lane:** scripted
+
+**Deferred:** #566 — the Stripe fake — the proration preview comes from Stripe
 
 ### 4. The switch completes and you stay Legendary
 
@@ -104,12 +120,22 @@ outcomes — both are correct:
 The card silently continuing to show **Monthly**, at the monthly price, with
 "Switch to Annual" still offered and no amber notice, is the #601 failure.
 
+**Lane:** scripted
+
+**Deferred:** #566 — the Stripe fake — the switch is executed against Stripe and settles by webhook
+
 ### 5. The switch button is gone once you are annual
 
 **Do:** Stay on the Membership card after step 4 has settled.
 
 **Expect:** "Switch to Annual" is no longer offered — there is nothing left to
 switch to. "Cancel Subscription" and "Manage billing & receipts" both remain.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:reports the annual plan from the app DB while the mirror still says monthly`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 6. The charge is recorded
 
@@ -125,6 +151,10 @@ whether the charge was recorded server-side at all. A charge that never reached
 our records is webhook delivery in the Repl, not a defect in this panel, and it
 is recorded as Blocked rather than Fail.
 
+**Lane:** scripted
+
+**Deferred:** #566 — the Stripe fake — the charge reaches payment history by Stripe webhook
+
 ## Regression
 
 ### R1. Legendary for Life sees no recurring controls
@@ -138,6 +168,12 @@ open the Membership card. Do not grant lifetime to the account used in steps
 "Cancel Subscription". A lifetime member has no recurring subscription to act
 on.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R2. A free account still sees the Free Plan block
 
 **Do:** Sign in as **Account C** — registered, never paid — and open the
@@ -145,6 +181,12 @@ Membership card.
 
 **Expect:** The "Free Plan" block with a "Go Legendary" button. No switch or
 cancel controls anywhere on the card.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a non-member`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### R3. A cancelling subscription offers Reactivate, not the controls
 
@@ -158,6 +200,10 @@ on A, which would leave it billing two subscriptions.
 offers "Reactivate Subscription". "Switch to Annual" and "Cancel Subscription"
 are both gone. Click Reactivate and confirm both controls come back.
 
+**Lane:** scripted
+
+**Deferred:** #566 — the Stripe fake — cancel and reactivate are executed against Stripe
+
 ### R4. Purchase still works from the pricing page
 
 **Do:** From `/pricing`, check that Monthly, Annual and Legendary for Life all
@@ -166,6 +212,10 @@ render with prices.
 **Expect:** All three plan cards appear with dollar amounts. This is the plan
 catalogue the switch button reads from, so an empty pricing page would mean the
 fix is masking a catalogue problem rather than resolving one.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the pricing-page render has no check yet
 
 ## Not bugs
 

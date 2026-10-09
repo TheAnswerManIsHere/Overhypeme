@@ -126,17 +126,39 @@ CLI-installed `grill-me`). PR #545, workstream #544. Upstream locations:
 Modification status:
 
 - `grilling/SKILL.md` — upstream body verbatim, plus a clearly-marked
-  "Overhype.me adaptations" section (interviewee, terse question bodies,
-  notification rule, delegation caps, ceremony boundary).
+  "Local adaptations" section (interviewee, terse question bodies,
+  notification rule, delegation caps, ceremony boundary, and since #166 one
+  question per turn in place of upstream's whole-frontier rounds).
 - `domain-modeling/SKILL.md` — **adapted, not verbatim**: upstream's session
   behaviors and three-gate offer heuristic kept; file targets rewritten from
   `CONTEXT.md`/`docs/adr/` to `docs/ai-context/glossary.md` and
   `docs/ai-context/decisions.md`; upstream's `CONTEXT-FORMAT.md` and
   `ADR-FORMAT.md` not vendored (the target files carry their own formats).
-- `prototype/SKILL.md` — upstream body verbatim plus an "Overhype.me
-  adaptations" section (Artifact delivery, capture-through-draft-PR,
-  selection stays David's). `LOGIC.md` and `UI.md` are byte-for-byte
-  upstream copies.
+- `prototype/SKILL.md` — upstream body verbatim plus a "Local adaptations"
+  section that **replaces upstream's delivery and capture mechanics** (as of
+  #168; the rule is `working-modes.md` *The prototype phase, per feature*):
+  a prototype is a feature in prototype phase inside the product,
+  delivered as the published product or a prototype environment, with a
+  questions file, a feedback rail stored in the product's database, a tester
+  tier, and a per-feature phase registry; upstream's Artifact/double-click
+  delivery, `?variant=` on production pages, hide-in-production switcher and
+  draft-PR capture are named as not applying. `LOGIC.md` and `UI.md` are
+  upstream copies plus one local note under each title (#168 round 4's
+  sweep: a reader of either file alone was still told to gate the switcher
+  on `NODE_ENV` and capture the prototype on a throwaway branch) saying
+  which of their mechanics `SKILL.md` replaces; their upstream text is not
+  otherwise edited. The same sweep put a one-paragraph local note under the
+  title of `brainstorming/SKILL.md` and `test-driven-development/SKILL.md`,
+  saying a prototype-phase feature does not pass their gates (corrected by
+  #173: a first version passes brainstorming's, as its pre-plan
+  conversation; tests stay removed), and one under
+  `using-superpowers/SKILL.md`'s subagent stop saying its phrase router
+  runs after the registry read, and one under `systematic-debugging/SKILL.md`'s
+  title, whose own description is a trigger the router note cannot reach,
+  and under `writing-plans/SKILL.md`'s title for the same reason; upstream
+  text below each note is untouched. #168's round-6 sweep added one more
+  under `finishing-a-development-branch/SKILL.md`'s title, since its
+  "exactly 4 options" menu has no option a prototype branch can take.
 - `grill-me/SKILL.md` — **no longer verbatim as of PR #545**: body changed
   from `Run a `/grilling` session.` to upstream's exact delegation form,
   `Call the Skill tool with "grilling".` (it had pointed at a skill that was

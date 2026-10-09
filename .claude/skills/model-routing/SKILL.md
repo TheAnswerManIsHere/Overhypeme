@@ -1,6 +1,6 @@
 ---
 name: model-routing
-description: Use when deciding or explaining a model/effort escalation beyond the tier table in CLAUDE.md, or when David asks whether a switch can be automated.
+description: Use when deciding or explaining a model/effort escalation beyond what CLAUDE.md's *Model, cost, and routing* states, or when David asks whether a switch can be automated.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
@@ -8,8 +8,10 @@ description: Use when deciding or explaining a model/effort escalation beyond th
 # Model and effort routing — the reference detail
 
 Migrated out of `CLAUDE.md` so it loads when a routing question is actually
-live. The task-shape tier table stays resident in `CLAUDE.md`, because it has
-to fire at task boundaries without being invoked.
+live. The routing rules themselves stay resident in `CLAUDE.md`'s *Model,
+cost, and routing*, because they have to fire at task boundaries without
+being invoked. (They were a task-shape tier table once; it is gone, and
+pointers to it are stale.)
 
 ### Fable to explore, Opus to build (David, 2026-08-28)
 
@@ -20,7 +22,9 @@ naming that boundary is mine rather than his to remember. The ask is
 **mandatory before product code** and deliberately not required for continued
 discussion, planning, or a docs/process edit. Staying on Fable to build needs a
 really compelling reason — David saying so is one; my own "this looks small" is
-not.
+not. **Opus builds everything, Tier B included** (David, 2026-10-03: *"Now that
+Opus 5.5 is out, it's strong enough for any development work I think. We'll reserve
+Fable for planning and discussion."*).
 
 The mechanical facts in the section below did **not** change, and they are why
 the rule is phrased as an *ask*: nothing except David can move the session
@@ -32,8 +36,8 @@ half of a session and the building half want different tiers, and putting the
 boundary on me to *name* is what makes it survive a long conversation, since
 the transition to building is visible to me and invisible to a PM mid-thought.
 
-Full rule, including the maintenance exemption: `CLAUDE.md`'s *Model, cost, and
-routing*.
+Full rule: `CLAUDE.md`'s *Model, cost, and routing*. The maintenance
+exemption (no switch ask for an ops pass) is the `maintenance` skill's own.
 
 ### Superseded — the session model is a constant, not a dial (David, 2026-08-15)
 
@@ -63,7 +67,8 @@ was "a real blocker." Both answers come from the same verified facts:
   exception: a session genuinely below Opus that reaches Opus-reserved
   *execution* (migration, Tier B fix, security review, dev-infra), where
   routing a judgement doesn't satisfy the reservation and I ask David to run
-  it from an Opus session (see `CLAUDE.md`'s tier guard). The `opusplan` default is
+  it from an Opus session (see `CLAUDE.md`'s *Verify the active tier before
+  Opus-reserved execution*). The `opusplan` default is
   retired along with its "mind the gap" caveat — that gap existed because plan
   mode was what put the session on Opus, and now nothing needs to.
 - **The `model` key is read once at session start.** A change to it lands on
@@ -96,8 +101,9 @@ is **state**, not difficulty:
 
   The run/don't-run **judgement** that used to dispatch here is **gone**
   (David, 2026-08-20): the harvest is batched at `/maintenance` and every
-  close-out posts harvest notes, so there is no per-merge decision left to
-  judge.
+  production-phase close-out posts harvest notes (a prototype-phase PR posts
+  none — `working-modes.md` *The prototype phase, per feature*), so there is
+  no per-merge decision left to judge.
 - **Not routable**: a review loop or any long-running stateful loop; anything
   whose judgment is mine under the standing dispatch bars; verification of my
   own work (barred by `CLAUDE.md`'s delegation caps).
@@ -122,7 +128,7 @@ is **state**, not difficulty:
 
 ### Effort is the second dial, and it CAN be persisted (corrected 2026-08-15)
 
-The tier table in `CLAUDE.md` is entirely about *which model*. `effort` is a separate
+`CLAUDE.md`'s routing rules are about *which model*. `effort` is a separate
 control for *how hard it thinks*, and it applies on Opus 5, Sonnet 5, and Fable
 5 alike: `low`, `medium`, `high`, `xhigh`, `max`, defaulting to `high`. David
 sets it with `/effort`; I can set it per-subagent via `effort` frontmatter, and
@@ -183,6 +189,8 @@ deliberate escalation.
   hard piece of work — a migration design, a root-cause hunt in the visual
   pipeline, an architecture call — to Fable while the session stays where it is,
   with **no action from David**.
+  That route is for design and diagnosis only: the code itself is written on
+  Opus (*Fable to explore, Opus to build*, above).
   **The two layers take different values, and this bullet used to say they take
   the same ones** (AI-Handbook #131 round 2, where the Fable assessor found the
   sentence contradicting the measured table below it, in the same file):
@@ -232,31 +240,40 @@ the prompt cache.
 
 Two facts that decide how we use it today:
 
-- **Fable is not currently available as an advisor.** Claude Code shows it as a
-  dimmed `Fable 5 (temporarily unavailable)` row and rejects `/advisor fable`,
-  pending a remote rollout. So the pairing David would most want —
-  Sonnet or Opus main with a Fable advisor — **cannot be configured yet.** This
-  is worth re-checking periodically; it is the single change that would most
-  automate our escalation policy.
+- **Fable is available as an advisor (measured 2026-10-04, CLI 2.1.289).**
+  `claude -p "Reply with the single word ok." --advisor fable --max-turns 1`
+  answered `ok`; `--advisor not-a-model` was refused with `The model
+  "not-a-model" cannot be used as an advisor.`, so the flag is validated rather
+  than ignored; and a prompt asking the main loop to consult the advisor
+  returned the advisor's answer with `claude-fable-5-1` among the run's
+  `modelUsage` keys. This replaces a note that it showed as a dimmed
+  `Fable 5 (temporarily unavailable)` row pending a rollout. **Nothing here
+  configures it**: the advisor is David's setting, like `/model`, and no rule
+  in this payload routes a judgement through it — the named strongest-tier
+  judgements below dispatch as subagents.
 - **`Sonnet main + Opus advisor` is retired — the configuration no longer
   exists (2026-08-15).** It used to be the live automation for the tier
   table's *Debugging new features* row: Sonnet handling routine work and
-  escalating hard moments without a switch. That row now keeps diagnosis in
+  escalating hard moments without a switch. Diagnosis now stays in
   the Opus main loop, and the session is never on Sonnet in the first
   place, so recommending `/advisor opus` would be both redundant (Opus
   advising Opus) and a user-operated configuration ask of exactly the kind
   this change removed. **Do not suggest it** — for review loops (already
   superseded 2026-08-08 by the structural triggers below) or for debugging.
-  The advisor as a *mechanism* stays interesting if Fable ever becomes
-  available as one; see the bullet above.
+  A Fable advisor is a different question, and the bullet above is where it
+  stands.
 
-### Every dispatched judgement runs on the strongest available model (David, 2026-08-17; mechanism updated 2026-09-06)
+### The named judgements run on the strongest available model (David, 2026-08-17, narrowed 2026-10-04; mechanism updated 2026-09-06)
 
-**Every judgement subagent dispatches at the strongest tier available — no
-exceptions, no tier judgement at the dispatch site.** David's instruction:
-*for judgements, I want the strongest possible model.* This supersedes the
-Opus/Fable split that used to run through the two sections below, where
-triggers 1–3 went to Opus and the stopping-rule trigger went to Fable.
+**The judgements named in `claude-core.md`, *Model, cost, and routing*,
+dispatch at the strongest tier available, with no tier judgement at the
+dispatch site** — that list is the rule's only statement, and a dispatch not on
+it is sized like any other subagent. David's instruction of 2026-08-17 was
+*for judgements, I want the strongest possible model*, with no exceptions; on
+2026-10-04 he narrowed it to the named ones, keeping the per-task reviews in
+`subagent-driven-development` sized by their diff. The 2026-08-17 rule superseded the Opus/Fable
+split that used to run through the two sections below, where triggers 1–3 went
+to Opus and the stopping-rule trigger went to Fable.
 
 **The tier is named in one place: `.agents/machinery.json`'s `models` block** —
 `strongestClaude` and `strongestCodex`, each mapping to a full model id and an
@@ -383,8 +400,10 @@ they looked, which is a self-assessment of exactly the kind the structural
 triggers exist to eliminate. A decline that resolves a thread nothing
 downstream catches is not obviously cheaper than a stop decision, and
 deciding which deserves the stronger model is one more judgement made by the
-context that is already suspect. Routing every dispatched judgement to one
-tier removes the question.
+context that is already suspect. Naming the judgements that go to the
+strongest tier, once and in the core, removes the question from the dispatch
+site (every judgement went there from 2026-08-17 until David narrowed it on
+2026-10-04).
 
 The cost note that justified the split still holds and now argues the other
 way: judgement moments are perhaps 2% of a loop's tokens and carry all of its

@@ -7,7 +7,7 @@ assessor's brief quote it verbatim into every dispatch; `claude-core.md` and
 thing to drift.
 
 **Who applies it and who decides are not here.** That is the workflow: the
-review-proxy section of `claude-core.md` for the authority split, the focused
+*Shared judgement on a review round* in `claude-core.md` for the authority split, the focused
 follow-up, and David's reserved decisions. This file answers one question, the
 same way for whoever is asking it.
 

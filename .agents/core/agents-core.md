@@ -39,7 +39,10 @@
 
 David is the product owner. **Do not implement major changes from a non-trivial
 plan until David has explicitly approved that plan.** An ambiguous nudge or another
-agent's approval is not David's approval. Full working rules:
+agent's approval is not David's approval. A feature David has declared
+**prototype phase** has a short plan to approve for its **first version**
+only; later versions have none unless he asks (below, and working-modes.md
+*The prototype phase, per feature*). Full working rules:
 [`docs/ai-context/agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md).
 
 **Two working modes — the ceremony in force is always visible, never silent.**
@@ -50,32 +53,39 @@ signal you are in feature mode. (Claude routes by request shape with an
 announced, vetoable classification — see the mode-entry section of
 working-modes.md.) Read
 [`docs/ai-context/working-modes.md`](../../docs/ai-context/working-modes.md) for the full
-contract of each and how to switch between them.
+contract of each and how to switch between them. **A feature also has a
+phase, prototype or production, declared per feature in this repo's
+`docs/ai-context/overlay-declarations.md`** (David, 2026-09-26): a change
+touching only prototype-phase features is outside the code-review loop
+(its first version still runs the planning loop), and a change touching any
+production-phase feature is in the standard loop for the whole PR. The rule is working-modes.md, *The prototype phase, per feature*.
 
 **End-of-feature documentation.** Follow
 [`docs/ai-context/documentation-workflow.md`](../../docs/ai-context/documentation-workflow.md).
 **The per-merge close-out judgement is retired (David, 2026-08-20)** — the
 heavyweight harvest now runs **batched at `/maintenance`**, covering every
-product feature merged since the last pass, or whenever David asks. What
-close-out owes instead is cheap and unconditional: a **harvest-notes comment
+production-phase feature merged since the last pass (a prototype-phase
+feature waits for its flip), or whenever David asks. What a production-phase
+feature's close-out owes instead is cheap and unconditional: a **harvest-notes comment
 on the feature's workstream issue** — decisions and why, alternatives
 rejected, gotcha candidates — so the batched pass inherits the session's
 context. Process PRs get no harvest. This is distinct from a one-off
 "remember this" (immediate targeted persistence), which never waits for a
 batch.
 
-**Workstream tracking.** Every unit of work — feature, bugfix, doc harvest —
+**Workstream tracking.** Every unit of work — feature, bugfix, ad-hoc doc
+harvest (the batched harvest at `/maintenance` has none of its own) —
 has a GitHub issue as its spine, tracked on a private Project board and kept
 current via `stage:`/`waiting:`/`mode:` labels — with **two** exceptions.
 *Sensitive/disclosure-carve-out work* never becomes a public issue and is a
-private draft Project item instead. *David's Replit fast-lane tweaks* —
-display-only UI changes he makes himself during UAT — carry no issue at all:
-the retrospective sweep is their accountability rather than the Project board,
-so no agent should demand one for a fast-lane commit retroactively (boundary
-and sweep:
-[`docs/ai-context/replit-environment.md`](../../docs/ai-context/replit-environment.md)).
-What that sweep *finds* is ordinary work and gets an issue like anything
-else. Read
+private draft Project item instead. *David's Replit tweaks* — display-only UI
+changes he makes himself during UAT — carry no issue of their own: like every
+change to `main` since his ruling of 2026-10-03 (*"Yes, everything goes
+through a pull request"*), each arrives as a pull request, and that PR is its
+record. A tweak Replit commits on the Repl's own `main`, which the Repl tracks,
+cannot be pushed, so Claude moves it to a branch through the connector and
+opens the PR from there, never dropping it unless David says to. What reviewing one *finds* beyond the tweak is ordinary work and gets
+an issue like anything else. Read
 [`docs/ai-context/workstream-tracking.md`](../../docs/ai-context/workstream-tracking.md)
 before opening or reviewing a PR — it covers the label conventions and what
 must never happen (e.g. `Closes #N` for the PR's own workstream, which would
@@ -161,14 +171,20 @@ Prefer, in order:
   [`docs/ai-context/async-ui-status.md`](../../docs/ai-context/async-ui-status.md).
 - **Ship the surface with the behavior** (no dead UI, no invisible backend), and
   **enforce every permission server-side.**
-- Pre-launch: features ship **on-by-default, no rollout flags**; **no new external
-  vendors** without David's sign-off.
+- Pre-launch: features ship **on-by-default, no rollout flags** (the tester
+  tier's configuration switch is not one — `agent-working-rules.md`, *No
+  rollout-flag gating*); **no new external vendors** without David's sign-off.
 
 ## Planning standard
 
 For non-trivial implementation work, create or update a plan using
 [`.agents/PLANS.md`](../PLANS.md). **Do not begin implementation until David
-approves the plan.**
+approves the plan.** A feature in **prototype phase** meets this standard
+once, for its first version — a short plan, Astra's review, David's
+approval — and is outside it for later versions unless he asks; no version
+gets a code review, and after the first the only reviewer is the product
+owner using it
+([`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 **Planning (not code review).** A planning loop does not run on a pull request
 (2026-09-09), and since 2026-09-18 it is not a review: two parties develop the

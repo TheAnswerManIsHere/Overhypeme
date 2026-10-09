@@ -124,6 +124,55 @@ worst available: pass every feature step, declare `Accepted`, never run the
 sweep. A false pass makes this session *worse* than the file it replaced.
 Hence one format, one rule (David, 2026-08-22; #554, #560).
 
+**Lanes decide who verifies each step, and only `human` reaches David**
+(David, 2026-10-07; [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
+**The commit under test** is the commit the run verifies: **the Repl's
+checked-out commit when the run starts** — the same SHA close-out's sync
+check reads — and it must **contain the PR's merge commit** (an ancestor
+check, `git merge-base --is-ancestor <merge> <deployed>`). Usually it is a
+later commit on `main`, because other PRs merge while a doc waits; that is
+the build he clicks, so it is the build the machines check. If it does not
+contain the merge, the Repl is behind: the run is Blocked on the sync, never
+run against an older build. I record both SHAs in the run record before the
+first step, and **a machine-lane result is evidence only at the commit it
+ran at**. On resume I re-read the Repl's commit; if it has moved, I re-resolve
+the machine block at the new commit, and every earlier result keeps the
+commit it ran at rather than becoming evidence for the new one.
+
+Before the first human step, I resolve every machine-lane step myself, **in
+document order**, and show him the result in one block — never one per turn,
+and never as a question. Machine-lane checks are self-contained by the
+format's rule; a doc whose machine step depends on a human step's state is
+the doc-wrong case below, never a check to run early:
+
+- **`ci`** — I confirm the cited check ran and passed **on the commit under
+  test** (the check runs of that commit, or the test file run locally at that
+  commit). A green run on a different commit is not evidence.
+- **`scripted`** — I run the cited spec, script or command **in a checkout or
+  worktree at the commit under test** (or dispatch the on-demand workflow on
+  that commit), or read evidence recorded for that commit, and keep the
+  output with the commit it ran at. Output from any other checkout is not
+  evidence, however recent.
+- **`live`** — I run the cited check through the live-environment connector,
+  **read-only, always**, after confirming the Repl's synced commit is the
+  commit under test, and quote what it printed. State a check needs is a
+  Setup `[claude]` line with its `[restore]` (section 2); a probe whose
+  refusal is the thing tested writes nothing and is not a write.
+- **`Deferred:`** — not run; listed as outstanding with its owner. Never a
+  pass, never a skip he can wave through. When it is the only evidence for a
+  claimed behaviour, the run is Blocked on its owner: `Blocked by: #N` on
+  this workstream, recorded as section 4 step 5 does for a bug, so the
+  owner landing is what reopens it. The owner's PR replaces the line with
+  its runnable **Check:** in the surviving doc (`pr-docs`), so the resumed
+  run executes it; a doc still carrying the line after #N closed is the
+  doc-wrong case, and closing #N alone is never passing evidence.
+
+Each gets the same four statuses as a human step, with its evidence in the
+record. A machine-lane step that fails is a failure like any other: section 4
+applies, and I file it before he sees the first human step. **He sees the
+machine block, then only the human steps** — so the preview says both counts
+("9 machine-lane checks, all passed; 3 steps for you").
+
 **One step per turn.** What to do, what to expect, nothing else. Not the
 next step, not the section after, not the reasoning behind the expectation
 unless he asks. He is clicking, not reading.
@@ -284,6 +333,7 @@ have no reliable way to tell which is current.
 ## UAT run — PR #472 · Admin help system
 
 **Doc:** `docs/tests/UAT/PR472_ADMIN_HELP_SYSTEM_UAT.md`
+**Commit under test:** `<Repl's checked-out sha>` (contains merge `<PR merge sha>`)
 **Started:** 2026-08-21 · **Last updated:** 2026-08-21
 **Verdict:** in progress
 
@@ -330,7 +380,7 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks included**. A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The doc-wrong case counts only re-run per section 3 |
+| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks and machine lanes included**; a `Deferred:` step is never a pass: it is left out of "every step" only when another step in the same run Passed the behaviour it would check; when it is the only evidence for a behaviour the PR claims, the run is **Blocked**, resuming after its owner issue lands. A mechanical step is never turned into a human one to get past a deferral: David's share is judgement only (his words, 2026-10-04: "anything mechanical is truly verified by scripting"). A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The doc-wrong case counts only re-run per section 3 |
 | **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
 | **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
 
@@ -363,7 +413,7 @@ Then, in one edit:
 
 - **On an accepted verdict, drive close-out to done rather than parking
   there.** An accepted UAT is the last David-gate; what remains of close-out
-  is mine (the harvest-notes comment for a product feature, any outstanding
+  is mine (the harvest-notes comment for a production-phase product feature — a prototype-phase one posts none, per [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26) — any outstanding
   item the State of Play lists). Do what remains, and when nothing is left,
   set `stage:done` and close the issue as completed, with a comment naming
   the PR(s) — the shared rule is
@@ -388,6 +438,10 @@ Then, in one edit:
   `workstream-tracking.md`'s backlog contract. A bare `queue:` shorthand
   creates an item `/next` can't rank and the board can't display.
 - **Fix the doc** if a step's expected result was wrong.
+- **Before deleting, every `Deferred:` step still in the doc is recorded on
+  its owner issue** — one comment there naming the doc, the step and the
+  check still owed — so the obligation survives the file. A step not yet
+  recorded there blocks the deletion.
 - **Delete the UAT doc once he confirms the run is complete** (David,
   2026-08-22). Deletion is the default, in the same close-out, so
   `docs/tests/UAT/` never accumulates finished tests and a surviving file
@@ -442,4 +496,6 @@ The walkthrough is conversational and cheap; the judgement calls in it are
 not. Severity reads, the is-this-a-bug-or-a-design-change split, and the
 bug intake all happen in **my main loop** — never routed to a subagent,
 which would be a cold worker guessing at a session it didn't sit through.
-No tier switch, no ask; the session is Opus.
+No tier switch and no ask: a walkthrough is not building, so it runs on
+whatever the session is (`CLAUDE.md`'s *Model, cost, and routing* asks for
+Opus only before product code).

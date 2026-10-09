@@ -50,12 +50,24 @@ moves about a year out — or the amber "our records haven't caught up" notice
 appears and it settles within about 90 seconds. What must **not** happen is the
 old failure: the card silently continuing to say Monthly with no notice.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:shows the annual renewal date from the app DB, not the mirror's monthly one`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. The switch is no longer offered
 
 **Do:** Stay on the card once step 1 has settled.
 
 **Expect:** no "Switch to Annual" button — there is nothing left to switch to.
 "Cancel Subscription" and "Manage billing & receipts" both remain.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:reports the annual plan from the app DB while the mirror still says monthly`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 3. No price line rather than the wrong price
 
@@ -67,6 +79,10 @@ this is correct, not a bug), or **`$24.99/year`** if it has. What must not
 appear is **`$3.99/month`**, which is the stale figure this fix exists to
 suppress.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:suppresses the charged amount rather than showing the pre-switch price`
+
 ### 4. The amount returns once Stripe's copy catches up
 
 **Do:** Tell me when you reach this step; I check whether the mirror has synced
@@ -75,6 +91,10 @@ the new price yet, and we reload the page together once it has.
 **Expect:** the line reads **`$24.99/year`**, matching the plan label. If the
 mirror still hasn't synced after a few minutes, this step is recorded
 **Blocked** — that is webhook delivery in the Repl, not this fix.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:shows the annual amount once the mirror agrees`
 
 ## Regression
 
@@ -87,6 +107,12 @@ without switching.
 "Switch to Annual — save 48%" is offered. The fix inverts a precedence; it must
 not have removed the ordinary path.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:still shows the monthly amount and the switch button when both agree`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R2. PR #600's fix still holds
 
 **Do:** In that same moment — right after the purchase in R1, before any sync —
@@ -96,12 +122,22 @@ check that both controls are present.
 immediately, without waiting for Stripe's copy. This is #600's regression, and
 it shares the code this PR touched.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers Switch to Annual and Cancel while the Stripe mirror has not synced the subscription yet`
+
 ### R3. Legendary for Life still shows no recurring controls
 
 **Do:** Sign in as **Account B** and open the Membership card.
 
 **Expect:** the lifetime membership named, "Manage billing & receipts" only. No
 switch, no cancel.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Not bugs
 

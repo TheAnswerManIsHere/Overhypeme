@@ -9,4 +9,4 @@ When publishing to a GitHub remote from this workspace, prefer the authenticated
 
 **Why:** The repository remote uses GitHub HTTPS, and the shell environment may not have a usable GitHub username/token even though the workspace's connected GitHub account can push successfully.
 
-**How to apply:** Keep local branch and merge state correct with normal Git commands, then use the authenticated Git push operation for the final remote update.
+**How to apply:** Keep local branch and merge state correct with normal Git commands, then use the authenticated Git push operation for the final remote update. The push goes to a branch: `main` takes changes only through a merged pull request (`claude-core.md`, *This environment's git constraints*).

@@ -52,6 +52,10 @@ and password.
 keep working — the whole point of `?from=` is returning you to where you
 were.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:honours a legitimate same-origin path`
+
 ### 2. A fact page's back link shows before sign-in
 
 **Do:** Find any fact, note its URL (e.g. `/facts/123`), and go to
@@ -60,11 +64,19 @@ were.
 **Expect:** Before signing in, the back link at the top reads "BACK TO
 FACT" (not "GO BACK"), and tapping it takes you to that fact.
 
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 5 (account and identity)
+
 ### 3. A fact page still round-trips after sign-in
 
 **Do:** Sign in from the page loaded in the previous step.
 
 **Expect:** You land on that fact's page.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:honours a legitimate same-origin path`
 
 ### 4. It can no longer send you to another site — the main event
 
@@ -74,6 +86,10 @@ FACT" (not "GO BACK"), and tapping it takes you to that fact.
 example.com. Before this PR you'd have ended up on example.com, freshly
 logged in.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:falls back to / for an absolute URL on another origin`
+
 ### 5. The protocol-relative variant is also blocked
 
 **Do:** Go to `overhype.me/login?from=//example.com` and sign in.
@@ -81,6 +97,10 @@ logged in.
 **Expect:** Home page again. Not example.com. That leading double-slash is
 a URL shorthand meaning "another site, same protocol" — the version people
 forget to check for.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:falls back to / for a protocol-relative URL`
 
 ### 6. The script variant is blocked and does not execute
 
@@ -90,6 +110,10 @@ and sign in.
 **Expect:** You land on the home page, and no alert box appears. If a
 popup showing the domain name appears, that's the bug still live — report
 it immediately.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:never assigns a javascript: URL to location.href`
 
 ### 7. The backslash-disguised variant is blocked
 
@@ -101,11 +125,19 @@ slash, so it's really `//example.com` in disguise, and it slips past the
 obvious check. The old onboarding-page code, also fixed here, would have
 missed exactly this.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:falls back to / for a backslash-smuggled foreign host`
+
 ### 8. No `from` at all still lands on the home page
 
 **Do:** Go to `overhype.me/login` — nothing after "login" — and sign in.
 
 **Expect:** Home page, as always.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:falls back to / when no from param is present`
 
 ## Regression
 
@@ -119,6 +151,10 @@ as before. The same weaker check lived on the onboarding screen and now
 uses the shared one — it wasn't exploitable there, so this is confirming
 nothing broke, not observing a fix.
 
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 5 (account and identity)
+
 ### R2. Google sign-in on desktop is unchanged
 
 **Do:** Sign in with Google on desktop.
@@ -126,11 +162,19 @@ nothing broke, not observing a fix.
 **Expect:** Opens a popup, completes, and returns you to where you
 started.
 
+**Lane:** human
+
+**Deferred:** #628 — Phase 5 (account and identity)
+
 ### R3. Google sign-in on iPad is unchanged
 
 **Do:** Sign in with Google on iPad.
 
 **Expect:** Full-page redirect (no popup), completes, and returns you.
+
+**Lane:** human
+
+**Deferred:** #628 — Phase 5 (account and identity)
 
 ### R4. Apple sign-in is unchanged
 
@@ -138,11 +182,19 @@ started.
 
 **Expect:** Same as Google in R2/R3.
 
+**Lane:** human
+
+**Deferred:** #628 — Phase 5 (account and identity)
+
 ### R5. A wrong password still shows an error
 
 **Do:** Sign in with a wrong password.
 
 **Expect:** An error message appears on the page; you stay on `/login`.
+
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 5 (account and identity)
 
 ### R6. Registering a new account is unchanged
 
@@ -150,17 +202,29 @@ started.
 
 **Expect:** A verification-notice screen appears; no redirect.
 
+**Lane:** scripted
+
+**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+
 ### R7. "BACK TO FACTS" with no `?from=` goes to the facts list
 
 **Do:** Click the "BACK TO FACTS" link with no `?from=` present.
 
 **Expect:** Goes to the facts list.
 
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 5 (account and identity)
+
 ### R8. Sign out still returns you home
 
 **Do:** Sign out.
 
 **Expect:** Returns you to the home page.
+
+**Lane:** scripted
+
+**Deferred:** #628 — Phase 5 (account and identity)
 
 ## Not bugs
 

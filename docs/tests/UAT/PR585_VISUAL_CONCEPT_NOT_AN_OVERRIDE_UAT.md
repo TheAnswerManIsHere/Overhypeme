@@ -55,6 +55,12 @@ just under the amber "Ambiguous sentence-initial entity" note.
 classification fields below it (Joke Mechanism, Depiction Style, Overhype Fit
 and so on) are unchanged and still populated.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:does NOT count coreSceneOverride — it is the required Visual Concept, not an override`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. The badge still appears where something really was overridden
 
 **Do:** Open the review I name in the preview as having real override content —
@@ -63,6 +69,12 @@ a required visual detail, a speech bubble, or a composition note. Expand
 
 **Expect:** The orange `Overridden: Visual Strategy` bar **is** shown. This is
 the case that must not have been broken by the fix.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:still raises the signal when that same blob carries real override content` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:still counts every other rendered field when a Visual Concept is also present`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 3. The Visual Concept still reaches the picture prompt
 
@@ -85,6 +97,10 @@ before the scene reaches the prompt. So a concept reading `{NAME} stands there
 confidently.` appears as `David stands there confidently.` (or whatever sample
 name is set). Match the scene, not the literal characters.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:wins over the AI plan's coreScene and is marked required + moderator-authored` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:leaves coreSceneOverride fully rendered and tokenized (signal ≠ render path)`
+
 ### 4. A bad token in the Visual Concept is still caught
 
 **Do:** In the **Visual Concept — describe the picture** field on any fact, type
@@ -93,6 +109,10 @@ name is set). Match the scene, not the literal characters.
 **Expect:** A token warning appears under the field flagging the unknown token,
 the same validation as before this PR. **Then delete the `{NOPE}` you typed**,
 leaving the field exactly as you found it, and close the editor without saving.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:flags an unknown token with the advisory`
 
 ### 5. Saving a real override raises the badge
 
@@ -106,6 +126,10 @@ reopening shows the value from before your save.
 **appears** — the badge tracks the override you just made. Leave the entry in
 place; step 6 removes it.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test saves a required detail and reads the badge back on reopen
+
 ### 6. Clearing that override lowers the badge again
 
 **Do:** In the same fact's **Visual Strategy Override** panel, remove the
@@ -117,6 +141,10 @@ distinctive text makes the entry unmistakable if anything is left behind — tel
 me if this save does not clear it, and I will restore from the value captured in
 setup.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test clears the override and reads the badge back on reopen
+
 ## Regression
 
 ### R1. The enrichment editor still opens on a normal fact
@@ -126,6 +154,10 @@ and open its enrichment editor.
 
 **Expect:** The editor loads with its classification fields populated —
 archetype, subtype, fit — and no error banner.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test asserts the enrichment editor opens with classification fields populated and no error banner
 
 ### R2. Real override content still reaches the prompt alongside the scene
 
@@ -139,6 +171,10 @@ override content — its required detail, bubble, or composition note. This is
 the "a core scene must not mask real override content" invariant seen end to
 end rather than in a unit test. As in step 3, tokens are substituted for the
 sample identity, so match the scene rather than the literal characters.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:coexists with requiredVisualDetails — both land in the compiled prompt`
 
 ## Not bugs
 

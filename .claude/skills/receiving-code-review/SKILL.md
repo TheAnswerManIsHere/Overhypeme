@@ -14,7 +14,10 @@ Code review requires technical evaluation, not emotional performance.
 **Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.
 
 **Local calibration (fleet, 2026-09-20): this skill sets no bound, and the
-fleet does.** Upstream says review early and often, fix and continue. On
+fleet does — and on a PR touching only a feature David has declared
+prototype phase, nothing below runs: Codex's automatic pass is read for
+nothing and no finding starts a fix
+([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).** Upstream says review early and often, fix and continue. On
 work that is internal **by consequence** — not by directory — autonomous
 iteration here is bounded at two reviews by the
 **two-review limit** ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)):

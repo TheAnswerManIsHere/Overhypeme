@@ -32,11 +32,19 @@ Four admin endpoints now check their input:
 **Expect:** it still saves and shows the preview. (The id restriction
 only blocks malformed ids you'd never type by hand.)
 
+**Lane:** ci
+
+**Deferred:** #628 — Phase 4 (cut and prune): video styles are retired with the cut
+
 ### 2. Paste-list fact import still works
 
 **Do:** Import a normal batch of facts using the paste-list import.
 
 **Expect:** it still imports.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ### 3. CSV fact import still works
 
@@ -44,11 +52,21 @@ only blocks malformed ids you'd never type by hand.)
 
 **Expect:** it still imports.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 4. Set-password still works
 
 **Do:** Use the admin "set password" action with a real email address.
 
 **Expect:** it still works.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 5. A huge paste-list import is refused
 
@@ -57,6 +75,12 @@ only blocks malformed ids you'd never type by hand.)
 **Expect:** a clear "too many / invalid input" error instead of it
 grinding through. Splitting into smaller batches still works.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. A huge CSV import is refused
 
 **Do:** Try importing a CSV over ~2000 rows or ~2 MB.
@@ -64,12 +88,22 @@ grinding through. Splitting into smaller batches still works.
 **Expect:** a clear "too many / invalid input" error instead of it
 grinding through. Splitting into smaller batches still works.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 7. A bad email on set-password is refused
 
 **Do:** Use the admin set-password action with an obviously invalid
 email (e.g. `notanemail`).
 
 **Expect:** rejected with a validation error.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ## Regression
 
@@ -79,11 +113,19 @@ email (e.g. `notanemail`).
 
 **Expect:** saves, preview shows (as today).
 
+**Lane:** ci
+
+**Deferred:** #628 — Phase 4 (cut and prune): video styles are retired with the cut
+
 ### R2. Import a normal batch of facts
 
 **Do:** Import a normal batch of facts via both paste list and CSV.
 
 **Expect:** imports (as today).
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ### R3. Set a user's password with a real email
 
@@ -91,17 +133,33 @@ email (e.g. `notanemail`).
 
 **Expect:** works (as today).
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R4. Import an oversized batch
 
 **Do:** Import more than 1000 facts, or a CSV over the size/row cap.
 
 **Expect:** rejected with a clear error (split it).
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R5. Set-password with a malformed email
 
 **Do:** Set-password with a malformed email address.
 
 **Expect:** rejected with a validation error.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ## Not bugs
 

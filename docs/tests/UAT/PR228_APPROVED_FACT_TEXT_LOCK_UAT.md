@@ -19,6 +19,12 @@ the Text box, and click Save Changes.
 **Expect:** a red-bordered "Change approved fact text" modal appears — not
 a silent save, and not a generic "Save failed" error.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:no confirmation → confirmation_required with a populated impact` `artifacts/overhype-me/src/components/admin/patchFactDraft.test.ts:maps REQUIRES_CONFIRMATION → confirmation_required with the impact`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 2. The modal names the consequences
 
 **Do:** Read the modal that appeared in step 1.
@@ -28,12 +34,20 @@ consequence list mentioning that existing memes keep the old wording and
 that the fact's taxonomy will be marked stale for review. It says nothing
 about variants — a root re-word deliberately doesn't touch them.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — the modal test asserts only the meme consequence, not the struck-through old wording, the stale-taxonomy line or the absence of variant copy
+
 ### 3. A wrong confirmation phrase leaves the button disabled
 
 **Do:** In the modal, type something other than the exact phrase `CHANGE
 APPROVED FACT TEXT` into the confirmation field.
 
 **Expect:** the "Change the text" button stays disabled.
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:stays disabled when the phrase is wrong even with a good reason`
 
 ### 4. A short or missing reason leaves the button disabled
 
@@ -42,6 +56,10 @@ reason blank (or under 10 characters).
 
 **Expect:** the "Change the text" button stays disabled.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:disables Confirm until the exact phrase AND a ≥10-char reason are present`
+
 ### 5. The exact phrase plus a real reason enables the button
 
 **Do:** Type the exact phrase `CHANGE APPROVED FACT TEXT` and a real reason
@@ -49,12 +67,22 @@ reason blank (or under 10 characters).
 
 **Expect:** the "Change the text" button enables.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:disables Confirm until the exact phrase AND a ≥10-char reason are present`
+
 ### 6. Confirming the change saves it and shows the new wording
 
 **Do:** Click "Change the text".
 
 **Expect:** the modal closes, a green "Saved" confirmation shows, and the
 fact now displays the new wording.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:valid confirmation → commits, clears signature, preserves enrichmentStatus, writes ONE audit row`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 7. The edit is recorded in history
 
@@ -64,6 +92,12 @@ it.
 **Expect:** your edit is listed — who, when, old → new wording, and the
 reason you typed.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:returns fact-scoped entries newest-first with a deleted-actor fallback`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 8. A non-text edit is not gated
 
 **Do:** On a live fact, change only a non-text field (e.g. toggle Active,
@@ -72,6 +106,12 @@ or edit the use-case), leaving the Text unchanged, and Save.
 **Expect:** it saves immediately with no warning modal — the gate is only
 for a real text change.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:accepts isActive=true on an ALREADY-ACTIVE fact as a harmless no-op`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 9. Cancelling the modal preserves your draft
 
 **Do:** Edit a live fact's text, click Save Changes, and when the modal
@@ -79,6 +119,10 @@ appears click Cancel.
 
 **Expect:** the modal closes, nothing is saved, and your edited text is
 still in the box — you can edit more or discard it.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down) — no test drives Cancel on the modal and checks the draft text survives
 
 ### 10. A brand-new (staging) fact's text edits freely
 
@@ -89,6 +133,12 @@ that inactive staging fact, edit its Text, and Save.
 **Expect:** no dire-warning modal — it just saves, and the message notes
 that prep is restarting.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 11. A restarted staging fact re-enters prep and blocks approval
 
 **Do:** Back in Moderation, check that review's stage after the text edit
@@ -97,6 +147,12 @@ in step 10, and try to production-approve it right away.
 **Expect:** the review is back at the prep stage, re-running enrichment and
 images; you cannot production-approve it until fresh prep + Visual Concept
 complete.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)` `artifacts/api-server/src/__tests__/moderationWorkflow.guards.test.ts:canProductionApprove: still production_review-only (never concept_review)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ### 12. A variant mid-review does not block the root fact's re-word
 
@@ -110,6 +166,10 @@ about the variant — a variant's enrichment depends only on its own text.
 (Variant Independence) deliberately removed that coupling, so the old
 expectation would now fail through no fault of the product.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:does NOT block a root edit when a child is mid-review`
+
 ## Regression
 
 ### R1. Provisionally accepting a new submission still starts prep
@@ -118,11 +178,19 @@ expectation would now fail through no fault of the product.
 
 **Expect:** prep starts as before (enrichment + images).
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:creates exactly one inactive staging fact, enters prep_pending, enqueues one enrichment job`
+
 ### R2. Production-approving a finished fact still works
 
 **Do:** Production-approve a finished fact.
 
 **Expect:** it approves and goes live as before.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:activates the staging fact, marks production_approved, and is idempotent`
 
 ### R3. Sending a live fact back to review still works
 
@@ -130,12 +198,22 @@ expectation would now fail through no fault of the product.
 
 **Expect:** it works as before.
 
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:starts a refresh cycle: candidate + new review, createdBy = the admin, ids echoed`
+
 ### R4. Editing a fact's enrichment/taxonomy (not text) still saves plainly
 
 **Do:** Edit a fact's enrichment or taxonomy without touching the Text
 field, and Save.
 
 **Expect:** it saves as before, with no text modal.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
 
 ## Not bugs
 

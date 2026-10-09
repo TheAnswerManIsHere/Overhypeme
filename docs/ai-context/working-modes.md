@@ -14,7 +14,10 @@ bug without the planning ceremony — it drops the plan and the plan-review
 loop, **not** the verification, and it tiers its remaining ceremony to what
 the fix actually turns out to touch. How a request enters it — routed by
 shape (Claude) or declared in the prompt (Codex) — is *How each agent
-enters / exits a mode* below.
+enters / exits a mode* below. A feature David has declared prototype phase
+enters neither mode: it goes to the `prototype` skill, whose first version
+still runs feature mode's planning step (step 2, below)
+([*The prototype phase, per feature*](#the-prototype-phase-per-feature-david-2026-09-26)).
 
 ## Feature mode (default)
 
@@ -25,7 +28,12 @@ The full workflow for building or changing product functionality. In this mode:
    build — see the plan-before-implementation rule in
    [`agent-working-rules.md`](./agent-working-rules.md) and the template in
    [`../../.agents/PLANS.md`](../../.agents/PLANS.md). Do not start the build on an
-   unapproved non-trivial plan.
+   unapproved non-trivial plan. **A feature David has declared in prototype
+   phase** (*The prototype phase, per feature*, below) keeps this step for its
+   **first version** — a short plan, Astra's review, his approval — and drops
+   it for every later version unless he asks for the loop in words; of steps
+   3 to 5 it keeps only the usable surface: no tests, no doc updates as a
+   bar, and a PR only in the regime that opens one (David, 2026-09-28).
 3. **Build it fully, end to end** (backend + the UI surface to exercise it + tests
    + any doc updates).
 4. **Tests prove the general invariant**, not just the reported example.
@@ -36,7 +44,10 @@ schema change is feature mode — **not** gated on product consequence: a
 non-trivial database schema change of any kind (see *Tier C* below) needs a
 plan and David's approval before anything runs. A database schema change is
 feature mode by default; it stays out of the full plan only if it's genuinely
-trivial, in which case it runs migration ceremony directly per Tier C. (This
+trivial, in which case it runs migration ceremony directly per Tier C — or if
+it belongs to a prototype-phase feature, whose first version's short plan
+covers it and whose later versions have none, and whose database is its own
+under the branch regime (*The prototype phase, per feature*, below). (This
 is the *database* schema — migrations and table structure — not **generated
 API-validation schemas**, which have their own explicit Tier B routing; see
 *Tier C* below. A repo that generates such schemas names them in its overlay.)
@@ -50,8 +61,7 @@ two markdown files — went through the full plan + convergence loop and reached
 **six review rounds and a 660-line plan** before anyone asked whether the
 ceremony fit the thing being built.
 
-The deciding question is the one already used for model routing in
-[`CLAUDE.md`](../../CLAUDE.md): **if this goes subtly wrong, will code review or
+The deciding question: **if this goes subtly wrong, will code review or
 David's product-testing catch it before it does damage?** Where the answer is
 "immediately and obviously," heavy ceremony buys nothing and actively costs —
 every round of adversarial review on a low-risk artifact generates new surface
@@ -67,10 +77,10 @@ that wherever it appears in this table.
 
 | Artifact class | Planning ceremony and review depth | Why |
 | --- | --- | --- |
-| **Transient, single-use process docs** — handoff docs, one-off run notes, legacy TEST_RUN checklists (the TEST_RUN file itself is retired as of 2026-08-15 — new PRs carry a *Post-merge verification* PR-body section reviewed with the diff, per [`test-run-contract.md`](../tests/test-run-contract.md); this row still governs the legacy files while they run out), anything deleted after one execution | **No plan document. No plan-review loop.** Review *depth* is the docs-only light bar in [`code-review.md`](../engineering/code-review.md). How long iteration runs is **not** this row's to say — that is the two-review limit below, and this column used to claim "one triage and the loop ends there — no re-request", which let a commit merge that no review had read. | Criticality ≈ 1 on a 1–100 scale (David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and is worth writing for. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
-| **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **No plan document, no plan-review loop** — write the real file and ship it. **Its review is the Documentation class** (below, *Two classes outside the review loop*) unless it changes the review loop or an agent's latitude. Iteration is bounded by the two-review limit below, not by this row — and that limit asks its question of the change, by consequence and recoverability, so a change to a contract or prompt in this class that governs approvals, publication, credentials or destructive operations is weighed on that. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
-| **Product code** | Today's full feature ceremony — plan, review, approval. (Outside the two-review limit, which bounds internal tooling; that does not make "to convergence" its stop, which is a name this repo retired.) | Codex's review is a real net, but a subtly wrong behavior can reach users. |
-| **Migrations, backfills, auth, payments, and any subsystem the overlay marks sensitive** | Full ceremony **plus** the relevant specialist review. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
+| **Transient, single-use process docs** — handoff docs, one-off run notes, legacy TEST_RUN checklists (the TEST_RUN file itself is retired as of 2026-08-15 — new PRs carry a *Post-merge verification* PR-body section reviewed with the diff, per [`test-run-contract.md`](../tests/test-run-contract.md); this row still governs the legacy files while they run out), anything deleted after one execution | **No plan document. No plan-review loop.** Review *depth* is the docs-only light bar in [`code-review.md`](../engineering/code-review.md). How long iteration runs is **not** this row's to say — that is the two-review limit below, and this column used to claim "one triage and the loop ends there — no re-request", which let a commit merge that no review had read. | Blast radius near zero (rated ≈ 1 on the 1–100 criticality scale retired 2026-08-20; David, 2026-08-08) — **conditional on the TEST_RUN read-only contract** ([`test-run-contract.md`](../tests/test-run-contract.md)): these docs may not instruct suite re-runs or live-state mutations, which is exactly what keeps their worst case at "one confused run by one person, immediately self-catching." A finding that a doc *breaks* that contract — an instruction that could touch live state — is a glaring issue and is worth writing for. A P1 badge on anything else describes the finding's internal severity, not this artifact's blast radius. |
+| **Agent-facing markdown** — skills, `docs/ai-context/`, `docs/engineering/`, contracts, prompts | **No plan document, no plan-review loop** — write the real file and ship it. **Its review is the Documentation class** (below, *Two classes outside the review loop*) unless it is one of the changes that class does not cover, listed there. Iteration is bounded by the two-review limit below, not by this row — and that limit asks its question of the change, by consequence and recoverability, so a change to a contract or prompt in this class that governs approvals, publication, credentials or destructive operations is weighed on that. | Self-catching: it's wrong the first time someone runs it, and a fix is one commit. Nothing is irreversible. |
+| **Product code** in **production phase** — a feature David has declared prototype phase gets this row's plan, review and approval for its first version (and for a later one only when David asks in words), and none of the row's bars after it (*The prototype phase, per feature*, below) | Today's full feature ceremony — plan, review, approval. (Outside the two-review limit, which bounds internal tooling; that does not make "to convergence" its stop, which is a name this repo retired.) | Codex's review is a real net, but a subtly wrong behavior can reach users. |
+| **Migrations, backfills, auth, payments, and any subsystem the overlay marks sensitive** | Full ceremony **plus** the relevant specialist review — in production phase; a prototype-phase feature that touches one of these is still in prototype phase, and the second regime (*The prototype phase, per feature*, below) is what keeps it off production's process and data. | Often irreversible, and a subtly-wrong result isn't visible until the damage is done. |
 
 **The specialist-review row names migrations, backfills, auth and payments,
 and stops there** (David, 2026-09-28). Permissions, security headers, the
@@ -328,8 +338,8 @@ data-derivation rule is the obvious example, and it is one of this section's
 own triggers — has no oracle that finds every instance, however the regex is
 written. The class-sweep protocol below already handles exactly this at fix
 time (*"If the finding genuinely cannot be mechanized (a pure design/semantics
-finding), the reply says so — that inability is itself a signal, and it routes
-the finding to the driving agent's judgment-escalation triggers"*), and the
+finding), the reply says so — that inability is itself a signal, and the
+round's two assessments weigh that finding as such"*), and the
 same escape applies here: **record that the class cannot be mechanized, and
 route the scope call to judgment/escalation.** What is forbidden is the third
 option — running a nominal search that does not actually find every instance and
@@ -616,10 +626,15 @@ until the #89 cut removed it; nothing dispatched now decides anything.)
 **standard** loop, and each statement of it elsewhere — here, in
 [`code-review.md`](../engineering/code-review.md), in
 [`documentation-workflow.md`](documentation-workflow.md), in `claude-core.md`
-— applies to the standard loop and points back here for these two.
+— applies to the standard loop and points back here for these two, and to
+*The prototype phase, per feature* below for the third thing outside the
+loop, which is a phase of a feature rather than a class of change.
 
 **Trivial — "just do it."** **Only David declares it**, in words, for a
-specific change; no agent assigns it, and the PR body quotes his words. No
+specific change; no agent assigns it, and the PR body quotes his words. One
+standing declaration exists: a feature's phase declaration is the Trivial
+declaration for the one-line registry PR that records it (*The prototype
+phase, per feature*, below; David, 2026-09-28). No
 review of any kind is requested: no Codex round, no assessment, no
 translation. The change merges on green CI. Codex's automatic pass on PR-open
 still runs; it is read for one thing, **a P1, which holds the merge until
@@ -628,32 +643,296 @@ resolved with one line citing his ruling, because the `main` ruleset will not
 merge with a thread open. His reason: *"I might be wrong but I need that lever
 to pull when I want quick changes."*
 
-**Documentation — one Astra and Fable pass, and no Codex.** For a change whose
-substance is prose: contracts, skills, memory notes, docs sweeps, harvests,
-Manual chapters. Both assessors read the change itself, from where the
-reviewed commit left `main`, against its intent, under the documentation
-section of their shared brief (`.agents/roles/review-proxy.md`). **The
-oracle is the decision the prose records, quoted** — David's words, or the
-issue or merged PR where the rule changed — so a sweep needs no fresh
-agreement. One batch of corrections follows and the change merges on green
-CI; the batch is not reviewed again, and the merge report says what it
-changed. **Codex's output is not read and not given to the assessors**; its
-threads are resolved with one line saying so. His reason: Codex reviews prose
-adversarially, marks a word choice P1, and the loop then builds fixes and
-guards for it, while Astra and Fable judge prose better. **It is a trial**:
-after five Documentation PRs, the question is whether the pass caught the
-class that matters most in prose — two live statements of one rule that
-disagree — without Codex. If not, the repair is to hand Codex's output to the
-assessors as one input, not to put it back in charge.
+**Documentation — one Astra and Fable pass, with Codex's automatic pass as
+one input.** For a change whose substance is prose: contracts, skills, memory
+notes, docs sweeps, harvests, Manual chapters. Both assessors read the change
+itself, from where the reviewed commit left `main`, against its intent, under
+the documentation section of their shared brief
+(`.agents/roles/review-proxy.md`). **The oracle is the decision the prose
+records, quoted** — David's words, or the issue or merged PR where the rule
+changed — so a sweep needs no fresh agreement. **Codex's automatic pass on
+PR-open is waited for and handed to both assessors as one input**: no Codex
+round is requested, and its findings are weighed like any other under the
+Worth rule rather than acted on because Codex raised them. **The wait ends
+only when that pass reports Completed** — a draft is reviewed once it is marked
+ready, so the wait runs from then — and it has no timeout: the pass is never
+composed without Codex's result, because a review that has not returned is
+not a clean one (Codex and Astra, #184 round 1). A pass that does not come
+back is an outage, which the core already takes to David, and the PR waits
+with everything else Codex is holding. One batch of corrections follows and
+the change merges on green CI; the batch is not reviewed again, and the merge
+report says what it changed. Each Codex thread gets the reply review rule 6
+gives any finding — fixed in a named commit, or declined with the reason — and
+is resolved.
+
+**Why Codex is an input and not the reviewer.** David's reason for the class:
+Codex reviews prose adversarially, marks a word choice P1, and the loop then
+builds fixes and guards for it, while Astra and Fable judge prose better. It
+began as a trial with Codex's output kept out entirely, the planned repair
+being this one if the pass alone missed what matters. **Seven trial PRs
+(#170–#183) settled it** (David, 2026-10-04): Codex raised 26 findings, 17 of
+which neither assessor raised — nine factual errors in one Manual PR, and on
+#170 an instruction to read the bodies of issues anyone can file, in the
+session that then merges — while the assessors raised 11 Codex did not,
+including every question that was David's to answer. The 17 reached the batch
+anyway wherever Claude read the threads despite the rule, and the two it did
+not read on #170 were still on `main` when the trial was counted. Each reading
+catches what the other misses, so the assessors get both.
 
 **Neither class covers** a change to a script, a check, CI, a setting, a
 permission or an agent role's definition, or one granting an agent latitude,
 unless David has declared that specific change Trivial. Those stay in the
 standard loop, and so does any change to the review loop itself.
 
+#### The prototype phase, per feature (David, 2026-09-26)
+
+**The feature is the primitive, not the repository.** Every product feature
+is in one of two phases, **prototype** or **production**, and the phase
+decides how much of this contract applies to a change to it. A new product
+starts with every feature in prototype phase: *"everything is technically a
+prototype until we've locked in some decisions."* A repository never flips as
+a whole; features flip one at a time, and a repo carrying both phases is the
+normal case, not a transition.
+
+**Where the phase is recorded.** The consumer repo's
+`docs/ai-context/overlay-declarations.md` carries a *Feature phases* section
+(and, beside it, a *Tester tier* section naming the tier and the setting that
+switches it on — required from the branch regime onward, below):
+one entry per feature, its phase, the date it last changed, its regime and
+branch, and the path of the feature's prototype directory. That directory
+lives **with the code** — on `main` in the first regime, on the branch in the
+second — and holds the questions file and a running one-line-per-item
+**ledger of the shortcuts taken** (state held in memory, no auth on a route,
+a secret in an environment variable, an input never validated), so a
+shortcut taken on the branch is recorded where it was taken and the
+hardening PR ports the ledger with the code it describes; the registry on
+`main` never carries the ledger itself, since a branch-regime prototype has
+no path to update it there. A feature not listed is in
+**production** phase: the safe failure is more ceremony, never less. **The
+entry is written before the first version's planning loop opens**, by its own
+one-line registry PR in either regime (the branch-regime bullet below gives
+its shape): every entry router reads the registry, so a loop resumed in
+another session would otherwise run a production plan for an unlisted feature
+(Codex, #173 round 2).
+
+**What prototype phase keeps: the planning loop, for the first version**
+(David, 2026-09-28, correcting the reading #168 merged that morning). *"It
+MUST get a planning review loop. That's the whole point. We're planning
+something new, trying to figure out how it should work, arguing back and
+forth with you and Astra about the best way to accomplish the goal. What
+we're cutting out is the code review loop once we've built it. We want to
+prototype the RIGHT THING, but we don't want to code review it until we're
+sure it really is the right thing."* So a prototype's **first version** goes
+through the pre-plan conversation, a short plan — the design question the
+prototype exists to answer, the hypothesis it tries, the surface it shows and
+what it leaves out — Astra's review through the `plan-review-loop` skill, and
+David's explicit approval, exactly as a production-phase increment does; the
+questions file is that plan's product. **Every later version is built with no
+loop**, on his feedback alone, *"so I can fix a quick bug or issue or try a
+new variation without needing the rigor of a planning loop"* — unless he asks
+for the loop in words for that version, which he can *"easily"* — the same
+short plan through the same loop, on the feature's existing issue; the agent
+never infers the ask. A UI or UX fix on a prototype is one of those versions.
+
+**What prototype phase removes.** For a PR that touches only prototype-phase
+features: no code-review loop of any kind (no requested Codex round, no
+shared judgement, no translation), no tests, no `/simplify`, and none of
+security, performance, observability or documentation as a bar — *"We must
+not care about security, performance, observability, documentation, etc.
+until we've locked a design and the feature spec."* and *"I don't care about
+security issues or potential edge cases in a prototype."* (The rule read "no
+plan document, no plan-review loop, no scope-of-work gate" from 2026-09-26
+to 2026-09-28: his "no looping at all" was read as covering both loops, and
+it covered one.) His "etc." covers the product-design principles too
+(legible async status, no raw identifiers on a surface, and their kin): a
+prototype follows them where they cost nothing, and a miss is a ledger line
+for the flip, never a finding that starts a fix. The PR is opened and merged
+by the same agent in the same turn, on green CI. Codex's automatic pass on PR-open still runs and is
+**read for nothing**: each of its threads is resolved with one line naming
+this phase, and no finding on a prototype-phase feature starts a fix. **Once
+the first version is approved, the only feedback that changes a prototype is
+the product owner's**, about how it feels to use, gathered the way the
+`prototype` skill describes — and a defect he reports on it, a UI or UX fix
+included, is the next version through that skill, never a bugfix and never
+code-reviewed: bugfix mode is for already-agreed behaviour, and nothing about
+a prototype is agreed yet. **Publishing
+is never part of this**: the agent merges to `main` and stops; David decides
+every publish (*"I'm the one who will decide when we publish"*), tests in the
+development environment himself, and hands the link to the user when he is
+ready.
+
+**What it does not remove of the disclosure rules.** The questions file
+and the ledger are prose that reaches a public branch, the way a plan once
+did, so they get the canonical disclosure check
+([`workstream-tracking.md`](./workstream-tracking.md#what-must-never-happen))
+before their first push, and a shortcut whose ledger line would describe an
+exploit path against a live prototype environment gets a sanitized line with
+its specifics on the private path — the treatment an override on a
+disclosure-gated subject already gets. The code itself is under the rule
+every commit is under, whatever the phase: no secret and no customer data is
+ever committed (Codex, #168 round 6).
+
+**What it does not remove.** The phase is a property of product features. The
+repository's machinery — CI, settings, permissions, the vendored handbook
+payload, an agent role's definition — has no phase and stays in the standard
+loop or the two classes above. A PR that touches **any** production-phase
+feature is in the standard loop for the **whole** PR: the stricter rule wins,
+because a mixed PR is exactly where a prototype shortcut reaches production
+code unread.
+
+**The flip is David's, per feature, in words.** No trigger fires it and no
+agent infers it: *"I know when we've gotten to a place where the prototype
+switches to a real product. You and I will be talking about this
+constantly."* When he declares a feature production, its ledger becomes the
+**scope** of the first production PR — the hardening increment — and that PR
+runs in the standard loop. **Its oracle is the feature's agreed outcome, never
+the ledger**: the owner's answers to the prototype's questions, carried into
+the plan as Product Intent and Settled Decisions the way any feature's are,
+so a hardening PR that clears every shortcut while regressing what the owner
+approved fails review. **And in the `main` regime the hardening PR's diff is
+not the feature**: the prototype's code merged unreviewed and is already on
+`main`, so the diff carries only the ledger-driven edits, where the branch
+regime's port carries the whole feature. So a `main`-regime hardening PR
+names the feature's files in its body and in the round-context comment
+posted before each review request, and the shared-judgement package pins
+the same paths, so Codex and both assessors read the complete
+implementation and not the diff alone — a latent defect nobody recognised
+as a shortcut is exactly what the ledger cannot list (Codex, #168 round 6). The ledger exists so that this increment is a list to
+work through rather than an archaeology of the code; it costs a sentence at
+the moment a shortcut is taken. **The declaration is persisted before
+anything else happens**: the feature's registry entry on `main` changes to
+production, with the date, by its own one-line PR — in the branch regime
+too, since every session reads the registry first and a resumed one would
+otherwise route the hardening work back down the no-review path. Planning
+starts only once that PR has merged. **Every one-line registry PR the phase
+uses — at the start under the branch regime, at the flip, at abandonment —
+is Trivial by David's phase declaration** (David, 2026-09-28: *"Yes,
+trivial"*): the declaration is the one the Trivial class requires, in his
+words, for that change, so the PR quotes it and merges on green CI with no
+review of any kind — and `pr-watch` never subscribes to it: it carries
+`Refs #N`, owns no lifecycle and moves no label (Codex, #168 round 7). At the
+flip under the branch regime the hardening PR's
+close-out also **retires the prototype environment**: the deployment is
+stopped and its database dropped once the owner's answers and the port are
+captured, owned by the `prototype` skill, and where only David can delete
+the host's deployment that step is a numbered ask to him. **Questions still unanswered when he
+declares are retired by the declaration**: they become the first items of
+the pre-plan conversation, never a reason for another prototype version.
+(An observable
+trigger — the first time the user's real work exists only in the product —
+was proposed and declined; the dissent is recorded so the next session does
+not re-raise it.)
+
+**A prototype can also end by being abandoned** (David, 2026-09-28, closing
+a review finding). The declaration is his, in words, like the flip. In the
+`main` regime the order is fixed: the code is removed from `main` first, by
+a PR touching only the still-listed prototype-phase feature, so it merges in
+the same turn; the registry entry is removed second, by its own one-line
+Trivial PR — the other way round, the removal would touch a feature the
+registry no longer lists, which this rule's own fallback reads as production
+phase. In the branch regime the registry entry is removed, the prototype
+environment is retired the same way as at a flip (deployment stopped,
+database dropped; David's step where only he can do it), and the branch is
+deleted or left for him to delete. Either way the workstream issue is closed
+as *not planned*, with a comment naming the decision and the answer the
+prototype gave, **once the teardown is confirmed** — in the branch regime
+that may wait on David's host step, and until then the issue stays open at
+`waiting:david`, so `/next` and `/status-all` keep surfacing an environment
+still running (Codex, #168 round 6). Nothing is harvested, since nothing was decided about how
+the system works.
+
+**Where a prototype lives is decided by who is downstream of `main`** (David,
+2026-09-27). Unchecked code is dangerous to a live product through three
+couplings a user tier cannot gate: a shared process (an import that throws
+takes the app down for everyone), shared data (a migration or a write to a
+production table), and shared code (an edit to a module production already
+uses). So there are two regimes, and the registry entry says which one a
+feature is in:
+
+- **Nothing downstream of `main`** — a product with no users yet: a
+  prototype-phase feature lives on `main`, its PR merges in the same turn,
+  and David publishes when he chooses. **This regime ends before the first
+  user arrives, not when.** A branch made later and a registry line changed
+  later remove nothing from `main`, so the product goes to its first user
+  only once its registry lists no `main`-regime prototype: every feature that
+  was one has been flipped and hardened through the standard loop, or its
+  code removed from `main` by an ordinary PR — the same shortcuts a tester
+  tier cannot gate are the ones this transition exists for. Publishing to
+  that first user is David's, like every publish, and the registry is what
+  he reads before it; an agent that sees a `main`-regime entry while he is
+  preparing that publish says so as a blocking ask rather than letting the
+  tier stand in for the transition.
+- **Users downstream of `main`** — a product with live users, and every
+  product from the day its first user arrives: a prototype-phase feature
+  lives on a **`prototype/<feature>` branch of the same repository** and
+  never on `main` while in that phase. A second deployment, the **prototype
+  environment**, tracks the branch and has **its own database**, seeded from
+  fixtures or a sanitized copy, never production's — and *sanitized* means
+  the copy strips every contact and payment channel (email addresses, phone
+  numbers, payment tokens and their like), so a bug in unreviewed code
+  holding real credentials cannot reach a real customer (David, 2026-09-28).
+  That strip is the floor every product applies, not the whole definition:
+  the overlay's *Environment* section names the product-specific private
+  content the copy also strips — uploads, messages, documents, addresses and
+  their kin — and a product whose overlay names none seeds from fixtures,
+  since a tester tier limits who can sign in, never what a bug in unreviewed
+  code does with the rows behind the sign-in (Codex, #168 round 6).
+  **Prototypes are serialised in this regime** (David, 2026-09-28: one
+  environment per product): the registry entry names which branch the
+  prototype environment currently tracks, a second branch-regime prototype
+  waits for the environment or for David to ask for a second one, and a
+  second environment, when he does, is declared in the overlay's
+  *Environment* section like the first. Its integrations are the
+  product's real ones, credentials included — a prototype that could not
+  charge, send or write would not answer the question it exists to ask
+  (David, 2026-09-28, declining a review finding that asked for sandbox
+  credentials or disabled egress: *"The only people who will be running the
+  prototype environment will know that their actions have ramifications"*).
+  Only tester-tier members can sign in there, and that is the whole
+  safeguard. **No PR is opened while
+  the feature is in prototype phase** — nothing merges, so there is nothing
+  to review, and David's declaration of the phase is the explicit "no PR"
+  the pull-request rule allows; the branch name in the registry is the
+  visibility — **and the registry lives on `main`, so the entry lands there
+  by its own one-line PR**, opened before its first version's planning loop
+  and never left on the branch alone: a session starting from `main` reads the registry to
+  learn a feature's phase, and an entry only the unmerged branch carries
+  reads from `main` as no entry, which is production phase. That PR is
+  Trivial by his phase declaration (the flip paragraph above), quoted in its
+  body, and merges on green CI. It says `Refs #N` for the
+  feature's issue, never `Workstream: #N`, so it owns no lifecycle and moves
+  no label (`workstream-tracking.md`, *Closing an issue*); the same holds for
+  the one-line registry PRs at the flip and at abandonment. The branch takes `main` in
+  by merge whenever it needs newer product code, never by rebase. At the flip, the hardening PR onto `main`
+  is a port through the standard loop with the branch as its reference,
+  which is what "a prototype is never promoted" already meant. CI still
+  runs on the branch so the environment builds; it blocks nothing — and a
+  branch that opens no PR fires no pull-request run, so the consumer's
+  workflow needs a push trigger on `prototype/**`, added when the tester
+  tier is declared (a worker on #168 run 10 read the memory note on stacked
+  PRs and saw the gap).
+
+**The tester tier exists in every product** (David, 2026-09-27), named in
+the overlay: a user tier beside the admin one, switched on by a configuration
+setting. It gates two things — the **feedback rail** renders only for its
+members, and only its members can sign in to a prototype environment. **It
+is required from the branch regime onward, and not before** (David,
+2026-09-28): in a product with no users there is nobody to keep the rail
+from, so it renders for everyone and the first work is the first prototype,
+not a full-loop tier — the tier is built through the normal pipeline before
+the product's first branch-regime prototype, which is also before its first
+user. What the tier does **not** do is isolate: hiding a screen never hides a migration, and that is why the
+second regime is a branch and a deployment rather than a flag.
+
+The earlier design put every prototype in a separate repository and Repl.
+That was declined for a new product because it protects nothing there and
+builds the product's infrastructure twice; the second regime keeps what was
+right about it — a separate process and separate data — inside the one
+codebase.
+
 #### The write-gate rule: code written is code reviewed (David, 2026-08-22)
 
-**Every tier**, in the standard loop (not the two classes above). The judgement happens *before* code is written, not after it is
+**Every tier**, in the standard loop (not the two classes above, nor a prototype-phase feature, above). The judgement happens *before* code is written, not after it is
 pushed:
 
 1. A round returns findings.
@@ -825,8 +1104,11 @@ to write than fixing. How long engagement *runs* is the two-review limit's, not
 this paragraph's — it used to open "engagement stays one pass", which is a
 round budget in a sentence about strictness.
 
-**Codex review of product code is unaffected and is not negotiable.** It is
-the safety net a non-code-reading product manager depends on.
+**Codex review of product code is unaffected and is not negotiable** — for
+product code in **production phase**. It is the safety net a non-code-reading
+product manager depends on, and a feature he has declared prototype phase is
+the one exemption he has put outside it, in words, until he flips it (*The
+prototype phase, per feature*, above).
 
 #### What still bounds a loop
 
@@ -841,8 +1123,9 @@ the safety net a non-code-reading product manager depends on.
   the round. Measured: #125's two-sentence fix waited a week under exactly that
   reading. **Any changed head gets review before merge** — documentation-only
   changes and base-branch merges included — in the standard loop; a Trivial
-  change gets none and a Documentation batch merges unreviewed, by design
-  (above). What is refused is a round requested
+  change gets none, a Documentation change's one batch of corrections merges without a second review, and a
+  prototype-phase PR merges on green CI with the automatic pass read for
+  nothing, by design (above). What is refused is a round requested
   merely to get a different answer on a head already reviewed as it stands.
   (Astra, 2026-09-19.)
 - **The two-review limit bounds how long iteration runs**, above. These bound
@@ -902,8 +1185,8 @@ instances are.** For every finding, whichever agent is driving the fixes:
 2. **Write a mechanical oracle for the class** — the `grep`/`ls`/`find`/
    one-liner that detects *every* instance, not just the cited ones. If the
    finding genuinely cannot be mechanized (a pure design/semantics finding),
-   the reply says so — that inability is itself a signal, and it routes the
-   finding to the driving agent's judgment-escalation triggers.
+   the reply says so — that inability is itself a signal, and the round's
+   two assessments weigh that finding as such.
 3. **Sweep the full scope before fixing, fix every hit, re-run the oracle
    to zero.** Scope defaults to the whole artifact/diff and widens to the
    repo when the class plausibly lives outside it. The reply cites the
@@ -916,9 +1199,8 @@ instances are.** For every finding, whichever agent is driving the fixes:
 5. **A recurrence of a swept class in a later round is a process failure by
    definition** — the class was misnamed or the sweep skipped. It is the
    "repairing an earlier round's fix" causal flag made mechanically
-   detectable: it gets flagged as such in that round's record, and the
-   re-naming of the class escalates to a stronger model rather than being
-   retried at the tier that misnamed it.
+   detectable: it gets flagged as such in that round's record, and the class
+   is re-named from the recurrence rather than patched at the new instance.
 
 When instance = class — a genuinely one-off defect with no plausible
 siblings — saying so in the reply *is* the sweep. The obligation is making
@@ -928,15 +1210,19 @@ candidate at loop close, per the standing recurring-failure-patterns rule.
 
 ### The scope-of-work gate (David, 2026-08-15)
 
-Before any plan-review loop opens, the pre-plan conversation's outcome is
+Before any plan-review loop opens (for a feature in production phase and
+for a prototype's first version; a later prototype version opens no loop and
+passes no scope gate unless David asks for the loop in words —
+[*The prototype phase, per feature*](#the-prototype-phase-per-feature-david-2026-09-26)),
+the pre-plan conversation's outcome is
 compressed into a **scope of work David explicitly agrees to**: the direction
 served, product intent for this increment, must-not-change, settled
 decisions, the explicit scope boundaries (what is already decided to be
 *next* or *never*), and the artifact's ceremony tier. (A 1–100 criticality
 rating was agreed here too, for the gate deleted on 2026-08-20; the tier
 carries what it was for.)
-**That agreement is the loop's authority to run autonomously to
-convergence** — it replaces the retired per-round check-in (below) as
+**That agreement is the loop's authority to run autonomously up to the
+approval ask** — it replaces the retired per-round check-in (below) as
 David's control point at the front of the loop, paired with explicit plan
 approval at the back. **The agreed scope of work is also the review oracle
 itself** — it is handed to the reviewer verbatim, every round, as the thing the
@@ -1190,7 +1476,15 @@ Everything in Tier A, plus:
   content), and a check that re-verifies what CI already gates is waste.
   The driving agent executes the section through the Replit connector at
   close-out (the standalone TEST_RUN file is retired, 2026-08-15).
-- **The strongest model tier available** for the fix itself.
+- **The build tier the agent's own core names, for the fix itself** — for
+  Claude, Opus (`claude-core.md`, *Model, cost, and routing*; David,
+  2026-10-03: *"Now that Opus 5.5 is out, it's strong enough for any
+  development work I think. We'll reserve Fable for planning and
+  discussion."*). This line read "the strongest model tier available" until
+  the machinery pin's strongest Claude became Fable, at which point it
+  contradicted the core and the bugfix skill's "never starts on Fable"; it
+  names no model itself because this file binds Codex too, which cannot
+  choose a Claude model.
 
 **Internal/infra-only exception on the UAT doc.** The test is **whether the
 fix has any product-visible behavior at all — not which Q1/Q2 trigger(s)
@@ -1227,7 +1521,10 @@ schema, which puts it here on that separate basis. It always runs
 [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md)'s
 ceremony (idempotency, observable counts, human-override preservation,
 rollback for destructive ops). Whether it *also* needs a full approved plan
-first is decided by **AGENTS.md's repo-wide planning standard** — non-trivial
+first is decided by **AGENTS.md's repo-wide planning standard** (for a
+production-phase feature; a prototype-phase one never reaches this tier,
+since the registry is read before bugfix mode is entered — *The prototype
+phase, per feature*, above) — non-trivial
 implementation work requires a plan via
 [`.agents/PLANS.md`](../../.agents/PLANS.md) with David's explicit approval
 before anything runs — **not** by product-visibility; a schema/data change
@@ -1398,7 +1695,11 @@ was entered. Rationale in [`decisions.md`](./decisions.md).)
   the bugfix workflow, entered with a **one-line announcement** that is
   David's veto surface; clearly feature-shaped ("let's build / add /
   change X") → feature mode, as that phrasing always has; genuinely
-  ambiguous → one numbered question. `/bugfix` remains an **explicit
+  ambiguous → one numbered question. Before either, the consumer's
+  *Feature phases* registry: a request about a feature David has declared
+  prototype phase, bug-shaped or not, goes to the `prototype` skill — a
+  first version through the planning loop, a later one with none unless
+  David asks (*The prototype phase, per feature*, above). `/bugfix` remains an **explicit
   override** that forces the light path. Classification is **per-request**
   — no sticky mode state, no exit phrases.
 - **Codex** has no auto-triggering skill system, so the signal stays **in
@@ -1407,7 +1708,12 @@ was entered. Rationale in [`decisions.md`](./decisions.md).)
   workflow, plan first). Codex reads *this doc* via `AGENTS.md` and applies
   the matching workflow. Absent an explicit signal, Codex is in **feature
   mode** (the default) and follows the plan-before-implementation rule; a
-  declared mode governs its thread until David changes it.
+  declared mode governs its thread until David changes it. Before any mode,
+  whatever the prompt's prefix, the consumer's *Feature phases* registry is
+  read: a request about a feature David has declared prototype phase goes to
+  the `prototype` skill — a first version through the planning loop, a later
+  one as its next version with no plan and no bugfix unless David asks for
+  the loop (*The prototype phase, per feature*, above).
   - *Optional:* if a given Codex setup supports custom prompt files (e.g. a
     `/bugfix` prompt), point that prompt at this doc — it doesn't change the
     contract, just the trigger.
@@ -1420,7 +1726,10 @@ backfill** (Tier C without exception, regardless of product consequence —
 not generated API-validation schemas, which stay Q1 Tier B — see *Tier C*
 above), **do not silently treat it as a fix** — **ask** whether it should
 take the feature workflow, or (for a genuinely trivial database schema fix)
-proceed straight to migration ceremony per Tier C. Guessing wrong is
+proceed straight to migration ceremony per Tier C — or, when the registry
+says the feature is in prototype phase, go to the `prototype` skill: its
+first version plans there, and after that no mode at all (*The prototype
+phase, per feature*, above). Guessing wrong is
 expensive in both directions (skipping a plan a feature or a non-trivial
 schema change needed, or piling ceremony onto a one-line fix), and the
 confirm costs one question.
@@ -1431,7 +1740,9 @@ Features, behavior changes, **any *database* schema change, migration, or
 backfill** (Tier C without exception — see above; not gated on product
 consequence; not generated API-validation schemas, which stay Q1 Tier B), or
 anything where David needs to verify intent — that's **feature mode**, or for a
-trivial database schema fix, migration ceremony run directly per Tier C. Don't
+trivial database schema fix, migration ceremony run directly per Tier C, or
+for a feature the registry lists in prototype phase, the `prototype` skill
+(*The prototype phase, per feature*, above). Don't
 use bugfix mode to sneak a feature through the lightweight path. **And a
 "clean up the review findings" batch is not a bug fix (David, 2026-08-09):**
 N leftover findings are N defects, and batching them recreates exactly what

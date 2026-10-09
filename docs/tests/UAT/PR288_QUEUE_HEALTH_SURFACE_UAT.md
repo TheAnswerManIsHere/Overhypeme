@@ -31,12 +31,20 @@ Email Queue).
 **Expect:** A "Worker lanes" section with five cards: `fast`, `render`,
 `bulk`, `pexels`, `ai_meme_backfill`.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`
+
 ### 2. Each lane card reports its own state
 
 **Do:** Look at each worker lane card.
 
 **Expect:** Each says "Scheduling" in green, plus "N live instances · last
 fire Xs ago · N in flight".
+
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`
 
 ### 3. A summary line sits above the cards
 
@@ -45,6 +53,10 @@ fire Xs ago · N in flight".
 **Expect:** A line reads "All five lanes are being scheduled. Last checked
 HH:MM:SS."
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:summarises lane liveness in words above the cards`
+
 ### 4. The page polls on its own
 
 **Do:** Watch the timestamp above the worker lane cards for several
@@ -52,6 +64,10 @@ seconds without reloading.
 
 **Expect:** It advances roughly every 5 seconds — the polling working. You
 never need to refresh the page.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ### 5. The Queues section lists every registered queue
 
@@ -62,6 +78,12 @@ summary: "N queued · N working · N done · N failed", plus skipped and
 no-more-retries counts, an oldest age when those apply, and a trailing
 "24h: N done / N failed".
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### 6. A queue that has never run still appears
 
 **Do:** Find a queue that has never run.
@@ -70,6 +92,10 @@ no-more-retries counts, an oldest age when those apply, and a trailing
 from the page would read as "fine" when the truth might be that it has
 never executed once.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run` `artifacts/api-server/src/__tests__/queueHealth.test.ts:reports a registered queue that has never run, rather than omitting it`
+
 ### 7. A queue row expands to individual jobs
 
 **Do:** Click a queue row.
@@ -77,11 +103,19 @@ never executed once.
 **Expect:** It expands to show individual jobs — id, state, attempt
 count, and any error.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 8. A queue row collapses again
 
 **Do:** Click the same queue row again.
 
 **Expect:** It collapses.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ### 9. Every job state is a labelled badge
 
@@ -95,6 +129,10 @@ used to be invisible: the database stores a skip as "done" and a
 not-retried-further failure as plain "failed", so they read as very
 different operator stories now.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 10. A first-load failure says so, explicitly
 
 **Do:** Open the page while the API is down (or ask Replit to simulate
@@ -107,6 +145,10 @@ page, five green "Scheduling" cards, or "all queues healthy" —
 "everything's fine" and "I couldn't check" must never look identical on a
 page whose entire job is revealing problems.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 11. A failure after data is on screen keeps the stale data visible
 
 **Do:** Let the page load normally, then take the API down while you're
@@ -118,12 +160,20 @@ failed and we are still retrying. These numbers are not current." It keeps
 retrying and recovers on its own when the API comes back; it never gives
 up and never asks you to refresh.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### 12. Loading looks like loading
 
 **Do:** Hard-refresh the page and watch the first second.
 
 **Expect:** Five grey skeleton bars, not a single spinner over the whole
 page.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
 
 ## Regression
 
@@ -133,17 +183,29 @@ page.
 
 **Expect:** Works exactly as before — untouched by this PR.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 7 (burn-down)
+
 ### R2. Memes still generate end to end
 
 **Do:** Generate a meme end to end.
 
 **Expect:** The queue's behaviour is unchanged.
 
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles)
+
 ### R3. Enrichment / send-back / Taxonomy Health actions still run
 
 **Do:** Run an enrichment / send-back / Taxonomy Health action.
 
 **Expect:** Unchanged.
+
+**Lane:** ci
+
+**Deferred:** #631 — increment 4 (AI doubles) — the enrichment half needs fal/OpenAI
 
 ### R4. The admin sidebar gains only Queue Health
 
@@ -152,12 +214,22 @@ page.
 **Expect:** New "Queue Health" item present; every existing item still
 present and working.
 
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:renders inside the admin console for an admin`
+
+**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+
 ### R5. The new endpoints are admin-gated
 
 **Do:** Visit both new admin endpoints as a non-admin user.
 
 **Expect:** Both are admin-gated — nothing new appears for a non-admin
 user.
+
+**Lane:** ci
+
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:GET /admin/queue-health`; `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:GET /admin/queue-health/jobs`
 
 ### R6. No new database connection errors appear
 
@@ -169,6 +241,10 @@ implicit 10 to an explicit 20 — a real latent problem, since the five
 lanes could want 10 connections at once with zero spare. If anything
 anywhere starts reporting database connection errors, that's the one
 place this PR could plausibly bite.
+
+**Lane:** live
+
+**Check:** `Sentry search_errors for database connection errors since the deploy`, or ask Replit to grep the app logs for `connection` errors (read-only)
 
 ## Not bugs
 

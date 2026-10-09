@@ -7,6 +7,16 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 
 # Writing Plans
 
+> **Local note (AI-Handbook #168, corrected #173).** A feature David has
+> declared prototype phase has a short plan to write for its **first version**
+> — the design question, the hypothesis, the surface, what it leaves out — and
+> none for later versions unless David asks; the questions file is that plan's
+> product, and the `prototype` skill is the entry point
+> ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+> The header, task structure and TDD steps below are for a production-phase
+> plan and do not apply to that short plan; `.agents/PLANS.md` says what it
+> contains and which Preflight check it runs.
+
 ## Overview
 
 Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.

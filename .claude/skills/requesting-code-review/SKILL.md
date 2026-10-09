@@ -12,7 +12,10 @@ Dispatch a code reviewer subagent to catch issues before they cascade. The revie
 **Core principle:** Review early, review often.
 
 **Local calibration (fleet, 2026-09-20): this skill sets no bound, and the
-fleet does.** Upstream says review early and often, fix and continue. On
+fleet does — and "before merge to main" below reads "in the standard loop": a
+feature David has declared prototype phase gets no code review of any kind
+(its first version's plan is still reviewed, in the planning loop)
+([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).** Upstream says review early and often, fix and continue. On
 work that is internal **by consequence** — not by directory — autonomous
 iteration here is bounded at two reviews by the
 **two-review limit** ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)):
