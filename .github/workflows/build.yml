@@ -319,9 +319,10 @@ jobs:
           --health-retries 5
 
     env:
-      # overhype_test is a name the runner's production guard allows (it refuses
-      # `heliumdb`, the prod/dev DB name). The `overhype` role is a superuser
-      # (postgres image default), so the runner uses its fast per-worker-DB mode.
+      # overhype_test is marked as a test database in the Prepare database step
+      # below; the runners' guard refuses any database without that marker. The
+      # `overhype` role is a superuser (postgres image default), so the runner
+      # uses its fast per-worker-DB mode.
       DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
 
     steps:

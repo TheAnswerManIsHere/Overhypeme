@@ -335,8 +335,9 @@ entirely, not just a different name on the same Postgres server.
 Test tooling does not tell them apart by name. It refuses any database that
 does not carry the test-database marker (`overhype.test_database = 'yes'`,
 stored on the database itself), and neither `heliumdb` nor `neondb` ever
-carries it; the Repl's `heliumdb_test` was marked once, by hand, when the
-marker replaced the old name list (David, 2026-10-10). See
+carries it. The Repl's `heliumdb_test` was marked once, through the
+connector, after #635 merged (2026-10-10), and verified:
+`heliumdb_test|{overhype.test_database=yes}`. See
 [`TESTING.md`](../tests/TESTING.md#production-guard-safety-critical).
 
 ## The one thing that IS ours: a periodic retrospective read
