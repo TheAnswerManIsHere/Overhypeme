@@ -20,6 +20,6 @@
  * the predicate inside two security-critical modules is a larger change than
  * the boot assertion that needed a shared copy.
  */
-export function isProductionEnv(): boolean {
-  return process.env.REPLIT_DEPLOYMENT === "1" || process.env.NODE_ENV === "production";
+export function isProductionEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.REPLIT_DEPLOYMENT === "1" || env.NODE_ENV === "production";
 }

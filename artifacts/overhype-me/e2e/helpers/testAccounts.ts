@@ -47,6 +47,13 @@ export async function signInThroughForm(page: Page, email: string, password: str
   await page.waitForURL((url) => url.pathname !== "/login");
 }
 
+/** The CSRF token the server issued this browser, for a mutating request's `X-CSRF-Token` header. */
+export async function csrfToken(page: Page): Promise<string> {
+  const cookie = (await page.context().cookies()).find((c) => c.name === "csrf_token");
+  expect(cookie?.value, "a csrf_token cookie should have been issued").toBeTruthy();
+  return cookie!.value;
+}
+
 /** The signed-in user as the server sees it, read through the page's own cookies. */
 export async function currentUser(page: Page): Promise<Record<string, unknown> | null> {
   const response = await page.request.get("/api/auth/user");

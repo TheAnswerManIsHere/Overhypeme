@@ -105,7 +105,7 @@ you'd normally check).
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 3 (storage double)
+**Deferred:** #631 — increment 6 (acceptance run, baseline journey 4): storage now has its double (increment 3), but completing a meme also needs an active fact to build on, which arrives with the legacy fixture (increment 5)
 
 ### R4. A meme completes — video flow
 
