@@ -19,9 +19,12 @@
  *   SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
  *   E2E_MAIL_SINK_DIR=/tmp/overhype-mail pnpm exec tsx src/testing/productionModeLauncher.ts
  */
+import { testDatabaseRefusal } from "@workspace/db/test-database";
+
 import { productionModeRefusals } from "./productionModeGuard";
 
-const refusals = productionModeRefusals(process.env);
+const databaseRefusal = await testDatabaseRefusal(process.env);
+const refusals = [...productionModeRefusals(process.env), ...(databaseRefusal ? [databaseRefusal] : [])];
 if (refusals.length > 0) {
   process.stderr.write(
     `[production-mode launcher] refusing to start:\n${refusals.map((r) => `  - ${r}`).join("\n")}\n`,

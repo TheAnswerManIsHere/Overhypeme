@@ -68,6 +68,12 @@ if [ "${DB_EXISTS}" != "1" ]; then
   sudo -u postgres createdb -O "${DB_USER}" "${DB_NAME}"
 fi
 
+# Mark it as a test database (lib/db/src/testDatabaseMarker.ts). Every run, so
+# a database created before the marker existed is marked too: the target is
+# this script's own hard-coded local database, never an ambient DATABASE_URL.
+sudo -u postgres psql -q -v ON_ERROR_STOP=1 -c \
+  "ALTER DATABASE ${DB_NAME} SET overhype.test_database = 'yes';" >/dev/null
+
 # ── 4. Enable pgvector extension in the test DB ───────────────────────────────
 sudo -u postgres psql -q -d "${DB_NAME}" -c \
   "CREATE EXTENSION IF NOT EXISTS vector;" >/dev/null

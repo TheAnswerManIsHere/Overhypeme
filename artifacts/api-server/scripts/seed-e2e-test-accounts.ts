@@ -11,9 +11,9 @@
  * - The account definitions live in `e2e-test-accounts.json`, which the
  *   Playwright helper reads too, so the two cannot drift.
  *
- * Refuses every protected database (the shared rule in
- * src/testing/productionModeGuard.ts) and any production or deployment
- * environment: these accounts carry a password published in this repository.
+ * Refuses any database not marked as a test database (`@workspace/db/test-database`)
+ * and any production or deployment environment: these accounts carry a
+ * password published in this repository.
  *
  * Idempotent: an existing account keeps its row and has its password and
  * verification restored; a duplicate grant is a no-op.
@@ -24,11 +24,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isProductionEnv } from "../src/lib/env";
-import { protectedDatabaseRefusals } from "../src/testing/productionModeGuard";
+import { testDatabaseRefusal } from "@workspace/db/test-database";
 
+import { isProductionEnv } from "../src/lib/env";
+
+const databaseRefusal = await testDatabaseRefusal(process.env);
 const refusals = [
-  ...protectedDatabaseRefusals(process.env),
+  ...(databaseRefusal ? [databaseRefusal] : []),
   ...(isProductionEnv() ? ["this is a production environment (NODE_ENV=production or REPLIT_DEPLOYMENT=1)"] : []),
 ];
 if (refusals.length > 0) {

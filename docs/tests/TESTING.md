@@ -283,8 +283,8 @@ password and sign in through the real `/api/auth/local-login`, never through the
 dev-admin backdoor. The paid account is paid the way a real comp is — an admin
 grant written by `applyAdminGrant` (entitlement row, history, derived-tier
 recompute) — never by setting the tier. The password is published in this
-repository, so the seed refuses every protected database (the rule below) and
-any production or deployment environment.
+repository, so the seed refuses any database not marked as a test database
+(the rule below) and any production or deployment environment.
 
 **The production-mode stack.** `artifacts/api-server/src/testing/productionModeLauncher.ts`
 boots the real server with `NODE_ENV=production` and exactly one thing replaced:
@@ -294,7 +294,7 @@ queue — the enqueue, the worker's claim and the job handler all run as in
 production. It is a test-harness substitution, not a selectable double: the
 deployment entrypoint (`index.ts`, the only esbuild entry) never imports
 `src/testing/`, which `__tests__/testHarnessIsolation.test.ts` enforces. The
-launcher refuses to start on a protected database, with any Resend key set, on a
+launcher refuses to start on an unmarked database, with any Resend key set, on a
 real deployment, without a mail-sink directory, or when `SITE_BASE_URL` (where
 email links point) is not a localhost URL.
 
@@ -325,27 +325,42 @@ suites (`e2e:smoke`, `e2e:surfaces`, `e2e:accounts`, `e2e:auth`) instead.
 
 ## Production guard (safety-critical)
 
-Both runners call `assert_not_production` before doing anything destructive. It
-refuses to run when:
+**A database is a test database only if it says so.** Test databases carry a
+stored database-level setting, `overhype.test_database = 'yes'`, written once by
+whatever created them: `scripts/setup-test-db.sh` for the sandbox's
+`overhype_test`, the CI workflow for the databases its jobs create, and — once,
+by hand — Replit's `heliumdb_test`. Production and the dev database are never
+marked. The rule and its reasons live in `lib/db/src/testDatabaseMarker.ts`.
 
-- `NODE_ENV` is `production` (case-insensitive); or
-- the target database name is `heliumdb`, `neondb`, `production`, anything
-  containing `prod`, or any name listed in `TEST_DB_PROTECTED_NAMES`; or
-- the host matches a `*.neon.tech` marker or a marker in
-  `TEST_DB_PROTECTED_HOSTS`.
+Everything destructive or test-only reads the marker and refuses without it:
 
-The match on `heliumdb`/`neondb` is **exact**, which is why `heliumdb_test`,
-`neondb_test`, `overhype_test`, and the temporary `heliumdb_t_*` / `heliumdb_w_*`
-clones are all allowed. To run tests, point `DATABASE_URL` at the **test**
-database (`heliumdb_test` on Replit — via `TEST_DATABASE_URL` — `overhype_test`
-in CI/sandbox) — never at `heliumdb` or `neondb`.
+- `pnpm --filter @workspace/db push-force` checks before it pushes, so the api-server
+  `pretest` (which pushes before any runner starts) is covered too;
+- both runners, through `assert_not_production` (which also refuses
+  `NODE_ENV=production`);
+- the E2E account seed and the production-mode launcher.
 
-`neondb` and the generic `neon.tech` host marker were added as guard defaults
-(rather than relying solely on the env-var extension lists, which are unset in
-every environment this guard runs in) once the dev/prod split meant `heliumdb`
-no longer implied production. See
-[`replit-environment.md`](../ai-context/replit-environment.md#dev-and-production-are-two-separate-databases-and-the-safety-guard-only-knows-about-one-of-them)
-for the full topology.
+The marker is read from the catalog (`pg_db_role_setting`), so a connection
+string carrying `options=-c overhype.test_database=yes` cannot claim it, and
+`drizzle-kit push` leaves database settings alone, so it survives every schema
+push. `CREATE DATABASE … TEMPLATE` does not copy it; the runners' per-worker
+clones need none, since nothing checks them.
+
+To mark a database you have just created for tests:
+
+```sql
+ALTER DATABASE <name> SET overhype.test_database = 'yes';
+```
+
+Never run that against a database you did not create for this purpose: the
+marker is the whole of the protection.
+
+**Why not database names.** This used to be a list — `heliumdb`, `neondb`,
+`production`, anything containing `prod`, a `neon.tech` host marker, and two
+extension variables. A name is an address, not an identity, and a blocklist
+fails open on every name it has not learned: it once protected dev while
+production was renamed past it. David, 2026-10-10: the marker replaced it
+outright (`docs/ai-context/decisions.md`).
 
 ---
 

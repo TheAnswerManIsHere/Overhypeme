@@ -332,14 +332,12 @@ one wired into the Repl's local Claude Code settings (above). **Production
 is a separate database, `neondb`, hosted on Neon** — a different provider
 entirely, not just a different name on the same Postgres server.
 
-`assert_not_production` (`artifacts/api-server/scripts/lib/test-db.sh`) refuses
-by exact name (`heliumdb`, `neondb`, `production`), by substring (anything
-containing `prod`), by a generic `neon.tech` host marker, and by two env-var
-extension lists (`TEST_DB_PROTECTED_NAMES`/`TEST_DB_PROTECTED_HOSTS`, both
-unset in this Repl). `neondb` and the host marker were added as guard
-defaults once the dev/prod split meant `heliumdb` no longer implied
-production — see [`TESTING.md`](../tests/TESTING.md#production-guard-safety-critical)
-for the full matrix.
+Test tooling does not tell them apart by name. It refuses any database that
+does not carry the test-database marker (`overhype.test_database = 'yes'`,
+stored on the database itself), and neither `heliumdb` nor `neondb` ever
+carries it; the Repl's `heliumdb_test` was marked once, by hand, when the
+marker replaced the old name list (David, 2026-10-10). See
+[`TESTING.md`](../tests/TESTING.md#production-guard-safety-critical).
 
 ## The one thing that IS ours: a periodic retrospective read
 
