@@ -49,12 +49,60 @@ function getResendApiKey(): string | undefined {
     : (process.env.RESEND_API_KEY_DEV || process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY || undefined);
 }
 
+/**
+ * The message the delivery layer hands to whatever sends it: the shape of
+ * Resend's `emails.send` argument, which is the one real transport.
+ */
+export interface OutgoingEmail {
+  to: string;
+  from: string;
+  replyTo?: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** What a transport reports back — the subset of Resend's response we read. */
+export interface EmailTransportResult {
+  error?: { message: unknown; name?: unknown; statusCode?: unknown } | null;
+}
+
+export interface EmailTransport {
+  send(message: OutgoingEmail): Promise<EmailTransportResult>;
+}
+
+/**
+ * A transport installed by a test harness, replacing Resend for the life of the
+ * process. Set only through `installEmailTransportForTestHarness`, which only
+ * `src/testing/productionModeLauncher.ts` calls: the deployment entrypoint
+ * (`index.ts`) has no path to it, and `testHarnessIsolation.test.ts` fails if
+ * any other module references the installer.
+ */
+let testHarnessTransport: EmailTransport | null = null;
+
+/**
+ * Replace the email transport for this process, below the email queue: the
+ * enqueue, the worker's claim and the job handler all still run, and only the
+ * final send goes to `transport` instead of Resend. Refuses a second install and
+ * an install after a Resend client was already built from a real key, so a
+ * harness can never end up sending part of a run through the real vendor.
+ */
+export function installEmailTransportForTestHarness(transport: EmailTransport): void {
+  if (testHarnessTransport) {
+    throw new Error("[email] a test-harness transport is already installed");
+  }
+  if (resend) {
+    throw new Error("[email] refusing to install a test-harness transport: a Resend API key is configured in this process");
+  }
+  testHarnessTransport = transport;
+}
+
 export function isEnabled(): boolean {
-  return !!getResendApiKey();
+  return !!testHarnessTransport || !!getResendApiKey();
 }
 
 let resend: Resend | null = null;
-if (isEnabled()) {
+if (getResendApiKey()) {
   resend = new Resend(getResendApiKey()!);
 }
 
@@ -175,7 +223,8 @@ export async function deliverFromOutbox(
   const from    = await getFromAddress();
   const replyTo = await getReplyToAddress();
   try {
-    const { error } = await resend!.emails.send({
+    const transport: EmailTransport = testHarnessTransport ?? resend!.emails;
+    const { error } = await transport.send({
       to:      row.to,
       from,
       ...(replyTo ? { replyTo } : {}),
@@ -225,6 +274,12 @@ export async function deliverFromOutbox(
  *     "admin_abandoned_email_alert" so the alert thread isn't auto-deleted.
  */
 export const emailJobHandler: JobHandler = {
+  // The one answer to "can email be delivered now": a Resend key, or a
+  // test-harness transport. The worker defers the row otherwise.
+  unavailableReason(): string | null {
+    return isEnabled() ? null : "Email delivery is not configured; leaving job pending";
+  },
+
   async run(payload: unknown): Promise<HandlerResult> {
     const ep = payload as EmailJobPayload;
     if (!isEnabled()) {

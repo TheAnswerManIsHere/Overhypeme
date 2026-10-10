@@ -127,7 +127,7 @@ pre-existing limit.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+**Deferred:** #631 — increment 6 (acceptance journey 2, free user submits a fact): the ordinary free account landed in increment 2; the submission check under the stricter limit is not written yet
 
 ### R6. Admin Taxonomy Health loads
 

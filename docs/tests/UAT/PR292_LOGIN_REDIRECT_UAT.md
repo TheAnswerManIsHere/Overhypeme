@@ -202,9 +202,9 @@ started.
 
 **Expect:** A verification-notice screen appears; no redirect.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+**Check:** `artifacts/overhype-me/e2e/authJourney.spec.ts` (per-PR E2E job, production-mode stack: after registering, the "CHECK YOUR EMAIL" notice is shown and the page is still /login)
 
 ### R7. "BACK TO FACTS" with no `?from=` goes to the facts list
 

@@ -147,7 +147,7 @@ and a new, uncalled backend client.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+**Deferred:** #631 — increment 6 (acceptance journey 4, free user makes and saves a photo meme): ordinary sign-in is checked by `artifacts/overhype-me/e2e/testAccounts.spec.ts`; browsing and meme-making are not
 
 ## Not bugs
 

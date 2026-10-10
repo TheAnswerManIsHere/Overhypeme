@@ -136,7 +136,7 @@ before this PR.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox) — needs a signed-in non-admin user to submit a fact, plus a real enrichment job
+**Deferred:** #631 — increment 6 (acceptance journeys 2–3, submission and moderation with AI doubles): the ordinary account landed in increment 2; enrichment needs the AI doubles (increment 4)
 
 ### R2. The enrichment editor still opens on a normal fact
 

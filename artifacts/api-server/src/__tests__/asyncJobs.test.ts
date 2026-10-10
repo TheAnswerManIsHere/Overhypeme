@@ -103,11 +103,15 @@ describe("asyncJobs worker", () => {
     while (envStack.length > 0) restoreEnv(envStack.pop()!);
   });
 
-  it("leaves queued email pending when delivery is not configured", async () => {
+  it("leaves a queued row pending, without burning an attempt, while its handler is unavailable", async () => {
+    // The worker asks the handler (`unavailableReason`) rather than keeping its
+    // own copy of a queue's configuration rule; the email handler answers from
+    // `isEnabled()` — see emailHarnessSeam.test.ts for that answer itself.
     envStack.push(clearResendEnv());
     const queue = "email";
     let called = false;
     registerJobHandler(queue, {
+      unavailableReason: () => "Email delivery is not configured; leaving job pending",
       async run() {
         called = true;
         return { ok: true };

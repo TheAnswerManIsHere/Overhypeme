@@ -386,7 +386,7 @@ out.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+**Deferred:** #631 — increment 7 (burn-down): the ordinary free account landed in increment 2; a comment-captcha check for a registered user is not written yet
 
 ### R3. Admins and Legendary still bypass the comment captcha
 
@@ -396,7 +396,7 @@ out.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+**Deferred:** #631 — increment 7 (burn-down): the paid (Legendary) account landed in increment 2; a no-captcha comment check for admin and Legendary is not written yet
 
 ### R4. Fact submission is unchanged
 
@@ -429,7 +429,7 @@ one.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+**Deferred:** #631 — increment 7 (burn-down): both ordinary accounts landed in increment 2; an ad-slot-by-tier check is not written yet
 
 ### R7. The rest of the admin console still loads
 

@@ -28,7 +28,7 @@ get the normal "submitted for review" confirmation.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 2 (ordinary test users + test mailbox)
+**Deferred:** #631 — increment 6 (acceptance journey 2, free user submits a fact): the ordinary free account landed in increment 2 (`scripts/seed-e2e-test-accounts.ts`); the submission-to-queue check is not written yet
 
 ### 2. Bulk import reports facts as queued, not imported
 

@@ -643,6 +643,37 @@ export async function writeAdminGrant(
   return { created: inserted.length > 0, sourceId: inserted[0]?.id ?? null };
 }
 
+/**
+ * The whole admin-grant write, in one transaction: the entitlement row, its
+ * history event, and the recompute that derives the tier from it. The admin
+ * route and the E2E test-account seed both call this, so a seeded paid account
+ * is paid by exactly the path a real comp takes — never by setting the tier.
+ *
+ * `grant` must come from `authorizeAdminGrant`, the only constructor that
+ * refuses a blank actor, label or reason.
+ */
+export async function applyAdminGrant(grant: {
+  userId: string;
+  grantedByAdminId: string;
+  grantedByAdminLabel: string;
+  grantReason: string;
+}): Promise<{ created: boolean }> {
+  return db.transaction(async (tx) => {
+    const { created } = await writeAdminGrant(tx, grant);
+    if (!created) return { created: false };
+
+    await tx.insert(membershipHistoryTable).values({
+      userId: grant.userId,
+      event: "admin_grant",
+      performedByAdminId: grant.grantedByAdminId,
+    });
+    // The tier is DERIVED, not assigned. This is the same recompute every
+    // other writer calls.
+    await recomputeMembership(tx, grant.userId);
+    return { created: true };
+  });
+}
+
 export async function writeAdminRevocation(
   tx: Tx,
   userId: string,

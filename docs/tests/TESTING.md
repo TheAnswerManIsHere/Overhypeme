@@ -270,6 +270,59 @@ overlap.
 
 ---
 
+## Ordinary test accounts and the production-mode stack
+
+Launch Phase 2, increment 2 (#631) gives browser and API tests two things the
+dev stack did not have: ordinary accounts, and a server in production mode.
+
+**Ordinary accounts.** `artifacts/api-server/scripts/seed-e2e-test-accounts.ts`
+seeds one **free** and one **paid** account, defined in
+`scripts/e2e-test-accounts.json` (which the Playwright helper
+`e2e/helpers/testAccounts.ts` reads too). Both have a verified email and a
+password and sign in through the real `/api/auth/local-login`, never through the
+dev-admin backdoor. The paid account is paid the way a real comp is — an admin
+grant written by `applyAdminGrant` (entitlement row, history, derived-tier
+recompute) — never by setting the tier. The password is published in this
+repository, so the seed refuses every protected database (the rule below) and
+any production or deployment environment.
+
+**The production-mode stack.** `artifacts/api-server/src/testing/productionModeLauncher.ts`
+boots the real server with `NODE_ENV=production` and exactly one thing replaced:
+the email transport, which writes each message as JSON to `E2E_MAIL_SINK_DIR`
+instead of sending it through Resend. The replacement sits below the email
+queue — the enqueue, the worker's claim and the job handler all run as in
+production. It is a test-harness substitution, not a selectable double: the
+deployment entrypoint (`index.ts`, the only esbuild entry) never imports
+`src/testing/`, which `__tests__/testHarnessIsolation.test.ts` enforces. The
+launcher refuses to start on a protected database, with any Resend key set, on a
+real deployment, without a mail-sink directory, or when `SITE_BASE_URL` (where
+email links point) is not a localhost URL.
+
+Baseline journey 1 (`e2e/authJourney.spec.ts`) runs on that stack in the per-PR
+E2E job: register through the real form, keep the Secure/SameSite=None session
+cookie on a local origin, verify through the captured link, a protected action,
+sign out, recover the password through the captured reset link, the old
+password refused and the new one accepted, and the dev-admin login absent. CI
+gives it its own database (`overhype_e2e_auth`), so the dev server's queue
+worker can never claim its email. To run it locally:
+
+```sh
+createdb overhype_e2e_auth   # then push schema + migrate + seed against it
+cd artifacts/api-server && NODE_ENV=production PORT=8081 \
+  DATABASE_URL=postgres://overhype:overhype@localhost:5432/overhype_e2e_auth \
+  CRON_SECRET=x IP_HASH_SALT=local-auth-journey-salt-0123456789 \
+  SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
+  E2E_MAIL_SINK_DIR=/tmp/overhype-mail pnpm exec tsx src/testing/productionModeLauncher.ts
+cd artifacts/overhype-me && PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8081 pnpm exec vite
+E2E_BASE_URL=http://localhost:5174 E2E_MAIL_SINK_DIR=/tmp/overhype-mail pnpm --filter @workspace/overhype-me run e2e:auth
+```
+
+The journey fails, rather than skipping, when `E2E_MAIL_SINK_DIR` is unset — so
+a plain `playwright test` against the dev stack reports it red. Run the named
+suites (`e2e:smoke`, `e2e:surfaces`, `e2e:accounts`, `e2e:auth`) instead.
+
+---
+
 ## Production guard (safety-critical)
 
 Both runners call `assert_not_production` before doing anything destructive. It
