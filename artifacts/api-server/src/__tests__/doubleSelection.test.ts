@@ -10,6 +10,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 import { doubleSelectionRefusals, selectedBackend, SELECTORS } from "../lib/doubleSelection.js";
 
@@ -54,8 +55,26 @@ describe("double selection", () => {
 
   it("keeps an import graph that cannot reach the database before boot checks run", () => {
     const lib = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../lib");
-    const importsOf = (file: string) =>
-      [...fs.readFileSync(path.join(lib, file), "utf8").matchAll(/^import[^;]*?from\s+"([^"]+)"/gms)].map((m) => m[1]);
+    // Every module the file can load: static and side-effect imports, re-exports,
+    // and dynamic `import()` / `require()` with a literal specifier. A dynamic
+    // load with a computed specifier is reported as "<computed>" so it fails too.
+    const importsOf = (file: string) => {
+      const source = ts.createSourceFile(file, fs.readFileSync(path.join(lib, file), "utf8"), ts.ScriptTarget.ESNext, true);
+      const found: string[] = [];
+      const specifier = (node: ts.Node | undefined) => (node && ts.isStringLiteralLike(node) ? node.text : "<computed>");
+      const visit = (node: ts.Node) => {
+        if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+          found.push(specifier(node.moduleSpecifier));
+        } else if (ts.isCallExpression(node)) {
+          const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+          const isRequire = ts.isIdentifier(node.expression) && node.expression.text === "require";
+          if (isDynamicImport || isRequire) found.push(specifier(node.arguments[0]));
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      return found;
+    };
     assert.deepEqual(importsOf("doubleSelection.ts"), ["./env"]);
     assert.deepEqual(importsOf("env.ts"), []);
   });

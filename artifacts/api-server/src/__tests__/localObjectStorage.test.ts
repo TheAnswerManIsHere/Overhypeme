@@ -96,9 +96,17 @@ describe("local storage double", () => {
     assert.equal(await svc.searchPublicObject("absent.png"), null);
   });
 
-  it("refuses a path that would escape its directory", () => {
+  it("treats a key with an empty, '.' or '..' segment as absent, never as another object", async () => {
     const client = new LocalObjectStorage(ROOT);
-    assert.throws(() => client.bucket("test-bucket").file("../../../etc/passwd"), /escapes its root/);
+    await client.bucket("test-bucket").file("private/secret.png").save(PNG, { contentType: "image/png" });
+    for (const key of ["public/../private/secret.png", "public/./../private/secret.png", "private//secret.png", "../../../etc/passwd"]) {
+      const file = client.bucket("test-bucket").file(key);
+      assert.deepEqual(await file.exists(), [false], key);
+      await assert.rejects(file.download(), (e: { code?: number }) => e.code === 404, key);
+      await assert.rejects(file.save(PNG), /refusing a key/, key);
+    }
+    // The public route's lookup: a crafted path finds nothing rather than the private object.
+    assert.equal(await svc.searchPublicObject("../private/secret.png"), null);
     assert.throws(() => client.bucket(".."), /invalid bucket name/);
   });
 

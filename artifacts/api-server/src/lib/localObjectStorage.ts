@@ -108,6 +108,36 @@ class LocalFile {
   }
 }
 
+/**
+ * A key the filesystem cannot hold opaquely (an empty, `.` or `..` segment).
+ * GCS stores such a key verbatim, so it is simply absent here: reads are
+ * not-found, as they would be from the real bucket, and writes are refused.
+ */
+class AbsentFile {
+  constructor(readonly name: string) {}
+  async exists(): Promise<[boolean]> {
+    return [false];
+  }
+  async getMetadata(): Promise<never> {
+    throw notFound(this.name);
+  }
+  async setMetadata(): Promise<never> {
+    throw notFound(this.name);
+  }
+  async download(): Promise<never> {
+    throw notFound(this.name);
+  }
+  async delete(): Promise<never> {
+    throw notFound(this.name);
+  }
+  createReadStream(): never {
+    throw notFound(this.name);
+  }
+  async save(): Promise<never> {
+    throw new Error(`storage double: refusing a key with an empty, "." or ".." segment: ${this.name}`);
+  }
+}
+
 /** Resolve `segment` under `base`, refusing anything that would escape it. */
 function inside(base: string, ...segments: string[]): string {
   const resolved = path.resolve(base, ...segments);
@@ -136,6 +166,11 @@ export class LocalObjectStorage implements BucketClient {
     }
     return {
       file: (objectName: string): File => {
+        // GCS keys are opaque: `public/../private/x` names no object there. A
+        // filesystem would collapse it onto `private/x`, so refuse such keys.
+        if (objectName.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) {
+          return new AbsentFile(objectName) as unknown as File;
+        }
         const dataPath = inside(this.root, "data", bucketName, objectName);
         const metaPath = `${inside(this.root, "meta", bucketName, objectName)}.json`;
         // The callers are typed against @google-cloud/storage's File; this

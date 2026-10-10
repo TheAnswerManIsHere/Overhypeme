@@ -355,8 +355,15 @@ e2e:storage`) runs on a dev stack started with it:
 ```sh
 cd artifacts/api-server && STORAGE_BACKEND=local-double STORAGE_DOUBLE_DIR=/tmp/overhype-storage \
   PRIVATE_OBJECT_DIR=/e2e-bucket/private PUBLIC_OBJECT_SEARCH_PATHS=/e2e-bucket/public \
+  FAL_KEY= FAL_AI_API_KEY= ARACHNID_SHIELD_USERNAME= ARACHNID_SHIELD_PASSWORD= \
   PORT=8080 NODE_ENV=development CRON_SECRET=x ALLOWED_ORIGINS=http://localhost:5173 pnpm exec tsx src/index.ts
 ```
+
+The blanked vendor keys are part of the command, not decoration: an upload is
+scanned by fal and Arachnid before it reaches storage, and a blank key makes
+each skip. Until the AI doubles (increment 4) and the outbound-request detector
+(increment 6) exist, run this journey only where no vendor credential is set —
+never on the Repl, which carries real ones.
 
 It is an acceptance journey, so it is not in the per-PR gate; the acceptance
 run (Phase 2, increment 6) runs it.
