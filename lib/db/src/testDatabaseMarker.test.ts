@@ -6,6 +6,7 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,10 +61,30 @@ describe("test-database marker", () => {
     assert.equal((await readTestDatabaseMarker(spoof)).marked, false);
   });
 
+  // The command the runners and push-force actually call, run as they run it.
+  // CI only ever points it at marked databases, so without this a guard that
+  // silently stopped running (exit 0, nothing checked) would look like a pass.
+  const requireTestDb = (env: NodeJS.ProcessEnv) =>
+    spawnSync(process.execPath, ["--import", "tsx/esm", fileURLToPath(new URL("./requireTestDatabase.ts", import.meta.url))], {
+      env: { PATH: process.env.PATH, ...env },
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+
+  it("the require-test-db command exits non-zero on an unmarked, missing or unset database", () => {
+    for (const env of [{ DATABASE_URL: urlFor(SCRATCH) }, { DATABASE_URL: urlFor(`${SCRATCH}_missing`) }, {}]) {
+      const run = requireTestDb(env);
+      assert.equal(run.status, 1, `expected a refusal for ${JSON.stringify(env)}; stderr: ${run.stderr}`);
+      assert.match(run.stderr, /\[require-test-db\] refusing:/);
+    }
+  });
+
   it("accepts the database once its creator marks it", async () => {
     await control.query(markTestDatabaseSql(SCRATCH));
     assert.deepEqual(await readTestDatabaseMarker(urlFor(SCRATCH)), { database: SCRATCH, marked: true });
     assert.equal(await testDatabaseRefusal({ DATABASE_URL: urlFor(SCRATCH) }), null);
+    const run = requireTestDb({ DATABASE_URL: urlFor(SCRATCH) });
+    assert.equal(run.status, 0, `the command should accept a marked database; stderr: ${run.stderr}`);
   });
 
   it("refuses a real deployment whatever its database says", async () => {
