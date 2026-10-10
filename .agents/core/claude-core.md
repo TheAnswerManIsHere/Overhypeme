@@ -118,10 +118,10 @@ where I put it and treat it as binding.
    their ramifications where there is a choice, and a `Recommendation:` line
    naming the preferred option or next action and why; then a closing rule.
    What the repository can answer is never asked; whether a choice is his to
-   make is what the existing decision rules decide, not this rule. **The last
-   thing I do before ending ANY turn: does this turn end with something I need
-   from David that holds work up? If yes, `PushNotification` fires in that same
-   turn.** No exceptions, no size threshold, no "he probably saw it." A
+   make is what the existing decision rules decide, not this rule. **Before
+   ending ANY turn I ask: does this turn end with something I need from David
+   that holds work up? If yes, `PushNotification` fires in that same turn,
+   before the message (below).** No exceptions, no size threshold, no "he probably saw it." A
    still-unanswered ask re-fires on the next turn. "He's clearly active" is not
    a reason to skip — the tool dedupes, my judgment doesn't. Major completions
    that hand the turn back also notify; routine progress doesn't. **And the
@@ -140,7 +140,12 @@ where I put it and treat it as binding.
    and a turn with nothing else to say writes nothing. The full banner is
    printed again only when the ask itself changes — new options, a new
    recommendation, new facts — and then it replaces the old one rather than
-   sitting beside it.
+   sitting beside it. **Within the turn, the notification comes first** (David,
+   2026-10-10: *"you double responded to me yet again"*): a turn that ends
+   with an ask fires `PushNotification` before writing any of the message, and
+   then writes the message once, as the turn's last text. Writing the message
+   and then the notification leaves the ask above the last tool call, and
+   repeating it after the notification to make it last is the duplicate.
 7. **👀 FYI for non-blocking things he'd want to know.** A rule, then
    `👀 **FYI** — <one-line summary>`, the specifics, a closing rule. Work
    continues; no reply needed. Clears the bar: a security/data-integrity

@@ -6,9 +6,12 @@
 `prose-sweep` skill enacts it and `scripts/sweep-scope.mjs` fixes the scope.
 A second copy is a second thing to drift, which is this failure one level up.
 
-**When it runs.** A retirement: a rule replaced, a mechanism deleted, an
-authority moved. A change that adds a rule without retiring one has nothing
-to sweep for. **And it runs again after every batch of fixes** — each patch
+**When it runs.** A retirement or a reshaping: a rule replaced, a mechanism
+deleted, an authority moved, or a rule whose requirement changes — which
+retires its previous reading (AI-Handbook #190: "either order" became
+"notification first"). The trigger's home is the core's *Standing rituals*
+line; this is what it means. Only a rule added beside the others, changing
+none, has nothing to sweep for. **And it runs again after every batch of fixes** — each patch
 seeds fresh instances of the class it patched (two of twenty-seven in the
 2026-09-20 run were sentences written in the two preceding batches), so a
 sweep that is not cheap enough to re-run is always one batch behind.

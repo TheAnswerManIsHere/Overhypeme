@@ -61,9 +61,9 @@ describe("test-database marker", () => {
     assert.equal((await readTestDatabaseMarker(spoof)).marked, false);
   });
 
-  // The command the runners and push-force actually call, run as they run it.
-  // CI only ever points it at marked databases, so without this a guard that
-  // silently stopped running (exit 0, nothing checked) would look like a pass.
+  // The guard command itself. CI only ever points it at marked databases, so
+  // without this a guard that silently stopped running (exit 0, nothing
+  // checked) would look like a pass. Its hook-up is tested separately below.
   const requireTestDb = (env: NodeJS.ProcessEnv) =>
     spawnSync(process.execPath, ["--import", "tsx/esm", fileURLToPath(new URL("./requireTestDatabase.ts", import.meta.url))], {
       env: { PATH: process.env.PATH, ...env },
@@ -77,6 +77,32 @@ describe("test-database marker", () => {
       assert.equal(run.status, 1, `expected a refusal for ${JSON.stringify(env)}; stderr: ${run.stderr}`);
       assert.match(run.stderr, /\[require-test-db\] refusing:/);
     }
+  });
+
+  // The hook-up, not the guard: what the runners and pretest actually invoke.
+  // A future edit that restored a plain `drizzle-kit push --force`, or dropped
+  // the call from the shell guard, would pass every other test here.
+  it("push-force and the runners' shell guard both refuse an unmarked database, before touching it", async () => {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const env = { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: urlFor(SCRATCH) };
+
+    const push = spawnSync("pnpm", ["--filter", "@workspace/db", "run", "push-force"], { cwd: root, env, encoding: "utf8", timeout: 120_000 });
+    assert.notEqual(push.status, 0, `push-force should refuse; stdout: ${push.stdout}`);
+    assert.match(`${push.stdout}${push.stderr}`, /\[require-test-db\] refusing:/);
+
+    const shell = spawnSync(
+      "bash",
+      ["-c", "source scripts/lib/test-db.sh && assert_not_production"],
+      { cwd: path.join(root, "artifacts/api-server"), env, encoding: "utf8", timeout: 120_000 },
+    );
+    assert.notEqual(shell.status, 0, `assert_not_production should refuse; stderr: ${shell.stderr}`);
+    assert.match(shell.stderr, /\[require-test-db\] refusing:/);
+
+    const scratch = new pg.Client({ connectionString: urlFor(SCRATCH) });
+    await scratch.connect();
+    const { rows } = await scratch.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'");
+    await scratch.end();
+    assert.equal(rows[0].n, 0, "the refused push created no tables");
   });
 
   it("accepts the database once its creator marks it", async () => {

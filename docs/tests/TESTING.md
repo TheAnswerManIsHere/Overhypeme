@@ -264,9 +264,9 @@ name is the underscore form.)
 **Production is a separate database, not `heliumdb`.** `heliumdb` (on the
 `helium` host) is **development only**. Production is `neondb`, hosted on
 Neon — a different provider entirely. This table used to describe `heliumdb`
-as shared between prod and dev; that stopped being true, and the guard below
-now protects both databases explicitly rather than relying on that old
-overlap.
+as shared between prod and dev; that stopped being true. Neither database is
+named anywhere in the guard below: both are refused because neither carries
+the test-database marker.
 
 ---
 
@@ -307,7 +307,9 @@ gives it its own database (`overhype_e2e_auth`), so the dev server's queue
 worker can never claim its email. To run it locally:
 
 ```sh
-createdb overhype_e2e_auth   # then push schema + migrate + seed against it
+createdb overhype_e2e_auth
+psql postgres://overhype:overhype@localhost:5432/postgres -c "ALTER DATABASE overhype_e2e_auth SET overhype.test_database = 'yes';"
+# then push-force + migrate + the E2E account seed against it
 cd artifacts/api-server && NODE_ENV=production PORT=8081 \
   DATABASE_URL=postgres://overhype:overhype@localhost:5432/overhype_e2e_auth \
   CRON_SECRET=x IP_HASH_SALT=local-auth-journey-salt-0123456789 \
