@@ -43,7 +43,8 @@ function readAll(dir: string): CapturedEmail[] {
  */
 export async function waitForEmailLink(opts: { to: string; linkPath: string; since: Date }): Promise<string> {
   const dir = mailSinkDir();
-  const pattern = new RegExp(`https?://[^\\s"'<>]+${opts.linkPath.replace(/[/?]/g, "\\$&")}\\?token=[0-9a-f]+`);
+  const escapedPath = opts.linkPath.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const pattern = new RegExp(`https?://[^\\s"'<>]+${escapedPath}\\?token=[0-9a-f]+`);
   let link: string | undefined;
   await expect
     .poll(
