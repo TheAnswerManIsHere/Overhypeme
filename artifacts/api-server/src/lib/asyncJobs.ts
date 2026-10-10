@@ -76,6 +76,15 @@ export interface JobHandler {
   retainDuringPurge?(row: AsyncJobRow): boolean;
   /** Optional: per-queue retention override in days (otherwise admin-config / 30). */
   retentionDaysOverride?(): Promise<number | undefined>;
+  /**
+   * Optional: why this handler cannot run right now (e.g. email with no
+   * transport configured), or null when it can. A claimed row whose handler is
+   * unavailable is put back to `pending` with this reason instead of being run,
+   * so it is delivered once the handler becomes available rather than burned
+   * through its retries. The handler owns the answer: the worker keeps no copy
+   * of any queue's configuration rule.
+   */
+  unavailableReason?(): string | null;
 }
 
 const HANDLERS = new Map<string, JobHandler>();
@@ -170,30 +179,25 @@ function laneField(lane: JobLane | undefined): { lane?: JobLane } {
   return lane ? { lane } : {};
 }
 
-function isEmailDeliveryConfigured(): boolean {
-  const isProd = process.env.NODE_ENV === "production";
-  return !!(isProd
-    ? (process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY)
-    : (process.env.RESEND_API_KEY_DEV || process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY));
-}
-
-async function deferEmailWhileDeliveryDisabled(
+async function deferWhileHandlerUnavailable(
   row: AsyncJobRow,
+  handler: JobHandler,
   tx: unknown,
   lane?: JobLane,
 ): Promise<boolean> {
-  if (row.queue !== "email" || isEmailDeliveryConfigured()) return false;
+  const reason = handler.unavailableReason?.() ?? null;
+  if (reason === null) return false;
   const typedTx = tx as Pick<typeof defaultDb, "update">;
   await typedTx
     .update(asyncJobsTable)
     .set({
       status: "pending",
-      lastError: "Email delivery is not configured; leaving job pending",
+      lastError: reason,
       nextAttemptAt: new Date(Date.now() + RETRY_DELAYS_MS[1]!),
       updatedAt: new Date(),
     })
     .where(eq(asyncJobsTable.id, row.id));
-  logger.info({ ...laneField(lane), id: row.id }, `${lanePrefix(lane)} email delivery not configured — leaving job pending`);
+  logger.info({ ...laneField(lane), id: row.id, queue: row.queue, reason }, `${lanePrefix(lane)} handler unavailable — leaving job pending`);
   return true;
 }
 
@@ -582,11 +586,12 @@ export async function asyncJobsTick(
 
     const toProcess: AsyncJobRow[] = [];
     for (const row of rows) {
-      if (!HANDLERS.get(row.queue)) {
+      const handler = HANDLERS.get(row.queue);
+      if (!handler) {
         logger.warn({ ...laneField(lane), queue: row.queue, id: row.id }, `${lanePrefix(lane)} no handler registered for queue — skipping`);
         continue;
       }
-      if (await deferEmailWhileDeliveryDisabled(row, tx, lane)) {
+      if (await deferWhileHandlerUnavailable(row, handler, tx, lane)) {
         continue;
       }
       await tx

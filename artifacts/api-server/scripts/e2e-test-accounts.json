@@ -1,0 +1,18 @@
+{
+  "_comment": "Ordinary accounts for browser and API tests, seeded by scripts/seed-e2e-test-accounts.ts and read by artifacts/overhype-me/e2e/helpers/testAccounts.ts. The password is public by design: the seed refuses every protected database (src/testing/productionModeGuard.ts), so these accounts exist only in ephemeral test databases.",
+  "password": "e2e-ordinary-account-1",
+  "free": {
+    "email": "e2e-free@example.test",
+    "displayName": "Free Tester",
+    "firstName": "Free",
+    "lastName": "Tester",
+    "pronouns": "they/them"
+  },
+  "paid": {
+    "email": "e2e-paid@example.test",
+    "displayName": "Paid Tester",
+    "firstName": "Paid",
+    "lastName": "Tester",
+    "pronouns": "they/them"
+  }
+}

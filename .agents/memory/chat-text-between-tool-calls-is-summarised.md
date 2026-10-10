@@ -31,3 +31,15 @@ way, so there is no tension between the two rules.
 The one-question-per-turn grilling format (#166) makes this bite every turn:
 the question is the whole deliverable, and a summarised question is no
 question.
+
+## Shown once, not once per turn
+
+The rule above says where an ask goes in the turn that raises it. It does not
+mean every later turn ends by reprinting it: on 2026-10-09 an open two-question
+ask was reprinted in full after three webhook wakes and a pasted translation,
+each time as the turn's last text, and the message that raised it had already
+listed the same two options in its body before the banner. David: *"you're
+doing the showing me the same thing twice thing again."* The final message is
+verbatim in the turn that raises the ask, and it stays in the conversation;
+a later turn that leaves the ask unchanged points back to it in one line and
+re-fires the notification (`claude-core.md`, interaction preference 6).

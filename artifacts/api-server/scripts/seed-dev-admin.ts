@@ -13,26 +13,10 @@
  * Run: pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
  */
 
-import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
 import { BOOTSTRAP_ADMIN_EMAIL } from "../src/lib/auth";
+import { ensureBootstrapAdmin } from "./lib/bootstrapAdmin";
 
-const [existing] = await db
-  .select({ id: usersTable.id })
-  .from(usersTable)
-  .where(eq(usersTable.email, BOOTSTRAP_ADMIN_EMAIL))
-  .limit(1);
-
-if (existing) {
-  console.log(`admin user already present (${BOOTSTRAP_ADMIN_EMAIL})`);
-} else {
-  await db.insert(usersTable).values({
-    email: BOOTSTRAP_ADMIN_EMAIL,
-    isAdmin: true,
-    isActive: true,
-    displayName: "Dev Admin",
-  });
-  console.log(`seeded admin user ${BOOTSTRAP_ADMIN_EMAIL}`);
-}
+const { created } = await ensureBootstrapAdmin();
+console.log(created ? `seeded admin user ${BOOTSTRAP_ADMIN_EMAIL}` : `admin user already present (${BOOTSTRAP_ADMIN_EMAIL})`);
 
 process.exit(0);

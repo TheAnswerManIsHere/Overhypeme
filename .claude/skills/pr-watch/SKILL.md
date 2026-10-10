@@ -293,7 +293,9 @@ requires it.
       user-facing shortfall go to David** as a 🛑 with a push notification, and
       stay open until he answers — a later clean round never clears them, and
       **neither does a default of mine.** A question of his that goes unanswered
-      is **re-asked**, not resolved by whatever I pre-registered as the fallback:
+      stays **open** — re-notified and pointed back to, reprinted only when
+      the ask itself changes (`claude-core.md` interaction preference 6) — not
+      resolved by whatever I pre-registered as the fallback:
       on #120 round 5 a question about his own ruling was closed by my default
       and the loop carried on, which is this sentence being contradicted by the
       loop that wrote it. A pre-registered default is for what *I* do while

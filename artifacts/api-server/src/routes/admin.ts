@@ -98,6 +98,7 @@ import {
   hasQualifyingLifetimeSource,
   recomputeMembership,
   writeAdminGrant,
+  applyAdminGrant,
   writeAdminRevocation,
 } from "../lib/membershipSources";
 import { authorizeAdminGrant, authorizeAdminRevocation } from "../lib/entitlementVerification";
@@ -1046,20 +1047,9 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
         "Comped by an administrator",
     });
 
-    const outcome = await db.transaction(async (tx) => {
-      const { created } = await writeAdminGrant(tx, grant);
-      if (!created) return { created: false as const };
-
-      await tx.insert(membershipHistoryTable).values({
-        userId: id,
-        event: "admin_grant",
-        performedByAdminId: actor.id,
-      });
-      // The tier is DERIVED, not assigned. This is the same recompute every
-      // other writer calls.
-      await recomputeMembership(tx, id);
-      return { created: true as const };
-    });
+    // The entitlement row, its history event and the derived-tier recompute,
+    // in one transaction (lib/membershipSources.ts).
+    const outcome = await applyAdminGrant(grant);
 
     if (!outcome.created) {
       // The partial unique index on active admin grants makes a duplicate

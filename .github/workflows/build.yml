@@ -536,13 +536,36 @@ jobs:
       - name: Seed admin user
         run: pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
 
-      # Real dev entrypoints, minus the supervisor wrapper (a crash should fail
-      # CI, not restart). Both servers boot concurrently; the health polls run
-      # after both launches so total wait is max(boot times), not the sum.
-      # ENABLE_DEV_ADMIN_LOGIN is safe here for the same reason as dev-run.sh:
-      # isDevAdminLoginEnabled() is fail-closed and this is an ephemeral CI
-      # database. Vite's /api proxy defaults to localhost:8080 off-Replit
-      # (vite.config.ts), standing in for Replit's path router.
+      # The ordinary free and paid accounts (#631, increment 2). Paid is granted
+      # through the admin-grant path, never by setting the tier; the seed
+      # refuses any protected database.
+      - name: Seed E2E test accounts
+        run: pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
+
+      # Baseline journey 1 (#631, increment 2) runs against the real server in
+      # PRODUCTION mode, booted by src/testing/productionModeLauncher.ts with
+      # only its email transport replaced (captured to a directory, below the
+      # email queue). It gets its own database so the dev server's queue worker
+      # can never claim its email.
+      - name: Prepare production-mode database
+        env:
+          AUTH_DB: postgres://overhype:overhype@localhost:5432/overhype_e2e_auth
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE overhype_e2e_auth;'
+          psql "$AUTH_DB" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+          DATABASE_URL="$AUTH_DB" pnpm --filter @workspace/db push-force
+          DATABASE_URL="$AUTH_DB" pnpm --filter @workspace/db run migrate
+          DATABASE_URL="$AUTH_DB" pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
+
+      # Two stacks, booted together so the total wait is the slowest boot, not
+      # the sum.
+      #
+      # The dev stack: real dev entrypoints, minus the supervisor wrapper (a
+      # crash should fail CI, not restart). ENABLE_DEV_ADMIN_LOGIN is safe here
+      # for the same reason as dev-run.sh: isDevAdminLoginEnabled() is
+      # fail-closed and this is an ephemeral CI database. Vite's /api proxy
+      # defaults to localhost:8080 off-Replit (vite.config.ts), standing in for
+      # Replit's path router.
       #
       # ALLOWED_ORIGINS is what lets a browser test CLICK something. The app's
       # origin allowlist (app.ts parseAllowedOrigins) is empty off-Replit, so
@@ -551,19 +574,37 @@ jobs:
       # unaffected, which is why the read-only suites never hit this. Naming
       # the Vite origin here makes CI behave as a real deployment does, where
       # that origin is allowed.
-      - name: Start dev stack (api-server + Vite)
+      #
+      # The production-mode stack: the launcher on 8081 and its own Vite on
+      # 5174 proxying to it. The launcher refuses a protected database, any
+      # Resend key, and email links that do not point at localhost. The captured
+      # mail holds live sign-in links for this throwaway database and is never
+      # uploaded.
+      - name: Start dev and production-mode stacks
+        env:
+          AUTH_DB: postgres://overhype:overhype@localhost:5432/overhype_e2e_auth
         run: |
           (cd artifacts/api-server && PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=ci-smoke-dummy \
             ALLOWED_ORIGINS=http://localhost:5173 \
             pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &)
           (cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ \
             pnpm exec vite > /tmp/vite.log 2>&1 &)
+          (cd artifacts/api-server && env -u RESEND_API_KEY -u RESEND_API_KEY_DEV -u RESEND_API_KEY_PROD \
+            DATABASE_URL="$AUTH_DB" PORT=8081 NODE_ENV=production CRON_SECRET=ci-auth-dummy \
+            IP_HASH_SALT=ci-auth-journey-salt-0123456789abcdef \
+            SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
+            E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink \
+            pnpm exec tsx src/testing/productionModeLauncher.ts > /tmp/api-server-prodmode.log 2>&1 &)
+          (cd artifacts/overhype-me && PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8081 \
+            pnpm exec vite > /tmp/vite-prodmode.log 2>&1 &)
           wait_for_url() {
             timeout 90 bash -c "until curl -sf $1 > /dev/null; do sleep 2; done" \
               || { echo "::error::$2 never became healthy"; tail -50 "$3"; exit 1; }
           }
           wait_for_url http://localhost:8080/api/config api-server /tmp/api-server.log
           wait_for_url http://localhost:5173/ "Vite-dev-server" /tmp/vite.log
+          wait_for_url http://localhost:8081/api/config "production-mode api-server" /tmp/api-server-prodmode.log
+          wait_for_url http://localhost:5174/ "production-mode Vite" /tmp/vite-prodmode.log
 
       - name: Run route-load smoke suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:smoke
@@ -572,6 +613,12 @@ jobs:
       # build names which suite broke; shares the trace upload below.
       - name: Run admin-surface suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:surfaces
+
+      - name: Run test-account suite
+        run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:accounts
+
+      - name: Run production-mode account journey
+        run: E2E_BASE_URL=http://localhost:5174 E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink pnpm --filter @workspace/overhype-me run e2e:auth
 
       - name: Upload traces on failure
         if: failure()
@@ -582,5 +629,7 @@ jobs:
             artifacts/overhype-me/test-results/
             /tmp/api-server.log
             /tmp/vite.log
+            /tmp/api-server-prodmode.log
+            /tmp/vite-prodmode.log
           retention-days: 7
           if-no-files-found: ignore
