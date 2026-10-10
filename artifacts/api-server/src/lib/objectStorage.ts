@@ -2,6 +2,8 @@ import { Storage, File } from "@google-cloud/storage";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
 import { uploadKey } from "./storageKeys";
+import { selectedBackend } from "./doubleSelection";
+import { localObjectStorageClient, type BucketClient } from "./localObjectStorage";
 import {
   ObjectAclPolicy,
   ObjectPermission,
@@ -29,6 +31,24 @@ export const objectStorageClient = new Storage({
   },
   projectId: "",
 });
+
+let localDoubleClient: { root: string; client: BucketClient } | null = null;
+
+/**
+ * The client every storage operation goes through: the Replit-sidecar GCS
+ * client, or the local double when `STORAGE_BACKEND=local-double` names it
+ * (`doubleSelection.ts` refuses that in a production boot, and re-checks here).
+ * `objectStorageClient` stays exported for the maintenance scripts, which only
+ * ever run against the real bucket.
+ */
+function storageClient(): BucketClient {
+  if (selectedBackend("STORAGE_BACKEND") !== "local-double") return objectStorageClient;
+  const root = process.env.STORAGE_DOUBLE_DIR!;
+  if (localDoubleClient?.root !== root) {
+    localDoubleClient = { root, client: localObjectStorageClient(root) };
+  }
+  return localDoubleClient.client;
+}
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -76,7 +96,7 @@ export class ObjectStorageService {
       const fullPath = `${searchPath}/${filePath}`;
 
       const { bucketName, objectName } = parseObjectPath(fullPath);
-      const bucket = objectStorageClient.bucket(bucketName);
+      const bucket = storageClient().bucket(bucketName);
       const file = bucket.file(objectName);
 
       const [exists] = await file.exists();
@@ -147,7 +167,7 @@ export class ObjectStorageService {
     }
     const objectEntityPath = `${entityDir}${entityId}`;
     const { bucketName, objectName } = parseObjectPath(objectEntityPath);
-    const bucket = objectStorageClient.bucket(bucketName);
+    const bucket = storageClient().bucket(bucketName);
     const objectFile = bucket.file(objectName);
     const [exists] = await objectFile.exists();
     if (!exists) {
@@ -294,7 +314,7 @@ export class ObjectStorageService {
     const fullPath = `${dir}${subPath}`;
 
     const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
+    const bucket = storageClient().bucket(bucketName);
     const file = bucket.file(objectName);
 
     await file.save(buffer, { contentType, resumable: false });
@@ -335,6 +355,11 @@ async function signObjectURL({
   method: "GET" | "PUT" | "DELETE" | "HEAD";
   ttlSec: number;
 }): Promise<string> {
+  if (selectedBackend("STORAGE_BACKEND") === "local-double") {
+    // Fail visibly: no browser flow uses a signed URL, and the one vendor that
+    // fetches one (the fal NSFW classifier) belongs to the AI doubles.
+    throw new Error("storage double: signed URLs are not available under STORAGE_BACKEND=local-double");
+  }
   const request = {
     bucket_name: bucketName,
     object_name: objectName,

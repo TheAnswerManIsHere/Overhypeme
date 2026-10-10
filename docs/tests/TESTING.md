@@ -325,6 +325,44 @@ suites (`e2e:smoke`, `e2e:surfaces`, `e2e:accounts`, `e2e:auth`) instead.
 
 ---
 
+## Deploy-selectable doubles
+
+A double replaces a vendor at the seam the production code already crosses, and
+is chosen only by an environment value that names it. The one rule, in
+`artifacts/api-server/src/lib/doubleSelection.ts`, applies to every double:
+
+- unset (or the real value) means the real backend;
+- an unrecognised value refuses to boot, everywhere;
+- any double named in a production boot (`NODE_ENV=production` or
+  `REPLIT_DEPLOYMENT=1`) refuses to boot.
+
+`lib/bootChecks.ts` runs the refusal before any other module loads, so the port
+never opens; `__tests__/doubleSelection.test.ts` boots the real entrypoint to
+prove it. A new double adds its row to `SELECTORS` there.
+
+| Selector | Double | Needs |
+|---|---|---|
+| `STORAGE_BACKEND` | `local-double` — `lib/localObjectStorage.ts` | `STORAGE_DOUBLE_DIR` (absolute), plus the usual `PRIVATE_OBJECT_DIR` / `PUBLIC_OBJECT_SEARCH_PATHS` (any `/<bucket>/<prefix>`) |
+
+**The storage double** keeps bytes and metadata in a local directory and
+implements exactly the file operations the code uses. Everything above it — the
+storage service, the ACL, the access checks — runs unchanged, so it never
+serves an object the real access layer would refuse. It does not sign URLs: a
+call that needs one fails visibly. Baseline journey 7
+(`e2e/photoUpload.spec.ts`, `pnpm --filter @workspace/overhype-me run
+e2e:storage`) runs on a dev stack started with it:
+
+```sh
+cd artifacts/api-server && STORAGE_BACKEND=local-double STORAGE_DOUBLE_DIR=/tmp/overhype-storage \
+  PRIVATE_OBJECT_DIR=/e2e-bucket/private PUBLIC_OBJECT_SEARCH_PATHS=/e2e-bucket/public \
+  PORT=8080 NODE_ENV=development CRON_SECRET=x ALLOWED_ORIGINS=http://localhost:5173 pnpm exec tsx src/index.ts
+```
+
+It is an acceptance journey, so it is not in the per-PR gate; the acceptance
+run (Phase 2, increment 6) runs it.
+
+---
+
 ## Production guard (safety-critical)
 
 **A database is a test database only if it says so.** Test databases carry a

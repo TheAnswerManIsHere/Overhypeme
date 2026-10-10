@@ -17,7 +17,8 @@
     "e2e:smoke": "playwright test routeLoadSmoke",
     "e2e:surfaces": "playwright test adminQueueHealth adminHelp adminPermissions",
     "e2e:accounts": "playwright test testAccounts",
-    "e2e:auth": "playwright test authJourney"
+    "e2e:auth": "playwright test authJourney",
+    "e2e:storage": "playwright test photoUpload"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

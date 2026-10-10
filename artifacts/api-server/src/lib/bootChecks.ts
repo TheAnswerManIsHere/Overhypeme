@@ -20,13 +20,19 @@
  * Sentry can patch modules as they load — and before anything else.
  *
  * Keep this module's import graph minimal: only `./ipSalt`, which reaches
- * `node:crypto`, `./env` and `./logger` and nothing else. Adding an import that
+ * `node:crypto`, `./env` and `./logger`, and `./doubleSelection`, which imports
+ * nothing. Adding an import that
  * transitively reaches the database would reintroduce exactly the ordering
  * problem described above.
  */
 
 import { assertIpSaltConfigured } from "./ipSalt";
+import { assertDoubleSelection } from "./doubleSelection";
 
 // Throws in production when IP_HASH_SALT is missing or too short; a no-op in
 // dev, test and Replit preview.
 assertIpSaltConfigured();
+
+// Refuses an unrecognised double selector anywhere, and any double in a
+// production boot (lib/doubleSelection.ts) — before the server can listen.
+assertDoubleSelection();
