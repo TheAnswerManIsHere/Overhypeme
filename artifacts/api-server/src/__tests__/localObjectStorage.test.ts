@@ -3,7 +3,7 @@
  * the real ObjectStorageService, ACL (objectAcl.ts) and access check
  * (objectAccess.ts) — the layers that run unchanged above it.
  */
-import { describe, it, before, after } from "node:test";
+import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -107,6 +107,14 @@ describe("local storage double", () => {
     await assert.rejects(svc.getObjectEntityDownloadURL("uploads/ab/one"), /signed URLs are not available/);
   });
 
+  it("has every File method objectStorage.ts, objectAcl.ts and the routes call", () => {
+    const file = new LocalObjectStorage(ROOT).bucket("b").file("o") as unknown as Record<string, unknown>;
+    for (const method of ["exists", "getMetadata", "setMetadata", "save", "download", "createReadStream", "delete"]) {
+      assert.equal(typeof file[method], "function", `File.${method}`);
+    }
+    assert.equal(file.name, "o");
+  });
+
   it("is refused at the point of use in a production environment", async () => {
     const saved = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
@@ -115,19 +123,5 @@ describe("local storage double", () => {
     } finally {
       process.env.NODE_ENV = saved;
     }
-  });
-});
-
-describe("the double implements the File surface the codebase calls", () => {
-  let root: string;
-  before(() => (root = fs.mkdtempSync(path.join(os.tmpdir(), "storage-double-surface-"))));
-  after(() => fs.rmSync(root, { recursive: true, force: true }));
-
-  it("has every method objectStorage.ts, objectAcl.ts and the routes use", () => {
-    const file = new LocalObjectStorage(root).bucket("b").file("o") as unknown as Record<string, unknown>;
-    for (const method of ["exists", "getMetadata", "setMetadata", "save", "download", "createReadStream", "delete"]) {
-      assert.equal(typeof file[method], "function", `File.${method}`);
-    }
-    assert.equal(file.name, "o");
   });
 });

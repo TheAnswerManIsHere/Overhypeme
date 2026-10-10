@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import type { File, Storage } from "@google-cloud/storage";
+import type { File } from "@google-cloud/storage";
 
 interface StoredMeta {
   contentType?: string;
@@ -111,7 +111,10 @@ function inside(base: string, ...segments: string[]): string {
   return resolved;
 }
 
-export class LocalObjectStorage {
+/** The part of the GCS `Storage` client `objectStorage.ts` calls; both backends satisfy it. */
+export type BucketClient = { bucket(name: string): { file(objectName: string): File } };
+
+export class LocalObjectStorage implements BucketClient {
   private readonly root: string;
 
   constructor(root: string) {
@@ -135,11 +138,4 @@ export class LocalObjectStorage {
       },
     };
   }
-}
-
-/** The client `objectStorage.ts` uses under the double, typed as the part of `Storage` it calls. */
-export type BucketClient = Pick<Storage, "bucket">;
-
-export function localObjectStorageClient(root: string): BucketClient {
-  return new LocalObjectStorage(root) as unknown as BucketClient;
 }

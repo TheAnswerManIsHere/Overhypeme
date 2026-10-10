@@ -6,6 +6,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,14 @@ describe("double selection", () => {
         }
       }
     }
+  });
+
+  it("keeps an import graph that cannot reach the database before boot checks run", () => {
+    const lib = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../lib");
+    const importsOf = (file: string) =>
+      [...fs.readFileSync(path.join(lib, file), "utf8").matchAll(/^import[^;]*?from\s+"([^"]+)"/gms)].map((m) => m[1]);
+    assert.deepEqual(importsOf("doubleSelection.ts"), ["./env"]);
+    assert.deepEqual(importsOf("env.ts"), []);
   });
 
   it("allows the real backend in production", () => {

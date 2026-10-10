@@ -54,6 +54,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { csrfToken } from "./helpers/testAccounts";
+
 /**
  * The feature this file uses to observe the resolver. Chosen because its gated
  * surface (`/submit`) needs no fixtures at all, unlike every other entitlement
@@ -83,13 +85,6 @@ let captured: CapturedCell[] = [];
 async function loginAsAdmin(page: Page) {
   const login = await page.context().request.post("/api/auth/dev-admin-login");
   expect(login.ok(), `dev-admin-login should be 200, got ${login.status()}`).toBe(true);
-}
-
-/** The SPA sends this on every mutation (main.tsx wraps fetch); APIRequestContext does not. */
-async function csrfToken(page: Page): Promise<string> {
-  const cookie = (await page.context().cookies()).find((c) => c.name === "csrf_token");
-  expect(cookie?.value, "a csrf_token cookie should have been issued").toBeTruthy();
-  return cookie!.value;
 }
 
 /** The whole grid, keyed `tier:featureKey`. */

@@ -3,7 +3,7 @@ import { Readable } from "stream";
 import { randomUUID } from "crypto";
 import { uploadKey } from "./storageKeys";
 import { selectedBackend } from "./doubleSelection";
-import { localObjectStorageClient, type BucketClient } from "./localObjectStorage";
+import { LocalObjectStorage, type BucketClient } from "./localObjectStorage";
 import {
   ObjectAclPolicy,
   ObjectPermission,
@@ -32,8 +32,6 @@ export const objectStorageClient = new Storage({
   projectId: "",
 });
 
-let localDoubleClient: { root: string; client: BucketClient } | null = null;
-
 /**
  * The client every storage operation goes through: the Replit-sidecar GCS
  * client, or the local double when `STORAGE_BACKEND=local-double` names it
@@ -43,11 +41,8 @@ let localDoubleClient: { root: string; client: BucketClient } | null = null;
  */
 function storageClient(): BucketClient {
   if (selectedBackend("STORAGE_BACKEND") !== "local-double") return objectStorageClient;
-  const root = process.env.STORAGE_DOUBLE_DIR!;
-  if (localDoubleClient?.root !== root) {
-    localDoubleClient = { root, client: localObjectStorageClient(root) };
-  }
-  return localDoubleClient.client;
+  // Cheap (no I/O); selectedBackend has already refused a missing or relative dir.
+  return new LocalObjectStorage(process.env.STORAGE_DOUBLE_DIR ?? "");
 }
 
 export class ObjectNotFoundError extends Error {

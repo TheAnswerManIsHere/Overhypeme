@@ -14,11 +14,12 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-import { FREE_ACCOUNT, PAID_ACCOUNT, TEST_ACCOUNT_PASSWORD, signInThroughForm } from "./helpers/testAccounts";
+import { FREE_ACCOUNT, PAID_ACCOUNT, TEST_ACCOUNT_PASSWORD, csrfToken, signInThroughForm } from "./helpers/testAccounts";
 
 /** Draw a synthetic JPEG in the page and upload it as the meme builder does. */
 async function uploadSyntheticPhoto(page: Page): Promise<{ status: number; body: Record<string, unknown> }> {
-  return page.evaluate(async () => {
+  const csrf = await csrfToken(page);
+  return page.evaluate(async (csrf) => {
     const canvas = document.createElement("canvas");
     canvas.width = 640;
     canvas.height = 480;
@@ -29,18 +30,14 @@ async function uploadSyntheticPhoto(page: Page): Promise<{ status: number; body:
     ctx.font = "48px sans-serif";
     ctx.fillText("journey 7", 160, 250);
     const blob: Blob = await new Promise((resolve) => canvas.toBlob((b) => resolve(b!), "image/jpeg", 0.9));
-    const csrf = document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("csrf_token="))
-      ?.slice("csrf_token=".length);
     const response = await fetch("/api/storage/upload-meme", {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "image/jpeg", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+      headers: { "Content-Type": "image/jpeg", "X-CSRF-Token": csrf },
       body: blob,
     });
     return { status: response.status, body: (await response.json()) as Record<string, unknown> };
-  });
+  }, csrf);
 }
 
 test("a user's uploaded photo is stored, readable by its owner, and by nobody else", async ({ page, browser }) => {

@@ -16,9 +16,11 @@
  * before any other module loads; `selectedBackend` re-applies it at the point
  * of use, so a script or test that never booted the server gets the same rule.
  *
- * This module imports nothing: `bootChecks.ts` imports it before anything that
- * reaches the database.
+ * Imports only `./env`, which imports nothing: `bootChecks.ts` imports this
+ * before anything that reaches the database (held by a test).
  */
+import { isProductionEnv } from "./env";
+
 interface Selector {
   /** The value meaning "the real backend", accepted as well as unset. */
   real: string;
@@ -42,30 +44,25 @@ export const SELECTORS = {
 
 export type SelectorName = keyof typeof SELECTORS;
 
-/** The same test as `isProductionEnv()` in `./env`, applied to the given environment. */
-function productionBoot(env: NodeJS.ProcessEnv): boolean {
-  return env.REPLIT_DEPLOYMENT === "1" || env.NODE_ENV === "production";
+const rawValue = (env: NodeJS.ProcessEnv, name: SelectorName): string => (env[name] ?? "").trim();
+
+/** Why this environment must not use `name`'s selection, if it must not. */
+function refusalsFor(name: SelectorName, env: NodeJS.ProcessEnv): string[] {
+  const selector: Selector = SELECTORS[name];
+  const value = rawValue(env, name);
+  if (value === "" || value === selector.real) return [];
+  if (!selector.doubles.includes(value)) {
+    return [
+      `${name}=${JSON.stringify(value)} is not recognised (expected unset, "${selector.real}", or ${selector.doubles.map((d) => `"${d}"`).join(", ")})`,
+    ];
+  }
+  if (isProductionEnv(env)) return [`${name}=${value} names a test double, which a production boot refuses`];
+  return selector.requires?.(env) ?? [];
 }
 
 /** Every reason this environment must not boot, across all selectors. */
 export function doubleSelectionRefusals(env: NodeJS.ProcessEnv = process.env): string[] {
-  const refusals: string[] = [];
-  for (const [name, selector] of Object.entries(SELECTORS) as [SelectorName, Selector][]) {
-    const value = (env[name] ?? "").trim();
-    if (value === "" || value === selector.real) continue;
-    if (!selector.doubles.includes(value)) {
-      refusals.push(
-        `${name}=${JSON.stringify(value)} is not recognised (expected unset, "${selector.real}", or ${selector.doubles.map((d) => `"${d}"`).join(", ")})`,
-      );
-      continue;
-    }
-    if (productionBoot(env)) {
-      refusals.push(`${name}=${value} names a test double, which a production boot refuses`);
-      continue;
-    }
-    refusals.push(...(selector.requires?.(env) ?? []));
-  }
-  return refusals;
+  return (Object.keys(SELECTORS) as SelectorName[]).flatMap((name) => refusalsFor(name, env));
 }
 
 /** Throws, listing every refusal, when this environment must not boot. */
@@ -76,9 +73,11 @@ export function assertDoubleSelection(env: NodeJS.ProcessEnv = process.env): voi
   }
 }
 
-/** The backend this process uses for `name`, after the same refusals as boot. */
+/** The backend this process uses for `name`, after the same refusals boot applies to it. */
 export function selectedBackend(name: SelectorName, env: NodeJS.ProcessEnv = process.env): string {
-  assertDoubleSelection(env);
-  const value = (env[name] ?? "").trim();
-  return value === "" ? SELECTORS[name].real : value;
+  const refusals = refusalsFor(name, env);
+  if (refusals.length > 0) {
+    throw new Error(`[doubles] refusing:\n${refusals.map((r) => `  - ${r}`).join("\n")}`);
+  }
+  return rawValue(env, name) || SELECTORS[name].real;
 }
