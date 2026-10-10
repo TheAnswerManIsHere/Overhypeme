@@ -103,85 +103,31 @@ sys.stdout.write((u.path or '/').lstrip('/'))
 PYEOF
 }
 
-# source_db_host — the hostname of the source DATABASE_URL (for the prod guard).
-source_db_host() {
-  python3 - <<'PYEOF'
-import os, urllib.parse, sys
-u = urllib.parse.urlparse(os.environ['DATABASE_URL'])
-sys.stdout.write(u.hostname or "")
-PYEOF
-}
-
-# _td_split — split a comma/space-separated list into words on stdout.
-_td_split() { printf '%s' "${1:-}" | tr ',' ' '; }
-
 # ── production safety guard ────────────────────────────────────────────────────
-# assert_not_production — refuse destructive DB setup against production/dev.
-# Deny-by-detection (no opt-in flag for normal dev/test/CI runs). Refuses when:
+# assert_not_production — refuse test-DB work unless the source database is a
+# MARKED test database: one carrying the stored setting
+# `overhype.test_database = 'yes'`, written only by whatever created it
+# (lib/db/src/testDatabaseMarker.ts holds the rule and the reasons). Refuses
+# when:
 #   * NODE_ENV is "production" (case-insensitive);
-#   * the source dbname is a protected name — by default `heliumdb` (DEV),
-#     `neondb` (PRODUCTION) and `production`, plus any in
-#     TEST_DB_PROTECTED_NAMES (comma/space-separated) — or contains 'prod';
-#   * the source host matches `neon.tech` (where production lives) or any
-#     substring in TEST_DB_PROTECTED_HOSTS;
-#   * the URL won't parse.
+#   * the database is unmarked, unreachable, or this is a real deployment.
 #
-# DEV AND PRODUCTION ARE DIFFERENT DATABASES ON DIFFERENT PROVIDERS. `heliumdb`
-# (host `helium`) is dev; production is `neondb`, hosted on Neon. They used to
-# share the single name `heliumdb`, and for a while after the split this guard
-# still only knew that one name — so it protected dev and would have waved a
-# destructive run straight through to production, which matches none of
-# `heliumdb`/`production`/`*prod*`. Both the name and a generic `neon.tech`
-# host marker are now baked in as defaults rather than left to the
-# TEST_DB_PROTECTED_* env vars, which are unset in every environment this
-# guard actually runs in.
-#
-# The host marker is deliberately generic (any `*.neon.tech`), not the specific
-# production endpoint: an endpoint hostname is environment-specific config that
-# does not belong in a public repo, and matching the provider fails closed for
-# any future Neon database too. Consequence to know about: a Neon-hosted TEST
-# database would also be refused, with no opt-out. That is the correct default
-# while no such database exists — if one is ever needed, add an explicit
-# allowlist mechanism then rather than loosening this marker.
-# The dedicated test database is named `heliumdb_test` (Replit's TEST_DATABASE_URL
-# points here; the sandbox/CI uses `overhype_test`). Those are allowed because the
-# match is EXACT, not a substring — which is also why the per-worker
-# `heliumdb_t_*`/`heliumdb_w_*` clones are fine.
+# This replaced a list of protected database names and hosts (David,
+# 2026-10-10). A name is an address, not an identity: the list failed open on
+# every name it had not learned, and once protected dev while production was
+# renamed past it. Production and the dev database are never marked, so they
+# are refused with nothing to maintain.
 assert_not_production() {
-  local db host p node_env
+  local node_env
   node_env="$(printf '%s' "${NODE_ENV:-}" | tr '[:upper:]' '[:lower:]')"
   if [ "$node_env" = "production" ]; then
     _td_err "refusing to run test-DB setup with NODE_ENV=production."
-    _td_err "Point DATABASE_URL at the test database 'heliumdb_test' (not the 'heliumdb' prod/dev DB)."
     return 1
   fi
-  if ! db="$(source_db_name)" || [ -z "$db" ]; then
-    _td_err "could not parse a database name from DATABASE_URL; refusing to proceed."
+  pnpm --filter @workspace/db run -s require-test-db || {
+    _td_err "refusing destructive test-DB setup against $(redact_url "$DATABASE_URL")."
     return 1
-  fi
-  for p in heliumdb neondb production $(_td_split "${TEST_DB_PROTECTED_NAMES:-}"); do
-    if [ "$db" = "$p" ]; then
-      _td_err "database '${db}' is a protected live database (heliumdb=dev, neondb=production); refusing destructive test-DB setup."
-      _td_err "Point DATABASE_URL at the test database 'heliumdb_test' instead."
-      return 1
-    fi
-  done
-  case "$db" in
-    *prod*)
-      _td_err "database name '${db}' looks like production (contains 'prod'); refusing."
-      return 1 ;;
-  esac
-  host="$(source_db_host)"
-  if [ -n "$host" ]; then
-    for p in neon.tech $(_td_split "${TEST_DB_PROTECTED_HOSTS:-}"); do
-      case "$host" in
-        *"$p"*)
-          _td_err "host '${host}' matches a protected host marker ('${p}'); refusing destructive test-DB setup."
-          return 1 ;;
-      esac
-    done
-  fi
-  return 0
+  }
 }
 
 # ── node --test isolation flag detection ──────────────────────────────────────
@@ -494,25 +440,8 @@ _td_self_check() {
 
   ( NODE_ENV=production assert_not_production ) 2>/dev/null && { echo "FAIL guard NODE_ENV=production"; fail=1; }
   ( NODE_ENV=Production assert_not_production ) 2>/dev/null && { echo "FAIL guard NODE_ENV=Production (case)"; fail=1; }
-  ( export DATABASE_URL="postgres://u:p@h/heliumdb"; assert_not_production ) 2>/dev/null && { echo "FAIL guard heliumdb (prod/dev)"; fail=1; }
-  ( export DATABASE_URL="postgres://u:p@h/overhype_prod"; assert_not_production ) 2>/dev/null && { echo "FAIL guard prod dbname"; fail=1; }
-  ( export DATABASE_URL="postgres://u:p@h/heliumdb_test"; assert_not_production ) 2>/dev/null || { echo "FAIL guard blocked heliumdb_test"; fail=1; }
-  assert_not_production 2>/dev/null || { echo "FAIL guard blocked a legit test db"; fail=1; }
-
-  # Production is `neondb` on Neon — a different database on a different
-  # provider from dev's `heliumdb`. Both the name and the host must refuse
-  # INDEPENDENTLY: the name check alone would miss a renamed prod database,
-  # and the host check alone would miss a Neon database reached through a
-  # proxy/alias hostname. Asserting them separately (not just the realistic
-  # URL that trips both) is what keeps one silently regressing behind the
-  # other.
-  ( export DATABASE_URL="postgres://u:p@some-host/neondb"; assert_not_production ) 2>/dev/null && { echo "FAIL guard neondb by name"; fail=1; }
-  ( export DATABASE_URL="postgres://u:p@ep-x-y.us-east-1.aws.neon.tech/anything"; assert_not_production ) 2>/dev/null && { echo "FAIL guard neon.tech by host"; fail=1; }
-  ( export DATABASE_URL="postgresql://neondb_owner:p@ep-x-y.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require"; assert_not_production ) 2>/dev/null && { echo "FAIL guard real prod URL shape"; fail=1; }
-  # The name match stays EXACT, so a test database that merely starts with the
-  # protected name is still allowed — same property that keeps heliumdb_test
-  # and the heliumdb_t_*/heliumdb_w_* clones working.
-  ( export DATABASE_URL="postgres://u:p@h/neondb_test"; assert_not_production ) 2>/dev/null || { echo "FAIL guard blocked neondb_test"; fail=1; }
+  # The database half of the guard reads the marker from the database itself,
+  # so it is exercised by lib/db's testDatabaseMarker.test.ts, not here.
 
   if [ "$fail" -eq 0 ]; then echo "[test-db] self-check: PASS"; else echo "[test-db] self-check: FAIL"; fi
   return "$fail"

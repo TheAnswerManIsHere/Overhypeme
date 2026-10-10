@@ -377,6 +377,10 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE overhype_db_test;'
           psql "${DATABASE_URL%/*}/overhype_db_test" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+          # Mark both as test databases (lib/db/src/testDatabaseMarker.ts): push-force and the
+          # test runners refuse an unmarked one. This job's service container created them.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER DATABASE overhype_test SET overhype.test_database = 'yes';"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER DATABASE overhype_db_test SET overhype.test_database = 'yes';"
 
       - name: Show runner diagnostics
         run: |
@@ -526,6 +530,7 @@ jobs:
 
       - name: Apply schema + migrations
         run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER DATABASE overhype_test SET overhype.test_database = 'yes';"
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
           pnpm --filter @workspace/db push-force
           pnpm --filter @workspace/db run migrate
@@ -538,7 +543,7 @@ jobs:
 
       # The ordinary free and paid accounts (#631, increment 2). Paid is granted
       # through the admin-grant path, never by setting the tier; the seed
-      # refuses any protected database.
+      # refuses any database not marked as a test database.
       - name: Seed E2E test accounts
         run: pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
 
@@ -552,6 +557,7 @@ jobs:
           AUTH_DB: postgres://overhype:overhype@localhost:5432/overhype_e2e_auth
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE overhype_e2e_auth;'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER DATABASE overhype_e2e_auth SET overhype.test_database = 'yes';"
           psql "$AUTH_DB" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
           DATABASE_URL="$AUTH_DB" pnpm --filter @workspace/db push-force
           DATABASE_URL="$AUTH_DB" pnpm --filter @workspace/db run migrate
@@ -576,7 +582,7 @@ jobs:
       # that origin is allowed.
       #
       # The production-mode stack: the launcher on 8081 and its own Vite on
-      # 5174 proxying to it. The launcher refuses a protected database, any
+      # 5174 proxying to it. The launcher refuses an unmarked database, any
       # Resend key, and email links that do not point at localhost. The captured
       # mail holds live sign-in links for this throwaway database and is never
       # uploaded.

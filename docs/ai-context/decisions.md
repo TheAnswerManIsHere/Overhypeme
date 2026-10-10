@@ -13,6 +13,33 @@
 
 ---
 
+### 2026-10-10 · A database is a test database only if it carries the marker; names decide nothing
+- **Decision:** Test tooling (`push-force`, both api-server runners, the E2E
+  account seed, the production-mode launcher) refuses any database that does
+  not carry the stored setting `overhype.test_database = 'yes'`. Whatever
+  creates a throwaway database writes it, against a target it names itself;
+  production and the dev database are never marked. The protected-name and
+  host lists (`heliumdb`, `neondb`, `production`, `*prod*`, `neon.tech`,
+  `TEST_DB_PROTECTED_*`) are deleted, not kept beside it. David, on being
+  asked whether the name rule was good enough: *"I don't feel like this is a
+  good, deterministic way of knowing when we're in our development environment
+  vs. our production environment"*; then *"Option 1"* (now, before Phase 2
+  increment 3).
+- **Why:** A connection string is an address, not an identity, so a blocklist
+  of names fails open on every name it has not learned — it already did once,
+  protecting dev while production was renamed past it. The marker travels with
+  the data and fails closed. It is read from `pg_db_role_setting` so a
+  session-level `options=-c …` cannot claim it, and `push-force` itself checks
+  it, which also closes the gap where the api-server `pretest` pushed the
+  schema before any runner's guard ran. "Where is this code running?" stays a
+  platform signal (`REPLIT_DEPLOYMENT`); only "is this database disposable?"
+  moved.
+- **Reference:** `lib/db/src/testDatabaseMarker.ts`;
+  [`TESTING.md`](../tests/TESTING.md#production-guard-safety-critical).
+- **Revisit if:** a test database must live somewhere its creator cannot run
+  `ALTER DATABASE`, or a second kind of disposable database needs a different
+  rule.
+
 ### 2026-10-08 · UAT steps carry a verification lane; the Stripe fake gates only Phase 10; the legacy fixture keeps shapes and approved fact text
 - **Decision:** Launch Phase 2's plan (#631) approved by David: *"1:
   Approved."* Three consequences recorded here. (1) **Every UAT step names a
