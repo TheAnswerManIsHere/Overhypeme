@@ -82,7 +82,7 @@ class LocalFile {
     await fsp.mkdir(path.dirname(this.dataPath), { recursive: true, mode: 0o700 });
     await fsp.mkdir(path.dirname(this.metaPath), { recursive: true, mode: 0o700 });
     await fsp.writeFile(this.dataPath, data, { mode: 0o600 });
-    const meta: StoredMeta = { contentType, size: data.length, metadata: {} };
+    const meta: StoredMeta = { contentType, size: data.byteLength, metadata: {} };
     await fsp.writeFile(this.metaPath, JSON.stringify(meta), { mode: 0o600 });
   }
 
