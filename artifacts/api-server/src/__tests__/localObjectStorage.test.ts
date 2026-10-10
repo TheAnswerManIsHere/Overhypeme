@@ -102,6 +102,12 @@ describe("local storage double", () => {
     assert.throws(() => client.bucket(".."), /invalid bucket name/);
   });
 
+  it("refuses non-Buffer data and a non-string content type", async () => {
+    const file = new LocalObjectStorage(ROOT).bucket("test-bucket").file("private/typed");
+    await assert.rejects(file.save(["a"] as unknown as Buffer), /takes a Buffer/);
+    await assert.rejects(file.save(PNG, { contentType: ["image/png"] as unknown as string }), /must be a string/);
+  });
+
   it("refuses to sign URLs, visibly", async () => {
     await assert.rejects(svc.getObjectEntityUploadURL(), /signed URLs are not available/);
     await assert.rejects(svc.getObjectEntityDownloadURL("uploads/ab/one"), /signed URLs are not available/);

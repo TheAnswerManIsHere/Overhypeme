@@ -73,10 +73,16 @@ class LocalFile {
 
   /** Like a GCS upload, a save replaces the object and its custom metadata. */
   async save(data: Buffer, options: { contentType?: string } = {}): Promise<void> {
+    // Request-derived values reach here; refuse anything but bytes and a string type.
+    if (!Buffer.isBuffer(data)) throw new TypeError("storage double: save() takes a Buffer");
+    const contentType = options.contentType;
+    if (contentType !== undefined && typeof contentType !== "string") {
+      throw new TypeError("storage double: contentType must be a string");
+    }
     await fsp.mkdir(path.dirname(this.dataPath), { recursive: true, mode: 0o700 });
     await fsp.mkdir(path.dirname(this.metaPath), { recursive: true, mode: 0o700 });
     await fsp.writeFile(this.dataPath, data, { mode: 0o600 });
-    const meta: StoredMeta = { contentType: options.contentType, size: data.length, metadata: {} };
+    const meta: StoredMeta = { contentType, size: data.length, metadata: {} };
     await fsp.writeFile(this.metaPath, JSON.stringify(meta), { mode: 0o600 });
   }
 
