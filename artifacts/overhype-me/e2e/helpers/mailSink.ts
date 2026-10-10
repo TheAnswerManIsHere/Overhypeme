@@ -43,11 +43,11 @@ function readAll(dir: string): CapturedEmail[] {
  */
 export async function waitForEmailLink(opts: { to: string; linkPath: string; since: Date }): Promise<string> {
   const dir = mailSinkDir();
+  const pattern = new RegExp(`https?://[^\\s"'<>]+${opts.linkPath.replace(/[/?]/g, "\\$&")}\\?token=[0-9a-f]+`);
   let link: string | undefined;
   await expect
     .poll(
       () => {
-        const pattern = new RegExp(`https?://[^\\s"'<>]+${opts.linkPath.replace(/[/?]/g, "\\$&")}\\?token=[0-9a-f]+`);
         const match = readAll(dir)
           .filter((m) => m.to.toLowerCase() === opts.to.toLowerCase() && new Date(m.capturedAt) >= opts.since)
           .map((m) => m.text.match(pattern)?.[0])

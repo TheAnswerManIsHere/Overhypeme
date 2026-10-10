@@ -34,6 +34,7 @@ import {
   type MembershipTier,
 } from "./membershipState.js";
 import { logger } from "./logger.js";
+import type { AdminGrantAuthorization } from "./entitlementVerification.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Db = typeof db | Tx;
@@ -649,15 +650,10 @@ export async function writeAdminGrant(
  * route and the E2E test-account seed both call this, so a seeded paid account
  * is paid by exactly the path a real comp takes — never by setting the tier.
  *
- * `grant` must come from `authorizeAdminGrant`, the only constructor that
- * refuses a blank actor, label or reason.
+ * `grant` is typed as what `authorizeAdminGrant` returns — the only
+ * constructor that refuses a blank actor, label or reason.
  */
-export async function applyAdminGrant(grant: {
-  userId: string;
-  grantedByAdminId: string;
-  grantedByAdminLabel: string;
-  grantReason: string;
-}): Promise<{ created: boolean }> {
+export async function applyAdminGrant(grant: AdminGrantAuthorization): Promise<{ created: boolean }> {
   return db.transaction(async (tx) => {
     const { created } = await writeAdminGrant(tx, grant);
     if (!created) return { created: false };

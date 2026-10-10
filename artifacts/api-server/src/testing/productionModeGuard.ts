@@ -16,17 +16,19 @@
  * - the database must not be a protected one.
  *
  * The database rule mirrors `assert_not_production` in
- * `scripts/lib/test-db.sh` (protected names `heliumdb`, `neondb`,
- * `production`, any name containing `prod`, any `neon.tech` host), minus its
- * `NODE_ENV=production` clause — which this launcher sets by design. Keep the
- * two lists in step.
+ * `scripts/lib/test-db.sh` — the same default names (`heliumdb`, `neondb`,
+ * `production`), the same "contains prod" rule, the same `neon.tech` host
+ * marker, and the same `TEST_DB_PROTECTED_NAMES` / `TEST_DB_PROTECTED_HOSTS`
+ * extensions — minus its `NODE_ENV=production` clause, which this launcher sets
+ * by design. `__tests__/productionModeGuard.test.ts` reads the shell guard's
+ * default lists and fails if the two drift.
  *
  * Pure: it reads only the environment object it is given, so it is unit-tested
  * without booting anything (`__tests__/productionModeGuard.test.ts`).
  */
 
-const PROTECTED_DB_NAMES = ["heliumdb", "neondb", "production"];
-const PROTECTED_HOST_MARKERS = ["neon.tech"];
+export const PROTECTED_DB_NAMES = ["heliumdb", "neondb", "production"];
+export const PROTECTED_HOST_MARKERS = ["neon.tech"];
 const RESEND_KEY_VARS = ["RESEND_API_KEY", "RESEND_API_KEY_PROD", "RESEND_API_KEY_DEV"];
 
 function isLocalHostname(hostname: string): boolean {
@@ -63,7 +65,7 @@ export function productionModeRefusals(env: NodeJS.ProcessEnv): string[] {
     refusals.push("SITE_BASE_URL must be set to the local frontend URL the email links should open");
   }
 
-  refusals.push(...protectedDatabaseRefusals(env.DATABASE_URL));
+  refusals.push(...protectedDatabaseRefusals(env));
 
   return refusals;
 }
@@ -73,18 +75,20 @@ export function productionModeRefusals(env: NodeJS.ProcessEnv): string[] {
  * (`scripts/seed-e2e-test-accounts.ts`), which writes accounts with a known
  * password and so must never reach a live database either.
  */
-export function protectedDatabaseRefusals(databaseUrl: string | undefined): string[] {
+export function protectedDatabaseRefusals(env: NodeJS.ProcessEnv): string[] {
   const refusals: string[] = [];
+  const names = [...PROTECTED_DB_NAMES, ...splitList(env.TEST_DB_PROTECTED_NAMES)];
+  const hostMarkers = [...PROTECTED_HOST_MARKERS, ...splitList(env.TEST_DB_PROTECTED_HOSTS)];
   try {
-    const url = new URL(databaseUrl ?? "");
+    const url = new URL(env.DATABASE_URL ?? "");
     const dbName = decodeURIComponent(url.pathname.replace(/^\//, ""));
     if (!dbName) {
       refusals.push("DATABASE_URL names no database");
-    } else if (PROTECTED_DB_NAMES.includes(dbName) || dbName.toLowerCase().includes("prod")) {
-      refusals.push(`database '${dbName}' is protected (heliumdb=dev, neondb=production, or a name containing 'prod')`);
+    } else if (names.includes(dbName) || dbName.toLowerCase().includes("prod")) {
+      refusals.push(`database '${dbName}' is protected (heliumdb=dev, neondb=production, a name containing 'prod', or TEST_DB_PROTECTED_NAMES)`);
     }
     const host = url.hostname.toLowerCase();
-    const marker = PROTECTED_HOST_MARKERS.find((m) => host.includes(m));
+    const marker = hostMarkers.find((m) => host.includes(m));
     if (marker) {
       refusals.push(`database host '${host}' matches the protected marker '${marker}'`);
     }
@@ -92,4 +96,9 @@ export function protectedDatabaseRefusals(databaseUrl: string | undefined): stri
     refusals.push("DATABASE_URL must be a parseable postgres URL");
   }
   return refusals;
+}
+
+/** Comma- or space-separated, as `_td_split` reads the same variables in test-db.sh. */
+function splitList(value: string | undefined): string[] {
+  return (value ?? "").split(/[\s,]+/).filter(Boolean);
 }

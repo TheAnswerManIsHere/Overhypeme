@@ -19,9 +19,10 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// email.ts builds its client when it loads, and static imports are hoisted
+// above this assignment, so the module is imported dynamically after it.
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
-
-import { installEmailTransportForTestHarness, isEnabled } from "../lib/email.js";
+const { installEmailTransportForTestHarness, isEnabled } = await import("../lib/email.js");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

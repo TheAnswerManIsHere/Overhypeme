@@ -15,7 +15,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-import { currentUser } from "./helpers/testAccounts";
+import { currentUser, submitLoginForm } from "./helpers/testAccounts";
 import { mailSinkDir, waitForEmailLink } from "./helpers/mailSink";
 
 const FIRST_PASSWORD = "journey-first-password-1";
@@ -39,13 +39,6 @@ async function pageFetch(page: Page, method: string, url: string, body?: unknown
     },
     { method, url, body },
   );
-}
-
-async function signIn(page: Page, email: string, password: string): Promise<void> {
-  await page.goto("/login");
-  await page.getByPlaceholder("your@email.com").fill(email);
-  await page.getByPlaceholder("Enter your password").fill(password);
-  await page.getByRole("button", { name: /sign in/i }).and(page.locator('[type="submit"]')).click();
 }
 
 test("a production-mode account: register, verify, act, sign out, recover the password", async ({ page, context }) => {
@@ -120,11 +113,11 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   await page.waitForURL(/\/login\?reset=success/);
 
   // The old password is refused; the new one signs in.
-  await signIn(page, email, FIRST_PASSWORD);
+  await submitLoginForm(page, email, FIRST_PASSWORD);
   await expect(page.getByText("Invalid email or password")).toBeVisible();
   expect(await currentUser(page)).toBeNull();
 
-  await signIn(page, email, SECOND_PASSWORD);
+  await submitLoginForm(page, email, SECOND_PASSWORD);
   await page.waitForURL((url) => url.pathname !== "/login");
   expect((await currentUser(page))?.["email"]).toBe(email);
 });

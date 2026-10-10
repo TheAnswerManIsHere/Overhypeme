@@ -9,7 +9,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { productionModeRefusals } from "../testing/productionModeGuard.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  PROTECTED_DB_NAMES,
+  PROTECTED_HOST_MARKERS,
+  productionModeRefusals,
+} from "../testing/productionModeGuard.js";
 
 const SAFE: NodeJS.ProcessEnv = {
   NODE_ENV: "production",
@@ -76,5 +84,29 @@ describe("productionModeRefusals", () => {
       productionModeRefusals({ NODE_ENV: "development", REPLIT_DEPLOYMENT: "1", RESEND_API_KEY: "k" }).length,
       6,
     );
+  });
+
+  it("honours the shell guard's extension lists", () => {
+    assert.match(
+      refusalsWith({ DATABASE_URL: "postgres://u:p@localhost/staging_copy", TEST_DB_PROTECTED_NAMES: "other, staging_copy" }).join(),
+      /protected/,
+    );
+    assert.match(
+      refusalsWith({ DATABASE_URL: "postgres://u:p@db.internal.example/overhype_e2e_auth", TEST_DB_PROTECTED_HOSTS: "internal.example" }).join(),
+      /internal\.example/,
+    );
+  });
+
+  it("keeps the same default lists as assert_not_production in scripts/lib/test-db.sh", () => {
+    const shell = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../scripts/lib/test-db.sh"),
+      "utf8",
+    );
+    const names = shell.match(/for p in ([a-z_ ]+?) \$\(_td_split "\$\{TEST_DB_PROTECTED_NAMES/);
+    const hosts = shell.match(/for p in ([a-z_. ]+?) \$\(_td_split "\$\{TEST_DB_PROTECTED_HOSTS/);
+    assert.ok(names && hosts, "the shell guard's two default lists are where this test expects them");
+    assert.deepEqual(names[1].trim().split(/\s+/), PROTECTED_DB_NAMES);
+    assert.deepEqual(hosts[1].trim().split(/\s+/), PROTECTED_HOST_MARKERS);
+    assert.match(shell, /\*prod\*\)/, "the shell guard still refuses any name containing 'prod'");
   });
 });

@@ -33,12 +33,17 @@ export const TEST_ACCOUNT_PASSWORD = definitions.password;
 export const FREE_ACCOUNT = definitions.free;
 export const PAID_ACCOUNT = definitions.paid;
 
-/** Sign in through the real login form and wait until the session is live. */
-export async function signInThroughForm(page: Page, email: string, password: string): Promise<void> {
+/** Fill and submit the real login form, without waiting for the outcome (a refusal stays on /login). */
+export async function submitLoginForm(page: Page, email: string, password: string): Promise<void> {
   await page.goto("/login");
   await page.getByPlaceholder("your@email.com").fill(email);
   await page.getByPlaceholder("Enter your password").fill(password);
   await page.getByRole("button", { name: /sign in/i }).and(page.locator('[type="submit"]')).click();
+}
+
+/** Sign in through the real login form and wait until the session is live. */
+export async function signInThroughForm(page: Page, email: string, password: string): Promise<void> {
+  await submitLoginForm(page, email, password);
   await page.waitForURL((url) => url.pathname !== "/login");
 }
 

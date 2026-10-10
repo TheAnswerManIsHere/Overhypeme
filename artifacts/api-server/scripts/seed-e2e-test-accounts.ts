@@ -24,12 +24,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isProductionEnv } from "../src/lib/env";
 import { protectedDatabaseRefusals } from "../src/testing/productionModeGuard";
 
 const refusals = [
-  ...protectedDatabaseRefusals(process.env.DATABASE_URL),
-  ...((process.env.NODE_ENV ?? "").toLowerCase() === "production" ? ["NODE_ENV is production"] : []),
-  ...(process.env.REPLIT_DEPLOYMENT === "1" ? ["REPLIT_DEPLOYMENT=1 marks a real deployment"] : []),
+  ...protectedDatabaseRefusals(process.env),
+  ...(isProductionEnv() ? ["this is a production environment (NODE_ENV=production or REPLIT_DEPLOYMENT=1)"] : []),
 ];
 if (refusals.length > 0) {
   console.error(`[seed-e2e-test-accounts] refusing to seed:\n${refusals.map((r) => `  - ${r}`).join("\n")}`);
@@ -51,8 +51,8 @@ const definitions = JSON.parse(
 // Only after the refusals: these imports reach the database.
 const bcrypt = (await import("bcryptjs")).default;
 const { db, usersTable } = await import("@workspace/db");
-const { eq } = await import("drizzle-orm");
-const { BOOTSTRAP_ADMIN_EMAIL } = await import("../src/lib/auth");
+const { eq, inArray } = await import("drizzle-orm");
+const { ensureBootstrapAdmin } = await import("./lib/bootstrapAdmin");
 const { authorizeAdminGrant } = await import("../src/lib/entitlementVerification");
 const { applyAdminGrant } = await import("../src/lib/membershipSources");
 
@@ -81,23 +81,9 @@ async function upsertAccount(def: AccountDefinition): Promise<string> {
   return created.id;
 }
 
-async function bootstrapAdmin(): Promise<{ id: string; label: string }> {
-  const [existing] = await db
-    .select({ id: usersTable.id, displayName: usersTable.displayName })
-    .from(usersTable)
-    .where(eq(usersTable.email, BOOTSTRAP_ADMIN_EMAIL))
-    .limit(1);
-  if (existing) return { id: existing.id, label: existing.displayName ?? BOOTSTRAP_ADMIN_EMAIL };
-  const [created] = await db
-    .insert(usersTable)
-    .values({ email: BOOTSTRAP_ADMIN_EMAIL, isAdmin: true, isActive: true, displayName: "Dev Admin" })
-    .returning({ id: usersTable.id });
-  return { id: created.id, label: "Dev Admin" };
-}
-
 const freeId = await upsertAccount(definitions.free);
 const paidId = await upsertAccount(definitions.paid);
-const admin = await bootstrapAdmin();
+const admin = await ensureBootstrapAdmin();
 
 const { created } = await applyAdminGrant(
   authorizeAdminGrant({
@@ -111,8 +97,7 @@ const { created } = await applyAdminGrant(
 const tiers = await db
   .select({ email: usersTable.email, tier: usersTable.membershipTier })
   .from(usersTable)
-  .where(eq(usersTable.id, freeId))
-  .union(db.select({ email: usersTable.email, tier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, paidId)));
+  .where(inArray(usersTable.id, [freeId, paidId]));
 
 console.log(`seeded E2E accounts (paid grant ${created ? "written" : "already active"}):`);
 for (const row of tiers) console.log(`  ${row.email} → ${row.tier}`);

@@ -8,7 +8,14 @@
  */
 import { expect, test } from "@playwright/test";
 
-import { FREE_ACCOUNT, PAID_ACCOUNT, TEST_ACCOUNT_PASSWORD, currentUser, signInThroughForm } from "./helpers/testAccounts";
+import {
+  FREE_ACCOUNT,
+  PAID_ACCOUNT,
+  TEST_ACCOUNT_PASSWORD,
+  currentUser,
+  signInThroughForm,
+  submitLoginForm,
+} from "./helpers/testAccounts";
 
 for (const [label, account, tier] of [
   ["free", FREE_ACCOUNT, "registered"],
@@ -24,10 +31,7 @@ for (const [label, account, tier] of [
 }
 
 test("a wrong password is refused and leaves no session", async ({ page }) => {
-  await page.goto("/login");
-  await page.getByPlaceholder("your@email.com").fill(FREE_ACCOUNT.email);
-  await page.getByPlaceholder("Enter your password").fill(`${TEST_ACCOUNT_PASSWORD}-wrong`);
-  await page.getByRole("button", { name: /sign in/i }).and(page.locator('[type="submit"]')).click();
-  await expect(page.getByText(/invalid|incorrect/i)).toBeVisible();
+  await submitLoginForm(page, FREE_ACCOUNT.email, `${TEST_ACCOUNT_PASSWORD}-wrong`);
+  await expect(page.getByText("Invalid email or password")).toBeVisible();
   expect(await currentUser(page)).toBeNull();
 });

@@ -72,13 +72,18 @@ export interface EmailTransport {
 }
 
 /**
- * A transport installed by a test harness, replacing Resend for the life of the
- * process. Set only through `installEmailTransportForTestHarness`, which only
- * `src/testing/productionModeLauncher.ts` calls: the deployment entrypoint
- * (`index.ts`) has no path to it, and `testHarnessIsolation.test.ts` fails if
- * any other module references the installer.
+ * The one transport this process sends through, or null when none is
+ * configured: Resend when a key was present at load, or the transport a test
+ * harness installed. `isEnabled()`, the worker's `unavailableReason` and the
+ * send itself all read this one value, so no path can consult the key and miss
+ * the harness (or the reverse).
+ *
+ * The harness install happens only through `installEmailTransportForTestHarness`,
+ * which only `src/testing/productionModeLauncher.ts` calls: the deployment
+ * entrypoint (`index.ts`) has no path to it, and `testHarnessIsolation.test.ts`
+ * fails if any other module references the installer.
  */
-let testHarnessTransport: EmailTransport | null = null;
+let transport: EmailTransport | null = getResendApiKey() ? new Resend(getResendApiKey()!).emails : null;
 
 /**
  * Replace the email transport for this process, below the email queue: the
@@ -87,23 +92,18 @@ let testHarnessTransport: EmailTransport | null = null;
  * an install after a Resend client was already built from a real key, so a
  * harness can never end up sending part of a run through the real vendor.
  */
-export function installEmailTransportForTestHarness(transport: EmailTransport): void {
-  if (testHarnessTransport) {
-    throw new Error("[email] a test-harness transport is already installed");
+export function installEmailTransportForTestHarness(harnessTransport: EmailTransport): void {
+  if (transport) {
+    throw new Error(
+      "[email] refusing to install a test-harness transport: this process already has one " +
+        "(a Resend API key is configured, or a harness transport was installed)",
+    );
   }
-  if (resend) {
-    throw new Error("[email] refusing to install a test-harness transport: a Resend API key is configured in this process");
-  }
-  testHarnessTransport = transport;
+  transport = harnessTransport;
 }
 
 export function isEnabled(): boolean {
-  return !!testHarnessTransport || !!getResendApiKey();
-}
-
-let resend: Resend | null = null;
-if (getResendApiKey()) {
-  resend = new Resend(getResendApiKey()!);
+  return transport !== null;
 }
 
 /**
@@ -223,8 +223,7 @@ export async function deliverFromOutbox(
   const from    = await getFromAddress();
   const replyTo = await getReplyToAddress();
   try {
-    const transport: EmailTransport = testHarnessTransport ?? resend!.emails;
-    const { error } = await transport.send({
+    const { error } = await transport!.send({
       to:      row.to,
       from,
       ...(replyTo ? { replyTo } : {}),
