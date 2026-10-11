@@ -182,8 +182,11 @@ burns tokens fast and should be a deliberate ask, never something I assume.)
 ### Reaching Fable 5 without a session switch
 
 Fable 5 is enabled on David's account (confirmed 2026-07-24). It costs
-**$10/$50 per million tokens against Opus 5's $5/$25**, so it is always a
-deliberate escalation.
+**several times Opus per token** — the rates are the list prices in
+[`token-pricing.md`](../../../docs/ai-context/token-pricing.md), never copied
+here, since a copy goes stale the day the table is refreshed (this paragraph
+carried its own copy of both rates until 2026-10-11, by then wrong on the
+Opus side) — so it is always a deliberate escalation.
 
 - **Subagent routing is the mechanism I control.** So I can hand one genuinely
   hard piece of work — a migration design, a root-cause hunt in the visual
@@ -205,8 +208,10 @@ deliberate escalation.
   environment variable above the argument every dispatch actually passes.
   **Two live instructions that contradict each other means either can fire**,
   so an obsolete one is a defect rather than archaeology.
-- **I announce it, I don't sneak it.** Because a Fable subagent spends at double
-  rate without David touching anything, I say when I'm dispatching one and why,
+- **I announce it, I don't sneak it.** Because a Fable subagent spends at the Fable
+  rate — a multiple of Opus's, the figures in
+  [`token-pricing.md`](../../../docs/ai-context/token-pricing.md) — without David
+  touching anything, I say when I'm dispatching one and why,
   in the same breath as dispatching it. Silent escalation is the failure mode to
   avoid here.
 - **Don't make Fable the session default, and don't propose a Fable session
@@ -407,8 +412,9 @@ site (every judgement went there from 2026-08-17 until David narrowed it on
 
 The cost note that justified the split still holds and now argues the other
 way: judgement moments are perhaps 2% of a loop's tokens and carry all of its
-consequence, so paying 2× on 2% is cheap for the thing the whole apparatus
-exists to get right.
+consequence, so paying the Fable premium (the ratio is in
+[`token-pricing.md`](../../../docs/ai-context/token-pricing.md)) on 2% is cheap
+for the thing the whole apparatus exists to get right.
 
 **Two properties, not one.** The triggers were always about an *independent
 challenge from a context that did not produce the conclusion*, and that is

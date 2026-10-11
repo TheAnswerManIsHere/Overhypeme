@@ -36,6 +36,9 @@ function fixture({ consumer = false } = {}) {
     "AGENTS.md": "root\n",
     "README.md": "root\n",
     "docs/not-payload.md": "outside the payload\n",
+    [`${p}docs/tests/uat-doc-format.md`]: "# UAT format\n",
+    "docs/tests/TESTING.md": "a consumer's own suites\n",
+    "docs/tests/UAT/PR1_X_UAT.md": "a product UAT doc\n",
   };
   for (const [f, body] of Object.entries(files)) {
     mkdirSync(join(root, f, ".."), { recursive: true });
@@ -75,6 +78,8 @@ test("scope is git's tracked payload markdown plus the root files, and the direc
   for (const d of ALWAYS_IN_SCOPE) assert.ok(files.some((f) => f.startsWith("core/" + d)), d);
   assert.ok(!files.includes("untracked.md"), "untracked files are not corpus");
   assert.ok(!files.includes("docs/not-payload.md"), "handbook-root docs outside the payload are not scope by default");
+  assert.ok(files.includes("core/docs/tests/uat-doc-format.md"), "the shipped UAT format is payload");
+  assert.ok(!files.includes("docs/tests/TESTING.md") && !files.includes("docs/tests/UAT/PR1_X_UAT.md"), "the rest of docs/tests/ is not");
   assert.ok(!files.some((f) => f.endsWith(".mjs")), "prose only");
   assert.ok(scopeFiles(root, { include: ["docs/*.md"] }).files.includes("docs/not-payload.md"), "--include widens it");
   assert.throws(() => scopeFiles(root, { include: ["docs/proces/**"] }), /--include "docs\/proces\/\*\*" matches no tracked file/, "a mistyped include refuses");
@@ -95,6 +100,8 @@ test("a consumer has the payload at the root and needs no prefix", () => {
   // scope and fanned cold readers across it -- invisible here, because this
   // repository is almost entirely payload.
   assert.ok(!files.includes("docs/not-payload.md"), "a consumer's own docs stay out by default");
+  assert.ok(files.includes("docs/tests/uat-doc-format.md"), "the shipped UAT format is in scope at the consumer's root");
+  assert.ok(!files.includes("docs/tests/TESTING.md") && !files.includes("docs/tests/UAT/PR1_X_UAT.md"), "a consumer's TESTING.md and UAT docs under the same directory are not");
   assert.ok(scopeFiles(root, { include: ["docs/not-payload.md"] }).files.includes("docs/not-payload.md"), "--include still reaches them");
 });
 

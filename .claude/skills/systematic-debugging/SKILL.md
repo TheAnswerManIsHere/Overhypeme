@@ -9,9 +9,14 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 
 > **Local note (AI-Handbook #168).** A defect on a feature David has declared
 > prototype phase is not a bug to fix under this skill: it is the next
-> version through the `prototype` skill, with no failing test required
+> version through the `prototype` skill, with no failing test required (its
+> scaled machine-lane checks are kept and updated with the version)
 > ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)). The registry is read
-> before this skill's own trigger fires.
+> before this skill's own trigger fires. Phase 4.5's "discuss with your human
+> partner" after three failed fixes stays an ask on purpose (2026-10-11): a
+> design flaw that survives three fixes is Tier C, which leaves bugfix mode
+> for David, not a reversible choice the agent proceeds on
+> ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 
 ## Overview
 

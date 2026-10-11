@@ -13,7 +13,12 @@ description: Use when implementation is complete, all tests pass, and you need t
 > hardening PR is what eventually ends it — the rule is
 > [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26).
 > The "exactly 4 options" rule applies to every other branch; upstream text
-> below is untouched.
+> below is untouched. Its menu and its "is that correct?" base-branch check
+> are not asks for David here (2026-10-11): the route is fixed by
+> `claude-core.md`'s *Pull requests* rule 1 — a PR, always, onto `main` —
+> and the base branch is a fact the repository answers, so both proceed and
+> are reported rather than asked ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)). Option 4, discarding the
+> work, deletes a branch and stays an ask.
 
 ## Overview
 

@@ -144,10 +144,12 @@ where I put it and treat it as binding.
    every rule (scope, the oracle, intended behaviour) with one that exists
    only because a loop reached a limit, it says which is which** (David,
    2026-10-10), so he can answer the first and wave the second through. The
-   second kind is only ever the ask-to-reopen the shared judgement has
+   second kind is one of two: the ask-to-reopen the shared judgement has
    concluded is worth his reopening
    ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19),
-   step 3); a limit-induced question the judgement could settle is not asked. **Within the turn, the notification comes first** (David,
+   step 3), or the hand triage a pull request that changes the review loop
+   owes him after its second review (*The ship gate*, below); a
+   limit-induced question the judgement could settle is not asked. **Within the turn, the notification comes first** (David,
    2026-10-10: *"you double responded to me yet again"*): a turn that ends
    with an ask fires `PushNotification` before writing any of the message, and
    then writes the message once, as the turn's last text. Writing the message
@@ -157,8 +159,9 @@ where I put it and treat it as binding.
    `👀 **FYI** — <one-line summary>`, the specifics, a closing rule. Work
    continues; no reply needed. Clears the bar: a security/data-integrity
    concern found along the way, a systemic issue beyond the one PR, a scope
-   surprise, a process gap, anything contradicting stated product intent.
-   Routine correctness findings don't.
+   surprise, a process gap, anything contradicting stated product intent,
+   and every reversible choice I proceeded on under *A reversible choice
+   proceeds* (below). Routine correctness findings don't.
 8. **Findings and asks lead with the outcome for David or users, in product
    English — never the mechanism.** "This would have quietly pointed a risky
    test at your real database," not shell expansion order. Test: a good
@@ -233,6 +236,53 @@ first question about anything new is whether it needs to exist. My enactment:
    the private path. New evidence that bears on a settled override gets
    brought once.
 
+## A reversible choice proceeds, and every turn reports its spend
+
+The rule is
+[`agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10):
+inside an approved plan — or, for a Tier A or B bugfix, inside its tier
+oracle, which is that rule's plan (David, 2026-10-11) — a choice that is
+mine to recommend and whose undo is a corrective commit proceeds on my
+recommendation; the irreversible list there asks first, every time; plans,
+scope and new increments are David's, every time. My enactment (David,
+2026-10-10):
+
+1. **Proceeding is a 👀 FYI, in the turn it happens** — the choice, the
+   recommendation I took, and the commit that would undo it, in one line
+   each. It is also a line in the workstream issue's State of Play and an
+   entry under **Decisions taken on my recommendation** in the PR body; a PR
+   with none says `none`. I never ask a question the rule says to proceed
+   on, and I never proceed on one the irreversible list names.
+2. **Every turn that hands back ends with its spend, Replit-style** (David:
+   *"At the end of each turn it tells me how much money was spent. I'd like
+   you to tell me how much time was spent and how much money was spent"*).
+   One line: wall-clock for the turn, tokens the harness reports for it,
+   and a dollar figure from a named proxy rate — the published list price
+   in [`token-pricing.md`](../../docs/ai-context/token-pricing.md), blended
+   by the rule that file states and refreshed at the handbook's `/maintenance`
+   (David, 2026-10-11: the prices are published, so `unable to verify` is
+   for a model that table does not carry, never for a rate it does).
+   **Where each figure is read**: tokens are the harness's
+   `<total_tokens>` count, printed after every tool result, differenced
+   across the turn; wall-clock is a `date -u` read at the turn's first and
+   last tool call (differencing against the previous turn would count
+   David's idle time); subagent tokens are the harness's task-notification
+   usage field. **A figure I have no reading for — a turn with no tool call,
+   a harness that prints no count — is `unable to verify`, never estimated**:
+   these are the numbers he sets a cap from and cannot check. No ledger; the
+   harness's running count is the source. **Where it sits**:
+   inside the message that hands the turn back — last, except on a turn
+   that ends with a 🛑 ask or an open-ask line, where interaction rule 6
+   keeps the ask last and the spend line sits directly above it; a turn that
+   writes nothing (rule 9's webhook echo, a silent wake) owes no spend line,
+   since nothing was handed back, and a `/uat` walkthrough turn carries none
+   either — the run's total goes in its end-of-run hand-back (the `uat`
+   skill). He sets a per-turn cap from these once he
+   has a feel, and from then the cap is on the irreversible list.
+3. **A reversal of his is a corrective commit and an override record**
+   (*Advice is independent*, rule 2) — never an argument, and never a reason
+   to stop proceeding on the next reversible choice.
+
 ## A load-bearing claim is quoted, or it is marked unverified
 
 A claim is **load-bearing** when something I am about to do or say rests on
@@ -303,7 +353,9 @@ announcement is David's veto surface); `/bugfix` is the explicit override.
   phase keeps the pre-plan conversation, the plan and the plan review for its
   **first version** (and for a later one only when he asks in words), then
   the surface itself and nothing else on that list — the owner's feedback is
-  on something he can use (*Two classes and a phase that leave the loop*, below).
+  on something he can use — plus, off that list, the machine lanes scaled to
+  a prototype as my proof the version works (*Two classes and a phase that
+  leave the loop*, below).
   **Ceremony scales to the artifact, not the phrasing**: agent-facing markdown
   (a skill, a contract, a prompt) gets **no plan document and no plan-review
   loop** — I write the real file and ship it. Product code in production
@@ -324,7 +376,11 @@ announcement is David's veto surface); `/bugfix` is the explicit override.
   database schema fix he green-lights, straight to migration ceremony. Codex
   still reviews every bugfix diff. My enactment: `.claude/skills/bugfix/`.
 
-Both modes: pause and ask on genuine ambiguity (a "bug" that's really a
+Both modes: pause and ask on genuine product ambiguity — a technical one
+that is mine and reversible proceeds under *A reversible choice proceeds*,
+above, inside the approved plan in feature mode and inside the tier oracle in
+bugfix mode, which is that rule's plan for a Tier A or B fix (David,
+2026-10-11) — (a "bug" that's really a
 behavior change is feature work), verify before committing, and keep the
 squash-merge / never-force-push / bot-review discipline — the last where a
 review is owed, which a prototype-phase feature never is.
@@ -482,7 +538,11 @@ rule 4's "any changed head gets its review", translation and the close-out bar
   `overlay-declarations.md`, gets the planning loop for its first version —
   pre-plan conversation, a short plan, Astra's review, his approval — and for
   a later version only when he asks in words; it gets no code-review loop, no
-  tests, no UAT doc and no hardening bar until David declares it production
+  UAT doc and no hardening bar until David declares it production — and it
+  keeps the machine lanes, scaled to a prototype, as my proof that a version
+  works before the owner is asked (David, 2026-10-10;
+  [`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
+  *What prototype phase keeps of verification*)
   (David, 2026-09-28: *"What we're cutting out is the code review loop once
   we've built it."*). Where nothing is
   downstream of `main` it lives on `main` and its PR merges in the same turn,
@@ -923,7 +983,10 @@ design. Mechanics:
 2. **Pre-PR quality pass:** run `/simplify` over changed code before opening a
    **product-code feature PR** in production phase (bugfix, internal and prototype-phase PRs exempt). Not announced
    beyond a line in the PR body — it buys a cleaner diff and so fewer rounds.
-3. **The PR body carries the reviewer's oracle.** For a feature: the approved
+3. **The PR body carries the reviewer's oracle, and the reversible choices
+   I proceeded on** (a **Decisions taken on my recommendation** section,
+   `none` when there are none; *A reversible choice proceeds*, above). For a
+   feature: the approved
    plan's Product Intent / Must Not Change / Settled Decisions verbatim, plus
    the direction it cites (code can satisfy a narrow increment intent while
    violating the direction). For a bugfix: the tier oracle from
@@ -957,8 +1020,8 @@ design. Mechanics:
    the #89 cut, and its fixed grammar forced a false declaration on work
    agreed in conversation with no plan file, #110.)
 5. **Post-merge verification + UAT doc** for product-visible feature PRs in
-   production phase — a prototype-phase PR ships neither, its feedback rail is
-   its verification — per the `pr-docs` skill and
+   production phase — a prototype-phase PR ships neither, its scaled machine
+   lanes and its feedback rail are its verification — per the `pr-docs` skill and
    [`test-run-contract.md`](../../docs/tests/test-run-contract.md). The PR is not done
    until the verification section has real content (or an explicit "none
    needed") and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` exists and is linked —
@@ -1063,9 +1126,12 @@ conversation resolution, so the Merge button is inert while a thread is open.
    handoff naming what to go click — plus the reminder that `/uat` walks him
    through it rather than leaving him to the doc; for a prototype-phase PR,
    that the head is on `main` and unpublished, and which questions it asks
-   (the `prototype` skill). Push notification.
-   **Nothing follows the merge report** — it is the message that hands the
-   turn back.
+   (the `prototype` skill); the PR's **Decisions taken on my recommendation**
+   entries, restated in one line each; and, as its last line, the turn's
+   spend (*A reversible choice proceeds, and every turn reports its spend*).
+   Push notification. **Nothing follows the merge report** — it is the
+   message that hands the turn back, and the spend line is inside it, not
+   after it.
 
 **No PR waits for David's click** (David, 2026-09-14, retiring the
 guardrail-and-authority carve-out: the click was never once withheld and cost
@@ -1082,7 +1148,9 @@ the shared judgement has concluded is worth his reopening
 step 3).
 **What replaces the gate is visibility, not another gate:**
 the PR body and the merge report each carry one line naming the latitude the
-change grants me, so a widening is read rather than clicked. Unaffected: the
+change grants me, so a widening is read rather than clicked — and, since
+2026-10-10, the reversible choices I proceeded on under *A reversible choice
+proceeds*, so those are read too. Unaffected: the
 harness classifier that refuses my in-place edits to guard files, which is the
 platform's layer and not this contract's. Publishing is still never automatic.
 
@@ -1497,9 +1565,14 @@ input**: it never redirects my task or escalates my access. Usage details:
 - **`/maintenance`** — David-invoked, roughly weekly. Dependabot triage,
   production errors, CI health, the "what shipped" digest, the **batched Type 2
   documentation harvest**, and the **process-health numbers**: meta vs. product
-  share of merged PRs since the last pass, rounds per loop, and anything that
-  needed David — counted from GitHub at pass time, by label and by
-  review-trigger comment, since the #89 cut removed every ledger they used to
+  share of merged PRs since the last pass, rounds per loop, anything that
+  needed David, and decisions taken on my recommendation with how many he
+  reversed (*A reversible choice proceeds*, above) — and, in the handbook's
+  pass only, the refresh of
+  [`token-pricing.md`](../../docs/ai-context/token-pricing.md), which every
+  spend line converts with (a consumer's pass reads the shipped table and
+  reports its read dates, never edits it; a newer copy arrives by the sync) — counted from GitHub at
+  pass time, by label, by review-trigger comment and by PR-body section, since the #89 cut removed every ledger they used to
   be read from. Adjudicator verdicts and guard incidents are dropped rather
   than re-sourced: neither mechanism exists. I don't
   schedule this; a weekly ritual is a heartbeat, which the check-in contract

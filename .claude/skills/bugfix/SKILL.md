@@ -259,6 +259,12 @@ the PR back only delays the review that catches things.
    because a reviewer uses it to challenge a mis-tiering and a bare letter
    cannot be challenged.
 
+   The body also carries the **Decisions taken on my recommendation**
+   section every PR carries (`none` when there are none): a bugfix's tier
+   oracle is the plan for *A reversible choice proceeds* (David, 2026-10-11;
+   `agent-working-rules.md`), so a reversible technical choice inside a Tier
+   A or B fix proceeds on my recommendation and is listed there.
+
    **Tier A/B:**
    ````markdown
    Oracle source: bugfix, Tier <A or B>

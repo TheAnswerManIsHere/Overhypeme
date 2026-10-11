@@ -21,9 +21,10 @@ What follows describes the feature-mode default.
 
 For **every** feature-mode PR that has product-visible or testable behavior
 **and is in production phase**, I ship two things. A prototype-phase PR
-ships neither: its feedback rail is its verification, and a UAT doc would be
-the documentation bar the phase removes (working-modes.md, *The prototype
-phase, per feature*).
+ships neither: its scaled machine-lane checks and its feedback rail are its
+verification, and a UAT doc would be the documentation bar the phase removes
+(working-modes.md, *The prototype phase, per feature*, and *What prototype
+phase keeps of verification*).
 
 1. **The PR body's *Post-merge verification* section** — the
    engineering checks for Replit's live environment (the technical safety

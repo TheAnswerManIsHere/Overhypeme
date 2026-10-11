@@ -25,9 +25,11 @@ product *should do*, you're guessing wrong by definition — ask.
 ## End-to-end ownership
 
 When David asks for something, own it end-to-end: backend, frontend, schema,
-infra, docs, tests — the last two for a feature in production phase; a feature
-he has declared prototype phase owes neither
-([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)). **"Done" means David can test the intended
+infra, docs, tests — docs and tests as a *bar* belong to production phase; a
+feature he has declared prototype phase owes no doc update and keeps the
+machine-lane checks that prove its version works, scaled to a prototype
+([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
+*What prototype phase keeps of verification*). **"Done" means David can test the intended
 behavior in the product** — not that types compile or a job was enqueued.
 
 ## Ship the UI surface with the behavior
@@ -40,8 +42,9 @@ declaring complete; if you can't write it against the UI, the feature isn't buil
 **Symmetric rule:** don't ship dead UI controls with no backend. *Exception:*
 infra/refactor/perf/security changes with no visible behavior ship as code + a
 written verification note ("run X, observe Y"). A prototype-phase feature
-keeps this rule — its surface is the thing the owner uses — but the acceptance
-script is his feedback, not a note
+keeps this rule — its surface is the thing the owner uses — with the machine
+lanes proving what a machine can check and the owner's feedback, not a note,
+standing as the acceptance script for the rest
 ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 ## Pre-launch: no legacy burden — bias to clean, bold changes
@@ -66,8 +69,11 @@ standing guidance (2026-07-21): **be brave.** Concretely, this lowers the bar on
 - **This is NOT license to skip correctness.** The thing being built must
   actually work and be tested — David's UAT still checks real behavior, and the
   bot reviewers still check the diff — for a feature in production phase; one
-  David has declared prototype phase has none of those by his declaration
-  ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)),
+  David has declared prototype phase has neither his UAT nor the review by his
+  declaration, and still proves each version works through its machine lanes,
+  scaled
+  ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
+  *What prototype phase keeps of verification*),
   and a new product starts with every feature there. Boldness applies to *migration/compat
   paranoia*, not to test coverage, the budget/limits math, security, or getting
   the feature right.
@@ -87,15 +93,21 @@ discipline (`docs/engineering/migrations-and-backfills.md`) reapplies in full.
 - **Ask by default:** anything where a *wrong choice could meaningfully damage the
   product* — schema shapes that affect behavior, irreversible migrations, choices
   that lock in UX, real trade-offs, anything you're only ~70% sure about. David
-  *likes* answering trade-off questions — it's how he steers.
+  *likes* answering trade-off questions — it's how he steers. **Inside an
+  approved plan, when the choice is yours to recommend and a corrective commit
+  would undo it, proceed on the recommendation and report it** (*A reversible choice proceeds on the recommendation*, below);
+  what still asks here is what that rule's irreversible list names, and what is
+  his.
 - **Ask always:** anything about what the product *should do* — product behavior,
   spec ambiguity, UX details, feature scope.
 - **Do not** ask David questions the repo can answer; resolve those yourself and
   record the resolution in the plan.
 
-When in doubt, **lean toward asking** — the cost of one extra question is low; the
-cost of David finding the wrong thing in acceptance testing is high. Give enough
-context to answer without scrolling back.
+When in doubt about **whether a choice is his**, lean toward asking — the cost of
+David finding the wrong thing in acceptance testing is high. When it is yours
+and reversible, proceed and report it (*A reversible choice proceeds on the recommendation*, below): a question he would have
+waved through costs him a round trip, which is the cost that rule exists to
+stop paying. Give enough context to answer without scrolling back.
 
 ### Every question carries a recommendation (David, 2026-09-03)
 
@@ -113,8 +125,8 @@ a manufactured objection is as useless to him as a manufactured agreement.
   better. Neither settles a question. When a claim is checkable — grep, run,
   measure — check it before opining, and label what you have not checked.
 - **A question without a recommendation is deference with extra steps.**
-  "Lean toward asking" (above) still holds, and every ask carries your
-  recommendation and its basis.
+  "Lean toward asking" (above) holds for what is his, and every ask carries
+  your recommendation and its basis.
 - **The first question about anything new is whether it needs to exist.**
   Before *how*: can the problem be dissolved — already handled, delete
   something, do nothing, a smaller thing? Simple is the default; complexity
@@ -124,6 +136,76 @@ a manufactured objection is as useless to him as a manufactured agreement.
 His override is explicit, in words, and ends the argument. How an agent
 records a durable override is that agent's own enactment (Claude Code:
 `CLAUDE.md`, *Advice is independent*).
+
+### A reversible choice proceeds on the recommendation (David, 2026-10-10)
+
+David takes the agent's recommendation about nine times in ten (*"90% of the
+time I go with your recommendation so it makes sense that we default to you
+going with it and just letting me know that you did, assuming that the build
+is reversible"*), and every ask still costs him a round trip. So inside an
+approved plan the default flips: **when a choice is the agent's to recommend
+and the build is reversible, the agent proceeds on its own recommendation and
+tells him it did.** *"I'd rather you build a bit too much and then we have to
+pivot or undo some of it than constantly stop building while waiting for me."*
+
+- **Reversible is an observable, not a feeling.** A choice is reversible when
+  undoing it is a corrective commit in the same repository and nothing outside
+  the repository has to be put back: no row written outside a test database,
+  nothing sent, nothing charged, nothing published, no credential issued. If
+  the agent cannot name the commit that would undo it, it is not reversible.
+- **The irreversible list always asks first, in words, whatever the phase**: a
+  publish or deploy to anything a user reaches; a write, migration or deletion
+  against a production or shared database; anything that sends (email, SMS,
+  push, a webhook to a third party) or charges; creating, rotating or deleting
+  a credential or a secret; deleting a branch, an environment, a bucket or a
+  repository; a change to a ruleset, a permission or a CI gate made anywhere
+  but a reviewed pull request (one landed by PR takes the ordinary bar, with
+  its latitude line, as the Claude core's *No PR waits for David's click*
+  already says — the list names the live toggle, not the reviewed diff);
+  spend above a per-turn cap once David sets one. The list is closed and
+  grows only by his word.
+- **Plans are his, every time** (David, 2026-10-10: *"Don't do anything that's
+  not in a plan and don't build new plans and start executing against them
+  without me."*). A reversible choice *inside* an approved plan proceeds; new
+  scope, a new increment, a new feature, a new test plan or a new plan never
+  does, in either phase — that is where his judgement bites, and it is almost
+  always product-facing. Mid-flight scope keeps the now/next/never question.
+  A prototype's later versions are already built on his feedback alone —
+  with the agent's own repair of a failing machine check before each version
+  reaches him (`working-modes.md`, *What prototype phase keeps of
+  verification*); this rule adds nothing there and takes nothing away. **A bugfix has no plan, and
+  its tier oracle is the plan for this rule** (David, 2026-10-11: asked
+  whether the tier oracle — reported symptom, intended behaviour, must not
+  change, root cause, blast radius, `working-modes.md` — should count as the
+  plan, *"Yes"*): a reversible technical choice inside a Tier A or Tier B fix
+  proceeds on the recommendation and is listed in that PR's Decisions section;
+  Tier C still stops, since it is not a bugfix.
+- **Production and prototype both run under it, production more sensitively**:
+  the same observable in both phases, and the same closed list — no phase or
+  subsystem adds an ask of its own. Production asks more often because more
+  of the list is real there: a real database, real users, real sends and
+  charges, a publish that reaches someone; a prototype *"can go wild"* short of
+  the list. What makes a subsystem the overlay marks sensitive dangerous is
+  already on the list, and those subsystems keep their specialist review
+  (`working-modes.md`'s ceremony table) — care, not another approval (David,
+  2026-10-11, choosing this over a sensitive-subsystem stop: *"Option 1"*).
+- **Proceeding is visible, never silent.** Each decision taken this way is
+  reported as it happens (Claude Code: a 👀 FYI in chat — the choice, the
+  recommendation taken, the way back), recorded as a line in the workstream
+  issue's State of Play, and gathered under a **Decisions taken on my
+  recommendation** heading in the PR body, so David and a reviewer read every
+  one in one place. His reversal afterwards is a corrective commit, and the
+  advice rule's override record applies.
+- **`/maintenance` counts them**: decisions taken this way in the window, and
+  how many he reversed. A reversal rate is the signal that the default is set
+  wrong, in either direction — he sets the per-turn spend cap and tunes this
+  from those numbers, not from a feeling about a week. The per-turn spend
+  report itself is an agent's own enactment (Claude Code: its core, *A
+  reversible choice proceeds, and every turn reports its spend*), since what
+  a harness reports differs by agent.
+
+This narrows *Ask by default* above for the reversible case; *Ask always* —
+what the product should do — is untouched, and reaches him through the plan.
 
 ## Plan-before-implementation rule
 
@@ -143,12 +225,14 @@ production phase and this rule applies to it in full.
 
 ## Mid-build ambiguity: pause and ask
 
-If you hit ambiguity *while implementing* — product or technical — that you didn't
-surface in the plan, **stop, ask, and wait.** Do not best-guess and continue.
-"I'll flag it in the PR" is not acceptable — by the time the PR is in front of
-David, half the build assumes the wrong answer. (This applies to genuine ambiguity,
-not micro-decisions: a variable name doesn't require pausing; a choice that affects
-whether the feature does what David wants does.)
+If you hit **product** ambiguity *while implementing* — a choice that affects
+whether the feature does what David wants — that you didn't surface in the plan,
+**stop, ask, and wait.** Do not best-guess and continue. "I'll flag it in the PR"
+is not acceptable — by the time the PR is in front of David, half the build
+assumes the wrong answer. A **technical** ambiguity whose resolution is yours to
+recommend and a corrective commit would undo is not this: it proceeds on the
+recommendation and is reported as it happens (*A reversible choice proceeds on the recommendation*, above). (Neither is a
+micro-decision: a variable name doesn't require pausing or reporting.)
 
 ## Pre-plan intent is the source of truth
 
@@ -359,7 +443,9 @@ queued/bulk/long-running surface.
 ## How to summarize completed work
 
 After implementing, report: **files changed, what was tested (exact commands +
-result), what failed, and what remains risky.** Separate valid repo-command
+result), what failed, and what remains risky** — and the reversible choices
+taken on your recommendation, each with its way back (*A reversible choice
+proceeds on the recommendation*, above). Separate valid repo-command
 failures (which may block merge) from invalid-command/environment failures (which
 must not). Don't claim "done" until the intended behavior can actually be exercised
 in the product.
@@ -399,6 +485,8 @@ in the product.
   the only thing that does: the party holding the plan on a **planning** loop
   ([`planning-contract.md`](./planning-contract.md)), the Fable assessor on a
   **code** round (`claude-core.md`'s *Shared judgement on a review round*).
+  A purely technical choice a corrective commit would undo proceeds on the
+  recommendation and is reported, inside an approved plan or a bugfix's tier oracle (*A reversible choice proceeds on the recommendation*, above).
   What still reaches David on either is intended behaviour, scope, a knowingly
   accepted user-facing shortfall, and approval; and a constraint he required
   explicitly does not become negotiable for being technical.

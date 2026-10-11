@@ -94,6 +94,16 @@ Oracle source: <!-- see PART 1 above -->
      observable counts, human-edited-row preservation, rollback for destructive
      ops — see docs/engineering/migrations-and-backfills.md -->
 
+## Decisions taken on my recommendation
+
+<!-- Every reversible choice the agent proceeded on inside the approved plan or
+     tier oracle (claude-core.md, *A reversible choice proceeds*): one line each
+     — the choice, the recommendation taken, and the commit that would undo it.
+     Write `none` when there were none. /maintenance counts these, and how many
+     David reversed. -->
+
+none
+
 ## Verification
 
 <!-- Exact commands run + results. Separate valid failures from environment/

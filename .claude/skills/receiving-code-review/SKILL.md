@@ -27,7 +27,12 @@ that governs approvals, publication, credentials or destructive operations is
 weighed on those consequences and its recoverability, whatever directory it
 sits in**, and that can put it outside the limit — the question is what this
 change does, not what the file is for. Outside it, the loop is bounded by the
-Worth rule per finding instead. This block said "on internal
+Worth rule per finding instead. **And "ask before assuming" below is read
+with the fleet's ask/decide boundary** (2026-10-11): a finding whose intent
+is unclear about what the product should do stops for David; a technical
+reading that is mine to recommend and a corrective commit would undo
+proceeds on the recommendation and is reported, never asked
+([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)). This block said "on internal
 tooling" flat until 2026-09-23, which is the limit's convenient default read
 as its scope. Two upstream
 habits are therefore wrong here: fixing findings one at a time as they arrive

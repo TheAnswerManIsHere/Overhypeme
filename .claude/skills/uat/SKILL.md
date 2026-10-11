@@ -173,9 +173,12 @@ applies, and I file it before he sees the first human step. **He sees the
 machine block, then only the human steps** — so the preview says both counts
 ("9 machine-lane checks, all passed; 3 steps for you").
 
-**One step per turn.** What to do, what to expect, nothing else. Not the
+**One step per turn.** What to do, what to expect, nothing else — not the
 next step, not the section after, not the reasoning behind the expectation
-unless he asks. He is clicking, not reading.
+unless he asks, and not a spend line: a walkthrough turn is exempt from the
+per-turn spend report, and the run's total goes in the end-of-run hand-back
+(`claude-core.md`, *A reversible choice proceeds, and every turn reports its
+spend*). He is clicking, not reading.
 
 **"Yes" advances.** Any short affirmative — yes, y, ok, next, worked — is a
 Pass; I record it and move on without commentary. Anything else is a real
@@ -457,7 +460,8 @@ Then, in one edit:
   later" is not a reason; a re-run of a merged PR's UAT is written fresh
   from current behavior, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next, and that the doc is gone.
+  he can do next, that the doc is gone — and, last, the run's spend across its
+  walkthrough turns, which carried none of their own.
 
 ## Notification discipline during a run (David, 2026-08-21)
 

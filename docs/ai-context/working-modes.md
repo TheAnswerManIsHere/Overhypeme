@@ -32,8 +32,10 @@ The full workflow for building or changing product functionality. In this mode:
    phase** (*The prototype phase, per feature*, below) keeps this step for its
    **first version** — a short plan, Astra's review, his approval — and drops
    it for every later version unless he asks for the loop in words; of steps
-   3 to 5 it keeps only the usable surface: no tests, no doc updates as a
-   bar, and a PR only in the regime that opens one (David, 2026-09-28).
+   3 to 5 it keeps the usable surface and the machine-lane checks that prove
+   it works, scaled to a prototype (*What prototype phase keeps of
+   verification*, below); no doc updates as a bar, and a PR only in the
+   regime that opens one (David, 2026-09-28 and 2026-10-10).
 3. **Build it fully, end to end** (backend + the UI surface to exercise it + tests
    + any doc updates).
 4. **Tests prove the general invariant**, not just the reported example.
@@ -736,7 +738,7 @@ never infers the ask. A UI or UX fix on a prototype is one of those versions.
 
 **What prototype phase removes.** For a PR that touches only prototype-phase
 features: no code-review loop of any kind (no requested Codex round, no
-shared judgement, no translation), no tests, no `/simplify`, and none of
+shared judgement, no translation), no `/simplify`, no UAT doc, and none of
 security, performance, observability or documentation as a bar — *"We must
 not care about security, performance, observability, documentation, etc.
 until we've locked a design and the feature spec."* and *"I don't care about
@@ -751,7 +753,9 @@ by the same agent in the same turn, on green CI. Codex's automatic pass on PR-op
 **read for nothing**: each of its threads is resolved with one line naming
 this phase, and no finding on a prototype-phase feature starts a fix. **Once
 the first version is approved, the only feedback that changes a prototype is
-the product owner's**, about how it feels to use, gathered the way the
+the product owner's** — once a version has reached him; before that, the
+agent's own failing machine check is repaired by the agent (*What prototype
+phase keeps of verification*, below) — about how it feels to use, gathered the way the
 `prototype` skill describes — and a defect he reports on it, a UI or UX fix
 included, is the next version through that skill, never a bugfix and never
 code-reviewed: bugfix mode is for already-agreed behaviour, and nothing about
@@ -760,6 +764,44 @@ is never part of this**: the agent merges to `main` and stops; David decides
 every publish (*"I'm the one who will decide when we publish"*), tests in the
 development environment himself, and hands the link to the user when he is
 ready.
+
+**What prototype phase keeps of verification: the machine lanes, scaled**
+(David, 2026-10-10). The 2026-09-28 reading took tests out of a prototype
+with the review loop, and the cost showed the day a DojoOS session handed
+David a list of manual steps to click through: *"Here's a good example of
+what I want to avoid. I want as much testing as is required to prove that
+what we're building works to be automated. Same lanes as we'll have in
+production, but scaled to be appropriate for prototyping."* So a prototype
+version carries the three machine lanes
+[`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)
+defines — `ci`, `scripted` and `live` — at a prototype's depth: the happy
+path and the states the design question turns on, not edge cases, security
+or performance. `ci` and `scripted` run before the merge like any check. A
+`live` check is the read-only proof a claim that depends on the deployed
+environment or a real vendor needs, and it runs where that environment is:
+in the branch regime, after the push, against the prototype environment that
+tracks the branch; in the `main` regime, after the merge's sync, in the
+close-out slot post-merge verification already holds — in both, **before the
+owner is asked for feedback**, so a failing one is a version that is not yet
+ready, said so in the report, and the owner is not yet asked. **A failing
+machine check is repaired by the agent, before the owner is asked**: a
+further commit of the same version at prototype depth — in the `main` regime a
+further same-turn PR, merged the same way and synced; in the branch regime a
+further push — then the lanes run again, and the owner is asked only when
+they pass. That repair is the one change to a prototype that is not the
+owner's feedback, and it is authorised because the version has not reached
+him yet: *only the owner's feedback changes a prototype* (above) is about a
+version he has been asked about. They are the
+agent's proof that the version works; they are not a review bar, and no
+failing check starts a hardening fix — the repair is to the prototype, at
+its depth, never a production-bar fix. **The human lane is the owner's feedback through the rail,
+never a UAT script**: a prototype ships no UAT doc, and David's time goes to
+the question the prototype asks and to nothing a machine could answer
+(*"minimize my testing time while giving you as much autonomy as
+possible"*). The checks are throwaway with the prototype — the flip's
+hardening PR keeps or rewrites them under the standard loop — and *"no
+tests"* in a vendored prototype technique (the `prototype` skill's upstream
+body) is read as "no test as a bar", not as a ban.
 
 **What it does not remove of the disclosure rules.** The questions file
 and the ledger are prose that reaches a public branch, the way a plan once
@@ -906,7 +948,9 @@ feature is in:
   by merge whenever it needs newer product code, never by rebase. At the flip, the hardening PR onto `main`
   is a port through the standard loop with the branch as its reference,
   which is what "a prototype is never promoted" already meant. CI still
-  runs on the branch so the environment builds; it blocks nothing — and a
+  runs on the branch so the environment builds; it gates no merge, since there
+  is none, while the version's scaled machine lanes still decide whether it is
+  ready for the owner (*What prototype phase keeps of verification*, above) — and a
   branch that opens no PR fires no pull-request run, so the consumer's
   workflow needs a push trigger on `prototype/**`, added when the tester
   tier is declared (a worker on #168 run 10 read the memory note on stacked
@@ -1634,6 +1678,11 @@ reported symptom disappear while breaking an adjacent behavior nobody wrote down
 Feature mode solves this by pasting the approved plan into the PR body as the
 reviewer's oracle. **A bug fix has no plan, so it needs its own oracle** — and
 "n/a — no plan" leaves the reviewer checking the diff against nothing but itself.
+That oracle is also the plan for *A reversible choice proceeds on the
+recommendation* ([`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10);
+David, 2026-10-11): a reversible technical choice inside a Tier A or B fix
+proceeds on the agent's recommendation and is listed under the PR body's
+**Decisions taken on my recommendation**, like any PR's.
 
 **This section covers the Tier A/B oracle.** A trivial Tier C schema fix uses a
 different, dedicated block (symptom, root cause, why it's trivial, David's

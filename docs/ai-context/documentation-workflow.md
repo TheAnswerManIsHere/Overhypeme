@@ -349,8 +349,10 @@ ceremony, not just Claude's enactment of it:
   product question surfaced during harvest goes into the report (and possibly
   the roadmap's "Open product questions") — it is not silently settled into
   `decisions.md`.
-- It does not replace the in-build habits (pause-and-ask during the build; the
-  running working-notes doc). `/document` is the backstop and the fold-in.
+- It does not replace the in-build habits (pause-and-ask on product ambiguity
+  during the build — a reversible technical choice proceeds and is reported,
+  [`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10);
+  the running working-notes doc). `/document` is the backstop and the fold-in.
 - **Docs-only.** If harvesting reveals a *code* problem, that's a report item
   for David (bugfix mode or new feature work) — never a drive-by code change
   inside a `/document` run.
