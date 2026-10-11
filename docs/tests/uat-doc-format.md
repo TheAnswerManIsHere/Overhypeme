@@ -215,8 +215,12 @@ the same non-issue twice.
 
 ## Who writes one
 
-`pr-docs` — every feature-mode PR with product-visible behavior, PR-first, on
-the same PR before merge, with the checks for its machine-lane steps written
+`pr-docs` — every feature-mode PR with product-visible behavior **in
+production phase** (a prototype-phase version ships no UAT doc; its scaled
+machine lanes and the owner's feedback are its verification —
+[`working-modes.md`](../ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
+*What prototype phase keeps of verification*), PR-first, on the same PR
+before merge, with the checks for its machine-lane steps written
 in that same PR. See [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md).
 `/uat` **consumes** this format and never authors it.
 

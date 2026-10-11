@@ -222,7 +222,9 @@ An abandoned subscription is worse than none, because it looks like coverage.
 
 Then report: the issue written, the prompt, and the one-line verdict from
 Step 1. This hands the turn back to David, so it carries a push notification
-per CLAUDE.md's notification rule.
+per CLAUDE.md's notification rule and ends with the turn's spend line
+(`claude-core.md`, *A reversible choice proceeds, and every turn reports its
+spend*).
 
 ## Model tier
 

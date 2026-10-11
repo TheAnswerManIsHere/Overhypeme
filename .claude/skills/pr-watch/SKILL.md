@@ -307,9 +307,13 @@ requires it.
       never David's approval. **When the action is `proceed`, the block is
       posted before the batch is pushed and carries, per finding, the class
       the finding belongs to and the sweep of that class** — every member
-      found, with the command that found them (`claude-core.md`, *Shared
-      judgement* item 6). The thread reply after the push cites this block and
-      names the commit; the sweep is stated once, here, not again there.
+      found, with the command that found them — or, where the class is design
+      judgement or naming and no command can enumerate it, saying so, as
+      `working-modes.md`'s class-sweep step 2 allows (`claude-core.md`,
+      *Shared judgement* item 6). The thread reply after the push cites this
+      block for the class and the pre-fix sweep, names the commit, and carries
+      the post-fix re-run of the oracle to zero, which the block cannot hold
+      because it is posted before the batch is written (class-sweep step 3).
 
    **Sign-in before the first dispatch, not mid-round.** `$CODEX_BIN login
    status` decides; the steps are in `claude-core.md`'s *Astra* section, and the
@@ -464,7 +468,10 @@ requires it.
    - **A decline is recorded, not just replied to**: a row in the PR body's
      **Recorded gaps** table naming what ships unfixed and why, so the final
      round and David can see it in one place rather than inside a resolved
-     thread nobody re-reads.
+     thread nobody re-reads. The body's **Decisions taken on my
+     recommendation** section is the same device for the reversible choices
+     the build proceeded on without asking (`claude-core.md`, *A reversible
+     choice proceeds*); a round that adds one adds a line there.
 
 6. **Re-request review on the actual head.**
 
@@ -782,7 +789,10 @@ requires it.
    end*: re-verify live state with a fresh `pull_request_read` — not cached
    green — then squash-merge, check the Repl for its own commits and then sync and verify it (close-out step 3), execute the
    Post-merge verification section, post the harvest-notes comment, and send
-   the merge report with both SHAs, the latitude line and the UAT handoff.
+   the merge report with both SHAs, the latitude line, the PR's **Decisions
+   taken on my recommendation** entries, the UAT handoff and, as its last
+   line, the turn's spend (`claude-core.md`, *A reversible choice proceeds,
+   and every turn reports its spend*).
    **No readiness receipt is minted or quoted**: `pr-ready.mjs` is gone, and
    the four-item bar is read by eye.
 

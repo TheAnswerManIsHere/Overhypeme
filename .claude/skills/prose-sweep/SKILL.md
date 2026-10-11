@@ -101,9 +101,10 @@ assigned is re-dispatched on that file, not trusted.
 
 ## 5. Record, then sweep the batch
 
-The PR body carries: the spec as swept; the inventory (files, mode per file,
-per worker); what was fixed with `path:line`; what was declined and under
-which exclusion; and any shape a reader added. That record is what the next
+The PR body carries, beside the sections every PR body owes
+(`claude-core.md`, *Pull requests* rule 3): the spec as swept; the inventory
+(files, mode per file, per worker); what was fixed with `path:line`; what was
+declined and under which exclusion; and any shape a reader added. That record is what the next
 sweep re-runs instead of re-inventing.
 
 Then run steps 2–4 again over the fixes, with the spec **as amended** — a

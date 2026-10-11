@@ -24,7 +24,12 @@ has a plan too, but it is built without Codex or any code review, so this
 flow is never used for it —
 [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)), and a reviewer subagent per trivial task
 is pure overhead. Full rules: CLAUDE.md →
-*Subagent delegation is capped*.
+*Subagent delegation is capped*. **A dispatched implementer's "STOP and
+escalate" reaches me, not David** (2026-10-11): a technical escalation —
+multiple valid approaches, uncertainty about an approach — is a reversible
+choice I settle on my recommendation and record, under
+[`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10);
+only product or plan ambiguity is relayed to him.
 
 **Narration:** between tool calls, narrate at most one short line — the
 ledger and the tool results carry the record.

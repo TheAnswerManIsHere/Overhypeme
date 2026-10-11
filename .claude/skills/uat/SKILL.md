@@ -173,9 +173,20 @@ applies, and I file it before he sees the first human step. **He sees the
 machine block, then only the human steps** — so the preview says both counts
 ("9 machine-lane checks, all passed; 3 steps for you").
 
-**One step per turn.** What to do, what to expect, nothing else. Not the
+**One step per turn.** What to do, what to expect, nothing else — not the
 next step, not the section after, not the reasoning behind the expectation
-unless he asks. He is clicking, not reading.
+unless he asks, and not a spend line: a walkthrough turn is exempt from the
+per-turn spend report, and the run's total goes in the end-of-run hand-back
+(`claude-core.md`, *A reversible choice proceeds, and every turn reports its
+spend*). He is clicking, not reading. **The total survives a pause because
+the run record carries it** (section 5, `Spend so far`): at every write of
+the record I add the walkthrough turns since the last write — their
+wall-clock from `date -u` at first and last tool call, and the harness's
+`<total_tokens>` differenced — so a session that resumes the run starts
+from the recorded figure rather than from a counter that holds none of the
+earlier session's tokens, and the hand-back reports the recorded figure
+plus the current segment, converted with `token-pricing.md` (Codex,
+Overhype.me #639).
 
 **"Yes" advances.** Any short affirmative — yes, y, ok, next, worked — is a
 Pass; I record it and move on without commentary. Anything else is a real
@@ -350,6 +361,7 @@ have no reliable way to tell which is current.
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
+**Spend so far:** 23 min · 41,200 tokens (Opus, $6/M proxy, $0.25) over 5 walkthrough turns
 **Resume at:** step 4 (4 of 6 remaining, R1–R2 included)
 ```
 
@@ -457,7 +469,10 @@ Then, in one edit:
   later" is not a reason; a re-run of a merged PR's UAT is written fresh
   from current behavior, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next, and that the doc is gone.
+  he can do next, that the doc is gone — and, last, the run's spend across its
+  walkthrough turns, which carried none of their own: the record's `Spend so
+  far` plus the turns since its last write, so a run resumed in a fresh
+  session reports the whole run, not the segment the current counter saw.
 
 ## Notification discipline during a run (David, 2026-08-21)
 

@@ -7,6 +7,13 @@ description: Use when you have a written implementation plan to execute in a sep
 
 # Executing Plans
 
+> **Local note (AI-Handbook, 2026-10-11).** Read "stop and ask" below with the
+> fleet's ask/decide boundary: an instruction unclear about *what the product
+> should do* is plan ambiguity and stops for David; a technical choice that is
+> yours to recommend and a corrective commit would undo proceeds on the
+> recommendation and is reported, never asked
+> ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)). Upstream text below is untouched.
+
 ## Overview
 
 Load plan, review critically, execute all tasks, report when complete.

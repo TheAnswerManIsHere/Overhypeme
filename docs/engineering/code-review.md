@@ -25,7 +25,11 @@ as the [planning contract](../ai-context/planning-contract.md#2-turn-agreed-inte
 For a PR built from a David-approved plan, the PR body's **Approved-plan
 oracle** section (see the
 [PR template](../../.github/pull_request_template.md)) carries that plan's
-Product Intent / Must Not Change / Settled Decisions verbatim. Check the code
+Product Intent / Must Not Change / Settled Decisions verbatim, and its
+**Decisions taken on my recommendation** section lists the reversible choices
+the builder proceeded on without asking
+([`agent-working-rules.md`](../ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10))
+— read it, since each is a choice nobody else has weighed yet. Check the code
 against that, not only against internal consistency: does it implement
 everything the intent called for, does it touch anything the plan marked
 must-not-change, does it match the settled decisions rather than a plausible
@@ -83,7 +87,12 @@ So a bugfix PR carries its own oracle in the same body section — see
 The tier **letter** is named on the body's `Oracle source:` line
 (`claude-core.md` Pull requests rule 4), and the oracle carries the **reason**
 for it — **Tier rationale**, required for A, B and C alike — because that is
-the half a reviewer argues with.
+the half a reviewer argues with. That oracle is also the plan for *A
+reversible choice proceeds on the recommendation*
+([`agent-working-rules.md`](../ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10);
+David, 2026-10-11), so a Tier A or B body carries the **Decisions taken on my
+recommendation** section like any PR's, and a reviewer reads the reversible
+choices the fix proceeded on there.
 
 **This field list is for a Tier A/B PR**: **Tier rationale**, **Reported
 symptom** (David's words, verbatim), **Intended correct behavior**, **Must not

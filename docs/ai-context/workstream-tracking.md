@@ -164,7 +164,8 @@ and until a version David can use exists, the agent is the
 holder. It moves to `waiting:david` when a usable version is delivered (on
 `main`, or on the prototype environment) and back to `waiting:claude` when
 his feedback starts another revision, so the board asks him to act only
-while there is something to act on. Its issue names the questions file and,
+while there is something to act on (a machine check that fails before
+delivery is repaired by the agent under `waiting:claude`, and no label moves). Its issue names the questions file and,
 in the branch regime, the `prototype/<feature>` branch; its PR, where one
 exists, carries `Workstream: #N` like any other; no `stage:code-review` ever
 follows, because no code-review loop runs on any version. **The flip is a relabel of the same issue,
@@ -314,6 +315,10 @@ of the workstream issue's body, with these fields:
   stage name alone (the same accuracy bar `/status-all` applies). If nothing's
   blocking, say so.
 - **What you need to do** — the concrete next action, or "nothing right now."
+- **Decisions taken on recommendation** — one line per reversible choice the
+  agent proceeded on without asking, with the way back
+  ([`agent-working-rules.md`](./agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10));
+  omitted when there are none.
 - **Artifacts** — PR numbers, branch names, key file paths, the Project link.
 - **To resume** — the literal instruction for picking this back up: which
   branch/session to open, what to ask for, which model tier fits.
@@ -326,8 +331,11 @@ skills that own label transitions
 own keeping this block current at those same trigger points. There is no
 separate maintainer beyond those six **for label-driven updates**.
 
-**Exactly two writers update this block without any label change:
-`/handoff` and `/uat`.** `/handoff`
+**Three writers update this block without any label change: `/handoff`,
+`/uat`, and whichever skill is building, for the *Decisions taken on
+recommendation* line, written at the moment the choice is taken
+([`agent-working-rules.md`](./agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).**
+`/handoff`
 (`.claude/skills/handoff/SKILL.md`, Claude-only): when a session's context is
 moved to a fresh session, the narrative changes while `stage:` and `waiting:`
 deliberately do not — the holder is `claude` before and after, and a handoff

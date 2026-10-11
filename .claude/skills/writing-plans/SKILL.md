@@ -16,6 +16,13 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 > The header, task structure and TDD steps below are for a production-phase
 > plan and do not apply to that short plan; `.agents/PLANS.md` says what it
 > contains and which Preflight check it runs.
+> The *Execution Handoff* at the end asks which execution approach to use;
+> here that is my own reversible choice, never asked, and chosen from the
+> plan's task shape rather than from the menu's fixed "(recommended)" label:
+> subagent-driven only for a plan of substantial, independent tasks; inline
+> for one of small or sequential edits (`subagent-driven-development`'s local
+> calibration and the core's *Subagent delegation is capped*). The choice is
+> reported like any other ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10), 2026-10-11).
 
 ## Overview
 

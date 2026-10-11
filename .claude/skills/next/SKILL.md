@@ -67,7 +67,8 @@ cost, and routing*), which is what keeps them there:
 **If the session is already on Fable, do them inline. Otherwise dispatch a
 Fable subagent for those steps only** — per the `model-routing` skill's
 subagent routing, no model switch asked of David, and scoped tightly
-because Fable costs 2× Opus. Say in the report which tier produced the
+because Fable costs a multiple of Opus (the rates are in
+[`token-pricing.md`](../../../docs/ai-context/token-pricing.md)). Say in the report which tier produced the
 recommendation. Everything else stays in the main loop; this is a named
 exception to the delegation cap in CLAUDE.md, not license to fan out.
 

@@ -151,7 +151,11 @@ Modification status:
   title of `brainstorming/SKILL.md` and `test-driven-development/SKILL.md`,
   saying a prototype-phase feature does not pass their gates (corrected by
   #173: a first version passes brainstorming's, as its pre-plan
-  conversation; tests stay removed), and one under
+  conversation; and on 2026-10-10 tests stay removed only as a bar — a
+  prototype keeps its machine lanes, scaled — which the 2026-10-11 sweep
+  also wrote into `prototype/SKILL.md`'s Local adaptations for rule 4, into
+  the top-of-file notes of `prototype/LOGIC.md` and `prototype/UI.md`, and
+  into `systematic-debugging/SKILL.md`'s note), and one under
   `using-superpowers/SKILL.md`'s subagent stop saying its phrase router
   runs after the registry read, and one under `systematic-debugging/SKILL.md`'s
   title, whose own description is a trigger the router note cannot reach,
@@ -159,6 +163,15 @@ Modification status:
   text below each note is untouched. #168's round-6 sweep added one more
   under `finishing-a-development-branch/SKILL.md`'s title, since its
   "exactly 4 options" menu has no option a prototype branch can take.
+  The 2026-10-11 reversible-choice sweep added a note reading each skill's
+  "stop and ask" as the fleet's ask/decide boundary under the titles of
+  `executing-plans`, `using-git-worktrees`, `writing-plans` (its Execution
+  Handoff) and `finishing-a-development-branch` (its menu), and the same
+  sentence inside the existing notes of `receiving-code-review` and
+  `test-driven-development`, and in `subagent-driven-development`'s
+  calibration block for its implementer prompt's escalations;
+  `systematic-debugging`'s three-failed-fixes stop was left as an ask, and
+  its note now says so, since a design flaw after three fixes is Tier C.
 - `grill-me/SKILL.md` — **no longer verbatim as of PR #545**: body changed
   from `Run a `/grilling` session.` to upstream's exact delegation form,
   `Call the Skill tool with "grilling".` (it had pointed at a skill that was

@@ -48,6 +48,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  * its plans and its subsystem docs, none of which the payload owns.
  */
 export const PAYLOAD_ROOTS = [".agents/", ".claude/", "docs/ai-context/", "docs/engineering/"];
+/**
+ * Single payload files under a directory the payload shares with the consumer.
+ * `docs/tests/` holds the shipped UAT format beside a consumer's own TESTING.md
+ * and every product UAT doc; a root there would fan cold readers across a
+ * product's whole acceptance corpus (Codex, #194 round 2).
+ */
+export const PAYLOAD_FILES = ["docs/tests/uat-doc-format.md"];
 /** Directories a docs-shaped scope misses and this one must not (prose-sweep.md, *Scope*). */
 export const ALWAYS_IN_SCOPE = [".agents/roles/", ".claude/agents/", ".agents/memory/"];
 /** Repo-root files that describe the payload and carry its claims. */
@@ -122,7 +129,7 @@ export function scopeFiles(root, { include = [] } = {}) {
   const prefix = payloadPrefix(root);
   const markdown = trackedMarkdown(root);
   const everything = include.length ? trackedAll(root) : markdown;
-  const inPayload = (f) => PAYLOAD_ROOTS.some((r) => f.startsWith(prefix + r));
+  const inPayload = (f) => PAYLOAD_ROOTS.some((r) => f.startsWith(prefix + r)) || PAYLOAD_FILES.some((p) => f === prefix + p);
   const isRoot = (f) => ROOT_FILES.includes(f);
   const extra = include.map((g) => {
     const re = globToRegExp(g.replace(/^\.\//, ""));

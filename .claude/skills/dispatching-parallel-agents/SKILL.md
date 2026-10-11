@@ -35,8 +35,10 @@ calls to do directly?** If no, do it yourself.
   when the subagent reports back.
 - **Never more than 20 parallel subagents** unless David explicitly asks.
 - **Say what you're doing.** Announce a dispatch and why — especially a subagent
-  pinned to a more expensive model (`fable`), which spends at double the Opus
-  rate with no action from David. See the `model-routing` skill → *Reaching
+  pinned to a more expensive model (`fable`), which spends at a multiple of the
+  Opus rate — the figures are in
+  [`token-pricing.md`](../../../docs/ai-context/token-pricing.md) — with no action
+  from David. See the `model-routing` skill → *Reaching
   Fable 5 without a session switch*.
 
 ## When to Use

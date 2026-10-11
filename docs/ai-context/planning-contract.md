@@ -30,9 +30,11 @@ design. **A plan for a feature in prototype phase** — its first version's, or
 a later version's David asked a loop for — is a short plan by rule: the design
 question it exists to answer, the hypothesis it tries, the surface it shows and
 what it leaves out are the whole plan, and tests, security, performance,
-observability and documentation are not bars on it; assess it for whether it
-will answer its question, not for production shape
-(`working-modes.md`, *The prototype phase, per feature*).
+observability and documentation are not bars on it — the version still
+carries the machine-lane checks that prove its surface works, scaled; assess
+it for whether it will answer its question, not for production shape
+(`working-modes.md`, *The prototype phase, per feature* and *What prototype
+phase keeps of verification*).
 
 **Treat your counterpart as a peer.** Challenge unsupported assumptions,
 identify missing requirements or affected paths, and propose concrete

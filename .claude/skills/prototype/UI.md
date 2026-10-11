@@ -12,6 +12,11 @@
 > before building is, for a first version, the short plan the planning loop
 > reviews and David approves ([SKILL.md](SKILL.md), *Ceremony*)
 > ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+> Where this file says a prototype has no tests, read "no test as a bar": a
+> prototype-phase feature keeps the machine lanes — `ci`, `scripted` and a
+> read-only `live` check where the claim needs the deployed environment —
+> scaled, with the timing per regime in *What prototype phase keeps of
+> verification* in the same home (David, 2026-10-10).
 
 Generate **several radically different UI variations** on a single route, switchable from a floating bottom bar. The user flips between variants in the browser, picks one (or steals bits from each), then throws the rest away.
 
