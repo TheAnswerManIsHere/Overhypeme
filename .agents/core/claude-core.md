@@ -99,8 +99,8 @@ where I put it and treat it as binding.
 1. **David never runs CLI/shell commands.** Anything needing a command goes in
    the PR's Post-merge verification section and runs through the Replit
    connector at close-out — never a chat instruction to him. A prototype-phase
-   PR has no such section, so a command its environment needs runs through
-   the connector at its sync, under the same rule.
+   PR's section carries only its version's `live` check, run through the
+   connector after the merge's sync, under the same rule.
 2. **David never reads diffs or commits.** Checkpoints are product intent, real
    decisions, or a testable surface — never code milestones. I never offer or
    pause for code review by him.
@@ -267,7 +267,11 @@ scope and new increments are David's, every time. My enactment (David,
    across the turn; wall-clock is a `date -u` read at the turn's first and
    last tool call (differencing against the previous turn would count
    David's idle time); subagent tokens are the harness's task-notification
-   usage field. **A figure I have no reading for — a turn with no tool call,
+   usage field. **Both readings stop at the last tool call**, so the tail
+   — reading that result and writing the hand-back — is in neither, and
+   lands in the next tool-using turn's difference or, on the last turn, in
+   none; the line carries the label `through last tool call` rather
+   than presenting a partial figure as the turn's total (Codex, DojoOS #8). **A figure I have no reading for — a turn with no tool call,
    a harness that prints no count — is `unable to verify`, never estimated**:
    these are the numbers he sets a cap from and cannot check. No ledger; the
    harness's running count is the source. **Where it sits**:
@@ -276,7 +280,8 @@ scope and new increments are David's, every time. My enactment (David,
    keeps the ask last and the spend line sits directly above it; a turn that
    writes nothing (rule 9's webhook echo, a silent wake) owes no spend line,
    since nothing was handed back, and a `/uat` walkthrough turn carries none
-   either — the run's total goes in its end-of-run hand-back (the `uat`
+   either — the run's total goes in its end-of-run hand-back, accumulated
+   in the run record so a resumed run reports the whole run (the `uat`
    skill). He sets a per-turn cap from these once he
    has a feel, and from then the cap is on the irreversible list.
 3. **A reversal of his is a corrective commit and an override record**
@@ -1020,8 +1025,9 @@ design. Mechanics:
    the #89 cut, and its fixed grammar forced a false declaration on work
    agreed in conversation with no plan file, #110.)
 5. **Post-merge verification + UAT doc** for product-visible feature PRs in
-   production phase — a prototype-phase PR ships neither, its scaled machine
-   lanes and its feedback rail are its verification — per the `pr-docs` skill and
+   production phase — a prototype-phase PR ships no UAT doc, its Post-merge
+   verification section carries only its version's `live` check, and its
+   scaled machine lanes and feedback rail are its verification — per the `pr-docs` skill and
    [`test-run-contract.md`](../../docs/tests/test-run-contract.md). The PR is not done
    until the verification section has real content (or an explicit "none
    needed") and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` exists and is linked —

@@ -223,8 +223,11 @@ stored records. From the merged-PR list for the window:
 
 - **Decisions taken on recommendation, and reversals** (David, 2026-10-10).
   Count the entries under **Decisions taken on my recommendation** in the
-  window's merged PR bodies, and how many David reversed afterwards (a
-  corrective commit or an override entry naming one). Two numbers, reported
+  window's merged PR bodies — plus, for a branch-regime prototype, which
+  opens no PR, the decision lines in its workstream issue's State of Play,
+  deduplicated against any later hardening PR that restates them — and how
+  many David reversed afterwards (a corrective commit or an override entry
+  naming one). Two numbers, reported
   together: a high reversal rate says the reversible default is proceeding
   on choices that were his; a zero over many decisions says the asks that
   remain may be ones the rule could already take. He tunes the rule and sets

@@ -73,8 +73,16 @@ assumption the line rests on, not a reading).
 | Main loop on Fable, Fable assessor, round translator | Claude Fable 5.1 | $15 |
 | Main loop on Opus, a build session | Claude Opus 5.5 | $6 |
 | Sonnet subagents (sweep readers, investigations) | Claude Sonnet 5.5 | $3 |
-| Haiku subagents | Claude Haiku 5.5 | $0.15 |
+| Haiku subagents, dispatch reported at 100,000 tokens or fewer | Claude Haiku 5.5 | $0.15 |
+| Haiku subagents, dispatch reported above 100,000 tokens | Claude Haiku 5.5 | $0.75 |
 | Astra (Codex CLI) | `gpt-6-astra` | $15 |
+
+Haiku has two list tiers, by prompt length, and the harness reports one
+total per dispatch with no prompt/output split — so the total is the
+stand-in: a Haiku dispatch whose reported usage exceeds 100,000 tokens is
+priced at the long-context row for all of its tokens. That overstates a
+dispatch that crossed the line late and never understates one, which is the
+side to err on for a figure a cap is set from (Codex, Overhype.me #639).
 
 A spend line names the rate it used (`proxy $15/M Fable`) so the reader can
 re-derive the figure when this table moves. The proxy rule above changes only
