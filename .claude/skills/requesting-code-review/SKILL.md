@@ -125,9 +125,11 @@ reaches a pull request; it does not cap the per-task reviews here.*
 - Ignore Critical issues
 - Proceed with unfixed Important issues — *except an **acceptable
   imperfection** left after the pull-request loop's cap, which is a recorded
-  gap. A head that still violates an agreed requirement, fails a required
-  check, or carries consequential harm David has not accepted does not merge:
-  it goes to him with the shortfall and a choice*
+  gap — the shared judgement decides record-the-gap or ask-David-to-reopen,
+  per the limit's step 3 in the section the calibration block cites. A head
+  that still violates an agreed requirement, fails a required check, or
+  carries consequential harm David has not accepted does not merge: it goes
+  to him with the shortfall and a choice*
 - Argue with valid technical feedback
 
 **If reviewer wrong:**

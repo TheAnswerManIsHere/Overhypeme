@@ -987,7 +987,19 @@ David. The sequence:
    worth acting on, together, with targeted verification of the failure classes
    involved rather than of the reviewer's examples.
 3. **Review the corrected head.** Acceptable imperfections become recorded
-   gaps; worthwhile deferred work becomes an issue.
+   gaps; worthwhile deferred work becomes an issue. **A recommendation to
+   write at this step is not itself a question for David** (David,
+   2026-10-10): the shared judgement — both assessors, with the Fable
+   assessor's tie-break on a technical split that survives — decides between
+   recording the gap and asking David to reopen, and only the three
+   shortfalls named below, or that judgement concluding a write is worth his
+   reopening, bring it to him. A gap reachable nowhere the work runs today
+   is ordinarily a recorded gap; whether it would be consequential harm once
+   the work does run there is the third shortfall's question, and that one
+   is still his. (Overhype.me #637 is the measurement: round two's one real
+   finding was reachable nowhere the journey ran, both assessors said so, and
+   their split on *when* to fix it — a timing judgement the tie-break exists
+   for — went to David as a question beside the one that was his.)
 4. **Autonomous iteration ends there.**
 
 **A cap on further EDITING is not an exemption from REVIEWING what was edited**
@@ -1038,7 +1050,8 @@ round 7. At that same head, the private-plan ignore file did not ship to
 consumers, so a plan could sit unignored and an intervening `git add -A` could
 publish it. Both are real defects that a two-review limit would not have
 surfaced inside that loop. Neither is an argument against the limit — the
-second is an argument for step 4's *shortfall* branch, which is what a
+second is an argument for the *shortfall* branch ("What ending iteration does
+NOT mean", above), which is what a
 disclosure failure is — but the trade is real and is recorded here rather than
 discovered later. (Astra reproduced both against the historical code,
 2026-09-19.)
