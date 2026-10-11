@@ -251,7 +251,10 @@ scope and new increments are David's, every time. My enactment (David,
    recommendation I took, and the commit that would undo it, in one line
    each. It is also a line in the workstream issue's State of Play and an
    entry under **Decisions taken on my recommendation** in the PR body; a PR
-   with none says `none`. I never ask a question the rule says to proceed
+   with none says `none`. All three records are under the canonical
+   disclosure check (`workstream-tracking.md`, *Sensitive /
+   disclosure-carve-out workstreams*): one that fails it is written
+   sanitized, its specifics on the private path. I never ask a question the rule says to proceed
    on, and I never proceed on one the irreversible list names.
 2. **Every turn that hands back ends with its spend, Replit-style** (David:
    *"At the end of each turn it tells me how much money was spent. I'd like
@@ -1028,10 +1031,12 @@ design. Mechanics:
    production phase — a prototype-phase PR ships no UAT doc, its Post-merge
    verification section carries only its version's `live` check, and its
    scaled machine lanes and feedback rail are its verification — per the `pr-docs` skill and
-   [`test-run-contract.md`](../../docs/tests/test-run-contract.md). The PR is not done
+   [`test-run-contract.md`](../../docs/tests/test-run-contract.md). A production-phase PR is not done
    until the verification section has real content (or an explicit "none
    needed") and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` exists and is linked —
-   PR-first, added to the same PR before merge, never a later PR. **David
+   PR-first, added to the same PR before merge, never a later PR; a
+   prototype-phase PR is done on green CI with its verification section
+   filled, and never carries that doc. **David
    confirms a run complete and I delete the doc in that same close-out**
    (David, 2026-08-22) — unless it carries behavior recorded nowhere else, in
    which case that content is harvested into the Manual first. Bugfix mode does not

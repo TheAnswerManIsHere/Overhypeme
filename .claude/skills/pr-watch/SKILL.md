@@ -471,7 +471,9 @@ requires it.
      thread nobody re-reads. The body's **Decisions taken on my
      recommendation** section is the same device for the reversible choices
      the build proceeded on without asking (`claude-core.md`, *A reversible
-     choice proceeds*); a round that adds one adds a line there.
+     choice proceeds*); a round that adds one adds a line there, under the
+     canonical disclosure check like every record of one
+     (`workstream-tracking.md`, *Sensitive / disclosure-carve-out workstreams*).
 
 6. **Re-request review on the actual head.**
 

@@ -263,7 +263,9 @@ the PR back only delays the review that catches things.
    section every PR carries (`none` when there are none): a bugfix's tier
    oracle is the plan for *A reversible choice proceeds* (David, 2026-10-11;
    `agent-working-rules.md`), so a reversible technical choice inside a Tier
-   A or B fix proceeds on my recommendation and is listed there.
+   A or B fix proceeds on my recommendation and is listed there — under the
+   canonical disclosure check like every record of one (`workstream-tracking.md`,
+   *Sensitive / disclosure-carve-out workstreams*).
 
    **Tier A/B:**
    ````markdown

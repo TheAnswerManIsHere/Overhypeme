@@ -476,8 +476,9 @@ issue is the *only* spine this work has until an implementation PR exists. Do
 this at the scope gate, before the first label below is touched:
 
 0. **First ask whether this work may have a public issue at all.** Sensitive and
-   disclosure-carve-out work — an unpatched vulnerability, auth-bypass
-   specifics, payment-fraud paths, private customer data, embargoed work —
+   disclosure-carve-out work — anything the canonical disclosure check names
+   (`workstream-tracking.md`, *Sensitive / disclosure-carve-out workstreams*,
+   referenced here and never restated) —
    **never becomes a public issue**. It is a **private draft Project item**
    instead: create or reuse that, and skip steps 2 and 3 entirely.
 

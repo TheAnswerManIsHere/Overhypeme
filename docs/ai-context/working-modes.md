@@ -785,10 +785,12 @@ close-out slot post-merge verification already holds — in both, **before the
 owner is asked for feedback**, so a failing one is a version that is not yet
 ready, said so in the report, and the owner is not yet asked. **A failing
 machine check is repaired by the agent, before the owner is asked**: a
-further commit of the same version at prototype depth — in the `main` regime a
-further same-turn PR, merged the same way and synced; in the branch regime a
-further push — then the lanes run again, and the owner is asked only when
-they pass. That repair is the one change to a prototype that is not the
+further commit of the same version at prototype depth — a `ci` or `scripted`
+failure before the merge on the same PR, since that PR merges only on green;
+a `live` failure found after the merge's sync, in the `main` regime, as a
+further same-turn PR, merged the same way and synced; in the branch regime
+always a further push — then the lanes run again, and the owner is asked
+only when they pass (Codex, DojoOS #8). That repair is the one change to a prototype that is not the
 owner's feedback, and it is authorised because the version has not reached
 him yet: *only the owner's feedback changes a prototype* (above) is about a
 version he has been asked about. They are the
@@ -1682,7 +1684,10 @@ That oracle is also the plan for *A reversible choice proceeds on the
 recommendation* ([`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10);
 David, 2026-10-11): a reversible technical choice inside a Tier A or B fix
 proceeds on the agent's recommendation and is listed under the PR body's
-**Decisions taken on my recommendation**, like any PR's.
+**Decisions taken on my recommendation**, like any PR's — under the canonical
+disclosure check like every record of one (`workstream-tracking.md`,
+*Sensitive / disclosure-carve-out workstreams*), and never the regression test
+of step 3 above, which only that step's carve-out can waive.
 
 **This section covers the Tier A/B oracle.** A trivial Tier C schema fix uses a
 different, dedicated block (symptom, root cause, why it's trivial, David's

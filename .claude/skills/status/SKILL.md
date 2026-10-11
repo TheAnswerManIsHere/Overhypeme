@@ -48,8 +48,10 @@ Two rules that matter more than the table:
    `Workstream: #N` line in a PR this session opened; else the branch name
    matched against open issues. **Ambiguous → ask.** Nothing found and this is
    early Discovery → say so and offer to open the workstream issue (never
-   open one unasked; and if the work is security-sensitive, say "private
-   tracking only" and don't offer a public issue at all — this repo is public).
+   open one unasked; and if the work fails the canonical disclosure check
+   (`workstream-tracking.md`, *Sensitive / disclosure-carve-out workstreams*),
+   say "private tracking only" and don't offer a public issue at all — this
+   repo is public).
 
 2. **Read live state.** `issue_read` for labels and body; where a PR exists,
    one batched `pull_request_read` (`get` + `get_status` + `get_review_comments`).
