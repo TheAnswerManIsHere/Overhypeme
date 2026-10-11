@@ -304,7 +304,12 @@ requires it.
       (`proceed`, `investigate`, `follow-up`, `ask-david`, `conclude`) with the
       finding ids it covers. Nothing parses an assessment, so this block is
       what says what happens; there is no `merge` action and agent agreement is
-      never David's approval.
+      never David's approval. **When the action is `proceed`, the block is
+      posted before the batch is pushed and carries, per finding, the class
+      the finding belongs to and the sweep of that class** — every member
+      found, with the command that found them (`claude-core.md`, *Shared
+      judgement* item 6). The thread reply after the push cites this block and
+      names the commit; the sweep is stated once, here, not again there.
 
    **Sign-in before the first dispatch, not mid-round.** `$CODEX_BIN login
    status` decides; the steps are in `claude-core.md`'s *Astra* section, and the
@@ -392,7 +397,11 @@ requires it.
      consequential harm David has not accepted? **Any one of those and it does
      not merge** — the concrete shortfall goes to him with a choice: continue,
      cut the scope, or stop. **None of them and the round's remaining findings
-     are recorded gaps and follow-up issues**, and the pull request goes to
+     are the shared judgement's to settle, not his**: both assessors say
+     record-the-gap or ask-David-to-reopen, the Fable tie-break settles a
+     split, and only a judgement that a write is worth his reopening brings
+     it to him (the limit's step 3, same section). The usual outcome is
+     **recorded gaps and follow-up issues**, and the pull request goes to
      close-out like any other. **A follow-up issue is filed with its labels**:
      `gap` and the workstream's `mode:`, and **no `queue:` label** — so it
      stays out of `/next` until David has triaged it (David, 2026-09-28: a
@@ -806,16 +815,20 @@ tracking*), so it has no labels to keep):
 - **I post the next round's `@codex review` trigger** → `waiting:codex`.
 - **Intended behaviour or an accepted user-facing shortfall goes to David**
   (step 3.5 above — a purely technical fork is settled in the loop, never
-  escalated) → `waiting:david`; `stage:code-review` stays put — the stage
+  escalated), **or step 4 exits to him** — a shortfall under its three
+  questions, a review-loop PR after its second review, or an
+  ask-to-reopen the shared judgement concluded is worth his reopening →
+  `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
 - **The close-out bar is met** (CLAUDE.md's *Close-out*, all four items) →
   the ready bar is met and **I merge it myself per CLAUDE.md's close-out
   contract (David, 2026-08-15)** — re-verify live state, squash-merge, check and sync the Repl, verify, report — so `stage:merge` is normally a moment, not a resting
   state. There is no carve-out exception any more (David, 2026-09-14): a
   guardrail- or authority-widening PR merges the same way, with the latitude
-  it grants named in the report. The one PR that does not is a change to the
-  review loop still carrying findings after its second review, which step 4
-  sends to David.
+  it grants named in the report. The PRs that do not are the ones step 4
+  sends to David: a shortfall under its three questions, a change to the
+  review loop still carrying findings after its second review, and an
+  ask-to-reopen.
 - **The PR merges with a Post-merge verification section that has real
   content** → `stage:test-run`, `waiting:replit` — the lifecycle's own
   Test-run stage, between Merge and UAT, not a step to skip past. Per the

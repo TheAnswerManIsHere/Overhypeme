@@ -70,7 +70,14 @@ credentials or destructive operations on its consequence and recoverability —
 autonomous iteration ends at the **two-review limit**
 ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) — the head,
 one coherent batch of corrections, a review of that corrected head, and no
-more — and a `yes` only flips what a finding is worth by default. The
+more — and a `yes` only flips what a finding is worth by default. On that
+second review, a finding that is none of the limit's three shortfalls is
+yours and the other assessor's to settle — *record the gap* or *ask David to
+reopen* — and your tie-break applies to a split on it; say which you
+recommend rather than leaving a "write now" open for David to route. The one
+exception is a pull request that changes the review loop itself: after its
+second review its findings go to David to triage by hand (his ruling,
+2026-09-23), so there say what you would do and leave the routing to him. The
 write-gate rule answers a different question, what must be reviewed, so do not
 read it as the stop. Your
 self-report is **line 2**, exactly this line, filled in:

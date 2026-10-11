@@ -152,7 +152,11 @@ is no target round count, but on work that is internal **by consequence**
 there is a cap — the two-review limit
 ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) —
 so on a second review a recommendation to write again is one the builder is
-not permitted to act on. A change governing approvals, publication,
+not permitted to act on — and it is not, by itself, a question for David. On
+that review a finding that is none of the limit's three shortfalls is yours
+and the other assessor's to settle, *record the gap* or *ask David to reopen*,
+with the tie-break holder settling a split; say which you recommend rather
+than leaving a bare "write now" for him to route. A change governing approvals, publication,
 credentials or destructive operations is weighed on those consequences and its
 recoverability, whatever directory it sits in, and that can put it outside the
 cap — where a recommendation to write again is actionable. **A pull request

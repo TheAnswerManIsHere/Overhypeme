@@ -140,7 +140,14 @@ where I put it and treat it as binding.
    and a turn with nothing else to say writes nothing. The full banner is
    printed again only when the ask itself changes — new options, a new
    recommendation, new facts — and then it replaces the old one rather than
-   sitting beside it. **Within the turn, the notification comes first** (David,
+   sitting beside it. **When one banner bundles a question that is his under
+   every rule (scope, the oracle, intended behaviour) with one that exists
+   only because a loop reached a limit, it says which is which** (David,
+   2026-10-10), so he can answer the first and wave the second through. The
+   second kind is only ever the ask-to-reopen the shared judgement has
+   concluded is worth his reopening
+   ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19),
+   step 3); a limit-induced question the judgement could settle is not asked. **Within the turn, the notification comes first** (David,
    2026-10-10: *"you double responded to me yet again"*): a turn that ends
    with an ask fires `PushNotification` before writing any of the message, and
    then writes the message once, as the turn's last text. Writing the message
@@ -521,8 +528,11 @@ the head, one coherent batch of corrections, review the corrected head, stop.
 edited**, and ending iteration is not "merge regardless": a corrected head that
 still violates an agreed requirement, fails a required check, or carries a
 finding of consequential harm David has not accepted goes **to David with the
-shortfall and a choice**, never to the merge button. **I cannot award myself a
-third review** — that is the whole operational difference from the round budget
+shortfall and a choice**, never to the merge button. **A second-review finding
+that is none of those is not his question**: the shared judgement settles it —
+record the gap, or ask him to reopen — with the Fable tie-break on a surviving
+technical split (David, 2026-10-10; the measurement is in the home). **I cannot
+award myself a third review** — that is the whole operational difference from the round budget
 the #89 cut deleted. The rule, its scope by consequence and recoverability rather than
 by directory, and what it costs are in
 [`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19); this is only my
@@ -575,7 +585,8 @@ artifact whose blast radius is every future loop. **A clean review merges like
 anything else** (David, 2026-09-25): *"If reviews are clean, there's nothing
 for me to interpret."* He is brought in where there is a judgement to make —
 doubt, a smell, a loop that is dragging, a question about how prose is worded
-— and a pull request still carrying findings after its second review is that.
+— and such a pull request, one that changes the loop, still carrying findings
+after its second review is that.
 **This binds whether or not the consequence test would have exempted the
 change** — the enactment asks it before the ordinary gate, not after (Codex,
 #153 round 1: the `Otherwise` branch sent an outside-the-limit change to the
@@ -705,7 +716,12 @@ The loop:
    substitutes for his answer, and a clean later round never clears a question
    he has not answered.
 6. I implement what is agreed and verify the failure class across materially
-   different paths, not just the reviewer's example.
+   different paths, not just the reviewer's example. **Before the batch is
+   pushed, the round's `review-action` block names the class each finding
+   belongs to and shows the sweep of that class** — every member found, with
+   the command that found them, not the reviewer's examples fixed; the
+   post-push thread reply then cites that block and names the commit
+   (David, 2026-10-10; `pr-watch` step 3.6 is where the block is posted).
 
 - **The oracle is agreed with David before the first round runs.** The script
   refuses to compose a package without one, which is what makes the agreement
@@ -1059,8 +1075,11 @@ permissions, a CI check that constrains me, or a working-contract line granting
 me new autonomy merges under the same bar as everything else. Where a merge
 does wait on him, a rule above says so — among them a pull request that changes the review
 loop and still carries findings after its second review (the ship gate), a
-Trivial PR whose automatic Codex pass posts a P1, and a corrected head still
-short of what was agreed (the write-gate rule).
+Trivial PR whose automatic Codex pass posts a P1, a corrected head still
+short of what was agreed (the write-gate rule), and a second-review finding
+the shared judgement has concluded is worth his reopening
+([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19),
+step 3).
 **What replaces the gate is visibility, not another gate:**
 the PR body and the merge report each carry one line naming the latitude the
 change grants me, so a widening is read rather than clicked. Unaffected: the
