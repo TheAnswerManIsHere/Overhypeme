@@ -194,7 +194,12 @@ pivot or undo some of it than constantly stop building while waiting for me."*
   recommendation taken, the way back), recorded as a line in the workstream
   issue's State of Play, and gathered under a **Decisions taken on my
   recommendation** heading in the PR body, so David and a reviewer read every
-  one in one place. His reversal afterwards is a corrective commit, and the
+  one in one place — each of those three records under the canonical
+  disclosure check (`workstream-tracking.md`, *Sensitive / disclosure-carve-out
+  workstreams*, referenced here and never restated): a decision that fails
+  it is recorded sanitized in all three, with its specifics on the private
+  path, exactly as the prototype ledger rule already does (Codex, DojoOS #8
+  and AI-Handbook #198). His reversal afterwards is a corrective commit, and the
   advice rule's override record applies.
 - **`/maintenance` counts them**: decisions taken this way in the window, and
   how many he reversed. A reversal rate is the signal that the default is set

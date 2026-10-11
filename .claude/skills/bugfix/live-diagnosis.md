@@ -124,9 +124,11 @@ production hazard sitting in the worktree.
 
 **A live read can return things that must not be published.** A query against
 real data can carry customer fields; a config or environment read can carry a
-credential; a Sentry event body can carry either. The disclosure check ran when
-the workstream issue was opened — before this evidence existed — so nothing
-upstream has vetted what a diagnostic just returned. Quoting it verbatim into a
+credential; a Sentry event body can carry either — examples, not the list: the
+list is the canonical disclosure check's (`workstream-tracking.md`, *Sensitive /
+disclosure-carve-out workstreams*). That check ran when the workstream issue
+was opened — before this evidence existed — so nothing upstream has vetted what
+a diagnostic just returned. Quoting it verbatim into a
 PR body, an issue, or a review reply publishes it irreversibly.
 
 So **every piece of live output gets looked at before it is quoted**, and the

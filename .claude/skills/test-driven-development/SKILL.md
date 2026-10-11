@@ -23,6 +23,12 @@ description: Use when implementing any feature or bugfix, before writing impleme
 > inside its tier oracle, which is that rule's plan: decide, and report the
 > choice rather than asking
 > ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
+> **For a Tier A or B bugfix the not-knowing-how-to-test row is not one of
+> them**: its regression test is step 3 of the bugfix loop, and whether a fix
+> may skip it is that loop's carve-out to say, not this note's
+> ([`working-modes.md`](../../../docs/ai-context/working-modes.md#per-bug--the-loop)) —
+> "I do not know how to test it" is a question to answer, not a choice to
+> proceed on (Codex, DojoOS #8; AI-Handbook #198).
 
 ## Overview
 
