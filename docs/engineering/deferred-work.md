@@ -624,10 +624,14 @@ re-gather it when the work is scheduled.
        (which now takes a mode) still has no caller outside tests, so a
        setup that keeps failing shows only in the logs while the panel
        reads `verified`.
-    2. **(P2)** `runStripeVerificationRetryOnce` makes its cheap
-       deterministic-refusal skip on the lenient cached mode (`isLiveMode()`)
-       before the strict read. After a toggle on another instance, it can
-       skip the newly active mode until the config cache expires.
+    2. **(P2) — FIXED by the follow-up to #653.** `runStripeVerificationRetryOnce`
+       made its deterministic-refusal skip on the lenient cached mode
+       (`isLiveMode()`) before the strict read, so after a toggle committed
+       by another instance it skipped the newly active mode until the config
+       cache expired. The pass now reads the mode strictly first and skips
+       only once the stored mode is known to be the refused one
+       (`stripeModeToggle.test.ts`, *a refused old mode does not stop the
+       retry seeing a remote switch its cache has not caught up with*).
     3. **(P2)** `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
        `STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_ACCOUNT_ID_TEST` in a
        `beforeEach`. The hook is already scoped inside its `describe`, which
@@ -639,8 +643,7 @@ re-gather it when the work is scheduled.
     the harvest notes and never opened. Recorded here so the promise lives
     somewhere with an owner.
   - **Cost of waiting.** (1)'s remaining half costs diagnosis time: a setup
-    that keeps failing after a toggle shows in the logs, not on the panel. (2) delays recovery by one cache
-    TTL. (3) is a test-suite leak: a later suite in the same shard
+    that keeps failing after a toggle shows in the logs, not on the panel. (3) is a test-suite leak: a later suite in the same shard
     can see Stripe credentials it did not set.
   - **Revisit trigger.** Before the live-mode work in launch Phase 10 (#628),
     which is the first time a mode toggle is a real operator action.
