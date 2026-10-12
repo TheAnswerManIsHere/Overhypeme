@@ -226,8 +226,12 @@ stored records. From the merged-PR list for the window:
   window's merged PR bodies — plus, for a branch-regime prototype, which
   opens no PR, the decision lines in its workstream issue's State of Play,
   deduplicated against any later hardening PR that restates them — and how
-  many David reversed afterwards (a corrective commit or an override entry
-  naming one). Two numbers, reported
+  many David reversed (a corrective commit or an override entry naming one).
+  **A reversal is counted in the window it lands**, against the decision it
+  reverses, whichever window counted that decision — a reversal that follows
+  the pass that counted its decision belongs to the next pass, not to none
+  (Codex, Overhype.me #639 `4243652055`; AI-Handbook #197 item 2). Two
+  numbers, reported
   together: a high reversal rate says the reversible default is proceeding
   on choices that were his; a zero over many decisions says the asks that
   remain may be ones the rule could already take. He tunes the rule and sets

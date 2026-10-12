@@ -1034,6 +1034,22 @@ test("a plan edited while the exchange ran refuses it rather than pinning the wr
   drop(root);
 });
 
+test("a refused exchange still prints its usage: the spend happened whether or not the plan moved", () => {
+  const root = fixtureRoot({ plan: { path: "docs/plans/PLAN_X.md", text: PLAN } });
+  const usage = { input_tokens: 40000, cached_input_tokens: 30000, cache_write_input_tokens: 0, output_tokens: 900, reasoning_output_tokens: 600 };
+  const edits = ({ args }) => {
+    writeFileSync(join(root, "docs/plans/PLAN_X.md"), `${PLAN}\n<!-- edited mid-flight -->\n`);
+    const r = writesAssessment("# Assessment\n")({ args });
+    return { ...r, stdout: `${JSON.stringify({ type: "turn.completed", usage })}\n` };
+  };
+  const { code, log } = runMain(root, ["--kind", "assess", "--round", "1", "--tier", "internal", "--plan", "docs/plans/PLAN_X.md"], {
+    script: [SIGNED_IN, edits],
+  });
+  assert.equal(code, 1, "the drift still refuses the exchange");
+  assert.match(log, /usage in 40000 \(cached 30000, cache-write 0\) out 900 \(reasoning 600\)/, "and the run's spend is printed before it does");
+  drop(root);
+});
+
 test("an untouched plan costs nothing, and its digest is recorded in full for the PR body's oracle-source line", () => {
   const root = fixtureRoot({ plan: { path: "docs/plans/PLAN_X.md", text: PLAN } });
   assert.equal(runMain(root, ["--kind", "assess", "--round", "1", "--tier", "internal", "--plan", "docs/plans/PLAN_X.md"]).code, 0);

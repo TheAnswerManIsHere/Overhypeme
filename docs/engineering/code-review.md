@@ -92,7 +92,9 @@ reversible choice proceeds on the recommendation*
 ([`agent-working-rules.md`](../ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10);
 David, 2026-10-11), so a Tier A or B body carries the **Decisions taken on my
 recommendation** section like any PR's, and a reviewer reads the reversible
-choices the fix proceeded on there.
+choices the fix proceeded on there — a skipped regression test is never a
+legitimate entry, since step 3's carve-out alone waives it
+([`working-modes.md`](../ai-context/working-modes.md#per-bug--the-loop)).
 
 **This field list is for a Tier A/B PR**: **Tier rationale**, **Reported
 symptom** (David's words, verbatim), **Intended correct behavior**, **Must not

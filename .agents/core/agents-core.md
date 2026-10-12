@@ -46,7 +46,8 @@ only; later versions have none unless he asks (below, and working-modes.md
 Tier A or B bugfix, inside its tier oracle, which is that rule's plan — a
 choice that is yours to recommend and a corrective commit would undo proceeds
 on the recommendation and is reported; what the irreversible list names, and
-what the product should do, still ask
+what the product should do, still ask, and a bugfix's regression test is never
+such a choice (`working-modes.md`, *Per bug — the loop*, step 3 and its carve-out)
 ([`agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 Full working rules:
 [`docs/ai-context/agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md).

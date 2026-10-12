@@ -265,7 +265,10 @@ the PR back only delays the review that catches things.
    `agent-working-rules.md`), so a reversible technical choice inside a Tier
    A or B fix proceeds on my recommendation and is listed there — under the
    canonical disclosure check like every record of one (`workstream-tracking.md`,
-   *Sensitive / disclosure-carve-out workstreams*).
+   *Sensitive / disclosure-carve-out workstreams*) — and never the regression
+   test of step 3, which only that step's carve-out waives
+   ([`working-modes.md`](../../../docs/ai-context/working-modes.md#per-bug--the-loop);
+   the #197 sweep found this passage stating the rule without its exclusion).
 
    **Tier A/B:**
    ````markdown
