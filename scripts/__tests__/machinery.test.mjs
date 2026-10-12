@@ -416,9 +416,27 @@ test("codexUsage is null, never zero-filled, when any of the five buckets is mis
   assert.equal(codexUsage(TURN(renamed)), null, "a renamed bucket is not a reading");
 });
 
+test("codexUsage is null for the CLI's all-zero default: a turn with no usage notification is no reading, not a $0 run", () => {
+  const zero = { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 };
+  assert.equal(codexUsage(TURN(zero)), null);
+  assert.deepEqual(codexUsage(TURN({ ...zero, input_tokens: 1 })), { input: 1, cachedInput: 0, cacheWriteInput: 0, output: 0, reasoningOutput: 0 },
+    "one non-zero bucket is a reading");
+});
+
+test("codexUsage is null when the stream carries a model reroute: the counts would be another model's", () => {
+  const reroute = JSON.stringify({ type: "item.completed", item: { id: "item_3", type: "error", message: "model rerouted: gpt-6-astra -> gpt-6-mini (Overloaded)" } });
+  assert.equal(codexUsage([reroute, TURN(SAMPLE)].join("\n")), null);
+  const other = JSON.stringify({ type: "item.completed", item: { id: "item_4", type: "error", message: "stream disconnected; retrying" } });
+  assert.deepEqual(codexUsage([other, TURN(SAMPLE)].join("\n")), { input: 17967, cachedInput: 12288, cacheWriteInput: 0, output: 5, reasoningOutput: 0 },
+    "an unrelated error item does not withhold the reading");
+});
+
 test("usageLine prints the buckets, and says so when there are none", () => {
   assert.equal(usageLine(codexUsage(TURN(SAMPLE))), "usage in 17967 (cached 12288, cache-write 0) out 5 (reasoning 0)");
   assert.match(usageLine(null), /usage not reported.*unable to verify/);
+  assert.doesNotMatch(usageLine(null), /no turn\.completed event\)/, "the line names every no-reading case, not only an absent event");
+  assert.match(usageLine(null), /all-zero/);
+  assert.match(usageLine(null), /reroute/);
 });
 
 test("runCodex asks for --json, captures stdout beside the answer, and returns the usage", () => {

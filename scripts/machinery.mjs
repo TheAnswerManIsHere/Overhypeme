@@ -661,14 +661,22 @@ export function runCodex({ prompt, outFile, model, effort, sandbox, cwd, timeout
 export function codexUsage(jsonl) {
   if (typeof jsonl !== "string" || jsonl === "") return null;
   let usage = null;
+  let rerouted = false;
   for (const line of jsonl.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("{")) continue;
     let ev;
     try { ev = JSON.parse(t); } catch { continue; }
     if (ev?.type === "turn.completed" && ev.usage && typeof ev.usage === "object") usage = ev.usage;
+    // A REROUTE MEANS THE COUNTS ARE ANOTHER MODEL'S. codex-cli 0.160.0 emits
+    // it as an `item.completed` error item whose message reads "model
+    // rerouted: <from> -> <to> (<reason>)", not as an event of its own, and
+    // the later turn.completed carries counters only. Priced at Astra's rates
+    // they would be the wrong model's spend, so the reading is withheld.
+    // (Codex, AI-Handbook #199 round 3, `4243932759`; #197 item 5.)
+    if (ev?.type === "item.completed" && typeof ev.item?.message === "string" && /^model rerouted:/i.test(ev.item.message)) rerouted = true;
   }
-  if (!usage) return null;
+  if (!usage || rerouted) return null;
   // ALL FIVE OR NONE. A bucket that is missing, renamed or not a finite
   // non-negative number makes the whole reading null -- `unable to verify` in
   // the spend line -- never a zero that prices the run confidently low. The
@@ -676,6 +684,12 @@ export function codexUsage(jsonl) {
   // hypothetical. (Codex, AI-Handbook #199 round 2.)
   const keys = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];
   if (!keys.every((k) => Number.isFinite(usage[k]) && usage[k] >= 0)) return null;
+  // ALL ZERO IS NO READING. The CLI emits `Usage::default()` -- every bucket
+  // 0 -- on a turn that completed without any token-usage notification, and a
+  // run that read a prompt cannot have consumed zero input tokens. So the
+  // all-zero object is the CLI saying "none", never a $0 run. (Codex,
+  // AI-Handbook #199 round 3, `4243932761`; #197 item 4.)
+  if (keys.every((k) => usage[k] === 0)) return null;
   return {
     input: usage.input_tokens,
     cachedInput: usage.cached_input_tokens,
@@ -687,7 +701,7 @@ export function codexUsage(jsonl) {
 
 /** One line for a log: the five buckets, or that the run reported none. */
 export function usageLine(usage) {
-  if (!usage) return "usage not reported (no turn.completed event) — price this run as unable to verify";
+  if (!usage) return "usage not reported (no usable turn.completed reading: absent, incomplete, all-zero, or after a model reroute — see the .events.jsonl beside the answer) — price this run as unable to verify";
   return `usage in ${usage.input} (cached ${usage.cachedInput}, cache-write ${usage.cacheWriteInput}) ` +
     `out ${usage.output} (reasoning ${usage.reasoningOutput})`;
 }

@@ -15,10 +15,12 @@ published!"*).
 
 ## Anthropic — Claude API list prices
 
-Read 2026-10-11 from
+Read 2026-10-12 from
 <https://platform.claude.com/docs/en/about-claude/pricing> (the `.md` form of
 the page). Standard tier; USD per million tokens. Rows quoted as the page
-printed them, whitespace collapsed:
+printed them, whitespace collapsed and the cache-read column's footnote
+markers dropped (the footnotes state the multiplier the figure already
+applies):
 
 ```
 | Claude Fable 5.1 | $10 / MTok | $12.50 / MTok | $20 / MTok | $0.25 / MTok | $50 / MTok |
@@ -41,7 +43,7 @@ write, cache read, output.
 
 ## OpenAI — the Codex reviewer (Astra)
 
-Read 2026-10-11 from <https://developers.openai.com/api/docs/pricing>
+Read 2026-10-12 from <https://developers.openai.com/api/docs/pricing>
 (`openai.com/api/pricing` answered 403 to this container's fetch). Standard
 tier, prompts up to 272K tokens; USD per million tokens. Row quoted as the
 page printed it: input, cached input, cache write, output, then the four
@@ -68,9 +70,14 @@ cache-write × cache-write rate + output × output rate`.
 
 Three readings behind that formula, each settled rather than assumed:
 
-- **Cached and cache-write sit inside `input_tokens`** — both probes read
-  cached below input (12,288 of 17,967 and 28,160 of 32,193), so they are
-  subtracted before the base rate applies.
+- **Cached and cache-write sit inside `input_tokens`** — OpenAI's Responses
+  API describes `input_tokens_details` as "A detailed breakdown of the input
+  tokens", its `cached_tokens` as "The number of tokens that were retrieved
+  from the cache" and its `cache_write_tokens` as "The number of input tokens
+  that were written to the cache" (read 2026-10-12), and both probes read
+  cached below input (12,288 of 17,967 and 28,160 of 32,193); cache-write read
+  0 in both, so its nesting rests on the schema. Both are subtracted before
+  the base rate applies.
 - **Reasoning sits inside `output_tokens`** and is never added again. OpenAI's
   Responses API describes `output_tokens_details` as "A detailed breakdown of
   the output tokens", and its example totals input plus output alone (328 +
@@ -90,9 +97,12 @@ Three readings behind that formula, each settled rather than assumed:
   overstates and never understates, the side the Haiku rule below takes for
   the same reason (Codex, AI-Handbook #199 round 2).
 
-A run whose log says `usage not reported` — including one whose usage object
-lacked any of the five buckets — is `unable to verify` in the spend line, as
-the rule at the top says. (This replaces the single $15/M Astra proxy row and
+A run whose log says `usage not reported` is `unable to verify` in the
+spend line, as the rule at the top says. That covers a usage object lacking
+any of the five buckets, the CLI's all-zero default for a turn that reported
+no usage at all, and a stream in which the CLI rerouted the run to another
+model — whose counts would be priced at the wrong rates (AI-Handbook #197
+items 4 and 5). (This replaces the single $15/M Astra proxy row and
 answers Overhype.me #639 `4243652049` and DojoOS #8 `4243765922`.)
 
 ## How a spend line converts tokens — the blended proxy
