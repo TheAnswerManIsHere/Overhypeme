@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v3 · APPROVED by David 2026-10-07; amended 2026-10-12
+# PLAN — Get to launch (parent programme) · v4 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4)
 
 Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
 
@@ -226,7 +226,9 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
    and ledger-write failure; a launch capacity and an emergency stop.
 5. `/security-review` on the launch scope with no open highs; `ADMIN_API_KEY`
    scoped or gone; `sharp` upgraded or mitigated; CSP enforcing; HSTS
-   complete; dependencies triaged; prod dump purged from history.
+   complete; dependencies triaged; the old prod dump's exposure closed —
+   sessions revoked by Phase 3's fresh database and that account's password
+   changed (rotation, not a history purge: David, 2026-10-12).
 6. Every in-scope UAT step has a disposition; manual residue fits an
    afternoon; the real-data pass has run on the Repl.
 7. Compliance package in place (Terms, Privacy, DMCA agent registered,
@@ -287,6 +289,32 @@ revisit trigger restated in launch-stage terms; or **won't-do**, with the
 reason. Once now, across all of it, and again at the start of each phase
 against that phase's scope. No entry keeps a trigger a launch stage could
 pass without noticing.
+
+**Placements from the first review** (David, 2026-10-12, amendment v4; each
+entry checked against the code on `main` at `92024f3` before it was placed,
+recorded on #628). These extend the named phase's scope:
+
+- **Phase 3:** the ten migration-only database objects with no `schema.ts`
+  declaration are declared (or given a reasoned exemption) **before the
+  schema baseline is cut**, so a fresh production database cannot lack them;
+  the CI guard against a recurrence if it fits, otherwise the next tooling
+  pass. A **maximum server count** for the autoscale deployment (a cost
+  number David approves), the pool size derived from the new database's real
+  connection limit including the Stripe sync pool, and a boot check that the
+  numbers fit — **before Soft**.
+- **Phase 11:** background jobs get a claim token checked when they finish,
+  so a job reclaimed after the 30-minute cutoff cannot run twice and spend
+  twice (or send an email twice), plus a handler time limit under that
+  cutoff — **before Seed**.
+- **Phase 13:** the admin settings cache reads once per expiry and cannot
+  refill with a value older than the last save.
+- **Phase 14:** the retention policy names the rate-limit table's IP
+  addresses.
+- **Phase 16:** one alert for any background job that has stopped running
+  (covers the rate-limit cleanup job and every other).
+- **Discarded:** the Stripe sync mode-scoping entry — its dangerous part was
+  fixed by #577 and #653, and what remains releases its connections within
+  ten seconds.
 
 ## 3. Phases
 
@@ -610,8 +638,9 @@ pass without noticing.
 - **Outcome:** no known high finding on the launch scope before real money.
 - **Scope:** `ADMIN_API_KEY` scoped or removed (#455); `sharp` upgraded with
   render verification; CSP enforcing after observation; HSTS complete;
-  Dependabot triaged by exposure; secrets audit; git-history purge of the
-  removed dump; session cookie and private-media caching checks on the real
+  Dependabot triaged by exposure; secrets audit; the old dump's exposure
+  closed by rotation, not a history purge (David, 2026-10-12: it held no
+  credentials, only three sessions and one account's email and password hash); session cookie and private-media caching checks on the real
   origin; then `/security-review`.
 - **Defensive testing with Claude Mythos 5.1 (David, 2026-10-07):** Mythos
   is the same underlying model as the Fable tier this planning session runs
