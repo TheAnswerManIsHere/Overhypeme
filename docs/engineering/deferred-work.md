@@ -402,10 +402,18 @@ re-gather it when the work is scheduled.
     parked sharp bump above. `pnpm audit` reads the same advisory database as
     the Dependabot alerts page but counts differently, so its numbers are the
     ones this entry tracks.
-  - **Revisit trigger.** **Already met at writing** (the Critical above). A
-    High or Critical row that `pnpm audit --prod` still reports after a sweep
-    gets individual triage. So does a grouped Dependabot PR that stays
-    unmergeable for two passes running.
+  - **First sweep, 2026-10-12 (#646).** David asked for it the same day
+    because of the Critical ("Option 1"). It was a targeted in-range update of
+    the packages with Critical or High production advisories (`proxy-addr`,
+    `path-to-regexp`, `ws`, `form-data`, `brace-expansion`, `nanoid`), with sharp
+    excluded. Afterwards `pnpm audit --prod` reports critical 0, high 3,
+    moderate 17, low 2. All three High rows are the parked sharp 0.34.5 above,
+    so they are not this entry's to triage.
+  - **Revisit trigger.** At each `/maintenance` pass, run a sweep, then
+    `pnpm audit --prod`. A High or Critical row that the sweep did not clear
+    gets individual triage. Rows for a package parked elsewhere in this doc are
+    excluded; today that is sharp. So does a grouped Dependabot PR that stays
+    unmergeable for two passes running. Not met as of the 2026-10-12 sweep.
 
 - **recharts v2 → v3.**
   - **What.** recharts is pinned at `^2.15.x` in `artifacts/overhype-me` and
