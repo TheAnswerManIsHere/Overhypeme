@@ -343,6 +343,8 @@ prove it. A new double adds its row to `SELECTORS` there.
 | Selector | Double | Needs |
 |---|---|---|
 | `STORAGE_BACKEND` | `local-double` — `lib/localObjectStorage.ts` | `STORAGE_DOUBLE_DIR` (absolute), plus the usual `PRIVATE_OBJECT_DIR` / `PUBLIC_OBJECT_SEARCH_PATHS` (any `/<bucket>/<prefix>`) |
+| `AI_BACKEND` | `recorded-double` — `lib/aiDouble/` (fal, OpenAI chat and embeddings, answered from committed recordings) | nothing — no credential |
+| `AI_BACKEND` | `recorder` — the real AI clients, capturing recordings under a spending ceiling | the fal and OpenAI keys; run only by `scripts/record-ai-baseline.ts`, never in CI |
 
 **The storage double** keeps bytes and metadata in a local directory and
 implements exactly the file operations the code uses. Everything above it — the
@@ -355,15 +357,17 @@ e2e:storage`) runs on a dev stack started with it:
 ```sh
 cd artifacts/api-server && STORAGE_BACKEND=local-double STORAGE_DOUBLE_DIR=/tmp/overhype-storage \
   PRIVATE_OBJECT_DIR=/e2e-bucket/private PUBLIC_OBJECT_SEARCH_PATHS=/e2e-bucket/public \
-  FAL_KEY= FAL_AI_API_KEY= ARACHNID_SHIELD_USERNAME= ARACHNID_SHIELD_PASSWORD= \
+  AI_BACKEND=recorded-double ARACHNID_SHIELD_USERNAME= ARACHNID_SHIELD_PASSWORD= \
   PORT=8080 NODE_ENV=development CRON_SECRET=x ALLOWED_ORIGINS=http://localhost:5173 pnpm exec tsx src/index.ts
 ```
 
-The blanked vendor keys are part of the command, not decoration: an upload is
-scanned by fal and Arachnid before it reaches storage, and a blank key makes
-each skip. Until the AI doubles (increment 4) and the outbound-request detector
-(increment 6) exist, run this journey only where no vendor credential is set —
-never on the Repl, which carries real ones.
+An upload is scanned by fal's NSFW classifier and by Arachnid before it reaches
+storage. `AI_BACKEND=recorded-double` answers the classifier from a recording,
+so the journey exercises it rather than skipping it; the journey uploads the
+committed fixture photo whose bytes that recording was made from. Arachnid has
+no double yet, so its blanked keys make it skip. Until the outbound-request
+detector (increment 6) exists, run this journey only where no other vendor
+credential is set — never on the Repl, which carries real ones.
 
 It is an acceptance journey, so it is not in the per-PR gate; the acceptance
 run (Phase 2, increment 6) runs it.
@@ -523,3 +527,45 @@ step respectively) and are described in the CI section above.
 Older PR-specific `TEST_RUN` / `UAT` docs under `docs/` are **historical
 records** of what was tested at the time. For current commands and policy, follow
 this document and `AGENTS.md` — not those.
+
+### The AI double and its recordings
+
+`AI_BACKEND=recorded-double` replaces the three AI clients at the seams the
+code already crosses — the fal facade in `lib/falClient.ts` and the OpenAI and
+embeddings adapters in `lib/aiClients.ts` — and answers every call from a
+committed recording in `lib/aiDouble/recordings/`. A recording is a real
+vendor response to the exact request the application sent (model, every
+message, the response schema, the output options), captured once on the Repl.
+A request with no recording fails with `[ai-double] no recording for …`; it
+never reaches a vendor. Generated images come back as small `data:` URLs, so
+the real download, probe and storage path runs with no network.
+`AI_DOUBLE_FAIL=<kind>:<target>` (for example
+`fal.subscribe:fal-ai/nano-banana-2`) makes that operation raise the vendor
+error recorded for it.
+
+The recordings cover the baseline the driver walks
+(`scripts/drive-ai-baseline.ts`: journey 3's moderation chain for one fixed
+fact, journey 6's paid AI image meme, journeys 7 and 4's photo upload and
+meme). Replaying them proves the doubles carry the real consumers through:
+
+```sh
+cd artifacts/api-server && DATABASE_URL=<a marked test database> \
+  pnpm exec tsx scripts/record-ai-baseline.ts --mode replay
+# the recorded vendor error, through the real render job:
+AI_DOUBLE_FAIL=fal.subscribe:fal-ai/nano-banana-2 DATABASE_URL=… pnpm exec tsx scripts/record-ai-baseline.ts --mode replay
+```
+
+Each run creates a fresh test database on that server, seeds the test
+accounts, boots the API with a constructed environment and local storage,
+drives the baseline, and drops the database.
+
+**Re-recording** (after a change to a prompt, a schema, the baseline, or a
+vendor client upgrade) runs on the Repl, never in CI, under a spending
+ceiling the recorder enforces before every vendor call:
+
+```sh
+cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
+  pnpm exec tsx scripts/record-ai-baseline.ts --mode record --allowance <usd> --out /tmp/ai-recordings
+```
+
+Review the new recordings, then copy them into `lib/aiDouble/recordings/`.
