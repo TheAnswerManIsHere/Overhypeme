@@ -375,27 +375,28 @@ re-gather it when the work is scheduled.
     `wrangler` ship a release pinning esbuild ≥0.28.1, **or** we force it via
     a workspace override and verify no breakage — whichever comes first.
 
-- **~40 lower-severity Dependabot alerts — not yet individually triaged. OPEN QUESTION, not closed.**
+- **~40 lower-severity Dependabot alerts — DECIDED 2026-10-12: one grouped sweep, not individual triage.**
   - **What.** Of the repo's 54 open Dependabot alerts as of 2026-07-24, 9 CVEs
     across 5 packages were triaged and fixed (PR #246, see above). The
-    remaining ~40 (mostly Moderate/Low) are still untriaged individually —
-    lodash, ws, undici, picomatch, brace-expansion, path-to-regexp, js-yaml,
-    linkify-it, qs, uuid, markdown-it, and others, mostly transitive
-    ReDoS/DoS-class findings in build tooling rather than a production
+    remaining ~40, mostly Moderate/Low, were never triaged individually. They
+    include lodash, ws, undici, picomatch, brace-expansion, path-to-regexp,
+    js-yaml, linkify-it, qs, uuid and markdown-it. Most are transitive
+    ReDoS/DoS-class findings in build tooling rather than on a production
     request path.
-  - **Why deferred now.** The 9 confirmed, high-value CVEs (incl. a SQL
-    injection in the production ORM) were prioritized first. Real severity of
-    the remaining ~40 is unqualified — none has been individually checked
-    against our actual exposure the way the 9 were.
-  - **Cost of waiting.** Unknown until triaged — that's the open question, not
-    a settled "low" like the other entries here.
-  - **Revisit trigger.** Not a one-time fired condition — this is a **standing
-    open question for David**: whether to triage individually (thorough, slow)
-    or accept them as one grouped backlog entry with a sweep-based approach
-    (`pnpm update` + re-check, opportunistic). Surface as an open decision item
-    every `/maintenance` pass until David decides; once decided, replace this
-    entry with the actual outcome (either N individually-triaged entries, or
-    one grouped entry with its own trigger).
+  - **Decision.** David chose the grouped sweep (2026-10-12 `/maintenance`,
+    "3. Agreed"). The grouped Dependabot minor/patch PRs, merged green by each
+    pass, are the sweep. Individual triage is not done.
+  - **Why deferred now.** Most are not on a request path. Triaging ~40 alerts
+    one by one would cost more than the exposure they represent.
+  - **Cost of waiting.** A production-path advisory could sit in the group
+    unnoticed. That is what the trigger below exists to catch.
+  - **Revisit trigger.** Any of these, at a `/maintenance` pass:
+    - an open alert is rated High or Critical;
+    - an open alert names a package on the API server's request path
+      (`express`, `body-parser`, `path-to-regexp`, `qs`, `undici`, `ws`);
+    - a grouped Dependabot PR has stayed unmergeable for two passes running.
+
+    Any of these gets individual triage of that alert.
 
 - **recharts v2 → v3.**
   - **What.** recharts is pinned at `^2.15.x` in `artifacts/overhype-me` and
@@ -889,6 +890,24 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** ~~The **next `/maintenance` pass**: if the api-server
     suite has failed on `main` again since 2026-08-15, this graduates to a
     `/bugfix` task and this entry closes.~~ **Fired 2026-10-12; now #642.**
+
+- **Workstream labels kept current by hand — contract-diet candidate, held (2026-10-12).**
+  - **What.** The 2026-10-12 pass found ~40 workstream issues left at
+    `stage:code-review` or `stage:close-out` after their PRs merged, and closed
+    them. The candidate conversion was an on-merge workflow that moves the
+    issue named on a PR's `Workstream:` line.
+  - **Why deferred now.** The rule lives in `workstream-tracking.md`, which is
+    synced from AI-Handbook, so a conversion belongs there. The rule was
+    tightened on 2026-09-25: whoever reaches close-out also closes the issue.
+    The newest stale issue the pass found was opened on 2026-08-29, so there
+    is no evidence of drift since the tightening. David chose to record it as
+    fixed rather than build the conversion ("Option 1", 2026-10-12).
+  - **Cost of waiting.** If drift resumes, `/next` recommends finished work
+    until the next pass catches it.
+  - **Revisit trigger.** The next `/maintenance` pass checks the open issues
+    opened after 2026-09-25. If any is still at a pre-merge stage after its PR
+    merged, bring the conversion back to David with that evidence, as a
+    handbook change. If none is, close this entry as fixed.
 
 ---
 
