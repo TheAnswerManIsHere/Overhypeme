@@ -37,6 +37,7 @@ import {
 import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import {
   __discardedBuildsForTests,
+  __stripeSyncBuildsForTests,
   __expireModeRecheckForTests,
   __endCachedSyncForTests,
   __setRawClientFactoryForTests,
@@ -46,6 +47,7 @@ import {
   getVerifiedStripeMode,
   invalidateStripeSync,
   isLiveMode,
+  liveModeOfPublishedStripeSync,
 } from "../lib/stripeClient.js";
 import {
   __isStripeVerificationRetryArmedForTests,
@@ -1070,6 +1072,27 @@ describe("a mode change initializes the newly active mode", () => {
     assert.equal(hasStripeInitializationCompleted(true), true);
     assert.equal(__isStripeVerificationRetryArmedForTests(), false, "the loop stops once the stored mode is complete");
     assert.deepEqual(init.webhookModes, ["test", "live"]);
+  });
+
+  it("concurrent callers on a cold cache share ONE construction", async () => {
+    // The getStripeSync() deferred-work entry: no single-flight around
+    // construction, so two concurrent misses each built a StripeSync (and its
+    // pool) and the later publish silently replaced the earlier. The toggle
+    // PATCH made this routine: setup's getSync() and the route's own full sync
+    // both construct in the same moment.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
+    invalidateStripeSync();
+    const buildsBefore = __stripeSyncBuildsForTests();
+
+    const [a, b, c] = await Promise.all([getStripeSync(), getStripeSync(), getStripeSync()]);
+
+    assert.equal(__stripeSyncBuildsForTests() - buildsBefore, 1, "exactly one StripeSync is built");
+    assert.equal(a, b);
+    assert.equal(b, c);
+    assert.equal(liveModeOfPublishedStripeSync(a), false, "the shared build is the published one");
   });
 });
 });

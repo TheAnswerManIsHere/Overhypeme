@@ -550,63 +550,31 @@ re-gather it when the work is scheduled.
     and rejection cleanup built in from the start (a rejected in-flight
     promise must be cleared, not cached) — not added later as a patch.
 
-- **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308).**
-  - **What.** `stripeClient.ts:120-126` (`getStripeSync()` itself; the cached
-    module-level vars and `buildStripeSync()` start at `:103-107`), three
-    current defects plus one forward-looking guardrail: (1) no single-flight,
-    so concurrent misses each run `buildStripeSync()`, creating extra
-    `StripeSync` instances **and** extra `pg.Pool`s; (2) a `stripe_live_mode`
-    flip mid-flight lets an old-mode build publish *after*
-    `invalidateStripeSync()` — the flight must be generation- **and**
-    mode-scoped, discarding a completion whose generation is no longer
-    current; (3) `buildStripeSync()` re-reads the mode independently for the
-    secret key and the webhook secret rather than using the mode captured at
-    entry, so a flip landing between those reads can yield a live key paired
-    with a test webhook secret or the reverse. **Forward-looking guardrail:**
-    today's code has no stored in-flight promise either — `stripeSync = await
-    buildStripeSync()` simply throws to the caller on failure, leaving the
-    prior cached value in place — but any single-flight fix must clear a
-    rejected promise rather than cache it, or every later webhook would fail
-    until restart. A superseded or invalidated `StripeSync` also **leaks its
-    underlying `pg.Pool`** — the installed `stripe-replit-sync@1.0.0`'s
-    constructor creates a `PostgresClient`, whose constructor creates a
-    `pg.Pool` — so repeated mode flips leak connections steadily; "discard" is
-    the wrong verb throughout, the fix must *dispose*
-    (`postgresClient.pool.end()`).
-  - **Status after PR #577 (the Stripe account guard), from reading
-    `stripeClient.ts` at the harvest of 2026-10-12.** Defects (2) and (3)
-    are closed. A construction generation counter plus a re-read of the
-    stored mode discards a build that a toggle superseded, and closes that
-    build's pool (`discardRejectedBuild`). `buildStripeSync(liveMode)` takes
-    the mode captured at entry for both the secret key and the webhook
-    secret. The rejection-caching guardrail is honoured: verification
-    memoises successes only. **Still open:** (1) there is still no
-    single-flight around construction, so concurrent misses each build, and
-    the later publish overwrites the earlier one without closing its pool;
-    and `invalidateStripeSync()` deliberately does not close the pool of the
-    instance it drops (the code comment says so and points here). The line
-    references in *What* predate #577. **One more trigger since PR #653:**
-    the `stripe_live_mode` PATCH now starts setup (whose `getSync()` calls
-    `getStripeSync()`) and then calls `getStripeSync()` itself for the full
-    sync, so a local toggle can run two constructions at once and orphan one
-    two-connection pool (Fable, #653 round 1). The leak and the concurrency
-    are read from the code, not reproduced by a test: unable to verify by
-    measurement; a test that runs two concurrent `getStripeSync()` misses
-    and counts open pools would settle it.
-  - **Why deferred now.** Pre-existing on `main`; same review/deferral
-    provenance as the `adminConfig` entry above.
-  - **Cost of waiting.** Extra Postgres connections and pool churn on every
-    concurrent Stripe-sync miss or live/test mode flip, worsening the
-    [autoscale connection-budget problem](#security--patching) (now filed
-    under Security & patching, above this section). No known production
-    incident yet; the mixed-mode-credentials case (3) is the most severe if
-    it fires — a live secret key paired with a test webhook secret.
-  - **Revisit trigger.** Next `/bugfix` pass through Stripe sync, or the
-    [autoscale connection-budget entry](#security--patching) being fixed
-    first (its arithmetic assumes this leak doesn't exist). Acceptance needs
-    three cases proven together: a
-    delayed mid-flight mode flip, a construction failure followed by a
-    successful retry, and repeated flips returning the live pool count to one.
+- **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308) — FIXED by the single-flight bugfix (workstream #652).**
+  - **What it was.** Three defects in the cached `StripeSync` constructor:
+    (1) no single-flight, so concurrent cache misses each built a
+    `StripeSync` and its two-connection `pg.Pool`; (2) a mode flip mid-flight
+    let an old-mode build publish after `invalidateStripeSync()`; (3) the
+    secret key and webhook secret were read under independent mode reads.
+    PR #577 closed (2) and (3) with a construction generation counter, a
+    re-read of the stored mode, and `buildStripeSync(liveMode)`.
+  - **The fix.** Construction is now single-flight, keyed by mode **and**
+    generation: concurrent misses for the same mode share one build; a
+    flight for a superseded generation or another mode is never joined. A
+    rejected flight is cleared, never cached, so the next caller retries.
+    Regression test: `stripeModeToggle.test.ts`, *concurrent callers on a
+    cold cache share ONE construction* (it built twice before the fix).
+  - **What the old "leak" wording got wrong, and what stays by design.** A
+    pool is not leaked: the library's pool sets no idle options, so
+    pg-pool's defaults apply (`min` 0, `idleTimeoutMillis` 10000;
+    `pg-pool/index.js:90,98-99`), and a dropped instance's idle connections
+    close within ten seconds. Builds the generation check rejects are ended
+    at once (`discardRejectedBuild`). A cached instance that
+    `invalidateStripeSync()` drops is deliberately **not** ended: a webhook
+    or sync still running on it would fail mid-query, and idle release
+    reclaims its connections when that work finishes.
+  - **What remains, not a defect.** The toggle PATCH's setup pass and its
+    full sync both run a backfill — admin-visible work, kept on purpose.
 
 - **Three gaps PR #577 recorded for "an immediate follow-up PR" that never shipped (found in the 2026-10-12 batched harvest).**
   - **What.** Recorded on workstream #571's harvest notes. Re-read against
