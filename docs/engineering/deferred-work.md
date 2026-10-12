@@ -89,6 +89,7 @@ we've sequenced for later.
     sweep, decided 2026-10-12) is recorded below.
 
 - **Nothing alerts if the `rate_limit_counters` purge silently stops running.**
+  - **Launch plan placement (David, 2026-10-12): not blocking — Phase 16's general stopped-job alert; Phase 14's retention policy names the table's IP addresses.** Still true at `92024f3`. The session-token half is weaker than stated below: the `sessions` table already stores the same ids in plain form (`auth.ts:139-141`), so rows left behind add only expired ids. The readable `key_raw` is used only by `purgeRateLimitCountersByPrefix`, which has no caller — dropping it is an optional tidy-up for the next rate-limiter change.
   - **What.** `jobs/rateLimitCounterPurger.ts` reports through structured log
     lines only (matching `transientRenderPurger`, the job it was modelled on).
     If its scheduler never arms or every run starts failing, the table quietly
@@ -108,6 +109,7 @@ we've sequenced for later.
     another reason, or the first time this job is suspected of not running.
 
 - **The autoscale connection budget is unenforced and slightly wrong (found on PR #299's review, deferred by PR #308).**
+  - **Launch plan placement (David, 2026-10-12): blocking, Phase 3, before Soft.** Set a maximum server count (a cost number David approves), derive the pool size from the new production database's real connection limit including the `StripeSync` pool, and refuse to boot when they do not fit. Confirmed at `92024f3`: `.replit` carries no maximum, and the 398 budget was measured against the database Phase 3 replaces. `unable to verify:` whether a cap is set in Replit's deployment settings page.
   - **What.** `.replit` selects `deploymentTarget = "autoscale"` with no
     maximum instance count, so `lib/db/src/index.ts:45-67`'s "safe up to 19
     instances" comment cannot actually fail if violated. It also omits the
@@ -292,6 +294,7 @@ re-gather it when the work is scheduled.
     quarterly security pass judges it due.
 
 - **Git-history purge of the removed prod dump.**
+  - **WON'T-DO (David, 2026-10-12).** The launch plan's readiness row 5 and Phase 15 now require the exposure closed by rotation instead: sessions revoked by Phase 3's fresh database and that account's password changed. Per #217 the dump held no credentials — three sessions and one account's email and password hash — and a history rewrite cannot unpublish a file public since #165.
   - **Why deferred / won't-do-leaning.** Destructive history rewrite; **secret
     rotation is the real mitigation** and is the primary control. The purge is
     cosmetic cleanup on top of that.
@@ -452,6 +455,7 @@ re-gather it when the work is scheduled.
     data (not just theoretically), fold in transactional composition then.
 
 - **Async-jobs reclaim finalize has no fencing token (PR #283).**
+  - **Launch plan placement (David, 2026-10-12): blocking, Phase 11 (spend controls), before Seed.** Still true at `92024f3` (finalize by row id, `asyncJobs.ts:424-432`; no handler time limit; no email idempotency key). The costly effect is a reclaimed image generation spending twice, which is Phase 11's remit; the fenced finalize removes the duplicate email at the same time. Add a handler time limit under the cutoff in the same work.
   - **What.** `processClaimedJob` finalizes a job by row id alone. Stuck-row
     recovery (`RECOVER_STUCK_CUTOFF_MIN`) reclaims a row once it's been
     `processing` past the cutoff, but nothing stops the *original* holder from
@@ -521,6 +525,7 @@ re-gather it when the work is scheduled.
 > tracked in the roadmap's deferred list, not here.
 
 - **`adminConfig.loadAll()` has a cache stampede and a stale-fill race (found on PR #299's review, deferred by PR #308).**
+  - **Launch plan placement (David, 2026-10-12): not blocking — Phase 13 (admin console).** Still present on `main` (`adminConfig.ts:33-40`), but the Stripe-mode risk below no longer applies: every Stripe construction decides its mode through the strict row read, not this cache. And with no cross-instance invalidation, other instances already serve the old value for up to 60 s after a save, so the race adds no new staleness.
   - **What.** `adminConfig.ts:32-39` checks `_cache`, awaits the query, then
     assigns, with no in-flight promise today — concurrent callers on an empty
     or just-expired cache each issue their own query (the stampede). Worse,
@@ -551,6 +556,7 @@ re-gather it when the work is scheduled.
     promise must be cleared, not cached) — not added later as a patch.
 
 - **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308).**
+  - **CLOSED — resolved, 2026-10-12 (David, launch-plan deferred-work review).** Checked against `main` at `92024f3`: defect (3), mixed-mode credentials, and defect (2), an old-mode build published after invalidation, are fixed by #577 and #653 — `buildStripeSync(liveMode)` captures the mode once, and a generation counter plus a strict row re-read discards and ends a superseded build (`stripeModeToggle.test.ts`). The residual — no single-flight construction, and `invalidateStripeSync()` dropping the cached instance without ending its pool — does not accumulate: the library passes only `max: 2`, so pg-pool's default `idleTimeoutMillis` of 10 s (`pg-pool/index.js:98-99`) returns an orphaned pool's connections within seconds. Kept here as the trace; nothing further planned.
   - **What.** `stripeClient.ts:120-126` (`getStripeSync()` itself; the cached
     module-level vars and `buildStripeSync()` start at `:103-107`), three
     current defects plus one forward-looking guardrail: (1) no single-flight,
@@ -720,6 +726,7 @@ re-gather it when the work is scheduled.
 
 - **No CI guard against a migration's raw-SQL DDL missing its `schema.ts`
   shadow (found on PR #425's `/document` harvest review).**
+  - **Launch plan placement (David, 2026-10-12): split.** Closing the ten gaps below is **blocking, Phase 3, before the schema baseline is cut** — production is safe today (`runMigrations()` at boot), but a baseline generated from `schema.ts` would open Seed on a database without them, and test databases built by `push-force` already lack them. The CI guard itself is not blocking: Phase 3 if it fits, otherwise the next tooling pass. All ten were confirmed still missing from `lib/db/src/schema/` at `92024f3`.
   - **What.** [`raw-sql-migration-needs-schema-shadow.md`](../../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
     documents the pattern — a migration's hand-written `CREATE INDEX`,
     `ADD CONSTRAINT`, or `CREATE SEQUENCE` with no matching `schema.ts`
