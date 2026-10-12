@@ -13,6 +13,26 @@
 
 ---
 
+### 2026-10-12 · Pre-launch, the disclosure check is not run; no tokens are spent on leak prevention
+- **Decision:** Until launch, the canonical disclosure check
+  (`workstream-tracking.md`, *What must never happen*) and the whole private
+  path built on it (#204, #205, and the follow-up AI-Handbook #206) are **not
+  applied in this repository**. Plans, issues, PR bodies, oracles, harvests and
+  handoffs go to the public path as normal, security specifics included, and
+  no session spends review rounds, sweeps or questions on disclosure. David:
+  *"The whole privacy issue of disclosing possible security vulnerabilities is
+  not yet a problem. We're still pre-launch … I'm not concerned about leaks
+  yet. … Until then, let's not keep spending tokens worrying about it."*
+- **Why:** Nobody yet has a reason to attack the app, so a leak costs nothing
+  today, while the private path has cost several review rounds and still has
+  nine open design gaps (#206). The protection belongs to the moment it buys
+  something.
+- **Reference:** David, 2026-10-12, after AI-Handbook #205 merged.
+- **Revisit if:** the product launches, earns real revenue, or is at risk of
+  anyone caring about it. Then David either makes the repository private (and
+  pays for it) or sets up a second, private repository for security issues,
+  and the check comes back on, with #206 designed against whichever he chose.
+
 ### 2026-10-10 · A database is a test database only if it carries the marker; names decide nothing
 - **Decision:** Test tooling (`push-force`, both api-server runners, the E2E
   account seed, the production-mode launcher) refuses any database that does
