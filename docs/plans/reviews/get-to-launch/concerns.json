@@ -1,0 +1,139 @@
+[
+  {
+    "id": "S1",
+    "title": "What the soft-launch invite gate blocks is undefined",
+    "raised": "scope-0",
+    "source": ".agents/reviews/get-to-launch/round-0.md",
+    "state": "accepted-by-david",
+    "concern": "The existing sharing path deliberately serves anonymous visitors and social crawlers (cloudflare/og-router routes crawlers to public meme previews). A gate covering every page and image would change what the soft launch can demonstrate about sharing and Open Graph. David's choice: (a) public shared-page previews and OG cards, invitations required for registration and participation — Astra's recommendation, permits a realistic share-loop rehearsal while controlling who joins; (b) everything behind invitations — keeps the trial closed, but public sharing evidence must be obtained separately before full launch. The readiness list also needs explicit timing and payment mode per piece of evidence: opening the invited trial vs completing its real-data verification; deployed-app checks vs Stripe live-mode checks; a full-launch requirement awaiting execution stays visibly outstanding rather than becoming a soft-launch pass.",
+    "proposed": "Option (a). Readiness criteria carry a per-row 'soft' / 'full' column and a payment-mode column.",
+    "evidence": [
+      "cloudflare/og-router/src/index.ts"
+    ],
+    "response": "Claude agrees with (a) and with the per-row timing column; the choice is David's and goes to him before the plan is drafted.",
+    "david": "David, 2026-10-05: \"A\" — public meme pages and previews; invitation required to register and participate."
+  },
+  {
+    "id": "S2",
+    "title": "The durable-data boundary must come before invited users contribute",
+    "raised": "scope-0",
+    "source": ".agents/reviews/get-to-launch/round-0.md",
+    "state": "addressed",
+    "concern": "The 2026-08-28 disposable-production decision expires when real user accounts, content, payments or safety records exist — not when the public gate comes off. Friends submitting the first 50 facts cross that boundary. So the production reset and launch rehearsal belong BEFORE collecting those contributions; a second reset between soft and full launch cannot be assumed. The fresh-build prerequisite is real: migration 0001 alters existing tables; the test setup uses schema push then migrations, so a passing integration suite does not demonstrate the production bootstrap. One phase should own: building an empty environment from code incl. configuration and DB protections; proving the upgrade path on the sanitised legacy fixture; rehearsing database AND media restore; applying the four excluded-data-class checks before replacing production.",
+    "proposed": "Data & environments phase sequenced before the soft launch opens; it owns the four proofs listed.",
+    "evidence": [
+      "docs/ai-context/decisions.md:323",
+      "lib/db/migrations/0001_soft_delete_facts_users.sql"
+    ],
+    "response": "Accepted in full; plan v1 sequences Data & environments as a hard prerequisite of the soft launch and names its four exit proofs. Astra, round 1: \"addressed in the parent plan.\"",
+    "david": null
+  },
+  {
+    "id": "S3",
+    "title": "Hero options are a publication change, not a relabelled gallery; engine evaluation needs an eval extension",
+    "raised": "scope-0",
+    "source": ".agents/reviews/get-to-launch/round-0.md",
+    "state": "addressed",
+    "concern": "Approved hero options are not an existing gallery awaiting a label: in imagePromptJobs.ts moderation renders deliberately skip the shared gallery, while ordinary generations append to facts.aiMemeImages alongside ownership records. The image phase must establish the distinction between published, moderator-approved fact assets and a user's own uploads/generations, and carry it through the wizard, preview/save/render paths, personal library, refresh workflow and deletion. Filtering the current gallery in the UI would not meet the oracle. The engine evaluation premise also needs correcting: the eval runner evaluates the current pipeline and the render worker selects Nano Banana 2 directly, so comparing candidate engines through the dashboard requires an extension — it is not an operator-only exercise. Sequence candidate-engine support and evaluation before preset tuning and representative-render acceptance. Aspect ratios and the missing/waived-hero experience are explicit image-phase product decisions; neither templates nor unapproved renders may quietly become the fallback.",
+    "proposed": "Image phase scoped as a publication-model change with the asset/ownership boundary as its first deliverable; engine evaluation phase includes the eval-runner extension; both product decisions batched at the image phase's approval.",
+    "evidence": [
+      "artifacts/api-server/src/lib/imagePromptJobs.ts:403",
+      "artifacts/api-server/src/lib/imagePromptJobs.ts:328",
+      "artifacts/api-server/src/lib/eval/evalRunJobs.ts"
+    ],
+    "response": "Accepted; Claude verified the imagePromptJobs claims before drafting (see session). The plan's workload estimate for engine evaluation is corrected. Astra, round 1: \"addressed in the parent plan.\"",
+    "david": null
+  },
+  {
+    "id": "S4",
+    "title": "Spend hardening is distinct from the customer allowance and must cover every provider-call path",
+    "raised": "scope-0",
+    "source": ".agents/reviews/get-to-launch/round-0.md",
+    "state": "addressed",
+    "concern": "checkBudget compares proposed cost with completed, recorded spend without reserving capacity for concurrent work; administrators are exempt; resourceGovernance.ts holds accounting in process memory; the inspected async image worker calls the provider without the budget/ledger mechanism. A monthly face-render meter cannot by itself establish 'no runaway cost'. The phase must cover retained provider-call paths including moderation, evaluation and automated work, and distinguish account entitlements from the service's overall spending ceiling and emergency stop. Completion evidence: bounded financial exposure under simultaneous requests, retries, restart, unavailable pricing and failed accounting. Deleting video reduces coverage required but does not remove the problem.",
+    "proposed": "Spend-controls phase scoped to: an inventory of every provider-call path; a reservation-aware gate; a service-wide ceiling and emergency stop separate from per-account allowances; durable (not in-memory) accounting; the five-condition exit evidence.",
+    "evidence": [
+      "artifacts/api-server/src/lib/budgetGate.ts",
+      "artifacts/api-server/src/lib/resourceGovernance.ts",
+      "artifacts/api-server/src/lib/imagePromptJobs.ts"
+    ],
+    "response": "Accepted; this is David's own oracle for the phase ('no runaway cost') made concrete. Claude verified the budgetGate/async-worker claims before drafting. Astra, round 1: \"addressed in the parent plan.\"",
+    "david": null
+  },
+  {
+    "id": "S5",
+    "title": "Self-service account deletion crosses billing, media and safety boundaries",
+    "raised": "scope-0",
+    "source": ".agents/reviews/get-to-launch/round-0.md",
+    "state": "addressed",
+    "concern": "The current admin hard-delete route continues after storage or Stripe cancellation failures, then removes the user and cascading entitlement records, and leaves shared content in place with author references nulled. That is evidence for reusing primitives, not for exposing the existing operation through a new button: a cancellation failure can leave an external billing obligation after its local recovery information is gone. The phase needs explicit outcomes for partial deletion, recoverable external obligations and retained safety records. David decides the user-visible fate of published contributions in the account/compliance batch. The safety boundary (no evidence viewer) remains binding.",
+    "proposed": "Account-lifecycle phase: deletion designed as a staged, resumable operation that refuses to finish while an external obligation is unresolved; published-contribution fate batched as a David decision.",
+    "evidence": [
+      "artifacts/api-server/src/routes/admin.ts:582",
+      "docs/ai-context/legal-safety-moderation.md"
+    ],
+    "response": "Accepted; the inventory's 'reuses the admin delete' is corrected to 'reuses its primitives'. The contribution-fate question joins the account/compliance decision batch. Astra, round 1: \"addressed in the parent plan.\"",
+    "david": null
+  },
+  {
+    "id": "S6",
+    "title": "The soft-launch readiness table silently lowers security and compliance bars",
+    "raised": "assess-1",
+    "source": ".agents/reviews/get-to-launch/round-1.md",
+    "state": "accepted-by-david",
+    "concern": "The readiness table makes the security review a 'should' for soft launch and reduces compliance to 'pages live'; Phase 13 (dashboard, moderation rebuild, user help) has no dependency leading into either launch. Friends will create durable accounts, submit content and upload photographs; public shared pages remain accessible outside the invited group; test-mode payments do not remove those exposures; published policies cannot substitute for an operational safety procedure (ncmec.ts still records a report and emails an admin without filing). S1 does not authorise accepting unresolved high security findings or an unfinished safety capability. Proposed principle: soft launch opens with the full agreed build, the security review completed with no open highs, and the operational compliance controls needed for real accounts, contributions and uploads; if the NCMEC path is manual its counsel-confirmed procedure must already be usable; Phase 13 completion in the soft-launch gate; distinguish opening the trial, completing its evidence, and opening full launch. Any weaker bar is presented to David as an explicit exception with consequences.",
+    "proposed": "Adopt Astra's principle, split across David's new Seed phase: before Seed (real accounts, text submissions, David moderating): fresh production build, account/identity phase, compliance pages live, security review scoped to the surfaces Seed exposes (auth, submission, admin), dashboard + moderation usable. Before Soft launch (photos, memes, sharing, payments): full security review with no open highs, operational safety procedure usable, spend controls, Phase 13 complete.",
+    "evidence": [
+      "docs/plans/PLAN_GET_TO_LAUNCH.md:588",
+      "artifacts/api-server/src/lib/moderation/ncmec.ts:1"
+    ],
+    "response": "Claude proposed a lighter Seed bar; David declined it. Full bar (security review no highs, operational safety path usable, spend controls, finished admin console, full build) before Seed. Folded into v2.",
+    "david": "David, 2026-10-05: \"Hold the full bar prior to seed. There's no reason to seed prior.\" Seed users also make memes (\"part of the testing to see how their submitted facts end up looking\"), so photos arrive at Seed and the full bar applies there. Astra's principle adopted unsplit."
+  },
+  {
+    "id": "S7",
+    "title": "A full live-mode Stripe rehearsal is unsupported by Stripe; the oracle needs an evidence split",
+    "raised": "assess-1",
+    "source": ".agents/reviews/get-to-launch/round-1.md",
+    "state": "accepted-by-david",
+    "concern": "Phase 19 and readiness row 3 require a real purchase, failed payment, refund, dispute and failure-recovery scenarios in live mode, faithfully repeating the oracle, but Stripe's documentation prohibits testing with real payment details in live mode; simulated declines and disputes use test credentials. Manufacturing a live dispute is not an appropriate prerequisite. Recommended split: prove the monthly lifecycle and adverse events in test mode incl. duplicate/out-of-order delivery, interrupted processing and the reconciliation runbook; demonstrate retained test purchases cannot grant live benefits after the mode switch; verify the deployed live account, price, credentials, webhook configuration and boot guard; observe genuine live payments under the launch watch. Calling test-mode evidence 'live' because the app is deployed would not resolve it.",
+    "proposed": "Adopt the split; amend the oracle with --oracle-changed; align Phases 10/19 and readiness row 3.",
+    "evidence": [
+      "docs/plans/PLAN_GET_TO_LAUNCH.md:574",
+      "https://docs.stripe.com/testing"
+    ],
+    "response": "Claude recommends yes; the accepted limitation is explicit: live configuration verified, every adverse outcome proven in test mode, genuine live payments observed under watch.",
+    "david": "David, 2026-10-05: \"Accepted.\" Oracle amended with --oracle-changed; Phases 10/20 and readiness row 3 aligned."
+  },
+  {
+    "id": "S8",
+    "title": "Geography blocking and OG delivery need deployment-boundary proofs",
+    "raised": "assess-1",
+    "source": ".agents/reviews/get-to-launch/round-1.md",
+    "state": "addressed",
+    "concern": "Phase 14 chooses Cloudflare enforcement, but .replit:166 allows a separate Replit origin and the Express origin checks (app.ts:212) do not establish that traffic passed through Cloudflare. Not a proven bypass (live reachability of the alternate origin could not be established), but the smallest useful investigation: establish which production origins serve the app and API and ensure the geographic rule cannot be bypassed through an alternate public origin; inability to enforce requires reconsideration, not a configured rule treated as completion. Likewise Phase 6's crawler fixture should be supplemented by a deployed check retrieving the OG shell and its advertised image through the real domain, since the Worker handles platform-injected cookies and edge delivery an origin-only fixture cannot show.",
+    "proposed": "Add the origin inventory + bypass check to Phase 14/15 acceptance evidence; add a deployed OG check to Phase 6's exit evidence.",
+    "evidence": [
+      ".replit:166",
+      "artifacts/api-server/src/app.ts:212",
+      "cloudflare/og-router/src/index.ts:12"
+    ],
+    "response": "Accepted; folded into v2 as exit evidence on Phases 6 and 14 (with 15). Astra, round 2: \"addressed in the parent plan.\"",
+    "david": null
+  },
+  {
+    "id": "S9",
+    "title": "'US-first' is ambiguous: block every non-US visitor, or only the named exclusions?",
+    "raised": "assess-2",
+    "source": ".agents/reviews/get-to-launch/round-2.md",
+    "state": "accepted-by-david",
+    "concern": "Phase 20's outcome said 'only the US is served' while the oracle specifies US-first with EU/UK and sanctioned countries blocked, and Phase 14 repeats the named exclusions. These differ for someone in Canada or Australia: an exclusively-US rule denies them until Global; the named exclusions alone do not. Separate from S8. Recommendation: preserve the oracle's stated exclusions unless David explicitly chooses broader blocking; replace Phase 20's wording; add country eligibility to Phase 14's batch.",
+    "proposed": "David, 2026-10-07: \"I'm happy to have users from anywhere other than GDPR and OFAC countries.\" Blocked at the US launch: GDPR territories (EEA + UK) and OFAC-sanctioned countries; everyone else admitted. Plan Phase 14, Phase 20 and the batch list updated; oracle amendment 7 records it.",
+    "evidence": [
+      "docs/plans/PLAN_GET_TO_LAUNCH.md:644",
+      ".agents/reviews/get-to-launch/oracle-get-to-launch.md:53"
+    ],
+    "response": "Accepted: v2 corrected; the question goes to David with the approval ask. Claude's recommendation: named exclusions only (admit Canada, Australia and the rest), because the only reason to block was GDPR exposure and sanctions, and neither applies elsewhere.",
+    "david": null
+  }
+]
