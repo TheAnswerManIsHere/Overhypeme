@@ -322,7 +322,7 @@ export async function __endCachedSyncForTests(): Promise<void> {
   // A construction still in flight from the previous test must not publish
   // into this one: the generation bump makes it discard its build.
   constructionGeneration++;
-  syncConstruction = null;
+  syncConstructions.clear();
   const current = stripeSync;
   stripeSync = null;
   stripeSyncLiveMode = null;
@@ -438,15 +438,18 @@ export async function getVerifiedStripeMode(): Promise<boolean> {
   return refreshVerifiedStripeMode();
 }
 
-interface SyncConstruction {
-  live: boolean;
-  generation: number;
-  /** The published sync, or `null` when a toggle superseded the build. */
-  promise: Promise<Awaited<ReturnType<typeof buildStripeSync>> | null>;
-}
-
-/** The construction currently in flight, joined by concurrent cache misses. */
-let syncConstruction: SyncConstruction | null = null;
+/**
+ * Constructions in flight, keyed by `${mode}:${generation}` and joined by
+ * concurrent cache misses for that key. Each resolves to the published sync, or
+ * `null` when a toggle superseded the build.
+ *
+ * A map, not one slot: a remote toggle changes the mode without changing the
+ * local generation, so with a single slot a test → live → test flip during one
+ * slow construction let the live caller evict the test flight and a later test
+ * caller start a second, concurrent test build — both then published (Codex,
+ * #657 round 2). Keyed, a flight for one mode can never displace another's.
+ */
+const syncConstructions = new Map<string, Promise<Awaited<ReturnType<typeof buildStripeSync>> | null>>();
 
 /**
  * Verify, build and publish a sync for `live`, or return `null` when a toggle
@@ -520,11 +523,8 @@ export async function getStripeSync() {
 
     // A toggle landed while this caller was reading the mode. Its build would
     // be discarded by the generation check anyway, so it starts none: it goes
-    // round again and joins the current construction. This is also what keeps
-    // the slot below current — without it, a caller resuming with a stale
-    // generation evicts the CURRENT flight, and the next current caller starts
-    // a duplicate (Codex, #657 round 1). Nothing else may be relied on for that:
-    // the order in which parked mode reads resume is incidental.
+    // round again and joins the current construction rather than spending a
+    // verification and a pool on a doomed build (Codex, #657 round 1).
     if (constructionGeneration !== generationAtStart) continue;
 
     // ONE construction per (mode, generation), shared by every caller that
@@ -533,23 +533,20 @@ export async function getStripeSync() {
     // replaced the earlier — routine on a toggle, where setup's getSync() and
     // the route's own full sync both arrive here together. Keyed by the
     // generation too, so a toggle never joins a build for the mode it just
-    // left; and cleared on settle, rejection included, so a failure is never
+    // left; and removed on settle, rejection included, so a failure is never
     // cached (the guardrail the deferred-work entry set for any single-flight).
-    let flight = syncConstruction;
-    if (!flight || flight.live !== live || flight.generation !== generationAtStart) {
-      const started: SyncConstruction = {
-        live,
-        generation: generationAtStart,
-        promise: constructAndPublish(live, generationAtStart),
-      };
-      syncConstruction = started;
+    const key = `${live ? "live" : "test"}:${generationAtStart}`;
+    let flight = syncConstructions.get(key);
+    if (!flight) {
+      const started = constructAndPublish(live, generationAtStart);
+      syncConstructions.set(key, started);
       const clear = () => {
-        if (syncConstruction === started) syncConstruction = null;
+        if (syncConstructions.get(key) === started) syncConstructions.delete(key);
       };
-      started.promise.then(clear, clear);
+      started.then(clear, clear);
       flight = started;
     }
-    const published = await flight.promise;
+    const published = await flight;
     if (published === null) continue;
     return published;
   }
