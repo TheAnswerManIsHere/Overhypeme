@@ -1,0 +1,54 @@
+[
+ {
+  "id": "C1",
+  "title": "A1 \u2014 define what constitutes a recorded request",
+  "state": "addressed",
+  "source": "round-1.md",
+  "concern": "Key on initial user message misses corrective retries, vision content blocks, system prompt and schema; prompt-change re-record trigger not established.",
+  "proposed": "Fingerprint model, full response format, ordered messages incl. system and corrective; normalise only identified transport differences; vision explicit or unrecorded; record fixture identity.",
+  "response": "v2 D4: full fingerprint incl. options; normaliser fields named only from a record-vs-replay diff; vision (tier3) explicitly unrecorded; fixture identity recorded. Re-record trigger claim dropped."
+ },
+ {
+  "id": "C2",
+  "title": "A2 \u2014 application-owned OpenAI adapter; call-time fal facade",
+  "state": "addressed",
+  "source": "round-1.md",
+  "concern": "Integration package cannot import app modules; cached client precedes credential check; conditional fal export would be load-time.",
+  "proposed": "API-owned getOpenAIClient adapter delegating to the package; embeddings uses selector first; fal forwarding facade resolving per call; selection before credential gate; classifier seam preserved.",
+  "response": "v2 D2 adopts this as proposed."
+ },
+ {
+  "id": "C3",
+  "title": "A3 \u2014 prove recordings through their consumers",
+  "state": "addressed",
+  "source": "round-1.md",
+  "concern": "Interception and provenance do not show the chain passes real validators or that a failure becomes an app outcome; startup calls exceed baseline recordings.",
+  "proposed": "Consumer-level evidence for chain, PNG, one error; startup unmatched calls fail visibly, never fall through.",
+  "response": "v2 D7 'Through the consumers'; D4 states boot-time unrecorded calls fail visibly."
+ },
+ {
+  "id": "C4",
+  "title": "Journey 6 spend assertion",
+  "state": "accepted-by-david",
+  "source": "round-1.md",
+  "concern": "Astra recommends preserving the spend assertion and making production spend support a prerequisite.",
+  "david": "David 2026-10-12: next \u2014 deferred to #651 and the spend-controls phase."
+ },
+ {
+  "id": "C5",
+  "title": "Recording spend unverified",
+  "state": "for-david",
+  "source": "round-1.md",
+  "concern": "Under-$1 figure unverified; establish run and spending limit from the request inventory.",
+  "response": "v3 D6: reservation-before-dispatch at conservative maximum, unknown price refused, retries counted (SDK retries off), startup in allowance, incomplete-not-restarted. Allowance size goes to David: conservative reservations exceed $1. Round 3: fal reservation covers 4 submission attempts (SDK 1.9.5 queue.submit maxRetries 3 merged after client config); reservations kept when usage unknown; fake-transport proof before the paid run. Allowance size for David."
+ },
+ {
+  "id": "C6",
+  "title": "Recorder's isolated launch environment",
+  "state": "addressed",
+  "source": "round-2.md",
+  "concern": "A dev boot on the credential-bearing Repl reaches the real bucket, Stripe at boot, and skips the test-database marker.",
+  "proposed": "Separate process, explicit env with AI keys only, marker before import, local storage double in a temp dir, own port, terminate on exit, never CI.",
+  "response": "v3 D6 adopts as proposed."
+ }
+]
