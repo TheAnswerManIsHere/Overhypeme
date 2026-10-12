@@ -428,6 +428,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
       __setStripeInitDepsForTests({
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
+          liveMode: await readStripeLiveModeStrict(),
           findOrCreateManagedWebhook: async () => { sequence.push("webhook"); },
           syncBackfill: async () => { sequence.push("backfill"); },
         }),
@@ -472,6 +473,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
       __setStripeInitDepsForTests({
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
+          liveMode: await readStripeLiveModeStrict(),
           findOrCreateManagedWebhook: async () => {
             webhookAttempts++;
             if (webhookAttempts === 1) throw new Error("transient Stripe error registering the webhook");
@@ -518,6 +520,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
       __setStripeInitDepsForTests({
         runSyncMigrations: async () => { await new Promise((r) => setTimeout(r, 15)); },
         getSync: async () => ({
+          liveMode: await readStripeLiveModeStrict(),
           findOrCreateManagedWebhook: async () => { webhookCalls++; },
           syncBackfill: async () => {},
         }),
@@ -551,6 +554,7 @@ describe("recovery resumes the WHOLE initialization, exactly once", () => {
       __setStripeInitDepsForTests({
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
+          liveMode: await readStripeLiveModeStrict(),
           findOrCreateManagedWebhook: async () => { sequence.push("webhook"); },
           syncBackfill: async () => { sequence.push("backfill"); },
         }),

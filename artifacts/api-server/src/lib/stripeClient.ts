@@ -495,6 +495,19 @@ export async function getStripeSync() {
   );
 }
 
+/**
+ * The mode `sync` was built and verified for, or `null` when `sync` is no
+ * longer the published instance (a toggle superseded it).
+ *
+ * Exists so a caller that MUTATES through a sync — webhook registration — can
+ * credit the effect to the account it actually reached. The stored mode is the
+ * wrong evidence: `getStripeSync()` does its own strict read, so a mode read
+ * before or after the call can name a different account than the sync's.
+ */
+export function liveModeOfPublishedStripeSync(sync: unknown): boolean | null {
+  return sync !== null && sync === stripeSync ? stripeSyncLiveMode : null;
+}
+
 export function invalidateStripeSync() {
   // Force the next call to re-read the row rather than trust the interval: a
   // local toggle is the one moment we KNOW the mode moved.

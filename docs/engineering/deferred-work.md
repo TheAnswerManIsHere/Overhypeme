@@ -585,8 +585,12 @@ re-gather it when the work is scheduled.
     the later publish overwrites the earlier one without closing its pool;
     and `invalidateStripeSync()` deliberately does not close the pool of the
     instance it drops (the code comment says so and points here). The line
-    references in *What* predate #577. The leak and the concurrency are read
-    from the code, not reproduced by a test: unable to verify by
+    references in *What* predate #577. **One more trigger since PR #653:**
+    the `stripe_live_mode` PATCH now starts setup (whose `getSync()` calls
+    `getStripeSync()`) and then calls `getStripeSync()` itself for the full
+    sync, so a local toggle can run two constructions at once and orphan one
+    two-connection pool (Fable, #653 round 1). The leak and the concurrency
+    are read from the code, not reproduced by a test: unable to verify by
     measurement; a test that runs two concurrent `getStripeSync()` misses
     and counts open pools would settle it.
   - **Why deferred now.** Pre-existing on `main`; same review/deferral
@@ -608,16 +612,18 @@ re-gather it when the work is scheduled.
   - **What.** Recorded on workstream #571's harvest notes. Re-read against
     `main` at the harvest. None of the three has a fix in the window, but
     none was reproduced either:
-    1. **(P1 as recorded)** A server that boots with its active mode
-       unconfigured and is then toggled to a configured mode records the
-       verification but never resumes webhook registration, and nothing
-       shows it. The panel reads `verified` while Stripe's events don't
-       arrive until a restart. At the harvest,
-       `hasStripeInitializationCompleted()` (`stripeInit.ts`) still has no
-       caller outside tests, so the observability half is unchanged. Whether
-       the resume half is still missing is unable to verify from a read: a
-       test that boots unconfigured, toggles, and asserts the managed webhook
-       was registered would settle it.
+    1. **(P1 as recorded) — resume half FIXED by the bugfix that followed
+       the harvest; observability half still open.** Diagnosis found the
+       recorded case was one instance of a class: initialization completion
+       was a single process-wide flag, so any switch of the active mode
+       left the new account's webhook unregistered. It is now per mode, and a
+       committed toggle starts setup for the new mode
+       (`stripeModeToggle.test.ts`, *a mode change initializes the newly
+       active mode*). **Still open:** nothing surfaces "verified but setup
+       not complete" to the operator. `hasStripeInitializationCompleted()`
+       (which now takes a mode) still has no caller outside tests, so a
+       setup that keeps failing shows only in the logs while the panel
+       reads `verified`.
     2. **(P2)** `runStripeVerificationRetryOnce` makes its cheap
        deterministic-refusal skip on the lenient cached mode (`isLiveMode()`)
        before the strict read. After a toggle on another instance, it can
@@ -632,9 +638,8 @@ re-gather it when the work is scheduled.
   - **Why deferred.** Not deliberately deferred: the follow-up was promised in
     the harvest notes and never opened. Recorded here so the promise lives
     somewhere with an owner.
-  - **Cost of waiting.** (1) is the one with product consequences. After that
-    toggle sequence, payments would look healthy while subscription changes
-    made at Stripe never reached the app. (2) delays recovery by one cache
+  - **Cost of waiting.** (1)'s remaining half costs diagnosis time: a setup
+    that keeps failing after a toggle shows in the logs, not on the panel. (2) delays recovery by one cache
     TTL. (3) is a test-suite leak: a later suite in the same shard
     can see Stripe credentials it did not set.
   - **Revisit trigger.** Before the live-mode work in launch Phase 10 (#628),

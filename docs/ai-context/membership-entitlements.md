@@ -190,12 +190,33 @@ header of `stripeAccountGuard.ts` carries the evidence for each:
    loop passes `force`, which bypasses the throttle. Payments still recover
    on their own.
 
-**Required initialization finishes once, and only after it actually
+**Required initialization finishes once per mode, and only after it actually
 succeeds.** Stripe schema migrations and managed-webhook registration are
 retried until they succeed (so migrations can run again after a registration
-failure), and once marked done they are not repeated (`stripeInit.ts`). A
-recovered retry used to restore clients while leaving the webhook
-unregistered. **The backfill is not part of that guarantee.** It is launched
+failure), and once marked done for a mode they are not repeated for it
+(`stripeInit.ts`). Completion is tracked **per mode** because each mode is a
+different Stripe account with its own webhook: until the bugfix that followed
+#577, one process-wide flag meant a switch of the active mode — a toggle on
+this instance, a toggle committed by another instance, or a toggle after an
+unconfigured boot — left the new account with no webhook, so payments read
+"verified" while its events never arrived until a restart. Now a verified
+boot, a committed toggle (`startStripeInitializationForActiveMode` in the
+`stripe_live_mode` PATCH) and a successful retry pass all run setup for the
+mode then stored. Completion is credited to the mode the **sync** was
+verified for (`liveModeOfPublishedStripeSync`), checked before the webhook is
+registered: a toggle landing mid-setup hands back a sync for the other account,
+so the attempt mutates nothing, leaves its mode unmarked, and the retry
+finishes whichever mode is then stored. A row re-read cannot do this job —
+test → live → test passes one after registering only the live webhook. The
+remote-change detector (`ensureVerificationArmedFor`) treats a mode as done
+only when its setup is complete, or its account was refused or never
+configured. A mode that was merely *verified* still has setup owed. It kicks an
+immediate pass only when it is the one arming the retry timer, so the Billing
+poll never becomes the retry cadence. The one retry timer serves both modes, so it stops
+only once the mode **then stored** has its setup complete, and only if no arm
+request arrived while that was being read. Stopping on a pass's own success
+let a switch landing mid-pass be absorbed by the armed timer and then dropped. A recovered retry used to restore clients while
+leaving the webhook unregistered. **The backfill is not part of that guarantee.** It is launched
 after initialization is marked done, fire-and-forget, and a failed backfill
 is logged and not retried in that process.
 

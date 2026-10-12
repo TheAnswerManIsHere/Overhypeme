@@ -35,6 +35,7 @@ import { logger } from "./logger";
 import {
   BOOT_VERIFY_TIMEOUT_MS,
   VERIFY_RETRY_INTERVAL_MS,
+  getVerificationStatus,
   hasVerificationAttemptFor,
   markModeUnconfigured,
   readStripeLiveModeStrict,
@@ -73,7 +74,14 @@ export type StripeBootOutcome =
  * it has always been — awaiting it here would change the boot sequence's
  * timing, which *Must Not Change* item 2 pins.
  */
-let initializationCompleted = false;
+const completedModes = new Set<"live" | "test">();
+
+/**
+ * Set when there is nothing to initialize at all (no `DATABASE_URL`). Not a
+ * mode's completion: no mode was ever initialized, and nothing about that
+ * recovers on an interval.
+ */
+let initializationNotApplicable = false;
 
 /**
  * The in-flight attempt, so concurrent callers join it rather than starting a
@@ -81,7 +89,7 @@ let initializationCompleted = false;
  * lets a transient failure become permanent, and as a re-entrancy guard alone
  * it lets two callers run the sequence at once.
  */
-let initializationInFlight: Promise<boolean> | null = null;
+const initializationInFlight = new Map<"live" | "test", Promise<boolean>>();
 
 /**
  * The three effects the remaining initialization performs, injectable so a test
@@ -93,6 +101,8 @@ export interface StripeInitDeps {
   getSync: () => Promise<{
     findOrCreateManagedWebhook: (url: string) => Promise<unknown>;
     syncBackfill: (opts: { object: "all" }) => Promise<unknown>;
+    /** The mode this sync was verified for; `null` when it is no longer published. */
+    liveMode: boolean | null;
   }>;
   getSiteBaseUrl: () => string;
 }
@@ -109,8 +119,13 @@ const productionDeps: Omit<StripeInitDeps, "getSiteBaseUrl"> = {
     return runMigrations(opts);
   },
   getSync: async () => {
-    const { getStripeSync } = await import("./stripeClient");
-    return getStripeSync();
+    const { getStripeSync, liveModeOfPublishedStripeSync } = await import("./stripeClient");
+    const sync = await getStripeSync();
+    return {
+      findOrCreateManagedWebhook: (url: string) => sync.findOrCreateManagedWebhook(url),
+      syncBackfill: (opts: { object: "all" }) => sync.syncBackfill(opts),
+      liveMode: liveModeOfPublishedStripeSync(sync),
+    };
   },
 };
 
@@ -127,15 +142,22 @@ export function __setStripeInitDepsForTests(next: StripeInitDeps): () => void {
 
 /** Test seam. */
 export function __resetStripeInitForTests(): void {
-  initializationCompleted = false;
-  initializationInFlight = null;
+  completedModes.clear();
+  initializationNotApplicable = false;
+  initializationInFlight.clear();
   stopStripeVerificationRetry();
   deterministicallyRefusedModes.clear();
   verificationKickInFlight = false;
 }
 
-export function hasStripeInitializationCompleted(): boolean {
-  return initializationCompleted;
+/**
+ * Whether the required setup has completed — for `liveMode` when given, or for
+ * any mode when omitted.
+ */
+export function hasStripeInitializationCompleted(liveMode?: boolean): boolean {
+  if (initializationNotApplicable) return true;
+  if (liveMode === undefined) return completedModes.size > 0;
+  return completedModes.has(liveMode ? "live" : "test");
 }
 
 /**
@@ -147,19 +169,36 @@ export function hasStripeInitializationCompleted(): boolean {
  * `false`, so a transient failure is retried rather than remembered as success.
  */
 export async function resumeStripeInitialization(): Promise<boolean> {
-  if (initializationCompleted) return true;
-  if (initializationInFlight) return initializationInFlight;
+  if (initializationNotApplicable) return true;
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    logger.warn("DATABASE_URL not set, skipping Stripe init");
+    // Not a transient failure to retry: nothing about this recovers on an
+    // interval, and retrying it would log the same line forever.
+    initializationNotApplicable = true;
+    return true;
+  }
+
+  // Completion is PER MODE. Each mode is a different Stripe account, and the
+  // managed webhook is registered on the account, so a process that finished
+  // setup for test mode has done nothing for live mode. One process-wide flag
+  // let every switch of the active mode after the first completed (or skipped)
+  // setup leave the new account with no webhook: payments read "verified" and
+  // Stripe's events never arrived until a restart.
+  let liveMode: boolean;
+  try {
+    liveMode = await readStripeLiveModeStrict();
+  } catch (err) {
+    logger.warn({ err }, "Stripe init: the stored mode is unreadable — will retry");
+    return false;
+  }
+  const mode = liveMode ? "live" : "test";
+  if (completedModes.has(mode)) return true;
+  const joined = initializationInFlight.get(mode);
+  if (joined) return joined;
 
   const attempt = (async (): Promise<boolean> => {
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) {
-      logger.warn("DATABASE_URL not set, skipping Stripe init");
-      // Not a transient failure to retry: nothing about this recovers on an
-      // interval, and retrying it would log the same line forever.
-      initializationCompleted = true;
-      return true;
-    }
-
     try {
       const active = deps ?? {
         ...productionDeps,
@@ -170,6 +209,18 @@ export async function resumeStripeInitialization(): Promise<boolean> {
       logger.info("Stripe schema ready");
 
       const stripeSync = await active.getSync();
+
+      // Bind the mutation below to this attempt's mode BEFORE it happens.
+      // `getStripeSync()` does its own strict read, so a toggle committed since
+      // this attempt read the row hands back a sync for the OTHER account — and
+      // a row re-read afterwards cannot tell (test → live → test passes it after
+      // registering only the live webhook). A mismatch mutates nothing and
+      // returns `false`, so the caller's armed retry runs setup for whichever
+      // mode is then stored.
+      if (stripeSync.liveMode !== liveMode) {
+        logger.warn({ mode }, "Stripe sync was built for another mode — not initializing this one now");
+        return false;
+      }
 
       const webhookUrl = `${active.getSiteBaseUrl()}/api/stripe/webhook`;
       // findOrCreateManagedWebhook registers the webhook endpoint and subscribes it to all
@@ -189,7 +240,7 @@ export async function resumeStripeInitialization(): Promise<boolean> {
 
       // Required setup is done. The backfill below is fire-and-forget exactly as
       // it has always been, so its failure logs and does not reopen this.
-      initializationCompleted = true;
+      completedModes.add(mode);
 
       void stripeSync.syncBackfill({ object: "all" })
         .then(() => logger.info("Stripe backfill complete"))
@@ -202,11 +253,11 @@ export async function resumeStripeInitialization(): Promise<boolean> {
     }
   })();
 
-  initializationInFlight = attempt;
+  initializationInFlight.set(mode, attempt);
   try {
     return await attempt;
   } finally {
-    initializationInFlight = null;
+    initializationInFlight.delete(mode);
   }
 }
 
@@ -345,15 +396,49 @@ export async function runStripeVerificationRetryOnce(): Promise<void> {
   // ever attempts the stored mode.
   logger.info({ mode }, "Stripe account verified on retry — resuming Stripe initialization");
   const completed = await resumeStripeInitialization();
+  if (!completed) logger.warn({ mode }, "Stripe initialization did not complete — keeping the retry armed");
 
-  // The timer stops only once the required setup has actually succeeded.
-  // Stopping it on verification alone is what made a transient webhook failure
-  // permanent: nothing was left to try again, and the state still said verified.
-  if (completed) stopStripeVerificationRetry();
-  else logger.warn({ mode }, "Stripe initialization did not complete — keeping the retry armed");
+  // The timer stops only once the mode stored NOW has its setup complete — not
+  // the mode this pass started on. One timer serves both modes, and every arm
+  // request made while it exists is a no-op, so its existence has to mean "the
+  // stored mode is owed". Stopping on THIS pass's success (#653 round 2) let a
+  // switch landing mid-pass — a remote toggle the detector saw, or a local one
+  // whose own setup failed — be absorbed by the armed timer and then discarded
+  // when the old mode finished. Stopping on verification alone, before that,
+  // made a transient webhook failure permanent.
+  //
+  // Two checks, because the read is asynchronous: the stored mode's completion,
+  // and that no arm request arrived while it was being read. An unreadable mode
+  // keeps the timer, which is the safe answer.
+  const signalsBefore = owedSetupSignals;
+  let storedNow: boolean;
+  try {
+    storedNow = await readStripeLiveModeStrict();
+  } catch (err) {
+    logger.warn({ err }, "Stripe retry: the stored mode is unreadable — keeping the retry armed");
+    return;
+  }
+  if (hasStripeInitializationCompleted(storedNow) && owedSetupSignals === signalsBefore) {
+    stopStripeVerificationRetry();
+  } else if (completed) {
+    logger.info({ mode }, "Stripe setup complete for this pass's mode; another is still owed — keeping the retry armed");
+  }
+}
+
+/**
+ * Bumped by every arm request, including the ones absorbed because a timer
+ * already exists. The retry pass compares it across its final mode read, so a
+ * request that lands during that read keeps the timer rather than being lost.
+ */
+let owedSetupSignals = 0;
+
+/** Test seam: whether the retry loop is currently armed. */
+export function __isStripeVerificationRetryArmedForTests(): boolean {
+  return retryTimer !== null;
 }
 
 function armStripeVerificationRetry(): void {
+  owedSetupSignals++;
   if (retryTimer) return;
   retryTimer = setInterval(() => {
     void runStripeVerificationRetryOnce().catch((err: unknown) =>
@@ -364,32 +449,47 @@ function armStripeVerificationRetry(): void {
 }
 
 /**
- * Start verification for a stored mode this process has never attempted.
+ * Make sure something is scheduled to finish the stored mode's verification
+ * AND its required setup, when this process notices that mode is active.
  *
  * Round 5's case, and it is specific to autoscale: when ANOTHER instance
- * commits a mode toggle, this process has no state for the newly active mode —
- * and a normally successful boot has already stopped its retry timer, or never
- * armed one. Nothing here is scheduled to verify the new mode. The Billing
- * poll only reads a pure getter, so it would report `pending` with
- * "Verification has not run yet" indefinitely, and keep polling forever, while
- * claiming to be actively verifying. The status was transitional and nothing
- * was in transit.
+ * commits a mode toggle, this process may have nothing scheduled for the newly
+ * active mode — a normally successful boot has already stopped its retry timer,
+ * or never armed one. The Billing poll only reads a pure getter, so it would
+ * report the mode as pending (or verified with no webhook) indefinitely while
+ * nothing was in transit.
  *
- * So detecting an unseen active mode STARTS verification rather than
- * publishing a passive state: one pass now, and the retry loop armed so a
- * failure of that pass is not the end of it. Both are idempotent — the arm is a
- * no-op while a timer exists, and the pass is skipped while one is in flight —
- * and the whole thing stops calling itself as soon as any outcome is recorded
- * for the mode, which every terminating path of a pass does.
+ * The early return is a statement that nothing is LEFT to do, and it used to
+ * be the wrong one: "verification was ever attempted for this mode". Verifying
+ * and finishing setup are different facts, so two states slipped through it
+ * (#653 round 1) — a mode verified whose setup failed or was interrupted, after
+ * a completed setup for the other mode had stopped the shared timer; and a mode
+ * a refused local toggle probe left `pending` without the row ever naming it.
+ * Either one, switched back to remotely, never got its webhook until restart.
+ * Now the only states that return are: setup complete for this mode, or a
+ * recorded outcome a retry cannot change (`refused`, `unconfigured`).
+ *
+ * Everything else arms the retry loop. The immediate pass is kicked only when
+ * THIS call armed the timer: the Billing poll runs every few seconds while the
+ * state is unsettled, and must not become the retry cadence — an armed timer
+ * already owns that. The pass itself verifies (a memo hit when already
+ * verified), resumes setup, and stops the timer only once the mode then stored
+ * has its setup complete.
  */
 export function ensureVerificationArmedFor(liveMode: boolean | null): void {
   // A mode that cannot be read is not a mode that can be verified. That is an
   // indefinite answer the caller already renders as pending with its own
   // reason, and it recovers through the read, not through this.
   if (liveMode === null) return;
-  if (hasVerificationAttemptFor(liveMode)) return;
+  if (hasStripeInitializationCompleted(liveMode)) return;
+  if (hasVerificationAttemptFor(liveMode)) {
+    const { state } = getVerificationStatus(liveMode, "");
+    if (state === "refused" || state === "unconfigured") return;
+  }
 
+  const timerWasArmed = retryTimer !== null;
   armStripeVerificationRetry();
+  if (timerWasArmed) return;
 
   if (verificationKickInFlight) return;
   verificationKickInFlight = true;
@@ -403,6 +503,22 @@ export function ensureVerificationArmedFor(liveMode: boolean | null): void {
 let verificationKickInFlight = false;
 
 /**
+ * Run the required setup for the mode now stored, and arm the retry loop if it
+ * does not complete. Used by a verified boot and by the mode toggle once its
+ * write has committed — the toggle is the moment a mode this process may never
+ * have initialized becomes the active one.
+ *
+ * The loop is armed on failure because a webhook registration that fails
+ * transiently would otherwise leave the integration half-initialized with
+ * nothing scheduled to finish it.
+ */
+export function startStripeInitializationForActiveMode(): void {
+  void resumeStripeInitialization().then((completed) => {
+    if (!completed) armStripeVerificationRetry();
+  });
+}
+
+/**
  * Called immediately after the port is bound. Runs the remaining initialization
  * on a verified boot, or arms the retry loop on an indefinite one.
  *
@@ -412,12 +528,7 @@ let verificationKickInFlight = false;
  */
 export function startStripeAfterBoot(outcome: StripeBootOutcome): void {
   if (outcome.kind === "verified") {
-    // Arm the loop on failure here too. A verified boot whose webhook
-    // registration then fails transiently would otherwise leave the integration
-    // half-initialized with nothing scheduled to finish it.
-    void resumeStripeInitialization().then((completed) => {
-      if (!completed) armStripeVerificationRetry();
-    });
+    startStripeInitializationForActiveMode();
     return;
   }
   if (outcome.kind === "pending") {
