@@ -28,6 +28,31 @@ import type { StripeVerificationSnapshot, StripeVerificationState } from "@works
 export type VerificationState = StripeVerificationState;
 export type VerificationSnapshot = StripeVerificationSnapshot;
 
+/**
+ * What the panel shows for one instance: the guard's state, plus one state the
+ * guard does not have. `setup_incomplete` is a VERIFIED instance whose setup
+ * (webhook registration) has not finished — checkout is open there, but
+ * Stripe's events are not arriving. Reading it as plain `verified` was the
+ * observability half of #577's P1: a setup that kept failing showed only in
+ * the log while the panel said all was well.
+ */
+export type DisplayState = VerificationState | "setup_incomplete";
+
+export function displayStateOf(observation: VerificationSnapshot): DisplayState {
+  if (observation.state === "verified" && observation.setup && observation.setup.state !== "complete") {
+    return "setup_incomplete";
+  }
+  return observation.state;
+}
+
+/** The operator-facing reason for an instance that is not fully healthy, or null. */
+export function reasonFor(observation: VerificationSnapshot): string | null {
+  const display = displayStateOf(observation);
+  if (display === "verified") return null;
+  if (display === "setup_incomplete") return observation.setup?.reason ?? null;
+  return observation.reason;
+}
+
 export interface VerificationPollState {
   byInstance: Record<string, VerificationSnapshot>;
   /** When each instance was last actually observed, for the liveness bound below. */
@@ -67,7 +92,9 @@ export function recordObservation(
 ): VerificationPollState {
   const known = previous.byInstance[observation.instanceId];
   const isNew = known === undefined;
-  const changed = !isNew && known.state !== observation.state;
+  // Compared on the DISPLAY state, so setup finishing on a verified instance
+  // counts as a change and is seen, not absorbed into the settle window.
+  const changed = !isNew && displayStateOf(known) !== displayStateOf(observation);
   return {
     byInstance: { ...previous.byInstance, [observation.instanceId]: observation },
     seenAt: { ...previous.seenAt, [observation.instanceId]: now },
@@ -130,7 +157,9 @@ export function shouldKeepPolling(state: VerificationPollState): boolean {
   // absence as temporary recovery.
   if (seen.every((o) => o.state === "unconfigured")) return false;
 
-  if (seen.some((o) => o.state === "pending")) return true;
+  // Setup still owed on a verified instance is transitional too: the server's
+  // retry loop is working on it, and the panel should see it finish.
+  if (seen.some((o) => o.state === "pending" || displayStateOf(o) === "setup_incomplete")) return true;
 
   // Everything observed has settled — but "everything observed" is not
   // "everything". Keep sampling for a bounded window.
@@ -142,12 +171,12 @@ export function shouldKeepPolling(state: VerificationPollState): boolean {
  * reads as healthy: any instance still refusing or pending outranks a verified
  * one.
  */
-export function worstObservedState(state: VerificationPollState): VerificationState | null {
+export function worstObservedState(state: VerificationPollState): DisplayState | null {
   const seen = observations(state);
   if (seen.length === 0) return null;
-  const order: VerificationState[] = ["refused", "pending", "unconfigured", "verified"];
+  const order: DisplayState[] = ["refused", "pending", "setup_incomplete", "unconfigured", "verified"];
   for (const candidate of order) {
-    if (seen.some((o) => o.state === candidate)) return candidate;
+    if (seen.some((o) => displayStateOf(o) === candidate)) return candidate;
   }
   return null;
 }
@@ -167,10 +196,12 @@ export function describeScope(state: VerificationPollState): string {
   return `${n} instances sampled. Other instances of this autoscale deployment may differ.`;
 }
 
-export function headlineFor(state: VerificationState): string {
+export function headlineFor(state: DisplayState): string {
   switch (state) {
     case "verified":
       return "Payments verified";
+    case "setup_incomplete":
+      return "Account verified — Stripe setup not finished";
     case "pending":
       return "Payments unavailable — verifying";
     case "refused":

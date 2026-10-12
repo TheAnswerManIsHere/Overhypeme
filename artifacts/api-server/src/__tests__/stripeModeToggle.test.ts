@@ -33,6 +33,7 @@ import {
   getVerificationStatus,
   isAccountVerified,
   readStripeLiveModeStrict,
+  verifyStripeAccount,
 } from "../lib/stripeAccountGuard.js";
 import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import {
@@ -1070,6 +1071,47 @@ describe("a mode change initializes the newly active mode", () => {
     assert.equal(hasStripeInitializationCompleted(true), true);
     assert.equal(__isStripeVerificationRetryArmedForTests(), false, "the loop stops once the stored mode is complete");
     assert.deepEqual(init.webhookModes, ["test", "live"]);
+  });
+
+  it("a verified mode whose setup keeps failing reads as failing on the Billing summary, not just verified", async () => {
+    // The observability half of #577's P1. Checkout opens on verification, but
+    // Stripe's events reach this instance only once setup has registered the
+    // webhook — and a setup that kept failing showed only in the log while the
+    // summary said `verified`.
+    configureBothValid();
+    let webhookFails = true;
+    recordInit({
+      onWebhook: async () => {
+        if (webhookFails) throw new Error("upstream said: sk_test_correct rejected");
+      },
+    });
+    await verifyStripeAccount({ liveMode: false, secretKey: "sk_test_correct" });
+    assert.equal(await resumeStripeInitialization(), false, "the premise: setup fails at the webhook step");
+
+    const summary = () =>
+      request(makeApp()).get("/admin/stripe/summary").set("authorization", `Bearer ${adminSid}`);
+
+    const failing = await summary();
+    assert.equal(failing.status, 200, JSON.stringify(failing.body));
+    assert.equal(failing.body.verification.state, "verified");
+    assert.equal(failing.body.verification.setup?.state, "failing", "a failing setup must show, not hide behind `verified`");
+    assert.match(failing.body.verification.setup.reason, /registering the webhook/);
+    assert.ok(failing.body.verification.setup.lastFailureAt);
+    assert.doesNotMatch(
+      JSON.stringify(failing.body.verification),
+      /sk_test_correct|upstream said/,
+      "the raw error stays in the log: it can carry Stripe's text, or a key",
+    );
+
+    // Recovery reads as complete. The summary's own kick may hold an attempt
+    // that started while the webhook still failed, so retry until one lands.
+    webhookFails = false;
+    for (let i = 0; i < 50 && !(await resumeStripeInitialization()); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const recovered = await summary();
+    assert.equal(recovered.body.verification.setup?.state, "complete");
+    assert.equal(recovered.body.verification.setup.reason, null);
   });
 });
 });

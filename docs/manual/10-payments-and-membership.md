@@ -118,7 +118,11 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
 **Admin → Billing** shows whether the server has confirmed which Stripe
 account it is talking to, separately for test and live mode. Switching between
 test and live is refused, with the reason, unless the target mode's account
-checks out first. The status covers only the server instances it has
+checks out first. Once an account is confirmed, the server still has to
+register the webhook Stripe sends its events to (a subscription starting, a
+refund); until that finishes, the status reads **Account verified — Stripe
+setup not finished**, with the step that failed if one did, rather than an
+unqualified "verified". The status covers only the server instances it has
 sampled, so one instance looking healthy doesn't prove every instance is.
 
 **Admin → Refunds & Disputes** lists refund and chargeback activity, and

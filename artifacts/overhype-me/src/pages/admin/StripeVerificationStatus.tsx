@@ -7,6 +7,7 @@ import {
   instancesSampled,
   nextExpiryAt,
   pruneStaleObservations,
+  reasonFor,
   recordObservation,
   shouldKeepPolling,
   worstObservedState,
@@ -217,12 +218,14 @@ export function StripeVerificationStatus({
   const tone =
     state === "verified" ? "text-green-400 border-green-500/30 bg-green-500/10"
       : state === "pending" ? "text-blue-400 border-blue-500/30 bg-blue-500/10"
+      : state === "setup_incomplete" ? "text-amber-400 border-amber-500/30 bg-amber-500/10"
       : state === "refused" ? "text-red-400 border-red-500/30 bg-red-500/10"
       : "text-muted-foreground border-border bg-muted/20";
 
-  const reasons = Object.values(live.byInstance)
-    .filter((o) => o.state !== "verified" && o.reason)
-    .map((o) => ({ instanceId: o.instanceId, reason: o.reason! }));
+  const reasons = Object.values(live.byInstance).flatMap((o) => {
+    const reason = reasonFor(o);
+    return reason ? [{ instanceId: o.instanceId, reason }] : [];
+  });
 
   return (
     <div

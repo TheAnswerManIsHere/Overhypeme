@@ -619,11 +619,12 @@ re-gather it when the work is scheduled.
        left the new account's webhook unregistered. It is now per mode, and a
        committed toggle starts setup for the new mode
        (`stripeModeToggle.test.ts`, *a mode change initializes the newly
-       active mode*). **Still open:** nothing surfaces "verified but setup
-       not complete" to the operator. `hasStripeInitializationCompleted()`
-       (which now takes a mode) still has no caller outside tests, so a
-       setup that keeps failing shows only in the logs while the panel
-       reads `verified`.
+       active mode*). **Observability half FIXED by the bugfix that
+       followed (workstream #652):** the Billing summary attaches a setup
+       state to a verified mode, and the panel reads *Account verified —
+       Stripe setup not finished* with the failing step until the webhook
+       is registered (`stripeModeToggle.test.ts`, *a verified mode whose
+       setup keeps failing reads as failing on the Billing summary*).
     2. **(P2)** `runStripeVerificationRetryOnce` makes its cheap
        deterministic-refusal skip on the lenient cached mode (`isLiveMode()`)
        before the strict read. After a toggle on another instance, it can
