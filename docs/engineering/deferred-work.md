@@ -365,6 +365,12 @@ re-gather it when the work is scheduled.
     [`pnpm-override-scope-and-application.md`](../../.agents/memory/pnpm-override-scope-and-application.md)
     for the gotchas that surfaces). See #246 for the full CVE list and
     verification of what **is** resolved.
+  - **Update (2026-10-12).** Dependabot is now told to skip sharp minor
+    bumps (`@dependabot ignore sharp minor version` on #605, approved by David
+    in the 2026-10-12 pass), so its grouped PRs stop bundling the parked
+    0.35.x bump with safe patches. When the visual-pipeline upgrade is
+    scheduled, lift it with `@dependabot unignore sharp` or bump sharp by
+    hand.
   - **Revisit trigger (esbuild specifically).** `tsx`, `@orval/core`, or
     `wrangler` ship a release pinning esbuild ≥0.28.1, **or** we force it via
     a workspace override and verify no breakage — whichever comes first.
@@ -854,17 +860,16 @@ re-gather it when the work is scheduled.
     documenting the asymmetry as an intentional exception if there's a reason
     the exemption specifically must stay import-time-frozen.
 
-- **The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`) — TRIGGER FIRED 2026-10-12, graduating to a `/bugfix` task.**
-  - **Fired.** The 2026-10-12 pass found six red `Build` runs on `main` since
-    2026-08-15. Two were inspected and both failed at this same step
-    (`Run api-server test suite`) on commits that could not have caused it:
-    run 31972314185 (`b2d0c30`, a `docs(decisions)` commit, 2026-08-16) and
-    run 33787368140 (`5cbd6c1`, the `CLAUDE.md` prune, 2026-09-03). A third
-    (run 32433248576, `b20f6d3`, 2026-08-21) failed in the E2E route-load
-    smoke suite instead. The other three (`7ad7d29`, `341e14b`, `e183122`)
-    were not inspected. The last red run on `main` was 2026-09-03; the
-    following `Build` runs through 2026-10-11 were green.
-    This entry closes when the `/bugfix` issue for it is filed.
+- **~~The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`)~~ — GRADUATED to #642, 2026-10-12.**
+  The revisit trigger fired at the 2026-10-12 pass and David approved the
+  `/bugfix` task the same day; #642 carries the evidence and the
+  investigation. Six `Build` runs were red on `main` between 2026-08-15 and
+  2026-09-03. Four failed at `Run api-server test suite` (`b2d0c30`,
+  `7ad7d29`, `e183122`, `5cbd6c1`). Two failed at `Run route-load smoke suite`
+  instead (`341e14b`, `b20f6d3`), which looks like the class #633 tracks.
+  `main` has been green since 2026-09-03. The original entry is kept below
+  for the reasoning.
+
   - **What.** `Build` run 31911725205 on commit `7e37cc8` (PR #451's squash —
     a metrics-record-only change touching a loop record)
     failed at the `Run api-server test suite` step. The two commits that
@@ -881,10 +886,9 @@ re-gather it when the work is scheduled.
     diagnosis each time it happens and erodes the signal value of CI. Bounded
     while it stays a single occurrence; grows if it recurs, because a suite
     that fails randomly stops being evidence of anything.
-  - **Revisit trigger.** The **next `/maintenance` pass**: if the api-server
+  - **Revisit trigger.** ~~The **next `/maintenance` pass**: if the api-server
     suite has failed on `main` again since 2026-08-15, this graduates to a
-    `/bugfix` task and this entry closes. If the window is clean, note it and
-    keep this parked one more cycle.
+    `/bugfix` task and this entry closes.~~ **Fired 2026-10-12; now #642.**
 
 ---
 
