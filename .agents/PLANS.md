@@ -18,6 +18,11 @@
 > written to `docs/plans/PLAN_<SLUG>.md`, so the loop's digest line works
 > unchanged; a later version David asks a loop for gets the same short plan.
 >
+> **Where an approved plan lives:** committed under `docs/plans/` on its
+> feature branch once the disclosure check passes, merging with the first
+> increment's PR; a draft stays in the working tree, ignored, until
+> approval ([`core/claude-core.md`](core/claude-core.md) Planning rule 3).
+>
 > *(Path note: this lives under the repo's existing `.agents/` agent-facing
 > directory, alongside `.agents/memory/`.)*
 

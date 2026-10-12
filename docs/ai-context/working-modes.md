@@ -196,9 +196,9 @@ skip the step just because it's the "totalising" artifact type.
 **A direction is subject to the same public-disclosure check a plan is, before
 it is committed — not after.** A totalising end-state statement can itself
 contain unpatched-vulnerability details, an auth-bypass shape, or an
-abuse/fraud path — and a direction is published where a plan now is not. A plan
-reviewed in-session is never committed and never pushed, so it has nothing to
-screen for publication; a direction that updates a canonical
+abuse/fraud path — and a direction is published, as an approved plan now is. A
+plan gets the check at approval, before it is committed on its feature branch
+(`claude-core.md` Planning rule 3); a direction that updates a canonical
 `docs/ai-context/` doc goes live on `main` directly. Run the canonical
 disclosure check —
 [`workstream-tracking.md`](./workstream-tracking.md#what-must-never-happen)'s

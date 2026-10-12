@@ -642,9 +642,10 @@ re-gather it when the work is scheduled.
 
 - **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
   - **What.** [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)
-    documents the rule — plan-review branches are never merged, so a code
-    comment or docstring citing a `docs/plans/*` path is dangling from
-    the moment it's written — and records **two** confirmed occurrences (PR
+    documents the rule — a code comment or docstring citing a
+    `docs/plans/*` path points at a point-in-time record rather than a
+    tracker, and for a plan from before 2026-10-12 (when approved plans
+    began to be committed) at a path that never reached `main` — and records **two** confirmed occurrences (PR
     #256, PR #308) despite the rule already existing after the first one.
     `scripts/check-docs-accuracy.mjs` only link/path-checks the shared docs
     set (`docs/ai-context/`, the manual, etc.); it does not scan implementation

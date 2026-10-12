@@ -111,50 +111,30 @@ where I put it and treat it as binding.
    unambiguous).
 5. **Sparse chat.** Short status lines, no essays, no play-by-play. Governs my
    chat messages, not Codex threads or PR artifacts.
-6. **Blocking asks get the 🛑 banner and always notify.** A horizontal rule,
-   `🛑 **NEED YOU** — <one-line ask>`, then the issue in a sentence or two —
-   saying what David must supply: information I cannot obtain, a decision
-   reserved for him, or an action only he can take — numbered options with
-   their ramifications where there is a choice, and a `Recommendation:` line
-   naming the preferred option or next action and why; then a closing rule.
-   What the repository can answer is never asked; whether a choice is his to
-   make is what the existing decision rules decide, not this rule. **Before
-   ending ANY turn I ask: does this turn end with something I need from David
-   that holds work up? If yes, `PushNotification` fires in that same turn,
-   before the message (below).** No exceptions, no size threshold, no "he probably saw it." A
-   still-unanswered ask re-fires on the next turn. "He's clearly active" is not
-   a reason to skip — the tool dedupes, my judgment doesn't. Major completions
-   that hand the turn back also notify; routine progress doesn't. **And the
-   ask is the last text of the turn that raises or changes it, after every
-   tool call, the notification included** (David, 2026-09-25): text written
-   between tool calls reaches him as a paraphrase, and only the final message arrives verbatim
+6. **Blocking asks get the 🛑 banner and always notify.** Shape: a rule,
+   `🛑 **NEED YOU** — <one-line ask>`, what David must supply (information I
+   cannot obtain, a decision reserved for him, an action only he can take),
+   numbered options with ramifications where there is a choice, a
+   `Recommendation:` line naming the preferred option or next action and
+   why, a closing rule. What the repository can answer is
+   never asked, and whether a choice is his is the decision rules' to say,
+   not this rule's. **Any turn ending with something that holds work up on him
+   fires `PushNotification` first, then writes the message once, as the
+   turn's last text** — no threshold, no "he probably saw it", and "he's
+   clearly active" is not a reason to skip: the tool dedupes, my judgement
+   doesn't. Text between
+   tool calls reaches him paraphrased
    ([`chat-text-between-tool-calls-is-summarised.md`](../../.agents/memory/chat-text-between-tool-calls-is-summarised.md)).
-   **An ask is shown once** (David, 2026-10-09: *"you're doing the showing
-   me the same thing twice thing again"*). The banner is the only place its
-   options appear: the message that raises it gives the reasoning and leaves
-   the options and recommendation to the banner, never both. A later turn
-   that leaves the ask unchanged — a webhook, a wake, a pasted translation,
-   other work — re-fires the notification and does not reprint the banner;
-   when that turn has other text for him, its last line is one line naming
-   the open ask (`Still waiting on you: <the banner's one-line ask>, above.`),
-   and a turn with nothing else to say writes nothing. The full banner is
-   printed again only when the ask itself changes — new options, a new
-   recommendation, new facts — and then it replaces the old one rather than
-   sitting beside it. **When one banner bundles a question that is his under
-   every rule (scope, the oracle, intended behaviour) with one that exists
-   only because a loop reached a limit, it says which is which** (David,
-   2026-10-10), so he can answer the first and wave the second through. The
-   second kind is one of two: the ask-to-reopen the shared judgement has
-   concluded is worth his reopening
-   ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19),
-   step 3), or the hand triage a pull request that changes the review loop
-   owes him after its second review (*The ship gate*, below); a
-   limit-induced question the judgement could settle is not asked. **Within the turn, the notification comes first** (David,
-   2026-10-10: *"you double responded to me yet again"*): a turn that ends
-   with an ask fires `PushNotification` before writing any of the message, and
-   then writes the message once, as the turn's last text. Writing the message
-   and then the notification leaves the ask above the last tool call, and
-   repeating it after the notification to make it last is the duplicate.
+   Major completions that hand the turn back also notify; routine progress
+   doesn't. **An ask is shown once:** the banner alone
+   carries the options and recommendation; a later turn leaving it unchanged
+   re-notifies and, if it has other text, ends with `Still waiting on you:
+   <one-line ask>, above.`, else writes nothing; a changed ask replaces the
+   banner. **A bundled banner marks which questions are his under every rule
+   and which exist only because a loop hit a limit** (the ask-to-reopen of
+   [`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+   step 3, or a review-loop PR's hand triage, *The ship gate*); a
+   limit-induced question the shared judgement could settle is not asked.
 7. **👀 FYI for non-blocking things he'd want to know.** A rule, then
    `👀 **FYI** — <one-line summary>`, the specifics, a closing rule. Work
    continues; no reply needed. Clears the bar: a security/data-integrity
@@ -409,7 +389,10 @@ versioned files don't. `/compact` is an in-session relief valve, not the memory.
 
 - **`/handoff`** carries a session's live state to a new session when — and only
   when — the context actually needs to move. It decides first and stops when the
-  answer is no. Runs in the main loop, never a subagent.
+  answer is no. Runs in the main loop, never a subagent. It never names a
+  working-tree file as a resume point: a file the next session needs is
+  pushed, or quoted into the issue, first (`handoff`, Step 2;
+  Planning rule 3 for a plan).
 - **`/document`** is the batched harvest of durable learnings (see below).
 - [`docs/handoff/`](../../docs/handoff/README.md) is cross-*tool* transit, which a
   session handoff never writes to.
@@ -454,13 +437,20 @@ enactment is `.claude/skills/document/`.
    trimming pass afterwards. A prototype's short plan — its first version's,
    or a later version's David asked a loop for — runs the increment test
    alone; `PLANS.md` says so, and which sections it omits.
-3. **A plan is never published, so the pre-push disclosure gate is gone**
-   (David, 2026-09-09): working tree, in-session peer, chat — no public
-   channel. What survives is narrower and still binding: a
-   `docs/plans/` file reaches `main` only if David asks, and **the disclosure
-   check runs before it does** — unpatched vulnerabilities, auth-bypass
-   specifics, secrets, payment-fraud paths, private customer data or embargoed
-   work never get committed. Directions are unchanged.
+3. **An approved plan is committed on its feature branch, and that is
+   where it lives** (David, 2026-10-12, retiring the 2026-09-09 rule that a
+   plan is never published — it left the plan in one container's working
+   tree, and a plan died with that container, Overhype.me #631). A draft
+   stays in the working tree, ignored by git, while the loop develops it. At
+   approval **the canonical disclosure check runs on it**
+   (`workstream-tracking.md`, *Sensitive / disclosure-carve-out
+   workstreams*); a plan that passes is committed under `docs/plans/` on the
+   feature branch and pushed that turn, and merges with the first
+   increment's PR, so the digest taken at approval verifies a file that
+   exists. An approved amendment is committed the same way. A plan that
+   fails the check goes to the private path that section names, **never to
+   a working tree alone**. Mechanics: `plan-review-loop`, *Close-out*, item 4.
+   Directions are unchanged.
 4. **The scope-of-work gate opens the loop** — for a feature in production
    phase and for a prototype's first version; a later prototype version has
    no loop to open unless David asks for one in words (*Two classes and a
@@ -480,8 +470,9 @@ enactment is `.claude/skills/document/`.
    complete plan**, in chat. No page, no HTML, no link — the same rule the code
    loop already carries, and rebuilding one is forbidden rather than merely
    unnecessary. `SendUserFile` for the plan document is **on request**: the ban
-   on it existed only because the page made it unnecessary. The plan file is
-   still pushed nowhere. **v1 is shown and the loop proceeds without waiting** —
+   on it existed only because the page made it unnecessary. Chat is the
+   delivery; the file committed at approval (rule 3) is the durable copy, and
+   neither replaces the other. **v1 is shown and the loop proceeds without waiting** —
    it changes anyway.
 7. **Choices that change intended behaviour, scope, or an accepted user-facing
    consequence escalate to David** as numbered questions carrying Astra's view
@@ -1016,8 +1007,8 @@ design. Mechanics:
    form (interaction rule 11).
 4. **The body says in one plain line what the code is judged against.**
    `Oracle source:` then one of: the approved plan's filename and full sha256
-   digest (an in-session plan is never committed, so the digest is what pins
-   the text David approved); the issue where the scope was agreed in
+   digest (the digest pins the text David approved, and verifies the file
+   committed under Planning rule 3); the issue where the scope was agreed in
    conversation; the bugfix tier (A, B or C — a Tier C schema fix names `C`);
    or `no plan`, for the "n/a — no plan" change rule 3 allows; or, for a
    prototype-phase feature on `main`, `prototype phase — <feature>`, with the

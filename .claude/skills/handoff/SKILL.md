@@ -93,6 +93,17 @@ before Step 4 writes anything:
   keeping, written into the handoff comment. "Some scratch edits will be
   lost" is not an enumeration and does not clear this gate; if the list
   can't be written, push instead.
+- **No resume point lives in a working tree.** A file the destination needs
+  — an approved plan above all — is named in the prompt, the handoff comment
+  or the State of Play only once it is pushed, by its pushed path, or once
+  its text is quoted into the issue. A path that exists only in this
+  container is refused as a resume point, never written down as one. An
+  approved plan not yet committed is committed now (`claude-core.md`
+  Planning rule 3), or, if it failed the disclosure check, is on the private
+  path that rule names. The abandon-by-enumeration alternative above never
+  covers a file the destination needs. (Overhype.me #631, 2026-10-12: a
+  State of Play line read *"plan in the planning session's working tree"*,
+  nothing refused it, and the approved plan was lost with that container.)
 - **Session-bound obligations are enumerated.** PR subscriptions
   (`subscribe_pr_activity` binds to *this* session) and any armed
   self-check-in or trigger do **not** transfer. Each one becomes either an
@@ -145,8 +156,9 @@ The handoff comment is a fixed shape:
 **What just finished** — what this session completed, and where it landed.
 **Settled this session — do not re-open** — each decision plus its one-line why.
 **Ruled out** — each rejected alternative plus why it was rejected.
-**Live state that does not cross** — unpushed work, PR subscriptions dropped,
-  wakes disarmed, background tasks.
+**Live state that does not cross** — unpushed work being abandoned (never a
+  file the destination needs: Step 2), PR subscriptions dropped, wakes
+  disarmed, background tasks.
 **Still open** — undecided threads, each stated as the actual question.
 **Durable learnings** — where they went, or "/document owed on #N".
 ```
@@ -178,7 +190,8 @@ The block carries these seven, in order:
 1. **Frame** — what this work is and where it sits in the lifecycle, in a
    sentence or two.
 2. **Read first** — `issue #N`, its State of Play and the handoff comment
-   dated `<date>`.
+   dated `<date>`, and every file the work rests on by its pushed path and
+   branch — never a working-tree path (Step 2).
 3. **Setup** — the branch and how to get on it, which PR to re-subscribe to,
    what to verify live rather than trust, and — **whenever the work is in a
    repository other than the new session's primary one** — the attach step,

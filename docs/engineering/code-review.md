@@ -63,15 +63,17 @@ be trusted until it's pinned. When the source is an issue, read it: the scope
 agreed there is the oracle. (Until 2026-09-25 this was a fenced
 `plan-provenance` block with a fixed key set per kind; it was retired, #103.)
 
-**A plan's digest is as far as an independent reviewer can verify — and
-that's accepted, not a gap to close.** An in-session plan is never committed,
-so no reviewer — Codex or human — has the bytes the filename and digest
-identify, and none can recompute the digest. Confirm it is *present and
+**A plan's digest is checkable against the committed plan.** An approved
+plan is committed under `docs/plans/` on its feature branch and merges with
+the first increment's PR (`claude-core.md` Planning rule 3), so the file the
+line names is in the reviewed tree or on `main`: confirm it is *present and
 specific* (a real filename, a full 64-character digest — not "n/a" or
-something vague) and stop there; verifying that it matches the approved plan
-is David's check alone, made when he compares the implementation PR's oracle
-text against the plan he approved. Don't flag an unverifiable-by-you digest as
-a finding.
+something vague), recompute `sha256sum` on that file, and flag a mismatch.
+A named plan file found in neither place is a finding too — the approved
+plan has no durable home. The one exception is a plan that failed the
+disclosure check, which lives on the private path instead: there, present
+and specific is as far as a reviewer can go, and matching it to the approved
+plan is David's check.
 
 ### The bugfix oracle (a PR with no plan)
 

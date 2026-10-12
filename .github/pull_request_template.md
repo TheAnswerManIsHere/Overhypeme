@@ -40,8 +40,9 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
      Write it as the first live line below, replacing the placeholder, with
      exactly one of:
        - a planned feature: the approved plan's filename and its full sha256
-         digest (`shasum -a 256` on the exact file approved — an in-session
-         plan is never committed, so the digest is what pins it);
+         digest (`shasum -a 256` on the exact file approved, which is
+         committed under docs/plans/ on the feature branch — claude-core.md
+         Planning rule 3 — so a reviewer can recompute it);
        - work agreed in conversation: the issue where the scope was agreed;
        - a bugfix: its tier letter, A, B or C (a Tier C database schema fix
          names C, and its Tier rationale below says why);
