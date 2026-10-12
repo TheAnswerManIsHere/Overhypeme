@@ -728,9 +728,10 @@
 
 ### 2026-08-26 · A wrong Stripe account refuses to boot; a Stripe outage never takes the site down
 - **Decision:** Each deployment declares its expected Stripe account per mode
-  (`STRIPE_ACCOUNT_ID_TEST` / `STRIPE_ACCOUNT_ID_LIVE`). No Stripe client is
-  constructed until the account behind the mode's key verifies against that
-  id. A **definite** failure — Stripe answered with another account, or
+  (`STRIPE_ACCOUNT_ID_TEST` / `STRIPE_ACCOUNT_ID_LIVE`). No operational
+  Stripe client or sync object is handed to any caller until the account
+  behind the mode's key verifies against that id (the lookup itself uses a
+  raw client that is never handed out). A **definite** failure — Stripe answered with another account, or
   credentials are present with no expected id declared — is fatal at boot,
   before the port binds. An **indefinite** one — unreachable, timeout, 5xx,
   key rejected, mode unreadable — boots the site without payments, refuses
@@ -739,8 +740,8 @@
   approved by David on plan-review PR #572; the posture in his words, as the
   code records it: a Stripe outage never takes the site down.
 - **Why:** The trigger (#571) was a key in the wrong variable that still
-  reached and mutated the wrong account. Safety comes from no client existing
-  for an unverified account. Fatality is reserved for a confirmed fact, so it
+  reached and mutated the wrong account. Safety comes from no operational client
+  existing for an unverified account. Fatality is reserved for a confirmed fact, so it
   is a signal an operator can trust, and an outage at Stripe cannot become
   an outage of the whole site.
 - **Rejected:** a fleet-wide verification aggregate for the admin panel
@@ -753,7 +754,7 @@
   (hands an unauthenticated flood one query each) and never re-reading
   (stale after a toggle) in favour of one read per process per interval.
 - **Reference:** PR #577;
-  [`membership-entitlements.md`](./membership-entitlements.md#the-account-guard--no-stripe-client-until-its-account-verifies).
+  [`membership-entitlements.md`](./membership-entitlements.md#the-account-guard--no-operational-stripe-client-until-its-account-verifies).
 - **Revisit if:** the deployment stops being autoscale with process-local
   state, or a payment path is added that runs after a charge and so needs
   its own client message.

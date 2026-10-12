@@ -32,7 +32,7 @@ handbook work a launch phase needs and a second app would need identically;
 - **2026-08-21 → 2026-10-11, harvested in one batch (2026-10-12):**
   - **Stripe account guard** (PR #577, workstream #571). A wrong account
     refuses to boot, and a Stripe outage degrades to "payments unavailable".
-    See [`membership-entitlements.md`](./membership-entitlements.md#the-account-guard--no-stripe-client-until-its-account-verifies).
+    See [`membership-entitlements.md`](./membership-entitlements.md#the-account-guard--no-operational-stripe-client-until-its-account-verifies).
     Three recorded gaps were never followed up; they are now in
     [`deferred-work.md`](../engineering/deferred-work.md).
   - **Membership panel reads the app DB before the Stripe mirror** (PRs

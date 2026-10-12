@@ -624,9 +624,10 @@ re-gather it when the work is scheduled.
        skip the newly active mode until the config cache expires.
     3. **(P2)** `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
        `STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_ACCOUNT_ID_TEST` in a
-       file-level `beforeEach`, and its `afterEach` does not restore them.
-       Under the api-server runner's `--test-isolation=none`, a file-level hook
-       is a root hook for every test in the process
+       `beforeEach`. The hook is already scoped inside its `describe`, which
+       is the first half of the fix. Nothing restores the variables, though,
+       so under the api-server runner's `--test-isolation=none` they stay set
+       for every later test in the same process
        ([`node-test-top-level-hook-is-root-hook.md`](../../.agents/memory/node-test-top-level-hook-is-root-hook.md)).
   - **Why deferred.** Not deliberately deferred: the follow-up was promised in
     the harvest notes and never opened. Recorded here so the promise lives
@@ -634,8 +635,8 @@ re-gather it when the work is scheduled.
   - **Cost of waiting.** (1) is the one with product consequences. After that
     toggle sequence, payments would look healthy while subscription changes
     made at Stripe never reached the app. (2) delays recovery by one cache
-    TTL. (3) is a test-suite leak that can make an unrelated suite in the same
-    shard see Stripe credentials.
+    TTL. (3) is a test-suite leak: a later suite in the same shard
+    can see Stripe credentials it did not set.
   - **Revisit trigger.** Before the live-mode work in launch Phase 10 (#628),
     which is the first time a mode toggle is a real operator action.
 

@@ -26,7 +26,8 @@ failure appears in the wrong file, so it reads as a flake.
    runs next in the process. `clearStripeEnv()` in the Stripe guard tests
    exists for this.
 
-**Still live at the 2026-10-12 harvest:** `stripePaymentRefusal.test.ts` sets
-three `STRIPE_*_TEST` variables in a file-level `beforeEach`, and its
-`afterEach` doesn't restore them. Tracked in
+**Still live at the 2026-10-12 harvest, half fixed:**
+`stripePaymentRefusal.test.ts` scopes its `beforeEach` inside a `describe`, so
+the hook no longer runs elsewhere. It sets three `STRIPE_*_TEST` variables
+and nothing restores them, so they outlive the suite. Tracked in
 [`deferred-work.md`](../../docs/engineering/deferred-work.md).

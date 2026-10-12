@@ -188,8 +188,8 @@ a comp from a real sale.
 **Every deployment names the Stripe account it expects, and the server checks
 it before doing anything with payments.** This came from a real incident
 shape (#571): a Stripe key put in the wrong setting still reached, and
-changed, the wrong account. Now no connection to Stripe is created until the
-account behind the key is confirmed. The two kinds of failure are treated
+changed, the wrong account. Now nothing that charges or changes anything at
+Stripe can run until the account behind the key is confirmed. The two kinds of failure are treated
 differently on purpose. If Stripe confirms the account is the *wrong* one,
 the server refuses to start — that is a definite misconfiguration an operator
 must fix. If Stripe simply can't be reached, the site starts without payments

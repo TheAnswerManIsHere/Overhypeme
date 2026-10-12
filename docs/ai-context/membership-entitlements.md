@@ -122,7 +122,7 @@ settled fact about it — a webhook prepare that lands on one of these throws
 **before** the idempotency claim, so Stripe redelivers instead of the event
 being permanently acked on a transient failure.
 
-## The account guard — no Stripe client until its account verifies
+## The account guard — no operational Stripe client until its account verifies
 
 Shipped in PR #577. Every deployment declares which Stripe account it expects
 per mode — `STRIPE_ACCOUNT_ID_TEST` and `STRIPE_ACCOUNT_ID_LIVE`
@@ -133,7 +133,11 @@ the only construction site, and both of its exported constructors go through
 `verifyStripeAccount`, so boot, the mode toggle, checkout, webhooks and the
 admin mutation routes are covered by one boundary, not by a list of callers
 that has to stay complete. Withholding the client is the safety mechanism.
-Everything else here is operator signal.
+Everything else here is operator signal. **One client exists before
+verification, and it does one thing:** `verifyStripeAccount` builds a raw
+client (`createRawStripeClient`) solely to call `stripe.accounts.retrieve()`
+for the lookup itself, and never hands it out. That client must stay
+restricted to the account read.
 
 **Three outcomes, kept apart** (`stripeVerificationErrors.ts`, one class each;
 `isDefiniteVerificationFailure` is the single answer to "is this definite?"
@@ -202,7 +206,10 @@ and its pool closed rather than published.
 `STRIPE_UNVERIFIED_CONFIRM_MESSAGE` on the post-redirect confirm path, which
 must not claim no charge was made, and `STRIPE_UNVERIFIED_RECEIPT_MESSAGE`).
 The operator diagnostic names account ids and env vars, so it is logged and
-never sent to a client. The Profile page treats a 503 with that code on
+never sent on an end-user payment response. **One designed exception:** the
+admin mode toggle returns the diagnostic to the authenticated admin, and
+Admin → Billing displays it, because naming the account and the variable to
+fix is the whole value of that refusal. The Profile page treats a 503 with that code on
 confirm as terminal, not as "still processing".
 
 **Operator visibility.** Admin → Billing shows the guard's state **per mode and
@@ -227,7 +234,10 @@ handles a switch or cancel.
 So **anything that displays membership state reads the app DB first and falls
 back to the mirror**. `SubscriptionPanel.tsx` applies this to the
 subscription-controls gate (#600), the billing interval and the renewal date
-(#602), and to `cancelAtPeriodEnd` and the status line. The charged amount has
+(#602), and to `cancelAtPeriodEnd`. **The status line does not follow it yet**:
+`SubscriptionPanel.tsx` computes it as `sub?.status ?? appSub?.status`, mirror
+first. That is either a further instance of the #600 class or a deliberate
+choice nobody recorded; no fix was made in this harvest. The charged amount has
 no app-DB source, so it is shown only while the mirror agrees on which plan is
 active. A stale amount beside a corrected plan label would read as
 authoritative, so the panel shows no amount until the mirror catches up.
@@ -246,9 +256,12 @@ subscription live from Stripe, and refuses when it no longer qualifies.
 
 **How the mirror behaves:**
 
-- It is written **only** by a Stripe webhook or by a manual or full admin
-  sync. There is no periodic reconciliation, so a dropped webhook leaves a
-  mirror row stale indefinitely, not just for a bounded window. On the #600
+- It is written by Stripe webhooks, by a manual or full admin sync, and by
+  the full backfill (`syncBackfill({ object: "all" })`) that runs once after
+  each verified boot (`stripeInit.ts`). There is no periodic reconciliation,
+  so a dropped webhook leaves a mirror row stale until an admin sync or the
+  next process restart's backfill — on a long-lived process, possibly
+  indefinitely. On the #600
   investigation, 2 of 4 users with a Stripe customer id had no row in the
   mirrored `customers` table at all.
 - Out-of-order events cannot regress it. `stripe-replit-sync` upserts only
