@@ -984,6 +984,36 @@ plans off the public channel (see
 [`decisions.md`](./decisions.md#2026-07-22--plan-review-automated-via-a-codex-draft-pr-loop-replaces-the-manual-chatgpt-paste)).
 Compare PR #217 — a production DB dump that sat committed on public `main`.
 
+## A rule that forbids publishing an artifact, and names no home for it
+
+**Looks like:** a rule that says where an artifact must *not* go — "never
+published", "pushed nowhere", "not committed unless asked" — and says nothing
+about where it *does* live. Each surrounding decision is reasonable alone: the
+public channel is removed for privacy, the replacement page is removed as
+machinery, the delivery moves to chat. **Dangerous:** the prohibition
+silently becomes the artifact's lifecycle. Its only homes are now a
+container's disk and a chat scroll-back, both of which end with the session,
+and nothing prompts anyone to ask where it went because the rule reads as
+complete. A digest or other fingerprint makes it worse by looking like
+preservation: it pins the text without keeping a copy. **Avoid:** **a rule
+that forbids publishing an artifact must say where the artifact lives
+instead, or the artifact lives nowhere.** When writing or reviewing such a
+rule, name the durable location (a branch, a private tracking item) and the
+moment the artifact reaches it; when retiring a durable home, name its
+successor in the same change. A hand-off or resume pointer that names a
+location only one container holds is the same failure one step later, and is
+refused rather than written (`handoff` skill, Step 2). **Example (handbook,
+2026-09-09 to 2026-10-12):** "a plan is never published … the plan file is
+still pushed nowhere" removed, one step at a time, every durable home an
+approved plan had — the plan-review PR, then the private page — until the
+plan existed only in a planning session's working tree. Overhype.me's
+approved Phase 2 verification plan (#631, sha256 `db036f0f…`) was lost when
+that session's container went; the digest survived and the text did not. The
+rule protected nothing in that case: none of the guarded content classes was
+present, and the plan's oracle was already public in a merged PR body. Fixed
+by committing the approved plan on its feature branch after the disclosure
+check (`claude-core.md` Planning rule 3).
+
 ## Security-relevant dependency claims written from assumption, not verification
 
 **Looks like:** writing something confident and specific about a dependency's

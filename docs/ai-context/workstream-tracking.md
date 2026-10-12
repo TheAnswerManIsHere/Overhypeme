@@ -322,6 +322,9 @@ of the workstream issue's body, with these fields:
   disclosure-carve-out workstreams*, below — sanitized when it fails);
   omitted when there are none.
 - **Artifacts** — PR numbers, branch names, key file paths, the Project link.
+  A file path here is a pushed path on a named branch; a file that exists
+  only in one session's working tree is never listed (the `handoff` skill,
+  Step 2).
 - **To resume** — the literal instruction for picking this back up: which
   branch/session to open, what to ask for, which model tier fits.
 
@@ -515,8 +518,10 @@ set" `stage:done`, and nothing ever asked him to.)
   details, auth/authorization bypass specifics, secrets/credentials,
   payment-fraud abuse paths, private customer/commercial data, or
   embargoed-plan content. If it does, it stays off the public path — a
-  draft Project item, or (for a plan specifically) the manual/private
-  review path instead of a plan-review PR.
+  draft Project item. **The same check gates committing an approved plan**
+  (`claude-core.md` Planning rule 3): a plan that passes is committed on
+  its feature branch, and a plan that fails goes in full into the
+  workstream's draft Project item, never into a working tree alone.
 - **No hand-typed GitHub UI name (a field, an option) gets matched by exact
   string in code.** The sync script's first live run against the real board
   failed all 9 workstream syncs because the real `Waiting On` field

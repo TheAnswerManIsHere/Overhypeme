@@ -2,7 +2,9 @@
 // SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 /**
  * One exchange of the in-session planning loop: two peers, one contract, and a
- * plan that never leaves this container.
+ * draft plan that stays in this container, ignored by git, until David approves
+ * it -- at which point it is committed on its feature branch (claude-core.md
+ * Planning rule 3; plan-review-loop, Close-out item 4).
  *
  * WHAT THIS IS, AFTER THE 2026-09-18 REDESIGN. Astra and I develop the plan
  * together. Astra reads the plan, the agreed oracle and the open concerns, and
@@ -72,7 +74,8 @@
  * Output: .agents/reviews/<slug>/round-N.md (the assessment), or
  * round-N.discussion-M.md, plus the prompt, the meta and a snapshot of the plan
  * that was actually read. The whole directory is gitignored -- these are session
- * artifacts, and the plan is deliberately not published into git history.
+ * artifacts. The approved plan's durable copy is the file committed at approval,
+ * not anything here.
  *
  * EXIT CODES
  *   0  an assessment was written
@@ -965,9 +968,10 @@ const defaultGit = (args, cwd) => spawnSync("git", args, { cwd, encoding: "utf8"
  */
 const PROTECTED = {
   plan: {
-    // The ONLY kind that tolerates a tracked file. David asking for a plan on
-    // `main` is a supported, deliberate act with the disclosure check in front
-    // of it. Nothing else here has an equivalent case.
+    // The ONLY kind that tolerates a tracked file. An approved plan is
+    // committed on its feature branch after the disclosure check (claude-core.md
+    // Planning rule 3), and an approved amendment runs an exchange against that
+    // tracked file. Nothing else here has an equivalent case.
     allowTracked: true,
     noun: (p) => p,
     why:
@@ -1046,9 +1050,9 @@ export function assertIgnored(root, relPath, git = defaultGit, kind = "oracle") 
  *
  * Written by the script rather than shipped as a payload file, so it exists in
  * every consumer the first time an exchange runs and cannot be half-installed.
- * `*` ignores the `.gitignore` itself too, which is the intent: a plan under
- * development is deliberately not published into git history, and neither is
- * either party's assessment of it.
+ * `*` ignores the `.gitignore` itself too, which is the intent: the packages
+ * carry the whole oracle and both parties' assessments, and none of it is
+ * committed. The approved plan is, from docs/plans/, at approval.
  */
 export function ensureRoundDir(root, slug, git = defaultGit) {
   const dir = path.join(root, REVIEWS_DIR, slug);
@@ -1077,11 +1081,11 @@ export function ensureRoundDir(root, slug, git = defaultGit) {
       [
         "# Planning exchanges are session artifacts, not repo history.",
         "#",
-        "# The plan under development is deliberately never published into git, which is",
-        "# what dissolved the disclosure gate the old public plan-review PR needed. Both",
-        "# parties' assessments of it are the same class of thing. What survives a loop is",
-        "# the approved plan (if David asks for it) and the harvest comment on the",
-        "# workstream issue.",
+        "# Each exchange's package carries the whole oracle, and both parties'",
+        "# assessments restate the plan's most sensitive parts, so none of it is",
+        "# committed. What survives a loop is the approved plan, committed from",
+        "# docs/plans/ on its feature branch after the disclosure check, and the",
+        "# harvest comment on the workstream issue.",
         "#",
         "# `*` covers this file too, deliberately.",
         "*",
@@ -1094,8 +1098,9 @@ export function ensureRoundDir(root, slug, git = defaultGit) {
 }
 
 /**
- * `docs/plans/` ignores itself, so `git add -A` during implementation cannot
- * publish a plan.
+ * `docs/plans/` ignores plans, so `git add -A` cannot publish a draft. The
+ * approved plan is committed deliberately, with `git add -f`, after the
+ * disclosure check (plan-review-loop, Close-out item 4).
  */
 export function ensurePlansIgnored(root, planPath = null, git = defaultGit) {
   const dir = path.join(root, "docs", "plans");
@@ -1112,7 +1117,7 @@ export function ensurePlansIgnored(root, planPath = null, git = defaultGit) {
     if (!patterns.some((l) => l === "*" || l === "PLAN_*.md" || l === "/PLAN_*.md")) {
       fs.appendFileSync(
         ignore,
-        "\n# Added by the planning loop: a plan under development is never committed by accident.\nPLAN_*.md\n",
+        "\n# Added by the planning loop: a draft plan is never committed by accident.\nPLAN_*.md\n",
       );
     }
     assertIgnored(root, planPath, git, "plan");
@@ -1121,14 +1126,13 @@ export function ensurePlansIgnored(root, planPath = null, git = defaultGit) {
   fs.writeFileSync(
     ignore,
     [
-      "# A plan under development is never published, and this is what makes that true",
-      "# rather than merely intended: `git add -A` during implementation would",
-      "# otherwise stage it, and a plan is exactly the document that might name an",
-      "# unpatched vulnerability, an auth-bypass specific, a customer or an embargoed",
-      "# launch.",
+      "# A draft plan is never committed by accident: `git add -A` would otherwise",
+      "# stage it, and a plan is exactly the document that might name an unpatched",
+      "# vulnerability, an auth-bypass specific, a customer or an embargoed launch.",
       "#",
-      "# A plan reaches `main` only when David asks for it, deliberately, with the",
-      "# disclosure check in front of it.",
+      "# The APPROVED plan is committed, deliberately, with `git add -f`, once the",
+      "# disclosure check passes, and merges with the first increment's PR",
+      "# (claude-core.md Planning rule 3). Once tracked, this pattern no longer applies to it.",
       "PLAN_*.md",
       "",
     ].join("\n"),
@@ -1924,9 +1928,10 @@ export function main(argv = process.argv.slice(2), { root = REPO_ROOT, run = spa
     // reading -- while `planSha256` below is computed from the bytes captured
     // before `codex exec` started.
     //
-    // That digest is not decoration. With no commit and no PR page holding the
-    // approved revision, it is the ONLY thing pinning which text David approved
-    // once an implementation PR's `Oracle source:` line cites it. If the file
+    // That digest is not decoration. Until the plan is committed at approval
+    // there is no copy of the approved revision outside this container, and
+    // afterwards the digest is what ties the committed file to the text David
+    // approved, once an implementation PR's `Oracle source:` line cites it. If the file
     // moved, the digest names a document the assessment does not describe.
     //
     // So a moved plan REFUSES the exchange rather than reconciling it. Nothing

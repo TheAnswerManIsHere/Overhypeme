@@ -25,7 +25,9 @@ deployment procedure, not one of the 8 build phases at all.
 
 **Avoid:** reconstructing durable, structured state (a checklist, a phase
 count, a dependency graph) from the roadmap's prose summary when the actual
-source document — a `[PLAN REVIEW]` PR's plan file, even one closed unmerged
-— is one `get_file_contents` call away. The roadmap is the right source for
+source document — the plan committed under `docs/plans/` (`claude-core.md`
+Planning rule 3), or, for a plan from before 2026-09-09, a `[PLAN REVIEW]`
+PR's plan file, even one closed unmerged — is one `get_file_contents` call
+away. The roadmap is the right source for
 "what shipped, in general terms, and why"; it is the wrong source for
 anything that needs to be exactly right.
