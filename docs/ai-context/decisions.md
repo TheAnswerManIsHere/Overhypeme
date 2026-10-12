@@ -13,13 +13,20 @@
 
 ---
 
-### 2026-10-12 · Pre-launch, the disclosure check is not run; no tokens are spent on leak prevention
-- **Decision:** Until launch, the canonical disclosure check
-  (`workstream-tracking.md`, *What must never happen*) and the whole private
-  path built on it (#204, #205, and the follow-up AI-Handbook #206) are **not
-  applied in this repository**. Plans, issues, PR bodies, oracles, harvests and
-  handoffs go to the public path as normal, security specifics included, and
-  no session spends review rounds, sweeps or questions on disclosure. David:
+### 2026-10-12 · Pre-launch, security details are not gated; no tokens are spent on leak prevention
+- **Decision:** Until the trigger below, the canonical disclosure check
+  (`workstream-tracking.md`, *What must never happen*) and the private path
+  built on it (AI-Handbook #204, #205, and the follow-up #206) are **not
+  applied here to security details**: unpatched-vulnerability details,
+  auth-bypass specifics, payment-fraud abuse paths, and what a subsystem's own
+  documents keep out of public prose (the safety subsystem's detection
+  specifics included). Plans, issues, PR bodies, oracles, harvests and
+  handoffs carrying them go to the public path as normal, and no session
+  spends review rounds, sweeps or questions on disclosing them. **Still
+  never public:** an actual secret or credential, and private customer or
+  commercial data. David's ruling is about vulnerabilities, and those two
+  categories are a different risk (a leaked key works the moment it is
+  read). David:
   *"The whole privacy issue of disclosing possible security vulnerabilities is
   not yet a problem. We're still pre-launch … I'm not concerned about leaks
   yet. … Until then, let's not keep spending tokens worrying about it."*
@@ -28,8 +35,10 @@
   nine open design gaps (#206). The protection belongs to the moment it buys
   something.
 - **Reference:** David, 2026-10-12, after AI-Handbook #205 merged.
-- **Revisit if:** the product launches, earns real revenue, or is at risk of
-  anyone caring about it. Then David either makes the repository private (and
+- **Revisit if:** the product has launched, has real revenue, **and** is at
+  risk of anyone caring about it, all three, in David's words. Real money
+  starts at Full launch (US) (`launch-definition.md`), so Seed and Soft launch
+  alone do not trip it. Then David either makes the repository private (and
   pays for it) or sets up a second, private repository for security issues,
   and the check comes back on, with #206 designed against whichever he chose.
 
