@@ -78,15 +78,18 @@ known gap described under *Boundaries & known limitations* below.
 
 The panel's own information — whether you're on a monthly or annual plan, the
 renewal date, and the Cancel / Switch to Annual buttons — comes from our own
-records, which are updated the moment a purchase or switch goes through. Only
-the price line comes from a slower copy kept in sync with Stripe, so right
-after a switch the price line can disappear for a few minutes rather than show
-the old price. That's deliberate: showing no price is better than showing a
-wrong one.
+records, which are updated the moment a purchase or switch goes through. Two
+things come from a slower copy kept in sync with Stripe instead. The price
+line can disappear for a few minutes right after a switch rather than show the
+old price. That's deliberate: showing no price is better than showing a wrong
+one. The status label (for example "active") prefers the slower copy too, so
+it can briefly lag a change that has already gone through.
 
 If the site can't confirm it is connected to the right payment account, every
 payment action — buying, switching, cancelling, viewing a receipt — says that
-payments are temporarily unavailable and tries again shortly. The rest of the
+payments are temporarily unavailable. The action is not retried for you: the
+server keeps re-checking the connection on its own, but once it's back, the
+member has to try the purchase, switch or cancellation again. The rest of the
 site keeps working. Before a charge, the message says no charge was made.
 After returning from checkout, it says not to pay again, because the payment
 may already have gone through.

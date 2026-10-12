@@ -180,15 +180,24 @@ header of `stripeAccountGuard.ts` carries the evidence for each:
    until restart.
 4. **Retrieval is single-flight and interval-throttled**, because
    `getStripeSync()` runs before webhook signature validation on the one route
-   the rate limiter exempts. The throttle records only when the last attempt
-   ran, never a verdict, and the retry loop passes `force`, so payments still
-   recover on their own.
+   the rate limiter exempts. The throttle records when the last attempt ran,
+   and an indefinite failure leaves no verdict behind: callers inside the
+   window get a fresh, non-authoritative refusal. **One deliberate exception:**
+   a *confirmed* mismatch keeps its reason (`definiteMismatchReason`) for the
+   throttle window, so a caller in that window gets the mismatch error rather
+   than an "unverified" one. A test protects this, and it is not a cached
+   rejection under point 3: the record expires with the window, and the retry
+   loop passes `force`, which bypasses the throttle. Payments still recover
+   on their own.
 
-**Initialization finishes once, and only after it actually succeeds.** Stripe
-schema migrations, managed-webhook registration and the backfill run exactly
-once across boot and every later retry (`stripeInit.ts`), and are marked done
-only on success. A recovered retry used to restore clients while leaving the
-webhook unregistered.
+**Required initialization finishes once, and only after it actually
+succeeds.** Stripe schema migrations and managed-webhook registration are
+retried until they succeed (so migrations can run again after a registration
+failure), and once marked done they are not repeated (`stripeInit.ts`). A
+recovered retry used to restore clients while leaving the webhook
+unregistered. **The backfill is not part of that guarantee.** It is launched
+after initialization is marked done, fire-and-forget, and a failed backfill
+is logged and not retried in that process.
 
 **A mode toggle verifies the target account before it writes**
 (`refuseUnverifiedStripeModeToggle` in `routes/admin.ts`). The config write
@@ -259,8 +268,9 @@ subscription live from Stripe, and refuses when it no longer qualifies.
 - It is written by Stripe webhooks, by a manual or full admin sync, and by
   the full backfill (`syncBackfill({ object: "all" })`) that runs once after
   each verified boot (`stripeInit.ts`). There is no periodic reconciliation,
-  so a dropped webhook leaves a mirror row stale until an admin sync or the
-  next process restart's backfill — on a long-lived process, possibly
+  so a dropped webhook leaves a mirror row stale until an admin sync or a
+  later restart's backfill succeeds — and that backfill can fail silently
+  (logged, not retried), so on a long-lived process the row can stay stale
   indefinitely. On the #600
   investigation, 2 of 4 users with a Stripe customer id had no row in the
   mirrored `customers` table at all.
