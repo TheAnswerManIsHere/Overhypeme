@@ -518,6 +518,15 @@ export async function getStripeSync() {
     // toggle raced back. The strict answer decides.
     if (stripeSync && stripeSyncLiveMode === live) return stripeSync;
 
+    // A toggle landed while this caller was reading the mode. Its build would
+    // be discarded by the generation check anyway, so it starts none: it goes
+    // round again and joins the current construction. This is also what keeps
+    // the slot below current — without it, a caller resuming with a stale
+    // generation evicts the CURRENT flight, and the next current caller starts
+    // a duplicate (Codex, #657 round 1). Nothing else may be relied on for that:
+    // the order in which parked mode reads resume is incidental.
+    if (constructionGeneration !== generationAtStart) continue;
+
     // ONE construction per (mode, generation), shared by every caller that
     // misses at the same moment. Without it, concurrent misses each verified,
     // each built a StripeSync with its own pool, and the later publish silently

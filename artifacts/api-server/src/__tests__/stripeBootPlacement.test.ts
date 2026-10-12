@@ -102,19 +102,29 @@ async function bootServer(
 
   let output = "";
   let sawListening = false;
+  let everAccepted = false;
   const absorb = (chunk: Buffer) => {
     output += chunk.toString();
     if (stopOnListening && !sawListening && output.includes(LISTENING_MARKER)) {
       sawListening = true;
-      // The property under test is settled the moment the port binds; a healthy
-      // server would otherwise run until the kill timeout.
-      child.kill("SIGTERM");
+      // The property under test is settled once the port is SEEN to accept, and
+      // a healthy server would otherwise run until the kill timeout. Stopping on
+      // the log line alone raced the watcher below: under CI load the child was
+      // gone before a probe landed, so "the port should have been bound" failed
+      // on a server that had bound. Bounded, so a port that never accepts still
+      // ends the child and fails that assertion.
+      void (async () => {
+        for (let i = 0; i < 200 && !everAccepted; i++) {
+          if (await portAccepts(port)) everAccepted = true;
+          else await new Promise((r) => setTimeout(r, 25));
+        }
+        child.kill("SIGTERM");
+      })();
     }
   };
   child.stdout.on("data", absorb);
   child.stderr.on("data", absorb);
 
-  let everAccepted = false;
   let watching = true;
   const watcher = (async () => {
     while (watching) {
