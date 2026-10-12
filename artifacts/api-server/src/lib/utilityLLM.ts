@@ -12,7 +12,7 @@
  */
 
 import type OpenAI from "openai";
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { getOpenAIClient } from "./aiClients";
 import { loadDefaultEngine } from "./engineInterpreter";
 import { chatModelTuningParams } from "./openaiChatParams";
 import { logger } from "./logger";

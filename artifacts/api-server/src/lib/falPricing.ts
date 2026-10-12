@@ -19,6 +19,8 @@ const CACHE_STALE_MS = 60 * 60 * 1000; // 1 hour
 // Pulls from the central falClient module so the env-var lookup matches
 // every other fal-calling code path.
 import { getFalApiKey as getFalApiKeyFromClient } from "./falClient";
+import { aiBackend } from "./aiClients";
+import { falPricingReplay } from "./aiDouble/doubles";
 
 function getFalApiKey(): string | undefined {
   return getFalApiKeyFromClient() ?? undefined;
@@ -40,19 +42,31 @@ async function fetchPricingFromApi(endpointId: string): Promise<FalPricingEntry 
 
   const url = `${FAL_PRICING_API}?endpoint_id=${encodeURIComponent(endpointId)}`;
   try {
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Key ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-    });
+    let body: unknown;
+    if (aiBackend() === "recorded-double") {
+      // The warm-up never reaches out under the double: a recorded endpoint
+      // answers from its recording, any other is a visible miss (null).
+      try {
+        body = falPricingReplay(endpointId);
+      } catch (err) {
+        logger.warn({ endpointId, err: (err as Error).message }, "[falPricing] no recorded pricing under the AI double");
+        return null;
+      }
+    } else {
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Key ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-    if (!res.ok) {
-      logger.warn({ status: res.status, endpointId }, "[falPricing] Pricing API returned non-OK");
-      return null;
+      if (!res.ok) {
+        logger.warn({ status: res.status, endpointId }, "[falPricing] Pricing API returned non-OK");
+        return null;
+      }
+
+      body = await res.json() as unknown;
     }
-
-    const body = await res.json() as unknown;
 
     // Handle various response envelope shapes from fal.ai
     let entries: FalPricingEntry[] = [];

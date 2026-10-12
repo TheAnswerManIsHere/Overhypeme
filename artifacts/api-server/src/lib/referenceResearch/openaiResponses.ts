@@ -11,7 +11,7 @@
  * `response.output_text`. We parse that into the wire schema.
  */
 
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { getOpenAIClient } from "../aiClients";
 import {
   REFERENCE_RESEARCH_CONFIDENCE_VALUES,
   REFERENCE_RESEARCH_SOURCE_TYPE_VALUES,
