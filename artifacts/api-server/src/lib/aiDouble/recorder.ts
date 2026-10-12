@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 
 import { fingerprint, normaliseRequest } from "./fingerprint";
-import { recordingFileName, recordingsDir, resetRecordingCache, type Recording, type RecordingKind } from "./recordings";
+import { findRecording, NoRecordingError, recordingFileName, recordingsDir, resetRecordingCache, type Recording, type RecordingKind } from "./recordings";
 import { falSubscribeRequest, falUploadRequest, falUploadUrl, type FalLike } from "./doubles";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +71,13 @@ export class Allowance {
     private readonly ledgerFile?: string,
   ) {
     if (!(limitUsd > 0)) throw new RecorderBudgetError("AI_RECORDER_ALLOWANCE_USD must be a positive number");
+    // One allowance across every process and every attempt of a recording run:
+    // what an earlier attempt committed stays committed, never a fresh start.
+    if (ledgerFile && fs.existsSync(ledgerFile)) {
+      const prior = JSON.parse(fs.readFileSync(ledgerFile, "utf8")) as { committedUsd: number; lines: LedgerLine[] };
+      this.committedUsd = prior.committedUsd;
+      this.lines.push(...prior.lines);
+    }
   }
 
   private persist(): void {
@@ -208,6 +215,21 @@ async function localiseImages(result: any): Promise<any> {
 // The wrappers
 // ---------------------------------------------------------------------------
 
+/**
+ * A request already recorded (by an earlier attempt of this run) is answered
+ * from its recording rather than paid for again, so a recording run that
+ * stopped part-way resumes without re-spending.
+ */
+function alreadyRecorded(kind: RecordingKind, target: string, request: unknown): unknown | undefined {
+  try {
+    const rec = findRecording(kind, target, substituteUrls(request));
+    return rec.response === undefined ? undefined : structuredClone(rec.response);
+  } catch (err) {
+    if (err instanceof NoRecordingError) return undefined;
+    throw err;
+  }
+}
+
 export function recordingFal(
   real: FalLike,
   allowance: Allowance,
@@ -216,6 +238,8 @@ export function recordingFal(
 ): FalLike {
   return {
     async subscribe(endpoint, opts) {
+      const prior = alreadyRecorded("fal.subscribe", endpoint, falSubscribeRequest(endpoint, opts));
+      if (prior !== undefined) return prior;
       const unit = await falUnitPrice(endpoint);
       const line = allowance.reserve("fal.subscribe", endpoint, unit === null ? null : unit * FAL_SUBMISSION_ATTEMPTS);
       const request = falSubscribeRequest(endpoint, opts);
@@ -267,6 +291,8 @@ export function recordFalPricing(endpointId: string, body: unknown, ctx: Recorde
 export function recordingOpenAI<T extends Record<string, any>>(real: T, allowance: Allowance, ctx: RecorderContext): T {
   const wrap = (kind: RecordingKind, call: (p: any, o?: any) => Promise<any>, reserve: (p: any) => number | null, actual: (p: any, r: any) => number | null) =>
     async (params: any, options?: any) => {
+      const prior = alreadyRecorded(kind, params.model, params);
+      if (prior !== undefined) return prior;
       const line = allowance.reserve(kind, params.model, reserve(params));
       try {
         const response = await call(params, options);

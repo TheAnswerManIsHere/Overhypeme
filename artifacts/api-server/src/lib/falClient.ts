@@ -102,7 +102,7 @@ function backendFal(): FalLike {
 }
 
 /** The recorder's price source: fal's pricing API (free), recorded as it is read. */
-async function falUnitPrice(endpoint: string, ctx: { clients: Record<string, string> }): Promise<number | null> {
+export async function falUnitPrice(endpoint: string, ctx: { clients: Record<string, string> }): Promise<number | null> {
   const key = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
   const res = await fetch(`https://api.fal.ai/v1/models/pricing?endpoint_id=${encodeURIComponent(endpoint)}`, {
     headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },

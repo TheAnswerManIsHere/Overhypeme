@@ -19,8 +19,9 @@ const CACHE_STALE_MS = 60 * 60 * 1000; // 1 hour
 // Pulls from the central falClient module so the env-var lookup matches
 // every other fal-calling code path.
 import { getFalApiKey as getFalApiKeyFromClient } from "./falClient";
-import { aiBackend } from "./aiClients";
+import { aiBackend, recorder } from "./aiClients";
 import { falPricingReplay } from "./aiDouble/doubles";
+import { recordFalPricing } from "./aiDouble/recorder";
 
 function getFalApiKey(): string | undefined {
   return getFalApiKeyFromClient() ?? undefined;
@@ -66,6 +67,8 @@ async function fetchPricingFromApi(endpointId: string): Promise<FalPricingEntry 
       }
 
       body = await res.json() as unknown;
+      // The recorder keeps what the pricing API answered, so the double can replay it.
+      if (aiBackend() === "recorder") recordFalPricing(endpointId, body, recorder().ctx);
     }
 
     // Handle various response envelope shapes from fal.ai
