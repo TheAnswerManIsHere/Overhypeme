@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v2 · APPROVED by David 2026-10-07
+# PLAN — Get to launch (parent programme) · v3 · APPROVED by David 2026-10-07; amended 2026-10-12
 
 Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
 
@@ -278,6 +278,15 @@ no open highs, the operational safety path usable, spend controls
 demonstrated, the admin console finished, every compliance page and consent
 flow live. Seed users submit facts and make memes from them, so photos,
 memes and sharing are all real from the first day.
+
+**Deferred-work review** (David, 2026-10-12, amendment v3). Every entry in
+`docs/engineering/deferred-work.md` and in `current-roadmap.md`'s *Explicitly
+deferred work* is read against this plan and classed: **blocking** — moved
+into the phase that needs it, or that phase waits; **not blocking** — its
+revisit trigger restated in launch-stage terms; or **won't-do**, with the
+reason. Once now, across all of it, and again at the start of each phase
+against that phase's scope. No entry keeps a trigger a launch stage could
+pass without noticing.
 
 ## 3. Phases
 
