@@ -1071,5 +1071,42 @@ describe("a mode change initializes the newly active mode", () => {
     assert.equal(__isStripeVerificationRetryArmedForTests(), false, "the loop stops once the stored mode is complete");
     assert.deepEqual(init.webhookModes, ["test", "live"]);
   });
+
+  it("a refused old mode does not stop the retry seeing a remote switch its cache has not caught up with", async () => {
+    // #577 harvest, deferred gap 2: the retry pass skipped on the LENIENT cached
+    // mode before its strict read. Test mode refused here, another instance
+    // switches to live, and this process's config cache still says test, so
+    // every pass returned early until the cache expired.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_wrong";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(
+      stubAccountRetriever((secretKey) =>
+        secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_someone_elses",
+      ),
+    );
+    recordInit();
+
+    // Test mode is stored and its account is confirmed wrong: refused here.
+    await runStripeVerificationRetryOnce();
+    assert.equal(getVerificationStatus(false, "i").state, "refused", "the premise: test mode is refused");
+
+    // Prime this process's lenient config cache with "test"...
+    assert.equal(await getConfigStringRaw("stripe_live_mode", "false"), "false");
+    // ...then another instance commits live. Written straight to the row with
+    // no bustConfigCache(), because a remote toggle busts only ITS process.
+    await db.update(adminConfigTable).set({ value: "true" }).where(eq(adminConfigTable.key, "stripe_live_mode"));
+    assert.equal(await getConfigStringRaw("stripe_live_mode", "false"), "false", "the premise: this cache is stale");
+
+    await runStripeVerificationRetryOnce();
+    assert.equal(
+      isAccountVerified(true, "sk_live_correct"),
+      true,
+      "the retry must verify the mode now stored, not skip on a stale cached read",
+    );
+  });
 });
 });
