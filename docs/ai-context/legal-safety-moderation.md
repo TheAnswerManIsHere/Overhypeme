@@ -31,6 +31,14 @@
 > assembled from four separately-defensible sentences. Before adding
 > anything here, ask what it enables *combined with the rest of the
 > document*, not only on its own.
+>
+> **The same specifics fail the canonical disclosure check wherever they
+> appear** (`workstream-tracking.md`, *Sensitive / disclosure-carve-out
+> workstreams*) — an approved plan under `docs/plans/`, an issue, a PR body,
+> a harvest or a handoff, not only this file. Prose that carries them takes
+> the private path that section names; a plan for this subsystem written
+> without them is committed like any other (`claude-core.md` Planning
+> rule 3).
 
 ## What is actually live vs. what is not
 
