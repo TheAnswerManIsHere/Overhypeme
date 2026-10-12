@@ -93,6 +93,7 @@ import {
   spawnSyncDefault,
   SIGN_IN_INSTRUCTIONS,
   runCodex,
+  usageLine,
 } from "./machinery.mjs";
 
 /**
@@ -1910,6 +1911,10 @@ export function main(argv = process.argv.slice(2), { root = REPO_ROOT, run = spa
     fs.rmSync(attemptFile, { force: true });
     log(`planning: ${kind} ${kind === "discuss" ? `${round}.${discussion}` : round} on ${model} (${effort}, ${sandbox})…`);
     const outcome = runCodex({ prompt, outFile: attemptFile, model, effort, sandbox, cwd: root, timeoutMs, run });
+    // The spend is real whether or not the exchange is accepted, so the usage
+    // is printed here, before the drift and failed-read checks can return --
+    // a rejected exchange still cost what it cost. (Codex, #199 round 2.)
+    log(`planning: ${usageLine(outcome.usage)}`);
 
     // --- the plan must not have moved under the reader --------------------
     //
@@ -1971,6 +1976,9 @@ export function main(argv = process.argv.slice(2), { root = REPO_ROOT, run = spa
       // its absence is the ordinary case and its presence is loud.
       unpinned: flags.unpinned ?? null,
       seconds: outcome.seconds,
+      // The five usage buckets `codex exec --json` reported, or null: the spend
+      // line prices an Astra exchange from these (token-pricing.md, Astra rows).
+      usage: outcome.usage ?? null,
       finishedAt: new Date().toISOString(),
       accepted: !read.failed && planDrift === null,
       failure: read.failed ? read.reason : null,

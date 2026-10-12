@@ -178,8 +178,14 @@ pivot or undo some of it than constantly stop building while waiting for me."*
   whether the tier oracle — reported symptom, intended behaviour, must not
   change, root cause, blast radius, `working-modes.md` — should count as the
   plan, *"Yes"*): a reversible technical choice inside a Tier A or Tier B fix
-  proceeds on the recommendation and is listed in that PR's Decisions section;
-  Tier C still stops, since it is not a bugfix.
+  proceeds on the recommendation and is listed in that PR's Decisions section
+  — never its regression test, step 3 of the bugfix loop, which only that
+  step's own carve-out (a fix with no assertable behaviour, said so in the
+  commit and the PR body) waives
+  ([`working-modes.md`](working-modes.md#per-bug--the-loop); the #197 sweep
+  found this rule stating its bugfix scope without that exclusion, and four
+  restatements inheriting the omission); Tier C still stops, since it is not
+  a bugfix.
 - **Production and prototype both run under it, production more sensitively**:
   the same observable in both phases, and the same closed list — no phase or
   subsystem adds an ask of its own. Production asks more often because more
@@ -491,7 +497,7 @@ in the product.
   ([`planning-contract.md`](./planning-contract.md)), the Fable assessor on a
   **code** round (`claude-core.md`'s *Shared judgement on a review round*).
   A purely technical choice a corrective commit would undo proceeds on the
-  recommendation and is reported, inside an approved plan or a bugfix's tier oracle (*A reversible choice proceeds on the recommendation*, above).
+  recommendation and is reported, inside an approved plan or a bugfix's tier oracle — a bugfix's regression test never among them (*A reversible choice proceeds on the recommendation*, above).
   What still reaches David on either is intended behaviour, scope, a knowingly
   accepted user-facing shortfall, and approval; and a constraint he required
   explicitly does not become negotiable for being technical.

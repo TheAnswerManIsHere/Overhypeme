@@ -39,7 +39,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { modelTier, signInStatus, spawnSyncDefault, SIGN_IN_INSTRUCTIONS, runCodex, findRepoRoot, agentFrontmatter, claudeAlias } from "./machinery.mjs";
+import { modelTier, signInStatus, spawnSyncDefault, SIGN_IN_INSTRUCTIONS, runCodex, usageLine, findRepoRoot, agentFrontmatter, claudeAlias } from "./machinery.mjs";
 import { REVIEWS_DIR, ensureReviewsIgnored } from "./round-translation.mjs";
 
 export const ROLE = "review-proxy";
@@ -1282,7 +1282,14 @@ export function main(
     log(`review-proxy: ${result.instructions}`);
     return 2;
   }
-  log(`review-proxy: ${followUp ? `follow-up ${followUp} on ` : ""}round ${flags.round} on ${result.reviewer.id} (${result.reviewer.effort}, ${SANDBOX}) — ${result.seconds}s`);
+  // The usage line is the spend line's only reading for an Astra run: five
+  // buckets from `codex exec --json`, priced per bucket from token-pricing.md
+  // (its Astra rows), never by the blended proxy. "Not reported" means the
+  // run is `unable to verify`, which is what the spend line then says.
+  log(
+    `review-proxy: ${followUp ? `follow-up ${followUp} on ` : ""}round ${flags.round} on ${result.reviewer.id} ` +
+      `(${result.reviewer.effort}, ${SANDBOX}) — ${result.seconds}s; ${usageLine(result.usage)}`,
+  );
   // A FAILED PROCESS IS NEVER AN ACCEPTED ASSESSMENT, even when a file is
   // sitting there: `codex exec` can write its last message and then exit
   // non-zero. (Codex, #120 round 1.)

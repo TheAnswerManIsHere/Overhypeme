@@ -19,16 +19,21 @@ description: Use when implementing any feature or bugfix, before writing impleme
 > The other "ask your human partner" rows below, and the closing "no
 > exceptions without your human partner's permission" — generated code,
 > configuration files, not knowing how to test — are the agent's own
-> reversible choices inside an approved plan — or, for a Tier A or B bugfix,
-> inside its tier oracle, which is that rule's plan: decide, and report the
-> choice rather than asking
+> reversible choices inside an approved plan: decide, and report the choice
+> rather than asking
 > ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
-> **For a Tier A or B bugfix the not-knowing-how-to-test row is not one of
-> them**: its regression test is step 3 of the bugfix loop, and whether a fix
-> may skip it is that loop's carve-out to say, not this note's
-> ([`working-modes.md`](../../../docs/ai-context/working-modes.md#per-bug--the-loop)) —
-> "I do not know how to test it" is a question to answer, not a choice to
-> proceed on (Codex, DojoOS #8; AI-Handbook #198).
+> **For a Tier A or B bugfix none of those three rows is a reversible
+> choice** — not generated code, not a configuration file, not "I do not
+> know how to test it": its regression test is step 3 of the bugfix loop,
+> and whether a fix may skip it is that loop's carve-out to say (a fix with
+> no assertable behaviour, said so in the commit and the PR body), never
+> this note's
+> ([`working-modes.md`](../../../docs/ai-context/working-modes.md#per-bug--the-loop)).
+> A Tier A or B bugfix's tier oracle is that rule's plan (David,
+> 2026-10-11), and what proceeds inside it is the fix's *other* technical
+> choices; "I do not know how to test it" is a question to answer, not a
+> choice to proceed on (Codex, DojoOS #8 and AI-Handbook #201; AI-Handbook
+> #197 item 3, #198).
 
 ## Overview
 

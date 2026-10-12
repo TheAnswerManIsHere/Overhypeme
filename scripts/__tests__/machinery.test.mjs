@@ -374,3 +374,88 @@ test("the alias is derived from the pin, and is null for anything that is not a 
     assert.equal(claudeAlias(not), null, `claudeAlias(${JSON.stringify(not)})`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// runCodex: the usage reading (David, 2026-10-11 — an Astra run is priced
+// from `codex exec --json`'s turn.completed usage, not by a proxy).
+
+import { runCodex, codexUsage, usageLine, CODEX_EVENTS_MAX_BUFFER } from "../machinery.mjs";
+import { readFileSync, existsSync } from "node:fs";
+
+const TURN = (usage) => JSON.stringify({ type: "turn.completed", usage });
+const SAMPLE = {
+  input_tokens: 17967, cached_input_tokens: 12288, cache_write_input_tokens: 0,
+  output_tokens: 5, reasoning_output_tokens: 0,
+};
+
+test("codexUsage reads the LAST turn.completed event and names the five buckets", () => {
+  const jsonl = [
+    JSON.stringify({ type: "thread.started", thread_id: "t" }),
+    TURN({ ...SAMPLE, output_tokens: 1 }),
+    "not json at all",
+    TURN(SAMPLE),
+  ].join("\n");
+  assert.deepEqual(codexUsage(jsonl), { input: 17967, cachedInput: 12288, cacheWriteInput: 0, output: 5, reasoningOutput: 0 });
+});
+
+test("codexUsage is null with no turn.completed, an empty stream, or a non-string", () => {
+  assert.equal(codexUsage(JSON.stringify({ type: "turn.started" })), null);
+  assert.equal(codexUsage(""), null);
+  assert.equal(codexUsage(undefined), null);
+  assert.equal(codexUsage(JSON.stringify({ type: "turn.completed" })), null, "a turn.completed with no usage is not a reading");
+});
+
+test("codexUsage is null, never zero-filled, when any of the five buckets is missing, renamed, non-numeric or negative", () => {
+  for (const key of Object.keys(SAMPLE)) {
+    const missing = { ...SAMPLE }; delete missing[key];
+    assert.equal(codexUsage(TURN(missing)), null, `missing ${key}`);
+    assert.equal(codexUsage(TURN({ ...SAMPLE, [key]: "12" })), null, `string ${key}`);
+    assert.equal(codexUsage(TURN({ ...SAMPLE, [key]: -1 })), null, `negative ${key}`);
+  }
+  const renamed = { ...SAMPLE, reasoning_tokens: 0 }; delete renamed.reasoning_output_tokens;
+  assert.equal(codexUsage(TURN(renamed)), null, "a renamed bucket is not a reading");
+});
+
+test("usageLine prints the buckets, and says so when there are none", () => {
+  assert.equal(usageLine(codexUsage(TURN(SAMPLE))), "usage in 17967 (cached 12288, cache-write 0) out 5 (reasoning 0)");
+  assert.match(usageLine(null), /usage not reported.*unable to verify/);
+});
+
+test("runCodex asks for --json, captures stdout beside the answer, and returns the usage", () => {
+  const dir = mkdtempSync(join(tmpdir(), "machinery-codex-"));
+  try {
+    const outFile = join(dir, "answer.md");
+    let seen;
+    const run = (_bin, args, opts) => {
+      seen = { args, opts };
+      writeFileSync(outFile, "the answer");
+      return { status: 0, signal: null, error: undefined, stdout: `${JSON.stringify({ type: "turn.started" })}\n${TURN(SAMPLE)}\n` };
+    };
+    const out = runCodex({ prompt: "p", outFile, model: "m", effort: "xhigh", sandbox: "read-only", cwd: dir, timeoutMs: 1000, run });
+    assert.ok(seen.args.includes("--json"), "events are requested as JSONL");
+    assert.equal(seen.args.at(-1), "-", "the prompt still arrives on stdin");
+    assert.deepEqual(seen.opts.stdio, ["pipe", "pipe", "inherit"], "stdout is captured, stderr still shows progress");
+    assert.equal(seen.opts.maxBuffer, CODEX_EVENTS_MAX_BUFFER, "the captured stream is not bounded by spawnSync's 1 MiB default");
+    assert.ok(CODEX_EVENTS_MAX_BUFFER >= 256 * 1024 * 1024);
+    assert.equal(out.status, 0);
+    assert.deepEqual(out.usage, { input: 17967, cachedInput: 12288, cacheWriteInput: 0, output: 5, reasoningOutput: 0 });
+    assert.equal(out.eventsFile, `${outFile}.events.jsonl`);
+    assert.ok(existsSync(out.eventsFile), "the event stream is written beside the answer");
+    assert.match(readFileSync(out.eventsFile, "utf8"), /turn\.completed/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCodex returns usage null, and an empty sidecar, when the process emitted no events", () => {
+  const dir = mkdtempSync(join(tmpdir(), "machinery-codex-"));
+  try {
+    const outFile = join(dir, "answer.md");
+    const out = runCodex({ prompt: "p", outFile, model: "m", effort: "xhigh", sandbox: "read-only", cwd: dir, timeoutMs: 1000,
+      run: () => ({ status: 1, signal: null, error: undefined, stdout: "" }) });
+    assert.equal(out.usage, null);
+    assert.equal(readFileSync(out.eventsFile, "utf8"), "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

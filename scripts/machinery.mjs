@@ -585,10 +585,25 @@ export const SIGN_IN_INSTRUCTIONS = [
  *   --ignore-rules           same reasoning for execpolicy .rules files.
  *   --ephemeral              no session file on disk; each round is a fresh
  *                            context by construction, not by convention.
+ *   --json                   events arrive on stdout as JSONL, and the last
+ *                            `turn.completed` event carries the run's token
+ *                            usage -- the only reading an Astra run has, so
+ *                            a spend line can price it instead of writing
+ *                            `unable to verify` (David, 2026-10-11; measured
+ *                            on codex-cli 0.160.0: `{"type":"turn.completed",
+ *                            "usage":{"input_tokens":…,"cached_input_tokens":…,
+ *                            "cache_write_input_tokens":…,"output_tokens":…,
+ *                            "reasoning_output_tokens":…}}`).
  *
- * stdout and stderr are inherited so a long run shows progress where a human
- * or a log file can see it; the answer never comes from either stream.
+ * stdout is therefore captured, not inherited: the whole event stream is
+ * written beside the answer as `<outFile>.events.jsonl`, so progress is still
+ * readable after the fact and the usage is read from a file rather than
+ * scraped from a terminal. stderr stays inherited. The answer never comes
+ * from either stream.
  */
+/** The stdout ceiling for a `codex exec --json` event stream: 256 MiB, the same bound the sync tests give `git archive`. */
+export const CODEX_EVENTS_MAX_BUFFER = 256 * 1024 * 1024;
+
 export function runCodex({ prompt, outFile, model, effort, sandbox, cwd, timeoutMs, run = spawnSyncDefault }) {
   const args = [
     "exec",
@@ -601,15 +616,78 @@ export function runCodex({ prompt, outFile, model, effort, sandbox, cwd, timeout
     "--ignore-user-config",
     "--ignore-rules",
     "--color", "never",
+    "--json",
     "-",
   ];
   const started = Date.now();
   const result = run(codexBin(), args, {
     input: prompt,
     encoding: "utf8",
-    stdio: ["pipe", "inherit", "inherit"],
+    stdio: ["pipe", "pipe", "inherit"],
     timeout: timeoutMs,
     cwd,
+    // A piped stdout is bounded by spawnSync's maxBuffer, 1 MiB by default,
+    // and crossing it kills the child with ENOBUFS and no status -- so a long
+    // review emitting verbose events would die before its answer and its
+    // turn.completed event were written. Inherited stdout had no ceiling;
+    // this one is set well above any event stream a round has produced.
+    // (Codex, AI-Handbook #199 round 1.)
+    maxBuffer: CODEX_EVENTS_MAX_BUFFER,
   });
-  return { args, status: result.status, signal: result.signal, error: result.error, seconds: (Date.now() - started) / 1000 };
+  const events = typeof result.stdout === "string" ? result.stdout : "";
+  const eventsFile = `${outFile}.events.jsonl`;
+  // Written even when empty: an absent sidecar would read as "never ran",
+  // and an empty one as "ran and emitted nothing" -- different facts.
+  try { fs.writeFileSync(eventsFile, events); } catch { /* the answer, not the stream, is the deliverable */ }
+  return {
+    args,
+    status: result.status,
+    signal: result.signal,
+    error: result.error,
+    seconds: (Date.now() - started) / 1000,
+    usage: codexUsage(events),
+    eventsFile,
+  };
+}
+
+/**
+ * The token usage of one `codex exec --json` run, read from the LAST
+ * `turn.completed` event in its JSONL stream -- `null` when the stream has
+ * none (a run that died before its turn completed, or an older CLI). The five
+ * buckets are returned as the CLI names them; nothing here prices them, since
+ * the rates live in `docs/ai-context/token-pricing.md` and a second copy in a
+ * script is the drift the model-routing skill already paid for.
+ */
+export function codexUsage(jsonl) {
+  if (typeof jsonl !== "string" || jsonl === "") return null;
+  let usage = null;
+  for (const line of jsonl.split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("{")) continue;
+    let ev;
+    try { ev = JSON.parse(t); } catch { continue; }
+    if (ev?.type === "turn.completed" && ev.usage && typeof ev.usage === "object") usage = ev.usage;
+  }
+  if (!usage) return null;
+  // ALL FIVE OR NONE. A bucket that is missing, renamed or not a finite
+  // non-negative number makes the whole reading null -- `unable to verify` in
+  // the spend line -- never a zero that prices the run confidently low. The
+  // CLI is installed unpinned, so a schema change is a real path, not a
+  // hypothetical. (Codex, AI-Handbook #199 round 2.)
+  const keys = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];
+  if (!keys.every((k) => Number.isFinite(usage[k]) && usage[k] >= 0)) return null;
+  return {
+    input: usage.input_tokens,
+    cachedInput: usage.cached_input_tokens,
+    cacheWriteInput: usage.cache_write_input_tokens,
+    output: usage.output_tokens,
+    reasoningOutput: usage.reasoning_output_tokens,
+  };
+}
+
+/** One line for a log: the five buckets, or that the run reported none. */
+export function usageLine(usage) {
+  if (!usage) return "usage not reported (no turn.completed event) — price this run as unable to verify";
+  return `usage in ${usage.input} (cached ${usage.cachedInput}, cache-write ${usage.cacheWriteInput}) ` +
+    `out ${usage.output} (reasoning ${usage.reasoningOutput})`;
 }

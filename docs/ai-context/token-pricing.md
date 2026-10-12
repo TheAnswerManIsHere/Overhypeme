@@ -51,14 +51,55 @@ long-context columns:
 | gpt-6-astra | $10.00 | $1.00 | $12.50 | $50.00 | $20.00 | $2.00 | $25.00 | $75.00 |
 ```
 
-| Model | Input | Cached input | Output |
-|---|---|---|---|
-| `gpt-6-astra` (the `strongestCodex` pin) | $10 | $1 | $50 |
+| Model | Input | Cached input | Cache write | Output |
+|---|---|---|---|---|
+| `gpt-6-astra` (the `strongestCodex` pin), prompt ≤ 272K | $10 | $1 | $12.50 | $50 |
+| `gpt-6-astra`, prompt > 272K (the long-context columns) | $20 | $2 | $25 | $75 |
+
+### Pricing an Astra run — per bucket, never by the proxy
+
+An Astra run is the one dispatch with a real reading: `review-proxy.mjs` and
+`plan-review.mjs` run `codex exec --json` and print the `turn.completed`
+event's five usage buckets (`usage in … (cached …, cache-write …) out …
+(reasoning …)`; measured on codex-cli 0.160.0, 2026-10-11). So an Astra
+figure is priced **per bucket, not by the blended proxy below**:
+`(input − cached − cache-write) × input rate + cached × cached rate +
+cache-write × cache-write rate + output × output rate`.
+
+Three readings behind that formula, each settled rather than assumed:
+
+- **Cached and cache-write sit inside `input_tokens`** — both probes read
+  cached below input (12,288 of 17,967 and 28,160 of 32,193), so they are
+  subtracted before the base rate applies.
+- **Reasoning sits inside `output_tokens`** and is never added again. OpenAI's
+  Responses API describes `output_tokens_details` as "A detailed breakdown of
+  the output tokens", and its example totals input plus output alone (328 +
+  52 = 380 with `reasoning_tokens: 0`); the CLI copies both counters straight
+  from the turn total. So `reasoning_output_tokens` is diagnostic, not a
+  bucket (Codex, AI-Handbook #199 round 2).
+- **The usage is the turn's cumulative total, but the 272K threshold is per
+  request** — "Prompts with more than 272K input tokens are priced at 2x input
+  and cache rates and 1.5x output for the full request" (the `gpt-6-astra`
+  model page, read 2026-10-12), and the CLI's `turn.completed` is built from
+  the turn's running `total`. A turn of several tool-using requests can sum
+  past 272K with every request short. So: **`input_tokens` at or under
+  272,000 is priced exactly from the short row** — no single request can
+  exceed the turn's total. **Above it, the figure is an upper bound priced
+  from the long-context row, and the spend line says so** (`≤ $X, long-context
+  row as ceiling`), since which requests crossed is not in the reading. That
+  overstates and never understates, the side the Haiku rule below takes for
+  the same reason (Codex, AI-Handbook #199 round 2).
+
+A run whose log says `usage not reported` — including one whose usage object
+lacked any of the five buckets — is `unable to verify` in the spend line, as
+the rule at the top says. (This replaces the single $15/M Astra proxy row and
+answers Overhype.me #639 `4243652049` and DojoOS #8 `4243765922`.)
 
 ## How a spend line converts tokens — the blended proxy
 
 The harness reports one number per turn, the `<total_tokens>` count
-differenced, and a task notification reports one usage figure per subagent.
+differenced, and a task notification reports one usage figure per Claude
+subagent (an Astra run is the exception, priced per bucket above).
 Neither splits input from output or cache reads from fresh input, so no
 spend line can price each bucket at its own rate. **The proxy is a
 judgement, named as one**: price every harness-counted token at the model's
@@ -75,7 +116,7 @@ assumption the line rests on, not a reading).
 | Sonnet subagents (sweep readers, investigations) | Claude Sonnet 5.5 | $3 |
 | Haiku subagents, dispatch reported at 100,000 tokens or fewer | Claude Haiku 5.5 | $0.15 |
 | Haiku subagents, dispatch reported above 100,000 tokens | Claude Haiku 5.5 | $0.75 |
-| Astra (Codex CLI) | `gpt-6-astra` | $15 |
+| Astra (Codex CLI) | `gpt-6-astra` | none — priced per bucket from its reported usage (above) |
 
 Haiku has two list tiers, by prompt length, and the harness reports one
 total per dispatch with no prompt/output split — so the total is the
