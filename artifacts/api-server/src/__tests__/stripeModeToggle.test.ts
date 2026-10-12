@@ -48,6 +48,7 @@ import {
   isLiveMode,
 } from "../lib/stripeClient.js";
 import {
+  __isStripeVerificationRetryArmedForTests,
   __resetStripeInitForTests,
   __setStripeInitDepsForTests,
   ensureVerificationArmedFor,
@@ -1000,6 +1001,75 @@ describe("a mode change initializes the newly active mode", () => {
     assert.equal(await resumeStripeInitialization(), true);
     assert.equal(hasStripeInitializationCompleted(false), true);
     assert.deepEqual(init.webhookModes, ["test"]);
+  });
+
+  it("a pass finishing the OLD mode does not stop the retry a mid-pass switch still needs", async () => {
+    // #653 round 2, 4244771525 — the member a single instance can reach. The
+    // timer is shared, an arm while it exists is a no-op, and the stop used to
+    // follow the pass's own mode.
+    configureBothValid();
+    let failTestOnce = true;
+    let failLiveOnce = true;
+    let holdTest: (() => void) | null = null;
+    let testHeld = false;
+    let liveAttempted = false;
+    const init = recordInit({
+      onWebhook: async (mode) => {
+        if (mode === "test") {
+          if (failTestOnce) {
+            failTestOnce = false;
+            throw new Error("transient Stripe error registering the test webhook");
+          }
+          testHeld = true;
+          await new Promise<void>((release) => { holdTest = release; });
+          return;
+        }
+        liveAttempted = true;
+        if (failLiveOnce) {
+          failLiveOnce = false;
+          throw new Error("transient Stripe error registering the live webhook");
+        }
+      },
+    });
+
+    // Booted in test mode; its setup fails once, so the retry loop arms.
+    assert.equal((await runStripeBootVerification()).kind, "verified");
+    startStripeAfterBoot({ kind: "verified", liveMode: false });
+    await waitFor(() => __isStripeVerificationRetryArmedForTests() && !failTestOnce);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(__isStripeVerificationRetryArmedForTests(), true, "the premise: the loop is armed for test");
+
+    // A retry pass for test is now inside its webhook registration...
+    const pass = runStripeVerificationRetryOnce();
+    await waitFor(() => testHeld);
+    assert.equal(testHeld, true);
+
+    // ...when the admin switches to live here, and live's own setup fails once.
+    holdSyncLock();
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    await waitFor(() => liveAttempted);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(hasStripeInitializationCompleted(true), false, "the premise: live's setup failed");
+
+    // Test's registration finishes; the pass completes test.
+    (holdTest as unknown as () => void)();
+    await pass;
+    assert.equal(hasStripeInitializationCompleted(false), true);
+    assert.equal(
+      __isStripeVerificationRetryArmedForTests(),
+      true,
+      "the retry must stay armed: the mode now stored (live) still has setup owed",
+    );
+
+    // The next scheduled pass finishes live, and only then does the loop stop.
+    await runStripeVerificationRetryOnce();
+    assert.equal(hasStripeInitializationCompleted(true), true);
+    assert.equal(__isStripeVerificationRetryArmedForTests(), false, "the loop stops once the stored mode is complete");
+    assert.deepEqual(init.webhookModes, ["test", "live"]);
   });
 });
 });

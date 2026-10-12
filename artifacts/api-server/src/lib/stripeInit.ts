@@ -396,15 +396,49 @@ export async function runStripeVerificationRetryOnce(): Promise<void> {
   // ever attempts the stored mode.
   logger.info({ mode }, "Stripe account verified on retry — resuming Stripe initialization");
   const completed = await resumeStripeInitialization();
+  if (!completed) logger.warn({ mode }, "Stripe initialization did not complete — keeping the retry armed");
 
-  // The timer stops only once the required setup has actually succeeded.
-  // Stopping it on verification alone is what made a transient webhook failure
-  // permanent: nothing was left to try again, and the state still said verified.
-  if (completed) stopStripeVerificationRetry();
-  else logger.warn({ mode }, "Stripe initialization did not complete — keeping the retry armed");
+  // The timer stops only once the mode stored NOW has its setup complete — not
+  // the mode this pass started on. One timer serves both modes, and every arm
+  // request made while it exists is a no-op, so its existence has to mean "the
+  // stored mode is owed". Stopping on THIS pass's success (#653 round 2) let a
+  // switch landing mid-pass — a remote toggle the detector saw, or a local one
+  // whose own setup failed — be absorbed by the armed timer and then discarded
+  // when the old mode finished. Stopping on verification alone, before that,
+  // made a transient webhook failure permanent.
+  //
+  // Two checks, because the read is asynchronous: the stored mode's completion,
+  // and that no arm request arrived while it was being read. An unreadable mode
+  // keeps the timer, which is the safe answer.
+  const signalsBefore = owedSetupSignals;
+  let storedNow: boolean;
+  try {
+    storedNow = await readStripeLiveModeStrict();
+  } catch (err) {
+    logger.warn({ err }, "Stripe retry: the stored mode is unreadable — keeping the retry armed");
+    return;
+  }
+  if (hasStripeInitializationCompleted(storedNow) && owedSetupSignals === signalsBefore) {
+    stopStripeVerificationRetry();
+  } else if (completed) {
+    logger.info({ mode }, "Stripe setup complete for this pass's mode; another is still owed — keeping the retry armed");
+  }
+}
+
+/**
+ * Bumped by every arm request, including the ones absorbed because a timer
+ * already exists. The retry pass compares it across its final mode read, so a
+ * request that lands during that read keeps the timer rather than being lost.
+ */
+let owedSetupSignals = 0;
+
+/** Test seam: whether the retry loop is currently armed. */
+export function __isStripeVerificationRetryArmedForTests(): boolean {
+  return retryTimer !== null;
 }
 
 function armStripeVerificationRetry(): void {
+  owedSetupSignals++;
   if (retryTimer) return;
   retryTimer = setInterval(() => {
     void runStripeVerificationRetryOnce().catch((err: unknown) =>
@@ -439,7 +473,8 @@ function armStripeVerificationRetry(): void {
  * THIS call armed the timer: the Billing poll runs every few seconds while the
  * state is unsettled, and must not become the retry cadence — an armed timer
  * already owns that. The pass itself verifies (a memo hit when already
- * verified), resumes setup, and stops the timer only once setup completes.
+ * verified), resumes setup, and stops the timer only once the mode then stored
+ * has its setup complete.
  */
 export function ensureVerificationArmedFor(liveMode: boolean | null): void {
   // A mode that cannot be read is not a mode that can be verified. That is an

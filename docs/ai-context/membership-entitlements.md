@@ -212,7 +212,10 @@ remote-change detector (`ensureVerificationArmedFor`) treats a mode as done
 only when its setup is complete, or its account was refused or never
 configured. A mode that was merely *verified* still has setup owed. It kicks an
 immediate pass only when it is the one arming the retry timer, so the Billing
-poll never becomes the retry cadence. A recovered retry used to restore clients while
+poll never becomes the retry cadence. The one retry timer serves both modes, so it stops
+only once the mode **then stored** has its setup complete, and only if no arm
+request arrived while that was being read. Stopping on a pass's own success
+let a switch landing mid-pass be absorbed by the armed timer and then dropped. A recovered retry used to restore clients while
 leaving the webhook unregistered. **The backfill is not part of that guarantee.** It is launched
 after initialization is marked done, fire-and-forget, and a failed backfill
 is logged and not retried in that process.
