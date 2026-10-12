@@ -585,8 +585,12 @@ re-gather it when the work is scheduled.
     the later publish overwrites the earlier one without closing its pool;
     and `invalidateStripeSync()` deliberately does not close the pool of the
     instance it drops (the code comment says so and points here). The line
-    references in *What* predate #577. The leak and the concurrency are read
-    from the code, not reproduced by a test: unable to verify by
+    references in *What* predate #577. **One more trigger since PR #653:**
+    the `stripe_live_mode` PATCH now starts setup (whose `getSync()` calls
+    `getStripeSync()`) and then calls `getStripeSync()` itself for the full
+    sync, so a local toggle can run two constructions at once and orphan one
+    two-connection pool (Fable, #653 round 1). The leak and the concurrency
+    are read from the code, not reproduced by a test: unable to verify by
     measurement; a test that runs two concurrent `getStripeSync()` misses
     and counts open pools would settle it.
   - **Why deferred now.** Pre-existing on `main`; same review/deferral

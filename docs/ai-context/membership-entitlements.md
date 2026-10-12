@@ -202,8 +202,17 @@ unconfigured boot — left the new account with no webhook, so payments read
 "verified" while its events never arrived until a restart. Now a verified
 boot, a committed toggle (`startStripeInitializationForActiveMode` in the
 `stripe_live_mode` PATCH) and a successful retry pass all run setup for the
-mode then stored, and a toggle landing mid-setup leaves that mode unmarked
-for the retry to finish. A recovered retry used to restore clients while
+mode then stored. Completion is credited to the mode the **sync** was
+verified for (`liveModeOfPublishedStripeSync`), checked before the webhook is
+registered: a toggle landing mid-setup hands back a sync for the other account,
+so the attempt mutates nothing, leaves its mode unmarked, and the retry
+finishes whichever mode is then stored. A row re-read cannot do this job —
+test → live → test passes one after registering only the live webhook. The
+remote-change detector (`ensureVerificationArmedFor`) treats a mode as done
+only when its setup is complete, or its account was refused or never
+configured. A mode that was merely *verified* still has setup owed. It kicks an
+immediate pass only when it is the one arming the retry timer, so the Billing
+poll never becomes the retry cadence. A recovered retry used to restore clients while
 leaving the webhook unregistered. **The backfill is not part of that guarantee.** It is launched
 after initialization is marked done, fire-and-forget, and a failed backfill
 is logged and not retried in that process.
