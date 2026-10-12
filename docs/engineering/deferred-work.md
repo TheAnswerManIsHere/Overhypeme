@@ -1,8 +1,8 @@
 # Deferred Engineering Work
 
-Last maintenance pass: none yet under the 2026-08-20 contract — the next
-`/maintenance` run updates this line every pass (it is the durable window
-boundary the batched documentation harvest reads).
+Last maintenance pass: 2026-10-12 — the `/maintenance` run updates this line
+every pass (it is the durable window boundary the batched documentation
+harvest reads).
 
 The single, durable home for engineering, security-hygiene, and maintenance
 work we have **consciously chosen not to do yet** — dependency bumps we've
@@ -854,7 +854,17 @@ re-gather it when the work is scheduled.
     documenting the asymmetry as an intentional exception if there's a reason
     the exemption specifically must stay import-time-frozen.
 
-- **The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`).**
+- **The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`) — TRIGGER FIRED 2026-10-12, graduating to a `/bugfix` task.**
+  - **Fired.** The 2026-10-12 pass found six red `Build` runs on `main` since
+    2026-08-15. Two were inspected and both failed at this same step
+    (`Run api-server test suite`) on commits that could not have caused it:
+    run 31972314185 (`b2d0c30`, a `docs(decisions)` commit, 2026-08-16) and
+    run 33787368140 (`5cbd6c1`, the `CLAUDE.md` prune, 2026-09-03). A third
+    (run 32433248576, `b20f6d3`, 2026-08-21) failed in the E2E route-load
+    smoke suite instead. The other three (`7ad7d29`, `341e14b`, `e183122`)
+    were not inspected. The last red run on `main` was 2026-09-03; the
+    following `Build` runs through 2026-10-11 were green.
+    This entry closes when the `/bugfix` issue for it is filed.
   - **What.** `Build` run 31911725205 on commit `7e37cc8` (PR #451's squash —
     a metrics-record-only change touching a loop record)
     failed at the `Run api-server test suite` step. The two commits that
