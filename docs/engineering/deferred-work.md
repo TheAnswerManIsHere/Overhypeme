@@ -573,6 +573,22 @@ re-gather it when the work is scheduled.
     `pg.Pool` — so repeated mode flips leak connections steadily; "discard" is
     the wrong verb throughout, the fix must *dispose*
     (`postgresClient.pool.end()`).
+  - **Status after PR #577 (the Stripe account guard), from reading
+    `stripeClient.ts` at the harvest of 2026-10-12.** Defects (2) and (3)
+    are closed. A construction generation counter plus a re-read of the
+    stored mode discards a build that a toggle superseded, and closes that
+    build's pool (`discardRejectedBuild`). `buildStripeSync(liveMode)` takes
+    the mode captured at entry for both the secret key and the webhook
+    secret. The rejection-caching guardrail is honoured: verification
+    memoises successes only. **Still open:** (1) there is still no
+    single-flight around construction, so concurrent misses each build, and
+    the later publish overwrites the earlier one without closing its pool;
+    and `invalidateStripeSync()` deliberately does not close the pool of the
+    instance it drops (the code comment says so and points here). The line
+    references in *What* predate #577. The leak and the concurrency are read
+    from the code, not reproduced by a test: unable to verify by
+    measurement; a test that runs two concurrent `getStripeSync()` misses
+    and counts open pools would settle it.
   - **Why deferred now.** Pre-existing on `main`; same review/deferral
     provenance as the `adminConfig` entry above.
   - **Cost of waiting.** Extra Postgres connections and pool churn on every
@@ -587,6 +603,41 @@ re-gather it when the work is scheduled.
     three cases proven together: a
     delayed mid-flight mode flip, a construction failure followed by a
     successful retry, and repeated flips returning the live pool count to one.
+
+- **Three gaps PR #577 recorded for "an immediate follow-up PR" that never shipped (found in the 2026-10-12 batched harvest).**
+  - **What.** Recorded on workstream #571's harvest notes. Re-read against
+    `main` at the harvest. None of the three has a fix in the window, but
+    none was reproduced either:
+    1. **(P1 as recorded)** A server that boots with its active mode
+       unconfigured and is then toggled to a configured mode records the
+       verification but never resumes webhook registration, and nothing
+       shows it. The panel reads `verified` while Stripe's events don't
+       arrive until a restart. At the harvest,
+       `hasStripeInitializationCompleted()` (`stripeInit.ts`) still has no
+       caller outside tests, so the observability half is unchanged. Whether
+       the resume half is still missing is unable to verify from a read: a
+       test that boots unconfigured, toggles, and asserts the managed webhook
+       was registered would settle it.
+    2. **(P2)** `runStripeVerificationRetryOnce` makes its cheap
+       deterministic-refusal skip on the lenient cached mode (`isLiveMode()`)
+       before the strict read. After a toggle on another instance, it can
+       skip the newly active mode until the config cache expires.
+    3. **(P2)** `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
+       `STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_ACCOUNT_ID_TEST` in a
+       file-level `beforeEach`, and its `afterEach` does not restore them.
+       Under the api-server runner's `--test-isolation=none`, a file-level hook
+       is a root hook for every test in the process
+       ([`node-test-top-level-hook-is-root-hook.md`](../../.agents/memory/node-test-top-level-hook-is-root-hook.md)).
+  - **Why deferred.** Not deliberately deferred: the follow-up was promised in
+    the harvest notes and never opened. Recorded here so the promise lives
+    somewhere with an owner.
+  - **Cost of waiting.** (1) is the one with product consequences. After that
+    toggle sequence, payments would look healthy while subscription changes
+    made at Stripe never reached the app. (2) delays recovery by one cache
+    TTL. (3) is a test-suite leak that can make an unrelated suite in the same
+    shard see Stripe credentials.
+  - **Revisit trigger.** Before the live-mode work in launch Phase 10 (#628),
+    which is the first time a mode toggle is a real operator action.
 
 - **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
   - **What.** [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)

@@ -4,7 +4,9 @@
 > (derivation), `membershipSources.ts` (writes), `membershipRefresh.ts`
 > (Stripe-facing refresh), `entitlementVerification.ts` (trust boundary),
 > `membershipLease.ts` (concurrency), `webhookHandlers.ts` (event entry),
-> `membershipGraceSweep.ts` + `membershipSchedules.ts` (the background sweep).
+> `membershipGraceSweep.ts` + `membershipSchedules.ts` (the background sweep),
+> `stripeAccountGuard.ts` + `stripeInit.ts` + `stripeVerificationErrors.ts`
+> (the account guard, PR #577).
 > Schema: `lib/db/src/schema/membershipEntitlements.ts`. Shipped in PR #287
 > (34 commits, 11 code-review rounds, 101 findings), replacing code that had
 > never had an independent review since its original build.
@@ -119,6 +121,152 @@ reasons that describe *our* inability to observe the object right now, not a
 settled fact about it — a webhook prepare that lands on one of these throws
 **before** the idempotency claim, so Stripe redelivers instead of the event
 being permanently acked on a transient failure.
+
+## The account guard — no Stripe client until its account verifies
+
+Shipped in PR #577. Every deployment declares which Stripe account it expects
+per mode — `STRIPE_ACCOUNT_ID_TEST` and `STRIPE_ACCOUNT_ID_LIVE`
+(`stripeRawClient.ts`'s `stripeAccountVarFor`) — and **no Stripe client or
+sync object is handed to any caller until the account behind that mode's
+secret key has been verified against the declared id.** `stripeClient.ts` is
+the only construction site, and both of its exported constructors go through
+`verifyStripeAccount`, so boot, the mode toggle, checkout, webhooks and the
+admin mutation routes are covered by one boundary, not by a list of callers
+that has to stay complete. Withholding the client is the safety mechanism.
+Everything else here is operator signal.
+
+**Three outcomes, kept apart** (`stripeVerificationErrors.ts`, one class each;
+`isDefiniteVerificationFailure` is the single answer to "is this definite?"
+for the boot phase, the retry loop and the toggle route):
+
+| Situation | At boot | After boot |
+|---|---|---|
+| Credentials absent or incomplete | Boots without payments, as before the guard — Stripe configuration is not made mandatory | — |
+| Credentials present, expected account id not declared (`StripeExpectedAccountMissingError`) | **Fatal**, before the port binds | Payment path refuses; process stays up |
+| Stripe answered and the account is not the declared one (`StripeAccountMismatchError`) | **Fatal**, before any mutation and before the port binds | Payment path refuses; process stays up |
+| Indefinite: unreachable, timeout, 5xx, key rejected, mode unreadable (`StripeUnverifiedError`) | **Boots without payments**; payment paths refuse and verification retries until it succeeds, with no restart | Same |
+
+Fatality is a decision the boot phase makes about an error, never a property
+the error carries. The governing rule is David's: a Stripe outage never takes
+the site down ([`decisions.md`](./decisions.md#2026-08-26--a-wrong-stripe-account-refuses-to-boot-a-stripe-outage-never-takes-the-site-down)).
+
+**Where the boot check sits is the requirement.** The awaited verification runs
+before `app.listen()`. Hoisting a refusal out of the old detached `initStripe()`
+launch was not enough: that launch ran after the port was bound, so a
+mismatched deployment would have opened for traffic, passed a health check and
+only then exited. `stripeBootPlacement.test.ts` asserts the port is never
+bound. An "it eventually exits" assertion would pass against exactly the wrong
+placement.
+
+**Four implementation choices that are easy to undo by accident** — the module
+header of `stripeAccountGuard.ts` carries the evidence for each:
+
+1. **The account is read with `stripe.accounts.retrieve()` on a raw client,
+   never with the sync library's `getAccountId()`.** That helper resolves from
+   an in-memory cache or the local database by API-key hash, and on a miss it
+   *writes* the account it found against that key. A first mismatched boot
+   would store the wrong account, and every later boot would trust it: a guard
+   built on that helper goes quiet in exactly the case it exists to catch.
+2. **The mode is read strictly** (`readStripeLiveModeStrict`), selecting the
+   config row directly and throwing on failure. `isLiveMode()` answers `"test"`
+   both for "stored as test" and for "the lookup threw", and `adminConfig`'s
+   cache can republish pre-toggle rows. Either would let the guard verify one
+   mode and hand back a client for the other, stamped as verified.
+3. **Only successes are memoised.** A cached rejection would keep payments off
+   until restart.
+4. **Retrieval is single-flight and interval-throttled**, because
+   `getStripeSync()` runs before webhook signature validation on the one route
+   the rate limiter exempts. The throttle records only when the last attempt
+   ran, never a verdict, and the retry loop passes `force`, so payments still
+   recover on their own.
+
+**Initialization finishes once, and only after it actually succeeds.** Stripe
+schema migrations, managed-webhook registration and the backfill run exactly
+once across boot and every later retry (`stripeInit.ts`), and are marked done
+only on success. A recovered retry used to restore clients while leaving the
+webhook unregistered.
+
+**A mode toggle verifies the target account before it writes**
+(`refuseUnverifiedStripeModeToggle` in `routes/admin.ts`). The config write
+has no compare-and-swap, so write-then-roll-back would let one admin's
+rollback undo another's successful toggle. A refusal returns 409 when definite
+and 503 when indefinite, with the operator-facing diagnostic. This is a
+usability gate: the construction boundary refuses regardless. A toggle that
+lands while a client is being built is caught by a construction-generation
+counter plus a re-read of the stored mode. The superseded build is discarded
+and its pool closed rather than published.
+
+**What crosses the wire.** Every refusal carries `code:
+"stripe_account_unverified"` and a client-safe message from `@workspace/api-zod`
+(`STRIPE_UNVERIFIED_CLIENT_MESSAGE` before a charge,
+`STRIPE_UNVERIFIED_CONFIRM_MESSAGE` on the post-redirect confirm path, which
+must not claim no charge was made, and `STRIPE_UNVERIFIED_RECEIPT_MESSAGE`).
+The operator diagnostic names account ids and env vars, so it is logged and
+never sent to a client. The Profile page treats a 503 with that code on
+confirm as terminal, not as "still processing".
+
+**Operator visibility.** Admin → Billing shows the guard's state **per mode and
+per instance** (`StripeVerificationStatus.tsx`). The value is process-local and
+the deployment is autoscale, so a fleet-wide aggregate would need shared state
+the guard does not have. That is a named gap, not an implied capability.
+
+**What it does not cover.** The guard checks that the *credential's account* is
+the declared one. It does not record which mode created an entitlement source,
+so the test-mode-source gap under *Known, accepted gaps* below stands.
+
+## The app database is read before the Stripe mirror
+
+The sync library maintains `stripe.*` tables (e.g. `stripe.subscriptions`).
+These are a **mirror the webhook writes**, not live Stripe data, and they lag:
+on the case behind PR #600 a new subscription's mirror row appeared **eleven
+minutes** after checkout. The app's own records (`membership_entitlements`
+and the subscription fields the entitlement refresh writes) are written
+synchronously, at checkout verification and in the same live retrieval that
+handles a switch or cancel.
+
+So **anything that displays membership state reads the app DB first and falls
+back to the mirror**. `SubscriptionPanel.tsx` applies this to the
+subscription-controls gate (#600), the billing interval and the renewal date
+(#602), and to `cancelAtPeriodEnd` and the status line. The charged amount has
+no app-DB source, so it is shown only while the mirror agrees on which plan is
+active. A stale amount beside a corrected plan label would read as
+authoritative, so the panel shows no amount until the mirror catches up.
+
+The trap #602 fixed is worth knowing by shape. A comment justified preferring
+the mirror's price as "live Stripe price data". It was the lagging copy, so
+the guard produced the very symptom it was written to prevent: a new annual
+subscriber shown as Monthly and still offered "Switch to Annual". **A value
+read from `stripe.*` is never "live".** Live means retrieved from Stripe in
+this request.
+
+Showing controls from the app DB is safe because no mutation reads the mirror:
+cancel, reactivate and switch-plan resolve their target through
+`getMutationTarget`, which selects from the app DB, re-retrieves the
+subscription live from Stripe, and refuses when it no longer qualifies.
+
+**How the mirror behaves:**
+
+- It is written **only** by a Stripe webhook or by a manual or full admin
+  sync. There is no periodic reconciliation, so a dropped webhook leaves a
+  mirror row stale indefinitely, not just for a bounded window. On the #600
+  investigation, 2 of 4 users with a Stripe customer id had no row in the
+  mirrored `customers` table at all.
+- Out-of-order events cannot regress it. `stripe-replit-sync` upserts only
+  `WHERE _last_synced_at < $2` and stamps `event.created` on webhooks
+  (#602 harvest notes).
+- **That only display fields read it is incidental, not designed.** A second
+  mirror reader added elsewhere inherits all of the above. "Absent" and
+  "stale" are different failure modes for the same mirror: a fallback that
+  handles a missing row does nothing for a row that is present and wrong.
+  Both #600 and #602 hit that reasoning error.
+
+**Accepted gap — the reverse case** (David, 2026-09-28, PR #602). The app row
+can be the stale one: a monthly → annual switch whose entitlement refresh did
+not complete leaves the row on `monthly`, with the old renewal date, while
+the mirror already says annual. The card then shows the old plan. Both
+directions depend on reaching Stripe, so one Stripe outage can cause both.
+The remedy is the deferred Stripe↔local reconciliation (*Known, accepted
+gaps*, item 1).
 
 ## Concurrency — leases, fencing, and the prepare/apply split
 
