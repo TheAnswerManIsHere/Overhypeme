@@ -15,6 +15,9 @@
  * two shards away.
  */
 
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+
 import { __setAccountRetrieverForTests } from "../../lib/stripeAccountGuard.js";
 
 export const STRIPE_ENV_KEYS = [
@@ -55,4 +58,28 @@ export function stubAccountRetriever(
   answer: (secretKey: string) => string | Promise<string>,
 ): () => void {
   return __setAccountRetrieverForTests(async (secretKey) => answer(secretKey));
+}
+
+/** The current value of every STRIPE_* variable. */
+export function snapshotStripeEnv(): Record<string, string | undefined> {
+  return Object.fromEntries(STRIPE_ENV_KEYS.map((key) => [key, process.env[key]]));
+}
+
+/**
+ * Register a suite that checks every STRIPE_* variable is back to the value
+ * `before()` returns. Declare it AFTER the suite it checks — node:test runs a
+ * file's suites in order — and capture the snapshot in that suite's first
+ * `before`, not at file load: with `--test-isolation=none` every file is loaded
+ * before any suite runs, so a load-time snapshot would be compared against
+ * whatever other files did in between.
+ */
+export function describeStripeEnvRestored(suiteName: string, before: () => Record<string, string | undefined>): void {
+  describe(`${suiteName} leaves no Stripe settings behind`, () => {
+    it("every STRIPE_* variable is back to its value from before the suite", () => {
+      const expected = before();
+      for (const key of STRIPE_ENV_KEYS) {
+        assert.equal(process.env[key], expected[key], `${key} must be restored`);
+      }
+    });
+  });
 }

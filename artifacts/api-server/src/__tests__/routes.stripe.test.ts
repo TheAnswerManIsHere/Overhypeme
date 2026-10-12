@@ -33,12 +33,11 @@ import {
   __resetVerificationStateForTests,
   __setAccountRetrieverForTests,
 } from "../lib/stripeAccountGuard.js";
+import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv } from "./helpers/stripeGuardHarness.js";
 
 
 const USER_PREFIX = "t_routes_st_";
 
-process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";
-process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? "pk_test_dummy";
 
 function makeApp(): Express {
   const app = express();
@@ -80,6 +79,28 @@ async function cleanupUsers() {
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
+
+// Everything in this file is scoped inside ONE describe, deliberately.
+// `node --test` runs with `--test-isolation=none`, so a hook declared at a
+// file's top level attaches to the ROOT suite and runs around every test in the
+// process. The STRIPE_* values this file needs are set in that suite's `before`
+// and restored in its `after`, for the same reason: set at file load, they were
+// seen by every other suite and never put back.
+let stripeEnvAtSuiteStart: Record<string, string | undefined> = {};
+
+describe("Stripe routes", () => {
+let restoreStripeEnv: (() => void) | null = null;
+
+before(() => {
+  stripeEnvAtSuiteStart = snapshotStripeEnv();
+  restoreStripeEnv = clearStripeEnv();
+  process.env.STRIPE_SECRET_KEY_TEST = "sk_test_dummy";
+  process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_dummy";
+});
+after(() => {
+  restoreStripeEnv?.();
+  restoreStripeEnv = null;
+});
 
 before(cleanupUsers);
 after(cleanupUsers);
@@ -327,3 +348,6 @@ describe("payment 5xx responses do not leak provider diagnostics", () => {
     assert.doesNotMatch(JSON.stringify(res.body), /Invalid API Key|Stripe|sk_test_dummy/i);
   });
 });
+});
+
+describeStripeEnvRestored("the Stripe routes suite", () => stripeEnvAtSuiteStart);
