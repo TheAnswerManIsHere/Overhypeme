@@ -1,0 +1,16 @@
+{
+  "kind": "fal.storage.upload",
+  "request": {
+    "bytes": 7636,
+    "contentType": "image/jpeg",
+    "sha256": "0d34b1701b9f1b83a83e52626349605eb9e1c2498d55bfaec1e78542f90e00a3"
+  },
+  "fingerprint": "976217faa9dfa05c467f9f241ef55d7addaa24e8d55c7cbf96e334717c2688ab",
+  "recordedAt": "2026-10-12T23:35:00.165Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "storage",
+  "response": "https://fal-double.invalid/files/0d34b1701b9f1b83a83e52626349605eb9e1c2498d55bfaec1e78542f90e00a3"
+}

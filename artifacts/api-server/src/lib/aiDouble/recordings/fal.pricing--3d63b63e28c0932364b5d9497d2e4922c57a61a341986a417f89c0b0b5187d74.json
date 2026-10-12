@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "fal-ai/veo3.1/fast/image-to-video"
+  },
+  "fingerprint": "3d63b63e28c0932364b5d9497d2e4922c57a61a341986a417f89c0b0b5187d74",
+  "recordedAt": "2026-10-12T23:32:26.570Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/veo3.1/fast/image-to-video",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "fal-ai/veo3.1/fast/image-to-video",
+        "unit_price": 0.15,
+        "unit": "seconds",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

@@ -1,0 +1,505 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 10800,
+    "messages": [
+      {
+        "content": "You are the Overhype.me render-time image-prompt generator.\n\nYour job is to turn a classified fact + its stored enrichment + the authored visual strategy + identity/render controls + the target engine into:\n1. An ENGINE-NEUTRAL visualPlan that describes what the image should depict.\n2. An ENGINE-SPECIFIC compiledPrompt with the actual prompt text for the target image model.\n3. A subjectFactCompatibility rating + reason + recommendedFallback.\n\nInputs you receive (in the user message):\n- The rendered fact text (subject + pronouns already resolved).\n- A FIXED taxonomy (archetype, subtype, modifiers, etc.). Do NOT reclassify.\n- The authored visual strategy entry for the archetype (strategy block, core visual goal, i2i default, t2i fallback when present, subtype guidance, visualization examples with their hand-authored cultural references, prompt-generator requirements, locked rule). You MUST apply this — do not improvise.\n- Per-fact culturalReferences from the stored enrichment blob. These OVERRIDE the example annotations for THIS fact.\n- Per-fact semanticEntities from the stored enrichment blob. These are CAPITALIZATION-AWARE visual referent decisions made during enrichment. Treat them as HARD context. Do not override them. For every entry with materiallyAffectsVisualPrompt=true, you MUST list a matching {surfaceText, visualReferentUsed, effectOnVisualPlan} in visualPlan.semanticEntitiesUsed.\n- A structured sourceImageAnalysis (subjectKind, hasUsableHumanFace, hasUsableSubject, subjectCount, subjectDescription, warnings).\n- The RESOLVED subjectRenderMode: one of human_identity_i2i, nonhuman_subject_i2i, t2i_fallback.\n- Identity controls (preserveHumanFace, preserveNonhumanSubjectIdentity, preservePhysique, allowBodyExaggeration, allowCostumeTransformation, allowAnthropomorphicTransformation, ageAndLifeStagePolicy).\n- Render controls (aspectRatio, negativeSpacePreference, contentMode, fallbackSubjectGender — used by t2i_fallback ONLY).\n- The resolved stylePrompt suffix (the visual aesthetic).\n- The target engine: nano_banana_2.\n\nThree subject render modes with three different identity rules:\n\nA. human_identity_i2i — Use the reference image as the person's identity source. Preserve the reference person's recognizable identity and likeness (facial features and distinctive characteristics), NOT their exact current-age appearance. Allow apparent age, body proportions, hair, clothing, and life stage to transform when the fact requires it — keeping the SAME recognizable person. When the fact implies a different life stage (born/baby → infant; \"as a kid\" → child; \"in his 90s\" → elderly), the reference person IS that transformed person: de-age or age the same individual. NEVER split them into two — never keep an adult version alongside a separate baby/child, and never add a second, generic baby/child/elder. Body/physique/outfit/posture/aura may be exaggerated unless preservePhysique is true.\n\nB. nonhuman_subject_i2i — Use the reference image as the visual identity source for the uploaded subject (cat, dog, car, object, mascot). The uploaded subject visually represents the named subject in the fact. Preserve recognizable visual identity (species or object type, color, markings, shape, distinctive features). DO NOT replace the subject with a human. Allow tasteful anthropomorphic staging when the fact requires human-like action; pick anthropomorphicTreatment per the global rule (default subtle_pose or costume_and_pose; full_cartoonish_anthropomorphism only when style supports it).\n\nC. t2i_fallback — No reference identity. Generate a new protagonist using fallbackSubjectGender as guidance. DO NOT claim facial likeness preservation. Reference the fallbackSubjectGender (\"male\"/\"female\"/\"neutral\") explicitly in the prompt.\n\nThe engine prompt is assembled deterministically from a labeled visual contract, and the VISUAL CONCEPT (CORE SCENE) LEADS it:\nCORE SCENE · IDENTITY/RENDER TASK · SUBJECT BINDING · ROLE DETAILS · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING · RENDER STYLE · STRICT CONSTRAINTS. The compiler owns the identity/reference clause, SUBJECT BINDING, and STRICT CONSTRAINTS itself (identity, de-aging binding, anti-split, text policy). Sections after CORE SCENE are additive — they contribute only what the scene omitted. YOUR job is to fill the concrete visual fields below with dense, literal, pixel-mapping detail; coreScene carries the scene. visualGoal/visualApproach are INTERNAL reasoning only — NOT shown to the image model, so do not pack scene detail there.\n\nProduce a JSON object with these top-level fields:\n- visualPlan: { sceneConcept, visualGoal, visualApproach, archetypeApplication { primaryArchetype, subtype, selectedFrame, strategyRationale }, coreScene, subjectDetails (1–10 strings), environment (1–10 strings), lightingAndStyle, keyVisualElements (3–12 strings), subjectTreatment { roleInScene, subjectRenderMode, identityPreservation, nonhumanSubjectTreatment { applicable, subjectKind, preserveTraits, anthropomorphicTreatment, doNotTransformIntoHuman }, fallbackSubjectGender, expressionAndPose, ageLifeStageTransform { applies, targetState } }, subjectFactCompatibility { rating, reason, recommendedFallback }, composition { subjectFraming, negativeSpace, cameraStyle, sceneReadability }, secondaryCharacters [{ label, visualRole }], supportingTextPolicy { allowSupportingText, supportingTextElements [{ content, kind, purpose, placement }], forbiddenTextTypes }, semanticEntitiesUsed [{ surfaceText, visualReferentUsed, effectOnVisualPlan }], culturalReferencesUsed [{ sourcePhrase, canonicalReferenceUsed, visualImplicationUsed, effectOnVisualPlan }], contentNotes, debugNotes, targetEngine, generationMode }\n  · coreScene: ONE tight paragraph of what is literally happening (subject + action + key objects).\n  · subjectDetails: concrete subject-specific visuals — pose, expression, apparent age/body presentation, wardrobe, distinctive features.\n  · environment: concrete setting, background, props, and scale.\n  · lightingAndStyle: physical light, mood, and scene palette ONLY. Do NOT name a rendering medium or artistic style (no \"anime\", \"oil painting\", \"photorealistic rendering\", \"cel-shaded\", etc.) — the selected visual style is compiler-owned and emitted as its own RENDER STYLE section.\n  · supportingTextPolicy.supportingTextElements: each element's kind is \"literal_text\" when content is an exact glyph string to render as readable in-scene text (\"COBRA\", \"GAME OVER\", \"E=mc²\", \"999\"), or \"visual_graphic\" when content DESCRIBES a visual (a flatline trace, five crossed-off calendar days) — describe those in the scene fields, and the compiler renders them unquoted rather than baking the words in as text.\n  · ageLifeStageTransform: set applies=true and a concrete targetState noun (\"a baby/infant\", \"a school-age child\", \"an elderly man\") when the fact implies a life stage other than the reference person's current one; otherwise applies=false and targetState=\"\".\n  · subjectTreatment.roleInScene: a CONCRETE visible role/action (what the subject visibly is and does), not an abstract label like \"protagonist\".\n  · secondaryCharacters: every non-subject person/animal/crowd that must appear, each as { label, visualRole } where visualRole is a CONCRETE visible role (position + action/reaction + relationship to the subject), not a bare relationship word. Empty array when the subject is alone.\n- compiledPrompt: { prompt, negativePrompt, engineNotes } — prompt is a legacy free-text CORE-SCENE fallback (keep it concrete; the compiler prefers coreScene). negativePrompt MUST be an empty string (the target engine has no negative-prompt parameter; see rule 17)\n\nHard rules:\n1. Echo the input targetEngine, generationMode, archetype, subtype, and subjectRenderMode VERBATIM — they must round-trip exactly.\n2. supportingTextPolicy.forbiddenTextTypes MUST include all of: \"full meme captions\", \"full fact text\", \"hashtags\", \"watermarks\", \"real logos\", \"brand marks\", \"long explanatory paragraphs\".\n3. If allowSupportingText is false, supportingTextElements MUST be an empty array.\n4. Identity language is OWNED BY THE COMPILER. Do NOT author face/identity-preservation, reference-image, or de-aging language in coreScene/subjectDetails/environment/compiledPrompt — the compiler injects the identity/reference clause and SUBJECT BINDING blocks (transformation-aware identity preservation + the de-aging/anti-split binding) itself, and strips any you write. Instead, signal the transform via subjectTreatment.ageLifeStageTransform and DESCRIBE the transformed subject concretely in subjectDetails (e.g. \"infant proportions, chubby cheeks, wispy hair\").\n5. When subjectRenderMode is nonhuman_subject_i2i, compiledPrompt.prompt MUST contain visual-identity preservation language AND an explicit \"do not replace the subject with a human\" instruction. It MUST NOT claim human facial likeness preservation.\n6. When subjectRenderMode is t2i_fallback, compiledPrompt.prompt MUST NOT claim facial likeness preservation. Reference the caller's fallbackSubjectGender explicitly when provided.\n7. When preservePhysique is false, subjectTreatment.expressionAndPose may describe body/physique exaggeration but must NOT say \"preserve body/physique\".\n8. When preservePhysique is true, preserve general body type but still make the scene legendary via composition / lighting / staging / props / reactions.\n9. nonhumanSubjectTreatment.applicable MUST be true for nonhuman_subject_i2i (with a concrete subjectKind, at least one preserveTrait, doNotTransformIntoHuman=true) and false for the other two modes (with subjectKind=\"not_applicable\", empty preserveTraits, anthropomorphicTreatment=\"none\").\n10. subjectTreatment.fallbackSubjectGender must echo the caller's value when subjectRenderMode is t2i_fallback; otherwise set to \"not_applicable\".\n11. subjectFactCompatibility: rate strong / workable / risky / poor based on whether the uploaded subject CAN sell this specific fact, with a reason. recommendedFallback is advisory only; \"none\" is valid for every rating, including poor. This field never blocks rendering.\n12. Apply ageAndLifeStagePolicy: when the fact implies a specific age, life stage, era, or role, set subjectTreatment.ageLifeStageTransform.applies=true with a concrete targetState, and transform the subject's presentation accordingly — the reference person IS the transformed subject (one entity), never an adult plus a separate baby/child/elder. For animals: kitten / puppy / older-animal versions when life-stage applies. For objects/vehicles: toy / vintage / weathered / showroom-new versions instead of human age.\n13. Honor culturalReferences from the enrichment blob — they inform what the scene LOOKS LIKE (Shark Week → sharks watching David on TV; Victoria's Secret → boutique imagery without real brand marks).\n14. Do NOT render the full fact text or meme caption inside the image. Concise supporting text (digits, symbols, equations, UI fragments, keypad digits, scoreboards, short labels, signs) is allowed when it directly supports the joke AND allowSupportingText is true.\n15. The visualPlan must be engine-neutral. The selected visual STYLE (anime, oil painting, etc.) is OWNED BY THE COMPILER and emitted as its own RENDER STYLE section — do NOT weave a rendering medium or artistic-style claim into any field (coreScene/subjectDetails/environment/lightingAndStyle/compiledPrompt). Describe physical light, mood, and palette; leave the medium to the compiler.\n16. Capitalization-aware referents: when input semanticEntities lists a surface term (e.g. \"Earth\" → \"the planet Earth\", \"earth\" → \"ground, dirt, soil, or terrain beneath the subject\"), reflect the RESOLVED referent in keyVisualElements and compiledPrompt. Do not render \"Earth\" as ground when the entity says it means the planet; do not render \"earth\" as the planet when the entity says it means ground. Echo every material entity in visualPlan.semanticEntitiesUsed with concrete visualReferentUsed + a one-sentence effectOnVisualPlan.\n17. compiledPrompt.negativePrompt MUST be an empty string (\"\"). Nano Banana 2 has no negative-prompt parameter, so anything placed there is silently dropped. Express every exclusion as POSITIVE scene language inside compiledPrompt.prompt — describe what SHOULD be present (e.g. \"a clean bare wall\") instead of what to avoid (e.g. \"no posters\").\n18. For every MATERIAL cultural reference flagged in the user message (material=true), echo it in visualPlan.culturalReferencesUsed with { sourcePhrase, canonicalReferenceUsed, visualImplicationUsed, effectOnVisualPlan } all non-empty, and bake its visual implication into keyVisualElements + the concrete visual fields (coreScene/subjectDetails/environment) — without drawing any real logo or brand mark. Ambiguous / admin-review references are context only; do not force them.\n19. DESCRIBE THE PICTURE, NOT THE JOKE. Every sentence in coreScene/subjectDetails/environment/lightingAndStyle must map to visible pixels. BANNED in these fields: authorial-intent commentary such as \"showcasing the absurdity\", \"emphasizing the humor\", \"creating a humorous contrast\", \"highlighting the role reversal\", \"comedic effect\", \"to emphasize the humor\", \"the absurdity of the situation\". Replace any such phrasing with the concrete visual that conveys it (subject, pose, expression, objects, setting, scale, camera, lighting, motion, composition). The humor must come from what is SHOWN.\n20. coreScene is ALWAYS required (one tight, dense paragraph). subjectDetails, environment, and keyVisualElements are ADDITIVE DELTAS: fill them only with concrete visible details the core scene does NOT already state. When a moderator-authored Concept is the authoritative scene it is already complete, so these collections may be EMPTY — do not restate the scene or invent filler. Otherwise (an AI-authored scene) supply at least one concrete subjectDetails and environment entry so the scene is dense enough to render.\n21. ageLifeStageTransform coherence: applies=true REQUIRES a non-empty concrete targetState; applies=false REQUIRES targetState=\"\". When true, the subjectDetails must visibly describe the transformed life stage (proportions, skin, hair, wardrobe scaled to that age).\n22. Role / action binding: fill subjectTreatment.roleInScene with the subject's concrete visible role/action, and list every non-subject entity in secondaryCharacters with a concrete visualRole. When the taxonomy/frame indicates the subject is the sole active agent, the subject performs the central action and secondary characters keep their stated roles (do NOT let a secondary character take over the central action). For co-action, crowd-reaction, role-reversal, causal, or symbolic scenes, preserve the intended role relationship instead of forcing sole-agent behavior. Apply this reasoning to ALL multi-character / active-action / nonhuman / subject-as-object facts — the hospital-baby case is only a diagnostic; do not overfit to babies, cars, mothers, or hospitals.\n\nReturn ONLY the JSON object. Do not include any explanation outside it.\n\nOVERHYPE PLATFORM HARD RULES (NON-CONFIGURABLE):\nWhen a fact describes violence, death, weapons, injury, or casualties as part of the scene, depict the required action and consequences clearly — do not omit the bodies, casualties, or death the fact calls for, and do not add your own sanitizing or content-suppression language to the visual plan. How much to depict is governed ONLY by the RENDER POLICY block in the user message (allow / soften / suppress); follow that block. Gratuitous gore is the only inherent boundary.",
+        "role": "system"
+      },
+      {
+        "content": "Generate the engine-neutral visualPlan + Nano Banana 2 compiledPrompt + subjectFactCompatibility for this render.\nRENDERED FACT TEXT (subject/pronouns already resolved). Inspect the EXACT spelling and capitalization — capitalization is meaningful for visual interpretation:\nfactTextExact: David Franklin once counted to infinity. Twice. The second time He did it backwards to check his work.\nTAXONOMY (FIXED — DO NOT reclassify):\n- primaryArchetype: logic_formal_impossibility\n- subtype: infinity_impossibility\n- modifiers: single_subject_focus, symbolic_abstraction_required, mock_heroic\n- visualLiteralness: symbolic_abstraction\n- visualComplexity: medium\n- overhypeFit: strong\n- adultSuitability: safe\n- taxonomyConfidence: 0.98\nRENDER POLICY (governs how much of the fact's violence/consequences the CORE SCENE depicts — this is the ONLY layer that may suppress; do not self-censor beyond it):\nviolence=ALLOW (strong) — when the fact describes violence, death, weapons, casualties, or destructive aftermath, depict the required action and consequences clearly, INCLUDING the bodies/casualties the fact calls for, without gratuitous gore. Do NOT add your own sanitizing or content-suppression language.\nAUTHORED VISUAL STRATEGY (apply this — do not improvise):\nStrategy block: This fact describes the subject breaking a rule of logic, mathematics, probability, infinity, language, or a formal system. Create a visually clear symbolic scene where an impossible formal rule appears to bend, collapse, or resolve around the subject.\n\nThe image should make the formal impossibility feel physically real. Use cinematic metaphors such as impossible geometry, paradoxical objects, infinite loops, broken rule systems, impossible game states, collapsing probability, supporting symbols, or reality behaving like a solved equation.\n\nThe subject should be the star of the image and should appear calm, brilliant, legendary, and in control of the impossible logic. The visual should not feel like a generic genius portrait. It should show the specific formal impossibility being defeated.\n\nWhen the fact is too abstract to show literally, choose the strongest visual metaphor that makes the impossibility intuitive. Concise supporting numbers, symbols, equations, scoreboards, or UI fragments may be used when they make the impossible rule easier and funnier to understand.\nCore visual goal: Make it obvious that the subject has broken a formal rule.\ni2i default: Use the reference image as the facial identity source. Preserve the reference person's face and recognizability strongly.\n\nUnless preservePhysique is enabled, exaggerate the subject's outfit, posture, aura, intellect, authority, and heroic presence as needed to make them feel like the calm source of the impossible logic-breaking event.\nSubtype guidance for infinity_impossibility: Visualize completed infinity, infinite loops, or impossible scale through cinematic metaphor.\nMODERATOR-AUTHORED CORE SCENE (AUTHORITATIVE — hard directive):\n\"David Franklin sits calmly at a colossal celestial desk floating in a dark starfield, wearing an exaggerated formal counting-officer outfit, one hand resting on a glowing quill and the other checking a giant ledger. Two endless ribbons of tiny numbers stream through impossible portals: the left ribbon runs 1, 2, 3 toward a huge ∞ symbol and is stamped “PASS 1 COMPLETE,” while the right ribbon pours backward from ∞ through huge descending numerals and is covered in neat red check marks. A broken infinity symbol hangs behind the desk like a conquered trophy, and loose equations orbit David Franklin in a tidy halo of controlled mathematical chaos.\"\nA human moderator has specified the exact visual concept for this fact. This scene is authoritative:\n- Do NOT invent a different concept, staging, or gag. Plan everything to REALIZE this exact scene.\n- Set visualPlan.coreScene to a faithful (optionally tightened) version of this scene — same subject, action, and key objects.\n- Fill subjectDetails / environment / lightingAndStyle / keyVisualElements with concrete detail that supports THIS scene.\nVisualization examples:\n  1. fact: \"David counted to infinity. Twice.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  2. fact: \"David's PIN is the last four digits of pi.\"\n     visualApproach: Showing four crisp random digits (e.g. 7319) is encouraged — it makes the joke concrete. Do not render the full fact text or long streams of pi digits.\n     whyItWorks: (authoring pending)\n     avoid: Do not render the full fact text. Do not render long streams of pi digits.\n  3. fact: \"David can divide by zero.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  4. fact: \"David can win Connect Four in three moves.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  5. fact: \"David rolled a seven on a six-sided die.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  6. fact: \"David drew a square circle.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\nLocked rule: Turn the formal impossibility into a physical visual metaphor, and use concise supporting numbers, symbols, or text when they make the impossible rule easier and funnier to understand.\nPER-FACT CULTURAL REFERENCES (override example annotations for THIS fact):\n  (no cultural references — render the joke from the literal text + taxonomy alone)\nSEMANTIC ENTITY INTERPRETATION (hard visual context — DO NOT override; treat as the locked meaning of the surface term in this fact):\n  1. surfaceText=\"infinity\", entityKind=abstract_concept, visualReferent=\"an endless mathematical sequence or infinity symbol represented with limitless numbers\", capitalizationSignal=lowercase_common_noun, materiallyAffectsVisualPrompt=true, requiresAdminReview=false, confidence=0.97, notes=\"The joke depends on infinity as an unfinishable mathematical concept, so it should be visualized symbolically rather than as a physical object.\"\n\nFor every entity above with materiallyAffectsVisualPrompt=true, include a matching entry in visualPlan.semanticEntitiesUsed (echo surfaceText verbatim; fill visualReferentUsed with the resolved referent; fill effectOnVisualPlan with one sentence on how this shaped the scene). Required surfaceTexts: \"infinity\".\n\n(culturalReferencesUsed may be an empty array — no material references in this fact.)\nSOURCE-IMAGE ANALYSIS:\n- subjectKind: human_face\n- confidence: high\n- hasUsableHumanFace: true\n- hasUsableSubject: true\n- subjectCount: 1\n- subjectDescription: \"default male reference\"\n- classificationMethod: manual_user_choice\nRESOLVED subjectRenderMode: human_identity_i2i\nRESOLVED generationMode: i2i\nReference image present: yes\nIdentity rule (human i2i):\nUse the reference image as the facial identity source. Preserve the reference person's face and recognizability strongly.\n\nIdentity preservation means preserving the recognizable face, not necessarily preserving the reference person's exact body, physique, outfit, pose, age presentation, or setting.\n\nUnless preservePhysique is enabled, the system may exaggerate the subject's body, physique, outfit, posture, costume, aura, and heroic presence as needed to sell the overhyped fact.\n\nAge / life-stage policy:\nWhen the fact implies a specific age, life stage, era, or social role, transform the subject's apparent age and presentation to match the fact. In i2i mode, preserve identity as recognizable facial essence rather than exact current-age appearance. Adjust body, grooming, hair, facial hair, clothing, posture, and setting as needed so the role and joke are legible.\n\nIf the reference image shows an adult with features that conflict with the required age or role, such as a beard when the fact requires a school-age student, modify or remove those features. Role clarity and joke legibility take priority over preserving exact adult physique, grooming, or clothing.\nIDENTITY POLICY:\n- preserveHumanFace: true\n- preserveNonhumanSubjectIdentity: false\n- preservePhysique: false\n- allowBodyExaggeration: true\n- allowCostumeTransformation: true\n- allowAnthropomorphicTransformation: false\n- ageAndLifeStagePolicy: follow_fact\nRENDER CONTROLS:\n- aspectRatio: portrait\n- negativeSpacePreference: auto\n- contentMode: sfw\n- fallbackSubjectGender: (unset) (ignore unless t2i_fallback)\nTARGET ENGINE: nano_banana_2 (use t2i variant when generationMode=t2i, edit/i2i variant otherwise)\nOUTPUT CONTRACT:\n- Echo input targetEngine, generationMode, archetype, subtype, subjectRenderMode verbatim.\n- The engine prompt is a labeled contract assembled by the compiler, and the VISUAL CONCEPT (CORE SCENE) LEADS it: CORE SCENE · IDENTITY/RENDER TASK · SUBJECT BINDING · ROLE DETAILS · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING · RENDER STYLE · STRICT CONSTRAINTS. The compiler owns identity/reference + BINDING + STRICT CONSTRAINTS; you fill the concrete visual fields (coreScene carries the scene).\n- visualGoal / visualApproach: INTERNAL reasoning only (NOT sent to the image model). ONE short clause each — payoff and staging logic. Do NOT pack scene detail here.\n- coreScene: REQUIRED, non-empty. ONE tight paragraph of what is literally happening (subject + action + key objects). Concrete visuals only.\n- subjectDetails: ADDITIVE deltas — pose, expression, apparent age/body presentation, wardrobe, distinctive features the core scene does NOT already state. May be EMPTY when a moderator-authored Concept already covers the subject; otherwise (AI-authored scene) supply ≥1. For an age transform, visibly describe the transformed life stage (proportions, skin, hair).\n- subjectTreatment.roleInScene: a CONCRETE visible role/action — what the subject visibly is and does in the image (\"the newborn baby gripping the steering wheel and driving\"), NOT an abstract label (\"protagonist\", \"the hero\").\n- secondaryCharacters: list each non-subject person, animal, crowd, or entity that must appear, as { label, visualRole }. label = short relationship/name/type (\"mother\", \"referee\", \"crowd\", \"sharks\"). visualRole = the CONCRETE visible role — position, action/reaction, and relationship to the subject — NOT a bare relationship word: write \"adult woman seated in the front passenger seat, looking surprised at the baby driver\", not \"his mother\". Empty array when the subject is alone or no secondary entity must appear.\n- Central action / role relationship: when the taxonomy/frame indicates the subject is the sole active agent, the subject performs the central action and secondary characters do NOT take over that role. For co-action, crowd-reaction, role-reversal, causal, or symbolic scenes, preserve the intended role relationship instead of forcing sole-agent behavior. The hospital-baby example is only a diagnostic — apply the same role/action reasoning to ALL multi-character, active-action, role-reversal, crowd, nonhuman, and subject-as-object facts; do not overfit to babies, cars, mothers, or hospitals.\n- environment: ADDITIVE deltas — setting, background, props, scale the core scene omits. May be EMPTY when a moderator-authored Concept already covers the setting; otherwise supply ≥1.\n- lightingAndStyle: physical light, mood, and scene palette ONLY. Do NOT name a rendering medium or artistic style (\"anime\", \"oil painting\", \"photorealistic rendering\", \"cel-shaded\", …) — the selected style is compiler-owned and emitted as its own RENDER STYLE section.\n- ageLifeStageTransform: { applies, targetState }. applies=true with a concrete targetState noun (\"a baby/infant\", \"a school-age child\", \"an elderly man\") when the fact implies a life stage other than the reference person's current one; otherwise applies=false and targetState=\"\". The reference person IS the transformed subject — one entity, never an adult plus a separate baby/child.\n- DESCRIBE THE PICTURE, NOT THE JOKE: coreScene/subjectDetails/environment/lightingAndStyle must map to visible pixels. Do NOT write authorial-intent commentary (\"showcasing the absurdity\", \"emphasizing the humor\", \"creating a humorous contrast\", \"comedic effect\", \"the absurdity of the situation\"). Show the humor through concrete visuals.\n- Tone: when a scene is both serious and funny, state the hierarchy explicitly (e.g. \"serious cinematic staging; the humor comes from the visual contrast\") rather than mixing competing tone words like \"grounded\" and \"playful\" without relating them.\n- keyVisualElements: up to 12; concrete visible elements only (no abstract joke explanation, no policy language). ADDITIVE gap-fill — the compiler injects any not already covered by the concrete fields; may be EMPTY when a moderator-authored Concept is complete, otherwise supply ≥3.\n- compiledPrompt.prompt OWNERSHIP: legacy CORE-SCENE fallback (the compiler prefers coreScene). Write ONLY the concrete scene. The compiler injects identity, reference-image, de-aging/binding, token, and text-policy language itself, so do NOT author any of these — they are stripped before the engine sees them: (a) face/identity/likeness preservation or de-aging (\"preserve the … face\", \"recognizable face\", \"same person\", \"de-age\", \"do not replace … with a human\"); (b) mentions of the uploaded/reference/source image or i2i/t2i; (c) NAME/SUBJ-style identity template tokens or \"interpret these terms\" clauses; (d) readable-text/logo/watermark policy. Describe what SHOULD be in the frame; the compiler owns the rest.\n- supportingTextPolicy.forbiddenTextTypes MUST include all 7 mandatory entries (full meme captions, full fact text, hashtags, watermarks, real logos, brand marks, long explanatory paragraphs).\n- If allowSupportingText is false, supportingTextElements MUST be an empty array.\n- supportingTextElements (when present) MUST have shape { content, kind, purpose, placement } per element. kind=\"literal_text\" when content is an exact glyph string to render as readable in-scene text (\"COBRA\", \"GAME OVER\", \"E=mc²\", \"999\"); kind=\"visual_graphic\" when content DESCRIBES a visual (a flatline trace, five crossed-off days) — the compiler renders those unquoted instead of baking the words in.\n- nonhumanSubjectTreatment.applicable MUST be false.\n- subjectTreatment.fallbackSubjectGender MUST be \"not_applicable\".\n- subjectFactCompatibility: rate strong/workable/risky/poor with a reason. recommendedFallback is advisory only; \"none\" is valid for every rating, including poor. This field never blocks rendering.\n- semanticEntitiesUsed: MUST include an entry for each of [\"infinity\"]; each entry needs surfaceText + visualReferentUsed + effectOnVisualPlan all non-empty.\n- culturalReferencesUsed: may be an empty array (no material references in this fact).\n- compiledPrompt.negativePrompt: Nano Banana 2 has NO negative-prompt parameter — leave it as an empty string (\"\") and express every exclusion as positive scene language inside compiledPrompt.prompt (describe what SHOULD be there, e.g. \"a clean bare wall\" rather than \"no posters\").\n- Return ONLY the JSON object.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "response_format": {
+      "json_schema": {
+        "name": "image_prompt_plan",
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "compiledPrompt": {
+              "additionalProperties": false,
+              "properties": {
+                "engineNotes": {
+                  "type": "string"
+                },
+                "negativePrompt": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prompt",
+                "negativePrompt",
+                "engineNotes"
+              ],
+              "type": "object"
+            },
+            "visualPlan": {
+              "additionalProperties": false,
+              "properties": {
+                "archetypeApplication": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "primaryArchetype": {
+                      "enum": [
+                        "superhuman_physical_feat",
+                        "object_logic_impossibility",
+                        "environmental_obedience_immunity",
+                        "authority_threat_reversal",
+                        "temporal_causality_inversion",
+                        "presence_induced_reaction_aura",
+                        "logic_formal_impossibility",
+                        "intellectual_omniscience",
+                        "technology_system_reaction",
+                        "intrinsic_legendary_attribute",
+                        "mundane_act_made_legendary"
+                      ],
+                      "type": "string"
+                    },
+                    "selectedFrame": {
+                      "type": "string"
+                    },
+                    "strategyRationale": {
+                      "type": "string"
+                    },
+                    "subtype": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "primaryArchetype",
+                    "subtype",
+                    "selectedFrame",
+                    "strategyRationale"
+                  ],
+                  "type": "object"
+                },
+                "composition": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "cameraStyle": {
+                      "type": "string"
+                    },
+                    "negativeSpace": {
+                      "enum": [
+                        "top",
+                        "bottom",
+                        "left",
+                        "right",
+                        "auto",
+                        "none"
+                      ],
+                      "type": "string"
+                    },
+                    "sceneReadability": {
+                      "type": "string"
+                    },
+                    "subjectFraming": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "subjectFraming",
+                    "negativeSpace",
+                    "cameraStyle",
+                    "sceneReadability"
+                  ],
+                  "type": "object"
+                },
+                "contentNotes": {
+                  "type": "string"
+                },
+                "coreScene": {
+                  "type": "string"
+                },
+                "culturalReferencesUsed": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "canonicalReferenceUsed": {
+                        "type": "string"
+                      },
+                      "effectOnVisualPlan": {
+                        "type": "string"
+                      },
+                      "sourcePhrase": {
+                        "type": "string"
+                      },
+                      "visualImplicationUsed": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "sourcePhrase",
+                      "canonicalReferenceUsed",
+                      "visualImplicationUsed",
+                      "effectOnVisualPlan"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "debugNotes": {
+                  "type": "string"
+                },
+                "environment": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "generationMode": {
+                  "enum": [
+                    "i2i",
+                    "t2i"
+                  ],
+                  "type": "string"
+                },
+                "keyVisualElements": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "lightingAndStyle": {
+                  "type": "string"
+                },
+                "sceneConcept": {
+                  "type": "string"
+                },
+                "secondaryCharacters": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "visualRole": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "visualRole"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "semanticEntitiesUsed": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "effectOnVisualPlan": {
+                        "type": "string"
+                      },
+                      "surfaceText": {
+                        "type": "string"
+                      },
+                      "visualReferentUsed": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "surfaceText",
+                      "visualReferentUsed",
+                      "effectOnVisualPlan"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "subjectDetails": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "subjectFactCompatibility": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "rating": {
+                      "enum": [
+                        "strong",
+                        "workable",
+                        "risky",
+                        "poor"
+                      ],
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "recommendedFallback": {
+                      "enum": [
+                        "none",
+                        "t2i_fallback",
+                        "upload_human_photo",
+                        "choose_different_fact"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "rating",
+                    "reason",
+                    "recommendedFallback"
+                  ],
+                  "type": "object"
+                },
+                "subjectTreatment": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "ageLifeStageTransform": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "applies": {
+                          "type": "boolean"
+                        },
+                        "targetState": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "applies",
+                        "targetState"
+                      ],
+                      "type": "object"
+                    },
+                    "expressionAndPose": {
+                      "type": "string"
+                    },
+                    "fallbackSubjectGender": {
+                      "enum": [
+                        "male",
+                        "female",
+                        "neutral",
+                        "not_applicable"
+                      ],
+                      "type": "string"
+                    },
+                    "identityPreservation": {
+                      "enum": [
+                        "human_face",
+                        "nonhuman_visual_identity",
+                        "none"
+                      ],
+                      "type": "string"
+                    },
+                    "nonhumanSubjectTreatment": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "anthropomorphicTreatment": {
+                          "enum": [
+                            "none",
+                            "subtle_pose",
+                            "costume_and_pose",
+                            "full_cartoonish_anthropomorphism"
+                          ],
+                          "type": "string"
+                        },
+                        "applicable": {
+                          "type": "boolean"
+                        },
+                        "doNotTransformIntoHuman": {
+                          "type": "boolean"
+                        },
+                        "preserveTraits": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "subjectKind": {
+                          "enum": [
+                            "animal_subject",
+                            "object_subject",
+                            "vehicle_subject",
+                            "mascot_or_character_subject",
+                            "not_applicable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "applicable",
+                        "subjectKind",
+                        "preserveTraits",
+                        "anthropomorphicTreatment",
+                        "doNotTransformIntoHuman"
+                      ],
+                      "type": "object"
+                    },
+                    "roleInScene": {
+                      "type": "string"
+                    },
+                    "subjectRenderMode": {
+                      "enum": [
+                        "human_identity_i2i",
+                        "nonhuman_subject_i2i",
+                        "t2i_fallback"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "roleInScene",
+                    "subjectRenderMode",
+                    "identityPreservation",
+                    "nonhumanSubjectTreatment",
+                    "fallbackSubjectGender",
+                    "expressionAndPose",
+                    "ageLifeStageTransform"
+                  ],
+                  "type": "object"
+                },
+                "supportingTextPolicy": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "allowSupportingText": {
+                      "type": "boolean"
+                    },
+                    "forbiddenTextTypes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "supportingTextElements": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "content": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "enum": [
+                              "literal_text",
+                              "visual_graphic"
+                            ],
+                            "type": "string"
+                          },
+                          "placement": {
+                            "type": "string"
+                          },
+                          "purpose": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "content",
+                          "kind",
+                          "purpose",
+                          "placement"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "allowSupportingText",
+                    "supportingTextElements",
+                    "forbiddenTextTypes"
+                  ],
+                  "type": "object"
+                },
+                "targetEngine": {
+                  "enum": [
+                    "nano_banana_2"
+                  ],
+                  "type": "string"
+                },
+                "visualApproach": {
+                  "type": "string"
+                },
+                "visualGoal": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sceneConcept",
+                "visualGoal",
+                "visualApproach",
+                "archetypeApplication",
+                "coreScene",
+                "subjectDetails",
+                "environment",
+                "lightingAndStyle",
+                "keyVisualElements",
+                "subjectTreatment",
+                "secondaryCharacters",
+                "subjectFactCompatibility",
+                "composition",
+                "supportingTextPolicy",
+                "semanticEntitiesUsed",
+                "culturalReferencesUsed",
+                "contentNotes",
+                "debugNotes",
+                "targetEngine",
+                "generationMode"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "visualPlan",
+            "compiledPrompt"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    }
+  },
+  "fingerprint": "d1e3015d9e1323130334bd9ac2c4fb6432192e86fabfdd78bafe0d548b9be06f",
+  "recordedAt": "2026-10-12T23:33:42.829Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-5.5",
+  "response": {
+    "id": "recorded-4",
+    "object": "chat.completion",
+    "created": 1791847980,
+    "model": "gpt-5.5-2026-04-23",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"visualPlan\":{\"sceneConcept\":\"David Franklin completes an impossible infinity-counting audit at a celestial ledger desk.\",\"visualGoal\":\"Make completed infinity physically visible.\",\"visualApproach\":\"Use a cosmic ledger, numbered ribbons, portals, and conquered mathematical symbols.\",\"archetypeApplication\":{\"primaryArchetype\":\"logic_formal_impossibility\",\"subtype\":\"infinity_impossibility\",\"selectedFrame\":\"celestial counting-ledger frame with completed forward and backward infinity passes\",\"strategyRationale\":\"The scene turns an unfinishable formal concept into visible completed paperwork, checked sequences, and a broken infinity trophy around the subject.\"},\"coreScene\":\"David Franklin sits calmly at a colossal celestial desk floating in a dark starfield, wearing an exaggerated formal counting-officer outfit, one hand resting on a glowing quill and the other checking a giant ledger. Two endless ribbons of tiny numbers stream through impossible portals: the left ribbon runs 1, 2, 3 toward a huge ∞ symbol and is stamped “PASS 1 COMPLETE,” while the right ribbon pours backward from ∞ through huge descending numerals and is covered in neat red check marks. A broken infinity symbol hangs behind the desk like a conquered trophy, and loose equations orbit David Franklin in a tidy halo of controlled mathematical chaos.\",\"subjectDetails\":[\"Calm focused expression, squared shoulders, and a composed seated posture behind the ledger.\",\"The counting-officer outfit has a high-collared formal coat, oversized cuffs, ceremonial sash, and polished insignia shaped like small tally marks.\",\"Adult presentation with authoritative posture; no life-stage shift.\",\"The quill hand is relaxed rather than strained, while the ledger-checking hand tracks a precise line of numbers.\"],\"environment\":[\"The desk surface is massive and celestial, with carved tally marks, glowing inlaid number lines, and heavy ledger pages spread across it.\",\"The impossible portals are ring-shaped openings in space, each bending the numbered ribbons into loops that vanish and reappear behind the desk.\",\"The surrounding starfield is deep and uncluttered, giving the desk, ribbons, ledger, and infinity symbols monumental scale.\",\"Small equation fragments, arithmetic marks, and orbiting symbols form a neat circular halo around the subject rather than a random mess.\"],\"lightingAndStyle\":\"Cool blue-black space surrounds the scene, with warm gold-white light from the quill, ledger pages, portals, and number ribbons. Red check marks add crisp accents, and the broken infinity trophy is rim-lit against the dark background.\",\"keyVisualElements\":[\"colossal celestial desk floating in a starfield\",\"giant open ledger with checked number lines\",\"glowing quill under the subject’s hand\",\"left ribbon of numbers reading 1, 2, 3 toward a huge ∞ symbol\",\"stamp reading “PASS 1 COMPLETE” on the forward-counting ribbon\",\"right ribbon flowing backward from ∞ through huge descending numerals\",\"neat red check marks covering the backward-counting ribbon\",\"broken infinity symbol hanging behind the desk like a trophy\",\"impossible portals bending the numbered ribbons through space\",\"loose equations orbiting in a tidy halo\",\"exaggerated formal counting-officer outfit\",\"serene subject centered as the only person in the scene\"],\"subjectTreatment\":{\"roleInScene\":\"David Franklin sits at the celestial desk, calmly auditing the giant ledger while the completed forward and backward infinity-counting ribbons pass around him.\",\"subjectRenderMode\":\"human_identity_i2i\",\"identityPreservation\":\"human_face\",\"nonhumanSubjectTreatment\":{\"applicable\":false,\"subjectKind\":\"not_applicable\",\"preserveTraits\":[],\"anthropomorphicTreatment\":\"none\",\"doNotTransformIntoHuman\":false},\"fallbackSubjectGender\":\"not_applicable\",\"expressionAndPose\":\"Seated upright with a calm, brilliant expression; one hand rests on the glowing quill and the other checks the ledger, with exaggerated ceremonial authority allowed through costume and posture.\",\"ageLifeStageTransform\":{\"applies\":false,\"targetState\":\"\"}},\"secondaryCharacters\":[],\"subjectFactCompatibility\":{\"rating\":\"strong\",\"reason\":\"A human subject fits the scene well because the impossible infinity task is sold through symbolic mathematical props while the subject remains the calm central actor controlling the ledger and numbered ribbons.\",\"recommendedFallback\":\"none\"},\"composition\":{\"subjectFraming\":\"Portrait-oriented, centered on David Franklin from about mid-torso upward behind the enormous desk, with the ledger in the foreground and the number ribbons arcing around him.\",\"negativeSpace\":\"auto\",\"cameraStyle\":\"Low frontal three-quarter angle that makes the desk monumental and keeps the broken infinity trophy visible behind the subject.\",\"sceneReadability\":\"The forward pass stamp, backward-checking ribbon, red check marks, giant ∞ symbols, and broken infinity trophy clearly show the completed impossible count.\"},\"supportingTextPolicy\":{\"allowSupportingText\":true,\"supportingTextElements\":[{\"content\":\"PASS 1 COMPLETE\",\"kind\":\"literal_text\",\"purpose\":\"Marks the first completed count toward infinity.\",\"placement\":\"Stamped across the left number ribbon near the huge infinity symbol.\"},{\"content\":\"∞\",\"kind\":\"literal_text\",\"purpose\":\"Represents the infinity endpoint and the source of the backward count.\",\"placement\":\"As a huge symbol at the end of the left ribbon, at the start of the right ribbon, and as the broken trophy form behind the desk.\"},{\"content\":\"1, 2, 3\",\"kind\":\"literal_text\",\"purpose\":\"Makes the forward counting sequence instantly readable.\",\"placement\":\"On the left ribbon as it streams toward the huge infinity symbol.\"},{\"content\":\"descending numerals flowing backward from the infinity symbol\",\"kind\":\"visual_graphic\",\"purpose\":\"Shows the second pass being done backwards.\",\"placement\":\"Across the right ribbon emerging from the infinity symbol and running past the ledger.\"},{\"content\":\"neat red check marks\",\"kind\":\"visual_graphic\",\"purpose\":\"Shows the subject checking the backward count as completed work.\",\"placement\":\"Repeated along the right ribbon and beside rows in the open ledger.\"},{\"content\":\"loose equations orbiting in a tidy halo\",\"kind\":\"visual_graphic\",\"purpose\":\"Frames the formal-mathematical setting around the subject.\",\"placement\":\"Circular orbit around David Franklin’s upper body and head.\"}],\"forbiddenTextTypes\":[\"full meme captions\",\"full fact text\",\"hashtags\",\"watermarks\",\"real logos\",\"brand marks\",\"long explanatory paragraphs\"]},\"semanticEntitiesUsed\":[{\"surfaceText\":\"infinity\",\"visualReferentUsed\":\"an endless mathematical sequence and infinity symbol represented with limitless numbered ribbons, ∞ glyphs, and impossible scale\",\"effectOnVisualPlan\":\"The scene visualizes infinity as completed forward and backward number ribbons, a giant ∞ endpoint, and a broken infinity trophy rather than as an ordinary physical object.\"}],\"culturalReferencesUsed\":[],\"contentNotes\":\"Safe symbolic mathematics scene with no violence; supporting text is limited to short labels, numbers, symbols, and visual math graphics.\",\"debugNotes\":\"Moderator-authored core scene followed; no material cultural references; no age transform required.\",\"targetEngine\":\"nano_banana_2\",\"generationMode\":\"i2i\"},\"compiledPrompt\":{\"prompt\":\"David Franklin sits calmly at a colossal celestial desk floating in a dark starfield, wearing an exaggerated formal counting-officer outfit, with one hand resting on a glowing quill and the other checking a giant ledger. Two endless ribbons of tiny numbers stream through impossible ring-shaped portals: the left ribbon runs 1, 2, 3 toward a huge ∞ symbol and carries the stamp PASS 1 COMPLETE, while the right ribbon pours backward from ∞ through huge descending numerals with neat red check marks along the sequence. A broken infinity symbol hangs behind the desk like a conquered trophy, loose equations orbit around David Franklin in a tidy halo, the desk is carved with tally marks and glowing number lines, cool blue-black space surrounds warm gold-white light from the quill and ledger, portrait composition centered on David Franklin with the ribbons framing him.\",\"negativePrompt\":\"\",\"engineNotes\":\"Nano Banana 2 edit/i2i render; negativePrompt is intentionally empty because the engine has no negative-prompt parameter.\"}}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 7501,
+      "completion_tokens": 4221,
+      "total_tokens": 11722,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 2560,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

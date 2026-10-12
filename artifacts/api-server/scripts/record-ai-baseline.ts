@@ -208,7 +208,11 @@ try {
     const evidence = await driveBaseline(`http://127.0.0.1:${port}`, (l) => console.log(`[baseline] ${l}`), {
       expectRenderFailure: process.env.AI_DOUBLE_FAIL === "fal.subscribe:fal-ai/nano-banana-2",
     });
-    console.log(`[ai-baseline] ${mode}: every baseline journey passed`);
+    console.log(
+      "renderFailure" in evidence
+        ? `[ai-baseline] ${mode}: the recorded vendor error reached the render job's failed state`
+        : `[ai-baseline] ${mode}: every baseline journey passed`,
+    );
     console.log(JSON.stringify(evidence, null, 2));
   } catch (err) {
     exitCode = 1;

@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "fal-ai/nano-banana-2"
+  },
+  "fingerprint": "7e1ad022eb564b5dc7c395f6554b0f619d41de9300eef102ed2c1eee7ad80138",
+  "recordedAt": "2026-10-12T23:35:06.110Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/nano-banana-2",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "fal-ai/nano-banana-2",
+        "unit_price": 0.08,
+        "unit": "images",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}
