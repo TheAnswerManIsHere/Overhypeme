@@ -190,12 +190,21 @@ header of `stripeAccountGuard.ts` carries the evidence for each:
    loop passes `force`, which bypasses the throttle. Payments still recover
    on their own.
 
-**Required initialization finishes once, and only after it actually
+**Required initialization finishes once per mode, and only after it actually
 succeeds.** Stripe schema migrations and managed-webhook registration are
 retried until they succeed (so migrations can run again after a registration
-failure), and once marked done they are not repeated (`stripeInit.ts`). A
-recovered retry used to restore clients while leaving the webhook
-unregistered. **The backfill is not part of that guarantee.** It is launched
+failure), and once marked done for a mode they are not repeated for it
+(`stripeInit.ts`). Completion is tracked **per mode** because each mode is a
+different Stripe account with its own webhook: until the bugfix that followed
+#577, one process-wide flag meant a switch of the active mode — a toggle on
+this instance, a toggle committed by another instance, or a toggle after an
+unconfigured boot — left the new account with no webhook, so payments read
+"verified" while its events never arrived until a restart. Now a verified
+boot, a committed toggle (`startStripeInitializationForActiveMode` in the
+`stripe_live_mode` PATCH) and a successful retry pass all run setup for the
+mode then stored, and a toggle landing mid-setup leaves that mode unmarked
+for the retry to finish. A recovered retry used to restore clients while
+leaving the webhook unregistered. **The backfill is not part of that guarantee.** It is launched
 after initialization is marked done, fire-and-forget, and a failed backfill
 is logged and not retried in that process.
 

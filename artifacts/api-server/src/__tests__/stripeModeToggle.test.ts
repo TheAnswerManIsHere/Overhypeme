@@ -51,7 +51,10 @@ import {
   __resetStripeInitForTests,
   __setStripeInitDepsForTests,
   ensureVerificationArmedFor,
+  hasStripeInitializationCompleted,
+  resumeStripeInitialization,
   runStripeVerificationRetryOnce,
+  startStripeAfterBoot,
 } from "../lib/stripeInit.js";
 
 const USER_PREFIX = "tstripetoggle-";
@@ -757,6 +760,116 @@ describe("the construction boundary is mode-coherent", () => {
     // pool exists before any generation check can reject the build, and the
     // library exposes no teardown of its own beyond this public field.
     assert.equal(discarded.lastPoolEnded, true, "the rejected build's pool must be ended, not dropped");
+  });
+});
+
+// A mode change must run the REQUIRED initialization — schema migrations and
+// managed-webhook registration — for the newly active mode. #577's harvest
+// recorded the gap as one case (boot unconfigured, then toggle); diagnosis found
+// the class: completion was ONE process-wide flag, so any switch of the active
+// mode after the first completed (or skipped) initialization left the new mode's
+// account with no webhook. Payments read "verified" while Stripe's events for
+// that account never arrived until a restart.
+describe("a mode change initializes the newly active mode", () => {
+  /** Valid credentials in BOTH modes, each matching its declared account. */
+  function configureBothValid(): void {
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(
+      stubAccountRetriever((secretKey) =>
+        secretKey === "sk_test_correct" ? "acct_test_expected" : "acct_live_expected",
+      ),
+    );
+  }
+
+  /** Records each required step; the webhook count is what the bug drops. */
+  function recordInit(): { webhooks: () => number; migrations: () => number } {
+    let webhooks = 0;
+    let migrations = 0;
+    restores.push(
+      __setStripeInitDepsForTests({
+        runSyncMigrations: async () => { migrations++; },
+        getSync: async () => ({
+          findOrCreateManagedWebhook: async () => { webhooks++; },
+          syncBackfill: async () => {},
+        }),
+        getSiteBaseUrl: () => "https://example.test",
+      }),
+    );
+    return { webhooks: () => webhooks, migrations: () => migrations };
+  }
+
+  async function waitFor(condition: () => boolean): Promise<void> {
+    for (let i = 0; i < 300 && !condition(); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  it("a valid toggle on this instance registers the webhook for the new mode", async () => {
+    configureBothValid();
+    const init = recordInit();
+
+    // Booted and fully initialized in test mode.
+    assert.equal(await resumeStripeInitialization(), true);
+    assert.equal(init.webhooks(), 1, "the premise: test mode's webhook is registered");
+
+    holdSyncLock();
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    await waitFor(() => init.webhooks() >= 2);
+    assert.equal(init.webhooks(), 2, "live mode's account must get its own webhook after the toggle");
+    assert.equal(init.migrations(), 2);
+    assert.equal(hasStripeInitializationCompleted(true), true);
+  });
+
+  it("a server that booted unconfigured is initialized by a toggle into a configured mode", async () => {
+    // The case #577 recorded: test mode has no credentials, so boot is
+    // `unconfigured` and arms nothing.
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(stubAccountRetriever(() => "acct_live_expected"));
+    const init = recordInit();
+
+    startStripeAfterBoot({ kind: "unconfigured" });
+    assert.equal(init.webhooks(), 0);
+
+    holdSyncLock();
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    await waitFor(() => init.webhooks() >= 1);
+    assert.equal(init.webhooks(), 1, "the toggled-to mode must be initialized, not just verified");
+    assert.equal(hasStripeInitializationCompleted(true), true);
+  });
+
+  it("a toggle committed by ANOTHER instance initializes the new mode here too", async () => {
+    configureBothValid();
+    const init = recordInit();
+
+    assert.equal(await resumeStripeInitialization(), true);
+    assert.equal(init.webhooks(), 1);
+
+    // Another instance writes the row; this one learns of it through the
+    // Billing poll's ensureVerificationArmedFor.
+    await setStoredMode(true);
+    __expireModeRecheckForTests();
+    ensureVerificationArmedFor(true);
+
+    await waitFor(() => init.webhooks() >= 2);
+    assert.equal(init.webhooks(), 2, "verification of the remote-toggled mode must lead to its initialization");
+    assert.equal(hasStripeInitializationCompleted(true), true);
   });
 });
 });

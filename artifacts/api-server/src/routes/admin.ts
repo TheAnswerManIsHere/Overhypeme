@@ -3080,7 +3080,14 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   if (key === "stripe_live_mode") {
     const { invalidateStripeSync, getStripeSync } = await import("../lib/stripeClient");
     const { runFullSync } = await import("../lib/stripeSyncRunner");
+    const { startStripeInitializationForActiveMode } = await import("../lib/stripeInit");
     invalidateStripeSync();
+    // The newly active mode is a different Stripe account, and this process may
+    // never have registered its managed webhook or run its schema migrations —
+    // without this, its events never arrive until a restart. Started, not
+    // awaited: the response must not wait on Stripe, and a failure arms the
+    // retry loop rather than surfacing here.
+    startStripeInitializationForActiveMode();
     try {
       const sync = await getStripeSync();
       runFullSync(sync);

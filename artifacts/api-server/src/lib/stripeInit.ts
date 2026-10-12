@@ -73,7 +73,14 @@ export type StripeBootOutcome =
  * it has always been — awaiting it here would change the boot sequence's
  * timing, which *Must Not Change* item 2 pins.
  */
-let initializationCompleted = false;
+const completedModes = new Set<"live" | "test">();
+
+/**
+ * Set when there is nothing to initialize at all (no `DATABASE_URL`). Not a
+ * mode's completion: no mode was ever initialized, and nothing about that
+ * recovers on an interval.
+ */
+let initializationNotApplicable = false;
 
 /**
  * The in-flight attempt, so concurrent callers join it rather than starting a
@@ -81,7 +88,7 @@ let initializationCompleted = false;
  * lets a transient failure become permanent, and as a re-entrancy guard alone
  * it lets two callers run the sequence at once.
  */
-let initializationInFlight: Promise<boolean> | null = null;
+const initializationInFlight = new Map<"live" | "test", Promise<boolean>>();
 
 /**
  * The three effects the remaining initialization performs, injectable so a test
@@ -127,15 +134,22 @@ export function __setStripeInitDepsForTests(next: StripeInitDeps): () => void {
 
 /** Test seam. */
 export function __resetStripeInitForTests(): void {
-  initializationCompleted = false;
-  initializationInFlight = null;
+  completedModes.clear();
+  initializationNotApplicable = false;
+  initializationInFlight.clear();
   stopStripeVerificationRetry();
   deterministicallyRefusedModes.clear();
   verificationKickInFlight = false;
 }
 
-export function hasStripeInitializationCompleted(): boolean {
-  return initializationCompleted;
+/**
+ * Whether the required setup has completed — for `liveMode` when given, or for
+ * any mode when omitted.
+ */
+export function hasStripeInitializationCompleted(liveMode?: boolean): boolean {
+  if (initializationNotApplicable) return true;
+  if (liveMode === undefined) return completedModes.size > 0;
+  return completedModes.has(liveMode ? "live" : "test");
 }
 
 /**
@@ -147,19 +161,36 @@ export function hasStripeInitializationCompleted(): boolean {
  * `false`, so a transient failure is retried rather than remembered as success.
  */
 export async function resumeStripeInitialization(): Promise<boolean> {
-  if (initializationCompleted) return true;
-  if (initializationInFlight) return initializationInFlight;
+  if (initializationNotApplicable) return true;
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    logger.warn("DATABASE_URL not set, skipping Stripe init");
+    // Not a transient failure to retry: nothing about this recovers on an
+    // interval, and retrying it would log the same line forever.
+    initializationNotApplicable = true;
+    return true;
+  }
+
+  // Completion is PER MODE. Each mode is a different Stripe account, and the
+  // managed webhook is registered on the account, so a process that finished
+  // setup for test mode has done nothing for live mode. One process-wide flag
+  // let every switch of the active mode after the first completed (or skipped)
+  // setup leave the new account with no webhook: payments read "verified" and
+  // Stripe's events never arrived until a restart.
+  let liveMode: boolean;
+  try {
+    liveMode = await readStripeLiveModeStrict();
+  } catch (err) {
+    logger.warn({ err }, "Stripe init: the stored mode is unreadable — will retry");
+    return false;
+  }
+  const mode = liveMode ? "live" : "test";
+  if (completedModes.has(mode)) return true;
+  const joined = initializationInFlight.get(mode);
+  if (joined) return joined;
 
   const attempt = (async (): Promise<boolean> => {
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) {
-      logger.warn("DATABASE_URL not set, skipping Stripe init");
-      // Not a transient failure to retry: nothing about this recovers on an
-      // interval, and retrying it would log the same line forever.
-      initializationCompleted = true;
-      return true;
-    }
-
     try {
       const active = deps ?? {
         ...productionDeps,
@@ -187,9 +218,18 @@ export async function resumeStripeInitialization(): Promise<boolean> {
       await stripeSync.findOrCreateManagedWebhook(webhookUrl);
       logger.info({ webhookUrl }, "Stripe webhook configured");
 
+      // The sync object carries whichever mode was verified when it was built.
+      // If a toggle committed while this ran, the webhook just registered may
+      // belong to the other mode, so this mode is not marked done: the caller
+      // keeps the retry armed and the next pass runs for the mode then stored.
+      if ((await readStripeLiveModeStrict()) !== liveMode) {
+        logger.warn({ mode }, "Stripe mode changed during initialization — not marking it complete");
+        return false;
+      }
+
       // Required setup is done. The backfill below is fire-and-forget exactly as
       // it has always been, so its failure logs and does not reopen this.
-      initializationCompleted = true;
+      completedModes.add(mode);
 
       void stripeSync.syncBackfill({ object: "all" })
         .then(() => logger.info("Stripe backfill complete"))
@@ -202,11 +242,11 @@ export async function resumeStripeInitialization(): Promise<boolean> {
     }
   })();
 
-  initializationInFlight = attempt;
+  initializationInFlight.set(mode, attempt);
   try {
     return await attempt;
   } finally {
-    initializationInFlight = null;
+    initializationInFlight.delete(mode);
   }
 }
 
@@ -403,6 +443,22 @@ export function ensureVerificationArmedFor(liveMode: boolean | null): void {
 let verificationKickInFlight = false;
 
 /**
+ * Run the required setup for the mode now stored, and arm the retry loop if it
+ * does not complete. Used by a verified boot and by the mode toggle once its
+ * write has committed — the toggle is the moment a mode this process may never
+ * have initialized becomes the active one.
+ *
+ * The loop is armed on failure because a webhook registration that fails
+ * transiently would otherwise leave the integration half-initialized with
+ * nothing scheduled to finish it.
+ */
+export function startStripeInitializationForActiveMode(): void {
+  void resumeStripeInitialization().then((completed) => {
+    if (!completed) armStripeVerificationRetry();
+  });
+}
+
+/**
  * Called immediately after the port is bound. Runs the remaining initialization
  * on a verified boot, or arms the retry loop on an indefinite one.
  *
@@ -412,12 +468,7 @@ let verificationKickInFlight = false;
  */
 export function startStripeAfterBoot(outcome: StripeBootOutcome): void {
   if (outcome.kind === "verified") {
-    // Arm the loop on failure here too. A verified boot whose webhook
-    // registration then fails transiently would otherwise leave the integration
-    // half-initialized with nothing scheduled to finish it.
-    void resumeStripeInitialization().then((completed) => {
-      if (!completed) armStripeVerificationRetry();
-    });
+    startStripeInitializationForActiveMode();
     return;
   }
   if (outcome.kind === "pending") {
