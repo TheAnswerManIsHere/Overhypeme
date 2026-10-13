@@ -480,8 +480,10 @@ the scrub rules is reviewed:
 1. Classify any new table or column in `src/testing/legacyFixture/allowlist.ts`.
    `legacyFixtureAllowlist.test.ts` fails until every one is classified.
 2. Run `scripts/export-legacy-fixture.ts --dry-run` against the dev database.
-   Every connection is forced read-only. A stop names a path and a shape,
-   never a value; fix the rule and re-run until there are none.
+   Every connection is forced read-only. The rows and the freshness outcomes
+   come from one snapshot, so the export can run while the dev database is in
+   use. A stop names a path and a shape, never a value. Fix the rule and
+   re-run until there are none.
 3. Run it again with `--out` set to an empty directory outside the repository.
    Copy the files over and check each one's sha256 against the Repl's own
    listing.
