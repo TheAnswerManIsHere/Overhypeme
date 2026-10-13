@@ -105,12 +105,22 @@ export type ReferenceResearchResultWire = z.infer<typeof referenceResearchResult
 // both a render verb and a forbidden noun anywhere, which rejected exactly
 // that avoidance guidance, and its trailing word boundary missed plurals.
 const RENDER_VERB_SRC = "render|use|display|show";
-const FORBIDDEN_NOUN_RE = /\b(?:logos?|brand[-\s]?marks?|full\s+fact\s+text|hashtags?)\b/gi;
-// "do not show", "don't render", "never display", "not use" negate the verb itself.
+// "logo-free" / "hashtag-less" describe absence, so they are not mentions.
+const FORBIDDEN_NOUN_RE =
+  /\b(?:logos?|brand[-\s]?marks?|full\s+fact\s+text|hashtags?)\b(?![-‑](?:free|less)\b)/gi;
+// "do not show", "don't render", "never display" negate the verb itself — and
+// every verb coordinated with it: "do not show or render", "never display, use
+// or show". A verb after "but" or a new clause stays affirmative.
 const NEGATED_VERB_RE = new RegExp(
-  `\\b(?:do\\s+not|does\\s+not|don['’]t|doesn['’]t|never|not)\\s+(?:${RENDER_VERB_SRC})\\b`,
+  `\\b(?:do\\s+not|does\\s+not|don['’]t|doesn['’]t|never|not)\\s+(?:${RENDER_VERB_SRC})` +
+    `(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*(?:or\\s+|and\\s+)?(?:${RENDER_VERB_SRC}))*\\b`,
   "gi",
 );
+// A clause ends at ; or a newline, or at . ! ? followed by whitespace — but not
+// the period of an initial or abbreviation ("e.g.", "Nike, Inc."), mirroring
+// the sentence splitter in imagePrompt/compilers/nanoBanana2.ts.
+const CLAUSE_END_RE =
+  /[;\n]|(?<!\b[A-Za-z]\.)(?<!\b(?:Inc|Co|Corp|Ltd|Bros|St|Mt|Jr|Sr|vs|etc|approx)\.)(?<=[.!?])\s+/g;
 const RENDER_VERB_RE = new RegExp(`\\b(?:${RENDER_VERB_SRC})\\b`, "gi");
 const NEGATION_RE =
   /\b(?:avoid|avoiding|no|not|never|without|exclude|excluding|omit|omitting|free\s+of|instead\s+of|rather\s+than|NEGATED_VERB)\b/gi;
@@ -127,15 +137,9 @@ function hasForbiddenRenderDirective(field: string): boolean {
   const text = field.replace(NEGATED_VERB_RE, "NEGATED_VERB");
   for (const m of text.matchAll(FORBIDDEN_NOUN_RE)) {
     const at = m.index ?? 0;
-    // The clause leading up to this mention: back to the previous sentence end.
-    const sentenceStart = Math.max(
-      text.lastIndexOf(".", at - 1),
-      text.lastIndexOf("!", at - 1),
-      text.lastIndexOf("?", at - 1),
-      text.lastIndexOf(";", at - 1),
-      text.lastIndexOf("\n", at - 1),
-    ) + 1;
-    const prefix = text.slice(sentenceStart, at);
+    // The clause leading up to this mention: back to the previous clause end.
+    const before = text.slice(0, at);
+    const prefix = before.slice(Math.max(0, lastMatchEnd(CLAUSE_END_RE, before)));
     const verbEnd = lastMatchEnd(RENDER_VERB_RE, prefix);
     if (verbEnd !== -1 && verbEnd > lastMatchEnd(NEGATION_RE, prefix)) return true;
   }

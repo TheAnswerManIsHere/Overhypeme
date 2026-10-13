@@ -145,6 +145,12 @@ describe("validateReferenceResearchResult — forbidden directives (#672)", () =
       "Show the shoe's silhouette without the logo.",
       "Use a stadium setting. Never render the full fact text.",
       "Show a coffee cup, but don't display the logo anywhere.",
+      // Codex #673 round 1: one negation over coordinated verbs.
+      "Show the gym. Do not show or render logos.",
+      "Show the rider. Never display or use brand marks.",
+      "Show the jersey; do not show, render or display any hashtags.",
+      // A compound that describes absence is not a mention.
+      "Show a logo-free jersey on the cyclist.",
     ]) {
       const r = check(text);
       assert.equal(r.ok, true, `${text}\n→ ${r.ok ? "" : r.error}`);
@@ -159,6 +165,11 @@ describe("validateReferenceResearchResult — forbidden directives (#672)", () =
       "Use the official brand mark on the storefront sign.",
       "Avoid clutter, but show the Peloton logo on the bike.",
       "Show a runway. Render the full fact text across the bottom.",
+      // Codex #673 round 1: a separate affirmative verb after "but" stays affirmative.
+      "Do not show the logo, but render the brand mark.",
+      // Codex #673 round 1: abbreviation periods do not end the clause.
+      "Use the Nike, Inc. logo on the shirt.",
+      "Use, e.g., the Nike logo on the shirt.",
     ]) {
       // In the explanation, so only the forbidden-directive rule can reject it.
       const r = validateReferenceResearchResult(baseResult({ explanation: text }), { referenceType: "brand" });
