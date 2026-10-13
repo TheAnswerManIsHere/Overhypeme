@@ -63,11 +63,7 @@ import type { StripeVerificationSnapshot, StripeVerificationState } from "@works
 import { getConfigStringStrict } from "./adminConfig.js";
 import { STRIPE_REQUEST_TIMEOUT_MS } from "./membershipTiming.js";
 import { logger } from "./logger";
-import {
-  createRawStripeClient,
-  stripeAccountVarFor,
-  stripeSecretVarFor,
-} from "./stripeRawClient.js";
+import { stripeDriver } from "./stripeDriver.js";
 import {
   StripeAccountMismatchError,
   StripeExpectedAccountMissingError,
@@ -190,7 +186,7 @@ export async function readStripeLiveModeStrict(): Promise<boolean> {
 
 /** The account id this environment declares for a mode. */
 export function expectedAccountIdFor(liveMode: boolean): string | undefined {
-  return process.env[stripeAccountVarFor(liveMode)];
+  return stripeDriver().expectedAccountId(liveMode);
 }
 
 /**
@@ -198,7 +194,7 @@ export function expectedAccountIdFor(liveMode: boolean): string | undefined {
  * Production always uses the real implementation below.
  */
 let retrieveAccountId: (secretKey: string) => Promise<string> = async (secretKey) => {
-  const stripe = createRawStripeClient(secretKey);
+  const stripe = stripeDriver().createClient(secretKey);
   // No argument: GET /v1/account, which resolves to the account behind THIS
   // key. Never `getAccountId()` — see point 1 in the module header.
   const account = await stripe.accounts.retrieve();
@@ -248,9 +244,10 @@ export async function verifyStripeAccount(params: {
     // Deterministic misconfiguration: credentials are present and the
     // environment never said which account they may touch. No Stripe call —
     // there is nothing a retrieval could tell us that changes this.
+    const names = stripeDriver().settingNames(liveMode);
     const reason =
-      `${stripeAccountVarFor(liveMode)} is not set, but ${stripeSecretVarFor(liveMode)} is. ` +
-      `Set ${stripeAccountVarFor(liveMode)} to the account id these credentials belong to.`;
+      `${names.account} is not set, but ${names.secret} is. ` +
+      `Set ${names.account} to the account id these credentials belong to.`;
     setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
     throw new StripeExpectedAccountMissingError(reason, liveMode);
   }
@@ -290,10 +287,11 @@ export async function verifyStripeAccount(params: {
 
     if (actual !== expected) {
       // Definite. Stripe answered and the answer is wrong.
+      const names = stripeDriver().settingNames(liveMode);
       const reason =
-        `STRIPE ACCOUNT MISMATCH — ${stripeSecretVarFor(liveMode)} belongs to account ${actual}, ` +
-        `but ${stripeAccountVarFor(liveMode)} declares ${expected}. ` +
-        `Correct ${stripeSecretVarFor(liveMode)} (or ${stripeAccountVarFor(liveMode)} if the declaration is wrong).`;
+        `STRIPE ACCOUNT MISMATCH — ${names.secret} belongs to account ${actual}, ` +
+        `but ${names.account} declares ${expected}. ` +
+        `Correct ${names.secret} (or ${names.account} if the declaration is wrong).`;
       setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
       lastAttempt.set(key, { at: Date.now(), definiteMismatchReason: reason });
       throw new StripeAccountMismatchError(reason, liveMode);

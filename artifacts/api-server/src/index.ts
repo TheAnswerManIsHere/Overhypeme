@@ -11,6 +11,7 @@ import "./lib/bootChecks.js";
 import * as Sentry from "@sentry/node";
 import { createApp } from "./app";
 import { logger } from "./lib/logger";
+import { stripeDriver } from "./lib/stripeDriver.js";
 import { absorbFatalStreamError } from "./lib/stdioGuard";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";
 import { runMigrations } from "@workspace/db";
@@ -53,9 +54,10 @@ if (Number.isNaN(port) || port <= 0) {
 // stripe._managed_webhooks), so the webhook-secret check is informational.
 // The secret-key check is also a warning rather than fatal so the server can
 // still boot for non-Stripe routes; getCredentials() throws when invoked.
+const stripePresence = stripeDriver().credentialPresence();
 const missingStripeSecretVars: string[] = [];
-if (!process.env.STRIPE_SECRET_KEY_TEST) missingStripeSecretVars.push("STRIPE_SECRET_KEY_TEST");
-if (!process.env.STRIPE_SECRET_KEY_LIVE) missingStripeSecretVars.push("STRIPE_SECRET_KEY_LIVE");
+if (!stripePresence.secretKeyTest) missingStripeSecretVars.push(stripeDriver().settingNames(false).secret);
+if (!stripePresence.secretKeyLive) missingStripeSecretVars.push(stripeDriver().settingNames(true).secret);
 if (missingStripeSecretVars.length > 0) {
   logger.warn(
     { missing: missingStripeSecretVars },
@@ -64,8 +66,8 @@ if (missingStripeSecretVars.length > 0) {
 }
 
 const missingWebhookSecretVars: string[] = [];
-if (!process.env.STRIPE_WEBHOOK_SECRET_TEST) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_TEST");
-if (!process.env.STRIPE_WEBHOOK_SECRET_LIVE) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_LIVE");
+if (!stripePresence.webhookSecretTest) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_TEST");
+if (!stripePresence.webhookSecretLive) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_LIVE");
 if (missingWebhookSecretVars.length > 0) {
   logger.warn(
     { missing: missingWebhookSecretVars },
