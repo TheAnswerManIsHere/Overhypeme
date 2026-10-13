@@ -82,7 +82,7 @@ if (result.stops.length) {
   process.exit(1);
 }
 writeFixture(result, path.resolve(out!));
-const m = result.manifest;
+const m = result.manifest!; // writeFixture refuses a result without one
 console.log(`[export-legacy-fixture] wrote ${Object.keys(m.rowCounts).length} tables to ${path.resolve(out!)}`);
 console.log("  row counts:", JSON.stringify(m.rowCounts));
 console.log("  excluded by predicate:", JSON.stringify(m.excludedByPredicate));

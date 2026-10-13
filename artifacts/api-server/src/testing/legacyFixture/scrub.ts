@@ -25,15 +25,11 @@ const LAST_NAMES = [
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface SyntheticPerson {
-  rank: number;
   email: string;
   firstName: string;
   lastName: string;
   displayName: string;
 }
-
-/** The canonical placeholder for a non-blank prose value: `[fixture text <8 hex>]`. */
-export const PROSE_PLACEHOLDER_RE = /^\[fixture text [0-9a-f]{8}\]$|^fx[0-9a-f]+$/;
 
 export class Scrubber {
   private readonly key: Buffer;
@@ -72,7 +68,6 @@ export class Scrubber {
       const first = FIRST_NAMES[index % FIRST_NAMES.length]!;
       const last = LAST_NAMES[Math.floor(index / FIRST_NAMES.length) % LAST_NAMES.length]!;
       const person: SyntheticPerson = {
-        rank,
         email: `fixture-user-${rank}@example.test`,
         firstName: first,
         lastName: last,
@@ -109,9 +104,15 @@ export class Scrubber {
     const h = this.hmac("prose", value);
     const full = `[fixture text ${h.slice(0, 8)}]`;
     // A value already over its bound stays over it, so the validator refuses the placeholder as it refused the source.
-    if (maxLen !== undefined && value.length > maxLen) return `${full}${"x".repeat(Math.max(0, value.length - full.length))}`.padEnd(maxLen + 1, "x") as T;
+    if (maxLen !== undefined && value.length > maxLen) return full.padEnd(value.length, "x") as T;
     if (maxLen === undefined || full.length <= maxLen) return full as T;
     return `fx${h}`.slice(0, Math.max(1, maxLen)) as T;
+  }
+
+  /** A content-keyed URL on the reserved test domain; blank stays blank. */
+  fixtureUrl<T extends string | null | undefined>(value: T): T {
+    if (value == null || value.trim() === "") return value;
+    return `https://example.test/fixture/${this.hmac("url", value).slice(0, 12)}` as T;
   }
 
   /** A 64-hex re-key of a hash or other private token; equal inputs stay equal. */
@@ -136,4 +137,3 @@ export class Scrubber {
   }
 }
 
-export const isUuid = (value: string): boolean => UUID_RE.test(value);

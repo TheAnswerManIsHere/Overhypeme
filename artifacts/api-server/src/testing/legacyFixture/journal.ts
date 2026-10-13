@@ -9,7 +9,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MIGRATIONS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../../lib/db/migrations");
+// The folder the migrator reads (lib/db/src/migrate.ts:81-90): its override first, then the repository's.
+const MIGRATIONS = process.env.DRIZZLE_MIGRATIONS_FOLDER ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../../lib/db/migrations");
 
 export interface JournalHead {
   entries: number;

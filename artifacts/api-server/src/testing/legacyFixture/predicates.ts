@@ -43,6 +43,17 @@ export interface PredicateRecord {
 
 export const emptyPredicateRecord = (): PredicateRecord => ({ renderAttempts: {}, candidateTextHash: {}, conceptBlobs: {} });
 
+/** The render grid's current input hash for a review's scenario, its context loaded once per review. */
+function renderHasher(): (reviewId: number, scenarioKey: string) => Promise<{ ok: true; hash: string } | { ok: false; reason: string }> {
+  const contexts = new Map<number, Awaited<ReturnType<typeof loadReviewRenderContext>>>();
+  return async (reviewId, scenarioKey) => {
+    if (!contexts.has(reviewId)) contexts.set(reviewId, await loadReviewRenderContext(reviewId));
+    const loaded = contexts.get(reviewId)!;
+    if (!loaded.ok) return { ok: false, reason: loaded.reason };
+    return { ok: true, hash: computeScenarioInputHash(scenarioKey as RenderScenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment) };
+  };
+}
+
 /** Evaluate every predicate against the database the app's `db` points at. */
 export async function evaluatePredicates(): Promise<PredicateRecord> {
   const out = emptyPredicateRecord();
@@ -57,17 +68,11 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
     })
     .from(imagePromptAttemptsTable)
     .where(and(isNotNull(imagePromptAttemptsTable.reviewId), isNotNull(imagePromptAttemptsTable.reviewRenderInputHash)));
-  const contexts = new Map<number, Awaited<ReturnType<typeof loadReviewRenderContext>>>();
+  const currentHash = renderHasher();
   for (const a of attempts) {
     if (a.reviewId == null || a.scenarioKey == null) continue;
-    if (!contexts.has(a.reviewId)) contexts.set(a.reviewId, await loadReviewRenderContext(a.reviewId));
-    const loaded = contexts.get(a.reviewId)!;
-    if (!loaded.ok) {
-      out.renderAttempts[String(a.id)] = "no-context";
-      continue;
-    }
-    const current = computeScenarioInputHash(a.scenarioKey as RenderScenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment);
-    out.renderAttempts[String(a.id)] = a.hash === current ? "current" : "stale";
+    const current = await currentHash(a.reviewId, a.scenarioKey);
+    out.renderAttempts[String(a.id)] = !current.ok ? "no-context" : a.hash === current.hash ? "current" : "stale";
   }
 
   // Candidate text hash, per version, against its fact's text.
@@ -110,7 +115,7 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
 export async function restorePredicates(expected: PredicateRecord): Promise<string[]> {
   const problems: string[] = [];
 
-  const contexts = new Map<number, Awaited<ReturnType<typeof loadReviewRenderContext>>>();
+  const currentHash = renderHasher();
   for (const [id, outcome] of Object.entries(expected.renderAttempts)) {
     if (outcome !== "current") continue;
     const [a] = await db
@@ -121,14 +126,12 @@ export async function restorePredicates(expected: PredicateRecord): Promise<stri
       problems.push(`render attempt ${id}: missing from the load`);
       continue;
     }
-    if (!contexts.has(a.reviewId)) contexts.set(a.reviewId, await loadReviewRenderContext(a.reviewId));
-    const loaded = contexts.get(a.reviewId)!;
-    if (!loaded.ok) {
-      problems.push(`render attempt ${id}: its review has no render context on the fixture (${loaded.reason})`);
+    const current = await currentHash(a.reviewId, a.scenarioKey);
+    if (!current.ok) {
+      problems.push(`render attempt ${id}: its review has no render context on the fixture (${current.reason})`);
       continue;
     }
-    const hash = computeScenarioInputHash(a.scenarioKey as RenderScenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment);
-    await db.update(imagePromptAttemptsTable).set({ reviewRenderInputHash: hash }).where(eq(imagePromptAttemptsTable.id, Number(id)));
+    await db.update(imagePromptAttemptsTable).set({ reviewRenderInputHash: current.hash }).where(eq(imagePromptAttemptsTable.id, Number(id)));
   }
 
   for (const [id, outcome] of Object.entries(expected.candidateTextHash)) {

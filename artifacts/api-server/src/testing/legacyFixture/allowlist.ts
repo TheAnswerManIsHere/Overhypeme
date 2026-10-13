@@ -549,6 +549,9 @@ export function exportedSchemaTables(): Map<string, PgTable> {
 
 export const sqlName = (table: PgTable): string => getTableConfig(table).name;
 
+/** A SQL identifier, quoted. */
+export const quoteIdent = (s: string): string => `"${s.replace(/"/g, '""')}"`;
+
 /** The included tables, in load order. */
 export const includedTables = (): IncludedTable[] =>
   LEGACY_FIXTURE_ALLOWLIST.filter((c): c is IncludedTable => c.kind === "include");
@@ -557,6 +560,14 @@ export const includedTables = (): IncludedTable[] =>
  * Column rules keyed by SQL column name, for one included table. Every SQL
  * column appears exactly once.
  */
+/** The primary-key columns of an exported table, by SQL name (composite keys in declared order). */
+export function primaryKey(table: string): string[] {
+  const t = exportedSchemaTables().get(table);
+  if (!t) throw new Error(`[legacy-fixture] ${table} is not an exported table`);
+  const cfg = getTableConfig(t);
+  return cfg.primaryKeys[0]?.columns.map((c) => c.name) ?? cfg.columns.filter((c) => c.primary).map((c) => c.name);
+}
+
 export function sqlColumnRules(
   entry: IncludedTable,
 ): Array<{ property: string; column: string; rule: ScalarRule | JsonRule; dataType: string }> {

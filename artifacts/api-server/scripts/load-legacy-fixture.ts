@@ -40,6 +40,7 @@ const report = await loadLegacyFixture(fixtureDir, process.env.DATABASE_URL!);
 console.log(`[load-legacy-fixture] loaded ${Object.values(report.rowCounts).reduce((a, b) => a + b, 0)} rows into ${Object.keys(report.rowCounts).length} tables`);
 console.log("  row counts:", JSON.stringify(report.rowCounts));
 console.log("  media placeholders written:", report.placeholdersWritten);
+console.log(`  migrations: fixture taken at ${report.migrationHeads.fixture}, this code has ${report.migrationHeads.code}`);
 if (report.predicateProblems.length) {
   console.error(`[load-legacy-fixture] the freshness readers answer differently on the fixture:\n${report.predicateProblems.map((p) => `  - ${p}`).join("\n")}`);
   process.exit(1);

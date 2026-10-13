@@ -36,6 +36,8 @@ import { markTestDatabaseSql } from "@workspace/db/test-database";
 
 import { KEPT_FACT_TEXT, SENTINELS } from "./helpers/legacyFixtureSentinels";
 import { objectPathOf } from "../testing/legacyFixture/media";
+import { readManifest, readRows } from "../testing/legacyFixture/load";
+import { LocalObjectStorage } from "../lib/localObjectStorage";
 import { portForChildProcess } from "./helpers/childProcessPort";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -69,8 +71,8 @@ const skipReason = (() => {
 
 const created: string[] = [];
 const template = `lf_tmpl_${tag}`;
-function createDatabase(name: string, opts: { mark?: boolean; fromTemplate?: boolean } = {}): string {
-  const r = psql(control.href, `CREATE DATABASE "${name}"${opts.fromTemplate === false ? "" : ` TEMPLATE "${template}"`}`);
+function createDatabase(name: string, opts: { mark?: boolean } = {}): string {
+  const r = psql(control.href, `CREATE DATABASE "${name}" TEMPLATE "${template}"`);
   assert.ok(r.ok, `CREATE DATABASE ${name}: ${r.stderr}`);
   created.push(name);
   if (opts.mark !== false) assert.ok(psql(control.href, markTestDatabaseSql(`"${name}"`)).ok);
@@ -158,7 +160,7 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     }
     assert.ok(!/zqx/i.test(bytes), "a planted marker reached the output");
 
-    const manifest = JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"));
+    const manifest = readManifest(out);
     assert.deepEqual(manifest.excludedByPredicate, { membership_entitlements: 2, membership_history: 1 }, "live-mode and unsynced payment rows must be excluded");
     assert.deepEqual(manifest.predicateCounts, {
       renderAttempts: { current: 1, stale: 1 },
@@ -166,7 +168,8 @@ describe("the legacy fixture", { skip: skipReason }, () => {
       conceptBlobs: { current: 1, "stale:input_hash_mismatch": 1 },
     });
 
-    const rows = (t: string) => fs.readFileSync(path.join(out, `${t}.ndjson`), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- assertions walk the rows' JSON freely
+    const rows = (t: string) => readRows(out, t) as Array<Record<string, any>>;
     const facts = rows("facts");
     const active = facts.find((f) => f.is_active === true)!;
     const pending = facts.find((f) => f.is_active === false)!;
@@ -179,7 +182,7 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     const gallery = active.ai_meme_images.male as string[];
     assert.ok(ai.every((r) => gallery.includes(r.storage_path)), "a shared object keeps one path across the gallery and its tracking rows");
     const attempt = rows("image_prompt_attempts").find((a) => a.render_controls?.promptIdentity);
-    assert.ok(gallery.includes(attempt.generated_image_object_path), "the producing attempt holds the same path");
+    assert.ok(gallery.includes(attempt!.generated_image_object_path), "the producing attempt holds the same path");
     const reviews = rows("pending_reviews");
     assert.ok(reviews.some((r) => r.submitted_text === KEPT_FACT_TEXT), "the refresh of the live fact keeps the live text");
     assert.ok(!reviews.some((r) => r.status === "approved" && r.submitted_text === KEPT_FACT_TEXT), "an older approved wording is not the live text");
@@ -187,7 +190,8 @@ describe("the legacy fixture", { skip: skipReason }, () => {
 
   it("the refusal case: a credential in the source stops the export before any file is written", () => {
     const source = createDatabase(`lf_ref_${tag}`);
-    assert.equal(tsx("src/__tests__/helpers/legacyFixtureSeed.ts", ["--refusal"], { DATABASE_URL: source }).status, 0);
+    const planted = psql(source, `INSERT INTO admin_config (key, value, label, data_type) VALUES ('zqx_vendor_key', '${SENTINELS.stripeKey}', 'A key someone pasted', 'string')`);
+    assert.ok(planted.ok, planted.stderr);
     const refusedOut = path.join(scratch, "refused");
     const exp = tsx("scripts/export-legacy-fixture.ts", ["--out", refusedOut], { DATABASE_URL: source });
     assert.notEqual(exp.status, 0);
@@ -203,7 +207,7 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     assert.equal(load.status, 0, `${load.stdout}\n${load.stderr}`);
     assert.match(load.stdout, /every recorded outcome restored and re-checked/);
 
-    const manifest = JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"));
+    const manifest = readManifest(out);
     for (const [table, n] of Object.entries(manifest.rowCounts as Record<string, number>)) {
       if (["feature_flags", "tier_feature_permissions", "engines", "look_styles", "admin_config", "entitlement_grid_revision"].includes(table)) continue; // upserted over the migration seed
       const [{ c }] = await query<{ c: string }>(target, `SELECT count(*)::text AS c FROM public."${table}"`);
@@ -224,9 +228,10 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     assert.ok(Number(next) > Number(max), "the standalone membership sequence is past the fixture's rows");
 
     // Every placeholder exists in the storage double.
-    for (const p of manifest.placeholders as Array<{ path: string }>) {
-      const objectPath = objectPathOf(p.path)!;
-      assert.ok(fs.existsSync(path.join(storage, "data", "fixture-bucket", "private", objectPath.replace(/^\/objects\//, ""))), `placeholder ${p.path} was not written`);
+    const bucket = new LocalObjectStorage(storage).bucket("fixture-bucket");
+    for (const p of manifest.placeholders) {
+      const [exists] = await bucket.file(`private/${objectPathOf(p.path)!.replace(/^\/objects\//, "")}`).exists();
+      assert.ok(exists, `placeholder ${p.path} was not written`);
     }
 
     // The loader's refusals.

@@ -12,7 +12,7 @@
  * size at each synthetic path, through the real storage service, with the ACL
  * recorded here.
  */
-import { aiBackgroundKey, hashPrefix, uploadKey } from "../../lib/storageKeys";
+import { aiBackgroundKey, memeKey, uploadKey } from "../../lib/storageKeys";
 import type { Scrubber } from "./scrub";
 
 export type MediaRole =
@@ -28,6 +28,26 @@ export type MediaRole =
   | "meme-upload-source"
   | "render-reference"
   | "catalogue-asset";
+
+/**
+ * External pictures replaced by the inline stock image, by host and (when the host alone is not enough) role.
+ * Any other external reference stops the export.
+ */
+const EXTERNAL_IMAGES: ReadonlyArray<{ host: RegExp; roles?: readonly MediaRole[] }> = [
+  // Stock photos.
+  { host: /^https:\/\/(images\.)?pexels\.com\//i },
+  // An OAuth provider's avatar: a picture of a person.
+  { host: /^https:\/\//i, roles: ["profile-image"] },
+  // The face photo uploaded to fal's storage for an i2i render (defaultReferenceResolver.ts:118-122, aiMemePipeline.ts:622).
+  { host: /^https:\/\/([a-z0-9-]+\.)*fal\.media\//i, roles: ["render-reference"] },
+];
+
+/**
+ * Roles whose row may have lost its owner: every upload writer records the uploader (userImageUpload.ts:286-307,
+ * aiMemePipeline.ts:950-960, imagePromptJobs.ts:694, videoPipelineRunner.ts:1858), and upload_image_metadata.user_id
+ * empties only when that account is deleted (ON DELETE SET NULL).
+ */
+const OWNER_OPTIONAL: ReadonlySet<MediaRole> = new Set(["upload-metadata", "upload-metadata-source"]);
 
 export type MediaKind = "upload" | "ai-background" | "ai-bg-v2" | "meme" | "catalogue" | "stock";
 
@@ -103,6 +123,20 @@ export class MediaMap {
     this.bySource.set(source, p);
   }
 
+  /** The two-pass protocol in one call: note the reference on the first pass, rewrite it on the second. */
+  noteOrRewrite(
+    value: string,
+    role: MediaRole,
+    mode: "note" | "emit",
+    where: { table: string; row: string },
+    ownerSourceId: string | null,
+    opts: { isProfile?: boolean; size?: { width: number; height: number } } = {},
+  ): string {
+    if (mode === "emit") return this.rewrite(value);
+    this.note(value, role, where, ownerSourceId, opts);
+    return value;
+  }
+
   /** Place every noted object. Throws on a reference no rule covers. */
   resolve(): Map<string, MediaPlaceholder> {
     if (this.resolved) return this.resolved;
@@ -138,20 +172,8 @@ export class MediaMap {
     const roles = p.roles.map(({ role, table, row }) => ({ role, table, row }));
     const size = p.size ?? { width: 64, height: 64 };
 
-    // Pexels and other third-party stock URLs become data URLs: no server, no port, no vendor.
-    if (/^https:\/\/(images\.)?pexels\.com\//i.test(p.source)) {
-      return { path: this.stockDataUrl(), kind: "stock", ext: "jpg", acl: null, roles, ...size };
-    }
-
-    // A third-party profile photo (an OAuth provider's avatar URL) is a picture of a person: replaced the same way.
-    if (/^https:\/\//i.test(p.source) && p.roles.every((r) => r.role === "profile-image")) {
-      return { path: this.stockDataUrl(), kind: "stock", ext: "jpg", acl: null, roles, ...size };
-    }
-
-    // A render reference the image vendor hosts: the face photo uploaded to fal's storage for an i2i
-    // render (defaultReferenceResolver.ts:118-122, aiMemePipeline.ts:622). A picture of a person on a
-    // vendor CDN, replaced the same way; another host still stops the export.
-    if (/^https:\/\/([a-z0-9-]+\.)*fal\.media\//i.test(p.source) && p.roles.every((r) => r.role === "render-reference")) {
+    // An external picture becomes the inline stock image: no server, no port, no vendor, no person.
+    if (EXTERNAL_IMAGES.some((x) => x.host.test(p.source) && (!x.roles || p.roles.every((r) => x.roles!.includes(r.role))))) {
       return { path: this.stockDataUrl(), kind: "stock", ext: "jpg", acl: null, roles, ...size };
     }
 
@@ -169,10 +191,8 @@ export class MediaMap {
       const ext = m[2] ?? "";
       const id = this.scrubber.uuid("media", p.source);
       const isProfile = p.roles.some((r) => r.isProfile || r.role === "profile-image" || r.role === "upload-metadata-profile");
-      // Every upload writer records its uploader (userImageUpload.ts:286-307, aiMemePipeline.ts:950-960,
-      // imagePromptJobs.ts:694, videoPipelineRunner.ts:1858); the column empties only when that account is
-      // deleted (ON DELETE SET NULL). An orphan keeps its shape: private to a person who exists nowhere.
-      const orphan = !owner && p.roles.every((r) => r.table === "upload_image_metadata") && !isProfile;
+      // An orphan (OWNER_OPTIONAL) keeps its shape: private to a person who exists nowhere.
+      const orphan = !owner && p.roles.every((r) => OWNER_OPTIONAL.has(r.role)) && !isProfile;
       if (!owner && !orphan) throw new MediaPlacementError(`an upload with no owning user (${roles.map((r) => r.table).join(", ")})`);
       return {
         path: prefixOf(`/objects/${uploadKey(id, ext || undefined)}`),
@@ -210,8 +230,7 @@ export class MediaMap {
     m = /^memes\/[0-9a-f]{2}\/([^/]+)\.([a-z0-9]+)$/i.exec(sub);
     if (m) {
       const [, slug, ext] = m;
-      const filename = `${slug}.${ext}`;
-      if (`memes/${hashPrefix(filename)}/${filename}` !== sub) {
+      if (memeKey(slug!, ext) !== sub) {
         throw new MediaPlacementError(`a meme key whose hash prefix does not match its slug (${referencePattern(p.source)})`);
       }
       return { path: p.source, kind: "meme", ext: ext!, acl: owner ? { owner, visibility: "public" } : null, roles, ...size };

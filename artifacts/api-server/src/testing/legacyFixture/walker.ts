@@ -159,11 +159,7 @@ function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: strin
   if (typeof rule === "object") {
     if ("custom" in rule) return rule.custom(value, ctx, path);
     if (typeof value !== "string") throw new ShapeStop(ctx.where, path, "a media rule on a non-string");
-    if (ctx.mode === "note") {
-      ctx.media.note(value, rule.media, { table: ctx.table, row: ctx.row }, ctx.ownerSourceId);
-      return value;
-    }
-    return ctx.media.rewrite(value);
+    return ctx.media.noteOrRewrite(value, rule.media, ctx.mode, { table: ctx.table, row: ctx.row }, ctx.ownerSourceId);
   }
   const needString = () => {
     if (typeof value !== "string") throw new ShapeStop(ctx.where, path, `rule "${rule}" on a ${Array.isArray(value) ? "array" : typeof value}`);
@@ -190,21 +186,15 @@ function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: strin
     }
     case "fixture-url": {
       const v = needString();
-      return v.trim() === "" ? v : `https://example.test/fixture/${ctx.scrubber.hmac("url", v).slice(0, 12)}`;
+      return ctx.scrubber.fixtureUrl(v);
     }
     case "stock-data-url": {
       const v = needString();
       if (v.trim() === "") return v;
-      if (ctx.mode === "note") {
-        ctx.media.note(v, "catalogue-asset", { table: ctx.table, row: ctx.row }, null);
-        return v;
-      }
-      return ctx.media.rewrite(v);
+      return ctx.media.noteOrRewrite(v, "catalogue-asset", ctx.mode, { table: ctx.table, row: ctx.row }, null);
     }
-    case "hashtags": {
-      if (!Array.isArray(value)) throw new ShapeStop(ctx.where, path, "hashtags that are not an array");
-      return ctx.keptText ? value : sizedPlaceholderHashtags(value, ctx.placeholderHashtags);
-    }
+    case "hashtags":
+      return placeholderHashtagsFor(value, ctx, path);
     case "prose-deep":
       return proseDeep(value, ctx);
     case "structural-deep":
@@ -315,6 +305,12 @@ export function rerootRules(rules: PathRules, prefix: string): PathRules {
     else if (k.startsWith(`${prefix}[`) || k.startsWith(`${prefix}{`)) out[k.slice(prefix.length)] = v;
   }
   return out;
+}
+
+/** A row's hashtags: kept with its kept text, the corpus's otherwise. Anything but an array stops. */
+export function placeholderHashtagsFor(value: unknown, ctx: WalkContext, path: string): unknown {
+  if (!Array.isArray(value)) throw new ShapeStop(ctx.where, path, "hashtags that are not an array");
+  return ctx.keptText ? value : sizedPlaceholderHashtags(value, ctx.placeholderHashtags);
 }
 
 /**

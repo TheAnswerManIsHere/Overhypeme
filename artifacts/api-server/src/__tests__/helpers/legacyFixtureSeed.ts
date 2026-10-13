@@ -37,12 +37,6 @@ const { computeCurrentInputHash, resolveVisualConceptCycle } = await import("../
 
 const at = new Date("2026-01-02T03:04:05Z");
 
-if (process.argv.includes("--refusal")) {
-  await db.insert(t.adminConfigTable).values({ key: "zqx_vendor_key", value: S.stripeKey, label: "A key someone pasted", dataType: "string" });
-  console.log(JSON.stringify({ ok: true }));
-  process.exit(0);
-}
-
 // ── People ──
 const userId = randomUUID();
 const adminId = randomUUID();

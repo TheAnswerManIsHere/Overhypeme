@@ -24,7 +24,7 @@ import {
 
 import { hasUnresolvedFactTokens, renderPersonalized } from "../../lib/renderCanonical";
 import { isValidPromptIdentitySnapshot } from "../../lib/imagePrompt/promptIdentity";
-import { includedTables, sqlColumnRules, sqlName, type IncludedTable, type JsonRule, type ScalarRule } from "./allowlist";
+import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName, type IncludedTable, type JsonRule, type ScalarRule } from "./allowlist";
 import { MediaMap, MediaPlacementError, referencePattern, type MediaPlaceholder, type MediaRole } from "./media";
 import { placeholderFor, type PlaceholderFact } from "./placeholderFacts";
 import { emptyPredicateRecord, predicateCounts, type PredicateRecord } from "./predicates";
@@ -65,7 +65,8 @@ export interface ExportManifest {
 }
 
 export interface ExportResult {
-  manifest: ExportManifest;
+  /** Absent when the export halted before the rows were transformed. */
+  manifest?: ExportManifest;
   tables: Map<string, Row[]>;
   /** Problems that stop the export. Empty when the fixture may be written. Names only, never values. */
   stops: string[];
@@ -79,10 +80,8 @@ export interface ExportOptions {
   sourceCommit: string;
   /** Records each freshness predicate on the source; omitted in tests that exercise only the scrub. */
   evaluatePredicates?: () => Promise<PredicateRecord>;
-  runKey?: Buffer;
 }
 
-const quoteIdent = (s: string) => `"${s.replace(/"/g, '""')}"`;
 
 const EMAIL_SHAPE = /[A-Za-z0-9._%+-]+@(?!example\.test\b)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
@@ -163,13 +162,15 @@ function selectSql(entry: IncludedTable): { sql: string; columns: Array<{ column
 
 /** Run the export. Returns rows and manifest; writes nothing. */
 export async function runExport(opts: ExportOptions): Promise<ExportResult> {
-  const scrubber = new Scrubber(opts.runKey);
+  const scrubber = new Scrubber();
   const media = new MediaMap(scrubber, () => STOCK_DATA_URL);
   const stops: string[] = [];
   const checks: Record<string, number> = {};
   const count = (k: string, n = 1) => (checks[k] = (checks[k] ?? 0) + n);
   const mediaPatterns: Record<string, number> = {};
+  const halt = (): ExportResult => ({ tables: new Map(), stops, mediaPatterns });
 
+  const selects = new Map(includedTables().map((entry) => [sqlName(entry.table), selectSql(entry)] as const));
   const client = new pg.Client({ connectionString: opts.sourceUrl });
   await client.connect();
   const source = new Map<string, Row[]>();
@@ -187,14 +188,14 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
     for (const entry of includedTables()) {
       if (!present.has(sqlName(entry.table))) stops.push(`public.${sqlName(entry.table)} is included by the allowlist but absent from the source`);
     }
-    if (stops.length) return { manifest: undefined as never, tables: new Map(), stops, mediaPatterns };
+    if (stops.length) return halt();
 
     const ledger = (await client.query<{ hash: string }>(`SELECT hash FROM drizzle.__drizzle_migrations`)).rows.map((r) => r.hash);
     const applied = new Set(ledger);
     migrationHead = { ...migrationHead, appliedOnSource: journal.hashes.filter((h) => applied.has(h)).length, sourceLedgerRows: ledger.length };
     if (migrationHead.appliedOnSource < journal.entries) {
       stops.push(`the source has applied ${migrationHead.appliedOnSource} of this commit's ${journal.entries} migrations: migrate it, or export from the commit it is at`);
-      return { manifest: undefined as never, tables: new Map(), stops, mediaPatterns };
+      return halt();
     }
 
     stripe = await readStripeTestIds(client);
@@ -208,10 +209,7 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
       (await client.query<{ n: string }>(`SELECT count(*)::text AS n FROM public.facts WHERE is_active AND (embedding IS NULL OR canonical_text IS NULL)`)).rows[0]!.n,
     );
 
-    for (const entry of includedTables()) {
-      const { sql } = selectSql(entry);
-      source.set(sqlName(entry.table), (await client.query(sql)).rows);
-    }
+    for (const [table, { sql }] of selects) source.set(table, (await client.query(sql)).rows);
     await client.query("COMMIT");
   } finally {
     await client.end();
@@ -268,6 +266,8 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
   };
 
   const personOf = (userId: unknown): SyntheticPerson | undefined => (typeof userId === "string" ? scrubber.person(userId) : undefined);
+  const usersById = new Map(source.get("users")!.map((u) => [u.id as string, u]));
+  const pronounsOf = (userId: unknown): string | null => (typeof userId === "string" ? ((usersById.get(userId)?.pronouns as string | null) ?? null) : null);
 
   // ── Per-row context ──
   const rowContext = (table: string, row: Row, mode: "note" | "emit"): WalkContext => {
@@ -323,12 +323,12 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
       } catch (err) {
         if (err instanceof MediaPlacementError) stops.push(err.message);
         else throw err;
-        return { manifest: undefined as never, tables: new Map(), stops, mediaPatterns };
+        return halt();
       }
     }
     for (const entry of includedTables()) {
       const table = sqlName(entry.table);
-      const cols = selectSql(entry).columns;
+      const cols = selects.get(table)!.columns;
       const rows: Row[] = [];
       for (const row of source.get(table)!) {
         const ctx = rowContext(table, row, mode);
@@ -351,14 +351,14 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
       }
       if (mode === "emit") out.set(table, rows);
     }
-    if (stops.length) return { manifest: undefined as never, tables: new Map(), stops, mediaPatterns };
+    if (stops.length) return halt();
   }
 
   // ── Hashtags: kept-text facts keep theirs; placeholder facts take the corpus's; counts recomputed ──
-  rebuildHashtags(out, source, keptTexts, placeholder, count);
+  rebuildHashtags(out, source, placeholder, count);
 
   // ── Ref checks (app-managed links, plan D4) ──
-  checkRefs(out, new Set((source.get("users") ?? []).map((u) => scrubber.userId(String(u.id)))), stops, count);
+  checkRefs(out, source, (id) => scrubber.userId(id), stops, count);
 
   // ── Parity checks: validators and readers answer as on the source ──
   parityChecks(source, out, stops, count);
@@ -366,18 +366,25 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
   // ── Credential scan over every output string ──
   for (const [table, rows] of out) {
     for (const r of rows) {
-      const hits = credentialHits(r);
-      if (hits.length) {
-        for (const [col, v] of Object.entries(r)) {
-          const h = credentialHits(v);
-          if (h.length) stops.push(`${table}.${col} row ${rowKey(table, r)}: ${h.join(", ")} in the output`);
-        }
+      for (const [col, v] of Object.entries(r)) {
+        const h = credentialHits(v);
+        if (h.length) stops.push(`${table}.${col} row ${rowKey(table, r)}: ${h.join(", ")} in the output`);
       }
     }
   }
   count("credential-scan:rows", [...out.values()].reduce((n, r) => n + r.length, 0));
 
   const predicates = opts.evaluatePredicates ? await opts.evaluatePredicates() : emptyPredicateRecord();
+
+  /** Re-render a stored personalized text over the row's (kept or placeholder) template. */
+  function rerender(row: Row, ctx: WalkContext, column: string, label: string, name: string, pronouns: string | null): string {
+    const template = scrubbedFactTemplate(row.fact_id);
+    if (!template) throw new ShapeStop(ctx.where, column, "a rendered text whose fact is not in the export");
+    const rendered = renderPersonalized(template, name, pronouns);
+    if (hasUnresolvedFactTokens(rendered)) throw new ShapeStop(ctx.where, column, "a re-rendered text with unresolved tokens");
+    count(label);
+    return rendered;
+  }
 
   function transformColumn(table: string, column: string, rule: ScalarRule | JsonRule, row: Row, ctx: WalkContext, mode: "note" | "emit"): unknown {
     const value = row[column];
@@ -410,8 +417,6 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
         return scrubber.prose(value as string | null);
       case "rendered:attempt": {
         if (value == null) return value;
-        const template = scrubbedFactTemplate(row.fact_id);
-        if (!template) throw new ShapeStop(ctx.where, column, "a rendered text whose fact is not in the export");
         const rc = (row.render_controls ?? {}) as { promptIdentity?: { name?: string; pronouns?: string | null; source?: string }; reviewRenderSubject?: { name: string; pronouns: string | null } };
         // The worker's precedence (imagePromptJobs.ts:456-485): frozen identity, then the review subject, then the user.
         let name = "Alex";
@@ -423,25 +428,14 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
           name = rc.reviewRenderSubject.name;
           pronouns = rc.reviewRenderSubject.pronouns ?? null;
         } else if (typeof row.user_id === "string") {
-          const p = personOf(row.user_id);
-          name = p?.displayName ?? "Alex";
-          pronouns = (source.get("users")!.find((u) => u.id === row.user_id)?.pronouns as string | null) ?? null;
+          name = personOf(row.user_id)?.displayName ?? "Alex";
+          pronouns = pronounsOf(row.user_id);
         }
-        const rendered = renderPersonalized(template, name, pronouns);
-        if (hasUnresolvedFactTokens(rendered)) throw new ShapeStop(ctx.where, column, "a re-rendered text with unresolved tokens");
-        count("rendered:attempt");
-        return rendered;
+        return rerender(row, ctx, column, "rendered:attempt", name, pronouns);
       }
-      case "rendered:meme": {
+      case "rendered:meme":
         if (value == null) return value;
-        const template = scrubbedFactTemplate(row.fact_id);
-        if (!template) throw new ShapeStop(ctx.where, column, "a rendered text whose fact is not in the export");
-        const creator = typeof row.created_by_id === "string" ? source.get("users")!.find((u) => u.id === row.created_by_id) : undefined;
-        const rendered = renderPersonalized(template, ctx.syntheticName, (creator?.pronouns as string | null) ?? null);
-        if (hasUnresolvedFactTokens(rendered)) throw new ShapeStop(ctx.where, column, "a re-rendered text with unresolved tokens");
-        count("rendered:meme");
-        return rendered;
-      }
+        return rerender(row, ctx, column, "rendered:meme", ctx.syntheticName, pronounsOf(row.created_by_id));
       case "embedding-if-kept":
         return row.is_active === true ? value : null;
       case "rekey":
@@ -449,16 +443,14 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
         return scrubber.rekey(value as string | null);
       case "media": {
         if (value == null || value === "") return value;
-        const role = mediaRole(table, column, row);
         const v = String(value);
         if (mode === "note") {
-          mediaPatterns[`${table}.${column}: ${referencePattern(v)}`] = (mediaPatterns[`${table}.${column}: ${referencePattern(v)}`] ?? 0) + 1;
-          const isProfile = (table === "users" && column === "profile_image_url") || (table === "upload_image_metadata" && row.is_profile === true);
-          const size = table === "upload_image_metadata" ? { width: Number(row.width), height: Number(row.height) } : undefined;
-          media.note(v, role, { table, row: ctx.row }, ctx.ownerSourceId, { isProfile, ...(size ? { size } : {}) });
-          return v;
+          const shape = `${table}.${column}: ${referencePattern(v)}`;
+          mediaPatterns[shape] = (mediaPatterns[shape] ?? 0) + 1;
         }
-        return media.rewrite(v);
+        const isProfile = (table === "users" && column === "profile_image_url") || (table === "upload_image_metadata" && row.is_profile === true);
+        const size = table === "upload_image_metadata" ? { width: Number(row.width), height: Number(row.height) } : undefined;
+        return media.noteOrRewrite(v, mediaRole(table, column, row), mode, { table, row: ctx.row }, ctx.ownerSourceId, { isProfile, ...(size ? { size } : {}) });
       }
       case "meme-route-url": {
         const slug = String(row.permalink_slug);
@@ -501,7 +493,7 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
       case "vendor-error":
         return value == null ? value : "[fixture: vendor error redacted]";
       case "fixture-url":
-        return value == null ? value : `https://example.test/fixture/${scrubber.hmac("url", String(value)).slice(0, 12)}`;
+        return scrubber.fixtureUrl(value as string | null);
       case "fixture-title":
         return scrubber.prose(value as string | null);
       case "config-value":
@@ -540,7 +532,6 @@ function rowKey(table: string, row: Row): string {
   if (table === "ratings") return `${row.fact_id}/(a rating)`;
   if (table === "tier_feature_permissions") return `${row.tier}/${row.feature_key}`;
   if (table === "upload_image_metadata") return "(an upload row)";
-  if (table === "users") return "(a user row)";
   if (table === "admin_config" || table === "feature_flags") return String(row.key);
   if (table === "fal_pricing_cache") return String(row.endpoint_id);
   return "?";
@@ -558,14 +549,13 @@ function mediaRole(table: string, column: string, row: Row): MediaRole {
 function rebuildHashtags(
   out: Map<string, Row[]>,
   source: Map<string, Row[]>,
-  keptTexts: Set<string>,
   placeholder: (text: string) => PlaceholderFact,
   count: (k: string, n?: number) => void,
 ): void {
   const facts = source.get("facts")!;
   const tags = source.get("hashtags")!;
   const links = source.get("fact_hashtags")!;
-  const keptFactIds = new Set(facts.filter((f) => keptTexts.has(f.text as string) && f.is_active === true).map((f) => Number(f.id)));
+  const keptFactIds = new Set(facts.filter((f) => f.is_active === true).map((f) => Number(f.id)));
   const nameById = new Map(tags.map((t) => [Number(t.id), t.name as string]));
   const idByName = new Map(tags.map((t) => [t.name as string, Number(t.id)]));
   let nextId = Math.max(0, ...tags.map((t) => Number(t.id))) + 1;
@@ -596,46 +586,34 @@ function rebuildHashtags(
   count("hashtags:rebuilt", used.size);
 }
 
-const REFS: Array<[string, string, string, string]> = [
-  ["pending_reviews", "candidate_version_id", "fact_enrichment_versions", "id"],
-  ["fact_enrichment_versions", "source_review_id", "pending_reviews", "id"],
-  ["pending_reviews", "staging_fact_id", "facts", "id"],
-  ["pending_reviews", "approved_fact_id", "facts", "id"],
-  ["pending_reviews", "matching_fact_id", "facts", "id"],
-  ["pending_reviews", "parent_fact_id", "facts", "id"],
-  ["facts", "parent_id", "facts", "id"],
-  ["image_prompt_attempts", "review_id", "pending_reviews", "id"],
-  ["image_prompt_attempts", "fact_id", "facts", "id"],
-  ["memes", "fact_id", "facts", "id"],
-  ["fact_enrichment_versions", "fact_id", "facts", "id"],
-  ["upload_image_metadata", "fact_id", "facts", "id"],
-  ["user_ai_images", "fact_id", "facts", "id"],
-  ["comments", "fact_id", "facts", "id"],
-  ["fact_hashtags", "hashtag_id", "hashtags", "id"],
-  ["tier_feature_permissions", "feature_key", "feature_flags", "key"],
-];
-
-function checkRefs(out: Map<string, Row[]>, sourceUserIds: Set<string>, stops: string[], count: (k: string, n?: number) => void): void {
-  const userIds = new Set((out.get("users") ?? []).map((u) => u.id as string));
-  for (const [table, column, target, key] of REFS) {
-    const targets = new Set((out.get(target) ?? []).map((r) => String(r[key])));
-    for (const r of out.get(table) ?? []) {
-      const v = r[column];
-      if (v == null) continue;
-      if (!targets.has(String(v))) stops.push(`${table}.${column} row ${rowKey(table, r)}: points at a ${target} row the export does not hold`);
-      else count(`ref:${table}.${column}`);
-    }
-  }
-  // Every mapped user reference resolves to an exported user (FKs and the FK-less list alike).
-  for (const [table, rows] of out) {
-    for (const r of rows) {
-      for (const col of ["user_id", "created_by_id", "submitted_by_id", "author_id", "reviewed_by_id", "production_rejected_by_id", "performed_by", "created_by", "granted_by_admin_id", "revoked_by_admin_id", "performed_by_admin_id", "added_by_id", "updated_by_id"]) {
-        const v = r[col];
-        if (typeof v !== "string" || userIds.has(v)) continue;
-        // A column with no foreign key can name a deleted account on the source too: that shape is kept.
-        // A user the source holds and the export dropped is a defect, and stops.
-        if (sourceUserIds.has(v)) stops.push(`${table}.${col} row ${rowKey(table, r)}: a user the export does not hold`);
-        else count(`ref:dangling-on-source:${table}.${col}`);
+/**
+ * Every link the allowlist names — each `ref:<table>` column and each `map-user` column — must resolve
+ * in the output (plan D4). A link that resolves on neither side is a column with no foreign key naming
+ * a row deleted on the source, and that shape is kept; a link the export itself broke stops.
+ */
+function checkRefs(out: Map<string, Row[]>, source: Map<string, Row[]>, mapUser: (id: string) => string, stops: string[], count: (k: string, n?: number) => void): void {
+  const keysOf = (rows: Map<string, Row[]>, table: string, map: (v: string) => string = (v) => v) => {
+    const [key] = primaryKey(table);
+    return new Set((rows.get(table) ?? []).map((r) => map(String(r[key!]))));
+  };
+  const targets = new Map<string, { out: Set<string>; source: Set<string> }>();
+  const targetOf = (table: string) => {
+    let t = targets.get(table);
+    if (!t) targets.set(table, (t = { out: keysOf(out, table), source: keysOf(source, table, table === "users" ? mapUser : undefined) }));
+    return t;
+  };
+  for (const entry of includedTables()) {
+    const table = sqlName(entry.table);
+    for (const { column, rule } of sqlColumnRules(entry)) {
+      const target = rule.startsWith("ref:") ? rule.slice(4) : rule === "map-user" && !(table === "users" && column === "id") ? "users" : null;
+      if (!target) continue;
+      const t = targetOf(target);
+      for (const r of out.get(table) ?? []) {
+        const v = r[column];
+        if (v == null) continue;
+        if (t.out.has(String(v))) count(`ref:${table}.${column}`);
+        else if (t.source.has(String(v))) stops.push(`${table}.${column} row ${rowKey(table, r)}: points at a ${target} row the export does not hold`);
+        else count(`ref:dangling-on-source:${table}.${column}`);
       }
     }
   }
@@ -746,6 +724,7 @@ function parityChecks(source: Map<string, Row[]>, out: Map<string, Row[]>, stops
 
 /** Write the NDJSON files and the manifest into an empty directory. */
 export function writeFixture(result: ExportResult, outDir: string): void {
+  if (!result.manifest || result.stops.length) throw new Error("[legacy-fixture] the export stopped; there is nothing to write");
   if (fs.existsSync(outDir) && fs.readdirSync(outDir).length > 0) throw new Error(`[legacy-fixture] ${outDir} is not empty`);
   fs.mkdirSync(outDir, { recursive: true });
   const files: Record<string, string> = {};

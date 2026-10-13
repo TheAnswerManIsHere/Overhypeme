@@ -23,11 +23,10 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
-import { getTableConfig } from "drizzle-orm/pg-core";
 import { createCanvas } from "@napi-rs/canvas";
 
 import { memeKey } from "../../lib/storageKeys";
-import { includedTables, sqlColumnRules, sqlName } from "./allowlist";
+import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName } from "./allowlist";
 import type { ExportManifest, Row } from "./export";
 import { journalHead } from "./journal";
 import { objectPathOf, type MediaPlaceholder } from "./media";
@@ -45,7 +44,6 @@ const CONFIG_TABLES = new Set([
   "admin_config",
 ]);
 
-const quoteIdent = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const CHUNK = 200;
 
 export interface LoadReport {
@@ -80,13 +78,10 @@ export function verifyFixtureFiles(fixtureDir: string, manifest: ExportManifest)
   return problems;
 }
 
-function primaryKeyColumns(table: (typeof includedTables extends () => Array<infer E> ? E : never)["table"]): string[] {
-  const cfg = getTableConfig(table);
-  const composite = cfg.primaryKeys[0]?.columns.map((c) => c.name);
-  return composite ?? cfg.columns.filter((c) => c.primary).map((c) => c.name);
-}
-
-export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Promise<{ rowCounts: Record<string, number>; migrationHeads: { fixture: number; code: number } }> {
+export async function loadFixtureRows(
+  fixtureDir: string,
+  targetUrl: string,
+): Promise<{ manifest: ExportManifest; rowCounts: Record<string, number>; migrationHeads: LoadReport["migrationHeads"] }> {
   const manifest = readManifest(fixtureDir);
   const bad = verifyFixtureFiles(fixtureDir, manifest);
   if (bad.length) throw new Error(`[legacy-fixture] the fixture's files do not match its manifest:\n  ${bad.join("\n  ")}`);
@@ -119,7 +114,7 @@ export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Pr
       if (rows.length === 0) continue;
       const columns = sqlColumnRules(entry).filter((c) => c.rule !== "drop").map((c) => c.column);
       const colList = columns.map(quoteIdent).join(", ");
-      const pk = primaryKeyColumns(entry.table);
+      const pk = primaryKey(table);
       for (let i = 0; i < rows.length; i += CHUNK) {
         const chunk = rows.slice(i, i + CHUNK);
         let sql = `INSERT INTO public.${quoteIdent(table)} (${colList}) OVERRIDING SYSTEM VALUE
@@ -133,17 +128,22 @@ export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Pr
     }
 
     // Sequences past the fixture's rows (Astra round 1: "subsequent inserts work").
-    for (const entry of includedTables()) {
-      const table = sqlName(entry.table);
-      for (const c of getTableConfig(entry.table).columns) {
-        const { rows } = await client.query<{ seq: string | null }>(`SELECT pg_get_serial_sequence($1, $2) AS seq`, [`public.${quoteIdent(table)}`, c.name]);
-        const seq = rows[0]?.seq;
-        if (!seq) continue;
-        await client.query(
-          `SELECT setval($1, GREATEST(COALESCE((SELECT max(${quoteIdent(c.name)}) FROM public.${quoteIdent(table)}), 0), 1), (SELECT count(*) > 0 FROM public.${quoteIdent(table)}))`,
-          [seq],
-        );
-      }
+    // The sequences a column owns, serial ('a') or identity ('i') — what pg_get_serial_sequence answers, in one query.
+    const { rows: owned } = await client.query<{ tbl: string; col: string; seq: string }>(
+      `SELECT c.relname AS tbl, a.attname AS col, s.oid::regclass::text AS seq
+         FROM pg_class s
+         JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
+         JOIN pg_class c ON c.oid = d.refobjid
+         JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+         JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.refobjsubid
+        WHERE s.relkind = 'S' AND c.relname = ANY($1::text[])`,
+      [includedTables().map((e) => sqlName(e.table))],
+    );
+    for (const { tbl, col, seq } of owned) {
+      await client.query(
+        `SELECT setval($1, GREATEST(COALESCE((SELECT max(${quoteIdent(col)}) FROM public.${quoteIdent(tbl)}), 0), 1), (SELECT count(*) > 0 FROM public.${quoteIdent(tbl)}))`,
+        [seq],
+      );
     }
     await client.query(
       `SELECT setval('membership_source_state_seq', GREATEST(COALESCE((SELECT max(source_state_as_of) FROM public.membership_entitlements), 0), 1), (SELECT count(*) > 0 FROM public.membership_entitlements))`,
@@ -155,7 +155,7 @@ export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Pr
   } finally {
     await client.end();
   }
-  return { rowCounts, migrationHeads: { fixture: manifest.migrationHead.journalEntries, code: journal.entries } };
+  return { manifest, rowCounts, migrationHeads: { fixture: manifest.migrationHead.journalEntries, code: journal.entries } };
 }
 
 function placeholderBytes(p: { ext: string; width: number; height: number }): { buffer: Buffer; contentType: string } {
@@ -176,8 +176,13 @@ function placeholderBytes(p: { ext: string; width: number; height: number }): { 
 export async function writePlaceholders(manifest: ExportManifest): Promise<number> {
   const { ObjectStorageService } = await import("../../lib/objectStorage");
   const storage = new ObjectStorageService();
+  // One encoding per (format, size): the fixture's hundreds of placeholders share about ten.
+  const encoded = new Map<string, { buffer: Buffer; contentType: string }>();
   const write = async (objectPath: string, p: { ext: string; width: number; height: number }, acl: MediaPlaceholder["acl"]) => {
-    const { buffer, contentType } = placeholderBytes(p);
+    const key = `${p.ext}:${p.width}x${p.height}`;
+    let bytes = encoded.get(key);
+    if (!bytes) encoded.set(key, (bytes = placeholderBytes(p)));
+    const { buffer, contentType } = bytes;
     const subPath = objectPath.replace(/^\/objects\//, "");
     await storage.uploadObjectBuffer({ subPath, buffer, contentType });
     if (acl) await storage.trySetObjectEntityAclPolicy(objectPath, acl);
@@ -200,8 +205,7 @@ export async function writePlaceholders(manifest: ExportManifest): Promise<numbe
 
 /** The whole load. DATABASE_URL must name the target: the predicate pass runs the app's own readers against it. */
 export async function loadLegacyFixture(fixtureDir: string, targetUrl: string): Promise<LoadReport> {
-  const { rowCounts, migrationHeads } = await loadFixtureRows(fixtureDir, targetUrl);
-  const manifest = readManifest(fixtureDir);
+  const { manifest, rowCounts, migrationHeads } = await loadFixtureRows(fixtureDir, targetUrl);
   const placeholdersWritten = await writePlaceholders(manifest);
   const { comparePredicates, evaluatePredicates, restorePredicates } = await import("./predicates");
   const restoreProblems = await restorePredicates(manifest.predicates);

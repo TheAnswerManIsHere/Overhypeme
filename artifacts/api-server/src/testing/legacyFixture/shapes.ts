@@ -23,7 +23,7 @@ import {
 } from "@workspace/api-zod";
 
 import { ImageSourceSchema, TextOptionsSchema } from "../../lib/validators/memeBuilder";
-import { ShapeStop, rerootRules, sizedPlaceholderHashtags, structuralDeep, walk, type PathRules, type WalkContext } from "./walker";
+import { ShapeStop, placeholderHashtagsFor, rerootRules, structuralDeep, walk, type PathRules, type WalkContext } from "./walker";
 
 export type ShapeName =
   | "config"
@@ -321,9 +321,9 @@ const subjectFactCompatibilityProjection = z.object({
   recommendedFallback: z.string(),
 });
 
-const plain = (schema: ZodTypeAny, rules: PathRules, check = true): ShapeDef => ({
+const plain = (schema: ZodTypeAny, rules: PathRules): ShapeDef => ({
   transform: (value, ctx) => walk(value, schema, rules, ctx),
-  ...(check ? { validate: (value: unknown) => issues(schema.safeParse(value)) } : {}),
+  validate: (value: unknown) => issues(schema.safeParse(value)),
 });
 
 // ─── the registry ──────────────────────────────────────────────────────────
@@ -424,10 +424,7 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     fontFamily: "keep",
   }),
   framingTransform: { transform: (value, ctx) => structuralDeep(value, ctx, "") },
-  reviewHashtags: {
-    transform: (value, ctx) =>
-      value == null || ctx.keptText ? value : Array.isArray(value) ? sizedPlaceholderHashtags(value, ctx.placeholderHashtags) : value,
-  },
+  reviewHashtags: { transform: (value, ctx) => (value == null ? value : placeholderHashtagsFor(value, ctx, "")) },
 };
 
 /**
