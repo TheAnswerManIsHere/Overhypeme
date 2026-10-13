@@ -1,14 +1,14 @@
 {
   "fixture": "overhype-legacy",
-  "scrubRulesetVersion": "1",
-  "sourceCommit": "62611281998007b06e44e7dc5753e36f14341118",
+  "scrubRulesetVersion": "2",
+  "sourceCommit": "efe0732ffe0ba54a7061486a94f77a9506884b04",
   "migrationHead": {
     "journalEntries": 102,
     "latestTag": "0101_user_generation_costs_is_estimated",
     "appliedOnSource": 102,
     "sourceLedgerRows": 112
   },
-  "extractedAt": "2026-10-13T19:02:23.189Z",
+  "extractedAt": "2026-10-13T20:05:24.235Z",
   "rowCounts": {
     "feature_flags": 11,
     "tier_feature_permissions": 42,
@@ -27,7 +27,7 @@
     "fact_enrichment_versions": 64,
     "enrichment_override_history": 206,
     "fact_text_edit_history": 0,
-    "image_prompt_attempts": 106,
+    "image_prompt_attempts": 110,
     "memes": 65,
     "upload_image_metadata": 45,
     "user_ai_images": 111,
@@ -48,72 +48,72 @@
   "embeddingBackfillPredicateCount": 0,
   "placeholders": [
     {
-      "path": "/api/storage/objects/uploads/77/bbce4df1-7a5b-47d7-b49d-61d57e28d9be.jpg",
+      "path": "/api/storage/objects/uploads/60/4c27504d-32b4-423f-b02e-a08032a2cad0.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "27994f61-ae10-4ce4-9710-99be1cdaa233",
+        "owner": "5492f7c8-8f24-4254-9405-fce6b0319ae4",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "profile-image",
           "table": "users",
-          "row": "27994f61-ae10-4ce4-9710-99be1cdaa233"
+          "row": "5492f7c8-8f24-4254-9405-fce6b0319ae4"
         }
       ],
       "width": 64,
       "height": 64
     },
     {
-      "path": "/api/storage/objects/uploads/e8/4d191373-5d37-45b5-bc2a-750650b5a974.jpg",
+      "path": "/api/storage/objects/uploads/d7/8709faa6-929e-420c-8cf0-7dcb94dcf769.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "profile-image",
           "table": "users",
-          "row": "3fcf007a-f59e-496f-8293-15221f305503"
+          "row": "d77448e6-fc0c-444a-86e5-5c000447a61e"
         }
       ],
       "width": 64,
       "height": 64
     },
     {
-      "path": "/api/storage/objects/uploads/e9/2e27753b-e356-499f-a04c-2d875cf61eb8.jpg",
+      "path": "/api/storage/objects/uploads/79/6591c5f3-5b20-4dec-88ee-b882f62b7745.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "ce544d43-ac42-4230-981e-c3aea6414a14",
+        "owner": "b65160b0-c83c-4194-9d9b-101887344d58",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "profile-image",
           "table": "users",
-          "row": "ce544d43-ac42-4230-981e-c3aea6414a14"
+          "row": "b65160b0-c83c-4194-9d9b-101887344d58"
         }
       ],
       "width": 64,
       "height": 64
     },
     {
-      "path": "/api/storage/objects/uploads/f5/932c85f0-697d-45c2-abdf-4ecf90e6685d.jpg",
+      "path": "/api/storage/objects/uploads/05/5ac18101-6139-4036-8ab7-c405a51b3aca.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "profile-image",
           "table": "users",
-          "row": "cc2a3363-3d39-4cc2-a55d-b04449566127"
+          "row": "294e8cda-63c7-492f-8f3f-b721bd59bc00"
         }
       ],
       "width": 64,
@@ -8355,11 +8355,71 @@
       "height": 64
     },
     {
-      "path": "/objects/uploads/e3/4f1bf87e-cf2c-4a42-8c0c-a55109064112",
+      "path": "/objects/ai-bg-v2/34470/302-0466.png",
+      "kind": "ai-bg-v2",
+      "ext": "png",
+      "acl": null,
+      "roles": [
+        {
+          "role": "attempt-output",
+          "table": "image_prompt_attempts",
+          "row": "302"
+        }
+      ],
+      "width": 64,
+      "height": 64
+    },
+    {
+      "path": "/objects/ai-bg-v2/34470/303-0467.png",
+      "kind": "ai-bg-v2",
+      "ext": "png",
+      "acl": null,
+      "roles": [
+        {
+          "role": "attempt-output",
+          "table": "image_prompt_attempts",
+          "row": "303"
+        }
+      ],
+      "width": 64,
+      "height": 64
+    },
+    {
+      "path": "/objects/ai-bg-v2/34470/304-0468.png",
+      "kind": "ai-bg-v2",
+      "ext": "png",
+      "acl": null,
+      "roles": [
+        {
+          "role": "attempt-output",
+          "table": "image_prompt_attempts",
+          "row": "304"
+        }
+      ],
+      "width": 64,
+      "height": 64
+    },
+    {
+      "path": "/objects/ai-bg-v2/34470/305-0469.png",
+      "kind": "ai-bg-v2",
+      "ext": "png",
+      "acl": null,
+      "roles": [
+        {
+          "role": "attempt-output",
+          "table": "image_prompt_attempts",
+          "row": "305"
+        }
+      ],
+      "width": 64,
+      "height": 64
+    },
+    {
+      "path": "/objects/uploads/d0/3db0e52f-7648-48a5-a149-1df936a41d6d",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
@@ -8373,11 +8433,11 @@
       "height": 64
     },
     {
-      "path": "/objects/uploads/d8/ce8c11d1-23be-4d54-ab72-5208f16b2a3b.jpg",
+      "path": "/objects/uploads/a1/e91cc951-35d2-435e-ad88-1e3bcae5d384.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
@@ -8391,11 +8451,11 @@
       "height": 64
     },
     {
-      "path": "/objects/uploads/6c/2ea5cb2a-e1e7-4afb-8d11-56266da87a92.jpg",
+      "path": "/objects/uploads/dd/89f83b8a-bf7a-43be-9e5a-1be760df11af.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
@@ -8409,11 +8469,11 @@
       "height": 64
     },
     {
-      "path": "/objects/uploads/c8/9e78acff-b897-4b45-bd24-56465189e296.jpg",
+      "path": "/objects/uploads/c8/a8f6a686-c5fb-404d-be68-455836919c7d.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
@@ -8427,11 +8487,11 @@
       "height": 64
     },
     {
-      "path": "/objects/uploads/a8/46c93eb4-b764-4c5c-a2ca-35e6c4dd97b3.jpg",
+      "path": "/objects/uploads/db/a795337a-7e0f-45df-a976-e3be3f6238ef.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "private"
       },
       "roles": [
@@ -8488,29 +8548,29 @@
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#e1369bab"
+          "row": "#283c19d7"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#7b8333b0"
+          "row": "#8246775f"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#a5c4e8b9"
+          "row": "#e38474b4"
         },
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#51171b41"
+          "row": "#cb0ef492"
         }
       ],
       "width": 1024,
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/4d/67-neutral-ref-fixture-0466.png",
+      "path": "/objects/ai-backgrounds/c5/67-neutral-ref-fixture-0470.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8526,7 +8586,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#7b8333b0"
+          "row": "#8246775f"
         },
         {
           "role": "ai-tracking-reference",
@@ -8538,7 +8598,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/3a/56-neutral-ref-fixture-0467.png",
+      "path": "/objects/ai-backgrounds/a8/56-neutral-ref-fixture-0471.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8554,7 +8614,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#a5c4e8b9"
+          "row": "#e38474b4"
         },
         {
           "role": "ai-tracking-reference",
@@ -8566,7 +8626,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/9a/67-male-ref-fixture-0468.png",
+      "path": "/objects/ai-backgrounds/1d/67-male-ref-fixture-0472.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8587,7 +8647,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#14060010"
+          "row": "#fc555758"
         },
         {
           "role": "ai-tracking-reference",
@@ -8599,7 +8659,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/31/56-male-ref-fixture-0469.png",
+      "path": "/objects/ai-backgrounds/6b/56-male-ref-fixture-0473.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8615,7 +8675,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#faa3b66c"
+          "row": "#cfeb6dbd"
         },
         {
           "role": "ai-tracking-reference",
@@ -8627,11 +8687,11 @@
       "height": 1024
     },
     {
-      "path": "/objects/uploads/68/a6d0f18a-6da3-4022-87c0-a72096bbae9e.jpg",
+      "path": "/objects/uploads/5b/b60a5cfb-a56b-4eea-93b7-6c066107d5d3.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "private"
       },
       "roles": [
@@ -8643,77 +8703,77 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#5a31874e"
+          "row": "#0f3a4a0b"
         }
       ],
       "width": 2592,
       "height": 1944
     },
     {
-      "path": "/objects/uploads/b0/a89c183d-e96e-42ed-b8bf-4a8a916ab371.jpg",
+      "path": "/objects/uploads/16/be6cd418-2023-4a18-bbd3-dad7865afd09.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#faa3b66c"
+          "row": "#cfeb6dbd"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#e64fed54"
+          "row": "#39abc1b8"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#855cfe91"
+          "row": "#c50dc4b8"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#c2809669"
+          "row": "#15a5934b"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#dab431ff"
+          "row": "#7e22905e"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#c9d5096a"
+          "row": "#acf48120"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#271fdded"
+          "row": "#24aaabee"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#14060010"
+          "row": "#fc555758"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#83e08fc9"
+          "row": "#701ac13c"
         },
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#b2594bd1"
+          "row": "#79849ae6"
         }
       ],
       "width": 3088,
       "height": 2316
     },
     {
-      "path": "/objects/ai-backgrounds/c5/67-neutral-ref-fixture-0470.png",
+      "path": "/objects/ai-backgrounds/34/67-neutral-ref-fixture-0474.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8724,7 +8784,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#e1369bab"
+          "row": "#283c19d7"
         },
         {
           "role": "ai-tracking-reference",
@@ -8736,7 +8796,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/7f/67-male-fixture-0471.jpg",
+      "path": "/objects/ai-backgrounds/fa/67-male-fixture-0475.jpg",
       "kind": "ai-background",
       "ext": "jpg",
       "acl": {
@@ -8747,7 +8807,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#e2057e4f"
+          "row": "#910e3dce"
         },
         {
           "role": "ai-tracking-reference",
@@ -8759,40 +8819,40 @@
       "height": 1024
     },
     {
-      "path": "/objects/uploads/f2/08346309-b09f-4e9b-8c7f-b505ea24239a.jpg",
+      "path": "/objects/uploads/5b/7d854165-e4a3-49f3-bead-e0b9794cf0b4.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#e2057e4f"
+          "row": "#910e3dce"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#cf261007"
+          "row": "#d7e243e9"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#b87f32a4"
+          "row": "#535eaf15"
         },
         {
           "role": "upload-metadata-profile",
           "table": "upload_image_metadata",
-          "row": "#b77724df"
+          "row": "#f7cc6fdf"
         }
       ],
       "width": 4032,
       "height": 3024
     },
     {
-      "path": "/objects/ai-backgrounds/cc/34747-female-ref-fixture-0472.png",
+      "path": "/objects/ai-backgrounds/80/34747-female-ref-fixture-0476.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8803,7 +8863,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#9ba45c0f"
+          "row": "#9296e0c9"
         },
         {
           "role": "ai-tracking-reference",
@@ -8815,30 +8875,30 @@
       "height": 1024
     },
     {
-      "path": "/objects/uploads/20/23bbd378-3e85-41ce-9c28-090adb3f2203.jpg",
+      "path": "/objects/uploads/bd/26e46c54-279d-4fcb-a9f1-329e7d2c024c.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "ce544d43-ac42-4230-981e-c3aea6414a14",
+        "owner": "b65160b0-c83c-4194-9d9b-101887344d58",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#9ba45c0f"
+          "row": "#9296e0c9"
         },
         {
           "role": "upload-metadata-profile",
           "table": "upload_image_metadata",
-          "row": "#81162c09"
+          "row": "#436c5151"
         }
       ],
       "width": 0,
       "height": 0
     },
     {
-      "path": "/objects/ai-backgrounds/01/67-male-ref-fixture-0473.png",
+      "path": "/objects/ai-backgrounds/40/67-male-ref-fixture-0477.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8849,7 +8909,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#dbdf0809"
+          "row": "#af249540"
         },
         {
           "role": "ai-tracking-reference",
@@ -8861,30 +8921,30 @@
       "height": 1024
     },
     {
-      "path": "/objects/uploads/fe/0b82d0d5-4927-4aa7-84bb-a17be147bb69.jpg",
+      "path": "/objects/uploads/43/ad6c3229-1f94-42cd-8696-3a222bf8eb98.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#dbdf0809"
+          "row": "#af249540"
         },
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#acd2ce5a"
+          "row": "#72492059"
         }
       ],
       "width": 3088,
       "height": 2316
     },
     {
-      "path": "/objects/ai-backgrounds/8f/66-neutral-ref-fixture-0474.png",
+      "path": "/objects/ai-backgrounds/15/66-neutral-ref-fixture-0478.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8895,7 +8955,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#e64fed54"
+          "row": "#39abc1b8"
         },
         {
           "role": "ai-tracking-reference",
@@ -8907,7 +8967,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/3d/68-male-fixture-0475.jpg",
+      "path": "/objects/ai-backgrounds/9c/68-male-fixture-0479.jpg",
       "kind": "ai-background",
       "ext": "jpg",
       "acl": {
@@ -8918,7 +8978,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#2c54a872"
+          "row": "#14e56e08"
         },
         {
           "role": "ai-tracking-reference",
@@ -8930,35 +8990,35 @@
       "height": 1024
     },
     {
-      "path": "/objects/uploads/74/5068b6ee-7e4f-4bfe-abd4-62040249baf1.jpg",
+      "path": "/objects/uploads/09/547d686a-bfd7-4bda-a7b7-4696642a3949.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#2c54a872"
+          "row": "#14e56e08"
         },
         {
           "role": "upload-metadata-source",
           "table": "upload_image_metadata",
-          "row": "#87a521f5"
+          "row": "#8f184f02"
         },
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#fafa0b5c"
+          "row": "#bc5be678"
         }
       ],
       "width": 5712,
       "height": 4284
     },
     {
-      "path": "/objects/ai-backgrounds/8c/66-male-ref-fixture-0476.png",
+      "path": "/objects/ai-backgrounds/cf/66-male-ref-fixture-0480.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8969,7 +9029,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#855cfe91"
+          "row": "#c50dc4b8"
         },
         {
           "role": "ai-tracking-reference",
@@ -8981,7 +9041,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/68/69-male-ref-fixture-0477.png",
+      "path": "/objects/ai-backgrounds/1e/69-male-ref-fixture-0481.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -8992,7 +9052,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#c2809669"
+          "row": "#15a5934b"
         },
         {
           "role": "ai-tracking-reference",
@@ -9002,121 +9062,6 @@
       ],
       "width": 1024,
       "height": 1024
-    },
-    {
-      "path": "/objects/ai-backgrounds/45/68-male-fixture-0478.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "upload-metadata",
-          "table": "upload_image_metadata",
-          "row": "#87a521f5"
-        },
-        {
-          "role": "ai-tracking-reference",
-          "table": "user_ai_images",
-          "row": "623"
-        }
-      ],
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "path": "/objects/ai-backgrounds/8d/56-neutral-ref-fixture-0479.png",
-      "kind": "ai-background",
-      "ext": "png",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "upload-metadata",
-          "table": "upload_image_metadata",
-          "row": "#dab431ff"
-        },
-        {
-          "role": "ai-tracking-reference",
-          "table": "user_ai_images",
-          "row": "756"
-        }
-      ],
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "path": "/objects/ai-backgrounds/44/56-male-ref-fixture-0480.png",
-      "kind": "ai-background",
-      "ext": "png",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "upload-metadata",
-          "table": "upload_image_metadata",
-          "row": "#c9d5096a"
-        },
-        {
-          "role": "ai-tracking-reference",
-          "table": "user_ai_images",
-          "row": "763"
-        }
-      ],
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "path": "/objects/ai-backgrounds/08/67-male-ref-fixture-0481.png",
-      "kind": "ai-background",
-      "ext": "png",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "upload-metadata",
-          "table": "upload_image_metadata",
-          "row": "#b1ea9fff"
-        },
-        {
-          "role": "ai-tracking-reference",
-          "table": "user_ai_images",
-          "row": "85"
-        }
-      ],
-      "width": 1024,
-      "height": 1024
-    },
-    {
-      "path": "/objects/uploads/56/494c05b7-4e73-474e-b869-2eac4a767b89.jpg",
-      "kind": "upload",
-      "ext": "jpg",
-      "acl": {
-        "owner": "f065d250-0317-4048-ae85-985d31e6f40e",
-        "visibility": "private"
-      },
-      "roles": [
-        {
-          "role": "upload-metadata-source",
-          "table": "upload_image_metadata",
-          "row": "#b1ea9fff"
-        },
-        {
-          "role": "upload-metadata",
-          "table": "upload_image_metadata",
-          "row": "#6cb2fcb8"
-        }
-      ],
-      "width": 3000,
-      "height": 2250
     },
     {
       "path": "/objects/ai-backgrounds/04/68-male-fixture-0482.jpg",
@@ -9130,7 +9075,122 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#cf261007"
+          "row": "#8f184f02"
+        },
+        {
+          "role": "ai-tracking-reference",
+          "table": "user_ai_images",
+          "row": "623"
+        }
+      ],
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "path": "/objects/ai-backgrounds/8f/56-neutral-ref-fixture-0483.png",
+      "kind": "ai-background",
+      "ext": "png",
+      "acl": {
+        "owner": "system",
+        "visibility": "public"
+      },
+      "roles": [
+        {
+          "role": "upload-metadata",
+          "table": "upload_image_metadata",
+          "row": "#7e22905e"
+        },
+        {
+          "role": "ai-tracking-reference",
+          "table": "user_ai_images",
+          "row": "756"
+        }
+      ],
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "path": "/objects/ai-backgrounds/05/56-male-ref-fixture-0484.png",
+      "kind": "ai-background",
+      "ext": "png",
+      "acl": {
+        "owner": "system",
+        "visibility": "public"
+      },
+      "roles": [
+        {
+          "role": "upload-metadata",
+          "table": "upload_image_metadata",
+          "row": "#acf48120"
+        },
+        {
+          "role": "ai-tracking-reference",
+          "table": "user_ai_images",
+          "row": "763"
+        }
+      ],
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "path": "/objects/ai-backgrounds/b2/67-male-ref-fixture-0485.png",
+      "kind": "ai-background",
+      "ext": "png",
+      "acl": {
+        "owner": "system",
+        "visibility": "public"
+      },
+      "roles": [
+        {
+          "role": "upload-metadata",
+          "table": "upload_image_metadata",
+          "row": "#9f2eb42c"
+        },
+        {
+          "role": "ai-tracking-reference",
+          "table": "user_ai_images",
+          "row": "85"
+        }
+      ],
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "path": "/objects/uploads/cc/e8bc4a32-391d-4ba8-88fe-485ae7aca313.jpg",
+      "kind": "upload",
+      "ext": "jpg",
+      "acl": {
+        "owner": "5d0b1fdd-60df-40dc-b467-69ecb76ebd4d",
+        "visibility": "private"
+      },
+      "roles": [
+        {
+          "role": "upload-metadata-source",
+          "table": "upload_image_metadata",
+          "row": "#9f2eb42c"
+        },
+        {
+          "role": "upload-metadata",
+          "table": "upload_image_metadata",
+          "row": "#c017e4eb"
+        }
+      ],
+      "width": 3000,
+      "height": 2250
+    },
+    {
+      "path": "/objects/ai-backgrounds/0e/68-male-fixture-0486.jpg",
+      "kind": "ai-background",
+      "ext": "jpg",
+      "acl": {
+        "owner": "system",
+        "visibility": "public"
+      },
+      "roles": [
+        {
+          "role": "upload-metadata",
+          "table": "upload_image_metadata",
+          "row": "#d7e243e9"
         },
         {
           "role": "ai-tracking-reference",
@@ -9142,7 +9202,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/17/66-neutral-ref-fixture-0483.png",
+      "path": "/objects/ai-backgrounds/34/66-neutral-ref-fixture-0487.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9153,7 +9213,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#271fdded"
+          "row": "#24aaabee"
         },
         {
           "role": "ai-tracking-reference",
@@ -9165,7 +9225,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/0e/66-neutral-ref-fixture-0484.png",
+      "path": "/objects/ai-backgrounds/60/66-neutral-ref-fixture-0488.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9176,7 +9236,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#83e08fc9"
+          "row": "#701ac13c"
         },
         {
           "role": "ai-tracking-reference",
@@ -9188,7 +9248,7 @@
       "height": 1024
     },
     {
-      "path": "/objects/ai-backgrounds/35/69-male-fixture-0485.jpg",
+      "path": "/objects/ai-backgrounds/2a/69-male-fixture-0489.jpg",
       "kind": "ai-background",
       "ext": "jpg",
       "acl": {
@@ -9199,7 +9259,7 @@
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#b87f32a4"
+          "row": "#535eaf15"
         },
         {
           "role": "ai-tracking-reference",
@@ -9211,313 +9271,313 @@
       "height": 1024
     },
     {
-      "path": "/objects/uploads/39/9f384577-d4e1-4541-9576-61ba8a6a3f58.jpg",
+      "path": "/objects/uploads/ea/80859a53-141a-4588-86f0-cc9740c73ab3.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "6079189e-0880-4f42-bfab-973a60cadc20",
+        "owner": "dbce16e0-9fc0-40fc-bdfe-5102c1040ef5",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#45403c96"
+          "row": "#9afe7ab0"
         }
       ],
       "width": 2592,
       "height": 1944
     },
     {
-      "path": "/objects/uploads/87/bc25eadd-9d1a-49ee-9928-945a72375b59.jpg",
+      "path": "/objects/uploads/aa/54bfb340-d4d2-4fef-b170-72862729f26b.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#56757124"
+          "row": "#a087ac51"
         }
       ],
       "width": 3000,
       "height": 2250
     },
     {
-      "path": "/objects/uploads/46/98786e44-d3a7-4ca9-ada7-da81db712e1b.jpg",
+      "path": "/objects/uploads/98/1fcf8988-32f7-499d-8c62-fb605bf08097.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cf68a3e2-f7ba-4209-bd7e-ea932eef6565",
+        "owner": "6ea2411b-b765-4c3f-90c6-c65c393683e5",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#0dd3c5b1"
+          "row": "#529f6362"
         }
       ],
       "width": 100,
       "height": 100
     },
     {
-      "path": "/objects/uploads/75/2450dd54-6eef-40c4-bb92-113816aa9029.jpg",
+      "path": "/objects/uploads/53/c3a11b7b-d16f-46ff-82c4-2aae109a75f1.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "ce544d43-ac42-4230-981e-c3aea6414a14",
+        "owner": "b65160b0-c83c-4194-9d9b-101887344d58",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#ed863889"
+          "row": "#85f86609"
         }
       ],
       "width": 4032,
       "height": 3024
     },
     {
-      "path": "/objects/uploads/d1/e7f4d5fd-fe52-46ed-854e-19b95bc00221.jpg",
+      "path": "/objects/uploads/6a/644f5fac-23e3-4549-854d-473b84ccc896.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "27994f61-ae10-4ce4-9710-99be1cdaa233",
+        "owner": "5492f7c8-8f24-4254-9405-fce6b0319ae4",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "upload-metadata-profile",
           "table": "upload_image_metadata",
-          "row": "#73a084bc"
+          "row": "#af98f47b"
         }
       ],
       "width": 0,
       "height": 0
     },
     {
-      "path": "/objects/uploads/39/313fd275-bf64-4298-a5b2-a3fc4121da6a.jpg",
+      "path": "/objects/uploads/f2/d9d241a9-202a-4116-b80d-5b894e6b676d.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#ad678ff1"
+          "row": "#4854e0a5"
         }
       ],
       "width": 3000,
       "height": 2250
     },
     {
-      "path": "/objects/uploads/56/ca5c1270-5078-4256-82b2-816bb81a47ce.jpg",
+      "path": "/objects/uploads/fa/9ff6599c-29e5-47d6-b950-19504cdea88c.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "cc2a3363-3d39-4cc2-a55d-b04449566127",
+        "owner": "294e8cda-63c7-492f-8f3f-b721bd59bc00",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#59d1041c"
+          "row": "#b84c003d"
         }
       ],
       "width": 2592,
       "height": 1944
     },
     {
-      "path": "/objects/uploads/63/aba9f797-31aa-4483-ab85-dae06d11004a.jpg",
+      "path": "/objects/uploads/72/ef7bbd32-41dc-455c-a54a-4a59cadbc9b8.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "6079189e-0880-4f42-bfab-973a60cadc20",
+        "owner": "dbce16e0-9fc0-40fc-bdfe-5102c1040ef5",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#c0349958"
+          "row": "#ebf4420e"
         }
       ],
       "width": 860,
       "height": 554
     },
     {
-      "path": "/objects/uploads/f8/7588f59a-8fee-49a7-b0f3-5e4fc8607c5c.jpg",
+      "path": "/objects/uploads/8b/77f75d67-5fb9-4d39-a6e8-48cbdfca0751.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "0fa647ac-1704-45e8-8fd7-91879d8c94f6",
+        "owner": "d32dcbdd-7894-4ca0-9046-15c5bf523864",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#b9712834"
+          "row": "#2130dd2b"
         }
       ],
       "width": 100,
       "height": 100
     },
     {
-      "path": "/objects/uploads/61/2335fdd8-2bdf-46dc-a262-5a87e480d4e9.jpg",
+      "path": "/objects/uploads/e3/234a5eb7-45be-4550-8060-3d5285dac0fc.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "6079189e-0880-4f42-bfab-973a60cadc20",
+        "owner": "dbce16e0-9fc0-40fc-bdfe-5102c1040ef5",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#ce366f61"
+          "row": "#12e80ad6"
         }
       ],
       "width": 5712,
       "height": 4284
     },
     {
-      "path": "/objects/uploads/d0/4031fe27-043e-4fd1-bafc-78b8aa197a1a.jpg",
+      "path": "/objects/uploads/e5/67774d90-372c-4f39-bff1-d7ff3be589e6.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#1790f6a4"
+          "row": "#a26d34c5"
         }
       ],
       "width": 0,
       "height": 0
     },
     {
-      "path": "/objects/uploads/aa/86225a60-eb77-470e-98f2-d4adf0c1df02.jpg",
+      "path": "/objects/uploads/81/417e444c-0255-4ecb-9df4-8f1e3eef4c76.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#9e6177bc"
+          "row": "#0a58ccf0"
         }
       ],
       "width": 0,
       "height": 0
     },
     {
-      "path": "/objects/uploads/62/ca2e0016-37db-4d3e-8b95-07ae21b98937.jpg",
+      "path": "/objects/uploads/a5/a4a85055-5d55-470b-8bed-a92c69c023ba.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "public"
       },
       "roles": [
         {
           "role": "upload-metadata-profile",
           "table": "upload_image_metadata",
-          "row": "#aa2a68d3"
+          "row": "#7f350bd2"
         }
       ],
       "width": 0,
       "height": 0
     },
     {
-      "path": "/objects/uploads/02/1e2f1c5c-b6d2-4fbf-a546-a704f4d0dea2.jpg",
+      "path": "/objects/uploads/e3/a0156b2c-0801-4892-8999-9b87882dcd5c.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#a8a6baef"
+          "row": "#833d964f"
         }
       ],
       "width": 1448,
       "height": 1943
     },
     {
-      "path": "/objects/uploads/5b/29ada01d-5bd4-449e-9a5d-2ae70b89f1d9.jpg",
+      "path": "/objects/uploads/76/7b36a0ce-dc24-4c76-ae52-019e077a8cbe.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#ff3b4a4e"
+          "row": "#da036ffd"
         }
       ],
       "width": 3000,
       "height": 2250
     },
     {
-      "path": "/objects/uploads/42/5c3297ff-1f04-43f2-aadb-8698db7e8838.jpg",
+      "path": "/objects/uploads/06/d79379aa-051c-4528-9de7-297892630f31.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "b876055d-637a-4a05-97ee-0b4fc1e833e1",
+        "owner": "49875b19-f851-4fa4-9f2f-0f3475061b42",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#6f5c0ec8"
+          "row": "#5ff4e64b"
         }
       ],
       "width": 100,
       "height": 100
     },
     {
-      "path": "/objects/uploads/1c/dc6008f2-1267-4e0f-9f50-ce73d2964126.jpg",
+      "path": "/objects/uploads/6a/ddb08668-1fe3-4668-a5be-bead4f68dde6.jpg",
       "kind": "upload",
       "ext": "jpg",
       "acl": {
-        "owner": "3fcf007a-f59e-496f-8293-15221f305503",
+        "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e",
         "visibility": "private"
       },
       "roles": [
         {
           "role": "upload-metadata",
           "table": "upload_image_metadata",
-          "row": "#0edfd756"
+          "row": "#22e1991a"
         }
       ],
       "width": 3000,
       "height": 2250
     },
     {
-      "path": "/objects/ai-backgrounds/74/64-male-fixture-0486.png",
+      "path": "/objects/ai-backgrounds/1a/64-male-fixture-0490.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9535,7 +9595,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/3a/64-female-fixture-0487.png",
+      "path": "/objects/ai-backgrounds/70/64-female-fixture-0491.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9553,7 +9613,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/da/64-neutral-fixture-0488.png",
+      "path": "/objects/ai-backgrounds/e7/64-neutral-fixture-0492.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9571,7 +9631,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/b2/61-male-fixture-0489.png",
+      "path": "/objects/ai-backgrounds/74/61-male-fixture-0493.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9589,7 +9649,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/1a/64-male-fixture-0490.png",
+      "path": "/objects/ai-backgrounds/92/64-male-fixture-0494.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9607,7 +9667,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/70/64-female-fixture-0491.png",
+      "path": "/objects/ai-backgrounds/87/64-female-fixture-0495.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9625,7 +9685,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/a9/61-male-ref-fixture-0492.png",
+      "path": "/objects/ai-backgrounds/f2/61-male-ref-fixture-0496.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9643,7 +9703,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/78/61-male-ref-fixture-0493.png",
+      "path": "/objects/ai-backgrounds/a3/61-male-ref-fixture-0497.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9661,7 +9721,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/4e/61-male-ref-fixture-0494.png",
+      "path": "/objects/ai-backgrounds/91/61-male-ref-fixture-0498.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9679,7 +9739,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/9f/64-male-ref-fixture-0495.png",
+      "path": "/objects/ai-backgrounds/b9/64-male-ref-fixture-0499.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9697,7 +9757,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/ed/59-male-ref-fixture-0496.png",
+      "path": "/objects/ai-backgrounds/ff/59-male-ref-fixture-0500.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9715,7 +9775,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/a3/61-male-ref-fixture-0497.png",
+      "path": "/objects/ai-backgrounds/e8/61-male-ref-fixture-0501.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9733,7 +9793,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/91/61-male-ref-fixture-0498.png",
+      "path": "/objects/ai-backgrounds/41/61-male-ref-fixture-0502.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9751,7 +9811,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/7f/61-male-ref-fixture-0499.png",
+      "path": "/objects/ai-backgrounds/8d/61-male-ref-fixture-0503.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9769,7 +9829,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/61/61-male-ref-fixture-0500.png",
+      "path": "/objects/ai-backgrounds/35/61-male-ref-fixture-0504.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9787,7 +9847,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/e8/61-male-ref-fixture-0501.png",
+      "path": "/objects/ai-backgrounds/d9/61-male-ref-fixture-0505.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9805,7 +9865,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/7f/56-male-ref-fixture-0502.png",
+      "path": "/objects/ai-backgrounds/87/56-male-ref-fixture-0506.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9823,7 +9883,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/c3/56-male-ref-fixture-0503.png",
+      "path": "/objects/ai-backgrounds/98/56-male-ref-fixture-0507.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9841,7 +9901,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/a3/32-male-ref-fixture-0504.png",
+      "path": "/objects/ai-backgrounds/c1/32-male-ref-fixture-0508.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9859,7 +9919,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/87/56-male-ref-fixture-0505.png",
+      "path": "/objects/ai-backgrounds/59/56-male-ref-fixture-0509.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9877,7 +9937,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/4b/56-male-fixture-0506.png",
+      "path": "/objects/ai-backgrounds/b2/56-male-fixture-0510.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9895,7 +9955,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/6e/56-female-fixture-0507.png",
+      "path": "/objects/ai-backgrounds/b7/56-female-fixture-0511.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9913,7 +9973,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/49/56-neutral-fixture-0508.png",
+      "path": "/objects/ai-backgrounds/76/56-neutral-fixture-0512.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9931,7 +9991,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/59/56-male-ref-fixture-0509.png",
+      "path": "/objects/ai-backgrounds/c5/56-male-ref-fixture-0513.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9949,7 +10009,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/82/56-female-ref-fixture-0510.png",
+      "path": "/objects/ai-backgrounds/fd/56-female-ref-fixture-0514.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9967,7 +10027,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/14/61-female-ref-fixture-0511.png",
+      "path": "/objects/ai-backgrounds/59/61-female-ref-fixture-0515.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -9985,7 +10045,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/56/61-female-ref-fixture-0512.png",
+      "path": "/objects/ai-backgrounds/57/61-female-ref-fixture-0516.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10003,7 +10063,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/dd/32-male-fixture-0513.jpg",
+      "path": "/objects/ai-backgrounds/02/32-male-fixture-0517.jpg",
       "kind": "ai-background",
       "ext": "jpg",
       "acl": {
@@ -10021,7 +10081,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/fe/32-female-fixture-0514.jpg",
+      "path": "/objects/ai-backgrounds/ee/32-female-fixture-0518.jpg",
       "kind": "ai-background",
       "ext": "jpg",
       "acl": {
@@ -10039,7 +10099,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/cc/32-neutral-fixture-0515.jpg",
+      "path": "/objects/ai-backgrounds/04/32-neutral-fixture-0519.jpg",
       "kind": "ai-background",
       "ext": "jpg",
       "acl": {
@@ -10057,7 +10117,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/3d/32-female-ref-fixture-0516.png",
+      "path": "/objects/ai-backgrounds/cb/32-female-ref-fixture-0520.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10075,7 +10135,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/f1/32-female-ref-fixture-0517.png",
+      "path": "/objects/ai-backgrounds/24/32-female-ref-fixture-0521.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10093,7 +10153,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/9e/32-female-ref-fixture-0518.png",
+      "path": "/objects/ai-backgrounds/70/32-female-ref-fixture-0522.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10111,7 +10171,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/7c/32-female-ref-fixture-0519.png",
+      "path": "/objects/ai-backgrounds/e0/32-female-ref-fixture-0523.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10129,7 +10189,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/cb/32-female-ref-fixture-0520.png",
+      "path": "/objects/ai-backgrounds/9d/32-female-ref-fixture-0524.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10147,7 +10207,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/24/32-female-ref-fixture-0521.png",
+      "path": "/objects/ai-backgrounds/cd/32-female-ref-fixture-0525.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10165,7 +10225,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/2b/32-male-ref-fixture-0522.png",
+      "path": "/objects/ai-backgrounds/4f/32-male-ref-fixture-0526.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10183,7 +10243,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/a8/60-male-ref-fixture-0523.png",
+      "path": "/objects/ai-backgrounds/95/60-male-ref-fixture-0527.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10201,7 +10261,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/eb/32-male-ref-fixture-0524.png",
+      "path": "/objects/ai-backgrounds/e6/32-male-ref-fixture-0528.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10219,7 +10279,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/12/56-male-ref-fixture-0525.png",
+      "path": "/objects/ai-backgrounds/a7/56-male-ref-fixture-0529.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10237,7 +10297,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/10/32-neutral-ref-fixture-0526.png",
+      "path": "/objects/ai-backgrounds/8e/32-neutral-ref-fixture-0530.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10255,7 +10315,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/35/64-male-ref-fixture-0527.png",
+      "path": "/objects/ai-backgrounds/c9/64-male-ref-fixture-0531.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10273,7 +10333,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/e4/64-male-ref-fixture-0528.png",
+      "path": "/objects/ai-backgrounds/cc/64-male-ref-fixture-0532.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10291,7 +10351,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/0e/64-male-ref-fixture-0529.png",
+      "path": "/objects/ai-backgrounds/d2/64-male-ref-fixture-0533.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10309,7 +10369,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/fc/63-male-ref-fixture-0530.png",
+      "path": "/objects/ai-backgrounds/70/63-male-ref-fixture-0534.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10327,7 +10387,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/52/32-male-ref-fixture-0531.png",
+      "path": "/objects/ai-backgrounds/a4/32-male-ref-fixture-0535.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10345,7 +10405,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/9c/66-male-ref-fixture-0532.png",
+      "path": "/objects/ai-backgrounds/92/66-male-ref-fixture-0536.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10363,7 +10423,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/26/59-female-ref-fixture-0533.png",
+      "path": "/objects/ai-backgrounds/fd/59-female-ref-fixture-0537.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10381,7 +10441,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/06/56-male-fixture-0534.png",
+      "path": "/objects/ai-backgrounds/45/56-male-fixture-0538.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10399,7 +10459,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/a4/32-male-ref-fixture-0535.png",
+      "path": "/objects/ai-backgrounds/fa/32-male-ref-fixture-0539.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10417,7 +10477,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/24/42-neutral-ref-fixture-0536.png",
+      "path": "/objects/ai-backgrounds/df/42-neutral-ref-fixture-0540.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10435,7 +10495,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/43/42-neutral-ref-fixture-0537.png",
+      "path": "/objects/ai-backgrounds/39/42-neutral-ref-fixture-0541.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10453,7 +10513,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/55/42-neutral-ref-fixture-0538.png",
+      "path": "/objects/ai-backgrounds/8a/42-neutral-ref-fixture-0542.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10471,7 +10531,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/7d/42-neutral-ref-fixture-0539.png",
+      "path": "/objects/ai-backgrounds/f6/42-neutral-ref-fixture-0543.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10489,7 +10549,7 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/df/42-neutral-ref-fixture-0540.png",
+      "path": "/objects/ai-backgrounds/2a/42-neutral-ref-fixture-0544.png",
       "kind": "ai-background",
       "ext": "png",
       "acl": {
@@ -10510,131 +10570,131 @@
   "legacyMemeImages": [
     {
       "slug": "82af5b4c89e8",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "03fedd2df8d4",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "2ee0ffeeba8b",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "44b481017888",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "72c9d76a1767",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "7d985f3410e6",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "4776162bb8b1",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "54466c67eb79",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "65b534c8fa69",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "b436157c25ed",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "6c78f1993c41",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "19f8403d3a67",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "6abdca31ee0c",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "4bb297465e08",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "a708513ae138",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "4c2e8804b988",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "734454ab9185",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "aa099c2391bb",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "aff81e104070",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "f3d141be3610",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "f4ce66c91e1c",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "009b6fea75e2",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "66181950b148",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "52f740369600",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "480c07754022",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "9d8e93e9815c",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "24aef196ff7a",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "4eca4b690c96",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "eef4891b2f49",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "c048ae101395",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "a81e898baaaa",
-      "owner": "3fcf007a-f59e-496f-8293-15221f305503"
+      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
       "slug": "a62e02733e22",
-      "owner": "079b33b4-c674-481e-8f5b-fef6f83916f6"
+      "owner": "6d29704a-3872-4ef0-909e-4db3a52c4099"
     }
   ],
   "predicates": {
@@ -10734,7 +10794,11 @@
       "298": "current",
       "299": "current",
       "300": "current",
-      "301": "current"
+      "301": "current",
+      "302": "current",
+      "303": "current",
+      "304": "current",
+      "305": "current"
     },
     "candidateTextHash": {
       "37": "current",
@@ -11121,7 +11185,7 @@
     "renderAttempts": {
       "stale": 77,
       "no-context": 12,
-      "current": 7
+      "current": 11
     },
     "candidateTextHash": {
       "current": 63,
@@ -11134,24 +11198,43 @@
     }
   },
   "checks": {
-    "rendered:attempt": 212,
+    "rendered:attempt": 220,
     "rendered:meme": 66,
     "hashtags:rebuilt": 45,
-    "ref:pending_reviews.candidate_version_id": 62,
-    "ref:fact_enrichment_versions.source_review_id": 64,
-    "ref:pending_reviews.staging_fact_id": 84,
-    "ref:pending_reviews.approved_fact_id": 15,
-    "ref:pending_reviews.matching_fact_id": 34,
+    "ref:tier_feature_permissions.feature_key": 42,
+    "ref:admin_config.updated_by_id": 16,
+    "ref:facts.submitted_by_id": 21,
     "ref:facts.parent_id": 4,
-    "ref:image_prompt_attempts.review_id": 96,
-    "ref:image_prompt_attempts.fact_id": 106,
-    "ref:memes.fact_id": 65,
+    "ref:fact_hashtags.fact_id": 132,
+    "ref:fact_hashtags.hashtag_id": 132,
+    "ref:pending_reviews.submitted_by_id": 39,
+    "ref:pending_reviews.matching_fact_id": 34,
+    "ref:pending_reviews.staging_fact_id": 84,
+    "ref:pending_reviews.reviewed_by_id": 60,
+    "ref:pending_reviews.approved_fact_id": 15,
+    "ref:pending_reviews.production_rejected_by_id": 21,
+    "ref:pending_reviews.candidate_version_id": 62,
     "ref:fact_enrichment_versions.fact_id": 64,
+    "ref:fact_enrichment_versions.source_review_id": 64,
+    "ref:fact_enrichment_versions.created_by": 63,
+    "ref:enrichment_override_history.fact_id": 206,
+    "ref:enrichment_override_history.performed_by": 206,
+    "ref:image_prompt_attempts.fact_id": 110,
+    "ref:image_prompt_attempts.review_id": 100,
+    "ref:memes.fact_id": 65,
+    "ref:memes.created_by_id": 65,
+    "ref:upload_image_metadata.user_id": 42,
     "ref:upload_image_metadata.fact_id": 20,
+    "ref:user_ai_images.user_id": 111,
     "ref:user_ai_images.fact_id": 111,
     "ref:comments.fact_id": 9,
-    "ref:fact_hashtags.hashtag_id": 132,
-    "ref:tier_feature_permissions.feature_key": 42,
+    "ref:comments.author_id": 9,
+    "ref:ratings.fact_id": 10,
+    "ref:ratings.user_id": 10,
+    "ref:reactions.user_id": 19,
+    "ref:membership_entitlements.user_id": 1,
+    "ref:membership_history.user_id": 13,
+    "ref:user_generation_costs.user_id": 40,
     "ref:dangling-on-source:user_generation_costs.user_id": 2,
     "validator:facts.enrichment": 53,
     "validator:facts.enrichment_ai_derived": 53,
@@ -11167,13 +11250,13 @@
     "validator:fact_enrichment_versions.signature": 58,
     "validator:enrichment_override_history.old_value": 206,
     "validator:enrichment_override_history.new_value": 199,
-    "validator:image_prompt_attempts.fact_enrichment_snapshot": 106,
-    "validator:image_prompt_attempts.visual_plan": 106,
-    "validator:image_prompt_attempts.compiled_prompt": 106,
-    "validator:image_prompt_attempts.render_controls": 106,
-    "validator:image_prompt_attempts.identity_policy": 106,
-    "validator:image_prompt_attempts.source_image_analysis": 106,
-    "validator:image_prompt_attempts.subject_fact_compatibility": 106,
+    "validator:image_prompt_attempts.fact_enrichment_snapshot": 110,
+    "validator:image_prompt_attempts.visual_plan": 110,
+    "validator:image_prompt_attempts.compiled_prompt": 110,
+    "validator:image_prompt_attempts.render_controls": 110,
+    "validator:image_prompt_attempts.identity_policy": 110,
+    "validator:image_prompt_attempts.source_image_analysis": 110,
+    "validator:image_prompt_attempts.subject_fact_compatibility": 110,
     "validator:memes.image_source": 33,
     "validator:memes.text_options": 65,
     "validator:facts.ai_scene_prompts": 42,
@@ -11181,37 +11264,37 @@
     "validator:facts.pexels_images": 49,
     "reader:facts.resolveEnrichment": 53,
     "reader:fact_enrichment_versions.resolveEnrichment": 64,
-    "reader:image_prompt_attempts.promptIdentity": 106,
-    "credential-scan:rows": 1239
+    "reader:image_prompt_attempts.promptIdentity": 110,
+    "credential-scan:rows": 1243
   },
   "files": {
     "feature_flags.ndjson": "4f28dabc135c2c854dec8e7d95f38ddf4fd6b9d4de239301414e46af4d86de63",
     "tier_feature_permissions.ndjson": "5e4a64c3a211516f784720f295c97169077d22fdaef8c5e2d2ec78345c330901",
     "entitlement_grid_revision.ndjson": "f5d57099b529a736e29e046ecb6893a9d7d13ff6376fdbbbe625aca7a3bf3178",
-    "engines.ndjson": "0330749d9081d1dbcc9792e40bc7a7a875189d111ac8efa6b5817143fe9495b6",
+    "engines.ndjson": "50130c92e5e2e557180251291f22a26d3f090bf19834305b02cbfaf1a4411273",
     "look_styles.ndjson": "7d57f4ab3ad1ae59419544ce5c44b68a3e06dc68867ef26ed6a14edc3a67f982",
     "motion_presets.ndjson": "c48123edbd59ccc3387751ff70ccde5c6c51801839eb0a85d240282d4c648ab1",
     "hero_examples.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "fal_pricing_cache.ndjson": "390f3265b8ad218e3c0c5614d0e54841ec2222e88cb0a0799b674bad406d7e5f",
-    "users.ndjson": "29d9083c20fe8d91dc9c8b58bae350eb3a532142c2230ddcac4d901b951406bf",
-    "admin_config.ndjson": "c0c21a83c261cf514007bb586d08e3f01411058adc0f577dcefce6f100b54092",
-    "facts.ndjson": "1c2efd9fc1e038ad2c36b5e241e18d0c72518b4e52a3bee403c0f29965c7abae",
+    "fal_pricing_cache.ndjson": "842d1c9f6e095e12fb9f68a14548666e7680e92c166d34ac0271b5102cee02c8",
+    "users.ndjson": "3b36e70de0eb2d05a25777069e8855b51cec9bc1c4902e480d1b42f5a929d918",
+    "admin_config.ndjson": "7ec6a31aceac97da2c3c2b68340fd399e72fe82604bc9ae6822b771d6f2101f8",
+    "facts.ndjson": "26698879d6149020f38fff19444421f747c2b1061a524cb365cdd2ecf23fa28a",
     "hashtags.ndjson": "f1a20855fd0ae428dddd38b8a6aab1262373c90d3140dd033aff4dcf90e2182e",
     "fact_hashtags.ndjson": "0a3dd9ae348b8b40e31c395e5c3b7488829cc03e97aed3cfe8821ff360f20237",
-    "pending_reviews.ndjson": "0af680fbb46fc77a619a95cddd777a53c6bf53d10b3e7e645335736bc93814bf",
-    "fact_enrichment_versions.ndjson": "a616a0b0ac7873613da7473e112362a9ef0266a8253df209af8f2ce1f23610fa",
-    "enrichment_override_history.ndjson": "5632a947e1982a67b8b81523160cab92a69df2ea441ecba2bc8dc02b8e121136",
+    "pending_reviews.ndjson": "76ef9c13241f7f9ee256661cdd75b9212229db5163b22172a7bcf56b4aeaf74e",
+    "fact_enrichment_versions.ndjson": "ad4b146109618701eab8d12302a2c9df180d526ceeb79cc9ad2e3057b2bc50d5",
+    "enrichment_override_history.ndjson": "f352cef14d74908c56329fc009c1355ea85641b20897d3842ad043c059db8d79",
     "fact_text_edit_history.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "image_prompt_attempts.ndjson": "5b413613824685ef83273a6c0bbe73f3528ec713354ce83a15cb0882d97784a6",
-    "memes.ndjson": "e3bc8a125f85a6bb3c0959fb204a803029fc0e4de050d229fe2d570d5fa64e31",
-    "upload_image_metadata.ndjson": "fc14cb7e1f67bc105d9eeb4631445b962a6598cf457fbd703c41b800d4242e17",
-    "user_ai_images.ndjson": "ac6c19fa39fdd8b3cbfaa838ac52a7cfcb67aeb137d770d264bbf9f8ddc953ef",
-    "comments.ndjson": "ba164b3d35682660a393bba0b6eb27bcf406d299c6d32249186aa4149a2ed937",
-    "ratings.ndjson": "69b270132964b0383bdd045fc9b5ffc39e6726243170b9f6d13daa4e7c87474b",
-    "reactions.ndjson": "4eb3ab5b92eb2a5689f259ae57b8ed952e3ce9fc15c776ccad786454d4d4758c",
+    "image_prompt_attempts.ndjson": "df413a4fa4a3e77843d64afb1db0de09bab9027d7f9fd631223312d576a08c45",
+    "memes.ndjson": "bf0c02167f63cf0c63f5739e9c666b1fbe5e9fb76e13d9065a52db44ac4223db",
+    "upload_image_metadata.ndjson": "04d30941e6919d506f5b9c996523fbdd975e13f8b97a5d6bf6b41a80ab522406",
+    "user_ai_images.ndjson": "a6a6acf3475687e4830d03954a14605e647c3f8df707a71c88128e843bf113f1",
+    "comments.ndjson": "cbe22b157c367c4a3e4e7ade6345593f230b2c48d10d596a9155a94d30e09a69",
+    "ratings.ndjson": "e83328a94e779476b780ad61ffdf22d8efc9237e535a0d7b60e83bb80ab831d5",
+    "reactions.ndjson": "07f11d97ead5b7149beb390ca30d56d7d51c75ce290ff5c480c43d8586cf8ab0",
     "external_links.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "membership_entitlements.ndjson": "0e9491b76d3ad0be399fea7ae1af0976adc94e277482324032e968782233c6f0",
-    "membership_history.ndjson": "3e64181d1762d8c050247d671e9658ddb3e439e8b700e7b1a7eb694a066fa272",
-    "user_generation_costs.ndjson": "24317e396796c9f8825011ed93f90919254c8477ff18f37f869d677171d486be"
+    "membership_entitlements.ndjson": "b77f4bdd62d4c7f6c55202e6c45c5ae83f79a74948bedb2bdf2ee2e30382f3a0",
+    "membership_history.ndjson": "c92540762edf80b47f52ff118dd701bd44b93fb2f8c340839f25ee3e874a011f",
+    "user_generation_costs.ndjson": "d4dbd39b97eddd8fae6fe21645d8738381c14597c0d6889a31ced0e26f6f8c72"
   }
 }

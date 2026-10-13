@@ -7,9 +7,9 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 
 ## What it is
 
-- Extracted at source commit `62611281998007b06e44e7dc5753e36f14341118`, whose journal holds 102 migrations (latest `0101_user_generation_costs_is_estimated`), all applied on the source; scrub ruleset version 1.
-- `manifest.json` sha256 `881dabd8d062df14dcd1a1107286adc7801216d78e5e193f69b5af52ececdfab`. A recording made over this fixture names that digest.
-- 1239 rows in 28 tables, one NDJSON file per table.
+- Extracted at source commit `efe0732ffe0ba54a7061486a94f77a9506884b04`, whose journal holds 102 migrations (latest `0101_user_generation_costs_is_estimated`), all applied on the source; scrub ruleset version 2.
+- `manifest.json` sha256 `864bfcf551fedd009feb84c951e2e5ba0a9aaa962336cb8dde85ea3c40f3b882`. A recording made over this fixture names that digest.
+- 1243 rows in 28 tables, one NDJSON file per table.
 
 | Table | Rows |
 |---|---|
@@ -30,7 +30,7 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 | `fact_enrichment_versions` | 64 |
 | `enrichment_override_history` | 206 |
 | `fact_text_edit_history` | 0 |
-| `image_prompt_attempts` | 106 |
+| `image_prompt_attempts` | 110 |
 | `memes` | 65 |
 | `upload_image_metadata` | 45 |
 | `user_ai_images` | 111 |
@@ -55,7 +55,7 @@ to refresh it: `docs/tests/TESTING.md`, *The legacy fixture*.
 
 The freshness outcomes of stored renders, concepts and candidates were recorded on the source with the real readers. The loader restores them and re-asks the readers, and refuses to finish if any answer differs.
 
-- Render attempts: stale 77, no-context 12, current 7.
+- Render attempts: stale 77, no-context 12, current 11.
 - Candidate text hashes: current 63, stale 1.
 - Concept blobs: stale:review_mismatch 30, stale:input_hash_mismatch 40, current 8.
 - Facts the embedding backfill would pick up: 0.
