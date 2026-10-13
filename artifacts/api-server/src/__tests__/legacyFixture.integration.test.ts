@@ -26,6 +26,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import { request as httpRequest } from "node:http";
 import { connect as netConnect } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -289,7 +290,7 @@ describe("the legacy fixture", { skip: skipReason }, () => {
       let lastError = "";
       for (;;) {
         try {
-          const res = await fetch(`${base}/api/healthz`);
+          const res = await httpFetch(`${base}/api/healthz`);
           if (res.ok) break;
           lastError = `healthz answered ${res.status}`;
         } catch (err) {
@@ -393,6 +394,33 @@ interface Session {
 }
 
 /** A cookie jar with the double-submit CSRF token, as the SPA uses it (app.ts:21-22). */
+/**
+ * HTTP to the booted server over node:http, never the global fetch: under the runner's one-process
+ * mode another file's top-level hooks can leave a fetch stub installed until the whole process ends
+ * (falPricing.test.ts installs one in a root `before` and restores it in a root `after`).
+ */
+function httpFetch(url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<Response> {
+  return new Promise((resolveP, rejectP) => {
+    const req = httpRequest(url, { method: init.method ?? "GET", headers: init.headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("error", rejectP);
+      res.on("end", () => {
+        const headers = new Headers();
+        for (const [k, v] of Object.entries(res.headers)) {
+          for (const one of Array.isArray(v) ? v : v === undefined ? [] : [v]) headers.append(k, one);
+        }
+        const status = res.statusCode ?? 0;
+        const noBody = status === 204 || status === 304 || (status >= 100 && status < 200);
+        resolveP(new Response(noBody ? null : Buffer.concat(chunks), { status, headers }));
+      });
+    });
+    req.on("error", rejectP);
+    if (init.body !== undefined) req.write(init.body);
+    req.end();
+  });
+}
+
 async function session(base: string): Promise<Session> {
   const cookies = new Map<string, string>();
   const absorb = (res: Response) => {
@@ -402,13 +430,13 @@ async function session(base: string): Promise<Session> {
       if (eq > 0) cookies.set(pair!.slice(0, eq).trim(), pair!.slice(eq + 1).trim());
     }
   };
-  absorb(await fetch(`${base}/api/config`));
+  absorb(await httpFetch(`${base}/api/config`));
   return {
     async req(method, url, body) {
       const headers: Record<string, string> = { Cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join("; ") };
       if (method !== "GET") headers["X-CSRF-Token"] = cookies.get("csrf_token") ?? "";
       if (body !== undefined) headers["Content-Type"] = "application/json";
-      const res = await fetch(`${base}${url}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: "manual" });
+      const res = await httpFetch(`${base}${url}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
       absorb(res);
       return res;
     },
