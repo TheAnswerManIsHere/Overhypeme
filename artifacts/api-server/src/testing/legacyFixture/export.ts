@@ -30,6 +30,7 @@ import { placeholderFor, type PlaceholderFact } from "./placeholderFacts";
 import { emptyPredicateRecord, predicateCounts, type PredicateRecord } from "./predicates";
 import { Scrubber, type SyntheticPerson } from "./scrub";
 import { SHAPES, type ShapeName } from "./shapes";
+import { journalHead } from "./journal";
 import { ShapeStop, type WalkContext } from "./walker";
 
 export const SCRUB_RULESET_VERSION = "1";
@@ -44,7 +45,8 @@ export interface ExportManifest {
   fixture: "overhype-legacy";
   scrubRulesetVersion: string;
   sourceCommit: string;
-  migrationHead: { count: number; latestCreatedAt: string | null };
+  /** The journal the export's code was built against, and how much of it the source had applied (journal.ts). */
+  migrationHead: { journalEntries: number; latestTag: string; appliedOnSource: number; sourceLedgerRows: number };
   extractedAt: string;
   rowCounts: Record<string, number>;
   excludedByPredicate: Record<string, number>;
@@ -171,7 +173,8 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
   const client = new pg.Client({ connectionString: opts.sourceUrl });
   await client.connect();
   const source = new Map<string, Row[]>();
-  let migrationHead = { count: 0, latestCreatedAt: null as string | null };
+  const journal = journalHead();
+  let migrationHead: ExportManifest["migrationHead"] = { journalEntries: journal.entries, latestTag: journal.latestTag, appliedOnSource: 0, sourceLedgerRows: 0 };
   let stripe: StripeTestIds;
   let peopleRows: Array<{ id: string; display_name: string | null; email: string | null }>;
   let embeddingBackfill = 0;
@@ -186,10 +189,13 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
     }
     if (stops.length) return { manifest: undefined as never, tables: new Map(), stops, mediaPatterns };
 
-    const head = await client
-      .query<{ count: string; latest: string | null }>(`SELECT count(*)::text AS count, max(created_at)::text AS latest FROM drizzle.__drizzle_migrations`)
-      .catch(() => ({ rows: [{ count: "0", latest: null }] }));
-    migrationHead = { count: Number(head.rows[0]!.count), latestCreatedAt: head.rows[0]!.latest };
+    const ledger = (await client.query<{ hash: string }>(`SELECT hash FROM drizzle.__drizzle_migrations`)).rows.map((r) => r.hash);
+    const applied = new Set(ledger);
+    migrationHead = { ...migrationHead, appliedOnSource: journal.hashes.filter((h) => applied.has(h)).length, sourceLedgerRows: ledger.length };
+    if (migrationHead.appliedOnSource < journal.entries) {
+      stops.push(`the source has applied ${migrationHead.appliedOnSource} of this commit's ${journal.entries} migrations: migrate it, or export from the commit it is at`);
+      return { manifest: undefined as never, tables: new Map(), stops, mediaPatterns };
+    }
 
     stripe = await readStripeTestIds(client);
 

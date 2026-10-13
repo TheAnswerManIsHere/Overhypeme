@@ -35,6 +35,7 @@ import bcrypt from "bcryptjs";
 import { markTestDatabaseSql } from "@workspace/db/test-database";
 
 import { KEPT_FACT_TEXT, SENTINELS } from "./helpers/legacyFixtureSentinels";
+import { objectPathOf } from "../testing/legacyFixture/media";
 import { portForChildProcess } from "./helpers/childProcessPort";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -224,7 +225,8 @@ describe("the legacy fixture", { skip: skipReason }, () => {
 
     // Every placeholder exists in the storage double.
     for (const p of manifest.placeholders as Array<{ path: string }>) {
-      assert.ok(fs.existsSync(path.join(storage, "data", "fixture-bucket", "private", p.path.replace(/^\/objects\//, ""))), `placeholder ${p.path} was not written`);
+      const objectPath = objectPathOf(p.path)!;
+      assert.ok(fs.existsSync(path.join(storage, "data", "fixture-bucket", "private", objectPath.replace(/^\/objects\//, ""))), `placeholder ${p.path} was not written`);
     }
 
     // The loader's refusals.
@@ -288,6 +290,11 @@ describe("the legacy fixture", { skip: skipReason }, () => {
         await new Promise((r) => setTimeout(r, 500));
       }
       fs.writeFileSync(path.join(scratch, "boot.log"), log);
+      // The boot log's verdicts travel with the run (plan, Definition of Done: "the boot log is in the PR").
+      const bootLines = log.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
+      const flagged = bootLines.filter((l) => /\b(WARN|ERROR|FATAL)\b/.test(l));
+      t.diagnostic(`boot log: ${bootLines.length} lines, ${flagged.length} at WARN or above`);
+      for (const l of flagged.slice(0, 40)) t.diagnostic(`boot: ${l.trim().slice(0, 240)}`);
 
       const admin = await session(base);
       assert.equal((await admin.req("POST", "/api/auth/dev-admin-login")).status, 200);
@@ -314,13 +321,21 @@ describe("the legacy fixture", { skip: skipReason }, () => {
         if (expect === 200) assert.ok(isImage(Buffer.from(await res.arrayBuffer())), `${what} did not decode as an image`);
       };
       const anon = await session(base);
+      // A stock meme that stores only its Pexels id is resolved through Pexels on every read (routes/memes.ts:169-190),
+      // which has no double: it is increment 6's (plan D8), so it is counted here, not read.
       const memes = await query<{ permalink_slug: string; kind: string }>(
         target,
         `SELECT DISTINCT ON (COALESCE(image_source->>'type', 'legacy')) permalink_slug, COALESCE(image_source->>'type', 'legacy') AS kind
-           FROM memes WHERE is_public AND deleted_at IS NULL AND status = 'live' ORDER BY COALESCE(image_source->>'type', 'legacy'), id`,
+           FROM memes WHERE is_public AND deleted_at IS NULL AND status = 'live'
+            AND NOT (COALESCE(image_source->>'type', '') = 'stock' AND NOT COALESCE(image_source ? 'photoUrl', false))
+          ORDER BY COALESCE(image_source->>'type', 'legacy'), id`,
       );
       for (const m of memes) if (m.kind !== "identity") await image(anon, `/api/memes/${m.permalink_slug}/image`, 200, `a ${m.kind} meme`);
-      t.diagnostic(`meme kinds read: ${memes.map((m) => m.kind).join(", ") || "none"}`);
+      const [{ n: pexelsOnly }] = await query<{ n: number }>(
+        target,
+        `SELECT count(*)::int AS n FROM memes WHERE image_source->>'type' = 'stock' AND NOT image_source ? 'photoUrl'`,
+      );
+      t.diagnostic(`meme kinds read: ${memes.map((m) => m.kind).join(", ") || "none"}; stock memes needing Pexels to render, left to increment 6: ${pexelsOnly}`);
 
       const [avatar] = await query<{ url: string }>(target, "SELECT profile_image_url AS url FROM users WHERE profile_image_url LIKE '%/objects/uploads/%' LIMIT 1");
       if (avatar) await image(anon, avatar.url.replace(/^.*?\/objects\//, "/api/storage/objects/"), 200, "a public avatar");

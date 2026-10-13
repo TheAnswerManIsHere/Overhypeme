@@ -242,7 +242,8 @@ await db.insert(t.uploadImageMetadataTable).values([
   // The newer pipeline's lineage row (transform "phase2_v2", imagePromptJobs.ts:697-705) cannot exist: uim_transform_chk
   // (0048_meme_builder_lineage.sql:49-50) allows only the PuLID values, so that best-effort insert is always refused.
 ]);
-await db.update(t.usersTable).set({ profileImageUrl: profilePath, avatarSource: "photo" }).where(sql`id = ${userId}`);
+// The form the product stores (routes/users.ts:326 strips it back off).
+await db.update(t.usersTable).set({ profileImageUrl: `/api/storage${profilePath}`, avatarSource: "photo" }).where(sql`id = ${userId}`);
 
 // Memes: a legacy composite, an upload recipe, a stock recipe, a quarantined one (excluded).
 const meme = (slug: string, extra: Record<string, unknown>) => ({

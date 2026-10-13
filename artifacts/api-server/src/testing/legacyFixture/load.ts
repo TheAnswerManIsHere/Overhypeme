@@ -29,7 +29,8 @@ import { createCanvas } from "@napi-rs/canvas";
 import { memeKey } from "../../lib/storageKeys";
 import { includedTables, sqlColumnRules, sqlName } from "./allowlist";
 import type { ExportManifest, Row } from "./export";
-import type { MediaPlaceholder } from "./media";
+import { journalHead } from "./journal";
+import { objectPathOf, type MediaPlaceholder } from "./media";
 
 /** Tables whose rows are product configuration: upserted over the migration seed rather than inserted. */
 const CONFIG_TABLES = new Set([
@@ -51,7 +52,7 @@ export interface LoadReport {
   rowCounts: Record<string, number>;
   placeholdersWritten: number;
   predicateProblems: string[];
-  migrationHeads: { fixture: number; target: number };
+  migrationHeads: { fixture: number; code: number };
 }
 
 export function readManifest(fixtureDir: string): ExportManifest {
@@ -85,7 +86,7 @@ function primaryKeyColumns(table: (typeof includedTables extends () => Array<inf
   return composite ?? cfg.columns.filter((c) => c.primary).map((c) => c.name);
 }
 
-export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Promise<{ rowCounts: Record<string, number>; migrationHeads: { fixture: number; target: number } }> {
+export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Promise<{ rowCounts: Record<string, number>; migrationHeads: { fixture: number; code: number } }> {
   const manifest = readManifest(fixtureDir);
   const bad = verifyFixtureFiles(fixtureDir, manifest);
   if (bad.length) throw new Error(`[legacy-fixture] the fixture's files do not match its manifest:\n  ${bad.join("\n  ")}`);
@@ -93,18 +94,21 @@ export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Pr
   const client = new pg.Client({ connectionString: targetUrl });
   await client.connect();
   const rowCounts: Record<string, number> = {};
-  let targetHead = 0;
+  const journal = journalHead();
   try {
     // The target must be empty of people, facts and memes: the loader inserts the fixture's own ids.
     for (const t of ["users", "facts", "memes"]) {
       const { rows } = await client.query<{ n: string }>(`SELECT count(*)::text AS n FROM public.${quoteIdent(t)}`);
       if (Number(rows[0]!.n) > 0) throw new Error(`[legacy-fixture] refusing to load: public.${t} already holds rows (load into a fresh database, before the account seed)`);
     }
-    targetHead = Number(
-      (await client.query<{ n: string }>(`SELECT count(*)::text AS n FROM drizzle.__drizzle_migrations`).catch(() => ({ rows: [{ n: "0" }] }))).rows[0]!.n,
+    // The target must carry every migration this code knows (load order: push, migrate, then this).
+    const targetHashes = new Set(
+      (await client.query<{ hash: string }>(`SELECT hash FROM drizzle.__drizzle_migrations`).catch(() => ({ rows: [] as Array<{ hash: string }> }))).rows.map((r) => r.hash),
     );
-    if (targetHead !== manifest.migrationHead.count) {
-      console.warn(`[legacy-fixture] migration ledgers differ: the fixture was taken at ${manifest.migrationHead.count} migrations, the target has ${targetHead}. A failed insert below means: re-extract.`);
+    const missing = journal.hashes.filter((h) => !targetHashes.has(h)).length;
+    if (missing > 0) throw new Error(`[legacy-fixture] refusing to load: the target lacks ${missing} of this code's ${journal.entries} migrations (run migrate first)`);
+    if (journal.entries !== manifest.migrationHead.journalEntries) {
+      console.warn(`[legacy-fixture] the fixture was taken at ${manifest.migrationHead.journalEntries} migrations (${manifest.migrationHead.latestTag}); this code has ${journal.entries}. A failed insert below means: re-extract.`);
     }
 
     await client.query("BEGIN");
@@ -151,7 +155,7 @@ export async function loadFixtureRows(fixtureDir: string, targetUrl: string): Pr
   } finally {
     await client.end();
   }
-  return { rowCounts, migrationHeads: { fixture: manifest.migrationHead.count, target: targetHead } };
+  return { rowCounts, migrationHeads: { fixture: manifest.migrationHead.journalEntries, code: journal.entries } };
 }
 
 function placeholderBytes(p: { ext: string; width: number; height: number }): { buffer: Buffer; contentType: string } {
@@ -180,8 +184,10 @@ export async function writePlaceholders(manifest: ExportManifest): Promise<numbe
   };
   let n = 0;
   for (const p of manifest.placeholders) {
-    if (!p.path.startsWith("/objects/")) throw new Error(`[legacy-fixture] a placeholder outside /objects/ cannot be written: ${p.kind}`);
-    await write(p.path, p, p.acl);
+    // A reference may carry the route prefix the product stores (`/api/storage/objects/...`, routes/users.ts:326).
+    const objectPath = objectPathOf(p.path);
+    if (!objectPath) throw new Error(`[legacy-fixture] a placeholder outside /objects/ cannot be written: ${p.kind}`);
+    await write(objectPath, p, p.acl);
     n++;
   }
   // Legacy memes (no recipe): the image route reads memeKey(slug) (routes/memes.ts:609-633); saved memes are public, owned by their creator.
