@@ -41,8 +41,14 @@ describe("portForChildProcess", () => {
     const heldPort = await portForChildProcess();
     await new Promise<void>((resolveP) => held.listen(heldPort, "127.0.0.1", () => resolveP()));
     try {
-      const next = heldPort + 1 < ephemeralPortFloor() ? heldPort + 1 : heldPort - 1;
-      assert.equal(await firstBindable([heldPort, next]), next);
+      // Several alternatives, none assumed free: the picker must skip the held
+      // port and return one of them, whichever happen to be bindable right now.
+      const floor = ephemeralPortFloor();
+      const alternatives = Array.from({ length: 20 }, () => 10_000 + Math.floor(Math.random() * (floor - 10_000)))
+        .filter((port) => port !== heldPort);
+      const picked = await firstBindable([heldPort, ...alternatives]);
+      assert.notEqual(picked, heldPort);
+      assert.ok(alternatives.includes(picked), `picked ${picked}, which was not a candidate`);
     } finally {
       await new Promise((resolveP) => held.close(resolveP));
     }

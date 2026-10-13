@@ -12,6 +12,11 @@
  * The kernel only gives out ephemeral ports to `listen(0)` and outbound
  * `connect()`, so a port below that range is never handed to anyone who did not
  * name it. This picks one at random below the range and checks it is free.
+ *
+ * Known residual, accepted: the check is a moment, not a reservation, so two
+ * shards booting a child at once could draw the same port (about 1 in 22,000
+ * per overlapping pair; within a shard, files run one at a time). Revisit if a
+ * collision is ever observed or the suite gains within-shard concurrency.
  */
 import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
