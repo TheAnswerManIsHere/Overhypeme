@@ -8,10 +8,17 @@
  *                   every AI request/response pair lands in --out. Needs
  *                   FAL_AI_API_KEY (or FAL_KEY), OPENAI_API_KEY and
  *                   --allowance <usd>, the spending ceiling David approved.
+ *                   --out must be empty: a new recording reaches the current
+ *                   clients for every request. --resume tops up an existing
+ *                   directory instead, paying only for requests it does not
+ *                   hold, and reports how many it answered from disk. Any
+ *                   call the recorder refused fails the run.
  *   --mode replay   Anywhere, with no credential. Boots the server with
  *                   AI_BACKEND=recorded-double over the committed recordings
  *                   and drives the same baseline: the proof that the
- *                   recordings carry the real consumers through.
+ *                   recordings carry the real consumers through. Any baseline
+ *                   call with no recording fails the run, even one the
+ *                   application tolerates and falls back from (#654 round 2).
  *
  * Both modes run in a FRESH database created for the run on the server
  * DATABASE_URL points at (marked as a test database, schema pushed, migrated,
@@ -26,7 +33,7 @@
  *
  *   pnpm --filter @workspace/api-server exec tsx scripts/record-ai-baseline.ts --mode replay
  *   pnpm --filter @workspace/api-server exec tsx scripts/record-ai-baseline.ts --mode record \
- *     --allowance 5 --out /tmp/ai-recordings
+ *     --allowance 5 --out /tmp/ai-recordings/recordings [--resume]
  */
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -47,7 +54,7 @@ function arg(name: string): string | undefined {
 
 const mode = arg("mode");
 if (mode !== "record" && mode !== "replay") {
-  console.error("usage: record-ai-baseline.ts --mode record|replay [--allowance <usd> --out <dir>] [--keep-db]");
+  console.error("usage: record-ai-baseline.ts --mode record|replay [--allowance <usd> --out <dir> [--resume]] [--keep-db]");
   process.exit(2);
 }
 
@@ -61,10 +68,15 @@ const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY || "";
 const openaiKey = process.env.OPENAI_API_KEY || "";
 const out = path.resolve(arg("out") ?? path.join(API_ROOT, "src/lib/aiDouble/recordings"));
 const allowance = arg("allowance") ?? "";
+const resume = process.argv.includes("--resume");
+const ledgerPath = path.join(out, "..", "ai-recorder-ledger.json");
 if (mode === "record") {
   if (!falKey || !openaiKey) refusals.push("record mode needs FAL_AI_API_KEY (or FAL_KEY) and OPENAI_API_KEY");
   if (!(Number(allowance) > 0)) refusals.push("record mode needs --allowance <usd>, the approved spending ceiling");
   if (!arg("out")) refusals.push("record mode needs --out <dir>: recordings are reviewed and scrubbed before they are committed");
+  const held = fs.existsSync(out) ? fs.readdirSync(out).filter((f) => f.endsWith(".json")).length : 0;
+  if (!resume && held > 0) refusals.push(`--out already holds ${held} recordings; a new recording starts empty, or pass --resume to top that directory up`);
+  if (!resume && fs.existsSync(ledgerPath)) refusals.push(`a ledger from an earlier run is at ${ledgerPath}; remove it for a new recording, or pass --resume to continue that run`);
 }
 const real = refusals.filter(Boolean);
 if (real.length > 0) {
@@ -146,12 +158,15 @@ async function recordVendorErrors(ledger: string, limit: string, fal: string, op
   vendorFal.config({ credentials: fal });
   const falRec = recordingFal(vendorFal as never, shared, ctx, falUnitPrice);
   const oaRec = recordingOpenAI(new OpenAI({ apiKey: openai, maxRetries: 0 }), shared, ctx);
-  const probes: Array<{ vendor: string; kind: "fal.subscribe" | "openai.chat"; target: string; send: () => Promise<unknown> }> = [
-    { vendor: "fal", kind: "fal.subscribe", target: "fal-ai/nano-banana-2", send: () => falRec.subscribe("fal-ai/nano-banana-2", { input: { prompt: "" } }) },
+  // Each probe names the status of the validation rejection it exists to capture (the
+  // committed recordings hold fal's 422 and OpenAI's 400); any other failure is not it.
+  const probes: Array<{ vendor: string; kind: "fal.subscribe" | "openai.chat"; target: string; status: number; send: () => Promise<unknown> }> = [
+    { vendor: "fal", kind: "fal.subscribe", target: "fal-ai/nano-banana-2", status: 422, send: () => falRec.subscribe("fal-ai/nano-banana-2", { input: { prompt: "" } }) },
     {
       vendor: "OpenAI",
       kind: "openai.chat",
       target: "gpt-5.4-mini",
+      status: 400,
       send: () => oaRec.chat.completions.create({ model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 }),
     },
   ];
@@ -161,14 +176,40 @@ async function recordVendorErrors(ledger: string, limit: string, fal: string, op
       await probe.send();
       missing.push(`${probe.vendor} accepted the invalid request`);
     } catch (err) {
-      if (vendorRejectionCaptured(probe.kind, probe.target, err)) {
+      if (vendorRejectionCaptured(probe.kind, probe.target, err, probe.status)) {
         console.log(`[ai-baseline] recorded ${probe.vendor} error: ${(err as Error).name} ${(err as { status?: number }).status}`);
       } else {
-        missing.push(`${probe.vendor}: no vendor rejection was recorded (${(err as Error).name}: ${(err as Error).message.slice(0, 160)})`);
+        missing.push(`${probe.vendor}: its ${probe.status} rejection was not recorded (${(err as Error).name}: ${(err as Error).message.slice(0, 160)})`);
       }
     }
   }
   return missing;
+}
+
+const missLog = path.join(scratch, "ai-double-misses.jsonl");
+/** Ledger lines from an earlier attempt a `--resume` run continues; only this run's refusals count against it. */
+const priorLedgerLines =
+  mode === "record" && fs.existsSync(ledgerPath) ? (JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as { lines: unknown[] }).lines.length : 0;
+
+/**
+ * The baseline calls no recording answered (replay) or the recorder refused
+ * (record). The application treats several AI calls as best-effort and falls
+ * back on any error, so a journey can pass over a missing call; this is what
+ * makes that visible. fal's pricing warm-up is excluded: an unrecorded
+ * catalogue price is a warning by design (sub-plan D2).
+ */
+function uncoveredCalls(): string[] {
+  const rows: Array<{ kind: string; target: string; fingerprint?: string }> = [];
+  if (mode === "replay" && fs.existsSync(missLog)) {
+    rows.push(...fs.readFileSync(missLog, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)));
+  }
+  if (mode === "record" && fs.existsSync(ledgerPath)) {
+    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as { lines: Array<{ kind: string; target: string; outcome: string }> };
+    rows.push(...ledger.lines.slice(priorLedgerLines).filter((l) => l.outcome === "refused"));
+  }
+  return rows
+    .filter((r) => r.kind !== "fal.pricing")
+    .map((r) => `${r.kind} ${r.target}${r.fingerprint ? ` (fingerprint ${r.fingerprint.slice(0, 12)})` : ""}`);
 }
 
 let exitCode = 0;
@@ -205,11 +246,12 @@ try {
       FAL_AI_API_KEY: falKey,
       OPENAI_API_KEY: openaiKey,
       AI_RECORDER_ALLOWANCE_USD: allowance,
-      AI_RECORDER_LEDGER: path.join(out, "..", "ai-recorder-ledger.json"),
+      AI_RECORDER_LEDGER: ledgerPath,
     });
     entry = "src/testing/aiRecorderLauncher.ts";
   } else {
     serverEnv.AI_BACKEND = "recorded-double";
+    serverEnv.AI_DOUBLE_MISS_LOG = missLog;
     if (process.env.AI_DOUBLE_FAIL) serverEnv.AI_DOUBLE_FAIL = process.env.AI_DOUBLE_FAIL;
     entry = "src/index.ts";
   }
@@ -227,12 +269,19 @@ try {
     const evidence = await driveBaseline(`http://127.0.0.1:${port}`, (l) => console.log(`[baseline] ${l}`), {
       expectRenderFailure: process.env.AI_DOUBLE_FAIL === "fal.subscribe:fal-ai/nano-banana-2",
     });
-    console.log(
-      "renderFailure" in evidence
-        ? `[ai-baseline] ${mode}: the recorded vendor error reached the render job's failed state`
-        : `[ai-baseline] ${mode}: every baseline journey passed`,
-    );
+    const uncovered = uncoveredCalls();
     console.log(JSON.stringify(evidence, null, 2));
+    if (uncovered.length > 0) {
+      exitCode = 1;
+      const what = mode === "replay" ? "had no recording" : "were refused by the recorder";
+      console.error(`[ai-baseline] ${mode}: incomplete: ${uncovered.length} baseline AI calls ${what}; the journeys got through only on the application's fallbacks:\n${uncovered.map((u) => `  - ${u}`).join("\n")}`);
+    } else {
+      console.log(
+        "renderFailure" in evidence
+          ? `[ai-baseline] ${mode}: the recorded vendor error reached the render job's failed state`
+          : `[ai-baseline] ${mode}: every baseline journey passed`,
+      );
+    }
   } catch (err) {
     exitCode = 1;
     console.error(`[ai-baseline] ${mode}: ${(err as Error).message}`);
@@ -249,10 +298,12 @@ try {
   }
 
   if (mode === "record") {
-    const ledgerPath = serverEnv.AI_RECORDER_LEDGER!;
     if (fs.existsSync(ledgerPath)) {
-      const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as { limitUsd: number; committedUsd: number; lines: unknown[] };
-      console.log(`[ai-baseline] spend: committed $${ledger.committedUsd.toFixed(4)} of $${ledger.limitUsd.toFixed(2)} over ${ledger.lines.length} vendor calls (ledger: ${ledgerPath})`);
+      const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as { limitUsd: number; committedUsd: number; reused?: number; lines: unknown[] };
+      console.log(
+        `[ai-baseline] spend: committed $${ledger.committedUsd.toFixed(4)} of $${ledger.limitUsd.toFixed(2)} over ${ledger.lines.length} vendor calls; ` +
+          `${ledger.reused ?? 0} requests answered from recordings already on disk (ledger: ${ledgerPath})`,
+      );
     }
     console.log(`[ai-baseline] recordings in ${out}: ${fs.readdirSync(out).filter((f) => f.endsWith(".json")).length} files`);
   }

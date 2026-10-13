@@ -13,8 +13,13 @@
  *   real consumer handles it exactly as it would the vendor's.
  * - Every call is appended to `doubleCalls`, so a test can assert the double —
  *   not the vendor — answered.
+ * - When `AI_DOUBLE_MISS_LOG` names a file, every request with no recording is
+ *   also appended to it, one JSON line each. Best-effort callers swallow the
+ *   error and fall back, so the replay run reads this file to fail visibly on
+ *   a baseline call the recordings do not cover (#654 round 2).
  */
 import { createHash } from "node:crypto";
+import fs from "node:fs";
 import { ApiError, ValidationError } from "@fal-ai/client";
 import OpenAI from "openai";
 
@@ -46,12 +51,18 @@ function rebuild(err: RecordedError): Error {
   );
 }
 
+function noteMiss(kind: RecordingKind, target: string, print: string): void {
+  doubleCalls.push({ kind, target, outcome: "no-recording" });
+  const missLog = process.env.AI_DOUBLE_MISS_LOG;
+  if (missLog) fs.appendFileSync(missLog, JSON.stringify({ kind, target, fingerprint: print }) + "\n");
+}
+
 /** Answer one operation from its recording, or fail visibly. */
 function replay(kind: RecordingKind, target: string, request: unknown): unknown {
   if (failureRequested(kind, target)) {
     const recorded = allRecordings().find((r) => r.kind === kind && r.target === target && r.error);
     if (!recorded?.error) {
-      doubleCalls.push({ kind, target, outcome: "no-recording" });
+      noteMiss(kind, target, "none");
       throw new NoRecordingError(kind, `${target} (recorded failure)`, "none");
     }
     doubleCalls.push({ kind, target, outcome: "failed-on-request" });
@@ -61,7 +72,7 @@ function replay(kind: RecordingKind, target: string, request: unknown): unknown 
   try {
     rec = findRecording(kind, target, request);
   } catch (err) {
-    doubleCalls.push({ kind, target, outcome: "no-recording" });
+    if (err instanceof NoRecordingError) noteMiss(kind, target, err.print);
     throw err;
   }
   doubleCalls.push({ kind, target, outcome: "replayed" });

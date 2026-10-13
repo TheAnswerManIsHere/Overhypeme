@@ -35,9 +35,14 @@ import { falSubscribeRequest, falUploadRequest, falUploadUrl, type FalLike } fro
 // The allowance
 // ---------------------------------------------------------------------------
 
-/** Published list prices, USD per 1M tokens, read 2026-10-12 from developers.openai.com model pages. */
+/**
+ * Published list prices, USD per 1M tokens, read from developers.openai.com
+ * model pages: 2026-10-12, and `gpt-4o-mini` (the default utility model on a
+ * fresh database) 2026-10-13.
+ */
 export const OPENAI_PRICES: Record<string, { input: number; output: number }> = {
   "gpt-5.5": { input: 5, output: 30 },
+  "gpt-4o-mini": { input: 0.15, output: 0.6 },
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
   "text-embedding-3-small": { input: 0.02, output: 0 },
 };
@@ -62,6 +67,8 @@ export interface LedgerLine {
 
 export class Allowance {
   private committedUsd = 0;
+  /** Requests answered from a recording already on disk, at no cost (a `--resume` run). */
+  private reusedCount = 0;
   readonly lines: LedgerLine[] = [];
 
   /** `ledgerFile`, when given, is rewritten after every change so the launcher can report the run. */
@@ -73,15 +80,16 @@ export class Allowance {
     // One allowance across every process and every attempt of a recording run:
     // what an earlier attempt committed stays committed, never a fresh start.
     if (ledgerFile && fs.existsSync(ledgerFile)) {
-      const prior = JSON.parse(fs.readFileSync(ledgerFile, "utf8")) as { committedUsd: number; lines: LedgerLine[] };
+      const prior = JSON.parse(fs.readFileSync(ledgerFile, "utf8")) as { committedUsd: number; reused?: number; lines: LedgerLine[] };
       this.committedUsd = prior.committedUsd;
+      this.reusedCount = prior.reused ?? 0;
       this.lines.push(...prior.lines);
     }
   }
 
   private persist(): void {
     if (!this.ledgerFile) return;
-    fs.writeFileSync(this.ledgerFile, JSON.stringify({ limitUsd: this.limitUsd, committedUsd: this.committedUsd, lines: this.lines }, null, 2));
+    fs.writeFileSync(this.ledgerFile, JSON.stringify({ limitUsd: this.limitUsd, committedUsd: this.committedUsd, reused: this.reusedCount, lines: this.lines }, null, 2));
   }
 
   /** Reserve `usd` or refuse. Returns the line to settle. */
@@ -118,6 +126,16 @@ export class Allowance {
 
   get committed(): number {
     return this.committedUsd;
+  }
+
+  /** Count a request answered from a recording already on disk. */
+  noteReused(): void {
+    this.reusedCount += 1;
+    this.persist();
+  }
+
+  get reused(): number {
+    return this.reusedCount;
   }
 }
 
@@ -225,9 +243,11 @@ async function localiseImages(result: any): Promise<any> {
 // ---------------------------------------------------------------------------
 
 /**
- * A request already recorded (by an earlier attempt of this run) is answered
- * from its recording rather than paid for again, so a recording run that
- * stopped part-way resumes without re-spending.
+ * A request already recorded (by an earlier attempt of this run, or in the
+ * corpus a `--resume` run tops up) is answered from its recording rather than
+ * paid for again, so a recording run that stopped part-way resumes without
+ * re-spending. The recording script refuses a non-empty output directory
+ * unless `--resume` is passed, so this reuse is always asked for (#654 round 2).
  */
 function alreadyRecorded(kind: RecordingKind, target: string, request: unknown): unknown | undefined {
   try {
@@ -249,7 +269,10 @@ export function recordingFal(
     async subscribe(endpoint, opts) {
       const request = falSubscribeRequest(endpoint, opts);
       const prior = alreadyRecorded("fal.subscribe", endpoint, request);
-      if (prior !== undefined) return prior;
+      if (prior !== undefined) {
+        allowance.noteReused();
+        return prior;
+      }
       const unit = await falUnitPrice(endpoint);
       const line = allowance.reserve("fal.subscribe", endpoint, unit === null ? null : unit * FAL_SUBMISSION_ATTEMPTS);
       try {
@@ -301,7 +324,10 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
   const wrap = (kind: RecordingKind, call: (p: any, o?: any) => Promise<any>, reserve: (p: any) => number | null, actual: (p: any, r: any) => number | null) =>
     async (params: any, options?: any) => {
       const prior = alreadyRecorded(kind, params.model, params);
-      if (prior !== undefined) return prior;
+      if (prior !== undefined) {
+        allowance.noteReused();
+        return prior;
+      }
       const line = allowance.reserve(kind, params.model, reserve(params));
       try {
         const response = await call(params, options);
@@ -334,15 +360,16 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
 }
 
 /**
- * Whether a deliberately invalid request left the vendor's own rejection
- * recorded: the error it threw carries a 4xx status, and an error recording
- * for that kind and target with the same status is now on disk. A budget
- * refusal, a transport failure or a vendor accepting the request is not a
- * captured failure control, and the recording run must say so (#654 round 1).
+ * Whether a deliberately invalid request left the vendor's own rejection of it
+ * recorded: the error it threw carries exactly the status the probe expects
+ * (the validation rejection it was designed to capture), and an error
+ * recording for that kind and target with that status is now on disk. A
+ * budget refusal, a transport failure, an authentication or throttling error,
+ * or a vendor accepting the request is not a captured failure control, and
+ * the recording run must say so (#654 rounds 1 and 2).
  */
-export function vendorRejectionCaptured(kind: RecordingKind, target: string, err: unknown): boolean {
-  const status = vendorStatus(err);
-  if (status === null || status >= 500) return false;
+export function vendorRejectionCaptured(kind: RecordingKind, target: string, err: unknown, expectedStatus: number): boolean {
+  if (vendorStatus(err) !== expectedStatus) return false;
   resetRecordingCache();
-  return allRecordings().some((r) => r.kind === kind && r.target === target && r.error?.status === status);
+  return allRecordings().some((r) => r.kind === kind && r.target === target && r.error?.status === expectedStatus);
 }

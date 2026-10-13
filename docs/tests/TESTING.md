@@ -557,7 +557,11 @@ AI_DOUBLE_FAIL=fal.subscribe:fal-ai/nano-banana-2 DATABASE_URL=… pnpm exec tsx
 
 Each run creates a fresh test database on that server, seeds the test
 accounts, boots the API with a constructed environment and local storage,
-drives the baseline, and drops the database.
+drives the baseline, and drops the database. Several AI calls are
+best-effort in the product (hashtag suggestions, stock-photo keywords, the
+duplicate judge), so a journey can pass over a call the recordings do not
+cover; the replay therefore also fails, naming each one, when any baseline
+call had no recording.
 
 **Re-recording** (after a change to a prompt, a schema, the baseline, or a
 vendor client upgrade) runs on the Repl, never in CI, under a spending
@@ -565,10 +569,24 @@ ceiling the recorder enforces before every vendor call:
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
-  pnpm exec tsx scripts/record-ai-baseline.ts --mode record --allowance <usd> --out /tmp/ai-recordings
+  pnpm exec tsx scripts/record-ai-baseline.ts --mode record --allowance <usd> --out /tmp/ai-recordings/recordings
 ```
 
-Review the new recordings, then **replace** `lib/aiDouble/recordings/` with
-them rather than adding to it, so no recording taken against an older client
-survives the re-recording. The run exits non-zero if it could not record each
-vendor's own rejection for the failure control.
+`--out` must be empty, so every request reaches the current clients; the
+spending ledger is written beside it and must not be left over from an
+earlier run. Review the new recordings, then **replace**
+`lib/aiDouble/recordings/` with them rather than adding to it, so no recording
+taken against an older client survives the re-recording. The run exits
+non-zero if the recorder refused any baseline call (an unpriced model, an
+exhausted allowance), or if it could not record each vendor's own validation
+rejection (fal's 422, OpenAI's 400) for the failure control. Every model the
+baseline calls needs its published price in `OPENAI_PRICES`
+(`lib/aiDouble/recorder.ts`), including the default utility model a fresh
+database gets from `lib/engines/openai-general.ts`.
+
+**Topping up** — when only some requests are new (a run that stopped
+part-way, or one new call) — copies the committed recordings into an
+otherwise empty `--out` and adds `--resume`: requests already held are
+answered from disk at no cost, the run pays only for the rest and reports
+how many it reused. Use it only when the vendor clients have not changed
+since those recordings were taken; after a client upgrade, record afresh.

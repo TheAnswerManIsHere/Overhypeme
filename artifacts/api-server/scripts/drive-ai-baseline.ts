@@ -112,7 +112,7 @@ async function poll<T>(journey: string, what: string, read: () => Promise<T>, do
 }
 
 export interface BaselineEvidence {
-  journey3: { reviewId: number; factId: number; renderCards: Array<{ key: string; status: string }> };
+  journey3: { reviewId: number; factId: number; suggestedHashtags: string[]; renderCards: Array<{ key: string; status: string }> };
   journey6: {
     renderJobId: string;
     generatedImageObjectPath: string;
@@ -323,7 +323,7 @@ export async function driveBaseline(
   log(`journey 4: public meme ${photoMeme.permalinkSlug} readable by anyone`);
 
   return {
-    journey3: { reviewId, factId, renderCards: required.map((c) => ({ key: c.key, status: c.status })) },
+    journey3: { reviewId, factId, suggestedHashtags: hashtags, renderCards: required.map((c) => ({ key: c.key, status: c.status })) },
     journey6: { renderJobId, generatedImageObjectPath, memeSlug, ownerImageBytes, otherUserPermalinkStatus, otherUserImageStatus },
     journey7: { objectPath, ownerStatus, otherUserStatus: otherStatus },
     journey4: { memeSlug: photoMeme.permalinkSlug, anonymousStatus },

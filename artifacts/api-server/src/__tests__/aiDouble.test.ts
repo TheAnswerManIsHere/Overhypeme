@@ -34,7 +34,7 @@ const CTX = { clients: { "@fal-ai/client": "1.9.5", openai: "6.33.0" } };
 // root-level hook would run around every other file's tests too. So every hook
 // here lives inside the top-level describe below, and the environment is
 // restored key by key, never by replacing process.env.
-const TOUCHED = ["AI_RECORDINGS_DIR", "NODE_ENV", "OPENAI_API_KEY", "FAL_AI_API_KEY", "FAL_KEY", "AI_DOUBLE_FAIL", "AI_BACKEND"];
+const TOUCHED = ["AI_RECORDINGS_DIR", "NODE_ENV", "OPENAI_API_KEY", "FAL_AI_API_KEY", "FAL_KEY", "AI_DOUBLE_FAIL", "AI_BACKEND", "AI_DOUBLE_MISS_LOG"];
 let saved: Record<string, string | undefined> = {};
 let dir: string;
 
@@ -42,7 +42,7 @@ function setUp(): void {
   saved = Object.fromEntries(TOUCHED.map((k) => [k, process.env[k]]));
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-recordings-"));
   process.env.AI_RECORDINGS_DIR = dir;
-  for (const k of ["OPENAI_API_KEY", "FAL_AI_API_KEY", "FAL_KEY", "AI_DOUBLE_FAIL", "AI_BACKEND"]) delete process.env[k];
+  for (const k of ["OPENAI_API_KEY", "FAL_AI_API_KEY", "FAL_KEY", "AI_DOUBLE_FAIL", "AI_BACKEND", "AI_DOUBLE_MISS_LOG"]) delete process.env[k];
   doubleCalls.length = 0;
   resetRecordingCache();
 }
@@ -133,6 +133,34 @@ describe("AI doubles and recorder", () => {
       const retry = { ...CHAT, messages: [...CHAT.messages, { role: "user", content: "Fix the JSON." }] };
       await assert.rejects(getOpenAIClient().chat.completions.create(retry as any), NoRecordingError);
       assert.equal(doubleCalls.at(-1)?.outcome, "no-recording");
+    });
+
+    it("writes every unrecorded request to the miss log, for the replay run to fail on", async () => {
+      const missLog = path.join(dir, "misses.jsonl");
+      process.env.AI_DOUBLE_MISS_LOG = missLog;
+      process.env.AI_BACKEND = "recorded-double";
+      await assert.rejects(getOpenAIClient().chat.completions.create(CHAT as any), NoRecordingError);
+      const lines = fs.readFileSync(missLog, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+      assert.equal(lines.length, 1);
+      assert.equal(lines[0].kind, "openai.chat");
+      assert.equal(lines[0].target, "gpt-5.4-mini");
+      assert.match(lines[0].fingerprint, /^[0-9a-f]{64}$/);
+    });
+
+    it("answers a request already on disk from its recording, counts it as reused and pays nothing", async () => {
+      let sent = 0;
+      await recordingOpenAI(fakeOpenAIVendor(() => sent++) as any, new Allowance(1), CTX).chat.completions.create(CHAT as any);
+      const ledger = path.join(dir, "..", `${path.basename(dir)}-ledger.json`);
+      try {
+        const resumed = new Allowance(1, ledger);
+        await recordingOpenAI(fakeOpenAIVendor(() => sent++) as any, resumed, CTX).chat.completions.create(CHAT as any);
+        assert.equal(sent, 1, "the second run did not reach the vendor");
+        assert.equal(resumed.reused, 1);
+        assert.equal(resumed.committed, 0);
+        assert.equal(JSON.parse(fs.readFileSync(ledger, "utf8")).reused, 1, "the count reaches the run's report through the ledger");
+      } finally {
+        fs.rmSync(ledger, { force: true });
+      }
     });
 
     it("keys on the whole request, including the schema and output options", async () => {
@@ -230,10 +258,10 @@ describe("AI doubles and recorder", () => {
   describe("the recording run's failure control", () => {
     const INVALID = { ...CHAT, messages: [{ role: "user", content: "please fail" }] };
 
-    it("counts a vendor's own 4xx rejection as captured, with its recording on disk", async () => {
+    it("counts the vendor's own rejection with the expected status as captured, with its recording on disk", async () => {
       const rec = recordingOpenAI(fakeOpenAIVendor() as any, new Allowance(1), CTX);
       const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
-      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err), true);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err, 400), true);
     });
 
     it("does not count a budget refusal: nothing reached the vendor and nothing was recorded", async () => {
@@ -242,7 +270,7 @@ describe("AI doubles and recorder", () => {
       const rec = recordingOpenAI(fakeOpenAIVendor() as any, allowance, CTX);
       const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
       assert.ok(err instanceof RecorderBudgetError);
-      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err), false);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err, 400), false);
     });
 
     it("does not record or count a transport failure, which carries no vendor status", async () => {
@@ -252,14 +280,24 @@ describe("AI doubles and recorder", () => {
       };
       const rec = recordingOpenAI(vendor as any, new Allowance(1), CTX);
       const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
-      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err), false);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err, 400), false);
       assert.equal(allRecordings().length, 0, "a transport failure is never written as a recording");
+    });
+
+    it("does not count a vendor 4xx other than the expected one, such as throttling", async () => {
+      const vendor = fakeOpenAIVendor();
+      vendor.chat.completions.create = async () => {
+        throw OpenAI.APIError.generate(429, { message: "rate limited", type: "rate_limit_error" }, "rate limited", new Headers());
+      };
+      const rec = recordingOpenAI(vendor as any, new Allowance(1), CTX);
+      const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err, 400), false);
     });
 
     it("does not count a vendor accepting the invalid request", async () => {
       const rec = recordingOpenAI(fakeOpenAIVendor() as any, new Allowance(1), CTX);
       const ok = await rec.chat.completions.create(CHAT as any);
-      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", ok), false);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", ok, 400), false);
     });
   });
 
