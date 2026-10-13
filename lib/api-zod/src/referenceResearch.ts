@@ -94,12 +94,57 @@ export type ReferenceResearchResultWire = z.infer<typeof referenceResearchResult
 
 // ─── Business validator ───────────────────────────────────────────────────
 
-// Two-part check: any "render/use/display/show" directive within ~60
-// characters of a forbidden noun (logo / brand mark / full fact text /
-// hashtag). Catches "Render the real Apple logo" where intervening words
-// (the brand name) sit between the verb and the noun.
-const RENDER_VERB_RE = /\b(render|use|display|show)\b/i;
-const FORBIDDEN_NOUN_RE = /\b(real\s+)?(logo|brand[-\s]?mark|full\s+fact\s+text|hashtags?)\b/i;
+// Forbidden-directive check (#672). Each mention of a forbidden noun — logo,
+// brand mark, full fact text, hashtag; singular or plural — is judged by the
+// clause leading up to it: it is a violation only when a render directive
+// (render/use/display/show) reaches it without a negation in between. So
+// "Render the real Apple logo" and "avoid clutter, but show the Peloton logo"
+// are rejected, while "Show {NAME} … Avoid logos and hashtags", "show no
+// logos" and "do not show the logo" — the avoidance guidance the system prompt
+// asks for — are accepted. The previous check flagged any field containing
+// both a render verb and a forbidden noun anywhere, which rejected exactly
+// that avoidance guidance, and its trailing word boundary missed plurals.
+const RENDER_VERB_SRC = "render|use|display|show";
+// "logo-free" / "hashtag-less" describe absence, so they are not mentions.
+const FORBIDDEN_NOUN_RE =
+  /\b(?:logos?|brand[-\s]?marks?|full\s+fact\s+text|hashtags?)\b(?![-‑](?:free|less)\b)/gi;
+// "do not show", "don't render", "never display" negate the verb itself — and
+// every verb coordinated with it: "do not show or render", "never display, use
+// or show". A verb after "but" or a new clause stays affirmative.
+const NEGATED_VERB_RE = new RegExp(
+  `\\b(?:do\\s+not|does\\s+not|don['’]t|doesn['’]t|never|not)\\s+(?:${RENDER_VERB_SRC})` +
+    `(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*(?:or\\s+|and\\s+)?(?:${RENDER_VERB_SRC}))*\\b`,
+  "gi",
+);
+// A clause ends at ; or a newline, or at . ! ? followed by whitespace — but not
+// the period of an initial or abbreviation ("e.g.", "Nike, Inc."), mirroring
+// the sentence splitter in imagePrompt/compilers/nanoBanana2.ts.
+const CLAUSE_END_RE =
+  /[;\n]|(?<!\b[A-Za-z]\.)(?<!\b(?:Inc|Co|Corp|Ltd|Bros|St|Mt|Jr|Sr|vs|etc|approx)\.)(?<=[.!?])\s+/g;
+const RENDER_VERB_RE = new RegExp(`\\b(?:${RENDER_VERB_SRC})\\b`, "gi");
+const NEGATION_RE =
+  /\b(?:avoid|avoiding|no|not|never|without|exclude|excluding|omit|omitting|free\s+of|instead\s+of|rather\s+than|NEGATED_VERB)\b/gi;
+
+/** Index just past the last match of `re` in `text`, or -1. */
+function lastMatchEnd(re: RegExp, text: string): number {
+  let end = -1;
+  for (const m of text.matchAll(re)) end = (m.index ?? 0) + m[0].length;
+  return end;
+}
+
+/** Whether `field` directs the image model to render a forbidden noun. */
+function hasForbiddenRenderDirective(field: string): boolean {
+  const text = field.replace(NEGATED_VERB_RE, "NEGATED_VERB");
+  for (const m of text.matchAll(FORBIDDEN_NOUN_RE)) {
+    const at = m.index ?? 0;
+    // The clause leading up to this mention: back to the previous clause end.
+    const before = text.slice(0, at);
+    const prefix = before.slice(Math.max(0, lastMatchEnd(CLAUSE_END_RE, before)));
+    const verbEnd = lastMatchEnd(RENDER_VERB_RE, prefix);
+    if (verbEnd !== -1 && verbEnd > lastMatchEnd(NEGATION_RE, prefix)) return true;
+  }
+  return false;
+}
 
 export type ReferenceResearchValidationResult =
   | { ok: true; data: ReferenceResearchResultWire }
@@ -177,10 +222,10 @@ export function validateReferenceResearchResult(
     };
   }
   // 5. forbidden directives — never tell the image model to render real logos,
-  //    brand marks, full fact text, or hashtags. We check whether a render
-  //    verb and a forbidden noun BOTH appear; brand names between them are OK.
+  //    brand marks, full fact text, or hashtags. Avoidance guidance ("avoid
+  //    logos") is fine; see hasForbiddenRenderDirective.
   for (const field of [data.explanation, data.visualImplication, data.researchNotes] as const) {
-    if (RENDER_VERB_RE.test(field) && FORBIDDEN_NOUN_RE.test(field)) {
+    if (hasForbiddenRenderDirective(field)) {
       return {
         ok: false,
         error: "research result recommends rendering forbidden content (real logo / brand mark / full fact text / hashtags)",

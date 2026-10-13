@@ -124,6 +124,61 @@ describe("validateReferenceResearchResult", () => {
   });
 });
 
+// #672: the forbidden-content check must judge each mention of a forbidden
+// noun by what is said about it, not by whether a render verb and the noun
+// both appear anywhere in the field. Telling the image model to AVOID logos is
+// the guidance the system prompt asks for, not a violation.
+describe("validateReferenceResearchResult — forbidden directives (#672)", () => {
+  const check = (visualImplication: string) =>
+    validateReferenceResearchResult(baseResult({ visualImplication }), { referenceType: "brand" });
+
+  // Sol's live answer for "{NAME} rides a Peloton to the moon" (2026-10-13), rejected before the fix.
+  const SOL_PELOTON =
+    "Show {NAME} as the heroic central rider, confidently pedaling a stationary exercise bike through space toward a large, cratered moon, with Earth receding behind them. Preserve recognizable exercise-bike features—a fixed support base, flywheel, handlebars, and mounted workout screen—so the absurdity of stationary equipment traveling is clear. Use a motion trail to suggest that {NAME}'s pedaling drives the journey. Show actual lunar travel, NOT an ordinary indoor workout with a moon image on the screen, NOT a road bicycle, and NOT a cyclist riding within a racing peloton. Avoid logos, brand marks, readable fact text, and hashtags.";
+
+  it("accepts guidance that tells the image model to avoid forbidden content", () => {
+    for (const text of [
+      SOL_PELOTON,
+      "Show a gleaming boutique storefront. Avoid the brand logo.",
+      "Show the runner mid-stride; do not show any logo or hashtag.",
+      "Display a neon-lit arcade with no logos, no brand marks and no hashtags.",
+      "Show the shoe's silhouette without the logo.",
+      "Use a stadium setting. Never render the full fact text.",
+      "Show a coffee cup, but don't display the logo anywhere.",
+      // Codex #673 round 1: one negation over coordinated verbs.
+      "Show the gym. Do not show or render logos.",
+      "Show the rider. Never display or use brand marks.",
+      "Show the jersey; do not show, render or display any hashtags.",
+      // A compound that describes absence is not a mention.
+      "Show a logo-free jersey on the cyclist.",
+    ]) {
+      const r = check(text);
+      assert.equal(r.ok, true, `${text}\n→ ${r.ok ? "" : r.error}`);
+    }
+  });
+
+  it("rejects guidance that tells the image model to render forbidden content, singular or plural", () => {
+    for (const text of [
+      "Render the real Apple logo prominently to identify the brand.",
+      "Show the Nike logos across the jersey.",
+      "Display hashtags floating in the sky above the runner.",
+      "Use the official brand mark on the storefront sign.",
+      "Avoid clutter, but show the Peloton logo on the bike.",
+      "Show a runway. Render the full fact text across the bottom.",
+      // Codex #673 round 1: a separate affirmative verb after "but" stays affirmative.
+      "Do not show the logo, but render the brand mark.",
+      // Codex #673 round 1: abbreviation periods do not end the clause.
+      "Use the Nike, Inc. logo on the shirt.",
+      "Use, e.g., the Nike logo on the shirt.",
+    ]) {
+      // In the explanation, so only the forbidden-directive rule can reject it.
+      const r = validateReferenceResearchResult(baseResult({ explanation: text }), { referenceType: "brand" });
+      assert.equal(r.ok, false, text);
+      if (!r.ok) assert.match(r.error, /forbidden/);
+    }
+  });
+});
+
 describe("computeCanAutoApplyToEmptyFields", () => {
   it("returns true for high confidence + sources + no warnings", () => {
     const auto = computeCanAutoApplyToEmptyFields(baseResult(), "brand_or_cultural_reference");
