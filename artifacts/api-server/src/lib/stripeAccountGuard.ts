@@ -229,6 +229,35 @@ export function __resetVerificationStateForTests(): void {
   strictModeReads = 0;
 }
 
+/** The partition check (#566, plan decision 12), recording its outcome as the mode's state. */
+async function requirePartitionRecorded(liveMode: boolean): Promise<void> {
+  try {
+    await requireStripeDatabasePartition(stripeDriver().kind, liveMode);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    const state = err instanceof StripeDatabasePartitionError ? "refused" : "pending";
+    setModeState(liveMode, { state, reason, lastAttemptAt: Date.now() });
+    throw err;
+  }
+}
+
+/**
+ * Boot and retry only: under the FAKE driver, settle which driver the database
+ * belongs to before credentials are resolved. The fake answers live mode with a
+ * credentials refusal, which boot and retry record as "unconfigured" — so a
+ * fake pointed at a real database storing live mode would otherwise listen
+ * without the partition ever being read (Codex, #671 round 2). The real
+ * driver is untouched: without credentials it never reads the partition, and
+ * with them `verifyStripeAccount` checks it as before. Rejects as the
+ * partition does: `StripeDatabasePartitionError` (definite) or
+ * `StripeUnverifiedError` (unreadable). The verdict is cached on success, so
+ * the check inside the attempt that follows makes no second read.
+ */
+export async function requireFakeStripeDatabaseOwnership(liveMode: boolean): Promise<void> {
+  if (stripeDriver().kind !== "fake") return;
+  await requirePartitionRecorded(liveMode);
+}
+
 /**
  * Verify that `secretKey` belongs to the account declared for `liveMode`.
  *
@@ -284,14 +313,10 @@ export async function verifyStripeAccount(params: {
     // decision 12; see stripeDatabasePartition.ts). Inside the attempt, so the
     // catalog read is single-flight and throttled like the retrieval below.
     try {
-      await requireStripeDatabasePartition(stripeDriver().kind, liveMode);
+      await requirePartitionRecorded(liveMode);
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
       if (err instanceof StripeDatabasePartitionError) {
-        setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
         lastAttempt.set(key, { at: Date.now(), definiteRefusal: err });
-      } else {
-        setModeState(liveMode, { state: "pending", reason, lastAttemptAt: Date.now() });
       }
       throw err;
     }

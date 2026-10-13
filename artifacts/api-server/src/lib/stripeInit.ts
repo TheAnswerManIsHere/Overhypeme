@@ -39,6 +39,7 @@ import {
   hasVerificationAttemptFor,
   markModeUnconfigured,
   readStripeLiveModeStrict,
+  requireFakeStripeDatabaseOwnership,
   verifyStripeAccount,
 } from "./stripeAccountGuard.js";
 import { isDefiniteVerificationFailure } from "./stripeVerificationErrors.js";
@@ -351,6 +352,18 @@ export async function runStripeBootVerification(): Promise<StripeBootOutcome> {
     return { kind: "pending", reason };
   }
 
+  // Under the fake, the database must be one created for it before anything
+  // else is concluded — including "unconfigured", which is how the fake answers
+  // live mode and which would otherwise listen (Codex, #671 round 2).
+  try {
+    await withBootTimeout(requireFakeStripeDatabaseOwnership(liveMode));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (isDefiniteVerificationFailure(err)) return { kind: "fatal", reason };
+    logger.error({ err }, "Could not read which Stripe driver this database belongs to — booting with payments refused");
+    return { kind: "pending", reason };
+  }
+
   let secretKey: string;
   try {
     secretKey = await getStripeSecretKey(liveMode);
@@ -419,6 +432,20 @@ export async function runStripeVerificationRetryOnce(): Promise<void> {
 
   const mode = liveMode ? "live" : "test";
   if (deterministicallyRefusedModes.has(mode)) return;
+
+  // As at boot: under the fake, ownership is settled before credentials, so a
+  // wrong database is never recorded as merely "unconfigured".
+  try {
+    await requireFakeStripeDatabaseOwnership(liveMode);
+  } catch (err) {
+    if (isDefiniteVerificationFailure(err)) {
+      deterministicallyRefusedModes.add(mode);
+      logger.error({ err, mode }, "STRIPE DATABASE REFUSED — payments stay unavailable in this mode");
+      return;
+    }
+    logger.warn({ err, mode }, "Stripe verification retry: the database's Stripe driver is still unreadable");
+    return;
+  }
 
   let secretKey: string;
   try {

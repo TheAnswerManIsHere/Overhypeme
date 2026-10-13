@@ -54,6 +54,7 @@ import {
   __resetVerificationStateForTests,
   __setAccountRetrieverForTests,
   __setStrictModeReaderForTests,
+  getVerificationStatus,
 } from "../lib/stripeAccountGuard.js";
 import {
   __endCachedSyncForTests,
@@ -204,6 +205,68 @@ describe("the fake Stripe driver and the database partition", () => {
       restores.push(__setPartitionReaderForTests(async () => { partitionReads++; return TEST_ONLY; }));
       assert.deepEqual(await runStripeBootVerification(), { kind: "unconfigured" });
       assert.equal(partitionReads, 0);
+    });
+
+    // The fake answers live mode with a credentials refusal. Ownership is
+    // settled first, so a wrong database storing live mode is still refused
+    // before listening rather than booting "unconfigured" (Codex, #671 round 2).
+    describe("with a stored live mode", () => {
+      beforeEach(() => {
+        restores.push(__setStrictModeReaderForTests(async () => true));
+      });
+
+      for (const settings of [NEITHER, TEST_ONLY, FAKE_WITHOUT_TEST]) {
+        it(`the fake on '${settings.database}' is still a fatal boot outcome, with no account read`, async () => {
+          useFake();
+          partitionAnswers(settings);
+          const reads = countAccountReads(FAKE_ACCOUNT_ID);
+          const outcome = await runStripeBootVerification();
+          assert.equal(outcome.kind, "fatal");
+          assert.match((outcome as { reason: string }).reason, /not created for the fake Stripe driver/);
+          assert.equal(reads.count(), 0);
+        });
+      }
+
+      it("the fake on a fake-owned database stays unconfigured: live mode is unsupported, as before", async () => {
+        useFake();
+        partitionAnswers(FAKE_OWNED);
+        const reads = countAccountReads(FAKE_ACCOUNT_ID);
+        assert.deepEqual(await runStripeBootVerification(), { kind: "unconfigured" });
+        assert.equal(getVerificationStatus(true, "t").state, "unconfigured");
+        assert.equal(reads.count(), 0);
+      });
+
+      it("an unreadable partition is pending, never unconfigured; a retry reading the wrong database refuses", async () => {
+        useFake();
+        let answer: DatabasePartitionSettings | null = null;
+        restores.push(__setPartitionReaderForTests(async () => {
+          if (!answer) throw new Error("connection reset");
+          return answer;
+        }));
+        const outcome = await runStripeBootVerification();
+        assert.equal(outcome.kind, "pending");
+        assert.match((outcome as { reason: string }).reason, /Could not read which Stripe driver/);
+        assert.equal(getVerificationStatus(true, "t").state, "pending");
+
+        answer = TEST_ONLY;
+        await runStripeVerificationRetryOnce();
+        const status = getVerificationStatus(true, "t");
+        assert.equal(status.state, "refused");
+        assert.match(status.reason ?? "", /not created for the fake Stripe driver/);
+      });
+
+      it("an unreadable partition, then a retry reading a fake-owned database, ends unconfigured", async () => {
+        useFake();
+        let answer: DatabasePartitionSettings | null = null;
+        restores.push(__setPartitionReaderForTests(async () => {
+          if (!answer) throw new Error("connection reset");
+          return answer;
+        }));
+        assert.equal((await runStripeBootVerification()).kind, "pending");
+        answer = FAKE_OWNED;
+        await runStripeVerificationRetryOnce();
+        assert.equal(getVerificationStatus(true, "t").state, "unconfigured");
+      });
     });
   });
 

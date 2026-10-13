@@ -25,6 +25,12 @@
  * catalog read behind the guard's single-flight and throttle, so a flood of
  * forged webhooks cannot turn it into one query each.
  *
+ * Under the fake, boot and retry also run it BEFORE resolving credentials
+ * (`requireFakeStripeDatabaseOwnership`): the fake answers live mode with a
+ * credentials refusal, which those two passes would otherwise record as
+ * "unconfigured" and continue past without ever reading this (Codex, #671
+ * round 2). On success the verdict is cached, so the attempt's check is free.
+ *
  * - **Allowed** is cached for the life of the process: the settings are written
  *   at creation and never change under a running server.
  * - **Refused** is a confirmed fact (`StripeDatabasePartitionError`, definite):
