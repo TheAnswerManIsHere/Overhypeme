@@ -153,6 +153,10 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
     const summaryBody = (await summaryRes.json()) as { stripeDriver?: string };
     if (summaryBody.stripeDriver === "fake") {
       await expect(page.getByTestId("stripe-fake-notice")).toBeVisible();
+      // The test-webhook action needs payment flows the fake refuses, so it is
+      // not offered; a one-line note says why (#671 round 1).
+      await expect(page.getByTestId("stripe-fake-test-event-note")).toBeVisible();
+      await expect(page.getByText("Send Test Webhook Event", { exact: true })).toHaveCount(0);
       await expect(page.getByText("Legendary (fake)").first(), "the fake fixture product should be listed").toBeVisible({
         timeout: 10_000,
       });

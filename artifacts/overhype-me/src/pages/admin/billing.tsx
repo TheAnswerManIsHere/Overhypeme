@@ -979,8 +979,16 @@ export default function AdminBilling() {
           )}
         </CollapsibleSection>
 
-        {/* Test Event (test mode only) */}
-        {liveMode === false && (
+        {/* Test Event (test mode only). Not offered under the fake Stripe: the
+            route creates a customer, which the fake refuses until the
+            event-channel increment (#566). */}
+        {liveMode === false && isFakeStripe && (
+          <p data-testid="stripe-fake-test-event-note" className="text-xs text-muted-foreground">
+            Send Test Webhook Event is not available on the fake Stripe: test events arrive with the
+            event-channel increment.
+          </p>
+        )}
+        {liveMode === false && !isFakeStripe && (
           <CollapsibleSection
             title="Send Test Webhook Event"
             icon={<Send className="w-4 h-4 text-blue-400" />}

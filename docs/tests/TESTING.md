@@ -450,20 +450,28 @@ partition databases between the drivers (`lib/stripeDatabasePartition.ts`):
 
 A confirmed mismatch refuses the boot before the port opens; an unreadable
 setting leaves payments unavailable until a retry reads it. The fake setting has
-one writer, which only creates (it refuses an existing name, and drops the
-copy's `stripe` schema), so a database with real-Stripe history can never carry
-it. To run locally against the marked test database:
+one writer, which only creates, and creates **empty** (`TEMPLATE template0`; it
+refuses an existing name), so a database with real-Stripe history can never
+carry it: nothing is copied from anywhere. The schema, migrations and accounts
+come from the same fill every test database gets. To run locally (with
+`DATABASE_URL` naming the marked test database, the proof this is a disposable
+server):
 
 ```sh
-pnpm --filter @workspace/db create-stripe-fake-db overhype_stripe_fake   # once; copies DATABASE_URL's marked test DB
-cd artifacts/api-server && STRIPE_BACKEND=fake-double \
-  DATABASE_URL=postgres://overhype:overhype@localhost:5432/overhype_stripe_fake \
+pnpm --filter @workspace/db create-stripe-fake-db overhype_stripe_fake   # once; creates it empty and marked
+export FAKE_DB=postgres://overhype:overhype@localhost:5432/overhype_stripe_fake
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/db push-force
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/db run migrate
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
+cd artifacts/api-server && STRIPE_BACKEND=fake-double DATABASE_URL=$FAKE_DB \
   PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=x \
   ALLOWED_ORIGINS=http://localhost:5173 pnpm exec tsx src/index.ts
 ```
 
-To start over, drop `overhype_stripe_fake` and create it again; never point an
-older checkout's server at it. The Billing page shows a persistent "Fake Stripe —
+To start over, drop `overhype_stripe_fake` and run the block again; an
+interrupted run leaves at worst an empty database, which the next run's
+"already exists" refusal names. Never point an older checkout's server at it. The Billing page shows a persistent "Fake Stripe —
 no real account" notice while it is active. CI's dev stack runs on it, and
 `e2e/adminBillingSync.spec.ts` (`e2e:billing`) is in the per-PR gate.
 

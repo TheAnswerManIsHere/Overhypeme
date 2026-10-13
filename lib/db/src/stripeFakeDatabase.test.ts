@@ -1,7 +1,8 @@
 /**
  * The fake-Stripe database partition (#566, plan decision 12), against a real
  * Postgres: the provisioner that is the only writer of the fake-ownership
- * setting, and the catalog query the API server reads both settings with.
+ * setting (it creates the database empty, so nothing from a used database can
+ * reach it), and the catalog query the API server reads both settings with.
  *
  * Each case uses scratch databases created through the maintenance database, so
  * nothing depends on how the database the suite started against was set up.
@@ -55,11 +56,18 @@ describe("fake-Stripe database partition", () => {
     await control.query(`CREATE DATABASE ${STAMPED}`);
     await control.query(markTestDatabaseSql(STAMPED));
     await control.query(markStripeFakeDatabaseSql(STAMPED));
-    // The source carries a Stripe mirror, as a test database a real driver once
-    // touched would. The copy must not inherit it.
+    // The source is a USED test database, with state in three different places
+    // a real driver and an admin leave behind: a live-mode setting, a user's
+    // provider customer id, and a Stripe mirror row. None may reach the target.
     const source = new pg.Client({ connectionString: urlFor(SOURCE) });
     await source.connect();
-    await source.query("CREATE SCHEMA stripe; CREATE TABLE stripe.products (id text primary key); INSERT INTO stripe.products VALUES ('prod_real')");
+    await source.query(`
+      CREATE TABLE admin_config (key text primary key, value text);
+      INSERT INTO admin_config VALUES ('stripe_live_mode', 'true');
+      CREATE TABLE users (id text primary key, stripe_customer_id text);
+      INSERT INTO users VALUES ('u_real', 'cus_real');
+      CREATE SCHEMA stripe; CREATE TABLE stripe.products (id text primary key);
+      INSERT INTO stripe.products VALUES ('prod_real');`);
     await source.end();
   });
 
@@ -74,14 +82,29 @@ describe("fake-Stripe database partition", () => {
     assert.deepEqual(await settingsOf(STAMPED), { database: STAMPED, testMarked: true, fakeOwned: true });
   });
 
-  it("creates a fake database: both settings set, and no Stripe mirror carried over from the source", async () => {
+  it("creates a fake database EMPTY: both settings set, and nothing from the used source", async () => {
+    // A test meant to prove nothing is copied must first prove there was something to copy.
+    const source = new pg.Client({ connectionString: urlFor(SOURCE) });
+    await source.connect();
+    const before = await source.query(`
+      SELECT (SELECT value FROM admin_config WHERE key = 'stripe_live_mode') AS live,
+             (SELECT stripe_customer_id FROM users WHERE id = 'u_real') AS customer,
+             (SELECT count(*)::int FROM stripe.products) AS products`);
+    await source.end();
+    assert.deepEqual(before.rows[0], { live: "true", customer: "cus_real", products: 1 });
+
     await createStripeFakeDatabase({ DATABASE_URL: urlFor(SOURCE) }, TARGET);
     assert.deepEqual(await settingsOf(TARGET), { database: TARGET, testMarked: true, fakeOwned: true });
-    const copy = new pg.Client({ connectionString: urlFor(TARGET) });
-    await copy.connect();
-    const { rows } = await copy.query("SELECT 1 FROM pg_namespace WHERE nspname = 'stripe'");
-    await copy.end();
-    assert.equal(rows.length, 0, "the copy's stripe schema must be gone");
+
+    const target = new pg.Client({ connectionString: urlFor(TARGET) });
+    await target.connect();
+    const after = await target.query(`
+      SELECT to_regclass('public.admin_config') AS admin_config,
+             to_regclass('public.users') AS users,
+             (SELECT count(*)::int FROM pg_namespace WHERE nspname = 'stripe') AS stripe_schema,
+             (SELECT count(*)::int FROM pg_extension WHERE extname = 'vector') AS vector`);
+    await target.end();
+    assert.deepEqual(after.rows[0], { admin_config: null, users: null, stripe_schema: 0, vector: 1 });
   });
 
   it("refuses an existing target — it never converts a database", async () => {
@@ -89,10 +112,10 @@ describe("fake-Stripe database partition", () => {
     assert.equal((await settingsOf(UNMARKED)).fakeOwned, false, "the existing database must be left untouched");
   });
 
-  it("refuses an unmarked source", async () => {
+  it("refuses when DATABASE_URL is not a marked test database (the disposable-server proof)", async () => {
     await assert.rejects(
       createStripeFakeDatabase({ DATABASE_URL: urlFor(UNMARKED) }, `${TARGET}_x`),
-      /source must be a marked test database/,
+      /must name a marked test database/,
     );
   });
 
