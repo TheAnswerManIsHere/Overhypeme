@@ -37,12 +37,12 @@ import { falSubscribeRequest, falUploadRequest, falUploadUrl, type FalLike } fro
 
 /**
  * Published list prices, USD per 1M tokens, read from developers.openai.com
- * model pages: 2026-10-12, and `gpt-4o-mini` (the default utility model on a
- * fresh database) 2026-10-13.
+ * model pages: 2026-10-12, and `gpt-6-luna` (the default utility model on a
+ * fresh database since #666) 2026-10-13.
  */
 export const OPENAI_PRICES: Record<string, { input: number; output: number }> = {
   "gpt-5.5": { input: 5, output: 30 },
-  "gpt-4o-mini": { input: 0.15, output: 0.6 },
+  "gpt-6-luna": { input: 0.1, output: 0.5 },
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
   "text-embedding-3-small": { input: 0.02, output: 0 },
 };

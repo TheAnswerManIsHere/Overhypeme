@@ -65,7 +65,12 @@ function fakeOpenAIVendor(onCall: (kind: string, params: any) => void = () => {}
         async create(params: any) {
           onCall("chat", params);
           if (params.messages.some((m: any) => m.content === "please fail")) {
-            throw OpenAI.APIError.generate(400, { message: "bad request", type: "invalid_request_error" }, "bad request", new Headers());
+            throw OpenAI.APIError.generate(
+              400,
+              { error: { message: "bad request", type: "invalid_request_error", param: "messages", code: "empty_array" } },
+              "bad request",
+              new Headers(),
+            );
           }
           return {
             id: "chatcmpl-real-id",
@@ -194,10 +199,18 @@ describe("AI doubles and recorder", () => {
 
       process.env.AI_BACKEND = "recorded-double";
       // Replaying the failing request itself reproduces the error...
-      await assert.rejects(getOpenAIClient().chat.completions.create(failing as any), (err: any) => err instanceof OpenAI.APIError && err.status === 400);
+      // The vendor's structured fields survive, not only the class and status.
+      const sameAsVendor = (err: any) =>
+        err instanceof OpenAI.BadRequestError &&
+        err.status === 400 &&
+        err.code === "empty_array" &&
+        err.type === "invalid_request_error" &&
+        err.param === "messages" &&
+        err.message === "400 bad request";
+      await assert.rejects(getOpenAIClient().chat.completions.create(failing as any), sameAsVendor);
       // ...and the failure control turns any call to that model into it.
       process.env.AI_DOUBLE_FAIL = "openai.chat:gpt-5.4-mini";
-      await assert.rejects(getOpenAIClient().chat.completions.create(CHAT as any), (err: any) => err instanceof OpenAI.APIError && err.status === 400);
+      await assert.rejects(getOpenAIClient().chat.completions.create(CHAT as any), sameAsVendor);
       assert.equal(doubleCalls.at(-1)?.outcome, "failed-on-request");
     });
   });

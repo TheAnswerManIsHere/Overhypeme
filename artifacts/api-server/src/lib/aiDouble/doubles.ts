@@ -43,12 +43,9 @@ function rebuild(err: RecordedError): Error {
     const Ctor = err.name === "ValidationError" ? ValidationError : ApiError;
     return new Ctor({ message: err.message, status: err.status, body: err.body as never });
   }
-  return OpenAI.APIError.generate(
-    err.status,
-    err.body as Record<string, unknown>,
-    err.message,
-    new Headers(),
-  );
+  // The recording holds the SDK's `error` (the vendor's inner error object);
+  // `generate` reads it from an `{ error }` envelope, as the HTTP body carries it.
+  return OpenAI.APIError.generate(err.status, { error: err.body }, err.message, new Headers());
 }
 
 function noteMiss(kind: RecordingKind, target: string, print: string): void {
