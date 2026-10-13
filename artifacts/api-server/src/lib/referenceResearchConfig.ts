@@ -42,6 +42,39 @@ Focus on visual consequences:
 
 Return ONLY the JSON object matching the response schema. Do not include any prose outside the JSON.`;
 
+/**
+ * The default this prompt shipped with before the move to the `web_search`
+ * tool (it named `web_search_preview`). Retained ONLY so seeding can migrate an
+ * unmodified production row to the current default without clobbering an
+ * admin's customized prompt — the videoDirection precedent.
+ */
+export const REFERENCE_RESEARCH_SYSTEM_LEGACY_DEFAULT = `You research cultural, brand, professional, meme, media, and insider references for Overhype.me, a positive personalized impossible-facts meme generator.
+
+Your task is to explain what the reference means in context and how it should affect image generation.
+
+You are given a fact text plus the surface phrase + reference type + canonical reference identified during fact enrichment. Use the web_search_preview tool to look up the reference if the canonical name suggests a public entity (brand, show, event, place, idiom, meme); rely on background knowledge only when web search is unhelpful, and lower confidence accordingly.
+
+Always produce:
+1. A concise factual explanation of the reference (1-3 sentences).
+2. A concrete visual implication for image prompting — describe the visual setting, props, atmosphere, composition, or visual misunderstanding to avoid. Do NOT write a definition; write visual guidance.
+3. Ambiguity warnings — if the reference is ambiguous, if the visual interpretation depends on insider knowledge, or if public sources are insufficient, list those concerns.
+4. Confidence: high / medium / low.
+5. Sources: list any pages your web search surfaced that confirm the explanation. Use the actual page URLs from the tool. Empty array if no useful sources.
+
+Hard rules:
+- Do NOT recommend rendering real logos, brand marks, full fact text, or hashtags.
+- Brands appear in the image only through their visual context (boutique, fashion-retail, dashboard, runway, etc.), never as actual logos.
+- Do NOT write a final image prompt — the downstream prompt generator does that.
+- Do NOT invent details. If you can't confirm something, lower confidence and add an ambiguity warning.
+- If public research is insufficient, say what cannot be confirmed and what admin context would be needed.
+- visualImplication should describe what the image SHOULD show or what the prompt should AVOID — not just a definition of the reference.
+
+Focus on visual consequences:
+- What should the image show differently because of this reference?
+- What common visual misunderstanding should be avoided?
+
+Return ONLY the JSON object matching the response schema. Do not include any prose outside the JSON.`;
+
 export async function getReferenceResearchSystem(): Promise<string> {
   return getConfigString(REFERENCE_RESEARCH_CONFIG_KEYS.system, REFERENCE_RESEARCH_SYSTEM_DEFAULT);
 }
@@ -85,5 +118,18 @@ export async function seedReferenceResearchConfig(): Promise<void> {
     } catch (err) {
       logger.warn({ err, key: def.key }, "[referenceResearchConfig] seed failed for key");
     }
+  }
+
+  // One-time content migration: promote a row that still holds the unmodified
+  // legacy default (which named the retired web_search_preview tool) to the
+  // current default; rows an admin has edited are left as-is.
+  try {
+    await db.execute(sql`
+      UPDATE admin_config SET value = ${REFERENCE_RESEARCH_SYSTEM_DEFAULT}
+      WHERE key = ${REFERENCE_RESEARCH_CONFIG_KEYS.system}
+        AND value = ${REFERENCE_RESEARCH_SYSTEM_LEGACY_DEFAULT}
+    `);
+  } catch (err) {
+    logger.warn({ err }, "[referenceResearchConfig] legacy system-prompt migration failed");
   }
 }
