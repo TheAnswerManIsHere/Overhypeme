@@ -38,6 +38,10 @@ log() { echo "[setup-test-db] $*"; }
 # ── 1. Ensure pgvector apt package is installed ───────────────────────────────
 if ! dpkg -l postgresql-16-pgvector >/dev/null 2>&1; then
   log "Installing postgresql-16-pgvector..."
+  # A fresh container's package index does not list it, so the install fails
+  # with "Unable to locate package" unless the index is refreshed first. Only
+  # reached when the package is missing, so a warm container never pays for it.
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postgresql-16-pgvector >/dev/null
 fi
 

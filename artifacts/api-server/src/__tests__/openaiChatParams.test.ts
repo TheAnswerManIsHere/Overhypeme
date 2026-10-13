@@ -16,7 +16,7 @@ import {
 
 describe("openaiChatParams", () => {
   it("classifies reasoning vs non-reasoning models", () => {
-    for (const m of ["gpt-5.1", "gpt-5.2", "gpt-5.4-mini", "gpt-5", "o3", "o4-mini", "GPT-5.2"]) {
+    for (const m of ["gpt-5.1", "gpt-5.2", "gpt-5.4-mini", "gpt-5", "gpt-6-luna", "gpt-6.1-sol", "GPT-6-Luna", "o3", "o4-mini", "GPT-5.2"]) {
       assert.equal(isReasoningChatModel(m), true, `${m} should be a reasoning model`);
     }
     for (const m of ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]) {
@@ -38,6 +38,36 @@ describe("openaiChatParams", () => {
     assert.equal(p.reasoning_effort, "low");
     assert.equal(p.max_tokens, undefined);
     assert.equal(p.temperature, undefined);
+  });
+
+  it("gpt-6 at effort none keeps the caller's temperature and budget, with no headroom", () => {
+    for (const temperature of [0, 0.3, 0.7]) {
+      const p = chatModelTuningParams({ model: "gpt-6-luna", maxTokens: 60, temperature, reasoningEffort: "none" });
+      assert.equal(p.temperature, temperature);
+      assert.equal(p.max_completion_tokens, 60);
+      assert.equal(p.reasoning_effort, "none");
+      assert.equal(p.max_tokens, undefined);
+    }
+    const padded = chatModelTuningParams({ model: "GPT-6-Luna", maxTokens: 60, temperature: 0, reasoningEffort: " none " });
+    assert.equal(padded.temperature, 0);
+  });
+
+  it("gpt-6 at any other effort (or unset) drops temperature and adds headroom", () => {
+    for (const reasoningEffort of ["low", "medium", "", undefined]) {
+      const p = chatModelTuningParams({ model: "gpt-6-luna", maxTokens: 512, temperature: 0.2, reasoningEffort });
+      assert.equal(p.temperature, undefined, `effort ${String(reasoningEffort)}`);
+      assert.equal(p.max_completion_tokens, 512 + REASONING_TOKEN_HEADROOM);
+      assert.equal(p.max_tokens, undefined);
+    }
+  });
+
+  it("gpt-5 / o-series keep the plain reasoning shape even at effort none", () => {
+    for (const model of ["gpt-5.4-mini", "gpt-5.5", "o4-mini"]) {
+      const p = chatModelTuningParams({ model, maxTokens: 1024, temperature: 0, reasoningEffort: "none" });
+      assert.equal(p.temperature, undefined, model);
+      assert.equal(p.max_completion_tokens, 1024 + REASONING_TOKEN_HEADROOM);
+      assert.equal(p.reasoning_effort, "none");
+    }
   });
 
   it("omits reasoning_effort when blank", () => {

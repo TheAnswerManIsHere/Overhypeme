@@ -200,6 +200,13 @@ jobs:
       - name: Check script entry points
         run: node --test scripts/__tests__/entry-point-comparison.test.mjs
 
+      # Every agent session builds its test database with this script; on a
+      # fresh container it failed before Postgres started because it installed
+      # pgvector without refreshing the package index. Stubbed, so it touches
+      # nothing on the runner.
+      - name: Check test-DB setup on a fresh container
+        run: bash scripts/__tests__/setup-test-db.test.sh
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

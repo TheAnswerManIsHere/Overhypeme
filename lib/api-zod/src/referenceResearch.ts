@@ -4,7 +4,7 @@
  * The admin enrichment editor's Cultural / Insider References editor has a
  * per-row "Research Reference" button that calls
  * `POST /api/admin/references/research`. The service uses the OpenAI
- * Responses API with the `web_search_preview` tool to look up the reference,
+ * Responses API with the `web_search` tool to look up the reference,
  * then returns a structured result the admin can apply into the form (filling
  * in `explanation` + `visualImplication`).
  *
