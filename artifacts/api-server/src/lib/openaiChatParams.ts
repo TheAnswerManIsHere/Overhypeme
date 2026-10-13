@@ -2,7 +2,7 @@
  * Call-shape helper for OpenAI chat completions.
  *
  * The GPT-4o / 4.1 families take `max_tokens` + `temperature`. The reasoning
- * families (gpt-5*, o-series) reject those: they need `max_completion_tokens`
+ * families (gpt-5*, gpt-6*, o-series) reject those: they need `max_completion_tokens`
  * and (optionally) `reasoning_effort`, and only support the default temperature.
  * This helper returns the right tuning fragment so callers can stay
  * model-agnostic — pass the admin-configured levers, spread the result into
@@ -16,10 +16,10 @@
 
 import type OpenAI from "openai";
 
-/** Reasoning models: gpt-5 family (5, 5.1, 5.2, 5.4, 5.5, incl. mini/nano) and the o-series. */
+/** Reasoning models: the gpt-5 and gpt-6 families (incl. mini/nano, luna/sol/astra) and the o-series. */
 export function isReasoningChatModel(model: string): boolean {
   const m = model.trim().toLowerCase();
-  return m.startsWith("gpt-5") || /^o\d/.test(m);
+  return /^gpt-[56]/.test(m) || /^o\d/.test(m);
 }
 
 /** Extra completion-token budget for reasoning models so reasoning doesn't starve the answer. */

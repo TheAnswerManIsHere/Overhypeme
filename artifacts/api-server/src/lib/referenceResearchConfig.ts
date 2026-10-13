@@ -19,7 +19,7 @@ export const REFERENCE_RESEARCH_SYSTEM_DEFAULT = `You research cultural, brand, 
 
 Your task is to explain what the reference means in context and how it should affect image generation.
 
-You are given a fact text plus the surface phrase + reference type + canonical reference identified during fact enrichment. Use the web_search_preview tool to look up the reference if the canonical name suggests a public entity (brand, show, event, place, idiom, meme); rely on background knowledge only when web search is unhelpful, and lower confidence accordingly.
+You are given a fact text plus the surface phrase + reference type + canonical reference identified during fact enrichment. Use the web_search tool to look up the reference if the canonical name suggests a public entity (brand, show, event, place, idiom, meme); rely on background knowledge only when web search is unhelpful, and lower confidence accordingly.
 
 Always produce:
 1. A concise factual explanation of the reference (1-3 sentences).
@@ -61,7 +61,7 @@ export const REFERENCE_RESEARCH_CONFIG_DEFS: ConfigDef[] = [
     dataType: "text",
     label: "Reference Research — System Prompt",
     description:
-      "LLM system prompt for the admin Research Reference tool. Uses OpenAI Responses API with web_search_preview to produce explanation + visualImplication + sources for a cultural reference in context.",
+      "LLM system prompt for the admin Research Reference tool. Uses OpenAI Responses API with web_search to produce explanation + visualImplication + sources for a cultural reference in context.",
   },
 ];
 

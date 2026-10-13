@@ -16,7 +16,7 @@ import {
 
 describe("openaiChatParams", () => {
   it("classifies reasoning vs non-reasoning models", () => {
-    for (const m of ["gpt-5.1", "gpt-5.2", "gpt-5.4-mini", "gpt-5", "o3", "o4-mini", "GPT-5.2"]) {
+    for (const m of ["gpt-5.1", "gpt-5.2", "gpt-5.4-mini", "gpt-5", "gpt-6-luna", "gpt-6.1-sol", "GPT-6-Luna", "o3", "o4-mini", "GPT-5.2"]) {
       assert.equal(isReasoningChatModel(m), true, `${m} should be a reasoning model`);
     }
     for (const m of ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]) {
@@ -35,6 +35,14 @@ describe("openaiChatParams", () => {
   it("reasoning models use max_completion_tokens (with headroom) + reasoning_effort, no temperature", () => {
     const p = chatModelTuningParams({ model: "gpt-5.2", maxTokens: 200, temperature: 0.7, reasoningEffort: "low" });
     assert.equal(p.max_completion_tokens, 200 + REASONING_TOKEN_HEADROOM);
+    assert.equal(p.reasoning_effort, "low");
+    assert.equal(p.max_tokens, undefined);
+    assert.equal(p.temperature, undefined);
+  });
+
+  it("gpt-6-luna (the utility default) gets the reasoning call shape", () => {
+    const p = chatModelTuningParams({ model: "gpt-6-luna", maxTokens: 512, temperature: 0.7, reasoningEffort: "low" });
+    assert.equal(p.max_completion_tokens, 512 + REASONING_TOKEN_HEADROOM);
     assert.equal(p.reasoning_effort, "low");
     assert.equal(p.max_tokens, undefined);
     assert.equal(p.temperature, undefined);

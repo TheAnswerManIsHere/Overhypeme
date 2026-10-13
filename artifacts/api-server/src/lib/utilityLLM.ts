@@ -17,9 +17,11 @@ import { loadDefaultEngine } from "./engineInterpreter";
 import { chatModelTuningParams } from "./openaiChatParams";
 import { logger } from "./logger";
 
-const FALLBACK_MODEL = "gpt-4o-mini";
+const FALLBACK_MODEL = "gpt-6-luna";
 const FALLBACK_TEMPERATURE = 0.7;
 const FALLBACK_MAX_TOKENS = 512;
+/** gpt-6-luna defaults to medium effort; helper calls want the cheap, fast end. */
+const FALLBACK_REASONING_EFFORT = "low";
 
 /** Milliseconds before a utility LLM call is aborted. */
 export const UTILITY_LLM_TIMEOUT_MS = 30_000;
@@ -64,7 +66,12 @@ async function resolveLLMSettings(): Promise<LLMSettings> {
     };
   } catch (err) {
     logger.warn({ err }, "[utilityLLM] no default llm engine configured; using baked-in defaults");
-    return { model: FALLBACK_MODEL, temperature: FALLBACK_TEMPERATURE, maxTokens: FALLBACK_MAX_TOKENS };
+    return {
+      model: FALLBACK_MODEL,
+      temperature: FALLBACK_TEMPERATURE,
+      maxTokens: FALLBACK_MAX_TOKENS,
+      reasoningEffort: FALLBACK_REASONING_EFFORT,
+    };
   }
 }
 

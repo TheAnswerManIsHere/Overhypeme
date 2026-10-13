@@ -2,7 +2,7 @@
  * OpenAI Responses API wrapper for reference research.
  *
  * Distinct from `callUtilityLLM` (chat.completions) because this code path
- * needs the `web_search_preview` tool — only available on the Responses API
+ * needs the `web_search` tool — only available on the Responses API
  * surface. Same OpenAI client; different endpoint.
  *
  * The Responses API returns an `output` array of items (reasoning, tool
@@ -11,19 +11,33 @@
  * `response.output_text`. We parse that into the wire schema.
  */
 
+import type OpenAI from "openai";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import {
   REFERENCE_RESEARCH_CONFIDENCE_VALUES,
   REFERENCE_RESEARCH_SOURCE_TYPE_VALUES,
 } from "@workspace/api-zod";
 import { logger } from "../logger";
+import { REASONING_TOKEN_HEADROOM } from "../openaiChatParams";
 
-/** Default model for the research call. Web-search is gpt-4.1 / gpt-4o family. */
-export const REFERENCE_RESEARCH_MODEL = "gpt-4.1";
-/** Modest output; the JSON is small. */
+/**
+ * Model for the research call: OpenAI's mid tier, at the same input price as
+ * the gpt-4.1 it replaced. A reasoning model that supports the `web_search`
+ * tool (it accepts no `none`/`minimal` effort, so `low` is its floor).
+ */
+export const REFERENCE_RESEARCH_MODEL = "gpt-6.1-sol";
+/** Reasoning effort for the research call — the cheapest the model accepts. */
+export const REFERENCE_RESEARCH_REASONING_EFFORT = "low" as const;
+/** Modest visible output; the JSON is small. */
 export const REFERENCE_RESEARCH_MAX_OUTPUT_TOKENS = 1500;
-/** Hard timeout for the (slower) tool-using call. */
-export const REFERENCE_RESEARCH_TIMEOUT_MS = 60_000;
+/**
+ * `max_output_tokens` also caps the reasoning tokens, so the request adds this
+ * headroom on top of the visible budget; without it, reasoning can consume the
+ * cap and leave `output_text` empty. Billing is by tokens used, not the cap.
+ */
+export const REFERENCE_RESEARCH_REASONING_HEADROOM = REASONING_TOKEN_HEADROOM;
+/** Hard timeout for the (slower) tool-using, reasoning call. */
+export const REFERENCE_RESEARCH_TIMEOUT_MS = 120_000;
 
 export class ReferenceResearchOpenAIError extends Error {
   constructor(message: string, public cause?: unknown) {
@@ -38,35 +52,45 @@ interface CallArgs {
 }
 
 /**
- * Call the Responses API with the web_search_preview tool + Structured
- * Outputs JSON schema, returning the raw output_text. The caller validates.
+ * The Responses API request body for one research call: the web_search tool,
+ * low reasoning effort, Structured Outputs JSON schema, and an output cap that
+ * leaves room for reasoning. Pure, so the request shape is testable.
  */
-export async function callReferenceResearchModel({
+export function buildReferenceResearchRequest({
   systemPrompt,
   userMessage,
-}: CallArgs): Promise<string> {
+}: CallArgs): OpenAI.Responses.ResponseCreateParamsNonStreaming {
+  return {
+    model: REFERENCE_RESEARCH_MODEL,
+    tools: [{ type: "web_search" }],
+    reasoning: { effort: REFERENCE_RESEARCH_REASONING_EFFORT },
+    input: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "reference_research_result",
+        strict: true,
+        schema: buildResponseJsonSchema(),
+      },
+    },
+    max_output_tokens:
+      REFERENCE_RESEARCH_MAX_OUTPUT_TOKENS + REFERENCE_RESEARCH_REASONING_HEADROOM,
+  };
+}
+
+/**
+ * Call the Responses API with the request above, returning the raw
+ * output_text. The caller validates.
+ */
+export async function callReferenceResearchModel(args: CallArgs): Promise<string> {
   const openai = getOpenAIClient();
   try {
-    const response = await openai.responses.create(
-      {
-        model: REFERENCE_RESEARCH_MODEL,
-        tools: [{ type: "web_search_preview" }],
-        input: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "reference_research_result",
-            strict: true,
-            schema: buildResponseJsonSchema(),
-          },
-        },
-        max_output_tokens: REFERENCE_RESEARCH_MAX_OUTPUT_TOKENS,
-      },
-      { timeout: REFERENCE_RESEARCH_TIMEOUT_MS },
-    );
+    const response = await openai.responses.create(buildReferenceResearchRequest(args), {
+      timeout: REFERENCE_RESEARCH_TIMEOUT_MS,
+    });
     const text = (response as { output_text?: string }).output_text ?? "";
     if (!text) {
       throw new ReferenceResearchOpenAIError(

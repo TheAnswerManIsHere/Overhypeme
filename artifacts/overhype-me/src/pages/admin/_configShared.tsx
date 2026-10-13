@@ -206,13 +206,15 @@ export function msToHuman(ms: number): string {
 }
 
 // OpenAI chat models offered for the image scene + video motion prompts.
-// Both families are supported: the GPT-4o / 4.1 chat models (max_tokens +
+// Both families are supported: the legacy GPT-4o / 4.1 chat models (max_tokens +
 // temperature) and the GPT-5 reasoning models (max_completion_tokens +
-// reasoning_effort, no temperature). The server picks the right call shape per
+// reasoning_effort, no temperature), including GPT-6. The server picks the right call shape per
 // model via chatModelTuningParams (lib/openaiChatParams.ts), so any value here
 // works. GPT-5 models also honor the "Reasoning Effort" lever below.
 export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
-  { value: "gpt-4o-mini",  label: "GPT-4o mini (fast, cheap — default)" },
+  { value: "gpt-6-luna",   label: "GPT-6 Luna (reasoning — fast, cheap — default)" },
+  { value: "gpt-6.1-sol",  label: "GPT-6.1 Sol (reasoning — mid-tier; no \"None\" effort)" },
+  { value: "gpt-4o-mini",  label: "GPT-4o mini (legacy)" },
   { value: "gpt-4o",       label: "GPT-4o" },
   { value: "gpt-4.1-nano", label: "GPT-4.1 nano (fastest, cheapest)" },
   { value: "gpt-4.1-mini", label: "GPT-4.1 mini" },
@@ -223,7 +225,7 @@ export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: "gpt-5.5",      label: "GPT-5.5 (reasoning — frontier)" },
 ];
 
-// Reasoning effort for GPT-5 / o-series models. Ignored by GPT-4.x models.
+// Reasoning effort for GPT-5 / GPT-6 / o-series models. Ignored by GPT-4.x models.
 export const REASONING_EFFORT_OPTIONS: { value: string; label: string }[] = [
   { value: "none",   label: "None (fastest, cheapest)" },
   { value: "low",    label: "Low (default)" },

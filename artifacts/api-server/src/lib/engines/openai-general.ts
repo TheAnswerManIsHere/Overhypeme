@@ -16,7 +16,7 @@ import type { EngineDefinition } from "./types";
 export const OPENAI_GENERAL: EngineDefinition = {
   id: "openai-general",
   provider: "openai",
-  endpointId: "gpt-4o-mini",
+  endpointId: "gpt-6-luna",
   label: "OpenAI — General Intelligence",
   description:
     "The shared LLM used for all text/JSON helper calls: fact tokenization, duplicate checks, hashtag + pronoun suggestions, comment moderation, scene prompts, and video direction.",

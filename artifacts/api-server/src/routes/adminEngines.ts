@@ -141,10 +141,11 @@ const VALID_TIERS = new Set(["unregistered", "registered", "legendary"]);
 
 /** OpenAI models the General Intelligence engine may be set to. Keep in sync
  *  with OPENAI_CHAT_MODEL_OPTIONS in the admin frontend. Includes the GPT-4o /
- *  4.1 chat family and the gpt-5 / o-series reasoning family. */
+ *  4.1 chat family and the gpt-5 / gpt-6 / o-series reasoning family. */
 const ALLOWED_LLM_MODELS = new Set([
   "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
   "gpt-5.1", "gpt-5.2", "gpt-5.4-mini", "gpt-5.5",
+  "gpt-6-luna", "gpt-6.1-sol",
 ]);
 
 const VALID_REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh"]);
