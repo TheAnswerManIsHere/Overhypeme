@@ -405,6 +405,7 @@ prove it. A new double adds its row to `SELECTORS` there.
 | Selector | Double | Needs |
 |---|---|---|
 | `STORAGE_BACKEND` | `local-double` — `lib/localObjectStorage.ts` | `STORAGE_DOUBLE_DIR` (absolute), plus the usual `PRIVATE_OBJECT_DIR` / `PUBLIC_OBJECT_SEARCH_PATHS` (any `/<bucket>/<prefix>`) |
+| `STRIPE_BACKEND` | `fake-double` — `lib/stripeFakeDriver.ts` | **no** Stripe credential set (any `STRIPE_SECRET_KEY_*`, `STRIPE_PUBLISHABLE_KEY_*` or `STRIPE_WEBHOOK_SECRET_*` refuses the boot), and a database created for it (below) |
 
 **The storage double** keeps bytes and metadata in a local directory and
 implements exactly the file operations the code uses. Everything above it — the
@@ -429,6 +430,47 @@ never on the Repl, which carries real ones.
 
 It is an acceptance journey, so it is not in the per-PR gate; the acceptance
 run (Phase 2, increment 6) runs it.
+
+**The Stripe fake** (#566, `docs/plans/PLAN_STRIPE_FAKE.md`) is a credential-free
+Stripe for the read path: account verification, managed-webhook registration,
+backfill into the `stripe.*` mirror, the catalog and the Billing sync all work
+against a fixed catalog (`lib/stripeFakeFixture.ts`, one membership product with
+monthly, annual and lifetime prices). It is test-mode only. Payment mutations
+(checkout, subscription changes, portal) and webhook processing refuse with
+`StripeFakeUnsupportedError` (a typed 501 from payment routes) until the event
+channel lands. The real driver is unchanged and stays the default.
+
+It runs only on a database **created** for it. Two database-level settings
+partition databases between the drivers (`lib/stripeDatabasePartition.ts`):
+
+| Driver | May use a database carrying |
+|---|---|
+| fake | the test marker **and** `overhype.stripe_fake_database` |
+| real, with credentials | **neither** |
+
+A confirmed mismatch refuses the boot before the port opens; an unreadable
+setting leaves payments unavailable until a retry reads it. The fake setting has
+one writer, which only creates (it refuses an existing name, and drops the
+copy's `stripe` schema), so a database with real-Stripe history can never carry
+it. To run locally against the marked test database:
+
+```sh
+pnpm --filter @workspace/db create-stripe-fake-db overhype_stripe_fake   # once; copies DATABASE_URL's marked test DB
+cd artifacts/api-server && STRIPE_BACKEND=fake-double \
+  DATABASE_URL=postgres://overhype:overhype@localhost:5432/overhype_stripe_fake \
+  PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=x \
+  ALLOWED_ORIGINS=http://localhost:5173 pnpm exec tsx src/index.ts
+```
+
+To start over, drop `overhype_stripe_fake` and create it again; never point an
+older checkout's server at it. The Billing page shows a persistent "Fake Stripe —
+no real account" notice while it is active. CI's dev stack runs on it, and
+`e2e/adminBillingSync.spec.ts` (`e2e:billing`) is in the per-PR gate.
+
+Unit tests choose the driver with `__setStripeDriverForTests`, and stub the
+partition read with `__setPartitionReaderForTests` — the test databases are
+never fake-owned. Suites testing real-driver account behaviour get an "allowed"
+answer from `stubAccountRetriever` (`__tests__/helpers/stripeGuardHarness.ts`).
 
 ---
 
