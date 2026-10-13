@@ -231,6 +231,68 @@ to blocking every manual-touching docs PR, and used this technique to confirm
 the poller's zero-progress invariant was still actually being asserted after
 the widening.
 
+**Every new assertion is falsified before it is trusted.** A green run says
+nothing about an assertion that cannot fail. Break the thing each assertion
+guards, watch its test go red **for the stated reason**, then revert. #563,
+#567 and #570 drained UAT steps into CI, and their harvest notes count 13
+assertions weaker than their test names in #563 and 5 vacuous ones in #567.
+Review caught most of them, not a green run. The shapes that recurred:
+
+- **The fixture is not a state the product reaches.** Grammar-invalid CSV
+  rows that queue nothing whether or not the cap fires; an "absent" Visual
+  Concept sent as a truthy empty scaffold; a concept-less candidate in a
+  stage a concept-less candidate cannot reach. The assertion passes for a
+  reason other than the one it claims.
+- **"This did not happen" needs a fixture that would show a mark.**
+  `fact_enrichment_versions` has no `updated_at`, so a refused write that
+  matches the starting state byte for byte is undetectable. Choose a starting
+  state the forbidden write would visibly destroy, and check persistence
+  after each request, not once after several that can cancel out.
+- **A phrase in the test name that nothing asserts** ("above the cards",
+  "including ones that have never run").
+- **Passing by luck of layout.** The admin console scrolls an *inner pane*,
+  so `window.scrollY` is 0 whether or not a scroll happened. A heading that
+  happens to sit below the fold proves a scroll only today.
+- **A scope wider than the thing under test** — counting headings across
+  `<main>` includes the chapter nav's own — and **a substring standing in for
+  a name** (`enrichment` is inside `fact_enrichment_backfill`).
+- **Playwright: inverting `toBeVisible` does not falsify it.** Both
+  `toHaveCount(0)` and `toBeHidden` pass on a page that has not rendered yet.
+  Break the **locator** instead, since a wrong locator is the product failure
+  a visibility assertion guards.
+- **A mutation only falsifies an assertion that a test actually reaches.** A
+  "verified" teardown mutation came back green against a test whose loop body
+  never ran.
+- **A fix for one round can create the next round's vacuous assertion.**
+  Making a fixture correct in #567 round 2 removed the contrast round 3's
+  persistence check depended on. Re-falsify after every fixture change.
+
+**The harness mirrors the app, or its tests measure the harness.**
+`routes.admin.test.ts` once built its app with bare `express.json()` (100 KB),
+below the 2 MB limit `app.ts` sets. Large-but-legal imports got a 413 before
+the route's own caps ran. Copy the real middleware settings.
+
+**A "module X must not reach Y" guard walks the TypeScript AST, not a regex
+over imports.** A regex misses side-effect and dynamic imports.
+`doubleSelection.test.ts` and `transientRenderLog.salt.security.test.ts` do it
+properly; reuse their approach.
+
+**A browser spec that mutates anything needs `ALLOWED_ORIGINS` off Replit.**
+`parseAllowedOrigins()` (`app.ts`) reads only `ALLOWED_ORIGINS` and
+`REPLIT_DEV_DOMAIN`, so on a local or CI stack the allowlist is empty and
+every browser-initiated mutation gets `403 {"error":"Origin not allowed"}`.
+Read-only specs and Playwright's `APIRequestContext`, which sends no `Origin`,
+never hit it. Running `adminPermissions.spec.ts` locally also needs
+`ENABLE_DEV_ADMIN_LOGIN=true` and the dev-admin seed. Without them every admin
+test fails with a 404 from `dev-admin-login` that looks like a regression.
+
+**A feature-grid write takes effect at once in the writing process.**
+`setTierFeature()` calls `bustEntitlementCache()`, so the resolver's ~60 s
+cache matters only across processes. A previewing admin always resolves as
+`registered`, whatever their stored tier
+([`membership-entitlements.md`](../ai-context/membership-entitlements.md)), so
+a fixture keyed to `membershipTier` is wrong on the preview path.
+
 External services (Pexels, object storage, pricing, embeddings, image/video
 generation, Stripe) must be stubbed/mocked or disabled with test-mode helpers in
 any of the above — no real credentials or network. See

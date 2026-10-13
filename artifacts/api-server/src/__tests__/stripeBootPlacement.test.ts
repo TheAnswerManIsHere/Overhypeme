@@ -24,9 +24,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
-import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { portForChildProcess } from "./helpers/childProcessPort.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const API_SERVER_DIR = resolve(HERE, "../..");
@@ -34,22 +34,6 @@ const API_SERVER_DIR = resolve(HERE, "../..");
 /** The listen callback logs this. Its absence is the port never having bound. */
 const LISTENING_MARKER = "Server listening";
 const REFUSAL_MARKER = "REFUSING TO START";
-
-async function freePort(): Promise<number> {
-  return await new Promise((resolveP, rejectP) => {
-    const probe = createServer();
-    probe.on("error", rejectP);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (address === null || typeof address === "string") {
-        probe.close(() => rejectP(new Error("could not obtain a port")));
-        return;
-      }
-      const { port } = address;
-      probe.close(() => resolveP(port));
-    });
-  });
-}
 
 async function portAccepts(port: number): Promise<boolean> {
   return await new Promise((resolveP) => {
@@ -81,7 +65,7 @@ async function bootServer(
   opts: { stopOnListening?: boolean; timeoutMs?: number } = {},
 ): Promise<BootResult> {
   const { stopOnListening = false, timeoutMs = 90_000 } = opts;
-  const port = await freePort();
+  const port = await portForChildProcess();
   const child = spawn(
     process.execPath,
     ["--import", "tsx/esm", resolve(API_SERVER_DIR, "src/index.ts")],
@@ -102,19 +86,29 @@ async function bootServer(
 
   let output = "";
   let sawListening = false;
+  let everAccepted = false;
   const absorb = (chunk: Buffer) => {
     output += chunk.toString();
     if (stopOnListening && !sawListening && output.includes(LISTENING_MARKER)) {
       sawListening = true;
-      // The property under test is settled the moment the port binds; a healthy
-      // server would otherwise run until the kill timeout.
-      child.kill("SIGTERM");
+      // The property under test is settled once the port is SEEN to accept, and
+      // a healthy server would otherwise run until the kill timeout. Stopping on
+      // the log line alone raced the watcher below: under CI load the child was
+      // gone before a probe landed, so "the port should have been bound" failed
+      // on a server that had bound. Bounded, so a port that never accepts still
+      // ends the child and fails that assertion.
+      void (async () => {
+        for (let i = 0; i < 200 && !everAccepted; i++) {
+          if (await portAccepts(port)) everAccepted = true;
+          else await new Promise((r) => setTimeout(r, 25));
+        }
+        child.kill("SIGTERM");
+      })();
     }
   };
   child.stdout.on("data", absorb);
   child.stderr.on("data", absorb);
 
-  let everAccepted = false;
   let watching = true;
   const watcher = (async () => {
     while (watching) {

@@ -30,6 +30,7 @@ import {
 } from "../lib/stripeAccountGuard.js";
 import { STRIPE_UNVERIFIED_CODE } from "../lib/stripeVerificationErrors.js";
 import { invalidateStripeSync } from "../lib/stripeClient.js";
+import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv } from "./helpers/stripeGuardHarness.js";
 
 const USER_PREFIX = "tstriperefusal-";
 const restores: Array<() => void> = [];
@@ -50,7 +51,15 @@ function makeApp(): Express {
 // every test file in the process. A root-level `beforeEach` here that deletes
 // STRIPE_* env vars would therefore run before other files' tests too, and
 // break them somewhere far from this file.
+
+// Filled by this suite's first `before`, checked by the suite at the end of the file.
+let stripeEnvAtSuiteStart: Record<string, string | undefined> = {};
+
 describe("payment routes during a degraded boot", () => {
+before(() => {
+  stripeEnvAtSuiteStart = snapshotStripeEnv();
+});
+
 before(async () => {
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 
@@ -84,6 +93,12 @@ beforeEach(() => {
   invalidateStripeSync();
   // Credentials present and declared, but Stripe cannot be reached — the
   // degraded boot this guard's availability posture creates.
+  // Snapshot and clear every STRIPE_* variable first, so the afterEach puts
+  // back exactly what was there. Scoping this hook inside the describe stops it
+  // running for other files; restoring is the other half — without it these
+  // three values outlive the suite and every later test in the process
+  // (`--test-isolation=none`) sees Stripe credentials it never set.
+  restores.push(clearStripeEnv());
   process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
   process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
   process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
@@ -169,3 +184,6 @@ describe("no refusal message asserts something false about the customer's money"
   });
 });
 });
+
+
+describeStripeEnvRestored("the degraded-boot suite", () => stripeEnvAtSuiteStart);

@@ -17,9 +17,25 @@ import { loadDefaultEngine } from "./engineInterpreter";
 import { chatModelTuningParams } from "./openaiChatParams";
 import { logger } from "./logger";
 
-const FALLBACK_MODEL = "gpt-4o-mini";
+const FALLBACK_MODEL = "gpt-6-luna";
 const FALLBACK_TEMPERATURE = 0.7;
 const FALLBACK_MAX_TOKENS = 512;
+/**
+ * gpt-6-luna defaults to medium effort; "none" keeps helper calls fast and
+ * non-reasoning, like the gpt-4o-mini they replaced, and keeps temperature.
+ */
+const FALLBACK_REASONING_EFFORT = "none";
+
+/**
+ * Per-call reasoning effort for the helpers that make a real judgement (David,
+ * 2026-10-13): the duplicate check, comment moderation, the tier-3 image
+ * classifier, video direction and scene prompts. A wrong answer there reaches a
+ * user, and on gpt-6-luna a little reasoning costs fractions of a cent. The
+ * quick lookups (pronouns, hashtags, Pexels keywords) inherit the engine
+ * default, "none", which keeps them fast and keeps their temperatures. Note
+ * that at this effort a GPT-6 model ignores the caller's temperature.
+ */
+export const JUDGEMENT_REASONING_EFFORT = "low";
 
 /** Milliseconds before a utility LLM call is aborted. */
 export const UTILITY_LLM_TIMEOUT_MS = 30_000;
@@ -52,6 +68,13 @@ interface LLMSettings {
   reasoningEffort?: string;
 }
 
+// Test seam: lets tests capture the request a call site sends without a live
+// OpenAI key. Mirrors `__setSuggestHashtagsForTest`. Always reset in an after().
+let clientForTest: ReturnType<typeof getOpenAIClient> | null = null;
+export function __setUtilityLLMClientForTest(client: ReturnType<typeof getOpenAIClient> | null): void {
+  clientForTest = client;
+}
+
 /** Resolve the model + sampling defaults from the default llm engine. */
 async function resolveLLMSettings(): Promise<LLMSettings> {
   try {
@@ -64,7 +87,12 @@ async function resolveLLMSettings(): Promise<LLMSettings> {
     };
   } catch (err) {
     logger.warn({ err }, "[utilityLLM] no default llm engine configured; using baked-in defaults");
-    return { model: FALLBACK_MODEL, temperature: FALLBACK_TEMPERATURE, maxTokens: FALLBACK_MAX_TOKENS };
+    return {
+      model: FALLBACK_MODEL,
+      temperature: FALLBACK_TEMPERATURE,
+      maxTokens: FALLBACK_MAX_TOKENS,
+      reasoningEffort: FALLBACK_REASONING_EFFORT,
+    };
   }
 }
 
@@ -77,7 +105,7 @@ async function resolveLLMSettings(): Promise<LLMSettings> {
 export async function callUtilityLLM(
   req: UtilityLLMRequest,
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
-  const openai = getOpenAIClient();
+  const openai = clientForTest ?? getOpenAIClient();
   const settings = await resolveLLMSettings();
   const timeoutMs = req.timeoutMs ?? UTILITY_LLM_TIMEOUT_MS;
   const model = req.model ?? settings.model;

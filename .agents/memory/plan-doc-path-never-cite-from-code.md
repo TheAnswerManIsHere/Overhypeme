@@ -1,19 +1,22 @@
 ---
-name: Never cite a docs/plans/ path from code — it won't exist on the merged branch
-description: A module docstring cited docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md as the tracking location for a deferred decision; that file only ever existed on the never-merged plan-review branch, so the citation was dangling from the first commit.
+name: Never cite a docs/plans/ path from code — a plan is a point-in-time record, not a tracker
+description: A module docstring cited docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md as the tracking location for a deferred decision; that file only ever existed on the never-merged plan-review branch, so the citation was dangling from the first commit. Plans are committed now, but a plan still records what was approved then, not where a deferral is tracked.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
 
-# A `docs/plans/PLAN_*.md` path is never a valid citation from implementation code
+# A `docs/plans/PLAN_*.md` path is never a tracking citation from implementation code
 
-The Codex plan-review loop (the `plan-review-loop` skill) commits the plan
-markdown to a dedicated `plan-review/<slug>` branch on a
-**draft PR that is never merged**. That branch — and the plan file on it — is
-the review channel only. It is not reachable from `main`, and a
-`docs/plans/PLAN_*.md` file lands on `main` **only if David explicitly asks to
-keep it as a doc** (rare — the default is that it lives only on the
-never-merged review branch).
+**Where plans live has changed twice; the rule has not.** When both
+occurrences below happened, the plan-review loop committed the plan to a
+`plan-review/<slug>` branch on a draft PR that was never merged, so the path
+did not exist on `main`. From 2026-09-09 to 2026-10-12 a plan was committed
+nowhere. Since 2026-10-12 an approved plan is committed on its feature branch
+and merges with the first increment's PR (`claude-core.md` Planning rule 3),
+so the path does exist — and the rule still holds, for a different reason: a
+plan is the text David approved on one date, amended by new files and digests
+rather than kept current, so it is the wrong place to send a reader for where
+a deferral is tracked *now*.
 
 **What went wrong (PR #256):** while implementing a deliberately-deferred
 decision David made during that PR's planning conversation, a module

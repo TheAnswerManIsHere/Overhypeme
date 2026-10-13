@@ -3080,7 +3080,14 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   if (key === "stripe_live_mode") {
     const { invalidateStripeSync, getStripeSync } = await import("../lib/stripeClient");
     const { runFullSync } = await import("../lib/stripeSyncRunner");
+    const { startStripeInitializationForActiveMode } = await import("../lib/stripeInit");
     invalidateStripeSync();
+    // The newly active mode is a different Stripe account, and this process may
+    // never have registered its managed webhook or run its schema migrations —
+    // without this, its events never arrive until a restart. Started, not
+    // awaited: the response must not wait on Stripe, and a failure arms the
+    // retry loop rather than surfacing here.
+    startStripeInitializationForActiveMode();
     try {
       const sync = await getStripeSync();
       runFullSync(sync);
@@ -3332,7 +3339,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     // aggregate needs shared state, which this increment may not add — it is a
     // named gap, not an implied capability.
     const { getVerificationStatus, readStripeLiveModeStrict } = await import("../lib/stripeAccountGuard");
-    const { ensureVerificationArmedFor } = await import("../lib/stripeInit");
+    const { ensureVerificationArmedFor, getStripeSetupStatus } = await import("../lib/stripeInit");
     const { WORKER_INSTANCE_ID } = await import("../lib/workerHeartbeats");
 
     const [duplicateSuppressedRows, recentFailures, verificationLiveMode] = await Promise.all([
@@ -3356,7 +3363,15 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     // flight. Idempotent and a no-op once any outcome is recorded.
     ensureVerificationArmedFor(verificationLiveMode);
 
-    const verification = getVerificationStatus(verificationLiveMode, WORKER_INSTANCE_ID);
+    const guardStatus = getVerificationStatus(verificationLiveMode, WORKER_INSTANCE_ID);
+    // `verified` alone overclaims: checkout opens on verification, but Stripe's
+    // events reach this instance only once setup has registered the webhook. So
+    // a verified mode carries its setup state, and a setup that keeps failing
+    // shows on the panel rather than only in the log.
+    const verification =
+      guardStatus.state === "verified" && verificationLiveMode !== null
+        ? { ...guardStatus, setup: getStripeSetupStatus(verificationLiveMode) }
+        : guardStatus;
 
     res.json({
       activeSubscribers: tierCounts?.legendary ?? 0,

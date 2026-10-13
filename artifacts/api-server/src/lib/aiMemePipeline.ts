@@ -12,7 +12,7 @@
  */
 
 import { fal, ensureFalConfigured } from "./falClient";
-import { callUtilityLLM } from "./utilityLLM";
+import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "./utilityLLM";
 import { ObjectStorageService } from "./objectStorage";
 import { aiBackgroundKey } from "./storageKeys";
 import { db } from "@workspace/db";
@@ -230,6 +230,7 @@ export async function generateScenePrompts(factText: string): Promise<AiScenePro
   // right call shape for reasoning vs non-reasoning models. See lib/utilityLLM.ts.
   const systemPrompt = await getScenePromptSystem();
   const response = await callUtilityLLM({
+    reasoningEffort: JUDGEMENT_REASONING_EFFORT,
     responseFormat: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },

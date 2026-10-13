@@ -33,10 +33,13 @@ import {
   getVerificationStatus,
   isAccountVerified,
   readStripeLiveModeStrict,
+  verifyStripeAccount,
+  VERIFY_THROTTLE_MS,
 } from "../lib/stripeAccountGuard.js";
 import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import {
   __discardedBuildsForTests,
+  __stripeSyncBuildsForTests,
   __expireModeRecheckForTests,
   __endCachedSyncForTests,
   __setRawClientFactoryForTests,
@@ -46,12 +49,18 @@ import {
   getVerifiedStripeMode,
   invalidateStripeSync,
   isLiveMode,
+  liveModeOfPublishedStripeSync,
 } from "../lib/stripeClient.js";
 import {
+  __isStripeVerificationRetryArmedForTests,
   __resetStripeInitForTests,
   __setStripeInitDepsForTests,
   ensureVerificationArmedFor,
+  hasStripeInitializationCompleted,
+  resumeStripeInitialization,
+  runStripeBootVerification,
   runStripeVerificationRetryOnce,
+  startStripeAfterBoot,
 } from "../lib/stripeInit.js";
 
 const USER_PREFIX = "tstripetoggle-";
@@ -301,6 +310,7 @@ describe("the mode toggle verifies BEFORE it writes", () => {
       __setStripeInitDepsForTests({
         runSyncMigrations: async () => { sequence.push("migrations"); },
         getSync: async () => ({
+          liveMode: await readStripeLiveModeStrict(),
           findOrCreateManagedWebhook: async () => { sequence.push("webhook"); },
           syncBackfill: async () => { sequence.push("backfill"); },
         }),
@@ -393,6 +403,7 @@ describe("the construction boundary is mode-coherent", () => {
       __setStripeInitDepsForTests({
         runSyncMigrations: async () => {},
         getSync: async () => ({
+          liveMode: await readStripeLiveModeStrict(),
           findOrCreateManagedWebhook: async () => {},
           syncBackfill: async () => {},
         }),
@@ -757,6 +768,514 @@ describe("the construction boundary is mode-coherent", () => {
     // pool exists before any generation check can reject the build, and the
     // library exposes no teardown of its own beyond this public field.
     assert.equal(discarded.lastPoolEnded, true, "the rejected build's pool must be ended, not dropped");
+  });
+});
+
+// A mode change must run the REQUIRED initialization — schema migrations and
+// managed-webhook registration — for the newly active mode. #577's harvest
+// recorded the gap as one case (boot unconfigured, then toggle); diagnosis found
+// the class: completion was ONE process-wide flag, so any switch of the active
+// mode after the first completed (or skipped) initialization left the new mode's
+// account with no webhook. Payments read "verified" while Stripe's events for
+// that account never arrived until a restart.
+describe("a mode change initializes the newly active mode", () => {
+  /** Valid credentials in BOTH modes, each matching its declared account. */
+  function configureBothValid(): void {
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(
+      stubAccountRetriever((secretKey) =>
+        secretKey === "sk_test_correct" ? "acct_test_expected" : "acct_live_expected",
+      ),
+    );
+  }
+
+  /**
+   * Records each required step. Like production, the sync reports the mode
+   * stored when it was built, and every webhook registration is recorded
+   * against THAT mode — the account it reached, not the mode an attempt
+   * believed it was for.
+   */
+  function recordInit(hooks: {
+    onMigrations?: () => Promise<void>;
+    onWebhook?: (mode: "live" | "test") => Promise<void>;
+  } = {}): { webhooks: () => number; webhookModes: string[]; migrations: () => number } {
+    const webhookModes: string[] = [];
+    let migrations = 0;
+    restores.push(
+      __setStripeInitDepsForTests({
+        runSyncMigrations: async () => {
+          migrations++;
+          await hooks.onMigrations?.();
+        },
+        getSync: async () => {
+          const liveMode = await readStripeLiveModeStrict();
+          const mode = liveMode ? "live" : "test";
+          return {
+            liveMode,
+            findOrCreateManagedWebhook: async () => {
+              await hooks.onWebhook?.(mode);
+              webhookModes.push(mode);
+            },
+            syncBackfill: async () => {},
+          };
+        },
+        getSiteBaseUrl: () => "https://example.test",
+      }),
+    );
+    return { webhooks: () => webhookModes.length, webhookModes, migrations: () => migrations };
+  }
+
+  async function waitFor(condition: () => boolean): Promise<void> {
+    for (let i = 0; i < 300 && !condition(); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  it("a valid toggle on this instance registers the webhook for the new mode", async () => {
+    configureBothValid();
+    const init = recordInit();
+
+    // Booted and fully initialized in test mode.
+    assert.equal(await resumeStripeInitialization(), true);
+    assert.equal(init.webhooks(), 1, "the premise: test mode's webhook is registered");
+
+    holdSyncLock();
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    await waitFor(() => init.webhooks() >= 2);
+    assert.equal(init.webhooks(), 2, "live mode's account must get its own webhook after the toggle");
+    assert.equal(init.migrations(), 2);
+    assert.equal(hasStripeInitializationCompleted(true), true);
+  });
+
+  it("a server that booted unconfigured is initialized by a toggle into a configured mode", async () => {
+    // The case #577 recorded: test mode has no credentials, so boot is
+    // `unconfigured` and arms nothing.
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(stubAccountRetriever(() => "acct_live_expected"));
+    const init = recordInit();
+
+    startStripeAfterBoot({ kind: "unconfigured" });
+    assert.equal(init.webhooks(), 0);
+
+    holdSyncLock();
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    await waitFor(() => init.webhooks() >= 1);
+    assert.equal(init.webhooks(), 1, "the toggled-to mode must be initialized, not just verified");
+    assert.equal(hasStripeInitializationCompleted(true), true);
+  });
+
+  it("a toggle committed by ANOTHER instance initializes the new mode here too", async () => {
+    configureBothValid();
+    const init = recordInit();
+
+    assert.equal(await resumeStripeInitialization(), true);
+    assert.equal(init.webhooks(), 1);
+
+    // Another instance writes the row; this one learns of it through the
+    // Billing poll's ensureVerificationArmedFor.
+    await setStoredMode(true);
+    __expireModeRecheckForTests();
+    ensureVerificationArmedFor(true);
+
+    await waitFor(() => init.webhooks() >= 2);
+    assert.equal(init.webhooks(), 2, "verification of the remote-toggled mode must lead to its initialization");
+    assert.equal(hasStripeInitializationCompleted(true), true);
+  });
+
+  it("a mode verified but never set up is finished when another instance switches back to it", async () => {
+    // #653 round 1, 4244704217. Verification and completed setup are different
+    // facts; the detector used to stop at "verification was attempted".
+    configureBothValid();
+    let failTestWebhook = true;
+    const init = recordInit({
+      onWebhook: async (mode) => {
+        if (mode === "test" && failTestWebhook) {
+          failTestWebhook = false;
+          throw new Error("transient Stripe error registering the webhook");
+        }
+      },
+    });
+
+    // Booted verified in test mode; its setup fails once, so the loop arms.
+    assert.equal((await runStripeBootVerification()).kind, "verified");
+    startStripeAfterBoot({ kind: "verified", liveMode: false });
+    await waitFor(() => init.migrations() >= 1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(hasStripeInitializationCompleted(false), false, "the premise: test mode's setup failed");
+
+    // A local toggle to live completes live, and the next pass sees the stored
+    // mode complete and stops the shared timer.
+    holdSyncLock();
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    await waitFor(() => hasStripeInitializationCompleted(true));
+    await runStripeVerificationRetryOnce();
+
+    // Another instance switches back to test.
+    await setStoredMode(false);
+    __expireModeRecheckForTests();
+    ensureVerificationArmedFor(false);
+
+    await waitFor(() => hasStripeInitializationCompleted(false));
+    assert.equal(hasStripeInitializationCompleted(false), true, "test mode's owed setup must be finished");
+    assert.deepEqual(init.webhookModes, ["live", "test"]);
+  });
+
+  it("a mode a refused toggle probe left pending is set up when another instance switches to it", async () => {
+    // The sibling Fable found: a 503-refused local toggle records `pending` for
+    // the target without the row ever naming it.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    let liveReachable = false;
+    restores.push(
+      stubAccountRetriever((secretKey) => {
+        if (secretKey === "sk_test_correct") return "acct_test_expected";
+        if (!liveReachable) throw new Error("Stripe unreachable");
+        return "acct_live_expected";
+      }),
+    );
+    const init = recordInit();
+
+    assert.equal(await resumeStripeInitialization(), true);
+    const refused = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(refused.status, 503, JSON.stringify(refused.body));
+
+    liveReachable = true;
+    await setStoredMode(true);
+    __expireModeRecheckForTests();
+    ensureVerificationArmedFor(true);
+
+    await waitFor(() => hasStripeInitializationCompleted(true));
+    assert.equal(hasStripeInitializationCompleted(true), true, "the probed-then-activated mode must be set up");
+    assert.deepEqual(init.webhookModes, ["test", "live"]);
+  });
+
+  it("setup is credited to the account the sync reached, not to a row that flipped back", async () => {
+    // #653 round 1, 4244704213: test → live → test inside one attempt.
+    configureBothValid();
+    let flip = true;
+    const init = recordInit({
+      onMigrations: async () => {
+        if (flip) await setStoredMode(true);
+      },
+      onWebhook: async () => {
+        if (flip) {
+          flip = false;
+          await setStoredMode(false);
+        }
+      },
+    });
+    __expireModeRecheckForTests();
+
+    assert.equal(await resumeStripeInitialization(), false, "an attempt for test that reached live must not complete");
+    assert.equal(hasStripeInitializationCompleted(false), false);
+    assert.deepEqual(init.webhookModes, [], "nothing is registered on the account the attempt was not for");
+
+    // The row now names test again; the next pass sets test up properly.
+    await setStoredMode(false);
+    __expireModeRecheckForTests();
+    flip = false;
+    assert.equal(await resumeStripeInitialization(), true);
+    assert.equal(hasStripeInitializationCompleted(false), true);
+    assert.deepEqual(init.webhookModes, ["test"]);
+  });
+
+  it("a pass finishing the OLD mode does not stop the retry a mid-pass switch still needs", async () => {
+    // #653 round 2, 4244771525 — the member a single instance can reach. The
+    // timer is shared, an arm while it exists is a no-op, and the stop used to
+    // follow the pass's own mode.
+    configureBothValid();
+    let failTestOnce = true;
+    let failLiveOnce = true;
+    let holdTest: (() => void) | null = null;
+    let testHeld = false;
+    let liveAttempted = false;
+    const init = recordInit({
+      onWebhook: async (mode) => {
+        if (mode === "test") {
+          if (failTestOnce) {
+            failTestOnce = false;
+            throw new Error("transient Stripe error registering the test webhook");
+          }
+          testHeld = true;
+          await new Promise<void>((release) => { holdTest = release; });
+          return;
+        }
+        liveAttempted = true;
+        if (failLiveOnce) {
+          failLiveOnce = false;
+          throw new Error("transient Stripe error registering the live webhook");
+        }
+      },
+    });
+
+    // Booted in test mode; its setup fails once, so the retry loop arms.
+    assert.equal((await runStripeBootVerification()).kind, "verified");
+    startStripeAfterBoot({ kind: "verified", liveMode: false });
+    await waitFor(() => __isStripeVerificationRetryArmedForTests() && !failTestOnce);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(__isStripeVerificationRetryArmedForTests(), true, "the premise: the loop is armed for test");
+
+    // A retry pass for test is now inside its webhook registration...
+    const pass = runStripeVerificationRetryOnce();
+    await waitFor(() => testHeld);
+    assert.equal(testHeld, true);
+
+    // ...when the admin switches to live here, and live's own setup fails once.
+    holdSyncLock();
+    const res = await request(makeApp())
+      .patch("/admin/config/stripe_live_mode")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ value: "true" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    await waitFor(() => liveAttempted);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(hasStripeInitializationCompleted(true), false, "the premise: live's setup failed");
+
+    // Test's registration finishes; the pass completes test.
+    (holdTest as unknown as () => void)();
+    await pass;
+    assert.equal(hasStripeInitializationCompleted(false), true);
+    assert.equal(
+      __isStripeVerificationRetryArmedForTests(),
+      true,
+      "the retry must stay armed: the mode now stored (live) still has setup owed",
+    );
+
+    // The next scheduled pass finishes live, and only then does the loop stop.
+    await runStripeVerificationRetryOnce();
+    assert.equal(hasStripeInitializationCompleted(true), true);
+    assert.equal(__isStripeVerificationRetryArmedForTests(), false, "the loop stops once the stored mode is complete");
+    assert.deepEqual(init.webhookModes, ["test", "live"]);
+  });
+
+  it("a refused old mode does not stop the retry seeing a remote switch its cache has not caught up with", async () => {
+    // #577 harvest, deferred gap 2: the retry pass skipped on the LENIENT cached
+    // mode before its strict read. Test mode refused here, another instance
+    // switches to live, and this process's config cache still says test, so
+    // every pass returned early until the cache expired.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_wrong";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+    restores.push(
+      stubAccountRetriever((secretKey) =>
+        secretKey === "sk_live_correct" ? "acct_live_expected" : "acct_someone_elses",
+      ),
+    );
+    recordInit();
+
+    // Test mode is stored and its account is confirmed wrong: refused here.
+    await runStripeVerificationRetryOnce();
+    assert.equal(getVerificationStatus(false, "i").state, "refused", "the premise: test mode is refused");
+
+    // Prime this process's lenient config cache with "test"...
+    assert.equal(await getConfigStringRaw("stripe_live_mode", "false"), "false");
+    // ...then another instance commits live. Written straight to the row with
+    // no bustConfigCache(), because a remote toggle busts only ITS process.
+    await db.update(adminConfigTable).set({ value: "true" }).where(eq(adminConfigTable.key, "stripe_live_mode"));
+    assert.equal(await getConfigStringRaw("stripe_live_mode", "false"), "false", "the premise: this cache is stale");
+
+    await runStripeVerificationRetryOnce();
+    assert.equal(
+      isAccountVerified(true, "sk_live_correct"),
+      true,
+      "the retry must verify the mode now stored, not skip on a stale cached read",
+    );
+  });
+
+  it("concurrent callers on a cold cache share ONE construction", async () => {
+    // The getStripeSync() deferred-work entry: no single-flight around
+    // construction, so two concurrent misses each built a StripeSync (and its
+    // pool) and the later publish silently replaced the earlier. The toggle
+    // PATCH made this routine: setup's getSync() and the route's own full sync
+    // both construct in the same moment.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
+    invalidateStripeSync();
+    const buildsBefore = __stripeSyncBuildsForTests();
+
+    const [a, b, c] = await Promise.all([getStripeSync(), getStripeSync(), getStripeSync()]);
+
+    assert.equal(__stripeSyncBuildsForTests() - buildsBefore, 1, "exactly one StripeSync is built");
+    assert.equal(a, b);
+    assert.equal(b, c);
+    assert.equal(liveModeOfPublishedStripeSync(a), false, "the shared build is the published one");
+  });
+
+  it("a caller whose mode read straddles a toggle starts no build of its own", async () => {
+    // Codex, #657 round 1: a caller that read its generation before a toggle
+    // and resumed after it used to install a flight for the stale generation —
+    // evicting the current one, so the next current caller built a duplicate.
+    // The stale caller's build was doomed (discarded by the generation check);
+    // it now starts none, and joins the current construction instead.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
+    invalidateStripeSync();
+
+    const { __setStrictModeReaderForTests } = await import("../lib/stripeAccountGuard.js");
+    let reads = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    restores.push(
+      __setStrictModeReaderForTests(async () => {
+        reads += 1;
+        if (reads === 1) await gate;
+        return false;
+      }),
+    );
+    const buildsBefore = __stripeSyncBuildsForTests();
+    const discardedBefore = __discardedBuildsForTests().count;
+
+    const stale = getStripeSync();
+    await waitFor(() => reads >= 1);
+    invalidateStripeSync(); // the toggle lands while the mode read is parked
+    release();
+
+    const sync = await stale;
+    assert.equal(__stripeSyncBuildsForTests() - buildsBefore, 1, "the stale caller builds nothing of its own");
+    assert.equal(__discardedBuildsForTests().count, discardedBefore, "so there is no doomed build to discard");
+    assert.equal(liveModeOfPublishedStripeSync(sync), false, "what it returns is the published build");
+    assert.equal(await getStripeSync(), sync, "a later caller shares that same build");
+  });
+
+  it("a remote flip away and back during one build does not start a second build for the same mode", async () => {
+    // Codex, #657 round 2. A toggle committed by ANOTHER instance changes the
+    // stored mode without bumping this process's generation. With one slot, a
+    // test → live → test flip while the first test build was still verifying
+    // let the live caller evict the test flight, and the next test caller start
+    // a second test build alongside it — both passed the final mode check and
+    // both published, handing callers different instances.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+
+    let releaseTest: () => void = () => {};
+    const testGate = new Promise<void>((resolve) => {
+      releaseTest = resolve;
+    });
+    let testRetrievals = 0;
+    restores.push(
+      stubAccountRetriever(async (secretKey) => {
+        if (secretKey === "sk_live_correct") return "acct_live_expected";
+        testRetrievals += 1;
+        await testGate; // the first test-mode build sits in verification
+        return "acct_test_expected";
+      }),
+    );
+    const { __setStrictModeReaderForTests } = await import("../lib/stripeAccountGuard.js");
+    let stored = false;
+    restores.push(__setStrictModeReaderForTests(async () => stored));
+    invalidateStripeSync();
+    const buildsBefore = __stripeSyncBuildsForTests();
+
+    const first = getStripeSync(); // test mode, held in verification
+    await waitFor(() => testRetrievals >= 1);
+
+    // A slow verification: the flips land past the 5 s retry throttle, inside
+    // Stripe's 10 s timeout. Inside the throttle, every caller is refused on the
+    // pending test attempt before reaching construction at all.
+    const realNow = Date.now;
+    Date.now = () => realNow() + VERIFY_THROTTLE_MS + 1_000;
+    restores.push(() => {
+      Date.now = realNow;
+    });
+
+    stored = true; // another instance switches to live — no local generation bump
+    __expireModeRecheckForTests();
+    const live = await getStripeSync();
+    assert.equal(liveModeOfPublishedStripeSync(live), true);
+
+    stored = false; // ...and back to test while the first build is still out
+    __expireModeRecheckForTests();
+    const second = getStripeSync();
+    releaseTest();
+
+    const [a, c] = await Promise.all([first, second]);
+    // Counts and identity, never the objects themselves: a StripeSync is a
+    // proxy the test reporter cannot serialise into a failure diff.
+    assert.equal(__stripeSyncBuildsForTests() - buildsBefore, 2, "one live build and ONE test build");
+    assert.ok(a === c, "both test-mode callers receive the one test-mode build");
+    assert.equal(liveModeOfPublishedStripeSync(a), false);
+  });
+
+  it("a verified mode whose setup keeps failing reads as failing on the Billing summary, not just verified", async () => {
+    // The observability half of #577's P1. Checkout opens on verification, but
+    // Stripe's events reach this instance only once setup has registered the
+    // webhook — and a setup that kept failing showed only in the log while the
+    // summary said `verified`.
+    configureBothValid();
+    let webhookFails = true;
+    recordInit({
+      onWebhook: async () => {
+        if (webhookFails) throw new Error("upstream said: sk_test_correct rejected");
+      },
+    });
+    await verifyStripeAccount({ liveMode: false, secretKey: "sk_test_correct" });
+    assert.equal(await resumeStripeInitialization(), false, "the premise: setup fails at the webhook step");
+
+    const summary = () =>
+      request(makeApp()).get("/admin/stripe/summary").set("authorization", `Bearer ${adminSid}`);
+
+    const failing = await summary();
+    assert.equal(failing.status, 200, JSON.stringify(failing.body));
+    assert.equal(failing.body.verification.state, "verified");
+    assert.equal(failing.body.verification.setup?.state, "failing", "a failing setup must show, not hide behind `verified`");
+    assert.match(failing.body.verification.setup.reason, /registering the webhook/);
+    assert.ok(failing.body.verification.setup.lastFailureAt);
+    assert.doesNotMatch(
+      JSON.stringify(failing.body.verification),
+      /sk_test_correct|upstream said/,
+      "the raw error stays in the log: it can carry Stripe's text, or a key",
+    );
+
+    // Recovery reads as complete. The summary's own kick may hold an attempt
+    // that started while the webhook still failed, so retry until one lands.
+    webhookFails = false;
+    for (let i = 0; i < 50 && !(await resumeStripeInitialization()); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const recovered = await summary();
+    assert.equal(recovered.body.verification.setup?.state, "complete");
+    assert.equal(recovered.body.verification.setup.reason, null);
   });
 });
 });

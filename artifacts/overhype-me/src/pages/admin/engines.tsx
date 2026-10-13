@@ -1441,13 +1441,13 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
               />
             </div>
             <div className="col-span-2">
-              <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Default reasoning effort (GPT-5 / o-series only)</label>
+              <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Default reasoning effort (GPT-5 / GPT-6 / o-series; GPT-6 uses temperature only at None)</label>
               <select
                 value={form.defaultReasoningEffort}
                 onChange={(e) => set("defaultReasoningEffort", e.target.value)}
                 className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
               >
-                <option value="">— none —</option>
+                <option value="">— model default —</option>
                 {REASONING_EFFORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>

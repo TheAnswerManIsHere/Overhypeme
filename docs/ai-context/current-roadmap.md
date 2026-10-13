@@ -29,6 +29,24 @@ handbook work a launch phase needs and a second app would need identically;
 
 (From recent history — read `git log` for the live picture.)
 
+- **2026-08-21 → 2026-10-11, harvested in one batch (2026-10-12):**
+  - **Stripe account guard** (PR #577, workstream #571). A wrong account
+    refuses to boot, and a Stripe outage degrades to "payments unavailable".
+    See [`membership-entitlements.md`](./membership-entitlements.md#the-account-guard--no-operational-stripe-client-until-its-account-verifies).
+    Three recorded gaps were never followed up; they are now in
+    [`deferred-work.md`](../engineering/deferred-work.md).
+  - **Membership panel reads the app DB before the Stripe mirror** (PRs
+    #600, #602).
+  - **Enrichment refresh crash and the false "Overridden" badge** (PRs #582,
+    #585), and the unmountable account menu deleted (PR #576).
+  - **UAT backlog drained into CI**: admin help and queue health (#563),
+    three untested invariants (#567), admin permissions (#570).
+  - **Launch programme #628**: Phase 1 defined launch (#630). Phase 2
+    increments 1–3 shipped UAT lanes (#632), test accounts and the
+    production-mode stack (#634), the test-database marker (#635, #636), and
+    the local storage double with one selection rule for doubles (#637).
+    Phase 2 continues on #631.
+
 - **Review-round budget — a mechanical stopping rule for review loops**
   (2026-08-19, PR #503, workstream #501). PR #488 ran 22 Codex rounds on a
   ~10-line change: every round locally rational, and no event ever presenting
@@ -747,6 +765,12 @@ handbook work a launch phase needs and a second app would need identically;
 > follow-ups, toolchain deprecations, code-level tech debt — lives in
 > [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md).
 
+> **Launch classing (2026-10-13, launch plan v6):** every item below is
+> post-launch, named in the plan's *Cut, deleted or deferred* and *Out of
+> scope* sections, except data export, which is launch Phase 21 (Full
+> Global). The speech-bubble moderation-side finish is Phase 7; the
+> follow-ups listed here are what remains after it.
+
 - **Speech/thought bubble follow-ups.** The runtime image-prompt planner
   proposing bubbles (only the candidate Visual-concept generator does today);
   end-user wizard exposure (moderator-only for now); `thinking_level: high`
@@ -781,6 +805,15 @@ handbook work a launch phase needs and a second app would need identically;
   backstop — the global one is a blast-radius ceiling, not a
   per-endpoint-abuse control, so this is a genuinely separate question from
   the one CodeQL was flagging.
+- **Should checkout refuse a member who already has an active subscription?**
+  `POST /stripe/checkout` has no existing-subscription guard, so a subscriber
+  can buy a second subscription. The Membership panel and all four mutation
+  routes would then act on only one of them while the other keeps billing,
+  out of reach of the UI. Surfaced as a UAT hazard on PR #600 and left
+  unfiled as a defect, because whether a double subscription should be
+  refused or deliberately allowed is David's call. **Placed in launch
+  Phase 10 on my recommendation (David delegated, 2026-10-13): refuse, and
+  send the member to the billing portal.** He can reverse it there.
 - ~~Should any render scenario become a **hard** approval gate (today all waivable)?~~
   Answered 2026-10-06: approved hero images are a hard gate; other scenarios
   stay waivable. See [`decisions.md`](./decisions.md).

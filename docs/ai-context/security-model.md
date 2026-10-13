@@ -211,6 +211,17 @@ Webhook signature verification is delegated to `stripe-replit-sync` (Replit's
 fork of Supabase's stripe-sync-engine); it sits in the payment-critical path and
 is pinned exact + Dependabot-monitored.
 
+**Which Stripe account a credential reaches is verified, not assumed** (PR
+#577). No operational Stripe client is handed out until the account behind the
+active mode's key matches the deployment's declared `STRIPE_ACCOUNT_ID_<mode>`. A confirmed
+mismatch refuses to boot, and an indefinite answer boots without payments.
+The account is read with `stripe.accounts.retrieve()` on a raw client, never
+with the sync library's `getAccountId()`, which answers from a local cache
+and writes what it finds. The operator diagnostic names account ids and is
+never sent on an end-user payment response; the admin mode toggle returns it
+to the authenticated admin by design. Full mechanics:
+[`membership-entitlements.md`](./membership-entitlements.md#the-account-guard--no-operational-stripe-client-until-its-account-verifies).
+
 ## Generation spend enforcement
 
 Distinct from the membership-grant trust above: this is the per-user **spend

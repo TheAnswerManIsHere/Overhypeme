@@ -3,17 +3,23 @@
  * the real ObjectStorageService, ACL (objectAcl.ts) and access check
  * (objectAccess.ts) — the layers that run unchanged above it.
  */
-import { describe, it, after } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "storage-double-"));
-process.env.STORAGE_BACKEND = "local-double";
-process.env.STORAGE_DOUBLE_DIR = ROOT;
-process.env.PRIVATE_OBJECT_DIR = "/test-bucket/private";
-process.env.PUBLIC_OBJECT_SEARCH_PATHS = "/test-bucket/public";
+// Every read of these is at call time, so they are set for this suite only and
+// restored after it. Under `--test-isolation=none` a shard shares one process,
+// and a module-scope assignment left STORAGE_BACKEND=local-double in place for
+// every later file — a production-mode boot there refuses to start.
+const ENV = {
+  STORAGE_BACKEND: "local-double",
+  STORAGE_DOUBLE_DIR: ROOT,
+  PRIVATE_OBJECT_DIR: "/test-bucket/private",
+  PUBLIC_OBJECT_SEARCH_PATHS: "/test-bucket/public",
+};
 
 const { ObjectStorageService, ObjectNotFoundError } = await import("../lib/objectStorage.js");
 const { ObjectPermission } = await import("../lib/objectAcl.js");
@@ -23,7 +29,20 @@ const svc = new ObjectStorageService();
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 
 describe("local storage double", () => {
-  after(() => fs.rmSync(ROOT, { recursive: true, force: true }));
+  const saved: Record<string, string | undefined> = {};
+  before(() => {
+    for (const [k, v] of Object.entries(ENV)) {
+      saved[k] = process.env[k];
+      process.env[k] = v;
+    }
+  });
+  after(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    fs.rmSync(ROOT, { recursive: true, force: true });
+  });
 
   it("stores bytes under its own directory and returns the /objects path", async () => {
     const objectPath = await svc.uploadObjectBuffer({ subPath: "uploads/ab/one", buffer: PNG, contentType: "image/png" });

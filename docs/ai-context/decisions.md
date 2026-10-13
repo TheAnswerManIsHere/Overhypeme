@@ -13,6 +13,35 @@
 
 ---
 
+### 2026-10-12 · Pre-launch, security details are not gated; no tokens are spent on leak prevention
+- **Decision:** Until the trigger below, the canonical disclosure check
+  (`workstream-tracking.md`, *What must never happen*) and the private path
+  built on it (AI-Handbook #204, #205, and the follow-up #206) are **not
+  applied here to security details**: unpatched-vulnerability details,
+  auth-bypass specifics, payment-fraud abuse paths, and what a subsystem's own
+  documents keep out of public prose (the safety subsystem's detection
+  specifics included). Plans, issues, PR bodies, oracles, harvests and
+  handoffs carrying them go to the public path as normal, and no session
+  spends review rounds, sweeps or questions on disclosing them. **Still
+  never public:** an actual secret or credential, and private customer or
+  commercial data. David's ruling is about vulnerabilities, and those two
+  categories are a different risk (a leaked key works the moment it is
+  read). David:
+  *"The whole privacy issue of disclosing possible security vulnerabilities is
+  not yet a problem. We're still pre-launch … I'm not concerned about leaks
+  yet. … Until then, let's not keep spending tokens worrying about it."*
+- **Why:** Nobody yet has a reason to attack the app, so a leak costs nothing
+  today, while the private path has cost several review rounds and still has
+  nine open design gaps (#206). The protection belongs to the moment it buys
+  something.
+- **Reference:** David, 2026-10-12, after AI-Handbook #205 merged.
+- **Revisit if:** the product has launched, has real revenue, **and** is at
+  risk of anyone caring about it, all three, in David's words. Real money
+  starts at Full launch (US) (`launch-definition.md`), so Seed and Soft launch
+  alone do not trip it. Then David either makes the repository private (and
+  pays for it) or sets up a second, private repository for security issues,
+  and the check comes back on, with #206 designed against whichever he chose.
+
 ### 2026-10-10 · A database is a test database only if it carries the marker; names decide nothing
 - **Decision:** Test tooling (`push-force`, both api-server runners, the E2E
   account seed, the production-mode launcher) refuses any database that does
@@ -212,6 +241,31 @@
   stated — it goes back to David with the shortfall, never silently.
 
 ---
+
+### 2026-09-28 · Membership display reads the app DB first; the Stripe mirror is a fallback, and the reverse-stale case is accepted
+- **Decision:** On the Membership card, `membership_entitlements` (the app
+  DB) is authoritative for the subscription controls (#600), the plan
+  interval and the renewal date (#602). The `stripe.subscriptions` mirror is
+  used only when the app DB is silent. The charged amount has no app-DB
+  source, so it is shown only while the mirror agrees about the plan. The
+  reverse case — the app row stale, the mirror current — is an accepted gap,
+  recorded by David's decision on 2026-09-28 (PR #602, Codex round 1).
+- **Why:** The mirror is written by webhooks and lagged eleven minutes on the
+  reported case. The app row is written by a live Stripe retrieval at the
+  moment a checkout or switch succeeds. The bug in #602 came from reading
+  "from Stripe" as "live".
+- **Rejected:** newer-write-wins by timestamp (the entitlement row's
+  `updated_at` moves on any write, not when the plan was observed); "annual
+  wins" (relies on nobody moving a subscriber from annual to monthly, which
+  the server does not enforce outside its own route); a live Stripe read
+  whenever the two disagree (disproportionate for the gap); and moving the
+  fix into `GET /stripe/subscription` (returning `null` while the mirror lags
+  is truthful — the panel was misreading it).
+- **Reference:** PRs #600, #602;
+  [`membership-entitlements.md`](./membership-entitlements.md#the-app-database-is-read-before-the-stripe-mirror).
+- **Revisit if:** anything other than display reads the mirror, or the
+  deferred Stripe↔local reconciliation lands (it is the remedy for the
+  accepted gap).
 
 ### 2026-09-07 · Build for the 99% case; fix the edge case when it happens
 - **Decision:** David: *"Stop worrying about how you can cheat yourself into
@@ -700,6 +754,39 @@
   the weekly backstop is doing all the work anyway.
 
 ---
+
+### 2026-08-26 · A wrong Stripe account refuses to boot; a Stripe outage never takes the site down
+- **Decision:** Each deployment declares its expected Stripe account per mode
+  (`STRIPE_ACCOUNT_ID_TEST` / `STRIPE_ACCOUNT_ID_LIVE`). No operational
+  Stripe client or sync object is handed to any caller until the account
+  behind the mode's key verifies against that id (the lookup itself uses a
+  raw client that is never handed out). A **definite** failure — Stripe answered with another account, or
+  credentials are present with no expected id declared — is fatal at boot,
+  before the port binds. An **indefinite** one — unreachable, timeout, 5xx,
+  key rejected, mode unreadable — boots the site without payments, refuses
+  the payment paths, and retries until verification succeeds, with no
+  restart. Absent credentials still boot without payments, as before. Plan
+  approved by David on plan-review PR #572; the posture in his words, as the
+  code records it: a Stripe outage never takes the site down.
+- **Why:** The trigger (#571) was a key in the wrong variable that still
+  reached and mutated the wrong account. Safety comes from no operational client
+  existing for an unverified account. Fatality is reserved for a confirmed fact, so it
+  is a signal an operator can trust, and an outage at Stripe cannot become
+  an outage of the whole site.
+- **Rejected:** a fleet-wide verification aggregate for the admin panel
+  (needs shared state, which the plan's Must Not Change forbade;
+  `worker_lane_heartbeats` was checked and rejected as keyed for worker
+  liveness); neutralising the shared "No charge was made" message globally
+  instead of adding path-specific ones (strips a true reassurance from the
+  six pre-charge paths — the cost is that a future post-charge route inherits
+  a default that would be false there); a strict mode read on every call
+  (hands an unauthenticated flood one query each) and never re-reading
+  (stale after a toggle) in favour of one read per process per interval.
+- **Reference:** PR #577;
+  [`membership-entitlements.md`](./membership-entitlements.md#the-account-guard--no-operational-stripe-client-until-its-account-verifies).
+- **Revisit if:** the deployment stops being autoscale with process-local
+  state, or a payment path is added that runs after a charge and so needs
+  its own client message.
 
 ### 2026-08-26 · The two-tier tripwire: a Fable recommendation at budget + 3-round leash, then the David gate — on every tier, with a product-decision fast path
 - **Decision:** David replaced the review-loop stopping shape end to end.

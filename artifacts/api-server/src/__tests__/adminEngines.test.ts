@@ -334,6 +334,22 @@ describe("PATCH /admin/engines/:id", () => {
     assert.equal(res.body.defaultReasoningEffort, "medium");
   });
 
+  it("accepts gpt-6-luna at effort none, and rejects gpt-6.1-sol (it has no none effort)", async () => {
+    const id = await seedEngine({ provider: "openai", kind: "llm", endpointId: "gpt-4o-mini" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const ok = await request(app)
+      .patch(`/api/admin/engines/${id}`)
+      .send({ endpointId: "gpt-6-luna", defaultReasoningEffort: "none" });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.endpointId, "gpt-6-luna");
+    assert.equal(ok.body.defaultReasoningEffort, "none");
+    const sol = await request(app)
+      .patch(`/api/admin/engines/${id}`)
+      .send({ endpointId: "gpt-6.1-sol" });
+    assert.equal(sol.status, 400);
+    assert.match(String(sol.body.error), /endpointId must be one of/i);
+  });
+
   it("rejects an unknown model for an OpenAI llm engine", async () => {
     const id = await seedEngine({ provider: "openai", kind: "llm", endpointId: "gpt-4o-mini" });
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);

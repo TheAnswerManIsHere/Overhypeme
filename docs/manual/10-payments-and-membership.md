@@ -76,6 +76,24 @@ round of rechecks. If the record never catches up at all, the notice can
 persist — the same
 known gap described under *Boundaries & known limitations* below.
 
+The panel's own information — whether you're on a monthly or annual plan, the
+renewal date, and the Cancel / Switch to Annual buttons — comes from our own
+records, which are updated the moment a purchase or switch goes through. Two
+things come from a slower copy kept in sync with Stripe instead. The price
+line can disappear for a few minutes right after a switch rather than show the
+old price. That's deliberate: showing no price is better than showing a wrong
+one. The status label (for example "active") prefers the slower copy too, so
+it can briefly lag a change that has already gone through.
+
+If the site can't confirm it is connected to the right payment account, every
+payment action — buying, switching, cancelling, viewing a receipt — says that
+payments are temporarily unavailable. The action is not retried for you: the
+server keeps re-checking the connection on its own, but once it's back, the
+member has to try the purchase, switch or cancellation again. The rest of the
+site keeps working. Before a charge, the message says no charge was made.
+After returning from checkout, it says not to pay again, because the payment
+may already have gone through.
+
 ### For the admin
 
 **Admin → Users → a user's Membership screen** is where membership is managed
@@ -96,6 +114,16 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
   before restoring their tier, rather than trusting whatever was last stored
   — so a subscription that quietly lapsed while the account was deactivated
   doesn't come back to life just because the account did.
+
+**Admin → Billing** shows whether the server has confirmed which Stripe
+account it is talking to, separately for test and live mode. Switching between
+test and live is refused, with the reason, unless the target mode's account
+checks out first. Once an account is confirmed, the server still has to
+register the webhook Stripe sends its events to (a subscription starting, a
+refund); until that finishes, the status reads **Account verified — Stripe
+setup not finished**, with the step that failed if one did, rather than an
+unqualified "verified". The status covers only the server instances it has
+sampled, so one instance looking healthy doesn't prove every instance is.
 
 **Admin → Refunds & Disputes** lists refund and chargeback activity, and
 carries a small status strip for the background job (below). Admin → Users
@@ -163,6 +191,17 @@ for the same reason David's earlier audit flagged: a comp used to be written
 as a $0 payment with a made-up payment id, which meant anyone looking at
 payment records — including reconciling actual revenue later — couldn't tell
 a comp from a real sale.
+
+**Every deployment names the Stripe account it expects, and the server checks
+it before doing anything with payments.** This came from a real incident
+shape (#571): a Stripe key put in the wrong setting still reached, and
+changed, the wrong account. Now nothing that charges or changes anything at
+Stripe can run until the account behind the key is confirmed. The two kinds of failure are treated
+differently on purpose. If Stripe confirms the account is the *wrong* one,
+the server refuses to start — that is a definite misconfiguration an operator
+must fix. If Stripe simply can't be reached, the site starts without payments
+and keeps checking — an outage at Stripe should never take the whole site
+down.
 
 ## Boundaries & known limitations
 
@@ -253,6 +292,19 @@ a comp from a real sale.
   Reachable only by an operator flipping that setting with test data still
   around — no customer path touches it. Filed as pre-launch hardening in
   [`current-roadmap.md`](../ai-context/current-roadmap.md#pre-launch-hardening-must-do-before-go-live).
+- **Right after a plan switch, the panel can show the old plan if our own
+  update didn't complete.** The panel trusts our own records over the slower
+  Stripe copy, which is right in the common case. If the switch went through at
+  Stripe but our record of it failed to update (Stripe briefly unreachable at
+  that moment), the panel keeps showing the old plan and renewal date until
+  something refreshes it. Accepted by David (2026-09-28); the remedy is the
+  same deferred reconciliation as the webhook gap above.
+- **Nothing stops a member from buying a second subscription.** Checkout has
+  no check for an existing active subscription. If someone did this, the
+  panel and its buttons would act on only one of the two subscriptions while
+  the other kept billing. Whether that should be refused is an open product
+  question
+  ([`current-roadmap.md`](../ai-context/current-roadmap.md#open-product-questions)).
 - **The customer portal (managed by Stripe) still uses Stripe's default
   configuration**, not a custom-branded one. Independent of everything above;
   deliberately left for separate work.

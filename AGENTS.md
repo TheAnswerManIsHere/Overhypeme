@@ -116,6 +116,17 @@ default, so the api-server integration suite is unavailable there unless
 how Replit's live-environment access, auto-commit checkpoints, and direct-to-`main`
 push actually work, and why that push path is unguarded on purpose.
 
+## Pre-launch: security details are not gated
+
+Until the product has launched, has real revenue and is at risk of anyone
+caring, the canonical disclosure check (`workstream-tracking.md`) is **not
+applied here to security details**: vulnerability details, auth-bypass
+specifics, fraud paths, and what a subsystem's own documents keep out of
+public prose. Those go to the public path as normal, and no agent spends
+effort keeping them private. Actual secrets and private customer data are
+still never public (David, 2026-10-12;
+[`decisions.md`](docs/ai-context/decisions.md)).
+
 ## What the shared rules ask this repo
 
 Answered in [`docs/ai-context/overlay-declarations.md`](docs/ai-context/overlay-declarations.md)
