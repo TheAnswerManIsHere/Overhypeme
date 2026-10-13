@@ -56,7 +56,8 @@ section. That keeps the backlog proactive without inventing overhead.
 Proactive security and patching deferrals — bumps held for a reason, hardening
 we've sequenced for later.
 
-- **sharp / esbuild bumps parked (PR #243).** See
+- **sharp / esbuild bumps parked (PR #243).**
+  - **Launch plan placement (David, 2026-10-13): blocking — `sharp` is upgraded in Phase 7 (the image offering), before Seed; Phase 15 confirms it landed. `esbuild` is not blocking.** Checked at `92024f3`: the lockfile still pins `sharp@0.34.5` (`libvips >=8.17.3`); the current release is `0.35.5` (`libvips >=8.18.7`), and the 0.35 typings bug was fixed in 0.35.1. `userImageUpload.ts` runs it on user-supplied files, so the CVEs bite from the first Seed upload. Phase 7 re-verifies renders anyway. The older `esbuild` copies arrive only through `tsx`/`orval`/`wrangler`, and their flaw is in the dev server, which production never runs. See
   [Dependencies & toolchain](#dependencies--toolchain) below — the sharp 0.35
   hold has a security dimension (we're declining a patch-eligible bump), so the
   quarterly security review should re-check whether a CVE has landed on the
@@ -455,7 +456,7 @@ re-gather it when the work is scheduled.
     data (not just theoretically), fold in transactional composition then.
 
 - **Async-jobs reclaim finalize has no fencing token (PR #283).**
-  - **Launch plan placement (David, 2026-10-12): blocking, Phase 11 (spend controls), before Seed.** Still true at `92024f3` (finalize by row id, `asyncJobs.ts:424-432`; no handler time limit; no email idempotency key). The costly effect is a reclaimed image generation spending twice, which is Phase 11's remit; the fenced finalize removes the duplicate email at the same time. Add a handler time limit under the cutoff in the same work.
+  - **Launch plan placement (David, 2026-10-12; fix corrected 2026-10-13): blocking, Phase 11 (spend controls), before Seed.** Still true at `92024f3`: finalize is by row id (`asyncJobs.ts:424-432`), there is no handler time limit, and there is no email idempotency key. A fencing token checked only at finalize is **not** enough. The handler's effect happens before the finalize (`asyncJobs.ts:408` runs `handler.run()`; `email.ts:289` sends inside it), so both holders have already sent or spent by the time either finalizes (Codex, #661). The fix is three parts: the running job renews its claim so a live job is never reclaimed; it checks ownership before the costly step; email sends and generation calls carry an idempotency key. Plus a handler time limit under the reclaim cutoff.
   - **What.** `processClaimedJob` finalizes a job by row id alone. Stuck-row
     recovery (`RECOVER_STUCK_CUTOFF_MIN`) reclaims a row once it's been
     `processing` past the cutoff, but nothing stops the *original* holder from
@@ -556,7 +557,7 @@ re-gather it when the work is scheduled.
     promise must be cleared, not cached) — not added later as a patch.
 
 - **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308).**
-  - **CLOSED — resolved, 2026-10-12 (David, launch-plan deferred-work review).** Checked against `main` at `92024f3`: defect (3), mixed-mode credentials, and defect (2), an old-mode build published after invalidation, are fixed by #577 and #653 — `buildStripeSync(liveMode)` captures the mode once, and a generation counter plus a strict row re-read discards and ends a superseded build (`stripeModeToggle.test.ts`). The residual — no single-flight construction, and `invalidateStripeSync()` dropping the cached instance without ending its pool — does not accumulate: the library passes only `max: 2`, so pg-pool's default `idleTimeoutMillis` of 10 s (`pg-pool/index.js:98-99`) returns an orphaned pool's connections within seconds. Kept here as the trace; nothing further planned.
+  - **Launch plan placement (David, 2026-10-12; corrected 2026-10-13): the dangerous part is resolved; the remainder joins the Phase 3 connection-budget work.** Checked against `main` at `92024f3`: defect (3), mixed-mode credentials, and defect (2), an old-mode build published after invalidation, are fixed by #577 and #653 — `buildStripeSync(liveMode)` captures the mode once, and a generation counter plus a strict row re-read discards and ends a superseded build (`stripeModeToggle.test.ts`). Defect (1) remains: with no single-flight construction, concurrent callers at boot or after a mode toggle each build and use their own two-connection pool, so a burst can exceed the connection budget. pg-pool's idle timeout returns a pool's connections only once they are released, which does not bound that burst (Codex, #661). Single-flight construction is therefore part of the Phase 3 budget work in launch plan v5; ending a dropped instance's pool on invalidation goes with it.
   - **What.** `stripeClient.ts:120-126` (`getStripeSync()` itself; the cached
     module-level vars and `buildStripeSync()` start at `:103-107`), three
     current defects plus one forward-looking guardrail: (1) no single-flight,
@@ -726,7 +727,7 @@ re-gather it when the work is scheduled.
 
 - **No CI guard against a migration's raw-SQL DDL missing its `schema.ts`
   shadow (found on PR #425's `/document` harvest review).**
-  - **Launch plan placement (David, 2026-10-12): split.** Closing the ten gaps below is **blocking, Phase 3, before the schema baseline is cut** — production is safe today (`runMigrations()` at boot), but a baseline generated from `schema.ts` would open Seed on a database without them, and test databases built by `push-force` already lack them. The CI guard itself is not blocking: Phase 3 if it fits, otherwise the next tooling pass. All ten were confirmed still missing from `lib/db/src/schema/` at `92024f3`.
+  - **Launch plan placement (David, 2026-10-12; widened 2026-10-13): split.** **Blocking, Phase 3, before the schema baseline is cut:** the baseline must reproduce every migration-only object — the ten gaps below (declare each, or give it a reasoned exemption) **and** the seven deliberately unshadowed objects listed above (six partial indexes and `uim_source_object_path_fk`), through a raw-SQL supplement or a baseline taken from a migrated database. A baseline generated from `schema.ts` alone would open Seed without them (Codex, #661). Production is safe today (`runMigrations()` at boot), but test databases built by `push-force` already lack all seventeen. The CI guard itself is not blocking: Phase 3 if it fits, otherwise the next tooling pass. All ten gaps were confirmed still missing from `lib/db/src/schema/` at `92024f3`.
   - **What.** [`raw-sql-migration-needs-schema-shadow.md`](../../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
     documents the pattern — a migration's hand-written `CREATE INDEX`,
     `ADD CONSTRAINT`, or `CREATE SEQUENCE` with no matching `schema.ts`
