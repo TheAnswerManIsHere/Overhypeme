@@ -580,18 +580,19 @@ re-gather it when the work is scheduled.
   - **What.** Recorded on workstream #571's harvest notes. Re-read against
     `main` at the harvest. None of the three has a fix in the window, but
     none was reproduced either:
-    1. **(P1 as recorded) — resume half FIXED by the bugfix that followed
-       the harvest; observability half still open.** Diagnosis found the
+    1. **(P1 as recorded) — both halves FIXED by the bugfixes that
+       followed the harvest.** Diagnosis found the
        recorded case was one instance of a class: initialization completion
        was a single process-wide flag, so any switch of the active mode
        left the new account's webhook unregistered. It is now per mode, and a
        committed toggle starts setup for the new mode
        (`stripeModeToggle.test.ts`, *a mode change initializes the newly
-       active mode*). **Still open:** nothing surfaces "verified but setup
-       not complete" to the operator. `hasStripeInitializationCompleted()`
-       (which now takes a mode) still has no caller outside tests, so a
-       setup that keeps failing shows only in the logs while the panel
-       reads `verified`.
+       active mode*). **Observability half FIXED by the bugfix that
+       followed (workstream #652):** the Billing summary attaches a setup
+       state to a verified mode, and the panel reads *Account verified —
+       Stripe setup not finished* with the failing step until the webhook
+       is registered (`stripeModeToggle.test.ts`, *a verified mode whose
+       setup keeps failing reads as failing on the Billing summary*).
     2. **(P2) — FIXED by the follow-up to #653.** `runStripeVerificationRetryOnce`
        made its deterministic-refusal skip on the lenient cached mode
        (`isLiveMode()`) before the strict read, so after a toggle committed
@@ -600,7 +601,9 @@ re-gather it when the work is scheduled.
        only once the stored mode is known to be the refused one
        (`stripeModeToggle.test.ts`, *a refused old mode does not stop the
        retry seeing a remote switch its cache has not caught up with*).
-    3. **(P2)** `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
+    3. **(P2) — FIXED by #655**, with the same leak found and fixed in
+       `routes.stripe` and `routes.adminStripeSync`. As recorded:
+       `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
        `STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_ACCOUNT_ID_TEST` in a
        `beforeEach`. The hook is already scoped inside its `describe`, which
        is the first half of the fix. Nothing restores the variables, though,
@@ -610,9 +613,8 @@ re-gather it when the work is scheduled.
   - **Why deferred.** Not deliberately deferred: the follow-up was promised in
     the harvest notes and never opened. Recorded here so the promise lives
     somewhere with an owner.
-  - **Cost of waiting.** (1)'s remaining half costs diagnosis time: a setup
-    that keeps failing after a toggle shows in the logs, not on the panel. (3) is a test-suite leak: a later suite in the same shard
-    can see Stripe credentials it did not set.
+  - **Cost of waiting.** None now: all three are fixed (workstream #652).
+    The entry stays as the record until the next `/maintenance` prunes it.
   - **Revisit trigger.** Before the live-mode work in launch Phase 10 (#628),
     which is the first time a mode toggle is a real operator action.
 

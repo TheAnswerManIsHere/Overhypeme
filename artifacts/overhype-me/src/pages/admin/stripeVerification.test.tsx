@@ -179,6 +179,50 @@ describe("the rendered status surface", () => {
     cleanup();
   });
 
+  it("a verified instance whose setup is failing reads as setup-incomplete, then verified once setup lands", async () => {
+    // The observability half of #577's P1: checkout opens on verification, but
+    // until setup registers the webhook Stripe's events do not arrive. Reading
+    // that as plain "Payments verified" hid a setup that kept failing.
+    let setupDone = false;
+    const reason = "Stripe setup failed registering the webhook; retrying automatically.";
+    const fetchStatus = vi.fn(async () =>
+      snap({
+        instanceId: "inst-1",
+        state: "verified",
+        setup: setupDone
+          ? { state: "complete", reason: null, lastFailureAt: null }
+          : { state: "failing", reason, lastFailureAt: "2026-10-12T00:00:00.000Z" },
+      }),
+    );
+
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("setup_incomplete");
+    });
+    expect(screen.getByText(/Stripe setup not finished/)).toBeTruthy();
+    expect(screen.getByText(/registering the webhook/)).toBeTruthy();
+
+    setupDone = true;
+
+    // Still polling, because setup owed is transitional: the panel sees it land.
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("verified");
+    });
+    cleanup();
+  });
+
+  it("setup still owed on one verified instance outranks a fully verified one", () => {
+    let state = recordObservation(EMPTY_POLL_STATE, snap({
+      instanceId: "a", state: "verified", setup: { state: "complete", reason: null, lastFailureAt: null },
+    }));
+    state = recordObservation(state, snap({
+      instanceId: "b", state: "verified", setup: { state: "in_progress", reason: "not yet", lastFailureAt: null },
+    }));
+    expect(worstObservedState(state)).toBe("setup_incomplete");
+    expect(shouldKeepPolling(state)).toBe(true);
+  });
+
   it("test 18 — an unconfigured integration renders as not-configured and is NOT polled", async () => {
     const fetchStatus = vi.fn(async () => snap({ instanceId: "inst-1", state: "unconfigured", reason: "no keys" }));
     render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);

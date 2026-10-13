@@ -243,7 +243,13 @@ fix is the whole value of that refusal. The Profile page treats a 503 with that 
 confirm as terminal, not as "still processing".
 
 **Operator visibility.** Admin → Billing shows the guard's state **per mode and
-per instance** (`StripeVerificationStatus.tsx`). The value is process-local and
+per instance** (`StripeVerificationStatus.tsx`). A verified mode also carries
+its **setup** state (`complete` / `in_progress` / `failing`, from
+`getStripeSetupStatus` in `stripeInit.ts`), and the panel shows a verified
+instance whose webhook registration has not finished as *setup not finished*
+rather than *verified*: checkout opens on verification, but Stripe's events
+arrive only after setup. The failure reason is a fixed sentence naming the
+step; the raw error stays in the log. The value is process-local and
 the deployment is autoscale, so a fleet-wide aggregate would need shared state
 the guard does not have. That is a named gap, not an implied capability.
 
