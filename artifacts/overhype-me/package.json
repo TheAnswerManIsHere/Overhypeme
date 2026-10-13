@@ -18,7 +18,8 @@
     "e2e:surfaces": "playwright test adminQueueHealth adminHelp adminPermissions",
     "e2e:accounts": "playwright test testAccounts",
     "e2e:auth": "playwright test authJourney",
-    "e2e:storage": "playwright test photoUpload"
+    "e2e:storage": "playwright test photoUpload",
+    "e2e:billing": "playwright test adminBillingSync"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

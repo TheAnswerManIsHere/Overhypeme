@@ -19,6 +19,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { __setAccountRetrieverForTests } from "../../lib/stripeAccountGuard.js";
+import { __setPartitionReaderForTests } from "../../lib/stripeDatabasePartition.js";
 
 export const STRIPE_ENV_KEYS = [
   "STRIPE_SECRET_KEY_TEST",
@@ -57,7 +58,22 @@ export function clearStripeEnv(): () => void {
 export function stubAccountRetriever(
   answer: (secretKey: string) => string | Promise<string>,
 ): () => void {
-  return __setAccountRetrieverForTests(async (secretKey) => answer(secretKey));
+  const restoreRetriever = __setAccountRetrieverForTests(async (secretKey) => answer(secretKey));
+  // These suites test what happens DOWNSTREAM of the database partition (#566,
+  // plan decision 12) with the real driver and stubbed credentials. They run
+  // against schemas inside the marked test database, where the real-driver
+  // partition would refuse before any of their assertions are reached, so the
+  // partition read answers "a real database" here. The gate itself is untouched
+  // and is exercised against the actual catalog in stripeDatabasePartition.test.ts.
+  const restorePartition = __setPartitionReaderForTests(async () => ({
+    database: "stubbed-real-database",
+    testMarked: false,
+    fakeOwned: false,
+  }));
+  return () => {
+    restorePartition();
+    restoreRetriever();
+  };
 }
 
 /** The current value of every STRIPE_* variable. */

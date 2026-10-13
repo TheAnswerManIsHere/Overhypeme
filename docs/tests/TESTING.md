@@ -405,6 +405,7 @@ prove it. A new double adds its row to `SELECTORS` there.
 | Selector | Double | Needs |
 |---|---|---|
 | `STORAGE_BACKEND` | `local-double` — `lib/localObjectStorage.ts` | `STORAGE_DOUBLE_DIR` (absolute), plus the usual `PRIVATE_OBJECT_DIR` / `PUBLIC_OBJECT_SEARCH_PATHS` (any `/<bucket>/<prefix>`) |
+| `STRIPE_BACKEND` | `fake-double` — `lib/stripeFakeDriver.ts` | **no** Stripe credential set (any `STRIPE_SECRET_KEY_*`, `STRIPE_PUBLISHABLE_KEY_*` or `STRIPE_WEBHOOK_SECRET_*` refuses the boot), and a database created for it (below) |
 | `AI_BACKEND` | `recorded-double` — `lib/aiDouble/` (fal, OpenAI chat and embeddings, answered from committed recordings) | nothing — no credential |
 | `AI_BACKEND` | `recorder` — the real AI clients, capturing recordings under a spending ceiling | the fal and OpenAI keys; run only by `scripts/record-ai-baseline.ts`, never in CI |
 
@@ -433,6 +434,55 @@ credential is set — never on the Repl, which carries real ones.
 
 It is an acceptance journey, so it is not in the per-PR gate; the acceptance
 run (Phase 2, increment 6) runs it.
+
+**The Stripe fake** (#566, `docs/plans/PLAN_STRIPE_FAKE.md`) is a credential-free
+Stripe for the read path: account verification, managed-webhook registration,
+backfill into the `stripe.*` mirror, the catalog and the Billing sync all work
+against a fixed catalog (`lib/stripeFakeFixture.ts`, one membership product with
+monthly, annual and lifetime prices). It is test-mode only. Payment mutations
+(checkout, subscription changes, portal) and webhook processing refuse with
+`StripeFakeUnsupportedError` (a typed 501 from payment routes) until the event
+channel lands. The real driver is unchanged and stays the default.
+
+It runs only on a database **created** for it. Two database-level settings
+partition databases between the drivers (`lib/stripeDatabasePartition.ts`):
+
+| Driver | May use a database carrying |
+|---|---|
+| fake | the test marker **and** `overhype.stripe_fake_database` |
+| real, with credentials | **neither** |
+
+A confirmed mismatch refuses the boot before the port opens; an unreadable
+setting leaves payments unavailable until a retry reads it. The fake setting has
+one writer, which only creates, and creates **empty** (`TEMPLATE template0`; it
+refuses an existing name), so a database with real-Stripe history can never
+carry it: nothing is copied from anywhere. The schema, migrations and accounts
+come from the same fill every test database gets. To run locally (with
+`DATABASE_URL` naming the marked test database, the proof this is a disposable
+server):
+
+```sh
+pnpm --filter @workspace/db create-stripe-fake-db overhype_stripe_fake   # once; creates it empty and marked
+export FAKE_DB=postgres://overhype:overhype@localhost:5432/overhype_stripe_fake
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/db push-force
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/db run migrate
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
+DATABASE_URL=$FAKE_DB pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
+cd artifacts/api-server && STRIPE_BACKEND=fake-double DATABASE_URL=$FAKE_DB \
+  PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=x \
+  ALLOWED_ORIGINS=http://localhost:5173 pnpm exec tsx src/index.ts
+```
+
+To start over, drop `overhype_stripe_fake` and run the block again; an
+interrupted run leaves at worst an empty database, which the next run's
+"already exists" refusal names. Never point an older checkout's server at it. The Billing page shows a persistent "Fake Stripe —
+no real account" notice while it is active. CI's dev stack runs on it, and
+`e2e/adminBillingSync.spec.ts` (`e2e:billing`) is in the per-PR gate.
+
+Unit tests choose the driver with `__setStripeDriverForTests`, and stub the
+partition read with `__setPartitionReaderForTests` — the test databases are
+never fake-owned. Suites testing real-driver account behaviour get an "allowed"
+answer from `stubAccountRetriever` (`__tests__/helpers/stripeGuardHarness.ts`).
 
 ---
 

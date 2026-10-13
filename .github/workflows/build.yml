@@ -555,6 +555,22 @@ jobs:
       - name: Seed E2E test accounts
         run: pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
 
+      # The dev stack runs Stripe on the FAKE driver (#566), which holds no
+      # credential and runs only on a database created for it. The provisioner
+      # creates it EMPTY and writes the fake-ownership setting (it is the only
+      # writer); the fill is the same push / migrate / seed every test database
+      # gets, so nothing from any other database can reach it. CI still holds no
+      # Stripe credential in any form.
+      - name: Prepare fake-Stripe database
+        env:
+          FAKE_STRIPE_DB: postgres://overhype:overhype@localhost:5432/overhype_stripe_fake
+        run: |
+          pnpm --filter @workspace/db create-stripe-fake-db overhype_stripe_fake
+          DATABASE_URL="$FAKE_STRIPE_DB" pnpm --filter @workspace/db push-force
+          DATABASE_URL="$FAKE_STRIPE_DB" pnpm --filter @workspace/db run migrate
+          DATABASE_URL="$FAKE_STRIPE_DB" pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
+          DATABASE_URL="$FAKE_STRIPE_DB" pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
+
       # Baseline journey 1 (#631, increment 2) runs against the real server in
       # PRODUCTION mode, booted by src/testing/productionModeLauncher.ts with
       # only its email transport replaced (captured to a directory, below the
@@ -597,9 +613,11 @@ jobs:
       - name: Start dev and production-mode stacks
         env:
           AUTH_DB: postgres://overhype:overhype@localhost:5432/overhype_e2e_auth
+          FAKE_STRIPE_DB: postgres://overhype:overhype@localhost:5432/overhype_stripe_fake
         run: |
           (cd artifacts/api-server && PORT=8080 NODE_ENV=development ENABLE_DEV_ADMIN_LOGIN=true CRON_SECRET=ci-smoke-dummy \
             ALLOWED_ORIGINS=http://localhost:5173 \
+            STRIPE_BACKEND=fake-double DATABASE_URL="$FAKE_STRIPE_DB" \
             pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &)
           (cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ \
             pnpm exec vite > /tmp/vite.log 2>&1 &)
@@ -630,6 +648,12 @@ jobs:
 
       - name: Run test-account suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:accounts
+
+      # The Billing sync flow against the fake Stripe driver (#566): the real
+      # sync library, the mirror, the catalog API and the Billing page, with no
+      # Stripe credential anywhere. Its own step so a red build names it.
+      - name: Run Billing sync suite
+        run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:billing
 
       - name: Run production-mode account journey
         run: E2E_BASE_URL=http://localhost:5174 E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink pnpm --filter @workspace/overhype-me run e2e:auth

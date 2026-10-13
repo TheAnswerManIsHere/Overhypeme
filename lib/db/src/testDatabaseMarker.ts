@@ -33,6 +33,19 @@ export const TEST_DATABASE_VALUE = "yes";
 export const markTestDatabaseSql = (quotedDatabaseName: string): string =>
   `ALTER DATABASE ${quotedDatabaseName} SET ${TEST_DATABASE_SETTING} = '${TEST_DATABASE_VALUE}'`;
 
+/** True when the connected database carries the stored setting `$<param>` ("name=value"). Read from the catalog. */
+const settingStoredSql = (param: number): string => `EXISTS (
+  SELECT 1 FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase
+   WHERE d.datname = current_database() AND s.setrole = 0 AND $${param} = ANY (s.setconfig)
+)`;
+
+/** `connectionString` pointed at another database on the same server. */
+export function withDatabase(connectionString: string, database: string): string {
+  const url = new URL(connectionString);
+  url.pathname = `/${database}`;
+  return url.toString();
+}
+
 export interface TestDatabaseMarker {
   database: string;
   marked: boolean;
@@ -43,15 +56,7 @@ export async function readTestDatabaseMarker(connectionString: string): Promise<
   await client.connect();
   try {
     const { rows } = await client.query<{ database: string; marked: boolean }>(
-      `SELECT current_database() AS database,
-              EXISTS (
-                SELECT 1
-                  FROM pg_db_role_setting s
-                  JOIN pg_database d ON d.oid = s.setdatabase
-                 WHERE d.datname = current_database()
-                   AND s.setrole = 0
-                   AND $1 = ANY (s.setconfig)
-              ) AS marked`,
+      `SELECT current_database() AS database, ${settingStoredSql(1)} AS marked`,
       [`${TEST_DATABASE_SETTING}=${TEST_DATABASE_VALUE}`],
     );
     return rows[0]!;
@@ -84,3 +89,38 @@ export async function testDatabaseRefusal(env: NodeJS.ProcessEnv): Promise<strin
   }
   return null;
 }
+
+/**
+ * The fake-Stripe ownership setting (#566, plan decision 12).
+ *
+ * The test marker says a database is disposable; it does not say the database
+ * is FRESH — `scripts/setup-test-db.sh` marks pre-existing databases on every
+ * run. So the fake Stripe driver needs a second, narrower fact: that this
+ * database was CREATED for fake runs. `createStripeFakeDatabase.ts` is the only
+ * writer, and it refuses an existing database name, so the setting can never be
+ * stamped onto a database that already has history.
+ *
+ * The two settings partition databases between the Stripe drivers: the fake
+ * runs only where both are set, and the real driver with credentials only where
+ * neither is (`artifacts/api-server/src/lib/stripeDatabasePartition.ts`).
+ */
+export const STRIPE_FAKE_DATABASE_SETTING = "overhype.stripe_fake_database";
+
+/** The SQL `createStripeFakeDatabase.ts` — and only it — runs to mark a database it has just created. */
+export const markStripeFakeDatabaseSql = (quotedDatabaseName: string): string =>
+  `ALTER DATABASE ${quotedDatabaseName} SET ${STRIPE_FAKE_DATABASE_SETTING} = '${TEST_DATABASE_VALUE}'`;
+
+export interface DatabasePartitionSettings {
+  database: string;
+  testMarked: boolean;
+  fakeOwned: boolean;
+}
+
+/** Both partition settings for the connected database, from the catalog, in one query. */
+export const DATABASE_PARTITION_SETTINGS_SQL =
+  `SELECT current_database() AS database, ${settingStoredSql(1)} AS "testMarked", ${settingStoredSql(2)} AS "fakeOwned"`;
+
+export const DATABASE_PARTITION_SETTINGS_PARAMS = [
+  `${TEST_DATABASE_SETTING}=${TEST_DATABASE_VALUE}`,
+  `${STRIPE_FAKE_DATABASE_SETTING}=${TEST_DATABASE_VALUE}`,
+] as const;

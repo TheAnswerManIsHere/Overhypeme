@@ -80,6 +80,27 @@ describe("double selection", () => {
     assert.deepEqual(importsOf("env.ts"), []);
   });
 
+  it("selects the fake Stripe only when named, and refuses it beside any real Stripe credential", () => {
+    for (const value of [undefined, "", "stripe"]) {
+      assert.equal(selectedBackend("STRIPE_BACKEND", { ...DEV, STRIPE_BACKEND: value }), "stripe");
+    }
+    assert.equal(selectedBackend("STRIPE_BACKEND", { ...DEV, STRIPE_BACKEND: "fake-double" }), "fake-double");
+    for (const name of [
+      "STRIPE_SECRET_KEY_TEST",
+      "STRIPE_SECRET_KEY_LIVE",
+      "STRIPE_PUBLISHABLE_KEY_TEST",
+      "STRIPE_PUBLISHABLE_KEY_LIVE",
+      "STRIPE_WEBHOOK_SECRET_TEST",
+      "STRIPE_WEBHOOK_SECRET_LIVE",
+    ]) {
+      const env = { ...DEV, STRIPE_BACKEND: "fake-double", [name]: "present" };
+      assert.match(doubleSelectionRefusals(env).join(), new RegExp(`${name} is set`), name);
+      assert.throws(() => selectedBackend("STRIPE_BACKEND", env), new RegExp(name));
+      // The real backend is untouched by credentials, as before.
+      assert.deepEqual(doubleSelectionRefusals({ ...DEV, [name]: "present" }), []);
+    }
+  });
+
   it("refuses the filesystem root as the storage double's directory", () => {
     for (const dir of ["/", "//", " / "]) {
       assert.match(
@@ -159,6 +180,20 @@ describe("the server's boot refuses a bad selection before listening", () => {
     assert.notEqual(result.code, 0, "the process must exit non-zero, not keep running");
     assert.match(result.stderr, /\[doubles\] refusing to start/);
     assert.match(result.stderr, /STORAGE_BACKEND=local-double names a test double/);
+    assert.equal(result.listened, false, "the port must never open");
+  });
+
+  it("exits on a production boot naming the fake Stripe", async () => {
+    const result = await boot({ ...PROD_BOOT, STRIPE_BACKEND: "fake-double" });
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /STRIPE_BACKEND=fake-double names a test double/);
+    assert.equal(result.listened, false, "the port must never open");
+  });
+
+  it("exits when the fake Stripe is named beside a real Stripe credential", async () => {
+    const result = await boot({ NODE_ENV: "development", STRIPE_BACKEND: "fake-double", STRIPE_SECRET_KEY_TEST: "sk_test_leaked" });
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /STRIPE_SECRET_KEY_TEST is set, and the fake Stripe driver refuses/);
     assert.equal(result.listened, false, "the port must never open");
   });
 

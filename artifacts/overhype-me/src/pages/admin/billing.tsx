@@ -110,6 +110,8 @@ interface StripeSummary {
   webhookSecretConfigured: boolean;
   webhookUrl: string | null;
   stripeEnv?: StripeEnvStatus;
+  /** Which Stripe driver the server runs; "fake" is CI and local testing only. */
+  stripeDriver?: "real" | "fake";
   verification?: VerificationSnapshot;
 }
 
@@ -507,6 +509,7 @@ export default function AdminBilling() {
   const monthlyPrice = allPrices.find(p => p.recurring?.interval === "month");
   const annualPrice = allPrices.find(p => p.recurring?.interval === "year");
   const lifetimePrice = allPrices.find(p => !p.recurring);
+  const isFakeStripe = summary?.stripeDriver === "fake";
 
   return (
     <AdminLayout title="Billing">
@@ -558,6 +561,18 @@ export default function AdminBilling() {
               Switch to {liveMode ? "Test" : "Live"} Mode
             </Button>
           </div>
+          {isFakeStripe && (
+            <div
+              data-testid="stripe-fake-notice"
+              className="mt-4 bg-blue-500/10 border border-blue-500/30 rounded-sm p-3 flex items-start gap-2 text-xs text-blue-300"
+            >
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                <strong>Fake Stripe — no real account.</strong> This server runs the fake Stripe driver used for
+                testing: the plans below are fixture data, nothing here reaches Stripe, and no payment can be taken.
+              </span>
+            </div>
+          )}
           {liveMode && (
             <div className="mt-4 bg-amber-500/10 border border-amber-500/30 rounded-sm p-3 flex items-start gap-2 text-xs text-amber-400">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -895,6 +910,11 @@ export default function AdminBilling() {
               <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
                 Per-mode environment variables
               </p>
+              {isFakeStripe ? (
+                <p className="text-sm text-muted-foreground" data-testid="stripe-fake-env-note">
+                  Not used — the fake Stripe driver needs no Stripe credentials, and refuses to start if any are set.
+                </p>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <CheckRow done={summary.stripeEnv.secretKeyTest} label="STRIPE_SECRET_KEY_TEST" />
                 <CheckRow done={summary.stripeEnv.secretKeyLive} label="STRIPE_SECRET_KEY_LIVE" />
@@ -903,6 +923,7 @@ export default function AdminBilling() {
                 <CheckRow done={summary.stripeEnv.webhookSecretTest} label="STRIPE_WEBHOOK_SECRET_TEST" />
                 <CheckRow done={summary.stripeEnv.webhookSecretLive} label="STRIPE_WEBHOOK_SECRET_LIVE" />
               </div>
+              )}
             </div>
           )}
         </CollapsibleSection>
@@ -958,8 +979,16 @@ export default function AdminBilling() {
           )}
         </CollapsibleSection>
 
-        {/* Test Event (test mode only) */}
-        {liveMode === false && (
+        {/* Test Event (test mode only). Not offered under the fake Stripe: the
+            route creates a customer, which the fake refuses until the
+            event-channel increment (#566). */}
+        {liveMode === false && isFakeStripe && (
+          <p data-testid="stripe-fake-test-event-note" className="text-xs text-muted-foreground">
+            Send Test Webhook Event is not available on the fake Stripe: test events arrive with the
+            event-channel increment.
+          </p>
+        )}
+        {liveMode === false && !isFakeStripe && (
           <CollapsibleSection
             title="Send Test Webhook Event"
             icon={<Send className="w-4 h-4 text-blue-400" />}

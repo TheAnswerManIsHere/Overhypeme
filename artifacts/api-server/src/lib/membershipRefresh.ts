@@ -17,6 +17,7 @@
  */
 
 import type Stripe from "stripe";
+import type { StripeApi } from "./stripeApi.js";
 import { db } from "@workspace/db";
 import { membershipEntitlementsTable, membershipHistoryTable, usersTable } from "@workspace/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
@@ -79,7 +80,7 @@ const MAX_PAGES = 20;
  * while they read.
  */
 export function makeVerificationDeps(
-  stripe: Stripe,
+  stripe: StripeApi,
   deadline?: RetrievalDeadline,
 ): VerificationDeps {
   const gated = <T>(label: string, call: () => Promise<T>): Promise<T> => {
@@ -165,7 +166,7 @@ export function makeVerificationDeps(
  * means revoking a paying customer.
  */
 export async function resolveGraceEpisodeStart(
-  stripe: Stripe,
+  stripe: StripeApi,
   subscriptionId: string,
   deadline?: RetrievalDeadline,
 ): Promise<{ startedAt: Date } | { startedAt: null; reason: string }> {
@@ -262,7 +263,7 @@ export async function resolveGraceEpisodeStart(
 }
 
 async function firstPaymentIntentForInvoice(
-  stripe: Stripe,
+  stripe: StripeApi,
   invoiceId: string,
   deadline?: RetrievalDeadline,
 ): Promise<string | null> {
@@ -312,7 +313,7 @@ async function firstPaymentIntentForInvoice(
  * claim.
  */
 export async function hasOneTimeCheckoutOrigin(
-  stripe: Stripe,
+  stripe: StripeApi,
   paymentIntentId: string,
   deadline?: RetrievalDeadline,
 ): Promise<boolean> {
@@ -362,7 +363,7 @@ export async function hasOneTimeCheckoutOrigin(
  * lookup failed": a throw propagates rather than being flattened into null.
  */
 export async function resolveInvoiceForPaymentIntent(
-  stripe: Stripe,
+  stripe: StripeApi,
   paymentIntentId: string,
   deadline?: RetrievalDeadline,
 ): Promise<string | null> {
@@ -379,7 +380,7 @@ export async function resolveInvoiceForPaymentIntent(
 
 /** Every charge on a PaymentIntent, or an explicit "could not read them all". */
 async function listAllCharges(
-  stripe: Stripe,
+  stripe: StripeApi,
   paymentIntentId: string,
   deadline?: RetrievalDeadline,
 ): Promise<PagedResult<Stripe.Charge>> {
@@ -510,7 +511,7 @@ export async function releasePrepared(prepared: Prepared): Promise<void> {
  * below does.
  */
 export async function prepareSubscriptionRefresh(
-  stripe: Stripe,
+  stripe: StripeApi,
   subscriptionId: string,
   opts: { expectedUserId?: string; linkHintUserId?: string; transitionEvent?: string } = {},
 ): Promise<Prepared> {
@@ -622,7 +623,7 @@ export async function prepareSubscriptionRefresh(
  * the lease first owes it a deadline, as `prepareSubscriptionRefresh` has.
  */
 export async function prepareOneTimeCheckout(
-  stripe: Stripe,
+  stripe: StripeApi,
   sessionId: string,
   opts: { expectedUserId?: string } = {},
 ): Promise<Prepared> {
@@ -669,7 +670,7 @@ export async function prepareLifetimeRefund(input: {
  * payload, which may be an out-of-order delivery carrying an older status.
  */
 export async function prepareDisputeEvent(
-  stripe: Stripe,
+  stripe: StripeApi,
   disputeId: string,
 ): Promise<Prepared> {
   let dispute: Stripe.Dispute;
@@ -1050,7 +1051,7 @@ async function applyDispute(
  * it needs the apply to share the transaction that claims idempotency.
  */
 export async function refreshSubscriptionSource(
-  stripe: Stripe,
+  stripe: StripeApi,
   subscriptionId: string,
   opts: { expectedUserId?: string; linkHintUserId?: string; transitionEvent?: string } = {},
 ): Promise<ApplyResult> {
@@ -1133,7 +1134,7 @@ const LOCAL_REFRESH_RETRY_REASONS = new Set([
 ]);
 
 export async function refreshSubscriptionSourceAfterMutation(
-  stripe: Stripe,
+  stripe: StripeApi,
   subscriptionId: string,
   opts: { attempts?: number; delayMs?: number; budgetMs?: number } = {},
 ): Promise<{ applied: boolean; reason?: string }> {
@@ -1216,7 +1217,7 @@ export async function refreshSubscriptionSourceAfterMutation(
  * purchase is fine. Callers that fail closed depend on that distinction.
  */
 export async function refreshLifetimePaymentSource(
-  stripe: Stripe,
+  stripe: StripeApi,
   paymentIntentId: string,
 ): Promise<{ verified: boolean; refunded: boolean }> {
   const charges = await listAllCharges(stripe, paymentIntentId);
@@ -1266,7 +1267,7 @@ export async function refreshLifetimePaymentSource(
  * whenever some *other* source's version happened to move.
  */
 export async function refreshAllSourcesForUser(
-  stripe: Stripe,
+  stripe: StripeApi,
   userId: string,
 ): Promise<{ refreshed: number; failed: number; verifiedSourceIds: Set<number> }> {
   const sources = await db
@@ -1363,7 +1364,7 @@ export async function runNotifications(actions: NotificationAction[]): Promise<v
  * supported reverse lookup.
  */
 async function locateDisputedSource(
-  stripe: Stripe,
+  stripe: StripeApi,
   dispute: Stripe.Dispute,
 ): Promise<{ sourceType: "stripe_subscription" | "stripe_lifetime_payment"; providerRef: string } | null> {
   const paymentIntentId =

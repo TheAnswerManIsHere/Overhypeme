@@ -73,6 +73,16 @@ export class StripeExpectedAccountMissingError extends StripeVerificationError {
 export class StripeUnverifiedError extends StripeVerificationError {}
 
 /**
+ * The connected database belongs to the other Stripe driver (#566, plan
+ * decision 12): the fake on a database not created for it, or the real driver
+ * with credentials on a test or fake database. Read from the database's own
+ * settings, so it is a confirmed fact — definite, fatal at boot, and a
+ * deterministic refusal after it. An UNREADABLE partition is never this class;
+ * it is `StripeUnverifiedError`.
+ */
+export class StripeDatabasePartitionError extends StripeVerificationError {}
+
+/**
  * True when Stripe (or the environment) has given a DEFINITE wrong answer, as
  * opposed to "could not tell".
  *
@@ -84,6 +94,7 @@ export class StripeUnverifiedError extends StripeVerificationError {}
 export function isDefiniteVerificationFailure(err: unknown): boolean {
   return (
     err instanceof StripeAccountMismatchError ||
-    err instanceof StripeExpectedAccountMissingError
+    err instanceof StripeExpectedAccountMissingError ||
+    err instanceof StripeDatabasePartitionError
   );
 }

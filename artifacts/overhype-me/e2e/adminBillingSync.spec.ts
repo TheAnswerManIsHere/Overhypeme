@@ -14,9 +14,13 @@
  *      <Resource> — <error message>".
  *
  * Why this shape:
- *   - The success path drives the real `POST /api/admin/stripe/sync` against
- *     the test-mode Stripe account so it covers the full real flow exactly
- *     as a human admin sees it.
+ *   - The success path drives the real `POST /api/admin/stripe/sync` through the
+ *     real sync library and mirror. In CI that runs against the fake Stripe
+ *     driver (`STRIPE_BACKEND=fake-double`, #566), which needs no credential;
+ *     locally it can run against either driver. It asserts the request and the
+ *     run's terminal states, never the transient "Syncing…" label: against a
+ *     fast backend the whole run can finish between two renders, and the label
+ *     was the race this spec carried until #566.
  *   - The failure path uses a small dev-only injection endpoint
  *     (`POST /api/admin/stripe/sync/_test/simulate`) that drives the same
  *     in-process `runScopedSync` machinery with a stub driver. This lets us
@@ -135,6 +139,29 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
     }
     await expect(syncButton, "Sync Stripe data button should be visible").toBeVisible({ timeout: 10_000 });
 
+    // PR276 step 1: the status panel is present on an ordinary page load, not
+    // only while a run is in flight.
+    await expect(
+      page.getByTestId("sync-progress-panel"),
+      "the sync status panel should render on load",
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Under the fake driver, the page says so and shows the fixture catalog —
+    // proof the chain fake → sync library → mirror → catalog API → page holds.
+    const summaryRes = await context.request.get("/api/admin/stripe/summary");
+    expect(summaryRes.ok(), `summary should be 200, got ${summaryRes.status()}`).toBe(true);
+    const summaryBody = (await summaryRes.json()) as { stripeDriver?: string };
+    if (summaryBody.stripeDriver === "fake") {
+      await expect(page.getByTestId("stripe-fake-notice")).toBeVisible();
+      // The test-webhook action needs payment flows the fake refuses, so it is
+      // not offered; a one-line note says why (#671 round 1).
+      await expect(page.getByTestId("stripe-fake-test-event-note")).toBeVisible();
+      await expect(page.getByText("Send Test Webhook Event", { exact: true })).toHaveCount(0);
+      await expect(page.getByText("Legendary (fake)").first(), "the fake fixture product should be listed").toBeVisible({
+        timeout: 10_000,
+      });
+    }
+
     // 3. Verify the LIVE/TEST badge inside the Plans section header. The dev
     //    environment is configured for test mode by default, so we expect TEST.
     //    There are TWO badges with this text (top "Stripe Mode" panel + Plans
@@ -147,16 +174,17 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
 
     // ──────────────── SUCCESS PATH ────────────────
 
-    await test.step("success path: real test-mode sync drives all rows to complete", async () => {
+    await test.step("success path: a real sync drives all rows to complete", async () => {
+      // The request is what proves a sync started; the transient button label
+      // does not, and asserting it here raced a fast backend (#566).
+      const syncResponse = page.waitForResponse(
+        (r) => r.url().endsWith("/api/admin/stripe/sync") && r.request().method() === "POST",
+      );
       await syncButton.click();
+      expect((await syncResponse).ok(), "POST /api/admin/stripe/sync should succeed").toBe(true);
 
-      // The button label flips to "Syncing…" while the run is in flight.
-      await expect(syncButton).toHaveText(/Syncing…/, { timeout: 5_000 });
-
-      // The progress panel renders three rows. They might already be in the
-      // complete state by the time we look (the test-mode account is tiny —
-      // each resource finishes in ~150ms — so don't strictly require the
-      // intermediate "running" state). The terminal state is what matters.
+      // The terminal state is what matters; intermediate states are asserted
+      // only in the controlled scenario below.
       for (const label of RESOURCE_LABELS) {
         await waitForResourceComplete(page, label, 30_000);
       }

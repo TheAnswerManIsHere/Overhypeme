@@ -24,18 +24,22 @@ import { like } from "drizzle-orm";
 import stripeRouter from "../routes/stripe.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
-import {
-  __resetVerificationStateForTests,
-  __setAccountRetrieverForTests,
-} from "../lib/stripeAccountGuard.js";
+import { __resetVerificationStateForTests } from "../lib/stripeAccountGuard.js";
 import { STRIPE_UNVERIFIED_CODE } from "../lib/stripeVerificationErrors.js";
 import { invalidateStripeSync } from "../lib/stripeClient.js";
-import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv } from "./helpers/stripeGuardHarness.js";
+import {
+  clearStripeEnv,
+  describeStripeEnvRestored,
+  snapshotStripeEnv,
+  stubAccountRetriever,
+} from "./helpers/stripeGuardHarness.js";
 
 const USER_PREFIX = "tstriperefusal-";
 const restores: Array<() => void> = [];
 let sid: string;
 let customerUserSid: string;
+/** Account reads the outage stub answered, so each test can prove it reached the outage. */
+let outageReads = 0;
 
 function makeApp(): Express {
   const app = express();
@@ -102,7 +106,12 @@ beforeEach(() => {
   process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
   process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
   process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
-  restores.push(__setAccountRetrieverForTests(async () => { throw new Error("ECONNREFUSED stripe.com"); }));
+  // Through the shared helper, which also answers the database partition as a
+  // real database: the test database is test-marked, so without it the
+  // partition refuses first with the same typed 503 and the outage below is
+  // never reached (Codex, #671 round 3).
+  outageReads = 0;
+  restores.push(stubAccountRetriever(() => { outageReads++; throw new Error("ECONNREFUSED stripe.com"); }));
 });
 
 afterEach(() => {
@@ -139,6 +148,7 @@ describe("test 15 — payment routes name the unverified state", () => {
       assert.doesNotMatch(String(res.body.error), /acct_/, "no account id may reach an end user");
       assert.doesNotMatch(String(res.body.error), /sk_/, "no credential may reach an end user");
       assert.match(String(res.body.error), /temporarily unavailable/i);
+      assert.ok(outageReads > 0, `${c.name}: the refusal must come from the Stripe outage, not an earlier gate`);
     });
   }
 });
@@ -167,6 +177,7 @@ describe("no refusal message asserts something false about the customer's money"
     );
     assert.doesNotMatch(String(res.body.error), /acct_/, "no account id may reach an end user");
     assert.match(String(res.body.error), /receipt/i, "it should say what actually failed");
+    assert.ok(outageReads > 0, "the refusal must come from the Stripe outage, not an earlier gate");
   });
 
   it("the pre-charge routes keep the reassurance, which is true on them", async () => {
@@ -181,6 +192,7 @@ describe("no refusal message asserts something false about the customer's money"
 
     assert.equal(res.status, 503);
     assert.match(String(res.body.error), /No charge was made/i);
+    assert.ok(outageReads > 0, "the refusal must come from the Stripe outage, not an earlier gate");
   });
 });
 });

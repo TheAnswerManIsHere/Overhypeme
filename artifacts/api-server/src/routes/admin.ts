@@ -132,6 +132,7 @@ import { exportUserData, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { getGovernanceAdminView } from "../lib/resourceGovernance";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
+import { stripeDriver } from "../lib/stripeDriver.js";
 
 const _styleStorage = new ObjectStorageService();
 
@@ -3312,14 +3313,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
 
     // Boolean-only presence checks for the Stripe env vars. We never echo the
     // values themselves — only whether each one is configured.
-    const stripeEnv = {
-      secretKeyTest: !!process.env.STRIPE_SECRET_KEY_TEST,
-      secretKeyLive: !!process.env.STRIPE_SECRET_KEY_LIVE,
-      publishableKeyTest: !!process.env.STRIPE_PUBLISHABLE_KEY_TEST,
-      publishableKeyLive: !!process.env.STRIPE_PUBLISHABLE_KEY_LIVE,
-      webhookSecretTest: !!process.env.STRIPE_WEBHOOK_SECRET_TEST,
-      webhookSecretLive: !!process.env.STRIPE_WEBHOOK_SECRET_LIVE,
-    };
+    const stripeEnv = stripeDriver().credentialPresence();
     const webhookSecretConfigured =
       stripeEnv.webhookSecretTest || stripeEnv.webhookSecretLive;
 
@@ -3379,6 +3373,10 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       webhookSecretConfigured,
       webhookUrl,
       stripeEnv,
+      // Which Stripe driver this process runs (#566). The Billing page shows a
+      // persistent notice for "fake", so fixture data is never mistaken for a
+      // real test-mode account. Reported by the server, never inferred.
+      stripeDriver: stripeDriver().kind,
       verification,
       webhookAudit: {
         duplicateSuppressedCount: duplicateSuppressedRows[0]?.cnt ?? 0,

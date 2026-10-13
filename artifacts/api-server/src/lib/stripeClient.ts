@@ -1,10 +1,7 @@
 import type Stripe from "stripe";
 import { logger } from "./logger";
-import {
-  createRawStripeClient,
-  stripePublishableVarFor,
-  stripeSecretVarFor,
-} from "./stripeRawClient.js";
+import { stripeDriver } from "./stripeDriver.js";
+import type { StripeApi, StripeSyncApi } from "./stripeApi.js";
 import {
   readStripeLiveModeStrict,
   throttledRefusalFor,
@@ -39,44 +36,13 @@ export async function isLiveMode(): Promise<boolean> {
  */
 export async function getStripeWebhookSecret(liveMode?: boolean): Promise<string | null> {
   const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
-  const envSecret = useLive
-    ? process.env.STRIPE_WEBHOOK_SECRET_LIVE
-    : process.env.STRIPE_WEBHOOK_SECRET_TEST;
-  return envSecret ?? null;
+  return stripeDriver().webhookSecret(useLive);
 }
 
+/** Both keys for a mode, from the active driver. Throws when either is absent. */
 async function getCredentials(liveMode?: boolean) {
   const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
-
-  // Each mode reads from exactly one env var — no legacy fallback, no
-  // OAuth-connector fallback. If the required var for the active mode is
-  // missing, fail loudly so misconfiguration is obvious.
-  const envSecret = useLive
-    ? process.env.STRIPE_SECRET_KEY_LIVE
-    : process.env.STRIPE_SECRET_KEY_TEST;
-  const envPublishable = useLive
-    ? process.env.STRIPE_PUBLISHABLE_KEY_LIVE
-    : process.env.STRIPE_PUBLISHABLE_KEY_TEST;
-
-  const secretVar = stripeSecretVarFor(useLive);
-  const publishableVar = stripePublishableVarFor(useLive);
-
-  if (!envSecret) {
-    throw new Error(
-      `Stripe credentials not configured — set ${secretVar} in Replit Secrets (active mode: ${useLive ? "live" : "test"}).`,
-    );
-  }
-  if (!envPublishable) {
-    throw new Error(
-      `Stripe credentials not configured — set ${publishableVar} in Replit Secrets (active mode: ${useLive ? "live" : "test"}).`,
-    );
-  }
-
-  return {
-    publishableKey: envPublishable,
-    secretKey: envSecret,
-    environment: useLive ? "production" : "development",
-  };
+  return stripeDriver().credentials(useLive);
 }
 
 /**
@@ -87,7 +53,7 @@ async function getCredentials(liveMode?: boolean) {
  * the stale client anyway — a claim wider than what establishes it, which is
  * precisely the species this workstream keeps finding.
  */
-let rawClientFactory: (secretKey: string) => Stripe = createRawStripeClient;
+let rawClientFactory: ((secretKey: string) => Stripe) | null = null;
 
 /** Test seam. Returns a restore function. */
 export function __setRawClientFactoryForTests(fn: (secretKey: string) => Stripe): () => void {
@@ -105,7 +71,7 @@ export function __setRawClientFactoryForTests(fn: (secretKey: string) => Stripe)
  * carries the same verification — and, like the other, captures the mode ONCE
  * and threads it to both the expected account id and the credential.
  */
-export async function getVerifiedStripeClient(): Promise<{ client: Stripe; liveMode: boolean }> {
+export async function getVerifiedStripeClient(): Promise<{ client: StripeApi; liveMode: boolean }> {
   refuseIfThrottled(await isLiveMode());
 
   for (let attempt = 0; attempt < MAX_CONSTRUCTION_ATTEMPTS; attempt++) {
@@ -124,7 +90,7 @@ export async function getVerifiedStripeClient(): Promise<{ client: Stripe; liveM
       // Nothing to dispose: unlike a StripeSync build, no client exists yet.
       continue;
     }
-    return { client: rawClientFactory(secretKey), liveMode };
+    return { client: (rawClientFactory ? rawClientFactory(secretKey) : stripeDriver().createClient(secretKey)), liveMode };
   }
 
   throw new StripeUnverifiedError(
@@ -150,7 +116,7 @@ export async function getVerifiedStripeClient(): Promise<{ client: Stripe; liveM
  * always agreed. Returning the verified mode alongside the client is what makes
  * a gate and a mutation impossible to split.
  */
-export async function getUncachableStripeClient() {
+export async function getUncachableStripeClient(): Promise<StripeApi> {
   return (await getVerifiedStripeClient()).client;
 }
 
@@ -193,7 +159,7 @@ export async function getStripeSecretKey(liveMode?: boolean) {
  * that grants access.
  */
 function refuseIfThrottled(cachedMode: boolean): void {
-  const secretKey = process.env[stripeSecretVarFor(cachedMode)];
+  const secretKey = stripeDriver().configuredSecretKey(cachedMode);
   if (!secretKey) return;
   const refusal = throttledRefusalFor(cachedMode, secretKey);
   if (refusal) throw refusal;
@@ -243,17 +209,9 @@ export function __stripeSyncBuildsForTests(): number {
 
 async function buildStripeSync(liveMode: boolean) {
   stripeSyncBuilds++;
-  const { StripeSync } = await import("stripe-replit-sync");
   const secretKey = await getStripeSecretKey(liveMode);
-  // If a webhook signing secret is configured for the active mode, pass it through
-  // so signature verification uses it directly. When null, the library falls back
-  // to the per-account managed-webhook secret stored in stripe._managed_webhooks.
   const webhookSecret = await getStripeWebhookSecret(liveMode);
-  return new StripeSync({
-    poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
-    stripeSecretKey: secretKey,
-    ...(webhookSecret ? { stripeWebhookSecret: webhookSecret } : {}),
-  });
+  return stripeDriver().buildSync({ liveMode, secretKey, webhookSecret });
 }
 
 /**
@@ -482,7 +440,7 @@ async function constructAndPublish(
   return built;
 }
 
-export async function getStripeSync() {
+export async function getStripeSync(): Promise<StripeSyncApi> {
   // The fast path compares the published sync against the AUTHORITATIVE mode,
   // never against the interval alone.
   //

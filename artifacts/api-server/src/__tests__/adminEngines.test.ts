@@ -27,7 +27,7 @@ import {
   lookStylesTable,
   motionPresetsTable,
 } from "@workspace/db/schema";
-import { eq, like, inArray } from "drizzle-orm";
+import { and, eq, like, inArray } from "drizzle-orm";
 
 import adminEnginesRouter, {
   __setFalUploadForTest,
@@ -1227,11 +1227,31 @@ describe("kind-default eligibility guard", () => {
   });
 
   it("a DB-only row absent from the code catalogue stays eligible (current behavior preserved)", async () => {
-    const id = await seedEngine({ kind: "llm", provider: "openai", endpointId: "gpt-4o-mini" });
-    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-    const res = await request(app).post(`/api/admin/engines/${id}/set-default`).send({});
-    assert.equal(res.status, 200);
-    assert.equal(res.body.isDefault, true);
+    // set-default unsets every other llm engine, the real default included, and
+    // this file's cleanup runs only at the end of the whole shard (a top-level
+    // hook under --test-isolation=none) — so without this restore, every later
+    // suite in the shard resolved a gpt-4o-mini default (utilityLLM.reasoningEffort,
+    // surfaced when #671 reshuffled the shards).
+    const priorDefaults = await db
+      .select({ id: enginesTable.id })
+      .from(enginesTable)
+      .where(and(eq(enginesTable.kind, "llm"), eq(enginesTable.isDefault, true)));
+    try {
+      const id = await seedEngine({ kind: "llm", provider: "openai", endpointId: "gpt-4o-mini" });
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+      const res = await request(app).post(`/api/admin/engines/${id}/set-default`).send({});
+      assert.equal(res.status, 200);
+      assert.equal(res.body.isDefault, true);
+      await db.update(enginesTable).set({ isDefault: false }).where(eq(enginesTable.id, id));
+    } finally {
+      if (priorDefaults.length > 0) {
+        await db
+          .update(enginesTable)
+          .set({ isDefault: true })
+          .where(inArray(enginesTable.id, priorDefaults.map((r) => r.id)));
+      }
+      clearEngineCaches();
+    }
   });
 
   it("GET /admin/engines derives eligibleAsKindDefault per row", async () => {

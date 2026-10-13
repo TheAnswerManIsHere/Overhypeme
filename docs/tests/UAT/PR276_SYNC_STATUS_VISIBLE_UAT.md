@@ -34,11 +34,9 @@ line at the top. Previously this panel only appeared while a sync was
 actively running, and vanished on reload — that disappearing act was the
 bug.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
-
-**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:the sync status panel should render on load` — runs in CI against the fake Stripe driver (#566)
 
 ### 2. A green summary when the last sync worked
 
@@ -86,11 +84,9 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 
 **Expect:** It shows a red ✗ and the error text.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
-
-**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:failure path: simulated error on plans surfaces error icon + failure banner` — presentation evidence: the error is injected through the simulation route, not produced by Stripe
 
 ### 6. The failure survives a reload
 
@@ -100,11 +96,9 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 there. This is the entire point — before this PR both vanished on reload
 and you'd see a cheerful product count instead.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
-
-**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` — presentation evidence, as step 5
 
 ### 7. The summary names which resource failed
 
@@ -171,11 +165,9 @@ in-memory value that resets on restart.
 **Expect:** Rows animate pending → syncing → ✓ as before; the button
 disables then re-enables.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
-
-**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:intermediate transitions: rows progress pending → syncing… → complete in order` — the animation, under a controlled delay; and `success path: a real sync drives all rows to complete` for a real sync re-enabling the button, against the fake Stripe driver
 
 ### R2. Full sync still works across all resources
 
@@ -195,11 +187,9 @@ disables then re-enables.
 
 **Expect:** Still shows the right mode.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
-
-**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:Plans header should show TEST badge` — against the fake Stripe driver, which is test-mode only
 
 ### R4. The product count is still accurate
 

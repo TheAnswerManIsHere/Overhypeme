@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import * as Sentry from "@sentry/node";
 import { logger } from "./logger";
 import { StripeVerificationError } from "./stripeVerificationErrors.js";
+import { StripeFakeUnsupportedError } from "./stripeFakeErrors.js";
 
 export function paymentErrorResponse(params: {
   req: Request;
@@ -36,10 +37,16 @@ export function paymentErrorResponse(params: {
   // — a mismatch refusal's diagnostic text names both accounts and stays in the
   // log — and `code` lets the frontend branch without parsing prose.
   const verificationRefusal = err instanceof StripeVerificationError ? err : null;
-  const effectiveStatus = verificationRefusal ? 503 : status;
+  // The fake driver's refusal of a payment mutation (#566): a typed 501 rather
+  // than a generic 500, so a test can tell "the fake does not do this yet" from
+  // a defect. Unreachable in production, where the fake cannot boot.
+  const fakeRefusal = err instanceof StripeFakeUnsupportedError ? err : null;
+  const effectiveStatus = verificationRefusal ? 503 : fakeRefusal ? 501 : status;
   const effectiveClientMessage = verificationRefusal
     ? (unverifiedClientMessage ?? verificationRefusal.clientMessage)
-    : clientMessage;
+    : fakeRefusal
+      ? fakeRefusal.clientMessage
+      : clientMessage;
   Sentry.captureException(err, {
     extra: {
       requestId,
@@ -57,6 +64,6 @@ export function paymentErrorResponse(params: {
   res.status(effectiveStatus).json({
     error: effectiveClientMessage,
     requestId,
-    ...(verificationRefusal ? { code: verificationRefusal.code } : {}),
+    ...(verificationRefusal ? { code: verificationRefusal.code } : fakeRefusal ? { code: fakeRefusal.code } : {}),
   });
 }

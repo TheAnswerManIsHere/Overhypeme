@@ -31,9 +31,8 @@ import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import {
   __resetVerificationStateForTests,
-  __setAccountRetrieverForTests,
 } from "../lib/stripeAccountGuard.js";
-import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv } from "./helpers/stripeGuardHarness.js";
+import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 
 
 const USER_PREFIX = "t_routes_st_";
@@ -321,7 +320,7 @@ describe("payment 5xx responses do not leak provider diagnostics", () => {
     await cleanupUsers();
     process.env.STRIPE_ACCOUNT_ID_TEST = "acct_routes_stripe_test";
     __resetVerificationStateForTests();
-    restoreRetriever = __setAccountRetrieverForTests(async () => "acct_routes_stripe_test");
+    restoreRetriever = stubAccountRetriever(() => "acct_routes_stripe_test");
   });
 
   afterEach(async () => {

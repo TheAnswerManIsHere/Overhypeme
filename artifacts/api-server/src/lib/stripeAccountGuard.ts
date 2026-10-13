@@ -63,13 +63,11 @@ import type { StripeVerificationSnapshot, StripeVerificationState } from "@works
 import { getConfigStringStrict } from "./adminConfig.js";
 import { STRIPE_REQUEST_TIMEOUT_MS } from "./membershipTiming.js";
 import { logger } from "./logger";
-import {
-  createRawStripeClient,
-  stripeAccountVarFor,
-  stripeSecretVarFor,
-} from "./stripeRawClient.js";
+import { stripeDriver } from "./stripeDriver.js";
+import { requireStripeDatabasePartition } from "./stripeDatabasePartition.js";
 import {
   StripeAccountMismatchError,
+  StripeDatabasePartitionError,
   StripeExpectedAccountMissingError,
   StripeUnverifiedError,
   StripeVerificationError,
@@ -115,8 +113,9 @@ const inFlight = new Map<string, Promise<void>>();
  * fresh non-authoritative error and the entry expires on its own. That is what
  * keeps a transient Stripe blip from pinning payments off until restart.
  *
- * `definiteMismatchReason` is the exception, and it is narrow on purpose. A
- * CONFIRMED mismatch is a fact: Stripe answered and the account is wrong. Losing
+ * `definiteRefusal` is the exception, and it is narrow on purpose. A
+ * CONFIRMED mismatch (or, since #566, a confirmed database-partition refusal)
+ * is a fact: Stripe, or the database's own settings, answered. Losing
  * that inside the throttle window would report a definite wrong account as
  * "could not tell", which is the same conflation of definite and indefinite this
  * guard exists to end — just in the other direction. It is still not the
@@ -128,7 +127,12 @@ const inFlight = new Map<string, Promise<void>>();
  */
 interface AttemptRecord {
   at: number;
-  definiteMismatchReason?: string;
+  /**
+   * A definite refusal to replay within the window — a confirmed mismatch, or a
+   * confirmed database-partition refusal (#566). Replayed as its own class, so
+   * a definite answer is never reported as "could not tell".
+   */
+  definiteRefusal?: StripeVerificationError;
 }
 const lastAttempt = new Map<string, AttemptRecord>();
 
@@ -190,7 +194,7 @@ export async function readStripeLiveModeStrict(): Promise<boolean> {
 
 /** The account id this environment declares for a mode. */
 export function expectedAccountIdFor(liveMode: boolean): string | undefined {
-  return process.env[stripeAccountVarFor(liveMode)];
+  return stripeDriver().expectedAccountId(liveMode);
 }
 
 /**
@@ -198,7 +202,7 @@ export function expectedAccountIdFor(liveMode: boolean): string | undefined {
  * Production always uses the real implementation below.
  */
 let retrieveAccountId: (secretKey: string) => Promise<string> = async (secretKey) => {
-  const stripe = createRawStripeClient(secretKey);
+  const stripe = stripeDriver().createClient(secretKey);
   // No argument: GET /v1/account, which resolves to the account behind THIS
   // key. Never `getAccountId()` — see point 1 in the module header.
   const account = await stripe.accounts.retrieve();
@@ -225,6 +229,35 @@ export function __resetVerificationStateForTests(): void {
   strictModeReads = 0;
 }
 
+/** The partition check (#566, plan decision 12), recording its outcome as the mode's state. */
+async function requirePartitionRecorded(liveMode: boolean): Promise<void> {
+  try {
+    await requireStripeDatabasePartition(stripeDriver().kind, liveMode);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    const state = err instanceof StripeDatabasePartitionError ? "refused" : "pending";
+    setModeState(liveMode, { state, reason, lastAttemptAt: Date.now() });
+    throw err;
+  }
+}
+
+/**
+ * Boot and retry only: under the FAKE driver, settle which driver the database
+ * belongs to before credentials are resolved. The fake answers live mode with a
+ * credentials refusal, which boot and retry record as "unconfigured" — so a
+ * fake pointed at a real database storing live mode would otherwise listen
+ * without the partition ever being read (Codex, #671 round 2). The real
+ * driver is untouched: without credentials it never reads the partition, and
+ * with them `verifyStripeAccount` checks it as before. Rejects as the
+ * partition does: `StripeDatabasePartitionError` (definite) or
+ * `StripeUnverifiedError` (unreadable). The verdict is cached on success, so
+ * the check inside the attempt that follows makes no second read.
+ */
+export async function requireFakeStripeDatabaseOwnership(liveMode: boolean): Promise<void> {
+  if (stripeDriver().kind !== "fake") return;
+  await requirePartitionRecorded(liveMode);
+}
+
 /**
  * Verify that `secretKey` belongs to the account declared for `liveMode`.
  *
@@ -248,9 +281,10 @@ export async function verifyStripeAccount(params: {
     // Deterministic misconfiguration: credentials are present and the
     // environment never said which account they may touch. No Stripe call —
     // there is nothing a retrieval could tell us that changes this.
+    const names = stripeDriver().settingNames(liveMode);
     const reason =
-      `${stripeAccountVarFor(liveMode)} is not set, but ${stripeSecretVarFor(liveMode)} is. ` +
-      `Set ${stripeAccountVarFor(liveMode)} to the account id these credentials belong to.`;
+      `${names.account} is not set, but ${names.secret} is. ` +
+      `Set ${names.account} to the account id these credentials belong to.`;
     setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
     throw new StripeExpectedAccountMissingError(reason, liveMode);
   }
@@ -273,6 +307,20 @@ export async function verifyStripeAccount(params: {
 
   const attempt = (async () => {
     lastAttempt.set(key, { at: Date.now() });
+
+    // The database must belong to this driver before any Stripe call — the
+    // prerequisite every path into Stripe work passes through (#566, plan
+    // decision 12; see stripeDatabasePartition.ts). Inside the attempt, so the
+    // catalog read is single-flight and throttled like the retrieval below.
+    try {
+      await requirePartitionRecorded(liveMode);
+    } catch (err) {
+      if (err instanceof StripeDatabasePartitionError) {
+        lastAttempt.set(key, { at: Date.now(), definiteRefusal: err });
+      }
+      throw err;
+    }
+
     let actual: string;
     try {
       actual = await retrieveAccountId(secretKey);
@@ -290,13 +338,15 @@ export async function verifyStripeAccount(params: {
 
     if (actual !== expected) {
       // Definite. Stripe answered and the answer is wrong.
+      const names = stripeDriver().settingNames(liveMode);
       const reason =
-        `STRIPE ACCOUNT MISMATCH — ${stripeSecretVarFor(liveMode)} belongs to account ${actual}, ` +
-        `but ${stripeAccountVarFor(liveMode)} declares ${expected}. ` +
-        `Correct ${stripeSecretVarFor(liveMode)} (or ${stripeAccountVarFor(liveMode)} if the declaration is wrong).`;
+        `STRIPE ACCOUNT MISMATCH — ${names.secret} belongs to account ${actual}, ` +
+        `but ${names.account} declares ${expected}. ` +
+        `Correct ${names.secret} (or ${names.account} if the declaration is wrong).`;
       setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
-      lastAttempt.set(key, { at: Date.now(), definiteMismatchReason: reason });
-      throw new StripeAccountMismatchError(reason, liveMode);
+      const refusal = new StripeAccountMismatchError(reason, liveMode);
+      lastAttempt.set(key, { at: Date.now(), definiteRefusal: refusal });
+      throw refusal;
     }
 
     verified.add(key);
@@ -348,8 +398,10 @@ export function throttledRefusalFor(
   if (verified.has(key)) return null;
   const last = lastAttempt.get(key);
   if (last === undefined || Date.now() - last.at >= VERIFY_THROTTLE_MS) return null;
-  if (last.definiteMismatchReason !== undefined) {
-    return new StripeAccountMismatchError(last.definiteMismatchReason, liveMode);
+  if (last.definiteRefusal !== undefined) {
+    // Minted fresh, same class and message, so a caller never shares a thrown instance.
+    const Refusal = last.definiteRefusal.constructor as new (message: string, liveMode: boolean | null) => StripeVerificationError;
+    return new Refusal(last.definiteRefusal.message, liveMode);
   }
   return new StripeUnverifiedError(
     `Stripe account verification for ${modeName(liveMode)} mode was attempted less than ` +

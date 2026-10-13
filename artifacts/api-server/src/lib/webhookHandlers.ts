@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import type { StripeApi } from "./stripeApi.js";
 import { getStripeSync, getUncachableStripeClient } from "./stripeClient";
 import { db } from "@workspace/db";
 import {
@@ -244,7 +245,7 @@ async function planLabelForSubscription(subscriptionId: string): Promise<string 
  * instead of the dropped `lifetime_entitlements`.
  */
 async function resolveUserForCharge(
-  stripe: Stripe,
+  stripe: StripeApi,
   paymentIntentId: string | null,
   chargeId: string,
 ): Promise<{ user: Awaited<ReturnType<typeof findUserByStripeCustomerId>> } | null> {
@@ -300,7 +301,7 @@ async function resolveUserForCharge(
  * unrelated regression.
  */
 async function prepareDispute(
-  stripe: Stripe,
+  stripe: StripeApi,
   eventId: string,
   dispute: { id: string; amount?: number; currency?: string; livemode?: boolean },
   kind: "created" | "updated" | "closed",
@@ -362,7 +363,7 @@ async function prepareDispute(
  * which the old claim-then-process ordering could not have caused only because a
  * failure meant the event was never retried at all.
  */
-async function prepareDomainEvent(stripe: Stripe, event: Stripe.Event): Promise<PreparedDomainEvent> {
+async function prepareDomainEvent(stripe: StripeApi, event: Stripe.Event): Promise<PreparedDomainEvent> {
   const historyWrites: PreparedDomainEvent["historyWrites"] = [];
   const afterCommit: PreparedDomainEvent["afterCommit"] = [];
   let entitlement: Prepared = { kind: "noop", reason: "no_entitlement_effect" };
@@ -1091,7 +1092,7 @@ export class WebhookHandlers {
     // cancellation, refund or dispute is dropped permanently with no repair
     // path. A credential outage is transient by nature, which is exactly what
     // Stripe's retry schedule is for.
-    let stripe: Stripe | null = null;
+    let stripe: StripeApi | null = null;
     try {
       stripe = await getUncachableStripeClient();
     } catch (credErr) {
