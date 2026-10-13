@@ -95,9 +95,6 @@ const CREDENTIAL_SHAPES: Array<[string, RegExp]> = [
   ["an IPv6 address", /\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b/i],
 ];
 
-/** Strings the credential scan must not read as an IPv4 address: version stamps and the like. */
-const VERSION_LIKE = /^\d+\.\d+\.\d+\.\d+$/;
-
 function* strings(value: unknown): Generator<string> {
   if (typeof value === "string") yield value;
   else if (Array.isArray(value)) for (const v of value) yield* strings(v);
@@ -109,7 +106,6 @@ export function credentialHits(value: unknown): string[] {
   for (const s of strings(value)) {
     if (s.startsWith("data:image/")) continue; // the generated placeholder bytes
     for (const [label, re] of CREDENTIAL_SHAPES) {
-      if (label === "an IPv4 address" && VERSION_LIKE.test(s)) continue;
       if (re.test(s)) hits.add(label);
     }
   }

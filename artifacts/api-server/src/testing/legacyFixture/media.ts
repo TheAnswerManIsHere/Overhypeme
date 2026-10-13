@@ -143,6 +143,11 @@ export class MediaMap {
       return { path: this.stockDataUrl(), kind: "stock", ext: "jpg", acl: null, roles, ...size };
     }
 
+    // A third-party profile photo (an OAuth provider's avatar URL) is a picture of a person: replaced the same way.
+    if (/^https:\/\//i.test(p.source) && p.roles.every((r) => r.role === "profile-image")) {
+      return { path: this.stockDataUrl(), kind: "stock", ext: "jpg", acl: null, roles, ...size };
+    }
+
     const objectPath = objectPathOf(p.source);
     if (!objectPath) {
       throw new MediaPlacementError(`unplaceable media reference of shape ${referencePattern(p.source)} (${p.roles.map((r) => `${r.table}:${r.role}`).join(", ")})`);

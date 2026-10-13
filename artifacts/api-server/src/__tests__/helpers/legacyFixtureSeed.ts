@@ -57,7 +57,10 @@ await db.insert(t.usersTable).values([
     firstName: S.userFirstName, lastName: S.userLastName, passwordHash: S.passwordHash, pronouns: "she/her",
     stripeCustomerId: S.testCustomer, createdAt: new Date("2025-02-01T00:00:00Z"),
   },
-  { id: otherId, email: "zqx.other.person@gmail.com", displayName: "Zqxother Person", stripeCustomerId: S.liveCustomer, createdAt: new Date("2025-03-01T00:00:00Z") },
+  {
+    id: otherId, email: "zqx.other.person@gmail.com", displayName: "Zqxother Person", stripeCustomerId: S.liveCustomer,
+    googleLinked: true, profileImageUrl: S.googlePhoto, createdAt: new Date("2025-03-01T00:00:00Z"),
+  },
 ]);
 
 // ── Excluded classes: each holds a sentinel the export must never read ──
@@ -85,6 +88,8 @@ const enrichment: FactEnrichment = {
     bubbles: [{ type: "speech", entity: "subject", text: S.bubbleText }],
     updatedBy: S.adminEmail,
     updatedAt: "2026-01-01T00:00:00Z",
+    // The retired enable toggle older blobs still carry (seen on dev, 2026-10-13).
+    ...({ enabled: true } as object),
   },
 };
 // A partial state the emptiness rule must keep: a blank core scene and a half-filled bubble (Astra round 2).
@@ -200,6 +205,8 @@ const [userAttempt] = await db.insert(t.imagePromptAttemptsTable).values({
     promptBreakdown: [{ id: "core_scene", label: "Core scene", priority: "required", status: "included", text: S.breakdownText, rawText: S.breakdownText }],
   },
   error: S.vendorError,
+  // A plan carrying a key newer than the wire schema (seen on dev, 2026-10-13).
+  visualPlan: { sceneConcept: S.compiledText, styleIntegration: { note: S.compiledText, weight: 2 } },
 }).returning({ id: t.imagePromptAttemptsTable.id });
 const newerPath = `/objects/ai-bg-v2/${activeFact!.id}/${userAttempt!.id}-1767000000000.png`;
 await db.update(t.imagePromptAttemptsTable).set({ generatedImageObjectPath: newerPath }).where(sql`id = ${userAttempt!.id}`);
@@ -271,14 +278,14 @@ await db.execute(sql.raw(`
   INSERT INTO stripe.invoices VALUES ('${S.testInvoice}', false), ('${S.liveInvoice}', true);
 `));
 const ent = (providerRef: string, user: string, stateAsOf: number) => ({
-  userId: user, sourceType: "stripe_subscription", providerRef, lifecycleStatus: "active", isMembershipProduct: true,
+  userId: user, sourceType: "stripe_subscription" as const, providerRef, lifecycleStatus: "active", isMembershipProduct: true,
   plan: "price_zqxmonthly", sourceStateAsOf: stateAsOf,
 });
 await db.insert(t.membershipEntitlementsTable).values([
   ent(S.testSubscription, userId, 41),
   ent(S.liveSubscription, otherId, 42),
   ent(S.unsyncedSubscription, adminId, 43),
-  { userId: otherId, sourceType: "admin_grant", lifecycleStatus: "active", grantedByAdminId: adminId, grantedByAdminLabel: S.adminDisplayName, grantReason: S.grantReason, sourceStateAsOf: 44 },
+  { userId: otherId, sourceType: "admin_grant" as const, lifecycleStatus: "active", grantedByAdminId: adminId, grantedByAdminLabel: S.adminDisplayName, grantReason: S.grantReason, sourceStateAsOf: 44 },
 ]);
 await db.insert(t.membershipHistoryTable).values([
   { userId, event: "invoice_paid", stripeSubscriptionId: S.testSubscription, stripeInvoiceId: S.testInvoice, amount: 500 },

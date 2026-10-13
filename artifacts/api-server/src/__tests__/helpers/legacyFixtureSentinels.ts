@@ -68,6 +68,7 @@ export const SENTINELS = {
   testInvoice: "in_zqxtest000001",
   liveInvoice: "in_zqxlive000002",
   stripeKey: "sk_live_zqxABCDEFGH12345678",
+  googlePhoto: "https://lh3.googleusercontent.com/a/zqxPhotoOfARealPerson=s96-c",
 } as const;
 
 /** The live text of the one active fact: public by David's option 1, and kept verbatim. */

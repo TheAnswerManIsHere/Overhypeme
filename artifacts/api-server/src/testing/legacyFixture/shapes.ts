@@ -94,6 +94,8 @@ export const FACT_ENRICHMENT_RULES: PathRules = {
   visualPromptPreview: "prose-deep",
   previewStatus: "keep",
   [`${VSO}.updatedBy`]: "admin-label", // a display name or email (enrichmentOverrideLayers.ts:64-75)
+  // The retired enable toggle older blobs still carry: "the enable toggle was retired" (moderationStaging.ts:233-235).
+  [`${VSO}.enabled`]: "keep",
   [`${VSO}.updatedAt`]: "keep",
   [`${VSO}.roleBindings[*].entity`]: "subject-or-prose", // "subject" is the canonical binding (visualStrategyOverride.ts:342-359)
   [`${VSO}.bubbles[*].entity`]: "subject-or-prose",
@@ -361,6 +363,8 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
   }),
   visualPlan: plain(imagePromptPlanWireSchema.shape.visualPlan, {
     "archetypeApplication.subtype": "keep",
+    // A planner key stored by plans newer than the wire schema (seen on dev, 2026-10-13): every string becomes prose.
+    styleIntegration: "prose-deep",
   }),
   compiledPrompt: plain(compiledPromptProjection, {
     referenceImageUrl: { media: "render-reference" },
