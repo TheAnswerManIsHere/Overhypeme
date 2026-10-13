@@ -587,6 +587,7 @@ database gets from `lib/engines/openai-general.ts`.
 **Topping up** — when only some requests are new (a run that stopped
 part-way, or one new call) — copies the committed recordings into an
 otherwise empty `--out` and adds `--resume`: requests already held are
-answered from disk at no cost, the run pays only for the rest and reports
-how many it reused. Use it only when the vendor clients have not changed
+answered from disk at no cost (the two failure controls included, when
+the directory already holds their expected rejections), the run pays only
+for the rest and reports how many it reused. Use it only when the vendor clients have not changed
 since those recordings were taken; after a client upgrade, record afresh.

@@ -360,6 +360,22 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
 }
 
 /**
+ * Whether the corpus already holds this exact failure-control request's
+ * rejection with the status the probe exists to capture. A `--resume` run then
+ * reuses it rather than sending the invalid request again. Only the controls
+ * are reused this way: an ordinary call's recorded error (a throttle, a server
+ * error) is never answered from disk, so it stays retryable (#654 round 3).
+ */
+export function controlAlreadyCaptured(kind: RecordingKind, target: string, request: unknown, expectedStatus: number): boolean {
+  try {
+    return findRecording(kind, target, substituteUrls(request)).error?.status === expectedStatus;
+  } catch (err) {
+    if (err instanceof NoRecordingError) return false;
+    throw err;
+  }
+}
+
+/**
  * Whether a deliberately invalid request left the vendor's own rejection of it
  * recorded: the error it threw carries exactly the status the probe expects
  * (the validation rejection it was designed to capture), and an error

@@ -26,6 +26,7 @@ import {
   recordingFal,
   recordingOpenAI,
   vendorRejectionCaptured,
+  controlAlreadyCaptured,
 } from "../lib/aiDouble/recorder.js";
 import { allRecordings } from "../lib/aiDouble/recordings.js";
 
@@ -292,6 +293,16 @@ describe("AI doubles and recorder", () => {
       const rec = recordingOpenAI(vendor as any, new Allowance(1), CTX);
       const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
       assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err, 400), false);
+    });
+
+    it("lets a resume reuse a failure control already captured with its expected status, and nothing else", async () => {
+      const rec = recordingOpenAI(fakeOpenAIVendor() as any, new Allowance(1), CTX);
+      await rec.chat.completions.create(INVALID as any).catch(() => {});
+      assert.equal(controlAlreadyCaptured("openai.chat", "gpt-5.4-mini", INVALID, 400), true);
+      assert.equal(controlAlreadyCaptured("openai.chat", "gpt-5.4-mini", INVALID, 429), false, "a different status is not the control");
+      assert.equal(controlAlreadyCaptured("openai.chat", "gpt-5.4-mini", CHAT, 400), false, "a different request is not the control");
+      await rec.chat.completions.create(CHAT as any);
+      assert.equal(controlAlreadyCaptured("openai.chat", "gpt-5.4-mini", CHAT, 400), false, "a recorded success is not a control");
     });
 
     it("does not count a vendor accepting the invalid request", async () => {

@@ -29,6 +29,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { renderCoverageProblems, settledBaselineRenders } from "../src/testing/aiBaselineCoverage";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -229,11 +231,14 @@ export async function driveBaseline(
     "3",
     "required review renders",
     () => admin.json<any>("3", "GET", `/api/admin/reviews/${reviewId}/render-scenarios`),
-    (r) => (r.cards as any[]).filter((c) => c.required).every((c) => ["done", "failed", "blocked"].includes(c.status)),
-    () => null,
+    (r) => settledBaselineRenders(r.cards as any[]) !== null,
+    // A grid that has cards but lacks an expected scenario will not grow one; an empty grid may still be building.
+    (r) => ((r.cards as any[]).length > 0 ? renderCoverageProblems(r.cards as any[]).join(", ") || null : null),
     20 * 60_000,
   );
-  const required = (renders.cards as any[]).filter((c) => c.required);
+  const coverage = renderCoverageProblems(renders.cards as any[]);
+  if (coverage.length > 0) throw new JourneyError("3", "the baseline's review renders", coverage.join(", "));
+  const required = settledBaselineRenders(renders.cards as any[])!;
   if (options.expectRenderFailure) {
     const t2i = required.find((c) => c.key === "generic_t2i");
     if (t2i?.status !== "failed") throw new JourneyError("3", "recorded render failure", `generic_t2i is ${t2i?.status}, expected failed`);

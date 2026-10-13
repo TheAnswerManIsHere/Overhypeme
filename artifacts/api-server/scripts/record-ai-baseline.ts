@@ -149,7 +149,8 @@ async function recordVendorErrors(ledger: string, limit: string, fal: string, op
   process.env.AI_RECORDINGS_DIR = out;
   const { fal: vendorFal } = await import("@fal-ai/client");
   const OpenAI = (await import("openai")).default;
-  const { Allowance, recordingFal, recordingOpenAI, vendorRejectionCaptured } = await import("../src/lib/aiDouble/recorder");
+  const { Allowance, recordingFal, recordingOpenAI, vendorRejectionCaptured, controlAlreadyCaptured } = await import("../src/lib/aiDouble/recorder");
+  const { falSubscribeRequest } = await import("../src/lib/aiDouble/doubles");
   const { falUnitPrice } = await import("../src/lib/falClient");
   const shared = new Allowance(Number(limit), ledger);
   const ctx = { clients: { "@fal-ai/client": "see recordings", openai: "see recordings" } };
@@ -160,18 +161,26 @@ async function recordVendorErrors(ledger: string, limit: string, fal: string, op
   const oaRec = recordingOpenAI(new OpenAI({ apiKey: openai, maxRetries: 0 }), shared, ctx);
   // Each probe names the status of the validation rejection it exists to capture (the
   // committed recordings hold fal's 422 and OpenAI's 400); any other failure is not it.
-  const probes: Array<{ vendor: string; kind: "fal.subscribe" | "openai.chat"; target: string; status: number; send: () => Promise<unknown> }> = [
-    { vendor: "fal", kind: "fal.subscribe", target: "fal-ai/nano-banana-2", status: 422, send: () => falRec.subscribe("fal-ai/nano-banana-2", { input: { prompt: "" } }) },
+  const falInvalid = { input: { prompt: "" } };
+  const openaiInvalid = { model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 };
+  const probes: Array<{ vendor: string; kind: "fal.subscribe" | "openai.chat"; target: string; status: number; request: unknown; send: () => Promise<unknown> }> = [
     {
-      vendor: "OpenAI",
-      kind: "openai.chat",
-      target: "gpt-5.4-mini",
-      status: 400,
-      send: () => oaRec.chat.completions.create({ model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 }),
+      vendor: "fal",
+      kind: "fal.subscribe",
+      target: "fal-ai/nano-banana-2",
+      status: 422,
+      request: falSubscribeRequest("fal-ai/nano-banana-2", falInvalid),
+      send: () => falRec.subscribe("fal-ai/nano-banana-2", falInvalid),
     },
+    { vendor: "OpenAI", kind: "openai.chat", target: "gpt-5.4-mini", status: 400, request: openaiInvalid, send: () => oaRec.chat.completions.create(openaiInvalid as never) },
   ];
   const missing: string[] = [];
   for (const probe of probes) {
+    if (resume && controlAlreadyCaptured(probe.kind, probe.target, probe.request, probe.status)) {
+      shared.noteReused();
+      console.log(`[ai-baseline] ${probe.vendor} error already recorded (${probe.status}); reused, not sent again`);
+      continue;
+    }
     try {
       await probe.send();
       missing.push(`${probe.vendor} accepted the invalid request`);
