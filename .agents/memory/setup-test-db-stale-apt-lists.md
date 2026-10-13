@@ -1,6 +1,6 @@
 ---
 name: The session-start test DB setup can fail silently on stale apt lists
-description: In a fresh cloud container, scripts/setup-test-db.sh (the .claude/settings.json SessionStart hook) died at "Unable to locate package postgresql-16-pgvector" because the image's apt lists were stale — so no Postgres was running, and every DB-backed test refused with ECONNREFUSED at the marker check. `apt-get update` then rerunning the script fixed it.
+description: Before #670, in a fresh cloud container, scripts/setup-test-db.sh (the .claude/settings.json SessionStart hook) died at "Unable to locate package postgresql-16-pgvector" because the image's apt lists were stale — so no Postgres was running, and every DB-backed test refused with ECONNREFUSED at the marker check. `apt-get update` then rerunning the script fixed it.
 ---
 
 ## Symptom
@@ -27,8 +27,9 @@ before the cluster is started. (Measured 2026-10-13, #566's session.)
 The script is idempotent; the second run creates the role and database, pushes
 the schema, applies migrations and marks the database.
 
-## Not yet done
+## Fixed upstream
 
-The script itself still lacks the `apt-get update`. Adding it is a one-line
-change to a session hook — raised to David as an FYI on #566 rather than widened
-into that PR.
+`scripts/setup-test-db.sh` now runs `apt-get update` first on the path where the
+package is missing (#670, 2026-10-13). The note stays for the symptom: a
+session whose hook still fails for another reason shows the same ECONNREFUSED,
+and the marker guard is not the cause.
