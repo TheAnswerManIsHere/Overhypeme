@@ -765,6 +765,12 @@ handbook work a launch phase needs and a second app would need identically;
 > follow-ups, toolchain deprecations, code-level tech debt — lives in
 > [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md).
 
+> **Launch classing (2026-10-13, launch plan v6):** every item below is
+> post-launch, named in the plan's *Cut, deleted or deferred* and *Out of
+> scope* sections, except data export, which is launch Phase 21 (Full
+> Global). The speech-bubble moderation-side finish is Phase 7; the
+> follow-ups listed here are what remains after it.
+
 - **Speech/thought bubble follow-ups.** The runtime image-prompt planner
   proposing bubbles (only the candidate Visual-concept generator does today);
   end-user wizard exposure (moderator-only for now); `thinking_level: high`
@@ -805,8 +811,9 @@ handbook work a launch phase needs and a second app would need identically;
   routes would then act on only one of them while the other keeps billing,
   out of reach of the UI. Surfaced as a UAT hazard on PR #600 and left
   unfiled as a defect, because whether a double subscription should be
-  refused or deliberately allowed is David's call. **Needs David
-  confirmation.**
+  refused or deliberately allowed is David's call. **Placed in launch
+  Phase 10 on my recommendation (David delegated, 2026-10-13): refuse, and
+  send the member to the billing portal.** He can reverse it there.
 - ~~Should any render scenario become a **hard** approval gate (today all waivable)?~~
   Answered 2026-10-06: approved hero images are a hard gate; other scenarios
   stay waivable. See [`decisions.md`](./decisions.md).
