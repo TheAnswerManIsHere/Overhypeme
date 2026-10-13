@@ -113,7 +113,14 @@ async function poll<T>(journey: string, what: string, read: () => Promise<T>, do
 
 export interface BaselineEvidence {
   journey3: { reviewId: number; factId: number; renderCards: Array<{ key: string; status: string }> };
-  journey6: { renderJobId: string; generatedImageObjectPath: string; memeSlug: string; ownerImageBytes: number; otherUserStatus: number };
+  journey6: {
+    renderJobId: string;
+    generatedImageObjectPath: string;
+    memeSlug: string;
+    ownerImageBytes: number;
+    otherUserPermalinkStatus: number;
+    otherUserImageStatus: number;
+  };
   journey7: { objectPath: string; ownerStatus: number; otherUserStatus: number };
   journey4: { memeSlug: string; anonymousStatus: number };
 }
@@ -275,9 +282,16 @@ export async function driveBaseline(
   const ownerImage = await paid.request("GET", `/api/memes/${memeSlug}/image`);
   if (ownerImage.status !== 200) throw new JourneyError("6", "owner reads the private meme image", String(ownerImage.status));
   const ownerImageBytes = (await ownerImage.arrayBuffer()).byteLength;
-  const otherUserStatus = (await free.request("GET", `/api/memes/${memeSlug}`)).status;
-  if (otherUserStatus !== 404) throw new JourneyError("6", "another user reads the private meme", `expected 404, got ${otherUserStatus}`);
-  log(`journey 6: private meme ${memeSlug} saved, owner reads it, another user gets 404`);
+  // The permalink and the image are separate routes; another user is refused both.
+  const otherUserPermalinkStatus = (await free.request("GET", `/api/memes/${memeSlug}`)).status;
+  if (otherUserPermalinkStatus !== 404) {
+    throw new JourneyError("6", "another user reads the private meme's permalink", `expected 404, got ${otherUserPermalinkStatus}`);
+  }
+  const otherUserImageStatus = (await free.request("GET", `/api/memes/${memeSlug}/image`)).status;
+  if (otherUserImageStatus !== 404) {
+    throw new JourneyError("6", "another user reads the private meme's image", `expected 404, got ${otherUserImageStatus}`);
+  }
+  log(`journey 6: private meme ${memeSlug} saved, owner reads permalink and image, another user gets 404 on both`);
 
   // --- journey 7: photo upload ---------------------------------------------
   const upload = await free.request("POST", "/api/storage/upload-meme", fixture("photo.jpg"), "image/jpeg");
@@ -310,7 +324,7 @@ export async function driveBaseline(
 
   return {
     journey3: { reviewId, factId, renderCards: required.map((c) => ({ key: c.key, status: c.status })) },
-    journey6: { renderJobId, generatedImageObjectPath, memeSlug, ownerImageBytes, otherUserStatus },
+    journey6: { renderJobId, generatedImageObjectPath, memeSlug, ownerImageBytes, otherUserPermalinkStatus, otherUserImageStatus },
     journey7: { objectPath, ownerStatus, otherUserStatus: otherStatus },
     journey4: { memeSlug: photoMeme.permalinkSlug, anonymousStatus },
   };

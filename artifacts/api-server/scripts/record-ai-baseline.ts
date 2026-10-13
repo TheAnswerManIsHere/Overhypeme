@@ -133,31 +133,42 @@ async function waitForPort(p: number, timeoutMs: number): Promise<void> {
  * D5): a request the vendor rejects as invalid. Drawn from the same allowance
  * as the run, through the same recorder.
  */
-async function recordVendorErrors(ledger: string, limit: string, fal: string, openai: string): Promise<void> {
+async function recordVendorErrors(ledger: string, limit: string, fal: string, openai: string): Promise<string[]> {
   process.env.AI_RECORDINGS_DIR = out;
   const { fal: vendorFal } = await import("@fal-ai/client");
   const OpenAI = (await import("openai")).default;
-  const { Allowance, recordingFal, recordingOpenAI } = await import("../src/lib/aiDouble/recorder");
+  const { Allowance, recordingFal, recordingOpenAI, vendorRejectionCaptured } = await import("../src/lib/aiDouble/recorder");
   const { falUnitPrice } = await import("../src/lib/falClient");
   const shared = new Allowance(Number(limit), ledger);
   const ctx = { clients: { "@fal-ai/client": "see recordings", openai: "see recordings" } };
   const firstRecording = fs.readdirSync(out).find((f) => f.endsWith(".json"));
   if (firstRecording) ctx.clients = JSON.parse(fs.readFileSync(path.join(out, firstRecording), "utf8")).clients;
   vendorFal.config({ credentials: fal });
-  const falRec = recordingFal(vendorFal as never, shared, ctx, (e) => falUnitPrice(e, ctx));
-  try {
-    await falRec.subscribe("fal-ai/nano-banana-2", { input: { prompt: "" } });
-    console.error("[ai-baseline] fal accepted an empty prompt; no error recorded for fal");
-  } catch (err) {
-    console.log(`[ai-baseline] recorded fal error: ${(err as Error).name} ${(err as { status?: number }).status ?? ""}`);
-  }
+  const falRec = recordingFal(vendorFal as never, shared, ctx, falUnitPrice);
   const oaRec = recordingOpenAI(new OpenAI({ apiKey: openai, maxRetries: 0 }), shared, ctx);
-  try {
-    await oaRec.chat.completions.create({ model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 });
-    console.error("[ai-baseline] OpenAI accepted an empty message list; no error recorded for OpenAI");
-  } catch (err) {
-    console.log(`[ai-baseline] recorded OpenAI error: ${(err as Error).name} ${(err as { status?: number }).status ?? ""}`);
+  const probes: Array<{ vendor: string; kind: "fal.subscribe" | "openai.chat"; target: string; send: () => Promise<unknown> }> = [
+    { vendor: "fal", kind: "fal.subscribe", target: "fal-ai/nano-banana-2", send: () => falRec.subscribe("fal-ai/nano-banana-2", { input: { prompt: "" } }) },
+    {
+      vendor: "OpenAI",
+      kind: "openai.chat",
+      target: "gpt-5.4-mini",
+      send: () => oaRec.chat.completions.create({ model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 }),
+    },
+  ];
+  const missing: string[] = [];
+  for (const probe of probes) {
+    try {
+      await probe.send();
+      missing.push(`${probe.vendor} accepted the invalid request`);
+    } catch (err) {
+      if (vendorRejectionCaptured(probe.kind, probe.target, err)) {
+        console.log(`[ai-baseline] recorded ${probe.vendor} error: ${(err as Error).name} ${(err as { status?: number }).status}`);
+      } else {
+        missing.push(`${probe.vendor}: no vendor rejection was recorded (${(err as Error).name}: ${(err as Error).message.slice(0, 160)})`);
+      }
+    }
   }
+  return missing;
 }
 
 let exitCode = 0;
@@ -230,7 +241,11 @@ try {
   }
 
   if (mode === "record" && exitCode === 0) {
-    await recordVendorErrors(serverEnv.AI_RECORDER_LEDGER!, allowance, falKey, openaiKey);
+    const missing = await recordVendorErrors(serverEnv.AI_RECORDER_LEDGER!, allowance, falKey, openaiKey);
+    if (missing.length > 0) {
+      exitCode = 1;
+      console.error(`[ai-baseline] record: the failure control is incomplete:\n${missing.map((m) => `  - ${m}`).join("\n")}`);
+    }
   }
 
   if (mode === "record") {

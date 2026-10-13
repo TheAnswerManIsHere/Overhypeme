@@ -568,4 +568,7 @@ cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
   pnpm exec tsx scripts/record-ai-baseline.ts --mode record --allowance <usd> --out /tmp/ai-recordings
 ```
 
-Review the new recordings, then copy them into `lib/aiDouble/recordings/`.
+Review the new recordings, then **replace** `lib/aiDouble/recordings/` with
+them rather than adding to it, so no recording taken against an older client
+survives the re-recording. The run exits non-zero if it could not record each
+vendor's own rejection for the failure control.

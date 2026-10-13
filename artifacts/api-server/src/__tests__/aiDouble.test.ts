@@ -19,7 +19,15 @@ import { aiBackend, getEmbeddingsClient, getOpenAIClient } from "../lib/aiClient
 import { ensureFalConfigured, fal, FAL_DOUBLE_SENTINEL, getFalApiKey } from "../lib/falClient.js";
 import { doubleCalls, falDouble, falUploadUrl, type FalLike } from "../lib/aiDouble/doubles.js";
 import { NoRecordingError, resetRecordingCache } from "../lib/aiDouble/recordings.js";
-import { Allowance, FAL_SUBMISSION_ATTEMPTS, RecorderBudgetError, recordingFal, recordingOpenAI } from "../lib/aiDouble/recorder.js";
+import {
+  Allowance,
+  FAL_SUBMISSION_ATTEMPTS,
+  RecorderBudgetError,
+  recordingFal,
+  recordingOpenAI,
+  vendorRejectionCaptured,
+} from "../lib/aiDouble/recorder.js";
+import { allRecordings } from "../lib/aiDouble/recordings.js";
 
 const CTX = { clients: { "@fal-ai/client": "1.9.5", openai: "6.33.0" } };
 // The suite runs every file in one process (--test-isolation=none), where a
@@ -216,6 +224,42 @@ describe("AI doubles and recorder", () => {
       assert.equal(doubleCalls.length, 1);
       delete process.env.AI_BACKEND;
       assert.equal(getFalApiKey(), null, "back on the vendor path, the key gate applies again");
+    });
+  });
+
+  describe("the recording run's failure control", () => {
+    const INVALID = { ...CHAT, messages: [{ role: "user", content: "please fail" }] };
+
+    it("counts a vendor's own 4xx rejection as captured, with its recording on disk", async () => {
+      const rec = recordingOpenAI(fakeOpenAIVendor() as any, new Allowance(1), CTX);
+      const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err), true);
+    });
+
+    it("does not count a budget refusal: nothing reached the vendor and nothing was recorded", async () => {
+      const allowance = new Allowance(1);
+      allowance.reserve("openai.chat", "gpt-5.5", 0.9999);
+      const rec = recordingOpenAI(fakeOpenAIVendor() as any, allowance, CTX);
+      const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
+      assert.ok(err instanceof RecorderBudgetError);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err), false);
+    });
+
+    it("does not record or count a transport failure, which carries no vendor status", async () => {
+      const vendor = fakeOpenAIVendor();
+      vendor.chat.completions.create = async () => {
+        throw Object.assign(new Error("socket hang up"), { name: "APIConnectionError" });
+      };
+      const rec = recordingOpenAI(vendor as any, new Allowance(1), CTX);
+      const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err), false);
+      assert.equal(allRecordings().length, 0, "a transport failure is never written as a recording");
+    });
+
+    it("does not count a vendor accepting the invalid request", async () => {
+      const rec = recordingOpenAI(fakeOpenAIVendor() as any, new Allowance(1), CTX);
+      const ok = await rec.chat.completions.create(CHAT as any);
+      assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", ok), false);
     });
   });
 

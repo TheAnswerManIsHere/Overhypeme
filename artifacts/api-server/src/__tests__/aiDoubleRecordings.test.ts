@@ -48,12 +48,17 @@ describe("committed AI recordings", () => {
     }
   });
 
-  it("include one recorded error per vendor, for the failure control", () => {
+  it("include one recorded vendor rejection per vendor, for the failure control", () => {
     const errors = files
       .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as Recording)
-      .filter((r) => r.error)
-      .map((r) => r.kind.split(".")[0]);
-    assert.ok(errors.includes("fal"));
-    assert.ok(errors.includes("openai"));
+      .filter((r) => r.error);
+    for (const r of errors) {
+      // A vendor's own rejection: a 4xx status and an SDK error class the double can rebuild.
+      assert.ok(r.error!.status >= 400 && r.error!.status < 500, `${r.kind} ${r.target}: status ${r.error!.status}`);
+      assert.ok(["ApiError", "ValidationError", "APIError"].includes(r.error!.name), `${r.kind} ${r.target}: ${r.error!.name}`);
+    }
+    const vendors = errors.map((r) => r.kind.split(".")[0]);
+    assert.ok(vendors.includes("fal"));
+    assert.ok(vendors.includes("openai"));
   });
 });

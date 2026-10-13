@@ -28,7 +28,7 @@ import path from "node:path";
 import sharp from "sharp";
 
 import { fingerprint, normaliseRequest } from "./fingerprint";
-import { findRecording, NoRecordingError, recordingFileName, recordingsDir, resetRecordingCache, type Recording, type RecordingKind } from "./recordings";
+import { allRecordings, findRecording, NoRecordingError, recordingFileName, recordingsDir, resetRecordingCache, type Recording, type RecordingKind } from "./recordings";
 import { falSubscribeRequest, falUploadRequest, falUploadUrl, type FalLike } from "./doubles";
 
 // ---------------------------------------------------------------------------
@@ -165,7 +165,17 @@ export interface RecorderContext {
   clients: Record<string, string>;
 }
 
+/** The HTTP status of a vendor's own rejection (4xx/5xx), or null for anything else: a budget refusal, a transport failure. */
+function vendorStatus(err: unknown): number | null {
+  const status = Number((err as { status?: unknown })?.status);
+  return Number.isInteger(status) && status >= 400 && status < 600 ? status : null;
+}
+
 function write(kind: RecordingKind, target: string, request: unknown, outcome: { response?: unknown; error?: any }, ctx: RecorderContext): void {
+  // Only a vendor's own answer is a recording. A failure with no vendor status
+  // (the network, a timeout) is not, and replaying it would raise the wrong
+  // error class, so it is never written.
+  if (outcome.error && vendorStatus(outcome.error) === null) return;
   const req = substituteUrls(request);
   const print = fingerprint(kind, req);
   const rec: Recording = {
@@ -181,7 +191,7 @@ function write(kind: RecordingKind, target: string, request: unknown, outcome: {
     rec.error = {
       name: e?.name === "ValidationError" || e?.name === "ApiError" ? e.name : "APIError",
       message: String(e?.message ?? e),
-      status: Number(e?.status ?? 0),
+      status: vendorStatus(e)!,
       body: e?.body ?? e?.error ?? null,
     };
   } else {
@@ -321,4 +331,18 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
       },
     },
   } as unknown as T;
+}
+
+/**
+ * Whether a deliberately invalid request left the vendor's own rejection
+ * recorded: the error it threw carries a 4xx status, and an error recording
+ * for that kind and target with the same status is now on disk. A budget
+ * refusal, a transport failure or a vendor accepting the request is not a
+ * captured failure control, and the recording run must say so (#654 round 1).
+ */
+export function vendorRejectionCaptured(kind: RecordingKind, target: string, err: unknown): boolean {
+  const status = vendorStatus(err);
+  if (status === null || status >= 500) return false;
+  resetRecordingCache();
+  return allRecordings().some((r) => r.kind === kind && r.target === target && r.error?.status === status);
 }

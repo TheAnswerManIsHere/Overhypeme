@@ -232,7 +232,7 @@ does nothing unless the double is selected.
   PNG survives decoding, storage and serving; and one recorded provider error
   travels through a real consumer (the Nano Banana job) to its expected job
   state. This is also the second run that names the normaliser's fields (D4).
-- Journey 6 (`e2e/aiImageMeme.spec.ts`), acceptance-only like journey 7; its
+- Journey 6 is the API-level baseline driver (`scripts/drive-ai-baseline.ts`), run under replay; a Playwright spec was not written, since the driver's fixed inputs are what make the recordings match (decision recorded on #654). Its spend clause is a Deferred line naming #651 (David, 2026-10-12: "next").
   spend clause is a Deferred line naming #651 (David, 2026-10-12: "next").
 - The storage selector's `requires` refuses `STORAGE_DOUBLE_DIR=/`.
 
