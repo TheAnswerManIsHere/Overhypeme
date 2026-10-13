@@ -116,7 +116,7 @@ export function syntheticAnalysisForReference(identityType: ReferenceIdentityTyp
 
 // ─── Pure input hash (no network) — shared by enqueue, idempotency, staleness ─
 
-function computeScenarioInputHash(
+export function computeScenarioInputHash(
   scenarioKey: RenderScenarioKey,
   stagingFactId: number,
   factText: string,
@@ -309,7 +309,7 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
 
 // ─── Load review + staging fact + enrichment ─────────────────────────────────
 
-interface ReviewRenderContext {
+export interface ReviewRenderContext {
   reviewId: number;
   stagingFactId: number;
   factText: string;
@@ -324,7 +324,7 @@ interface ReviewRenderContext {
  * own `facts.enrichment`. Either way the stored blob IS what the moderator is
  * reviewing, so grid/staleness computed here can't drift from the render.
  */
-async function loadReviewRenderContext(
+export async function loadReviewRenderContext(
   reviewId: number,
 ): Promise<
   | { ok: true; ctx: ReviewRenderContext }
