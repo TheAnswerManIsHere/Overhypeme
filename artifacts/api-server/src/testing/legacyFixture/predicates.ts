@@ -21,8 +21,8 @@
  * differs fails the load. Running the restoration where it can be measured
  * exactly is why it lives in the loader rather than the exporter.
  */
-import { and, eq, isNotNull } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { db, pool } from "@workspace/db";
 import { factEnrichmentVersionsTable, factsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 
 import { hashFactText } from "../../lib/enrichmentVersioning";
@@ -52,6 +52,43 @@ function renderHasher(): (reviewId: number, scenarioKey: string) => Promise<{ ok
     if (!loaded.ok) return { ok: false, reason: loaded.reason };
     return { ok: true, hash: computeScenarioInputHash(scenarioKey as RenderScenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment) };
   };
+}
+
+/**
+ * Evaluate the predicates against an exported snapshot (the export's own, plan D6; Codex round 1). The app
+ * pool must hold exactly one connection (the export CLI sets DB_POOL_MAX=1 before the app loads): that
+ * connection is put in a REPEATABLE READ READ ONLY transaction importing the snapshot, so every product
+ * reader going through `db` sees it. Fails closed: a pool that is not single, a snapshot that will not
+ * import, or a transaction that changed under the pass (a recycled connection) stops rather than records.
+ */
+export async function evaluatePredicatesInSnapshot(snapshotId: string, during?: () => Promise<void>): Promise<PredicateRecord> {
+  const max = (pool as unknown as { options: { max?: number } }).options.max;
+  if (max !== 1) throw new Error(`[legacy-fixture] the app pool holds ${max} connections; the snapshot binding needs exactly 1 (DB_POOL_MAX=1)`);
+  const client = await pool.connect();
+  let bound: string;
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    await client.query(`SET TRANSACTION SNAPSHOT '${snapshotId.replace(/'/g, "''")}'`);
+    bound = (await client.query<{ t: string }>("SELECT now()::text AS t")).rows[0]!.t;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    client.release();
+    throw new Error(`[legacy-fixture] the export's snapshot could not be bound: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  client.release();
+  try {
+    if (during) await during();
+    const record = await evaluatePredicates();
+    const after = (await db.execute(sql`SELECT now()::text AS t, current_setting('transaction_isolation') AS iso`)).rows[0] as { t: string; iso: string };
+    if (after.t !== bound || after.iso !== "repeatable read") {
+      throw new Error("[legacy-fixture] the predicate pass left the export's snapshot (the pooled connection was recycled); re-run the export");
+    }
+    return record;
+  } finally {
+    const c = await pool.connect();
+    await c.query("ROLLBACK").catch(() => undefined);
+    c.release();
+  }
 }
 
 /** Evaluate every predicate against the database the app's `db` points at. */

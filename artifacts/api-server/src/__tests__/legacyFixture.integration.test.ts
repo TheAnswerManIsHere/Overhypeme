@@ -173,8 +173,13 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- assertions walk the rows' JSON freely
     const rows = (t: string) => readRows(out, t) as Array<Record<string, any>>;
     const facts = rows("facts");
-    const active = facts.find((f) => f.is_active === true)!;
-    const pending = facts.find((f) => f.is_active === false)!;
+    const active = facts.find((f) => f.id === seeded.activeFactId)!;
+    const pending = facts.find((f) => f.id === seeded.pendingFactId)!;
+    // Plan D4: only an active fact, and a review of its own fact, keep the live text (Codex round 1).
+    const duplicateFact = facts.find((f) => f.id === seeded.duplicateFactId)!;
+    assert.notEqual(duplicateFact.text, KEPT_FACT_TEXT, "an inactive duplicate of the live text gets a placeholder");
+    const duplicateReview = rows("pending_reviews").find((r) => r.id === seeded.duplicateReviewId)!;
+    assert.notEqual(duplicateReview.submitted_text, KEPT_FACT_TEXT, "a review not of its own live fact gets a placeholder");
     assert.equal(active.text, KEPT_FACT_TEXT, "the live text of an active fact is kept");
     assert.match(pending.text, /\(case [0-9a-f]{6}\)\.$/, "a pending fact's text is a placeholder");
     assert.equal(pending.enrichment.visualPromptStrategyOverride.coreSceneOverride, "", "a blank core scene stays blank");
@@ -188,6 +193,24 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     const reviews = rows("pending_reviews");
     assert.ok(reviews.some((r) => r.submitted_text === KEPT_FACT_TEXT), "the refresh of the live fact keeps the live text");
     assert.ok(!reviews.some((r) => r.status === "approved" && r.submitted_text === KEPT_FACT_TEXT), "an older approved wording is not the live text");
+  });
+
+  it("the snapshot: a change after the row read does not reach the recorded predicates, and a recycled connection stops the export", () => {
+    const source = createDatabase(`lf_snp_${tag}`);
+    const seed = tsx("src/__tests__/helpers/legacyFixtureSeed.ts", [], { DATABASE_URL: source, LOG_LEVEL: "warn" });
+    assert.equal(seed.status, 0, seed.stderr);
+    const ids = lastJsonLine(seed.stdout);
+    const probe = (...args: string[]) => {
+      const r = tsx("src/__tests__/helpers/legacyFixtureSnapshotProbe.ts", args, { DATABASE_URL: source, LOG_LEVEL: "warn" });
+      assert.equal(r.status, 0, r.stderr);
+      return lastJsonLine(r.stdout);
+    };
+    const concurrent = probe("concurrent", String(ids.currentRenderId));
+    assert.equal(concurrent.stopped, false, String(concurrent.reason));
+    assert.equal(concurrent.outcome, "current", "the outcome recorded is the snapshot's, not the change made after it");
+    const recycled = probe("recycle");
+    assert.equal(recycled.stopped, true, "a pass that left the snapshot must stop, not record");
+    assert.match(String(recycled.reason), /left the export's snapshot/);
   });
 
   it("the refusal case: a credential in the source stops the export before any file is written", () => {
@@ -240,6 +263,11 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     const again = tsx("scripts/load-legacy-fixture.ts", ["--fixture", out], { DATABASE_URL: target, ...storageEnv(storage) });
     assert.notEqual(again.status, 0);
     assert.match(again.stderr, /already holds rows/);
+    // A production environment is refused before any connection (Codex round 1): the database named does not exist.
+    const prod = tsx("scripts/load-legacy-fixture.ts", ["--fixture", out], { DATABASE_URL: "postgres://nobody@127.0.0.1:1/none", NODE_ENV: "production", ...storageEnv(storage) });
+    assert.notEqual(prod.status, 0);
+    assert.match(prod.stderr, /production environment/);
+    assert.doesNotMatch(prod.stderr, /test database|could not|ECONNREFUSED/i, "the refusal came from the environment, not from a connection attempt");
     const noDouble = tsx("scripts/load-legacy-fixture.ts", ["--fixture", out], { DATABASE_URL: createDatabase(`lf_nd_${tag}`) });
     assert.notEqual(noDouble.status, 0);
     assert.match(noDouble.stderr, /STORAGE_BACKEND must be local-double/);

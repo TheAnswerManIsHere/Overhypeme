@@ -118,6 +118,16 @@ const [pendingFact] = await db.insert(t.factsTable).values({
   hasPronouns: false, enrichment: partialEnrichment, enrichmentAiDerived: partialEnrichment, createdAt: at,
 }).returning({ id: t.factsTable.id });
 
+// The live text on rows that do not own it (Codex round 1): an inactive duplicate fact, and a rejected
+// duplicate submission linked to no fact. Plan D4: neither keeps the text.
+const [duplicateFact] = await db.insert(t.factsTable).values({
+  text: KEPT_FACT_TEXT, submittedById: otherId, isActive: false, hasPronouns: false, createdAt: at,
+}).returning({ id: t.factsTable.id });
+const [duplicateReview] = await db.insert(t.pendingReviewsTable).values({
+  submittedText: KEPT_FACT_TEXT, submittedById: otherId, status: "rejected", workflowStage: "triage_rejected",
+  hashtags: ["zqxduplicatetag"], createdAt: at,
+}).returning({ id: t.pendingReviewsTable.id });
+
 // Both image pipelines' shared references (Astra rounds 2–3).
 const legacyBackground = `/objects/${aiBackgroundKey(activeFact!.id, "male", "zqxkey1", "png")}`;
 await db.update(t.factsTable).set({ aiMemeImages: { male: [legacyBackground, ""], female: [], neutral: [] } }).where(sql`id = ${activeFact!.id}`);
@@ -214,9 +224,9 @@ const reviewRender = (hash: string) => ({
   ...attemptBase, reviewId: refresh!.id, reviewRenderScenarioKey: "generic_t2i", reviewRenderInputHash: hash,
   renderJobId: randomUUID(), renderControls: {
     aspectRatio: "landscape", contentMode: "sfw", fallbackSubjectGender: "male", mirrorToLegacyStorage: false,
-    reviewAudit: { reviewId: refresh!.id, adminUserId: adminId }, reviewRenderSubject: { name: "Jordan", pronouns: "he/him" },
+    reviewAudit: { reviewId: refresh!.id, adminUserId: adminId }, reviewRenderSubject: { name: S.reviewSubjectName, pronouns: "he/him" },
   },
-  renderedFactText: "Jordan counted to infinity, twice, and the second time it was backwards.",
+  renderedFactText: `${S.reviewSubjectName} counted to infinity, twice, and the second time it was backwards.`,
 });
 const ctx = await loadReviewRenderContext(refresh!.id);
 const currentHash = ctx.ok ? computeScenarioInputHash("generic_t2i", ctx.ctx.stagingFactId, ctx.ctx.factText, ctx.ctx.enrichment) : "unavailable";
@@ -290,7 +300,7 @@ await db.insert(t.userGenerationCostsTable).values({ userId, jobType: "ai_image"
 
 console.log(JSON.stringify({
   ok: true, userId, adminId, otherId,
-  activeFactId: activeFact!.id, pendingFactId: pendingFact!.id,
+  activeFactId: activeFact!.id, pendingFactId: pendingFact!.id, duplicateFactId: duplicateFact!.id, duplicateReviewId: duplicateReview!.id,
   approvedReviewId: approved!.id, refreshReviewId: refresh!.id, submissionReviewId: submission!.id, versionId: version!.id,
   userAttemptId: userAttempt!.id, currentRenderId: currentRender!.id, staleRenderId: staleRender!.id,
   legacyBackground, newerPath, uploadPath, profilePath, matchedPath,

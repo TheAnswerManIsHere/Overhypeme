@@ -22,7 +22,7 @@ import {
 } from "../testing/legacyFixture/allowlist";
 import { PLACEHOLDER_TEMPLATES, placeholderFor } from "../testing/legacyFixture/placeholderFacts";
 import { Scrubber } from "../testing/legacyFixture/scrub";
-import { MediaMap, MediaPlacementError } from "../testing/legacyFixture/media";
+import { MediaMap, MediaPlacementError, referencePattern } from "../testing/legacyFixture/media";
 import { SHAPES } from "../testing/legacyFixture/shapes";
 import { ShapeStop, sizedPlaceholderHashtags, type WalkContext } from "../testing/legacyFixture/walker";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
@@ -168,11 +168,17 @@ describe("the scrub primitives", () => {
     );
   });
 
-  it("replaces a frozen user name and keeps a sampled one", () => {
-    const user = SHAPES.renderControls.transform({ aspectRatio: "landscape", contentMode: "sfw", promptIdentity: { version: 1, name: "Realname", pronouns: null, source: "user" } }, ctx(), {}) as { promptIdentity: { name: string } };
-    assert.equal(user.promptIdentity.name, "Avery");
-    const sampled = SHAPES.renderControls.transform({ aspectRatio: "landscape", contentMode: "sfw", promptIdentity: { version: 1, name: "Jordan", pronouns: null, source: "review_sample" } }, ctx(), {}) as { promptIdentity: { name: string } };
-    assert.equal(sampled.promptIdentity.name, "Jordan");
+  it("replaces a frozen user name and a typed subject name, and keeps the product's preset names (Codex round 1)", () => {
+    const rc = (extra: object) => SHAPES.renderControls.transform({ aspectRatio: "landscape", contentMode: "sfw", ...extra }, ctx(), {}) as {
+      promptIdentity?: { name: string; source: string };
+      reviewRenderSubject?: { name: string; pronouns: string | null };
+    };
+    assert.equal(rc({ promptIdentity: { version: 1, name: "Realname", pronouns: null, source: "user" } }).promptIdentity!.name, "Avery");
+    assert.equal(rc({ promptIdentity: { version: 1, name: "Susan Franklin", pronouns: "she/her", source: "review_sample" } }).promptIdentity!.name, "Susan Franklin");
+    const typed = rc({ promptIdentity: { version: 1, name: "Zqx Typed", pronouns: null, source: "workbench" } }).promptIdentity!;
+    assert.deepEqual([typed.name, typed.source], ["Avery", "workbench"], "a typed sample name goes; its source, and so its precedence, stays");
+    assert.equal(rc({ reviewRenderSubject: { name: "David Franklin", pronouns: "he/him" } }).reviewRenderSubject!.name, "David Franklin");
+    assert.deepEqual(rc({ reviewRenderSubject: { name: "Zqx Moderator Typed", pronouns: "she/her" } }).reviewRenderSubject, { name: "Avery", pronouns: "she/her" });
   });
 
   it("replaces a vendor-hosted render reference with the local image, and stops on any other host", () => {
@@ -207,6 +213,27 @@ describe("the scrub primitives", () => {
     assert.deepEqual(sizedPlaceholderHashtags([], corpus), []);
     assert.equal(sizedPlaceholderHashtags(["a", "b", "c", "d", "e", "f", "g", "h", "i"], corpus).length, 9, "an over-long list stays over-long");
     assert.equal(new Set(sizedPlaceholderHashtags(["a", "b", "c", "d"], corpus)).size, 4);
+  });
+
+  it("prints a refused reference as categories only, whatever the length of its parts (Codex round 1)", () => {
+    for (const [ref, mustNot] of [
+      ["https://cdn.foo.io/alice/head.jpg", ["foo", "alice", "head"]],
+      ["/objects/zqx/me.png?sig=abc", ["zqx", "me", "sig", "abc"]],
+      ["https://v3b.fal.media/files/b/zqxsecretface.jpeg#x", ["zqx", "v3b"]],
+    ] as const) {
+      const shape = referencePattern(ref);
+      for (const part of mustNot) assert.ok(!shape.includes(part), `${part} survived in ${shape}`);
+    }
+    assert.equal(referencePattern("/objects/uploads/ab/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0.jpg"), "/objects/uploads/<h2>/<uuid>.jpg");
+  });
+
+  it("finds an IPv6 address in every spelling, and not a timestamp or a hash (Codex round 1)", () => {
+    for (const v of ["2001:db8::1", "see ::1 here", "::ffff:192.0.2.1", "[2001:db8::2]:443", "fe80:0:0:0:0:0:0:1"]) {
+      assert.ok(credentialHits({ v }).includes("an IPv6 address"), v);
+    }
+    for (const v of ["12:34:56", "at 12:30:00 today", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "std::vector", "10:20"]) {
+      assert.deepEqual(credentialHits({ v }), [], v);
+    }
   });
 
   it("finds the credential shapes the export refuses, and passes the synthetic forms", () => {

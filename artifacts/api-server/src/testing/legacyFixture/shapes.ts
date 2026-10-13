@@ -23,6 +23,8 @@ import {
 } from "@workspace/api-zod";
 
 import { ImageSourceSchema, TextOptionsSchema } from "../../lib/validators/memeBuilder";
+import { defaultPreviewSubjectForGender } from "../../lib/imagePrompt/resolveRenderReviewInput";
+import { CANONICAL_NAME } from "../../lib/renderCanonical";
 import { ShapeStop, placeholderHashtagsFor, rerootRules, structuralDeep, walk, type PathRules, type WalkContext } from "./walker";
 
 export type ShapeName =
@@ -386,7 +388,7 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     fallbackSubjectGender: "keep",
     styleId: "keep",
     referenceImageUrl: { media: "render-reference" },
-    "reviewRenderSubject.name": "keep", // a sampled preset subject, not a user (prepareAttemptInputs.ts)
+    "reviewRenderSubject.name": { custom: (v, ctx) => (typeof v === "string" ? fixtureSubjectName(v, ctx) : v) },
     "reviewRenderSubject.pronouns": "keep",
     "reviewAudit.adminUserId": "map-user",
     promptIdentity: { custom: (v, ctx, p) => frozenIdentity(v, ctx, p) },
@@ -435,6 +437,24 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
  * synthetic name; the snapshot's structure and presence are kept, so the
  * worker's frozen-versus-legacy precedence (imagePromptJobs.ts:464-466) holds.
  */
+/**
+ * The subject names the product itself supplies: the review-render defaults (resolveRenderReviewInput.ts:74-84,
+ * preview.ts:46) and the canonical fallback (renderCanonical.ts). Any other name was typed by someone — a
+ * moderator's preview name (routes/reviews.ts previewName → resolveRenderReviewInput.ts:90-93), a workbench
+ * name — and becomes the row's synthetic first name.
+ */
+const PRESET_SUBJECT_NAMES: ReadonlySet<string> = new Set([
+  defaultPreviewSubjectForGender("male").name,
+  defaultPreviewSubjectForGender("female").name,
+  defaultPreviewSubjectForGender("neutral").name,
+  CANONICAL_NAME,
+]);
+
+/** A stored subject name as the fixture carries it: a product preset kept, anything else the synthetic name. */
+export function fixtureSubjectName(name: string, ctx: Pick<WalkContext, "syntheticName">): string {
+  return PRESET_SUBJECT_NAMES.has(name) ? name : ctx.syntheticName;
+}
+
 function frozenIdentity(value: unknown, ctx: WalkContext, path: string): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value !== "object" || Array.isArray(value)) throw new ShapeStop(ctx.where, path, "a frozen identity that is not an object");
@@ -442,9 +462,10 @@ function frozenIdentity(value: unknown, ctx: WalkContext, path: string): unknown
   for (const k of Object.keys(v)) {
     if (!["version", "name", "pronouns", "source"].includes(k)) throw new ShapeStop(ctx.where, `${path}.${k}`, "a key the frozen identity does not describe");
   }
-  if (v.source === "user" && typeof v.name === "string" && v.name.trim()) return { ...v, name: ctx.syntheticName };
   if (typeof v.source !== "string" || !["user", "review_sample", "eval_sample", "workbench", "canonical_fallback"].includes(v.source)) {
     throw new ShapeStop(ctx.where, `${path}.source`, "a frozen identity source the fixture does not know");
   }
-  return v;
+  if (typeof v.name !== "string" || !v.name.trim()) return v;
+  // A user's own name always becomes the synthetic one; a sample keeps its name only when the product supplied it.
+  return { ...v, name: v.source === "user" ? ctx.syntheticName : fixtureSubjectName(v.name, ctx) };
 }

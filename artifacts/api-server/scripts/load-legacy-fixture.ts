@@ -24,12 +24,15 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const i = process.argv.indexOf("--fixture");
 const fixtureDir = path.resolve(i >= 0 ? process.argv[i + 1]! : path.join(HERE, "..", "fixtures", "legacy"));
 
-const databaseRefusal = await testDatabaseRefusal(process.env);
+// The environment's refusals come first, so a refused process never opens a connection; only then the marker read.
 const refusals = [
-  ...(databaseRefusal ? [databaseRefusal] : []),
   ...(isProductionEnv() ? ["this is a production environment (NODE_ENV=production or REPLIT_DEPLOYMENT=1)"] : []),
   ...(process.env.STORAGE_BACKEND !== "local-double" ? ["STORAGE_BACKEND must be local-double: the media placeholders are written through it"] : []),
 ];
+if (!refusals.length) {
+  const databaseRefusal = await testDatabaseRefusal(process.env);
+  if (databaseRefusal) refusals.push(databaseRefusal);
+}
 if (refusals.length) {
   console.error(`[load-legacy-fixture] refusing to load:\n${refusals.map((r) => `  - ${r}`).join("\n")}`);
   process.exit(1);

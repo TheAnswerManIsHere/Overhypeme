@@ -47,6 +47,7 @@ export const SENTINELS = {
   pexelsPage: "https://www.pexels.com/photo/zqx-page-4242/",
   pexelsKeywords: "zqx keyword lifting",
   frozenName: "Zqxfrozen",
+  reviewSubjectName: "Zqxreviewer Typedname",
   compiledText: "zqx compiled prompt text",
   breakdownText: "zqx breakdown section text",
   sourceDescription: "zqx description of a real photo",

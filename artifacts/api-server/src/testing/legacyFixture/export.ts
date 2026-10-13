@@ -10,6 +10,7 @@
  * writes the files; the sentinel test drives this module directly.
  */
 import { createHash } from "node:crypto";
+import { isIPv6 } from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
@@ -29,11 +30,11 @@ import { MediaMap, MediaPlacementError, referencePattern, type MediaPlaceholder,
 import { placeholderFor, type PlaceholderFact } from "./placeholderFacts";
 import { emptyPredicateRecord, predicateCounts, type PredicateRecord } from "./predicates";
 import { Scrubber, type SyntheticPerson } from "./scrub";
-import { SHAPES, type ShapeName } from "./shapes";
+import { SHAPES, fixtureSubjectName, type ShapeName } from "./shapes";
 import { journalHead } from "./journal";
 import { ShapeStop, type WalkContext } from "./walker";
 
-export const SCRUB_RULESET_VERSION = "1";
+export const SCRUB_RULESET_VERSION = "2";
 
 /** A generated 8×8 JPEG data URL for stock photo references (plan D5). Fixed bytes: an 8×8 mid-grey baseline JPEG. */
 export const STOCK_DATA_URL =
@@ -79,7 +80,8 @@ export interface ExportOptions {
   sourceUrl: string;
   sourceCommit: string;
   /** Records each freshness predicate on the source; omitted in tests that exercise only the scrub. */
-  evaluatePredicates?: () => Promise<PredicateRecord>;
+  /** Called with the export's snapshot id; must evaluate against that snapshot or throw (predicates.ts, evaluatePredicatesInSnapshot). */
+  evaluatePredicates?: (snapshotId: string) => Promise<PredicateRecord>;
 }
 
 
@@ -95,8 +97,14 @@ const CREDENTIAL_SHAPES: Array<[string, RegExp]> = [
   ["a JWT", /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
   ["an email address", EMAIL_SHAPE],
   ["an IPv4 address", /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/],
-  ["an IPv6 address", /\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b/i],
 ];
+
+/**
+ * IPv6 literals in every spelling — full, compressed (`2001:db8::1`, `::1`), IPv4-mapped, bracketed —
+ * found as hex-and-colon runs and confirmed by Node's own parser, so a timestamp or a hash is not one.
+ */
+const IPV6_CANDIDATE = /(?<![0-9a-z:.])(?:[0-9a-f]{0,4}:){2,7}(?:[0-9a-f]{0,4}|\d{1,3}(?:\.\d{1,3}){3})(?![0-9a-z:])/gi;
+const hasIPv6 = (s: string): boolean => [...s.matchAll(IPV6_CANDIDATE)].some((m) => isIPv6(m[0]) && m[0] !== ":");
 
 function* strings(value: unknown): Generator<string> {
   if (typeof value === "string") yield value;
@@ -111,6 +119,7 @@ export function credentialHits(value: unknown): string[] {
     for (const [label, re] of CREDENTIAL_SHAPES) {
       if (re.test(s)) hits.add(label);
     }
+    if (hasIPv6(s)) hits.add("an IPv6 address");
   }
   return [...hits];
 }
@@ -160,8 +169,23 @@ function selectSql(entry: IncludedTable): { sql: string; columns: Array<{ column
   };
 }
 
-/** Run the export. Returns rows and manifest; writes nothing. */
+/**
+ * Run the export. Returns rows and manifest; writes nothing. One REPEATABLE READ READ ONLY transaction
+ * spans the row read and the predicate pass: its snapshot is exported and handed to `evaluatePredicates`,
+ * so the outcomes it records describe the rows the fixture holds (Codex round 1). The connection closes
+ * on every path, which ends the transaction and the exported snapshot with it.
+ */
 export async function runExport(opts: ExportOptions): Promise<ExportResult> {
+  const client = new pg.Client({ connectionString: opts.sourceUrl });
+  await client.connect();
+  try {
+    return await exportWithin(client, opts);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+async function exportWithin(client: pg.Client, opts: ExportOptions): Promise<ExportResult> {
   const scrubber = new Scrubber();
   const media = new MediaMap(scrubber, () => STOCK_DATA_URL);
   const stops: string[] = [];
@@ -171,16 +195,15 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
   const halt = (): ExportResult => ({ tables: new Map(), stops, mediaPatterns });
 
   const selects = new Map(includedTables().map((entry) => [sqlName(entry.table), selectSql(entry)] as const));
-  const client = new pg.Client({ connectionString: opts.sourceUrl });
-  await client.connect();
   const source = new Map<string, Row[]>();
   const journal = journalHead();
   let migrationHead: ExportManifest["migrationHead"] = { journalEntries: journal.entries, latestTag: journal.latestTag, appliedOnSource: 0, sourceLedgerRows: 0 };
   let stripe: StripeTestIds;
   let peopleRows: Array<{ id: string; display_name: string | null; email: string | null }>;
   let embeddingBackfill = 0;
-  try {
-    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  const snapshotId = (await client.query<{ id: string }>("SELECT pg_export_snapshot() AS id")).rows[0]!.id;
+  {
 
     const present = new Set(
       (await client.query<{ tablename: string }>(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)).rows.map((r) => r.tablename),
@@ -210,9 +233,6 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
     );
 
     for (const [table, { sql }] of selects) source.set(table, (await client.query(sql)).rows);
-    await client.query("COMMIT");
-  } finally {
-    await client.end();
   }
 
   // ── Payment eligibility (plan D2, C5): fails closed when the sync data is absent ──
@@ -257,12 +277,24 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
     const f = factById.get(Number(factId));
     return f ? f.is_active === true : false;
   };
-  const textFor = (text: string) => (isKept(text) ? text : placeholder(text).text);
+  /**
+   * Which rows keep their template (plan D4): a fact iff it is active; a review iff its own fact —
+   * the one it stages or was approved into — is active and the texts match byte for byte; an
+   * edit-history entry iff it is a kept text. A duplicate match or parent is not ownership.
+   */
+  const reviewKeepsText = (row: Row) =>
+    [row.staging_fact_id, row.approved_fact_id].some((id) => {
+      const f = id == null ? undefined : factById.get(Number(id));
+      return f?.is_active === true && f.text === row.submitted_text;
+    });
+  const keepsText = (table: string, row: Row, text: string) =>
+    table === "facts" ? row.is_active === true : table === "pending_reviews" ? reviewKeepsText(row) : isKept(text);
+  const kept = (text: string, keep: boolean) => (keep ? text : placeholder(text).text);
   // A row whose own text is not kept takes the corpus's hashtags even when its text matches a live one.
   const hashtagsFor = (text: unknown) => (typeof text === "string" ? placeholder(text).hashtags : []);
   const scrubbedFactTemplate = (factId: unknown): string | null => {
     const f = factById.get(Number(factId));
-    return f ? textFor(f.text as string) : null;
+    return f ? kept(f.text as string, f.is_active === true) : null;
   };
 
   const personOf = (userId: unknown): SyntheticPerson | undefined => (typeof userId === "string" ? scrubber.person(userId) : undefined);
@@ -284,7 +316,7 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
       keptText = row.is_active === true;
       placeholderHashtags = hashtagsFor(row.text);
     } else if (table === "pending_reviews") {
-      keptText = isKept(row.submitted_text);
+      keptText = reviewKeepsText(row);
       placeholderHashtags = hashtagsFor(row.submitted_text);
     } else if ("fact_id" in row) {
       keptText = factKept(row.fact_id);
@@ -374,7 +406,9 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
   }
   count("credential-scan:rows", [...out.values()].reduce((n, r) => n + r.length, 0));
 
-  const predicates = opts.evaluatePredicates ? await opts.evaluatePredicates() : emptyPredicateRecord();
+  // Still inside the export's transaction: the readers see the snapshot the rows came from.
+  const predicates = opts.evaluatePredicates ? await opts.evaluatePredicates(snapshotId) : emptyPredicateRecord();
+  await client.query("COMMIT");
 
   /** Re-render a stored personalized text over the row's (kept or placeholder) template. */
   function rerender(row: Row, ctx: WalkContext, column: string, label: string, name: string, pronouns: string | null): string {
@@ -406,7 +440,7 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
         if (column === "canonical_text") {
           return row.is_active === true ? text : placeholder(row.text as string).canonicalText;
         }
-        return textFor(text);
+        return kept(text, keepsText(table, row, text));
       }
       case "fact-derived": {
         if (row.is_active === true) return value;
@@ -422,10 +456,10 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
         let name = "Alex";
         let pronouns: string | null = null;
         if (rc.promptIdentity && isValidPromptIdentitySnapshot(rc.promptIdentity)) {
-          name = rc.promptIdentity.source === "user" ? ctx.syntheticName : rc.promptIdentity.name!;
+          name = rc.promptIdentity.source === "user" ? ctx.syntheticName : fixtureSubjectName(rc.promptIdentity.name!, ctx);
           pronouns = rc.promptIdentity.pronouns ?? null;
         } else if (rc.reviewRenderSubject?.name?.trim()) {
-          name = rc.reviewRenderSubject.name;
+          name = fixtureSubjectName(rc.reviewRenderSubject.name, ctx);
           pronouns = rc.reviewRenderSubject.pronouns ?? null;
         } else if (typeof row.user_id === "string") {
           name = personOf(row.user_id)?.displayName ?? "Alex";

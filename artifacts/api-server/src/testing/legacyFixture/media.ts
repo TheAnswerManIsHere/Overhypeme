@@ -72,13 +72,51 @@ export interface MediaPlaceholder {
 /** Thrown for a reference the map cannot place; names the shape, never the value. */
 export class MediaPlacementError extends Error {}
 
-/** The shape of a reference with its private parts collapsed — safe to print. */
+/** Path words the storage layout itself uses (storageKeys.ts, objectStorage.ts): kept, so a shape stays legible. */
+const STRUCTURAL_SEGMENTS = new Set(["api", "storage", "objects", "uploads", "ai-backgrounds", "ai-bg-v2", "memes", "restricted", "photos", "files", "a"]);
+/** Vendor hosts the fixture already recognises; any other host is `<host>`. */
+const KNOWN_HOSTS: ReadonlyArray<[RegExp, string]> = [
+  [/^(images\.)?pexels\.com$/i, "pexels.com"],
+  [/^([a-z0-9-]+\.)*fal\.media$/i, "fal.media"],
+  [/^([a-z0-9-]+\.)*googleusercontent\.com$/i, "googleusercontent.com"],
+  [/^example\.test$/i, "example.test"],
+];
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "avif", "mp4"]);
+
+function segmentCategory(segment: string): string {
+  if (STRUCTURAL_SEGMENTS.has(segment)) return segment;
+  const dot = segment.lastIndexOf(".");
+  const ext = dot > 0 ? segment.slice(dot + 1).toLowerCase() : "";
+  const stem = IMAGE_EXTENSIONS.has(ext) ? segment.slice(0, dot) : segment;
+  const kind = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stem)
+    ? "<uuid>"
+    : /^[0-9a-f]{2}$/i.test(stem)
+      ? "<h2>"
+      : /^\d+$/.test(stem)
+        ? "<n>"
+        : "<seg>";
+  return IMAGE_EXTENSIONS.has(ext) ? `${kind}.${ext}` : kind;
+}
+
+/**
+ * The shape of a reference, built from fixed categories — safe to print. Nothing of the source survives but
+ * known vendor hosts, the storage layout's own words and an image extension; every other host, path
+ * component, query and fragment becomes a category token (Codex round 1: inferring privacy from a
+ * component's length let short ones through).
+ */
 export function referencePattern(value: string): string {
-  return value
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<uuid>")
-    .replace(/\/[0-9a-f]{2}\//g, "/<h2>/")
-    .replace(/[A-Za-z0-9_-]{12,}/g, "<id>")
-    .replace(/\d+/g, "<n>");
+  if (/^data:/i.test(value)) return "<data-url>";
+  const url = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(value);
+  const pathOf = (p: string) => p.split("/").map((seg) => (seg === "" ? "" : segmentCategory(seg))).join("/");
+  if (url) {
+    const host = KNOWN_HOSTS.find(([re]) => re.test(url[2]!))?.[1] ?? "<host>";
+    return `${url[1]!.toLowerCase()}://${host}${pathOf(url[3]!)}${url[4] ? "?<query>" : ""}${url[5] ? "#<fragment>" : ""}`;
+  }
+  if (value.startsWith("/")) {
+    const [pathPart, query] = value.split(/[?#]/, 2);
+    return `${pathOf(pathPart!)}${query !== undefined ? "?<query>" : ""}`;
+  }
+  return "<other>";
 }
 
 /** Generated JPEG of 8×8 pixels, as a data URL under 1,100 characters (plan D5). */

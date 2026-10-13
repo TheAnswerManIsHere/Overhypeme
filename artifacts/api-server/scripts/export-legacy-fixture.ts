@@ -48,6 +48,9 @@ if (refusals.length) {
 
 // Every connection — the export's own and the app's pool the predicate pass uses — is read-only.
 process.env.PGOPTIONS = `${process.env.PGOPTIONS ?? ""} -c default_transaction_read_only=on`.trim();
+// The app pool holds one connection, so the predicate pass can be bound to the export's snapshot
+// (predicates.ts, evaluatePredicatesInSnapshot). Set before anything imports @workspace/db.
+process.env.DB_POOL_MAX = "1";
 
 const sourceCommit = (() => {
   try {
@@ -58,9 +61,15 @@ const sourceCommit = (() => {
 })();
 
 const { runExport, writeFixture } = await import("../src/testing/legacyFixture/export");
-const { evaluatePredicates } = await import("../src/testing/legacyFixture/predicates");
+const { evaluatePredicatesInSnapshot } = await import("../src/testing/legacyFixture/predicates");
 
-const result = await runExport({ sourceUrl: process.env.DATABASE_URL!, sourceCommit, evaluatePredicates });
+let result: Awaited<ReturnType<typeof runExport>>;
+try {
+  result = await runExport({ sourceUrl: process.env.DATABASE_URL!, sourceCommit, evaluatePredicates: (id) => evaluatePredicatesInSnapshot(id) });
+} catch (err) {
+  console.error(`[export-legacy-fixture] the export stopped; nothing was written:\n  - ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
 
 if (dryRun) {
   console.log(`[export-legacy-fixture] dry run at ${sourceCommit}`);
