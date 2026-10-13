@@ -169,12 +169,16 @@ export class MediaMap {
       const ext = m[2] ?? "";
       const id = this.scrubber.uuid("media", p.source);
       const isProfile = p.roles.some((r) => r.isProfile || r.role === "profile-image" || r.role === "upload-metadata-profile");
-      if (!owner) throw new MediaPlacementError(`an upload with no owning user (${roles.map((r) => r.table).join(", ")})`);
+      // Every upload writer records its uploader (userImageUpload.ts:286-307, aiMemePipeline.ts:950-960,
+      // imagePromptJobs.ts:694, videoPipelineRunner.ts:1858); the column empties only when that account is
+      // deleted (ON DELETE SET NULL). An orphan keeps its shape: private to a person who exists nowhere.
+      const orphan = !owner && p.roles.every((r) => r.table === "upload_image_metadata") && !isProfile;
+      if (!owner && !orphan) throw new MediaPlacementError(`an upload with no owning user (${roles.map((r) => r.table).join(", ")})`);
       return {
         path: prefixOf(`/objects/${uploadKey(id, ext || undefined)}`),
         kind: "upload",
         ext: ext || "jpg",
-        acl: { owner, visibility: isProfile ? "public" : "private" },
+        acl: { owner: owner ?? this.scrubber.uuid("orphaned-upload-owner", p.source), visibility: isProfile ? "public" : "private" },
         roles,
         ...size,
       };

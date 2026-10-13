@@ -172,6 +172,21 @@ describe("the scrub primitives", () => {
     assert.throws(() => other.resolve(), MediaPlacementError);
   });
 
+  it("keeps an upload whose account was deleted private to nobody, and stops on any other ownerless upload", () => {
+    const stock = "data:image/jpeg;base64,AA==";
+    const orphan = "/objects/uploads/ab/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0.jpg";
+    const media = new MediaMap(scrubber, () => stock);
+    media.note(orphan, "upload-metadata", { table: "upload_image_metadata", row: "x" }, null);
+    const [placed] = media.placeholders();
+    assert.equal(placed!.acl?.visibility, "private");
+    assert.notEqual(placed!.acl?.owner, null);
+    assert.ok(!placed!.path.includes("0f1e2d3c"), "the source path does not survive");
+    const shared = new MediaMap(scrubber, () => stock);
+    shared.note(orphan, "upload-metadata", { table: "upload_image_metadata", row: "x" }, null);
+    shared.note(orphan, "ai-tracking-generic", { table: "user_ai_images", row: "y" }, null);
+    assert.throws(() => shared.resolve(), MediaPlacementError);
+  });
+
   it("finds the credential shapes the export refuses, and passes the synthetic forms", () => {
     assert.deepEqual(credentialHits({ v: "sk_live_abcdefgh12345678" }), ["a Stripe secret or restricted key"]);
     assert.deepEqual(credentialHits({ v: "a@realmail.com" }), ["an email address"]);
