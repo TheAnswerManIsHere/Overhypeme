@@ -14,9 +14,11 @@
  * - Every call is appended to `doubleCalls`, so a test can assert the double —
  *   not the vendor — answered.
  * - When `AI_DOUBLE_MISS_LOG` names a file, every request with no recording is
- *   also appended to it, one JSON line each. Best-effort callers swallow the
- *   error and fall back, so the replay run reads this file to fail visibly on
- *   a baseline call the recordings do not cover (#654 round 2).
+ *   also appended to it, one JSON line each, and so is every request answered
+ *   by a recorded vendor error it did not ask for (not via `AI_DOUBLE_FAIL`).
+ *   Best-effort callers swallow either and fall back, so the replay run reads
+ *   this file to fail visibly on a baseline call the recordings do not cover
+ *   with a real answer (#654 rounds 2 and 5).
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -48,10 +50,14 @@ function rebuild(err: RecordedError): Error {
   return OpenAI.APIError.generate(err.status, { error: err.body }, err.message, new Headers());
 }
 
+function logMiss(entry: { kind: RecordingKind; target: string; fingerprint: string; recordedErrorStatus?: number }): void {
+  const missLog = process.env.AI_DOUBLE_MISS_LOG;
+  if (missLog) fs.appendFileSync(missLog, JSON.stringify(entry) + "\n");
+}
+
 function noteMiss(kind: RecordingKind, target: string, print: string): void {
   doubleCalls.push({ kind, target, outcome: "no-recording" });
-  const missLog = process.env.AI_DOUBLE_MISS_LOG;
-  if (missLog) fs.appendFileSync(missLog, JSON.stringify({ kind, target, fingerprint: print }) + "\n");
+  logMiss({ kind, target, fingerprint: print });
 }
 
 /** Answer one operation from its recording, or fail visibly. */
@@ -73,7 +79,12 @@ function replay(kind: RecordingKind, target: string, request: unknown): unknown 
     throw err;
   }
   doubleCalls.push({ kind, target, outcome: "replayed" });
-  if (rec.error) throw rebuild(rec.error);
+  if (rec.error) {
+    // The request itself was recorded as a vendor error. That is the answer it
+    // replays, but not coverage: a run that never asked for a failure is told.
+    logMiss({ kind, target, fingerprint: rec.fingerprint, recordedErrorStatus: rec.error.status });
+    throw rebuild(rec.error);
+  }
   // A fresh copy, so a caller mutating the response cannot change the next replay.
   return structuredClone(rec.response);
 }

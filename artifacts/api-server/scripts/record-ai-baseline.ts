@@ -44,6 +44,8 @@ import { fileURLToPath } from "node:url";
 
 import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-database";
 
+import { falSubscribeRequest } from "../src/lib/aiDouble/doubles";
+
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = path.resolve(API_ROOT, "../..");
 
@@ -141,6 +143,19 @@ async function waitForPort(p: number, timeoutMs: number): Promise<void> {
 }
 
 /**
+ * The failure controls (design D5): one request per vendor that the vendor
+ * rejects as invalid, with the status of that rejection. Each probe names the
+ * status it exists to capture (the committed recordings hold fal's 422 and
+ * OpenAI's 400); any other failure is not it.
+ */
+const FAL_INVALID = { input: { prompt: "" } };
+const OPENAI_INVALID = { model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 };
+const FAILURE_CONTROLS = [
+  { vendor: "fal", kind: "fal.subscribe" as const, target: "fal-ai/nano-banana-2", status: 422, request: falSubscribeRequest("fal-ai/nano-banana-2", FAL_INVALID) },
+  { vendor: "OpenAI", kind: "openai.chat" as const, target: "gpt-5.4-mini", status: 400, request: OPENAI_INVALID },
+];
+
+/**
  * One real error from each vendor, for the double's failure control (design
  * D5): a request the vendor rejects as invalid. Drawn from the same allowance
  * as the run, through the same recorder.
@@ -150,7 +165,6 @@ async function recordVendorErrors(ledger: string, limit: string, fal: string, op
   const { fal: vendorFal } = await import("@fal-ai/client");
   const OpenAI = (await import("openai")).default;
   const { Allowance, recordingFal, recordingOpenAI, vendorRejectionCaptured, controlAlreadyCaptured } = await import("../src/lib/aiDouble/recorder");
-  const { falSubscribeRequest } = await import("../src/lib/aiDouble/doubles");
   const { falUnitPrice } = await import("../src/lib/falClient");
   const shared = new Allowance(Number(limit), ledger);
   const ctx = { clients: { "@fal-ai/client": "see recordings", openai: "see recordings" } };
@@ -159,21 +173,11 @@ async function recordVendorErrors(ledger: string, limit: string, fal: string, op
   vendorFal.config({ credentials: fal });
   const falRec = recordingFal(vendorFal as never, shared, ctx, falUnitPrice);
   const oaRec = recordingOpenAI(new OpenAI({ apiKey: openai, maxRetries: 0 }), shared, ctx);
-  // Each probe names the status of the validation rejection it exists to capture (the
-  // committed recordings hold fal's 422 and OpenAI's 400); any other failure is not it.
-  const falInvalid = { input: { prompt: "" } };
-  const openaiInvalid = { model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 };
-  const probes: Array<{ vendor: string; kind: "fal.subscribe" | "openai.chat"; target: string; status: number; request: unknown; send: () => Promise<unknown> }> = [
-    {
-      vendor: "fal",
-      kind: "fal.subscribe",
-      target: "fal-ai/nano-banana-2",
-      status: 422,
-      request: falSubscribeRequest("fal-ai/nano-banana-2", falInvalid),
-      send: () => falRec.subscribe("fal-ai/nano-banana-2", falInvalid),
-    },
-    { vendor: "OpenAI", kind: "openai.chat", target: "gpt-5.4-mini", status: 400, request: openaiInvalid, send: () => oaRec.chat.completions.create(openaiInvalid as never) },
-  ];
+  const send: Record<string, () => Promise<unknown>> = {
+    fal: () => falRec.subscribe("fal-ai/nano-banana-2", FAL_INVALID),
+    OpenAI: () => oaRec.chat.completions.create(OPENAI_INVALID as never),
+  };
+  const probes = FAILURE_CONTROLS.map((c) => ({ ...c, send: send[c.vendor] }));
   const missing: string[] = [];
   for (const probe of probes) {
     if (resume && controlAlreadyCaptured(probe.kind, probe.target, probe.request, probe.status)) {
@@ -201,24 +205,52 @@ const priorLedgerLines =
   mode === "record" && fs.existsSync(ledgerPath) ? (JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as { lines: unknown[] }).lines.length : 0;
 
 /**
- * The baseline calls no recording answered (replay) or the recorder refused
+ * The baseline calls with no real answer: no recording, or a recorded vendor
+ * error (replay); refused by the recorder, or recorded as a vendor error
  * (record). The application treats several AI calls as best-effort and falls
- * back on any error, so a journey can pass over a missing call; this is what
- * makes that visible. fal's pricing warm-up is excluded: an unrecorded
+ * back on any error, so a journey can pass over such a call; this is what
+ * makes that visible. The failure controls are the one exception, matched by
+ * their exact requests. fal's pricing warm-up is excluded: an unrecorded
  * catalogue price is a warning by design (sub-plan D2).
  */
-function uncoveredCalls(): string[] {
-  const rows: Array<{ kind: string; target: string; fingerprint?: string }> = [];
+async function uncoveredCalls(): Promise<string[]> {
+  const rows: Array<{ kind: string; target: string; fingerprint?: string; recordedErrorStatus?: number }> = [];
   if (mode === "replay" && fs.existsSync(missLog)) {
     rows.push(...fs.readFileSync(missLog, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)));
   }
-  if (mode === "record" && fs.existsSync(ledgerPath)) {
-    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as { lines: Array<{ kind: string; target: string; outcome: string }> };
-    rows.push(...ledger.lines.slice(priorLedgerLines).filter((l) => l.outcome === "refused"));
+  if (mode === "record") {
+    if (fs.existsSync(ledgerPath)) {
+      const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+        lines: Array<{ kind: string; target: string; outcome: string; fingerprint?: string }>;
+      };
+      // A call that errored in this run and has no recorded response: the vendor
+      // or the network failed it and nothing real was captured. A retry that
+      // later succeeded leaves a response under the same fingerprint, so it clears.
+      const answered = (l: { kind: string; fingerprint?: string }): boolean => {
+        const file = path.join(out, `${l.kind}--${l.fingerprint}.json`);
+        return !!l.fingerprint && fs.existsSync(file) && JSON.parse(fs.readFileSync(file, "utf8")).response !== undefined;
+      };
+      rows.push(...ledger.lines.slice(priorLedgerLines).filter((l) => l.outcome === "refused" || (l.outcome === "error" && !answered(l))));
+    }
+    process.env.AI_RECORDINGS_DIR = out;
+    const { strayErrorRecordings } = await import("../src/lib/aiDouble/recorder");
+    rows.push(...strayErrorRecordings(FAILURE_CONTROLS).map((r) => ({ kind: r.kind, target: r.target, fingerprint: r.fingerprint, recordedErrorStatus: r.error!.status })));
   }
+  // One line per call: a vendor-errored call is seen by both the ledger and the corpus.
+  const seen = new Set<string>();
   return rows
-    .filter((r) => r.kind !== "fal.pricing")
-    .map((r) => `${r.kind} ${r.target}${r.fingerprint ? ` (fingerprint ${r.fingerprint.slice(0, 12)})` : ""}`);
+    .sort((a, b) => Number(!!b.recordedErrorStatus) - Number(!!a.recordedErrorStatus))
+    .filter((r) => {
+      const key = `${r.kind}\0${r.fingerprint ?? r.target}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return r.kind !== "fal.pricing";
+    })
+    .map(
+      (r) =>
+        `${r.kind} ${r.target}${r.fingerprint ? ` (fingerprint ${r.fingerprint.slice(0, 12)})` : ""}` +
+        (r.recordedErrorStatus ? `: answered only by a recorded ${r.recordedErrorStatus} vendor error` : ""),
+    );
 }
 
 let exitCode = 0;
@@ -278,11 +310,11 @@ try {
     const evidence = await driveBaseline(`http://127.0.0.1:${port}`, (l) => console.log(`[baseline] ${l}`), {
       expectRenderFailure: process.env.AI_DOUBLE_FAIL === "fal.subscribe:fal-ai/nano-banana-2",
     });
-    const uncovered = uncoveredCalls();
+    const uncovered = await uncoveredCalls();
     console.log(JSON.stringify(evidence, null, 2));
     if (uncovered.length > 0) {
       exitCode = 1;
-      const what = mode === "replay" ? "had no recording" : "were refused by the recorder";
+      const what = mode === "replay" ? "had no recorded answer" : "were refused by the recorder or recorded only as a vendor error";
       console.error(`[ai-baseline] ${mode}: incomplete: ${uncovered.length} baseline AI calls ${what}; the journeys got through only on the application's fallbacks:\n${uncovered.map((u) => `  - ${u}`).join("\n")}`);
     } else {
       console.log(

@@ -623,7 +623,8 @@ drives the baseline, and drops the database. Several AI calls are
 best-effort in the product (hashtag suggestions, stock-photo keywords, the
 duplicate judge), so a journey can pass over a call the recordings do not
 cover; the replay therefore also fails, naming each one, when any baseline
-call had no recording.
+call had no recording or was answered by a recorded vendor error it did not
+ask for (only `AI_DOUBLE_FAIL` asks).
 
 **Re-recording** (after a change to a prompt, a schema, the baseline, or a
 vendor client upgrade) runs on the Repl, never in CI, under a spending
@@ -639,8 +640,11 @@ spending ledger is written beside it and must not be left over from an
 earlier run. Review the new recordings, then **replace**
 `lib/aiDouble/recordings/` with them rather than adding to it, so no recording
 taken against an older client survives the re-recording. The run exits
-non-zero if the recorder refused any baseline call (an unpriced model, an
-exhausted allowance), or if it could not record each vendor's own validation
+non-zero if any baseline call got no real answer: refused by the recorder (an
+unpriced model, an exhausted allowance), or failed by the vendor or the network
+with no response recorded (a retry that later succeeds clears it), or recorded
+only as a vendor error. The two failure controls are the one exception. It also
+exits non-zero if it could not record each vendor's own validation
 rejection (fal's 422, OpenAI's 400) for the failure control. Every model the
 baseline calls needs its published price in `OPENAI_PRICES`
 (`lib/aiDouble/recorder.ts`), including the default utility model a fresh

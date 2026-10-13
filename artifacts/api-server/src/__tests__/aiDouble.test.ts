@@ -27,6 +27,7 @@ import {
   recordingOpenAI,
   vendorRejectionCaptured,
   controlAlreadyCaptured,
+  strayErrorRecordings,
 } from "../lib/aiDouble/recorder.js";
 import { allRecordings } from "../lib/aiDouble/recordings.js";
 
@@ -169,6 +170,24 @@ describe("AI doubles and recorder", () => {
       }
     });
 
+    it("tells the miss log about an error recording served to a request that did not ask for failure", async () => {
+      const failing = { ...CHAT, messages: [{ role: "user", content: "please fail" }] };
+      await recordingOpenAI(fakeOpenAIVendor() as any, new Allowance(1), CTX).chat.completions.create(failing as any).catch(() => {});
+      const missLog = path.join(dir, "misses.jsonl");
+      process.env.AI_DOUBLE_MISS_LOG = missLog;
+      process.env.AI_BACKEND = "recorded-double";
+      await assert.rejects(getOpenAIClient().chat.completions.create(failing as any), OpenAI.APIError);
+      const [line] = fs.readFileSync(missLog, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+      assert.equal(line.recordedErrorStatus, 400);
+      assert.equal(line.target, "gpt-5.4-mini");
+
+      // Asked for through the failure control, the same error is the point, not a gap.
+      fs.rmSync(missLog);
+      process.env.AI_DOUBLE_FAIL = "openai.chat:gpt-5.4-mini";
+      await assert.rejects(getOpenAIClient().chat.completions.create(CHAT as any), OpenAI.APIError);
+      assert.equal(fs.existsSync(missLog), false);
+    });
+
     it("keys on the whole request, including the schema and output options", async () => {
       const recorder = recordingOpenAI(fakeOpenAIVendor() as any, new Allowance(1), CTX);
       await recorder.chat.completions.create(CHAT as any);
@@ -198,7 +217,8 @@ describe("AI doubles and recorder", () => {
       await assert.rejects(recorder.chat.completions.create(failing as any), OpenAI.APIError);
 
       process.env.AI_BACKEND = "recorded-double";
-      // Replaying the failing request itself reproduces the error...
+      // Replaying the failing request itself reproduces the error (and the
+      // miss log, when set, is told it was answered by an error)...
       // The vendor's structured fields survive, not only the class and status.
       const sameAsVendor = (err: any) =>
         err instanceof OpenAI.BadRequestError &&
@@ -292,10 +312,15 @@ describe("AI doubles and recorder", () => {
       vendor.chat.completions.create = async () => {
         throw Object.assign(new Error("socket hang up"), { name: "APIConnectionError" });
       };
-      const rec = recordingOpenAI(vendor as any, new Allowance(1), CTX);
+      const allowance = new Allowance(1);
+      const rec = recordingOpenAI(vendor as any, allowance, CTX);
       const err = await rec.chat.completions.create(INVALID as any).catch((e: unknown) => e);
       assert.equal(vendorRejectionCaptured("openai.chat", "gpt-5.4-mini", err, 400), false);
       assert.equal(allRecordings().length, 0, "a transport failure is never written as a recording");
+      // ...but its ledger line says which request failed, so the run can name it as unanswered.
+      const line = allowance.lines.at(-1)!;
+      assert.equal(line.outcome, "error");
+      assert.match(line.fingerprint ?? "", /^[0-9a-f]{64}$/);
     });
 
     it("does not count a vendor 4xx other than the expected one, such as throttling", async () => {
@@ -316,6 +341,31 @@ describe("AI doubles and recorder", () => {
       assert.equal(controlAlreadyCaptured("openai.chat", "gpt-5.4-mini", CHAT, 400), false, "a different request is not the control");
       await rec.chat.completions.create(CHAT as any);
       assert.equal(controlAlreadyCaptured("openai.chat", "gpt-5.4-mini", CHAT, 400), false, "a recorded success is not a control");
+    });
+
+    it("names an ordinary call recorded only as a vendor error, and not a control or a retried success", async () => {
+      const INVALID_CONTROL = { kind: "openai.chat" as const, target: "gpt-5.4-mini", request: INVALID, status: 400 };
+      const throttled = { ...CHAT, messages: [{ role: "user", content: "hashtags please" }] };
+      const flaky = { ...CHAT, messages: [{ role: "user", content: "keywords please" }] };
+      let flakyCalls = 0;
+      const vendor = fakeOpenAIVendor();
+      const real = vendor.chat.completions.create;
+      vendor.chat.completions.create = async (params: any) => {
+        const said = params.messages.at(-1).content;
+        if (said === "hashtags please" || (said === "keywords please" && flakyCalls++ === 0)) {
+          throw OpenAI.APIError.generate(429, { error: { message: "slow down", type: "rate_limit_error" } }, "slow down", new Headers());
+        }
+        return real(params);
+      };
+      const rec = recordingOpenAI(vendor as any, new Allowance(1), CTX);
+      await rec.chat.completions.create(INVALID as any).catch(() => {});
+      await rec.chat.completions.create(throttled as any).catch(() => {});
+      await rec.chat.completions.create(flaky as any).catch(() => {});
+      await rec.chat.completions.create(flaky as any);
+
+      const stray = strayErrorRecordings([INVALID_CONTROL]);
+      assert.deepEqual(stray.map((r) => [r.kind, r.target, r.error?.status]), [["openai.chat", "gpt-5.4-mini", 429]]);
+      assert.equal((stray[0].request as any).messages.at(-1).content, "hashtags please");
     });
 
     it("does not count a vendor accepting the invalid request", async () => {

@@ -63,6 +63,8 @@ export interface LedgerLine {
   reservedUsd: number;
   actualUsd: number | null;
   outcome: "ok" | "error" | "refused";
+  /** The request's fingerprint, so a run can tell which errored call later got a real answer. */
+  fingerprint?: string;
 }
 
 export class Allowance {
@@ -93,21 +95,21 @@ export class Allowance {
   }
 
   /** Reserve `usd` or refuse. Returns the line to settle. */
-  reserve(kind: RecordingKind, target: string, usd: number | null): LedgerLine {
+  reserve(kind: RecordingKind, target: string, usd: number | null, print?: string): LedgerLine {
     if (usd === null || !Number.isFinite(usd)) {
-      this.lines.push({ kind, target, reservedUsd: 0, actualUsd: null, outcome: "refused" });
+      this.lines.push({ kind, target, reservedUsd: 0, actualUsd: null, outcome: "refused", fingerprint: print });
       this.persist();
       throw new RecorderBudgetError(`no known price for ${kind} ${target}`);
     }
     if (this.committedUsd + usd > this.limitUsd + 1e-9) {
-      this.lines.push({ kind, target, reservedUsd: usd, actualUsd: null, outcome: "refused" });
+      this.lines.push({ kind, target, reservedUsd: usd, actualUsd: null, outcome: "refused", fingerprint: print });
       this.persist();
       throw new RecorderBudgetError(
         `${kind} ${target} needs $${usd.toFixed(4)} but only $${(this.limitUsd - this.committedUsd).toFixed(4)} of $${this.limitUsd.toFixed(2)} remains`,
       );
     }
     this.committedUsd += usd;
-    const line: LedgerLine = { kind, target, reservedUsd: usd, actualUsd: null, outcome: "ok" };
+    const line: LedgerLine = { kind, target, reservedUsd: usd, actualUsd: null, outcome: "ok", fingerprint: print };
     this.lines.push(line);
     this.persist();
     return line;
@@ -274,7 +276,12 @@ export function recordingFal(
         return prior;
       }
       const unit = await falUnitPrice(endpoint);
-      const line = allowance.reserve("fal.subscribe", endpoint, unit === null ? null : unit * FAL_SUBMISSION_ATTEMPTS);
+      const line = allowance.reserve(
+        "fal.subscribe",
+        endpoint,
+        unit === null ? null : unit * FAL_SUBMISSION_ATTEMPTS,
+        fingerprint("fal.subscribe", substituteUrls(request)),
+      );
       try {
         const result = await real.subscribe(endpoint, opts);
         // Usage is one billed generation per completed call; the retries the SDK may have made are not observable.
@@ -328,7 +335,7 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
         allowance.noteReused();
         return prior;
       }
-      const line = allowance.reserve(kind, params.model, reserve(params));
+      const line = allowance.reserve(kind, params.model, reserve(params), fingerprint(kind, substituteUrls(params)));
       try {
         const response = await call(params, options);
         allowance.settle(line, actual(params, response), true);
@@ -357,6 +364,27 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
       },
     },
   } as unknown as T;
+}
+
+export interface FailureControl {
+  kind: RecordingKind;
+  target: string;
+  /** The request exactly as the recorder fingerprints it. */
+  request: unknown;
+  status: number;
+}
+
+/**
+ * Error recordings in the corpus that are not one of the failure controls: an
+ * ordinary baseline call the vendor failed (a throttle, a gateway error) and
+ * the application fell back from. Read from the recordings rather than the
+ * ledger, because a recording holds a request's last attempt: one that failed
+ * and then succeeded on retry leaves a response, and is not named (#654 round 5).
+ */
+export function strayErrorRecordings(controls: FailureControl[]): Recording[] {
+  resetRecordingCache();
+  const controlPrints = new Set(controls.map((c) => `${c.kind}\0${fingerprint(c.kind, substituteUrls(c.request))}`));
+  return allRecordings().filter((r) => r.error && !controlPrints.has(`${r.kind}\0${r.fingerprint}`));
 }
 
 /**
