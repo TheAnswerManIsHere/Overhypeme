@@ -33,10 +33,12 @@ import {
   getVerificationStatus,
   isAccountVerified,
   readStripeLiveModeStrict,
+  VERIFY_THROTTLE_MS,
 } from "../lib/stripeAccountGuard.js";
 import { clearStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import {
   __discardedBuildsForTests,
+  __stripeSyncBuildsForTests,
   __expireModeRecheckForTests,
   __endCachedSyncForTests,
   __setRawClientFactoryForTests,
@@ -46,6 +48,7 @@ import {
   getVerifiedStripeMode,
   invalidateStripeSync,
   isLiveMode,
+  liveModeOfPublishedStripeSync,
 } from "../lib/stripeClient.js";
 import {
   __isStripeVerificationRetryArmedForTests,
@@ -1107,6 +1110,130 @@ describe("a mode change initializes the newly active mode", () => {
       true,
       "the retry must verify the mode now stored, not skip on a stale cached read",
     );
+  });
+
+  it("concurrent callers on a cold cache share ONE construction", async () => {
+    // The getStripeSync() deferred-work entry: no single-flight around
+    // construction, so two concurrent misses each built a StripeSync (and its
+    // pool) and the later publish silently replaced the earlier. The toggle
+    // PATCH made this routine: setup's getSync() and the route's own full sync
+    // both construct in the same moment.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
+    invalidateStripeSync();
+    const buildsBefore = __stripeSyncBuildsForTests();
+
+    const [a, b, c] = await Promise.all([getStripeSync(), getStripeSync(), getStripeSync()]);
+
+    assert.equal(__stripeSyncBuildsForTests() - buildsBefore, 1, "exactly one StripeSync is built");
+    assert.equal(a, b);
+    assert.equal(b, c);
+    assert.equal(liveModeOfPublishedStripeSync(a), false, "the shared build is the published one");
+  });
+
+  it("a caller whose mode read straddles a toggle starts no build of its own", async () => {
+    // Codex, #657 round 1: a caller that read its generation before a toggle
+    // and resumed after it used to install a flight for the stale generation —
+    // evicting the current one, so the next current caller built a duplicate.
+    // The stale caller's build was doomed (discarded by the generation check);
+    // it now starts none, and joins the current construction instead.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    restores.push(stubAccountRetriever(() => "acct_test_expected"));
+    invalidateStripeSync();
+
+    const { __setStrictModeReaderForTests } = await import("../lib/stripeAccountGuard.js");
+    let reads = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    restores.push(
+      __setStrictModeReaderForTests(async () => {
+        reads += 1;
+        if (reads === 1) await gate;
+        return false;
+      }),
+    );
+    const buildsBefore = __stripeSyncBuildsForTests();
+    const discardedBefore = __discardedBuildsForTests().count;
+
+    const stale = getStripeSync();
+    await waitFor(() => reads >= 1);
+    invalidateStripeSync(); // the toggle lands while the mode read is parked
+    release();
+
+    const sync = await stale;
+    assert.equal(__stripeSyncBuildsForTests() - buildsBefore, 1, "the stale caller builds nothing of its own");
+    assert.equal(__discardedBuildsForTests().count, discardedBefore, "so there is no doomed build to discard");
+    assert.equal(liveModeOfPublishedStripeSync(sync), false, "what it returns is the published build");
+    assert.equal(await getStripeSync(), sync, "a later caller shares that same build");
+  });
+
+  it("a remote flip away and back during one build does not start a second build for the same mode", async () => {
+    // Codex, #657 round 2. A toggle committed by ANOTHER instance changes the
+    // stored mode without bumping this process's generation. With one slot, a
+    // test → live → test flip while the first test build was still verifying
+    // let the live caller evict the test flight, and the next test caller start
+    // a second test build alongside it — both passed the final mode check and
+    // both published, handing callers different instances.
+    process.env.STRIPE_SECRET_KEY_TEST = "sk_test_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_x";
+    process.env.STRIPE_ACCOUNT_ID_TEST = "acct_test_expected";
+    process.env.STRIPE_SECRET_KEY_LIVE = "sk_live_correct";
+    process.env.STRIPE_PUBLISHABLE_KEY_LIVE = "pk_live_x";
+    process.env.STRIPE_ACCOUNT_ID_LIVE = "acct_live_expected";
+
+    let releaseTest: () => void = () => {};
+    const testGate = new Promise<void>((resolve) => {
+      releaseTest = resolve;
+    });
+    let testRetrievals = 0;
+    restores.push(
+      stubAccountRetriever(async (secretKey) => {
+        if (secretKey === "sk_live_correct") return "acct_live_expected";
+        testRetrievals += 1;
+        await testGate; // the first test-mode build sits in verification
+        return "acct_test_expected";
+      }),
+    );
+    const { __setStrictModeReaderForTests } = await import("../lib/stripeAccountGuard.js");
+    let stored = false;
+    restores.push(__setStrictModeReaderForTests(async () => stored));
+    invalidateStripeSync();
+    const buildsBefore = __stripeSyncBuildsForTests();
+
+    const first = getStripeSync(); // test mode, held in verification
+    await waitFor(() => testRetrievals >= 1);
+
+    // A slow verification: the flips land past the 5 s retry throttle, inside
+    // Stripe's 10 s timeout. Inside the throttle, every caller is refused on the
+    // pending test attempt before reaching construction at all.
+    const realNow = Date.now;
+    Date.now = () => realNow() + VERIFY_THROTTLE_MS + 1_000;
+    restores.push(() => {
+      Date.now = realNow;
+    });
+
+    stored = true; // another instance switches to live — no local generation bump
+    __expireModeRecheckForTests();
+    const live = await getStripeSync();
+    assert.equal(liveModeOfPublishedStripeSync(live), true);
+
+    stored = false; // ...and back to test while the first build is still out
+    __expireModeRecheckForTests();
+    const second = getStripeSync();
+    releaseTest();
+
+    const [a, c] = await Promise.all([first, second]);
+    // Counts and identity, never the objects themselves: a StripeSync is a
+    // proxy the test reporter cannot serialise into a failure diff.
+    assert.equal(__stripeSyncBuildsForTests() - buildsBefore, 2, "one live build and ONE test build");
+    assert.ok(a === c, "both test-mode callers receive the one test-mode build");
+    assert.equal(liveModeOfPublishedStripeSync(a), false);
   });
 });
 });
