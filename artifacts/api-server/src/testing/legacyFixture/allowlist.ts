@@ -47,7 +47,8 @@ export type SyntheticKind =
   | "opaque-id"
   | "vendor-error"
   | "fixture-url"
-  | "fixture-title";
+  | "fixture-title"
+  | "config-value";
 
 /**
  * What happens to one column's value.
@@ -207,7 +208,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     updatedAt: "keep",
   }),
   include(s.adminConfigTable, {
-    key: "keep", value: "keep", valueLabel: "keep", debugValue: "keep", debugValueLabel: "keep",
+    // Settings are kept verbatim, except that an address in one (the sender and reply-to settings) becomes synthetic.
+    key: "keep", value: "synthetic:config-value", valueLabel: "keep", debugValue: "synthetic:config-value", debugValueLabel: "keep",
     dataType: "keep", label: "keep", description: "keep", minValue: "keep", maxValue: "keep",
     isPublic: "keep", updatedAt: "keep", updatedById: "map-user",
   }),

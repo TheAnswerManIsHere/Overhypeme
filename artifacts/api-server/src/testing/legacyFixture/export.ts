@@ -82,6 +82,8 @@ export interface ExportOptions {
 
 const quoteIdent = (s: string) => `"${s.replace(/"/g, '""')}"`;
 
+const EMAIL_SHAPE = /[A-Za-z0-9._%+-]+@(?!example\.test\b)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+
 /** Credential and private-data shapes no output string may match (plan D6). */
 const CREDENTIAL_SHAPES: Array<[string, RegExp]> = [
   ["a Stripe secret or restricted key", /\b(sk|rk)_(live|test)_[A-Za-z0-9]{8,}/],
@@ -90,7 +92,7 @@ const CREDENTIAL_SHAPES: Array<[string, RegExp]> = [
   ["a fal key", /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{32}\b/i],
   ["a bearer token", /\bBearer\s+[A-Za-z0-9._-]{16,}/],
   ["a JWT", /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
-  ["an email address", /[A-Za-z0-9._%+-]+@(?!example\.test\b)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/],
+  ["an email address", EMAIL_SHAPE],
   ["an IPv4 address", /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/],
   ["an IPv6 address", /\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b/i],
 ];
@@ -349,7 +351,7 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
   rebuildHashtags(out, source, keptTexts, placeholder, count);
 
   // ── Ref checks (app-managed links, plan D4) ──
-  checkRefs(out, stops, count);
+  checkRefs(out, new Set((source.get("users") ?? []).map((u) => scrubber.userId(String(u.id)))), stops, count);
 
   // ── Parity checks: validators and readers answer as on the source ──
   parityChecks(source, out, stops, count);
@@ -495,6 +497,10 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
         return value == null ? value : `https://example.test/fixture/${scrubber.hmac("url", String(value)).slice(0, 12)}`;
       case "fixture-title":
         return scrubber.prose(value as string | null);
+      case "config-value":
+        return typeof value === "string"
+          ? value.replace(new RegExp(EMAIL_SHAPE.source, "g"), (address) => `fixture-config-${scrubber.hmac("config-email", address).slice(0, 8)}@example.test`)
+          : value;
     }
     throw new ShapeStop(ctx.where, "", `synthetic kind ${kind} is not implemented`);
   }
@@ -602,7 +608,7 @@ const REFS: Array<[string, string, string, string]> = [
   ["tier_feature_permissions", "feature_key", "feature_flags", "key"],
 ];
 
-function checkRefs(out: Map<string, Row[]>, stops: string[], count: (k: string, n?: number) => void): void {
+function checkRefs(out: Map<string, Row[]>, sourceUserIds: Set<string>, stops: string[], count: (k: string, n?: number) => void): void {
   const userIds = new Set((out.get("users") ?? []).map((u) => u.id as string));
   for (const [table, column, target, key] of REFS) {
     const targets = new Set((out.get(target) ?? []).map((r) => String(r[key])));
@@ -618,7 +624,11 @@ function checkRefs(out: Map<string, Row[]>, stops: string[], count: (k: string, 
     for (const r of rows) {
       for (const col of ["user_id", "created_by_id", "submitted_by_id", "author_id", "reviewed_by_id", "production_rejected_by_id", "performed_by", "created_by", "granted_by_admin_id", "revoked_by_admin_id", "performed_by_admin_id", "added_by_id", "updated_by_id"]) {
         const v = r[col];
-        if (typeof v === "string" && !userIds.has(v)) stops.push(`${table}.${col} row ${rowKey(table, r)}: a user the export does not hold`);
+        if (typeof v !== "string" || userIds.has(v)) continue;
+        // A column with no foreign key can name a deleted account on the source too: that shape is kept.
+        // A user the source holds and the export dropped is a defect, and stops.
+        if (sourceUserIds.has(v)) stops.push(`${table}.${col} row ${rowKey(table, r)}: a user the export does not hold`);
+        else count(`ref:dangling-on-source:${table}.${col}`);
       }
     }
   }
@@ -653,6 +663,11 @@ const VALIDATED_SHAPE_COLUMNS: Array<[string, string, ShapeName]> = [
   ["facts", "pexels_images", "factPexelsImages"],
 ];
 
+/** The schema paths of a validator's issue list, never its messages (a message can quote the value). */
+function issuePaths(issues: string): string {
+  return [...new Set(issues.split("; ").map((i) => i.split(": ")[0]!.replace(/\.\d+(?=\.|$)/g, "[*]")))].join(", ");
+}
+
 /** The outcomes the readers reach on a source row and its output row must be the same (plan D4's table). */
 function parityChecks(source: Map<string, Row[]>, out: Map<string, Row[]>, stops: string[], count: (k: string, n?: number) => void): void {
   const keyOf = (table: string, r: Row) => rowKey(table, r);
@@ -666,9 +681,13 @@ function parityChecks(source: Map<string, Row[]>, out: Map<string, Row[]>, stops
       const o = outRows.get(keyOf(table, src));
       if (!o || src[column] == null) continue;
       const row = { overridePath: src.path as string | undefined };
-      const before = shape.validate(src[column], row) === null;
-      const after = shape.validate(o[column], row) === null;
-      if (before !== after) stops.push(`${table}.${column} row ${keyOf(table, src)}: validates ${before ? "on the source but not" : "on the output but not"} on the ${before ? "output" : "source"}`);
+      const beforeIssues = shape.validate(src[column], row);
+      const afterIssues = shape.validate(o[column], row);
+      const before = beforeIssues === null;
+      const after = afterIssues === null;
+      if (before !== after) {
+        stops.push(`${table}.${column} row ${keyOf(table, src)}: validates ${before ? "on the source but not" : "on the output but not"} on the ${before ? "output" : "source"} (failing at ${issuePaths((beforeIssues ?? afterIssues)!)})`);
+      }
       else count(`validator:${table}.${column}`);
     }
   }
@@ -697,7 +716,11 @@ function parityChecks(source: Map<string, Row[]>, out: Map<string, Row[]>, stops
       if (!o) continue;
       const a = readerOutcome(src.enrichment_ai_derived, src.enrichment_overrides, src.enrichment);
       const b = readerOutcome(o.enrichment_ai_derived, o.enrichment_overrides, o.enrichment);
-      if (a !== b) stops.push(`${table} row ${keyOf(table, src)}: the override resolver or concept gate answers differently on the output`);
+      if (a !== b) {
+        const [pa, pb] = [JSON.parse(a) as Record<string, unknown>, JSON.parse(b) as Record<string, unknown>];
+        const differ = Object.keys(pa).filter((k) => JSON.stringify(pa[k]) !== JSON.stringify(pb[k]));
+        stops.push(`${table} row ${keyOf(table, src)}: the override resolver or concept gate answers differently on the output (${differ.join(", ")})`);
+      }
       else count(`reader:${table}.resolveEnrichment`);
     }
   }
