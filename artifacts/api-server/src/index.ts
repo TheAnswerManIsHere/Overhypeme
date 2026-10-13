@@ -55,9 +55,14 @@ if (Number.isNaN(port) || port <= 0) {
 // The secret-key check is also a warning rather than fatal so the server can
 // still boot for non-Stripe routes; getCredentials() throws when invoked.
 const stripePresence = stripeDriver().credentialPresence();
+if (stripeDriver().kind === "fake") {
+  // No credentials exist by design (#566); the warnings below would describe a
+  // misconfiguration that is not there.
+  logger.info("Stripe: the FAKE driver is selected (STRIPE_BACKEND=fake-double) — test mode only, no real account");
+}
 const missingStripeSecretVars: string[] = [];
-if (!stripePresence.secretKeyTest) missingStripeSecretVars.push(stripeDriver().settingNames(false).secret);
-if (!stripePresence.secretKeyLive) missingStripeSecretVars.push(stripeDriver().settingNames(true).secret);
+if (stripeDriver().kind === "real" && !stripePresence.secretKeyTest) missingStripeSecretVars.push("STRIPE_SECRET_KEY_TEST");
+if (stripeDriver().kind === "real" && !stripePresence.secretKeyLive) missingStripeSecretVars.push("STRIPE_SECRET_KEY_LIVE");
 if (missingStripeSecretVars.length > 0) {
   logger.warn(
     { missing: missingStripeSecretVars },
@@ -66,8 +71,8 @@ if (missingStripeSecretVars.length > 0) {
 }
 
 const missingWebhookSecretVars: string[] = [];
-if (!stripePresence.webhookSecretTest) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_TEST");
-if (!stripePresence.webhookSecretLive) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_LIVE");
+if (stripeDriver().kind === "real" && !stripePresence.webhookSecretTest) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_TEST");
+if (stripeDriver().kind === "real" && !stripePresence.webhookSecretLive) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_LIVE");
 if (missingWebhookSecretVars.length > 0) {
   logger.warn(
     { missing: missingWebhookSecretVars },

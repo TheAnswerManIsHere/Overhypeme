@@ -27,7 +27,12 @@ import ts from "typescript";
 
 import { assertIpSaltConfigured } from "../lib/ipSalt.js";
 
-const ENV_KEYS = ["IP_HASH_SALT", "REPLIT_DEPLOYMENT", "NODE_ENV"] as const;
+// The double selectors are here so every case CLEARS them: `bootChecks` also
+// refuses a production boot naming a test double, and a sibling file
+// (`localObjectStorage.test.ts`) sets STORAGE_BACKEND at load, which under
+// `--test-isolation=none` reaches this suite whenever both share a shard. These
+// cases are about the salt, so they must not inherit another file's selection.
+const ENV_KEYS = ["IP_HASH_SALT", "REPLIT_DEPLOYMENT", "NODE_ENV", "STORAGE_BACKEND", "STORAGE_DOUBLE_DIR", "STRIPE_BACKEND"] as const;
 
 function setEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>): void {
   for (const k of ENV_KEYS) {

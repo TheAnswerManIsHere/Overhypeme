@@ -84,3 +84,42 @@ export async function testDatabaseRefusal(env: NodeJS.ProcessEnv): Promise<strin
   }
   return null;
 }
+
+/**
+ * The fake-Stripe ownership setting (#566, plan decision 12).
+ *
+ * The test marker says a database is disposable; it does not say the database
+ * is FRESH — `scripts/setup-test-db.sh` marks pre-existing databases on every
+ * run. So the fake Stripe driver needs a second, narrower fact: that this
+ * database was CREATED for fake runs. `createStripeFakeDatabase.ts` is the only
+ * writer, and it refuses an existing database name, so the setting can never be
+ * stamped onto a database that already has history.
+ *
+ * The two settings partition databases between the Stripe drivers: the fake
+ * runs only where both are set, and the real driver with credentials only where
+ * neither is (`artifacts/api-server/src/lib/stripeDatabasePartition.ts`).
+ */
+export const STRIPE_FAKE_DATABASE_SETTING = "overhype.stripe_fake_database";
+
+export interface DatabasePartitionSettings {
+  database: string;
+  testMarked: boolean;
+  fakeOwned: boolean;
+}
+
+/** Both partition settings for the connected database, from the catalog, in one query. */
+export const DATABASE_PARTITION_SETTINGS_SQL = `
+  SELECT current_database() AS database,
+         EXISTS (
+           SELECT 1 FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase
+            WHERE d.datname = current_database() AND s.setrole = 0 AND $1 = ANY (s.setconfig)
+         ) AS "testMarked",
+         EXISTS (
+           SELECT 1 FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase
+            WHERE d.datname = current_database() AND s.setrole = 0 AND $2 = ANY (s.setconfig)
+         ) AS "fakeOwned"`;
+
+export const DATABASE_PARTITION_SETTINGS_PARAMS = [
+  `${TEST_DATABASE_SETTING}=${TEST_DATABASE_VALUE}`,
+  `${STRIPE_FAKE_DATABASE_SETTING}=${TEST_DATABASE_VALUE}`,
+] as const;

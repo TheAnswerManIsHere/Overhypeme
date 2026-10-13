@@ -30,6 +30,16 @@ interface Selector {
   requires?: (env: NodeJS.ProcessEnv) => string[];
 }
 
+/** Every Stripe credential variable, by name — the fake refuses to start if any is set. */
+const STRIPE_CREDENTIAL_VARS = [
+  "STRIPE_SECRET_KEY_TEST",
+  "STRIPE_SECRET_KEY_LIVE",
+  "STRIPE_PUBLISHABLE_KEY_TEST",
+  "STRIPE_PUBLISHABLE_KEY_LIVE",
+  "STRIPE_WEBHOOK_SECRET_TEST",
+  "STRIPE_WEBHOOK_SECRET_LIVE",
+] as const;
+
 export const SELECTORS = {
   /** Object storage: the Replit sidecar's GCS bucket, or a local directory (`lib/localObjectStorage.ts`). */
   STORAGE_BACKEND: {
@@ -39,6 +49,23 @@ export const SELECTORS = {
       (env.STORAGE_DOUBLE_DIR ?? "").startsWith("/")
         ? []
         : ["STORAGE_DOUBLE_DIR must be an absolute directory for the local storage double"],
+  },
+  /**
+   * Stripe: the real SDK and the environment's credentials, or the in-process
+   * fake (`lib/stripeFakeDriver.ts`, #566). The fake refuses to start beside any
+   * real Stripe credential: a key that leaks into a fake run stops the boot
+   * rather than sitting unused, so "the fake never reads a credential" holds
+   * because none is present to read. Which DATABASE the fake may use is checked
+   * separately, against the database's own settings
+   * (`lib/stripeDatabasePartition.ts`), because that needs a connection.
+   */
+  STRIPE_BACKEND: {
+    real: "stripe",
+    doubles: ["fake-double"],
+    requires: (env) =>
+      STRIPE_CREDENTIAL_VARS.filter((name) => (env[name] ?? "") !== "").map(
+        (name) => `${name} is set, and the fake Stripe driver refuses to start beside a real Stripe credential`,
+      ),
   },
 } as const satisfies Record<string, Selector>;
 

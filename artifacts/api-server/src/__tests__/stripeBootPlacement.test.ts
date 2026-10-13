@@ -167,6 +167,21 @@ describe("the refusal precedes the port opening", () => {
     assert.doesNotMatch(result.output, /continuing without payments/);
   });
 
+  it("#566 — the fake Stripe on a database not created for it: the process exits and the port is NEVER bound", async () => {
+    // Every database a test runner hands out is a test database or a clone of
+    // one, and none is ever fake-owned — only createStripeFakeDatabase.ts writes
+    // that setting, and only on a database it has just created. So this refusal
+    // is deterministic under both runners, and it is the database partition
+    // (stripeDatabasePartition.ts) refusing through the real index.ts.
+    const result = await bootServer({ ...STRIPE_ENV_OFF, STRIPE_BACKEND: "fake-double", NODE_ENV: "development" });
+
+    assert.match(result.output, new RegExp(REFUSAL_MARKER), `child output:\n${result.output.slice(-4000)}`);
+    assert.match(result.output, /not created for the fake Stripe driver/);
+    assert.notEqual(result.code, 0, "a refusal must be a non-zero exit");
+    assert.doesNotMatch(result.output, new RegExp(LISTENING_MARKER));
+    assert.equal(result.everAccepted, false, "a connection was accepted before the refusal");
+  });
+
   it("test 6 — with no Stripe credentials at all the server still boots and binds", async () => {
     // The negative test for the guard's own blast radius: the fix must not have
     // turned optional Stripe configuration into a fatal boot dependency.

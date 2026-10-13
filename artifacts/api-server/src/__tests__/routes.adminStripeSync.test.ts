@@ -32,11 +32,8 @@ import {
   _resetSyncRunnerForTests,
   type SyncRunnerDriver,
 } from "../lib/stripeSyncRunner.js";
-import {
-  __resetVerificationStateForTests,
-  __setAccountRetrieverForTests,
-} from "../lib/stripeAccountGuard.js";
-import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv } from "./helpers/stripeGuardHarness.js";
+import { __resetVerificationStateForTests } from "../lib/stripeAccountGuard.js";
+import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
 import { invalidateStripeSync } from "../lib/stripeClient.js";
 
 
@@ -105,7 +102,7 @@ after(() => {
 });
 
 before(async () => {
-  restoreRetriever = __setAccountRetrieverForTests(async () => process.env.STRIPE_ACCOUNT_ID_TEST!);
+  restoreRetriever = stubAccountRetriever(() => process.env.STRIPE_ACCOUNT_ID_TEST!);
   await cleanup();
   const adminId = await createTestUser({ isAdmin: true });
   const userId = await createTestUser({ isAdmin: false });

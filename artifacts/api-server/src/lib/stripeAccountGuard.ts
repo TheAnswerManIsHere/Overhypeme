@@ -64,8 +64,10 @@ import { getConfigStringStrict } from "./adminConfig.js";
 import { STRIPE_REQUEST_TIMEOUT_MS } from "./membershipTiming.js";
 import { logger } from "./logger";
 import { stripeDriver } from "./stripeDriver.js";
+import { requireStripeDatabasePartition } from "./stripeDatabasePartition.js";
 import {
   StripeAccountMismatchError,
+  StripeDatabasePartitionError,
   StripeExpectedAccountMissingError,
   StripeUnverifiedError,
   StripeVerificationError,
@@ -125,6 +127,8 @@ const inFlight = new Map<string, Promise<void>>();
 interface AttemptRecord {
   at: number;
   definiteMismatchReason?: string;
+  /** The same narrow exception, for a confirmed database-partition refusal (#566). */
+  definitePartitionReason?: string;
 }
 const lastAttempt = new Map<string, AttemptRecord>();
 
@@ -270,6 +274,24 @@ export async function verifyStripeAccount(params: {
 
   const attempt = (async () => {
     lastAttempt.set(key, { at: Date.now() });
+
+    // The database must belong to this driver before any Stripe call — the
+    // prerequisite every path into Stripe work passes through (#566, plan
+    // decision 12; see stripeDatabasePartition.ts). Inside the attempt, so the
+    // catalog read is single-flight and throttled like the retrieval below.
+    try {
+      await requireStripeDatabasePartition(stripeDriver().kind, liveMode);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      if (err instanceof StripeDatabasePartitionError) {
+        setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
+        lastAttempt.set(key, { at: Date.now(), definitePartitionReason: reason });
+      } else {
+        setModeState(liveMode, { state: "pending", reason, lastAttemptAt: Date.now() });
+      }
+      throw err;
+    }
+
     let actual: string;
     try {
       actual = await retrieveAccountId(secretKey);
@@ -348,6 +370,9 @@ export function throttledRefusalFor(
   if (last === undefined || Date.now() - last.at >= VERIFY_THROTTLE_MS) return null;
   if (last.definiteMismatchReason !== undefined) {
     return new StripeAccountMismatchError(last.definiteMismatchReason, liveMode);
+  }
+  if (last.definitePartitionReason !== undefined) {
+    return new StripeDatabasePartitionError(last.definitePartitionReason, liveMode);
   }
   return new StripeUnverifiedError(
     `Stripe account verification for ${modeName(liveMode)} mode was attempted less than ` +

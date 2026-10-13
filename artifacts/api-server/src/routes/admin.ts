@@ -3373,6 +3373,10 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       webhookSecretConfigured,
       webhookUrl,
       stripeEnv,
+      // Which Stripe driver this process runs (#566). The Billing page shows a
+      // persistent notice for "fake", so fixture data is never mistaken for a
+      // real test-mode account. Reported by the server, never inferred.
+      stripeDriver: stripeDriver().kind,
       verification,
       webhookAudit: {
         duplicateSuppressedCount: duplicateSuppressedRows[0]?.cnt ?? 0,

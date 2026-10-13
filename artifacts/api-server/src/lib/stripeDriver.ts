@@ -18,16 +18,28 @@
  * `stripeClient.ts`, `stripeAccountGuard.ts`, `stripeRawClient.ts`, `index.ts`
  * and `routes/admin.ts`. They now reach Stripe only through `stripeDriver()`.
  */
+import { selectedBackend } from "./doubleSelection.js";
 import type { StripeDriver } from "./stripeDriverTypes.js";
+import { fakeStripeDriver } from "./stripeFakeDriver.js";
 import { realStripeDriver } from "./stripeRealDriver.js";
 
 export type * from "./stripeDriverTypes.js";
 
 let override: StripeDriver | null = null;
+let selected: StripeDriver | null = null;
 
-/** The active driver. */
+/**
+ * The active driver, chosen once per process from `STRIPE_BACKEND` through the
+ * one selection rule every double shares (`doubleSelection.ts`): unset or
+ * `stripe` is the real driver, `fake-double` the fake, anything else refuses —
+ * and a production boot, or a fake beside a real credential, refuses too.
+ * `bootChecks.ts` applies the same refusals before any module loads; this
+ * re-applies them at the point of use for code that never booted the server.
+ */
 export function stripeDriver(): StripeDriver {
-  return override ?? realStripeDriver;
+  if (override) return override;
+  selected ??= selectedBackend("STRIPE_BACKEND") === "fake-double" ? fakeStripeDriver : realStripeDriver;
+  return selected;
 }
 
 /** Test seam. Returns a restore function. */

@@ -14,6 +14,7 @@
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "tsx src/requireTestDatabase.ts && drizzle-kit push --force --config ./drizzle.config.ts",
     "require-test-db": "tsx src/requireTestDatabase.ts",
+    "create-stripe-fake-db": "tsx src/createStripeFakeDatabase.ts",
     "check-snapshots": "node --import tsx/esm scripts/check-migration-snapshots.ts",
     "validate-snapshots": "node --import tsx/esm scripts/validate-migration-snapshots.ts",
     "rebuild-snapshots": "node --import tsx/esm scripts/rebuild-snapshots.ts",
