@@ -1,7 +1,7 @@
 /**
  * Reference research service entrypoint.
  *
- * Orchestrates: cache lookup → OpenAI Responses call (with web_search_preview)
+ * Orchestrates: cache lookup → OpenAI Responses call (with web_search)
  * → validate → stamp provenance → cache write → return.
  *
  * Designed so the route handler doesn't touch OpenAI or the DB cache directly
@@ -164,7 +164,7 @@ export function buildResearchUserMessage(input: ReferenceResearchInput): string 
     lines.push(input.adminNotes.trim());
   }
   lines.push("");
-  lines.push("If the canonical name suggests a public entity, use the web_search_preview tool to look it up. Cite source URLs. Return ONLY the JSON object.");
+  lines.push("If the canonical name suggests a public entity, use the web_search tool to look it up. Cite source URLs. Return ONLY the JSON object.");
   return lines.join("\n");
 }
 

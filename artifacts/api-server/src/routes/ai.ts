@@ -3,7 +3,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { db } from "@workspace/db";
 import { factsTable, commentsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { eq, sql, and } from "drizzle-orm";
-import { callUtilityLLM } from "../lib/utilityLLM";
+import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
@@ -123,6 +123,7 @@ export async function moderateComment(commentId: number, text: string): Promise<
   try {
     const response = await callUtilityLLM({
       maxTokens: 256,
+      reasoningEffort: JUDGEMENT_REASONING_EFFORT,
       responseFormat: { type: "json_object" },
       messages: [
         {
@@ -190,7 +191,7 @@ type Neighbor = { id: number; text: string; canonicalText: string | null; simila
  * of the new entry. One batched call handles all candidates.
  * Returns which candidate index (1-based) is a duplicate, or null.
  */
-async function llmDuplicateCheck(
+export async function llmDuplicateCheck(
   newText: string,
   candidates: Neighbor[],
 ): Promise<{ isDuplicate: boolean; matchIndex: number | null }> {
@@ -212,6 +213,7 @@ async function llmDuplicateCheck(
     responseFormat: { type: "json_object" },
     temperature: 0,
     maxTokens: 60,
+    reasoningEffort: JUDGEMENT_REASONING_EFFORT,
   });
 
   const content = response.choices[0]?.message?.content ?? "{}";

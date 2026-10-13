@@ -17,7 +17,7 @@ import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { getConfigString } from "./adminConfig";
-import { callUtilityLLM } from "./utilityLLM";
+import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "./utilityLLM";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────────
@@ -118,6 +118,7 @@ export async function generateVideoDirection(
       ]
     : `Fact: "${trimmed}"`;
   const response = await callUtilityLLM({
+    reasoningEffort: JUDGEMENT_REASONING_EFFORT,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userContent },

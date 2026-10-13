@@ -6,8 +6,8 @@
 > + compiler), `imagePromptJobs.ts` (production), and `lib/api-zod/src/` schemas.
 >
 > **Do not confuse two "image" pipelines:** `factImagePipeline.ts` is the **Pexels
-> stock-photo seeding** path (builder backgrounds; uses `gpt-4o-mini` only to
-> extract search keywords) — it is **NOT** where meme renders are planned. The
+> stock-photo seeding** path (builder backgrounds; uses the shared utility LLM —
+> `openai-general`, `gpt-6-luna` by default — only to extract search keywords) — it is **NOT** where meme renders are planned. The
 > render-time meme pipeline is `imagePrompt/` + `imagePromptJobs.ts`.
 
 ## Current source of truth
@@ -468,8 +468,8 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
 - A global "no readable text" rule.
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
   path is the **frontier planner (`gpt-5.5`) + Nano Banana 2** (`nano-banana-2` /
-  `nano-banana-2-edit`). (`gpt-4o-mini` survives only for utility/Pexels keywords;
-  FLUX only via `pulid-flux` in video.)
+  `nano-banana-2-edit`). (The utility LLM — `gpt-6-luna` since it replaced `gpt-4o-mini`
+  on 2026-10-13 — serves utility/Pexels keywords only; FLUX only via `pulid-flux` in video.)
 - An enrichment-time visual-preview phase (retired; render-time plan/compiler is
   the source of truth).
 - Violence auto-softeners; per-route preview identities; competing prompt channels.

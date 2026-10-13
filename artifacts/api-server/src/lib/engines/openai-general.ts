@@ -16,7 +16,7 @@ import type { EngineDefinition } from "./types";
 export const OPENAI_GENERAL: EngineDefinition = {
   id: "openai-general",
   provider: "openai",
-  endpointId: "gpt-4o-mini",
+  endpointId: "gpt-6-luna",
   label: "OpenAI — General Intelligence",
   description:
     "The shared LLM used for all text/JSON helper calls: fact tokenization, duplicate checks, hashtag + pronoun suggestions, comment moderation, scene prompts, and video direction.",
@@ -47,5 +47,7 @@ export const OPENAI_GENERAL: EngineDefinition = {
 
   defaultTemperature: 0.7,
   defaultMaxTokens: 512,
-  defaultReasoningEffort: "low",
+  // "none" keeps luna non-reasoning, like the gpt-4o-mini it replaced, and
+  // keeps per-call temperature (see openaiChatParams.ts).
+  defaultReasoningEffort: "none",
 };
