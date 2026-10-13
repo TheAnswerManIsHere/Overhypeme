@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v6 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6)
+# PLAN — Get to launch (parent programme) · v7 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7)
 
 Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
 
@@ -312,9 +312,8 @@ scope:
   guard against a recurrence if it fits, otherwise the next tooling pass. A
   **maximum server count** for the autoscale deployment (a cost number
   David approves), the pool size derived from the new database's real
-  connection limit including the Stripe sync pool, Stripe sync construction
-  made single-flight so a burst cannot build several pools at once, and a
-  boot check that the numbers fit — **before Soft**.
+  connection limit including the Stripe sync pool (its construction is
+  already single-flight, #657), and a boot check that the numbers fit — **before Soft**.
 - **Phase 7:** `sharp` upgraded from 0.34.5 (bundled `libvips` with known
   CVEs, one High) as part of the image work, which re-verifies renders
   anyway — **before Seed**, when strangers' uploads first reach it; Phase 15
@@ -323,8 +322,8 @@ scope:
   access wrongly lost, and access wrongly kept, which no admin tool can
   revoke today — and finds a payer with no local record by reading Stripe
   over a time window; it is run weekly through Seed and Soft, and an
-  automated job waits for the first unexplained mismatch. The Stripe panel
-  shows a mode whose account is verified but whose setup has not finished.
+  automated job waits for the first unexplained mismatch. (The Stripe
+  panel's "verified but setup not finished" state shipped in #658.)
   Checkout refuses a member who already has an active subscription and
   sends them to the billing portal (a second subscription would bill
   outside the UI's reach).
@@ -359,8 +358,8 @@ scope:
   at all (David, 2026-10-13: "in a live environment we need to be hyper
   sensitive to backdoors of any kind").
 - **Phase 20:** whether the domain joins the HSTS preload list.
-- **Stripe sync mode-scoping:** its dangerous part was fixed by #577 and
-  #653; the single-flight remainder is in Phase 3 above.
+- **Stripe sync mode-scoping:** fixed — #577 and #653, single-flight
+  construction by #657 (amendment v7: it merged as v6 was placing it).
 
 ## 3. Phases
 
