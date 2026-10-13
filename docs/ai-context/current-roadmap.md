@@ -805,8 +805,9 @@ handbook work a launch phase needs and a second app would need identically;
   routes would then act on only one of them while the other keeps billing,
   out of reach of the UI. Surfaced as a UAT hazard on PR #600 and left
   unfiled as a defect, because whether a double subscription should be
-  refused or deliberately allowed is David's call. **Needs David
-  confirmation.**
+  refused or deliberately allowed is David's call. **Placed in launch
+  Phase 10 on my recommendation (David delegated, 2026-10-13): refuse, and
+  send the member to the billing portal.** He can reverse it there.
 - ~~Should any render scenario become a **hard** approval gate (today all waivable)?~~
   Answered 2026-10-06: approved hero images are a hard gate; other scenarios
   stay waivable. See [`decisions.md`](./decisions.md).

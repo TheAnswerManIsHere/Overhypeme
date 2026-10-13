@@ -149,6 +149,7 @@ we've sequenced for later.
   loud moment available. Non-production keeps the dev fallback.
 
 - **~~`recordCost` swallows a ledger-write failure~~ — SHIPPED, PR #498 (`6b3364d`).**
+  **Residual placed (David, 2026-10-13):** the failure counter `noteLedgerWriteFailure` writes is watched by nothing; launch Phase 16 adds an alert on it. Entry closed.
   A lost write is now *accepted and measured*: `noteLedgerWriteFailure` records a
   counter plus timestamp in `admin_config`. Not recovered — that was settled
   decision #4, and reconciliation remains unbuilt. Original entry kept below for
@@ -266,6 +267,7 @@ security review consciously deferred. Full context lives in
 re-gather it when the work is scheduled.
 
 - **CSP: Report-Only → enforcing.**
+  - **Launch plan placement (David, 2026-10-13): blocking, Phase 15, rescoped.** Checked at `main`: the report-only policy covers the API's responses only, and the web app sends no CSP at all, so "flip to enforcing" would protect almost nothing. Phase 15 gives the web app its own policy with a report endpoint, report-only first and enforced once the reports are clean, and enforces the API's. This entry closes when Phase 15 does.
   - **Why deferred.** Flipping to enforcing before UAT confirms zero violations
     risks breaking real page loads.
   - **Cost of waiting.** CSP is observe-only until flipped — it reports but
@@ -273,6 +275,7 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** UAT confirms zero CSP violations in Report-Only.
 
 - **HSTS `includeSubDomains` / `preload`.**
+  - **CLOSED (David, 2026-10-13).** Measured on the live site: Cloudflare already sends `max-age=63072000; includeSubDomains`, and the API adds a weaker duplicate. Phase 15 makes Cloudflare the single source and drops the API's; whether to join the preload list is decided at Phase 20. The one non-HTTPS-ready host, `www.overhype.me` (it returned a 525), now redirects to the apex with path and query kept (verified 2026-10-13).
   - **Why deferred.** Asserting these before every `*.overhype.me` subdomain is
     HTTPS-only would strand any non-HTTPS subdomain.
   - **Cost of waiting.** Slightly weaker transport guarantee at the subdomain
@@ -280,6 +283,7 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** All `*.overhype.me` subdomains are HTTPS.
 
 - **`ADMIN_API_KEY` scoping + `confirm`/`limit` gates on the API-key backfill launchers.**
+  - **Launch plan placement (David, 2026-10-13): blocking, Phase 15 — scope, not delete.** Checked at `main`: the key unlocks twelve admin routes including `set-password`, and is compared with `!==`. Phase 15: no password set through the key; it reaches only backfills, Stripe sync and import, each with a confirm and a limit; constant-time comparison. Whether production keeps any admin override at all is David's decision at Phase 18 ("in a live environment we need to be hyper sensitive to backdoors of any kind").
   - **Why deferred.** The backfill-launcher gates depend on the `ADMIN_API_KEY`
     scoping decision, which isn't made yet.
   - **Cost of waiting.** Backfill launchers lack a belt-and-suspenders
@@ -288,6 +292,7 @@ re-gather it when the work is scheduled.
     wire the gates.
 
 - **Admin field-length validation tidying.**
+  - **CLOSED into the launch plan (David, 2026-10-13):** Phase 13 validates every admin input with explicit bounds.
   - **Why deferred.** Cleanup, not a live risk; validation exists, this is
     tightening bounds.
   - **Cost of waiting.** Minimal.
@@ -381,6 +386,7 @@ re-gather it when the work is scheduled.
     a workspace override and verify no breakage — whichever comes first.
 
 - **~40 lower-severity Dependabot alerts — DECIDED 2026-10-12: one grouped sweep, not individual triage.**
+  - **Launch plan gate (David, 2026-10-13):** the `/maintenance` sweep stays; Phase 15's bar is `pnpm audit --prod` showing no High or Critical. Measured on `main` 2026-10-13: 0 critical, 3 high (all `sharp`, fixed in Phase 7), 17 moderate, 2 low.
   - **What.** Of the repo's 54 open Dependabot alerts as of 2026-07-24, 9 CVEs
     across 5 packages were triaged and fixed (PR #246, see above). The
     remaining ~40, mostly Moderate/Low, were never triaged individually. They
@@ -420,6 +426,7 @@ re-gather it when the work is scheduled.
     unmergeable for two passes running. Not met as of the 2026-10-12 sweep.
 
 - **recharts v2 → v3.**
+  - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** Upgraded with Phase 13's dashboard rebuild, which rewrites the charts anyway, or sooner if a security advisory lands against v2.
   - **What.** recharts is pinned at `^2.15.x` in `artifacts/overhype-me` and
     `artifacts/mockup-sandbox`. recharts 1.x/2.x are end-of-life ("no longer
     active — bump to v3," per the v3 migration guide flagged in the lockfile).
@@ -432,6 +439,7 @@ re-gather it when the work is scheduled.
 ## Code-level tech debt
 
 - **Async-queue enqueue-side status write isn't transactional with `enqueueJob` (PR #256).**
+  - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** Both enqueue paths still exist on `main`. The Pexels half is deleted with Pexels in Phase 4; the AI-meme half rides Phase 11's async-jobs work if it fits, otherwise it waits to be seen in Seed. Only a status label can go stale.
   - **What.** `factPexelsJobs.ts`'s `enqueueFactPexels` and
     `aiMemeBackfillJobs.ts`'s `enqueueFactAiMemeBackfill` each write the
     fact's status field to `"pending"` (or a handler writes a terminal value)
@@ -477,6 +485,7 @@ re-gather it when the work is scheduled.
     this entry closes and `RECOVER_STUCK_CUTOFF_MIN` stops being load-bearing.
 
 - **`TODO(PR3-signature)` — `artifacts/api-server/src/lib/sendBackToReview.ts:151`.**
+  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking, trigger unchanged.** The marker is still there (now line 137); a null signature is handled.
   - **What.** Rows are re-queued with `signature: null` because per-row
     processing signatures aren't stamped at send-back time; the comment defers
     stamping "at classify time once signatures land."
@@ -488,6 +497,7 @@ re-gather it when the work is scheduled.
 
 - **Stripe↔local membership reconciliation — the repair path for an event that
   never arrives (PR #287).**
+  - **Launch plan placement (on my recommendation, David delegated 2026-10-13): blocking, Phase 10.** The plan's reconciliation runbook must repair **both** directions — including access wrongly kept, which no admin tool can revoke today — and find a payer with no local record by reading Stripe over a time window. It runs weekly through Seed and Soft. The automated job is not blocking; its trigger is the first mismatch the runbook finds with no explaining event.
   - **What.** Every Stripe event we *receive* is authoritative, fenced and
     idempotent, and duplicates and out-of-order deliveries are handled. What is
     missing is the job that discovers a discrepancy nothing told us about — a
@@ -616,6 +626,7 @@ re-gather it when the work is scheduled.
     successful retry, and repeated flips returning the live pool count to one.
 
 - **Three gaps PR #577 recorded for "an immediate follow-up PR" that never shipped (found in the 2026-10-12 batched harvest).**
+  - **Placed (on my recommendation, David delegated 2026-10-13).** (3) is **fixed** by #655: the suite's `afterEach` now restores the variables it sets (checked on `main`). (2) was already fixed. (1)'s remaining half — the panel never shows "verified but setup not finished" — goes into launch Phase 10, before live mode.
   - **What.** Recorded on workstream #571's harvest notes. Re-read against
     `main` at the harvest. None of the three has a fix in the window, but
     none was reproduced either:
@@ -656,6 +667,7 @@ re-gather it when the work is scheduled.
     which is the first time a mode toggle is a real operator action.
 
 - **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
+  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking.** The risk is smaller since approved plans are committed (AI-Handbook #204), so a newer citation points at a file that exists; the guard stays for the next tooling pass.
   - **What.** [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)
     documents the rule — a code comment or docstring citing a
     `docs/plans/*` path points at a point-in-time record rather than a
@@ -878,6 +890,7 @@ re-gather it when the work is scheduled.
 
 - **No CI guard against a stale hand-written count in doc/comment prose
   (found on PR #513's `/document` harvest, first recorded occurrence).**
+  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking, trigger unchanged.**
   - **What.** [`code-review.md`](code-review.md#a-count-in-prose-is-a-hand-maintained-duplicate-of-the-thing-it-counts)
     documents the pattern — a number written into a doc, comment, header, or
     PR body that summarizes a separately-maintained enumerated set (e.g.
@@ -916,6 +929,7 @@ re-gather it when the work is scheduled.
     up as backlog items).
 
 - **`app.ts`'s `ORIGIN_EXEMPT_PATHS` can desync from `isDevAdminLoginEnabled()` in a shared process (found on PR #319's `/document` harvest review).**
+  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking.** Still present on `main` (`app.ts:41` at import, `:208` per call). Development-only and fail-closed. Fixed in launch Phase 2 if the test harness touches `app.ts`; otherwise the bugfix trigger stands.
   - **What.** `app.ts:23-43`: `ORIGIN_EXEMPT_PATHS` is a module-level `Set`,
     conditionally gaining `/api/auth/dev-admin-login` only inside an
     `if (isDevAdminLoginEnabled())` block that runs **once at import time**.
@@ -948,6 +962,7 @@ re-gather it when the work is scheduled.
     the exemption specifically must stay import-time-frozen.
 
 - **~~The api-server test suite flaked once on `main` (observed 2026-08-15 `/maintenance`)~~ — GRADUATED to #642, 2026-10-12.**
+  **Launch plan placement (on my recommendation, David delegated 2026-10-13):** #642 is closed in Phase 2, since a flaky suite is not evidence.
   The revisit trigger fired at the 2026-10-12 pass and David approved the
   `/bugfix` task the same day; #642 carries the evidence and the
   investigation. Six `Build` runs were red on `main` between 2026-08-15 and
@@ -978,6 +993,7 @@ re-gather it when the work is scheduled.
     `/bugfix` task and this entry closes.~~ **Fired 2026-10-12; now #642.**
 
 - **Workstream labels kept current by hand — contract-diet candidate, held (2026-10-12).**
+  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking, trigger unchanged.**
   - **What.** The 2026-10-12 pass found ~40 workstream issues left at
     `stage:code-review` or `stage:close-out` after their PRs merged, and closed
     them. The candidate conversion was an on-merge workflow that moves the
