@@ -254,7 +254,8 @@ export async function runExport(opts: ExportOptions): Promise<ExportResult> {
     return f ? f.is_active === true : false;
   };
   const textFor = (text: string) => (isKept(text) ? text : placeholder(text).text);
-  const hashtagsFor = (text: unknown) => (typeof text === "string" && !isKept(text) ? placeholder(text).hashtags : []);
+  // A row whose own text is not kept takes the corpus's hashtags even when its text matches a live one.
+  const hashtagsFor = (text: unknown) => (typeof text === "string" ? placeholder(text).hashtags : []);
   const scrubbedFactTemplate = (factId: unknown): string | null => {
     const f = factById.get(Number(factId));
     return f ? textFor(f.text as string) : null;

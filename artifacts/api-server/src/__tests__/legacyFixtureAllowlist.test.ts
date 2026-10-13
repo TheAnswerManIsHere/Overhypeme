@@ -24,7 +24,7 @@ import { PLACEHOLDER_TEMPLATES, placeholderFor } from "../testing/legacyFixture/
 import { Scrubber } from "../testing/legacyFixture/scrub";
 import { MediaMap, MediaPlacementError } from "../testing/legacyFixture/media";
 import { SHAPES } from "../testing/legacyFixture/shapes";
-import { ShapeStop, type WalkContext } from "../testing/legacyFixture/walker";
+import { ShapeStop, sizedPlaceholderHashtags, type WalkContext } from "../testing/legacyFixture/walker";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { credentialHits } from "../testing/legacyFixture/export";
 
@@ -146,6 +146,20 @@ describe("the scrub primitives", () => {
     assert.equal(out["/overhypeFit"]!.createdBy, scrubber.userId("u1"));
   });
 
+  it("keeps a legacy row the validator refuses refused: an over-long label and a token in a label (dev dry run, 2026-10-13)", () => {
+    const e = buildPlaceholderFactEnrichment("x");
+    const vso = (entity: string) => ({ ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, roleBindings: [{ entity, visualRole: "zqx role" }] } });
+    for (const entity of ["{NAME}", "z".repeat(61)]) {
+      const src = vso(entity);
+      assert.notEqual(SHAPES.factEnrichment.validate!(src, {}), null, `the source with ${entity.slice(0, 8)} is refused`);
+      const out = SHAPES.factEnrichment.transform(src, ctx(), {});
+      assert.notEqual(SHAPES.factEnrichment.validate!(out, {}), null, "and so is its output");
+      assert.ok(!JSON.stringify(out).includes("zzzz") && !JSON.stringify(out).includes("NAME"), "the value itself does not survive");
+    }
+    const ok = SHAPES.factEnrichment.transform(vso("mother"), ctx(), {});
+    assert.equal(SHAPES.factEnrichment.validate!(ok, {}), null, "an accepted label stays accepted");
+  });
+
   it("stops on a key the shape does not describe, naming the path and never the value", () => {
     const e = { ...buildPlaceholderFactEnrichment("x"), zqxUnknownField: "zqx private value" };
     assert.throws(
@@ -185,6 +199,14 @@ describe("the scrub primitives", () => {
     shared.note(orphan, "upload-metadata", { table: "upload_image_metadata", row: "x" }, null);
     shared.note(orphan, "ai-tracking-generic", { table: "user_ai_images", row: "y" }, null);
     assert.throws(() => shared.resolve(), MediaPlacementError);
+  });
+
+  it("gives placeholder hashtags the source's distinct count, so the validator's verdict on the count holds", () => {
+    const corpus = ["fixture", "legend", "time"];
+    assert.deepEqual(sizedPlaceholderHashtags(["#Zqx", "zqx", "other"], corpus), ["fixture", "legend"], "two distinct after normalization");
+    assert.deepEqual(sizedPlaceholderHashtags([], corpus), []);
+    assert.equal(sizedPlaceholderHashtags(["a", "b", "c", "d", "e", "f", "g", "h", "i"], corpus).length, 9, "an over-long list stays over-long");
+    assert.equal(new Set(sizedPlaceholderHashtags(["a", "b", "c", "d"], corpus)).size, 4);
   });
 
   it("finds the credential shapes the export refuses, and passes the synthetic forms", () => {

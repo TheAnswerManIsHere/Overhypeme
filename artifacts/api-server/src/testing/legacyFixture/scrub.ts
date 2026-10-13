@@ -108,6 +108,8 @@ export class Scrubber {
     if (value.trim() === "") return value;
     const h = this.hmac("prose", value);
     const full = `[fixture text ${h.slice(0, 8)}]`;
+    // A value already over its bound stays over it, so the validator refuses the placeholder as it refused the source.
+    if (maxLen !== undefined && value.length > maxLen) return `${full}${"x".repeat(Math.max(0, value.length - full.length))}`.padEnd(maxLen + 1, "x") as T;
     if (maxLen === undefined || full.length <= maxLen) return full as T;
     return `fx${h}`.slice(0, Math.max(1, maxLen)) as T;
   }

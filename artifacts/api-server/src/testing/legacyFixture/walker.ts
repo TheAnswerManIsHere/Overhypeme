@@ -18,6 +18,7 @@
  * default is ever materialised into the exported shape; absent stays absent.
  */
 import type { ZodTypeAny } from "zod";
+import { normalizeHashtag } from "@workspace/api-zod";
 
 import type { MediaMap, MediaRole } from "./media";
 import type { Scrubber } from "./scrub";
@@ -145,7 +146,15 @@ export function structuralDeep(value: unknown, ctx: WalkContext, path: string): 
   return value;
 }
 
-function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: string): unknown {
+/** The string bound of a leaf's schema, when it is a string. */
+function leafMax(schema: ZodTypeAny | undefined): number | undefined {
+  if (!schema) return undefined;
+  const s = unwrap(schema);
+  return def(s).typeName === "ZodString" ? stringBound(s).max : undefined;
+}
+
+function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: string, schema?: ZodTypeAny): unknown {
+  const max = leafMax(schema);
   if (value === null || value === undefined) return value;
   if (typeof rule === "object") {
     if ("custom" in rule) return rule.custom(value, ctx, path);
@@ -164,7 +173,7 @@ function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: strin
     case "keep":
       return value;
     case "prose":
-      return ctx.scrubber.prose(needString());
+      return ctx.scrubber.prose(needString(), max);
     case "map-user":
       return ctx.scrubber.userId(needString());
     case "admin-label":
@@ -174,7 +183,10 @@ function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: strin
       return ctx.scrubber.rekey(needString());
     case "subject-or-prose": {
       const v = needString();
-      return v.trim().toLowerCase() === "subject" ? v : ctx.scrubber.prose(v);
+      if (v.trim().toLowerCase() === "subject") return v;
+      // A label holding a personalization token is refused by the validator (visualStrategyOverride.ts:436-463);
+      // its placeholder keeps a brace so it is refused alike.
+      return v.includes("{") ? `{${ctx.scrubber.prose(v, max === undefined ? undefined : max - 2)}}` : ctx.scrubber.prose(v, max);
     }
     case "fixture-url": {
       const v = needString();
@@ -191,7 +203,7 @@ function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: strin
     }
     case "hashtags": {
       if (!Array.isArray(value)) throw new ShapeStop(ctx.where, path, "hashtags that are not an array");
-      return ctx.keptText ? value : [...ctx.placeholderHashtags];
+      return ctx.keptText ? value : sizedPlaceholderHashtags(value, ctx.placeholderHashtags);
     }
     case "prose-deep":
       return proseDeep(value, ctx);
@@ -207,7 +219,7 @@ function applyRule(rule: LeafRule, value: unknown, ctx: WalkContext, path: strin
  */
 export function walk(value: unknown, schema: ZodTypeAny, rules: PathRules, ctx: WalkContext, path = ""): unknown {
   const rule = rules[path];
-  if (rule !== undefined) return applyRule(rule, value, ctx, path);
+  if (rule !== undefined) return applyRule(rule, value, ctx, path, schema);
   if (value === null || value === undefined) return value;
 
   const s = unwrap(schema);
@@ -222,7 +234,7 @@ export function walk(value: unknown, schema: ZodTypeAny, rules: PathRules, ctx: 
       for (const [k, v] of Object.entries(value)) {
         const childPath = child(k);
         if (rules[childPath] !== undefined) {
-          out[k] = applyRule(rules[childPath]!, v, ctx, childPath);
+          out[k] = applyRule(rules[childPath]!, v, ctx, childPath, shape[k]);
         } else if (shape[k]) {
           out[k] = walk(v, shape[k]!, rules, ctx, childPath);
         } else {
@@ -302,5 +314,17 @@ export function rerootRules(rules: PathRules, prefix: string): PathRules {
     else if (k.startsWith(`${prefix}.`)) out[k.slice(prefix.length + 1)] = v;
     else if (k.startsWith(`${prefix}[`) || k.startsWith(`${prefix}{`)) out[k.slice(prefix.length)] = v;
   }
+  return out;
+}
+
+/**
+ * The placeholder corpus's hashtags, as many as the source had distinct after the
+ * validator's own normalization (taxonomy.ts:300, 516-521): a list the validator
+ * refused for its count is still refused, and an accepted one is still accepted.
+ */
+export function sizedPlaceholderHashtags(source: readonly unknown[], corpus: readonly string[]): string[] {
+  const n = new Set(source.filter((t): t is string => typeof t === "string").map(normalizeHashtag).filter((t) => t.length > 0)).size;
+  const out = corpus.slice(0, n);
+  for (let i = out.length; i < n; i++) out.push(`fixturetag${i + 1}`);
   return out;
 }
