@@ -26,6 +26,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import { connect as netConnect } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -285,13 +286,25 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     const base = `http://127.0.0.1:${port}`;
     try {
       const deadline = Date.now() + 120_000;
+      let lastError = "";
       for (;;) {
         try {
-          if ((await fetch(`${base}/api/healthz`)).ok) break;
-        } catch {
-          /* not listening yet */
+          const res = await fetch(`${base}/api/healthz`);
+          if (res.ok) break;
+          lastError = `healthz answered ${res.status}`;
+        } catch (err) {
+          lastError = String((err as { cause?: unknown }).cause ?? err);
         }
-        if (Date.now() > deadline) throw new Error(`the server did not listen over the fixture:\n${log.slice(-3000)}`);
+        if (Date.now() > deadline) {
+          const accepts = await new Promise<boolean>((done) => {
+            const sock = netConnect({ port, host: "127.0.0.1" }, () => (sock.destroy(), done(true)));
+            sock.on("error", () => done(false));
+          });
+          throw new Error(
+            `the server did not listen over the fixture (logged listening: ${log.includes("Server listening")}; ` +
+              `a raw connect ${accepts ? "succeeds" : "fails"}; last fetch: ${lastError}):\n${log.slice(-3000)}`,
+          );
+        }
         await new Promise((r) => setTimeout(r, 500));
       }
       fs.writeFileSync(path.join(scratch, "boot.log"), log);
