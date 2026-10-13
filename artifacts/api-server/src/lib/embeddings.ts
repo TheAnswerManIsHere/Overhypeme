@@ -2,19 +2,18 @@
  * pgvector embedding utilities using OpenAI text-embedding-3-small (384 dims).
  * Requires OPENAI_API_KEY (a direct OpenAI key — the Replit proxy does not support /embeddings).
  */
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import { db, factsTable } from "@workspace/db";
 import { eq, isNull, sql, and } from "drizzle-orm";
 import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
+import { getEmbeddingsClient } from "./aiClients";
 
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 384;
 
 function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
-  return new OpenAI({ apiKey });
+  return getEmbeddingsClient();
 }
 
 /** Generate a 384-dim embedding for a piece of text. */

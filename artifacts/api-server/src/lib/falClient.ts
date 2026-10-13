@@ -24,8 +24,11 @@
  * state is shared regardless of import path.
  */
 
-import { fal } from "@fal-ai/client";
+import { fal as vendorFal } from "@fal-ai/client";
 import { logger } from "./logger";
+import { aiBackend, recorder } from "./aiClients";
+import { falDouble, falPricingReplay, type FalLike } from "./aiDouble/doubles";
+import { recordingFal, recordFalPricing } from "./aiDouble/recorder";
 
 let configured = false;
 let configuredKey: string | null = null;
@@ -38,6 +41,10 @@ let configuredKey: string | null = null;
  * NSFW classifier short-circuit in memes.ts).
  */
 export function getFalApiKey(): string | null {
+  // Under the recorded double there is no key and none is needed. A non-secret
+  // sentinel lets the gates in front of fal (the NSFW classifier on upload and
+  // meme save) run against the double rather than silently skip.
+  if (aiBackend() === "recorded-double") return FAL_DOUBLE_SENTINEL;
   const k = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
   return k && k.trim() ? k : null;
 }
@@ -48,6 +55,7 @@ export function getFalApiKey(): string | null {
  * an unambiguous failure mode instead of an opaque 401 from fal.ai.
  */
 export function ensureFalConfigured(): void {
+  if (aiBackend() === "recorded-double") return;
   const apiKey = getFalApiKey();
   if (!apiKey) {
     throw new Error(
@@ -55,7 +63,7 @@ export function ensureFalConfigured(): void {
     );
   }
   if (configured && configuredKey === apiKey) return;
-  fal.config({ credentials: apiKey });
+  vendorFal.config({ credentials: apiKey });
   configured = true;
   configuredKey = apiKey;
   if (!configured) {
@@ -71,4 +79,86 @@ export function __resetFalClientForTests(): void {
   configuredKey = null;
 }
 
-export { fal };
+/** What `getFalApiKey()` returns under `AI_BACKEND=recorded-double`. Not a credential. */
+export const FAL_DOUBLE_SENTINEL = "recorded-double";
+
+let recordingClient: FalLike | null = null;
+
+/** The fal client this call should use, resolved per call (design D2). */
+function backendFal(): FalLike {
+  switch (aiBackend()) {
+    case "recorded-double":
+      return falDouble;
+    case "recorder": {
+      if (!recordingClient) {
+        const { allowance, ctx } = recorder();
+        recordingClient = recordingFal(vendorFal as unknown as FalLike, allowance, ctx, falUnitPrice);
+      }
+      return recordingClient;
+    }
+    default:
+      return vendorFal as unknown as FalLike;
+  }
+}
+
+const FAL_PRICING_API = "https://api.fal.ai/v1/models/pricing";
+
+/**
+ * The fal pricing API's answer for one endpoint, through the selected
+ * backend: replayed from its recording under the double (never fetched),
+ * fetched otherwise, and recorded as it is read under the recorder. Null
+ * when it is unavailable; the caller parses the envelope.
+ */
+export async function fetchFalPricing(endpointId: string): Promise<unknown | null> {
+  const backend = aiBackend();
+  if (backend === "recorded-double") {
+    try {
+      return falPricingReplay(endpointId);
+    } catch (err) {
+      logger.warn({ endpointId, err: (err as Error).message }, "[falPricing] no recorded pricing under the AI double");
+      return null;
+    }
+  }
+  const apiKey = getFalApiKey();
+  if (!apiKey) {
+    logger.warn("[falPricing] No FAL API key found — skipping pricing fetch");
+    return null;
+  }
+  const res = await fetch(`${FAL_PRICING_API}?endpoint_id=${encodeURIComponent(endpointId)}`, {
+    headers: { Authorization: `Key ${apiKey}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    logger.warn({ status: res.status, endpointId }, "[falPricing] Pricing API returned non-OK");
+    return null;
+  }
+  const body = (await res.json()) as unknown;
+  if (backend === "recorder") recordFalPricing(endpointId, body, recorder().ctx);
+  return body;
+}
+
+/**
+ * The recorder's price for one call of `endpoint`, from the pricing API.
+ * Only a per-call unit can be reserved per call; anything else is unknown.
+ */
+export async function falUnitPrice(endpoint: string): Promise<number | null> {
+  const body = (await fetchFalPricing(endpoint)) as { prices?: Array<{ endpoint_id: string; unit_price: number; unit?: string }> } | null;
+  const entry = body?.prices?.find((p) => p.endpoint_id === endpoint);
+  if (!entry || !/^(image|images|request|requests)$/i.test(entry.unit ?? "")) return null;
+  return Number(entry.unit_price);
+}
+
+/**
+ * The shared fal client. A forwarding facade: each supported method resolves
+ * the backend when it is invoked, so the selection is made per call, not when
+ * this module loads. Typed as the SDK client so callers are unchanged.
+ */
+export const fal = {
+  subscribe: (endpoint: string, opts: Parameters<FalLike["subscribe"]>[1]) => backendFal().subscribe(endpoint, opts),
+  storage: { upload: (file: Blob, opts?: unknown) => backendFal().storage.upload(file, opts) },
+  queue: {
+    submit: (endpoint: string, opts: Parameters<FalLike["queue"]["submit"]>[1]) => backendFal().queue.submit(endpoint, opts),
+    status: (endpoint: string, opts: Parameters<FalLike["queue"]["status"]>[1]) => backendFal().queue.status(endpoint, opts),
+    result: (endpoint: string, opts: Parameters<FalLike["queue"]["result"]>[1]) => backendFal().queue.result(endpoint, opts),
+  },
+  config: (opts: unknown) => backendFal().config(opts),
+} as unknown as typeof vendorFal;

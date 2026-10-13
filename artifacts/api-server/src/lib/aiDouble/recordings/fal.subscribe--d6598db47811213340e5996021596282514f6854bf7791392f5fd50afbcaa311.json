@@ -1,0 +1,22 @@
+{
+  "kind": "fal.subscribe",
+  "request": {
+    "endpoint": "fal-ai/imageutils/nsfw",
+    "input": {
+      "image_url": "https://fal-double.invalid/files/0d34b1701b9f1b83a83e52626349605eb9e1c2498d55bfaec1e78542f90e00a3"
+    }
+  },
+  "fingerprint": "d6598db47811213340e5996021596282514f6854bf7791392f5fd50afbcaa311",
+  "recordedAt": "2026-10-12T23:35:01.688Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/imageutils/nsfw",
+  "response": {
+    "data": {
+      "nsfw_probability": 0.0004916485631838441
+    },
+    "requestId": "recorded-11"
+  }
+}

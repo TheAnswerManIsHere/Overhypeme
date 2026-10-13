@@ -1,0 +1,128 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 10800,
+    "messages": [
+      {
+        "content": "You are the Overhype.me Visual-concept ideator.\n\nOverhype.me turns a short, wildly-overhyped \"fact\" about a person into a single funny meme image. A human moderator is about to write the \"describe the picture\" brief that drives image generation. Your job is to hand them THREE genuinely distinct starting ideas — different stagings, gags, and framings for the SAME fact — so they can pick one, edit it, or write their own.\n\nYou will receive (in the user message): the fact text, its fixed taxonomy, the render policy, the authored visual strategy for the archetype, visualization examples, and any per-fact cultural references / semantic-entity interpretations. You will NOT receive reference-image, identity, style, or target-engine details on purpose — a picked concept has to work across every render mode (a t2i illustration, a male or female image-to-image edit, a non-human subject). Keep every concept render-mode-agnostic.\n\nProduce a JSON object: { \"concepts\": [ { \"title\", \"whyItWorks\", \"sceneDescription\", \"bubbles\" } x3 ] }. Exactly three concepts; \"bubbles\" is REQUIRED on every concept ([] when it needs none — the normal case).\n\nPer concept:\n- title: a short, scannable label for the idea (e.g. \"Courtroom of melting clocks\").\n- whyItWorks: ONE sentence on why this staging lands the overhype (admin-facing only; never rendered).\n- sceneDescription: the \"describe the picture\" brief — ONE tight paragraph of what is literally in the frame (subject + action + key objects + setting + mood). This is what becomes the render brief, so make it concrete and visual.\n- bubbles: structured speech/thought bubble proposals — [] unless a bubble materially serves the gag. The strongest signal is literal quoted speech or thought IN the fact text: put the exact quote in a bubble ({ type: \"speech\"|\"thought\", entity, text }) instead of describing it. entity is the literal word \"subject\" for the protagonist (NEVER {NAME} or any {token}), or a plain role label (\"the bartender\") for another character. text is the EXACT line to letter (at most 80 characters; shorter is better; {NAME}/pronoun tokens allowed) — for a longer source quote use an exact meaningful excerpt that fits, or no bubble; NEVER paraphrase as if it were the quote. When you propose a bubble, the sceneDescription must NOT describe any balloon, bubble, tail, or the bubble's text — stage only the pose, expression, and clear headroom; the render pipeline draws the balloon. Text on signs/screens/objects is scene content, not a bubble; ironic/title quotation marks are not speech; if the speaker is unclear, propose no bubble.\n\nHard rules for sceneDescription:\n1. DESCRIBE THE PICTURE, NOT THE JOKE. Every clause must map to visible pixels — subject, pose, expression, objects, setting, scale, camera, lighting. BANNED: authorial-intent commentary like \"showcasing the absurdity\", \"emphasizing the humor\", \"comedic effect\".\n2. Refer to the protagonist ONLY with the tokens {NAME} (and {NAME_POSSESSIVE} for the possessive) — never a concrete name. These personalize per meme. Use ONLY {NAME}, {NAME_POSSESSIVE}, and the pronoun tokens; no other {curly} tokens.\n3. Do NOT write identity / reference-image / de-aging / \"same person\" / \"preserve the face\" language, and do NOT name a target engine, aspect ratio, or art style — those are applied later. Describe only the scene.\n4. Keep each sceneDescription under ~1200 characters (it is a brief, not a full prompt).\n5. Make the three concepts genuinely DIFFERENT from each other — vary the setting, the action, and the visual metaphor. Do not submit three rewordings of one idea.\n6. Honor the fixed taxonomy, render policy, and any material cultural references / semantic entities exactly as the render planner would (do not reclassify, do not self-censor beyond the render policy, do not draw real logos or brand marks).\n\nReturn ONLY the JSON object. Do not include any explanation outside it.",
+        "role": "system"
+      },
+      {
+        "content": "Draft 3 distinct Visual concepts for the following fact — different stagings/gags for the SAME fact. The protagonist is written with the {NAME} token; keep that token in every sceneDescription.\nRENDERED FACT TEXT (subject/pronouns already resolved). Inspect the EXACT spelling and capitalization — capitalization is meaningful for visual interpretation:\nfactTextExact: {NAME} once counted to infinity. Twice. The second time {Subj} {did|do} it backwards to check {POSS} work.\nTAXONOMY (FIXED — DO NOT reclassify):\n- primaryArchetype: logic_formal_impossibility\n- subtype: infinity_impossibility\n- modifiers: single_subject_focus, symbolic_abstraction_required, mock_heroic\n- visualLiteralness: symbolic_abstraction\n- visualComplexity: medium\n- overhypeFit: strong\n- adultSuitability: safe\n- taxonomyConfidence: 0.98\nRENDER POLICY (governs how much of the fact's violence/consequences the CORE SCENE depicts — this is the ONLY layer that may suppress; do not self-censor beyond it):\nviolence=ALLOW (strong) — when the fact describes violence, death, weapons, casualties, or destructive aftermath, depict the required action and consequences clearly, INCLUDING the bodies/casualties the fact calls for, without gratuitous gore. Do NOT add your own sanitizing or content-suppression language.\nAUTHORED VISUAL STRATEGY (apply this — do not improvise):\nStrategy block: This fact describes the subject breaking a rule of logic, mathematics, probability, infinity, language, or a formal system. Create a visually clear symbolic scene where an impossible formal rule appears to bend, collapse, or resolve around the subject.\n\nThe image should make the formal impossibility feel physically real. Use cinematic metaphors such as impossible geometry, paradoxical objects, infinite loops, broken rule systems, impossible game states, collapsing probability, supporting symbols, or reality behaving like a solved equation.\n\nThe subject should be the star of the image and should appear calm, brilliant, legendary, and in control of the impossible logic. The visual should not feel like a generic genius portrait. It should show the specific formal impossibility being defeated.\n\nWhen the fact is too abstract to show literally, choose the strongest visual metaphor that makes the impossibility intuitive. Concise supporting numbers, symbols, equations, scoreboards, or UI fragments may be used when they make the impossible rule easier and funnier to understand.\nCore visual goal: Make it obvious that the subject has broken a formal rule.\ni2i default: Use the reference image as the facial identity source. Preserve the reference person's face and recognizability strongly.\n\nUnless preservePhysique is enabled, exaggerate the subject's outfit, posture, aura, intellect, authority, and heroic presence as needed to make them feel like the calm source of the impossible logic-breaking event.\nSubtype guidance for infinity_impossibility: Visualize completed infinity, infinite loops, or impossible scale through cinematic metaphor.\nVisualization examples:\n  1. fact: \"David counted to infinity. Twice.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  2. fact: \"David's PIN is the last four digits of pi.\"\n     visualApproach: Showing four crisp random digits (e.g. 7319) is encouraged — it makes the joke concrete. Do not render the full fact text or long streams of pi digits.\n     whyItWorks: (authoring pending)\n     avoid: Do not render the full fact text. Do not render long streams of pi digits.\n  3. fact: \"David can divide by zero.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  4. fact: \"David can win Connect Four in three moves.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  5. fact: \"David rolled a seven on a six-sided die.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\n  6. fact: \"David drew a square circle.\"\n     visualApproach: (authoring pending)\n     whyItWorks: (authoring pending)\n     avoid: (authoring pending)\nLocked rule: Turn the formal impossibility into a physical visual metaphor, and use concise supporting numbers, symbols, or text when they make the impossible rule easier and funnier to understand.\nPER-FACT CULTURAL REFERENCES (override example annotations for THIS fact):\n  (no cultural references — render the joke from the literal text + taxonomy alone)\nSEMANTIC ENTITY INTERPRETATION (hard visual context — DO NOT override; treat as the locked meaning of the surface term in this fact):\n  1. surfaceText=\"infinity\", entityKind=abstract_concept, visualReferent=\"an endless mathematical sequence or infinity symbol represented with limitless numbers\", capitalizationSignal=lowercase_common_noun, materiallyAffectsVisualPrompt=true, requiresAdminReview=false, confidence=0.97, notes=\"The joke depends on infinity as an unfinishable mathematical concept, so it should be visualized symbolically rather than as a physical object.\"\nOUTPUT CONTRACT:\n- Return EXACTLY 3 concepts in \"concepts\".\n- Each concept: { title, whyItWorks, sceneDescription, bubbles }, with title/whyItWorks/sceneDescription non-empty. \"bubbles\" is REQUIRED — [] when the concept needs none (the normal case).\n- sceneDescription: ONE tight paragraph, describe-the-picture (visible pixels only), referring to the protagonist ONLY as {NAME} / {NAME_POSSESSIVE} (+ pronoun tokens). No identity/reference-image/style/target-engine language.\n- bubbles: propose a speech/thought bubble ONLY when it materially serves the gag — above all when the fact contains literal quoted speech or thought (put the exact quote in a bubble instead of describing it). Each bubble: { type: \"speech\"|\"thought\", entity, text }. entity is the literal word \"subject\" for the protagonist (NEVER {NAME} or any {token}) or a plain role label for another character (\"the bartender\"). text is the EXACT line to letter, at most 80 characters (shorter is better; {NAME}/pronoun tokens allowed). If a source quote is longer, use an exact meaningful excerpt that fits, or propose no bubble — NEVER paraphrase as if it were the quote. At most 4 bubbles.\n- When you propose bubbles, the sceneDescription must NOT describe any balloon, bubble, tail, or the bubble's text — stage only the pose, expression, and clear headroom for it. Text on signs/screens/objects is scene content, not a bubble; quotation marks used ironically or as a title are not speech; if you cannot attribute a quote to a clear speaker, propose no bubble.\n- Make the three concepts genuinely different from each other.\n- Return ONLY the JSON object.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "response_format": {
+      "json_schema": {
+        "name": "visual_concepts",
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "concepts": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "bubbles": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "entity": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "speech",
+                            "thought"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "entity",
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "sceneDescription": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "whyItWorks": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "whyItWorks",
+                  "sceneDescription",
+                  "bubbles"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "concepts"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    }
+  },
+  "fingerprint": "93d8039e25e5ba20165e80ad41313fb32f6d3157936bab74545509797cab9df3",
+  "recordedAt": "2026-10-12T23:32:51.585Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-5.5",
+  "response": {
+    "id": "recorded-1",
+    "object": "chat.completion",
+    "created": 1791847955,
+    "model": "gpt-5.5-2026-04-23",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"concepts\":[{\"title\":\"Cosmic counting ledger\",\"whyItWorks\":\"It turns the unfinishable sequence into a physical audit trail that {NAME} has already completed twice, including the backwards verification pass.\",\"sceneDescription\":\"{NAME} sits calmly at a colossal celestial desk floating in a dark starfield, wearing an exaggerated formal counting-officer outfit, one hand resting on a glowing quill and the other checking a giant ledger. Two endless ribbons of tiny numbers stream through impossible portals: the left ribbon runs 1, 2, 3 toward a huge ∞ symbol and is stamped “PASS 1 COMPLETE,” while the right ribbon pours backward from ∞ through huge descending numerals and is covered in neat red check marks. A broken infinity symbol hangs behind the desk like a conquered trophy, and loose equations orbit {NAME} in a tidy halo of controlled mathematical chaos.\",\"bubbles\":[]},{\"title\":\"Backward infinity victory lap\",\"whyItWorks\":\"A sports finish-line setup makes “counted to infinity twice” instantly readable while the reverse-facing second lap sells the backwards check.\",\"sceneDescription\":\"{NAME} strides backward across the finish line of an impossible racetrack shaped like a glowing infinity symbol, calm and heroic while confetti made of numbers rains down. The track loops into the horizon and also returns behind {NAME} in a paradoxical figure-eight, with giant mile markers showing “... 5, 4, 3, 2, 1” in reverse order along the lane. A massive scoreboard above the empty stadium reads “LAP 1: ∞ COMPLETE” and “LAP 2: BACKWARD CHECK COMPLETE,” both with check marks, while mathematician silhouettes in the stands hold calculators and stare in disbelief.\",\"bubbles\":[]},{\"title\":\"Infinity under audit\",\"whyItWorks\":\"Framing infinity as a defeated bureaucratic system lets {NAME} look like the only person who can calmly verify an impossible amount of work.\",\"sceneDescription\":\"{NAME} stands in the center of a surreal mathematics audit room, holding a clipboard beside a towering mechanical counter whose display reads “∞” with two bright completion lights. On one side, an endless conveyor belt carries numbered tiles upward from 1 into a glowing portal; on the other side, a matching belt brings the same tiles back down in reverse order, each one receiving a crisp green check mark from an automated stamp. The walls are covered with chalk equations bending around {NAME_POSSESSIVE} feet like obedient paths, and a toppled sign labeled “UNCOUNTABLE” lies cracked on the floor.\",\"bubbles\":[]}]}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 2483,
+      "completion_tokens": 1052,
+      "total_tokens": 3535,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 512,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

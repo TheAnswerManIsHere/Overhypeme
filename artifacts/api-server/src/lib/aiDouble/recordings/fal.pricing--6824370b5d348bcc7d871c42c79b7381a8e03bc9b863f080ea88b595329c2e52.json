@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "fal-ai/bytedance/seedance/v1.5/pro/text-to-video"
+  },
+  "fingerprint": "6824370b5d348bcc7d871c42c79b7381a8e03bc9b863f080ea88b595329c2e52",
+  "recordedAt": "2026-10-13T02:40:40.530Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/bytedance/seedance/v1.5/pro/text-to-video",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "fal-ai/bytedance/seedance/v1.5/pro/text-to-video",
+        "unit_price": 1.2,
+        "unit": "1m tokens",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

@@ -5,45 +5,52 @@
  *
  * Runs against a dev stack whose API was started with the local storage double
  * (`STORAGE_BACKEND=local-double`, `STORAGE_DOUBLE_DIR=<dir>`), so nothing
- * reaches the real bucket. The image is synthetic, drawn in the page. Upload
- * goes through the same endpoint and the same browser credentials the meme
- * builder uses; reads go through the real access layer (`objectAccess.ts`).
+ * reaches the real bucket, and the recorded AI double (`AI_BACKEND=recorded-double`),
+ * so the upload's NSFW classification is answered from a recording instead
+ * of being skipped or reaching fal. The image is the committed baseline
+ * fixture (`artifacts/api-server/scripts/fixtures/ai-baseline/photo.jpg`): the
+ * recording was made from those exact bytes, so the replayed request matches.
+ * Upload goes through the same endpoint and the same browser credentials the
+ * meme builder uses; reads go through the real access layer (`objectAccess.ts`).
  *
  * An acceptance journey: it does not run in the per-PR gate (plan, *Must Not
  * Change*); increment 6 adds it to the on-demand acceptance run.
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { FREE_ACCOUNT, PAID_ACCOUNT, TEST_ACCOUNT_PASSWORD, csrfToken, signInThroughForm } from "./helpers/testAccounts";
 
-/** Draw a synthetic JPEG in the page and upload it as the meme builder does. */
-async function uploadSyntheticPhoto(page: Page): Promise<{ status: number; body: Record<string, unknown> }> {
+const FIXTURE_PHOTO = fs
+  .readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../api-server/scripts/fixtures/ai-baseline/photo.jpg"),
+  )
+  .toString("base64");
+
+/** Upload the baseline fixture photo from the page, as the meme builder does. */
+async function uploadFixturePhoto(page: Page): Promise<{ status: number; body: Record<string, unknown> }> {
   const csrf = await csrfToken(page);
-  return page.evaluate(async (csrf) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 640;
-    canvas.height = 480;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#3a6";
-    ctx.fillRect(0, 0, 640, 480);
-    ctx.fillStyle = "#fff";
-    ctx.font = "48px sans-serif";
-    ctx.fillText("journey 7", 160, 250);
-    const blob: Blob = await new Promise((resolve) => canvas.toBlob((b) => resolve(b!), "image/jpeg", 0.9));
-    const response = await fetch("/api/storage/upload-meme", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "image/jpeg", "X-CSRF-Token": csrf },
-      body: blob,
-    });
-    return { status: response.status, body: (await response.json()) as Record<string, unknown> };
-  }, csrf);
+  return page.evaluate(
+    async ({ csrf, photo }) => {
+      const bytes = Uint8Array.from(atob(photo), (c) => c.charCodeAt(0));
+      const response = await fetch("/api/storage/upload-meme", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "image/jpeg", "X-CSRF-Token": csrf },
+        body: new Blob([bytes], { type: "image/jpeg" }),
+      });
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+    },
+    { csrf, photo: FIXTURE_PHOTO },
+  );
 }
 
 test("a user's uploaded photo is stored, readable by its owner, and by nobody else", async ({ page, browser }) => {
   await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
 
-  const upload = await uploadSyntheticPhoto(page);
+  const upload = await uploadFixturePhoto(page);
   expect(upload.status, JSON.stringify(upload.body)).toBe(200);
   const objectPath = upload.body["objectPath"] as string;
   expect(objectPath).toMatch(/^\/objects\/uploads\//);
