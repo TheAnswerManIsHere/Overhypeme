@@ -27,7 +27,7 @@
 import { fal as vendorFal } from "@fal-ai/client";
 import { logger } from "./logger";
 import { aiBackend, recorder } from "./aiClients";
-import { falDouble, type FalLike } from "./aiDouble/doubles";
+import { falDouble, falPricingReplay, type FalLike } from "./aiDouble/doubles";
 import { recordingFal, recordFalPricing } from "./aiDouble/recorder";
 
 let configured = false;
@@ -92,7 +92,7 @@ function backendFal(): FalLike {
     case "recorder": {
       if (!recordingClient) {
         const { allowance, ctx } = recorder();
-        recordingClient = recordingFal(vendorFal as unknown as FalLike, allowance, ctx, (endpoint) => falUnitPrice(endpoint, ctx));
+        recordingClient = recordingFal(vendorFal as unknown as FalLike, allowance, ctx, falUnitPrice);
       }
       return recordingClient;
     }
@@ -101,17 +101,48 @@ function backendFal(): FalLike {
   }
 }
 
-/** The recorder's price source: fal's pricing API (free), recorded as it is read. */
-export async function falUnitPrice(endpoint: string, ctx: { clients: Record<string, string> }): Promise<number | null> {
-  const key = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
-  const res = await fetch(`https://api.fal.ai/v1/models/pricing?endpoint_id=${encodeURIComponent(endpoint)}`, {
-    headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
+const FAL_PRICING_API = "https://api.fal.ai/v1/models/pricing";
+
+/**
+ * The fal pricing API's answer for one endpoint, through the selected
+ * backend: replayed from its recording under the double (never fetched),
+ * fetched otherwise, and recorded as it is read under the recorder. Null
+ * when it is unavailable; the caller parses the envelope.
+ */
+export async function fetchFalPricing(endpointId: string): Promise<unknown | null> {
+  const backend = aiBackend();
+  if (backend === "recorded-double") {
+    try {
+      return falPricingReplay(endpointId);
+    } catch (err) {
+      logger.warn({ endpointId, err: (err as Error).message }, "[falPricing] no recorded pricing under the AI double");
+      return null;
+    }
+  }
+  const apiKey = getFalApiKey();
+  if (!apiKey) {
+    logger.warn("[falPricing] No FAL API key found — skipping pricing fetch");
+    return null;
+  }
+  const res = await fetch(`${FAL_PRICING_API}?endpoint_id=${encodeURIComponent(endpointId)}`, {
+    headers: { Authorization: `Key ${apiKey}`, "Content-Type": "application/json" },
   });
-  if (!res.ok) return null;
-  const body = (await res.json()) as { prices?: Array<{ endpoint_id: string; unit_price: number; unit?: string }> };
-  recordFalPricing(endpoint, body, ctx);
-  const entry = body.prices?.find((p) => p.endpoint_id === endpoint);
-  // Only a per-call unit can be reserved per call; anything else is an unknown price.
+  if (!res.ok) {
+    logger.warn({ status: res.status, endpointId }, "[falPricing] Pricing API returned non-OK");
+    return null;
+  }
+  const body = (await res.json()) as unknown;
+  if (backend === "recorder") recordFalPricing(endpointId, body, recorder().ctx);
+  return body;
+}
+
+/**
+ * The recorder's price for one call of `endpoint`, from the pricing API.
+ * Only a per-call unit can be reserved per call; anything else is unknown.
+ */
+export async function falUnitPrice(endpoint: string): Promise<number | null> {
+  const body = (await fetchFalPricing(endpoint)) as { prices?: Array<{ endpoint_id: string; unit_price: number; unit?: string }> } | null;
+  const entry = body?.prices?.find((p) => p.endpoint_id === endpoint);
   if (!entry || !/^(image|images|request|requests)$/i.test(entry.unit ?? "")) return null;
   return Number(entry.unit_price);
 }

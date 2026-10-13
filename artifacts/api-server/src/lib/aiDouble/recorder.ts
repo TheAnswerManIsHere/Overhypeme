@@ -25,7 +25,6 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import sharp from "sharp";
 
 import { fingerprint, normaliseRequest } from "./fingerprint";
@@ -238,11 +237,11 @@ export function recordingFal(
 ): FalLike {
   return {
     async subscribe(endpoint, opts) {
-      const prior = alreadyRecorded("fal.subscribe", endpoint, falSubscribeRequest(endpoint, opts));
+      const request = falSubscribeRequest(endpoint, opts);
+      const prior = alreadyRecorded("fal.subscribe", endpoint, request);
       if (prior !== undefined) return prior;
       const unit = await falUnitPrice(endpoint);
       const line = allowance.reserve("fal.subscribe", endpoint, unit === null ? null : unit * FAL_SUBMISSION_ATTEMPTS);
-      const request = falSubscribeRequest(endpoint, opts);
       try {
         const result = await real.subscribe(endpoint, opts);
         // Usage is one billed generation per completed call; the retries the SDK may have made are not observable.
@@ -323,14 +322,3 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
     },
   } as unknown as T;
 }
-
-/** A short digest of what the run spent, for the launcher's report. */
-export function ledgerSummary(allowance: Allowance): string {
-  const lines = allowance.lines.map(
-    (l) => `${l.outcome.padEnd(8)} ${l.kind.padEnd(20)} ${l.target.padEnd(32)} reserved $${l.reservedUsd.toFixed(4)} actual ${l.actualUsd === null ? "unknown" : `$${l.actualUsd.toFixed(4)}`}`,
-  );
-  lines.push(`committed $${allowance.committed.toFixed(4)} of $${allowance.limitUsd.toFixed(2)}`);
-  return lines.join("\n");
-}
-
-export const __recorderInternals = { urlSubstitutes, sha: (b: Buffer) => createHash("sha256").update(b).digest("hex") };

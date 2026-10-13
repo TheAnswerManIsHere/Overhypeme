@@ -13,19 +13,11 @@ import { falPricingCacheTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
-const FAL_PRICING_API = "https://api.fal.ai/v1/models/pricing";
 const CACHE_STALE_MS = 60 * 60 * 1000; // 1 hour
 
-// Pulls from the central falClient module so the env-var lookup matches
-// every other fal-calling code path.
-import { getFalApiKey as getFalApiKeyFromClient } from "./falClient";
-import { aiBackend, recorder } from "./aiClients";
-import { falPricingReplay } from "./aiDouble/doubles";
-import { recordFalPricing } from "./aiDouble/recorder";
-
-function getFalApiKey(): string | undefined {
-  return getFalApiKeyFromClient() ?? undefined;
-}
+// The fetch itself lives at the fal seam, so the key lookup and the choice of
+// backend (vendor, recorded double, recorder) match every other fal call.
+import { fetchFalPricing } from "./falClient";
 
 interface FalPricingEntry {
   endpoint_id: string;
@@ -35,41 +27,10 @@ interface FalPricingEntry {
 }
 
 async function fetchPricingFromApi(endpointId: string): Promise<FalPricingEntry | null> {
-  const apiKey = getFalApiKey();
-  if (!apiKey) {
-    logger.warn("[falPricing] No FAL API key found — skipping pricing fetch");
-    return null;
-  }
-
-  const url = `${FAL_PRICING_API}?endpoint_id=${encodeURIComponent(endpointId)}`;
   try {
-    let body: unknown;
-    if (aiBackend() === "recorded-double") {
-      // The warm-up never reaches out under the double: a recorded endpoint
-      // answers from its recording, any other is a visible miss (null).
-      try {
-        body = falPricingReplay(endpointId);
-      } catch (err) {
-        logger.warn({ endpointId, err: (err as Error).message }, "[falPricing] no recorded pricing under the AI double");
-        return null;
-      }
-    } else {
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Key ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!res.ok) {
-        logger.warn({ status: res.status, endpointId }, "[falPricing] Pricing API returned non-OK");
-        return null;
-      }
-
-      body = await res.json() as unknown;
-      // The recorder keeps what the pricing API answered, so the double can replay it.
-      if (aiBackend() === "recorder") recordFalPricing(endpointId, body, recorder().ctx);
-    }
+    // Through the fal seam, which picks the backend (vendor, recorded double, recorder).
+    const body = await fetchFalPricing(endpointId);
+    if (body === null) return null;
 
     // Handle various response envelope shapes from fal.ai
     let entries: FalPricingEntry[] = [];

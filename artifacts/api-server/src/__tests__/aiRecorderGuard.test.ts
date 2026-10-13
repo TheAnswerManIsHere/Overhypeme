@@ -42,9 +42,9 @@ describe("AI recorder launch refusals", () => {
     assert.match(recorderLaunchRefusals({ ...OK, OPENAI_API_KEY: "" }).join(), /OPENAI_API_KEY/);
   });
 
-  it("refuses any credential outside the AI baseline", () => {
-    for (const name of ["STRIPE_SECRET_KEY_TEST", "STRIPE_ACCOUNT_ID_TEST", "RESEND_API_KEY", "PEXELS_API_KEY", "ARACHNID_SHIELD_PASSWORD"]) {
-      assert.match(recorderLaunchRefusals({ ...OK, [name]: "x" }).join(), new RegExp(name), name);
+  it("refuses any variable outside its allowlist, a vendor credential above all", () => {
+    for (const name of ["STRIPE_SECRET_KEY_TEST", "STRIPE_ACCOUNT_ID_TEST", "RESEND_API_KEY", "PEXELS_API_KEY", "ARACHNID_SHIELD_PASSWORD", "SOME_NEW_VENDOR_KEY"]) {
+      assert.match(recorderLaunchRefusals({ ...OK, [name]: "x" }).join(), new RegExp(`allowlist are set \\(${name}\\)`), name);
     }
   });
 });

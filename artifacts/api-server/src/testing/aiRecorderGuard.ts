@@ -14,28 +14,39 @@
  * - `AI_BACKEND=recorder` (the selection rule then demands both vendor keys);
  * - the local storage double, so no object reaches the real bucket;
  * - an absolute recordings directory and a positive spending allowance;
- * - no credential for any vendor outside the AI baseline.
+ * - nothing outside a named allowlist, so no credential for any vendor
+ *   outside the AI baseline.
  *
  * The marked-test-database rule is the launcher's, since it reads the database.
  */
 import { doubleSelectionRefusals } from "../lib/doubleSelection";
 import { isProductionEnv } from "../lib/env";
 
-/** Credentials the recording run must not carry: everything the baseline is not recording. */
-export const FOREIGN_CREDENTIALS = [
-  "STRIPE_SECRET_KEY",
-  "STRIPE_SECRET_KEY_TEST",
-  "STRIPE_SECRET_KEY_LIVE",
-  "STRIPE_WEBHOOK_SECRET",
-  "RESEND_API_KEY",
-  "RESEND_API_KEY_PROD",
-  "RESEND_API_KEY_DEV",
-  "PEXELS_API_KEY",
-  "HCAPTCHA_SECRET",
-  "ARACHNID_SHIELD_USERNAME",
-  "ARACHNID_SHIELD_PASSWORD",
-  "NCMEC_USERNAME",
-  "NCMEC_PASSWORD",
+/**
+ * Every variable the recording server may receive. `scripts/record-ai-baseline.ts`
+ * constructs exactly this environment; anything else — a credential for a
+ * vendor outside the AI baseline above all — is refused, so a new vendor's key
+ * is excluded without anyone having to list it.
+ */
+export const RECORDER_ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "DATABASE_URL",
+  "NODE_ENV",
+  "PORT",
+  "ENABLE_DEV_ADMIN_LOGIN",
+  "CRON_SECRET",
+  "STORAGE_BACKEND",
+  "STORAGE_DOUBLE_DIR",
+  "PRIVATE_OBJECT_DIR",
+  "PUBLIC_OBJECT_SEARCH_PATHS",
+  "AI_BACKEND",
+  "AI_RECORDINGS_DIR",
+  "AI_RECORDER_ALLOWANCE_USD",
+  "AI_RECORDER_LEDGER",
+  "FAL_AI_API_KEY",
+  "FAL_KEY",
+  "OPENAI_API_KEY",
 ];
 
 export function recorderLaunchRefusals(env: NodeJS.ProcessEnv): string[] {
@@ -45,11 +56,10 @@ export function recorderLaunchRefusals(env: NodeJS.ProcessEnv): string[] {
   if ((env.STORAGE_BACKEND ?? "").trim() !== "local-double") refusals.push("STORAGE_BACKEND must be 'local-double' so nothing reaches the real bucket");
   if (!(env.AI_RECORDINGS_DIR ?? "").startsWith("/")) refusals.push("AI_RECORDINGS_DIR must be an absolute directory");
   if (!(Number(env.AI_RECORDER_ALLOWANCE_USD) > 0)) refusals.push("AI_RECORDER_ALLOWANCE_USD must be a positive dollar amount");
-  const foreign = Object.keys(env).filter(
-    (name) => (env[name] ?? "").trim() !== "" && (FOREIGN_CREDENTIALS.includes(name) || /^STRIPE_/.test(name)),
-  );
-  if (foreign.length > 0) refusals.push(`credentials outside the AI baseline are set (${foreign.join(", ")}); the launcher's environment must not inherit them`);
+  const unexpected = Object.keys(env).filter((name) => !RECORDER_ENV_ALLOWLIST.includes(name));
+  if (unexpected.length > 0) {
+    refusals.push(`variables outside the recorder's allowlist are set (${unexpected.join(", ")}); its environment is constructed, never inherited`);
+  }
   refusals.push(...doubleSelectionRefusals(env));
   return refusals;
 }
-

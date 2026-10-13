@@ -35,7 +35,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { testDatabaseRefusal } from "@workspace/db/test-database";
+import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-database";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = path.resolve(API_ROOT, "../..");
@@ -88,7 +88,15 @@ function pnpm(args: string[], env: NodeJS.ProcessEnv): void {
 }
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "ai-baseline-"));
-const port = 20000 + Math.floor(Math.random() * 20000);
+/** A free local port, chosen by the kernel. */
+const port = await new Promise<number>((resolve, reject) => {
+  const probe = net.createServer();
+  probe.on("error", reject);
+  probe.listen(0, "127.0.0.1", () => {
+    const { port: free } = probe.address() as net.AddressInfo;
+    probe.close(() => resolve(free));
+  });
+});
 let server: ChildProcess | null = null;
 
 function cleanUp(): void {
@@ -155,7 +163,7 @@ async function recordVendorErrors(ledger: string, limit: string, fal: string, op
 let exitCode = 0;
 try {
   psql(control, `CREATE DATABASE "${runDb}"`);
-  psql(control, `ALTER DATABASE "${runDb}" SET overhype.test_database = 'yes'`);
+  psql(control, markTestDatabaseSql(`"${runDb}"`));
   psql(runUrl, "CREATE EXTENSION IF NOT EXISTS vector");
 
   const toolEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: runUrl.href, NODE_ENV: "development" };

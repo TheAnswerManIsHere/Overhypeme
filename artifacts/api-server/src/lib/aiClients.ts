@@ -64,31 +64,26 @@ export function recorder(): { allowance: Allowance; ctx: RecorderContext; openai
   return recorderState;
 }
 
+/** The double or the recorder when one is selected, otherwise the vendor client `real` builds. */
+function openaiFor(real: () => OpenAI): OpenAI {
+  const backend = aiBackend();
+  if (backend === "recorded-double") return openaiDouble();
+  if (backend === "recorder") return recorder().openai;
+  return real();
+}
+
 /** The client for chat completions and the Responses API. */
 export function getOpenAIClient(): OpenAI {
-  switch (aiBackend()) {
-    case "recorded-double":
-      return openaiDouble();
-    case "recorder":
-      return recorder().openai;
-    default:
-      // The integration package resolves its own copy of `openai` (a different
-      // zod peer), so the class identity differs while the surface is the same.
-      return getVendorOpenAIClient() as unknown as OpenAI;
-  }
+  // The integration package resolves its own copy of `openai` (a different
+  // zod peer), so the class identity differs while the surface is the same.
+  return openaiFor(() => getVendorOpenAIClient() as unknown as OpenAI);
 }
 
 /** The client for embeddings (a direct OpenAI key; the Replit proxy has no /embeddings). */
 export function getEmbeddingsClient(): OpenAI {
-  switch (aiBackend()) {
-    case "recorded-double":
-      return openaiDouble();
-    case "recorder":
-      return recorder().openai;
-    default: {
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
-      return new OpenAI({ apiKey });
-    }
-  }
+  return openaiFor(() => {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+    return new OpenAI({ apiKey });
+  });
 }
