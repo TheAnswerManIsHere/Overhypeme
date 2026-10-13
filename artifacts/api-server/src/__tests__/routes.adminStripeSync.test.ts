@@ -36,18 +36,12 @@ import {
   __resetVerificationStateForTests,
   __setAccountRetrieverForTests,
 } from "../lib/stripeAccountGuard.js";
+import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv } from "./helpers/stripeGuardHarness.js";
 import { invalidateStripeSync } from "../lib/stripeClient.js";
 
 
 const USER_PREFIX = "tadminstrsync-";
 
-// Minimal env so dynamic imports of stripeClient don't throw on module load.
-process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";
-process.env.STRIPE_PUBLISHABLE_KEY_TEST = process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? "pk_test_dummy";
-// The account guard sits in front of every client construction, so the route
-// under test cannot reach its lock check unless this environment declares an
-// expected account and the account read is stubbed to match it.
-process.env.STRIPE_ACCOUNT_ID_TEST = process.env.STRIPE_ACCOUNT_ID_TEST ?? "acct_admin_sync_test";
 let restoreRetriever: (() => void) | null = null;
 
 function makeApp(): Express {
@@ -83,6 +77,32 @@ async function cleanup() {
 
 let adminSid: string;
 let userSid: string;
+
+// Everything in this file is scoped inside ONE describe, deliberately.
+// `node --test` runs with `--test-isolation=none`, so a hook declared at a
+// file's top level attaches to the ROOT suite and runs around every test in the
+// process. The STRIPE_* values this file needs are set in that suite's `before`
+// and restored in its `after`, for the same reason: set at file load, they were
+// seen by every other suite and never put back.
+let stripeEnvAtSuiteStart: Record<string, string | undefined> = {};
+
+describe("admin Stripe sync routes", () => {
+let restoreStripeEnv: (() => void) | null = null;
+
+before(() => {
+  stripeEnvAtSuiteStart = snapshotStripeEnv();
+  restoreStripeEnv = clearStripeEnv();
+  process.env.STRIPE_SECRET_KEY_TEST = "sk_test_dummy";
+  process.env.STRIPE_PUBLISHABLE_KEY_TEST = "pk_test_dummy";
+  // The account guard sits in front of every client construction, so the route
+  // under test cannot reach its lock check unless this environment declares an
+  // expected account and the account read is stubbed to match it.
+  process.env.STRIPE_ACCOUNT_ID_TEST = "acct_admin_sync_test";
+});
+after(() => {
+  restoreStripeEnv?.();
+  restoreStripeEnv = null;
+});
 
 before(async () => {
   restoreRetriever = __setAccountRetrieverForTests(async () => process.env.STRIPE_ACCOUNT_ID_TEST!);
@@ -175,3 +195,6 @@ describe("GET /admin/stripe/sync/status — auth", () => {
     assert.equal(res.body.error, "admin_required");
   });
 });
+});
+
+describeStripeEnvRestored("the admin Stripe sync suite", () => stripeEnvAtSuiteStart);

@@ -60,6 +60,17 @@ the async-status reference implementation, and the shared modules a reviewer
 should know. One document, routed from here and from `AGENTS.md`, because the
 rules that dereference it live in both cores.
 
+## Pre-launch: no disclosure gating
+
+Until the product has launched, has real revenue and is at risk of anyone
+caring, the disclosure check and the private path built on it are **not
+applied here to security details**. Those go to the public path as normal,
+and no session spends tokens on leak prevention. Actual secrets and private
+customer data are still never public. Then David makes the repo private or
+adds a private security repo, and the check comes back on (David, 2026-10-12;
+[`decisions.md`](docs/ai-context/decisions.md)). `AGENTS.md` carries the
+same rule for every other agent.
+
 ## Environment
 
 - **The Repl tracks `main`**; how its git pane, checkpoints and direct push

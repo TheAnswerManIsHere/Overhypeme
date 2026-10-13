@@ -399,16 +399,16 @@ export function stopStripeVerificationRetry(): void {
  * waiting on a real interval.
  */
 export async function runStripeVerificationRetryOnce(): Promise<void> {
-  // Cheap skip first, on the cached mode. A mode whose refusal is deterministic
-  // cannot change answer without an environment change, so re-deriving it every
-  // 30 seconds for the life of the process — in every autoscale instance — buys
-  // nothing, and the strict read that would tell us the mode is itself an
-  // uncached query. `bustConfigCache()` runs on the toggle, so a mode change
-  // still reaches this read promptly and recovery-by-toggle keeps working; that
-  // is why the timer is left ARMED rather than stopped here.
-  const { isLiveMode } = await import("./stripeClient.js");
-  if (deterministicallyRefusedModes.has((await isLiveMode()) ? "live" : "test")) return;
-
+  // The mode is read STRICTLY, every pass, before anything is skipped. A mode
+  // whose refusal is deterministic cannot change answer without an environment
+  // change, so it is skipped below — but only once the stored mode is known to
+  // be that mode. This pass used to skip first on the lenient cached read, to
+  // save the row read: `bustConfigCache()` runs only in the process that made a
+  // toggle, so after a toggle committed by ANOTHER instance this process's cache
+  // still named the refused mode, and every pass returned early until the cache
+  // expired (#577 harvest, deferred gap 2). One uncached row read per retry
+  // interval, only while the loop is armed, is the cost of reading the truth.
+  // The timer stays ARMED on a refused mode so a toggle away can still recover.
   let liveMode: boolean;
   try {
     liveMode = await readStripeLiveModeStrict();
