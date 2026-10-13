@@ -1,0 +1,64 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_tokens": 128,
+    "messages": [
+      {
+        "content": "You generate discovery hashtags for a short humorous \"fact\" about a person. Return ONLY valid JSON of the form {\"hashtags\": [\"tag1\", \"tag2\", ...]}. Provide 3-6 lowercase, single-word, alphanumeric tags that describe the fact's TOPIC or THEME so people can find it (e.g. strength, coffee, legendary). The person's name shown in the fact is a placeholder for whoever the meme is about — never tag the name. Never use the app name (overhype/overhypeme). No '#', no spaces, no punctuation, no duplicates.",
+        "role": "system"
+      },
+      {
+        "content": "Fact:\n\n\"Alex once counted to infinity. Twice. The second time They do it backwards to check their work.\"",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-4o-mini",
+    "response_format": {
+      "type": "json_object"
+    },
+    "temperature": 0.3
+  },
+  "fingerprint": "51743b87eb9f60a0381f9bd61eb63c10deab930d62af7e98dbee68347b17b4eb",
+  "recordedAt": "2026-10-13T02:34:13.661Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-4o-mini",
+  "response": {
+    "id": "recorded-1",
+    "object": "chat.completion",
+    "created": 1791858853,
+    "model": "gpt-4o-mini-2024-07-18",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"hashtags\":[\"humor\",\"infinity\",\"counting\",\"funny\",\"quirky\"]}",
+          "refusal": null,
+          "annotations": []
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 156,
+      "completion_tokens": 19,
+      "total_tokens": 175,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": "fp_cb0ffbf2d7"
+  }
+}

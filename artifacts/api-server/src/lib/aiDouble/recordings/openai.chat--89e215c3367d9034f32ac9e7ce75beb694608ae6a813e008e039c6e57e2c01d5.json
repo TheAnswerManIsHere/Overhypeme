@@ -6,7 +6,7 @@
     "model": "gpt-5.4-mini"
   },
   "fingerprint": "89e215c3367d9034f32ac9e7ce75beb694608ae6a813e008e039c6e57e2c01d5",
-  "recordedAt": "2026-10-12T23:35:07.789Z",
+  "recordedAt": "2026-10-13T02:41:20.580Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

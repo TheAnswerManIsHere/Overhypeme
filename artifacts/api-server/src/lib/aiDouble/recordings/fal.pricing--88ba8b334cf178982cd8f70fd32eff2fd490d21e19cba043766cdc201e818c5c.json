@@ -4,7 +4,7 @@
     "endpoint": "fal-ai/veo3.1/lite/image-to-video"
   },
   "fingerprint": "88ba8b334cf178982cd8f70fd32eff2fd490d21e19cba043766cdc201e818c5c",
-  "recordedAt": "2026-10-12T23:32:26.417Z",
+  "recordedAt": "2026-10-13T02:40:40.868Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

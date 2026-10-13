@@ -6,7 +6,7 @@
     "sha256": "ff9f02d6c8de0fc47ffc46076077dd0f0d9840d5b7ea56be6adb991e90e77b1c"
   },
   "fingerprint": "547b488a5c70d76877e397da4ef8156b330ccc360cb4f8f378ab03cc4a2c2a01",
-  "recordedAt": "2026-10-12T23:35:02.287Z",
+  "recordedAt": "2026-10-13T02:41:16.935Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

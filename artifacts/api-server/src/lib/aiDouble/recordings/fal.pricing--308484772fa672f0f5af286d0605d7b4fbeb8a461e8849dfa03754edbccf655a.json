@@ -4,7 +4,7 @@
     "endpoint": "fal-ai/flux-pulid"
   },
   "fingerprint": "308484772fa672f0f5af286d0605d7b4fbeb8a461e8849dfa03754edbccf655a",
-  "recordedAt": "2026-10-12T23:32:25.955Z",
+  "recordedAt": "2026-10-13T02:40:40.343Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

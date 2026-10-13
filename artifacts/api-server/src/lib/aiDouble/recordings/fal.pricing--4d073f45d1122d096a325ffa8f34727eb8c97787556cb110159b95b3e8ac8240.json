@@ -4,7 +4,7 @@
     "endpoint": "bytedance/seedance-2.0/image-to-video"
   },
   "fingerprint": "4d073f45d1122d096a325ffa8f34727eb8c97787556cb110159b95b3e8ac8240",
-  "recordedAt": "2026-10-12T23:32:26.262Z",
+  "recordedAt": "2026-10-13T02:40:40.686Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"

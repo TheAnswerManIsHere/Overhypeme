@@ -4,7 +4,7 @@
     "endpoint": "xai/grok-imagine-video/image-to-video"
   },
   "fingerprint": "f108d0495ab5cd3153b89bd4d0a8ed64cd602ff8fc6ffc65a1cd477312345015",
-  "recordedAt": "2026-10-12T23:32:25.768Z",
+  "recordedAt": "2026-10-13T02:40:40.186Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
