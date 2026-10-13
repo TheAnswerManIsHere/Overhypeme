@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v5 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5)
+# PLAN — Get to launch (parent programme) · v6 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6)
 
 Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
 
@@ -225,8 +225,10 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
 4. Spend controls demonstrated under concurrency, pricing failure, restart
    and ledger-write failure; a launch capacity and an emergency stop.
 5. `/security-review` on the launch scope with no open highs; `ADMIN_API_KEY`
-   scoped or gone; `sharp` upgraded or mitigated; CSP enforcing; HSTS
-   complete; dependencies triaged; the old prod dump's exposure closed —
+   scoped (no password reset through it) or gone; `sharp` upgraded or
+   mitigated; CSP enforced on the API and on the web app (after a
+   report-only period); HSTS sent once, by Cloudflare; `pnpm audit --prod`
+   shows no High or Critical; the old prod dump's exposure closed —
    sessions revoked by Phase 3's fresh database and that account's password
    changed (rotation, not a history purge: David, 2026-10-12).
 6. Every in-scope UAT step has a disposition; manual residue fits an
@@ -290,9 +292,16 @@ reason. Once now, across all of it, and again at the start of each phase
 against that phase's scope. No entry keeps a trigger a launch stage could
 pass without noticing.
 
-**Placements from the first review** (David, 2026-10-12, amendment v4; each
-entry checked against the code on `main` at `92024f3` before it was placed,
-recorded on #628). These extend the named phase's scope:
+**Placements from the first review** (David, 2026-10-12, amendment v4;
+completed 2026-10-13, amendment v6, the later items on my recommendation
+under David's delegation; each entry checked against the code on `main`
+before it was placed, recorded on #628). These extend the named phase's
+scope:
+
+- **Phase 2:** the intermittent api-server suite failure (#642) is closed
+  here, since a flaky suite is not evidence; the dev-admin-login origin
+  exemption fixed at import time (`app.ts`) is fixed if the harness work
+  touches it, otherwise it keeps its bugfix trigger.
 
 - **Phase 3:** the schema baseline reproduces **every** migration-only
   database object — the ten with no `schema.ts` declaration (declared, or
@@ -310,6 +319,15 @@ recorded on #628). These extend the named phase's scope:
   CVEs, one High) as part of the image work, which re-verifies renders
   anyway — **before Seed**, when strangers' uploads first reach it; Phase 15
   confirms it landed.
+- **Phase 10:** the reconciliation runbook repairs **both** directions —
+  access wrongly lost, and access wrongly kept, which no admin tool can
+  revoke today — and finds a payer with no local record by reading Stripe
+  over a time window; it is run weekly through Seed and Soft, and an
+  automated job waits for the first unexplained mismatch. The Stripe panel
+  shows a mode whose account is verified but whose setup has not finished.
+  Checkout refuses a member who already has an active subscription and
+  sends them to the billing portal (a second subscription would bill
+  outside the UI's reach).
 - **Phase 11:** a background job cannot run twice and spend or send twice:
   the running job renews its claim so a live job is never reclaimed, it
   checks it still owns the job before the costly step, and email sends and
@@ -317,11 +335,30 @@ recorded on #628). These extend the named phase's scope:
   the reclaim cutoff — **before Seed**. (A token checked only at finish
   would not do it: the effect happens before the finish.)
 - **Phase 13:** the admin settings cache reads once per expiry and cannot
-  refill with a value older than the last save.
+  refill with a value older than the last save; every admin input is
+  validated with explicit bounds; the chart library upgraded with the
+  dashboard rebuild, unless an advisory forces it sooner.
+- **Phase 11, if it fits:** the status label a fact shows for its AI-meme
+  job cannot stick at "pending" after the job finished (the Pexels half
+  goes with Pexels in Phase 4); otherwise it waits to be seen in Seed.
 - **Phase 14:** the retention policy names the rate-limit table's IP
   addresses.
+- **Phase 15:** the web app gets its own content security policy with a
+  report endpoint — report-only first, enforced once the reports are clean
+  — and the API's existing policy is enforced; Cloudflare is the one
+  source of the HSTS header and the API's duplicate is dropped;
+  `ADMIN_API_KEY` is scoped, not deleted (David, 2026-10-13): it can no
+  longer set a password, it reaches only backfills, Stripe sync and import,
+  each with a confirm and a limit, and it is compared in constant time; the
+  dependency gate is `pnpm audit --prod` showing no High or Critical, with
+  the `/maintenance` sweep doing the rest.
 - **Phase 16:** one alert for any background job that has stopped running
-  (covers the rate-limit cleanup job and every other).
+  (covers the rate-limit cleanup job and every other), and one for spend
+  that could not be recorded.
+- **Phase 18:** David decides whether production keeps any admin override
+  at all (David, 2026-10-13: "in a live environment we need to be hyper
+  sensitive to backdoors of any kind").
+- **Phase 20:** whether the domain joins the HSTS preload list.
 - **Stripe sync mode-scoping:** its dangerous part was fixed by #577 and
   #653; the single-flight remainder is in Phase 3 above.
 
@@ -645,9 +682,11 @@ recorded on #628). These extend the named phase's scope:
 ### Phase 15 — Security hardening
 
 - **Outcome:** no known high finding on the launch scope before real money.
-- **Scope:** `ADMIN_API_KEY` scoped or removed (#455); `sharp` upgrade
-  (done in Phase 7) confirmed; CSP enforcing after observation; HSTS complete;
-  Dependabot triaged by exposure; secrets audit; the old dump's exposure
+- **Scope:** `ADMIN_API_KEY` scoped (#455; the shape is in *Placements*);
+  `sharp` upgrade (done in Phase 7) confirmed; the web app's CSP added and
+  enforced after report-only observation, the API's enforced; HSTS from
+  Cloudflare alone; `pnpm audit --prod` with no High or Critical; secrets
+  audit; the old dump's exposure
   closed by rotation, not a history purge (David, 2026-10-12: it held no
   credentials, only three sessions and one account's email and password hash); session cookie and private-media caching checks on the real
   origin; then `/security-review`.
@@ -700,7 +739,8 @@ recorded on #628). These extend the named phase's scope:
   at the vendor, not merely replaced.
 - **Depends on:** Phase 4 (smaller surface); Phase 3 (fresh database,
   which does the session revocation).
-- **David's batch:** `ADMIN_API_KEY` fate (scope vs delete); Mythos lane
+- **David's batch:** `ADMIN_API_KEY` fate settled — scoped (David,
+  2026-10-13), with removal in production decided at Phase 18; Mythos lane
   shape — a session he switches (recommended: a dispatched role inherits
   whatever safeguards the dispatching tier has) or a dispatched role.
   Rotation itself is his action
@@ -755,7 +795,8 @@ recorded on #628). These extend the named phase's scope:
   seed users making and sharing memes (photos, likeness consent, reports all
   real from day one); the Sentry feedback widget stays.
 - **Depends on:** 2–17 complete except Phase 10's live-mode items.
-- **David's batch:** the invite list; go/no-go.
+- **David's batch:** the invite list; whether production keeps any admin
+  override; go/no-go.
 - **Exit evidence:** 50 approved facts; every seed fact rendered and at least
   one meme made from it; what Seed taught us, each item dispositioned.
 - **Tier:** product. **Lane:** closing.
@@ -878,4 +919,5 @@ stays visibly outstanding and never becomes an earlier stage's pass.
 
 Video on the image pipeline; Legendary Pro; NSFW mode; beta overlay rollout;
 annual/lifetime; public growth surfaces beyond the loop; R2; new content
-formats. (Data export and GDPR readiness are now Phase 21, not out of scope.)
+formats; speech-bubble work beyond the moderation-side finish (Phase 7);
+enrichment version rollback. (Data export and GDPR readiness are now Phase 21, not out of scope.)
