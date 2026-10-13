@@ -22,7 +22,7 @@ import {
   type SourceImageAnalysis,
   SOURCE_IMAGE_ANALYZER_VERSION,
 } from "@workspace/api-zod";
-import { callUtilityLLM } from "../utilityLLM";
+import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../utilityLLM";
 import { getFactSourceClassifierSystem } from "../imagePromptConfig";
 import { logger } from "../logger";
 
@@ -61,6 +61,7 @@ export async function runTier3AiVisionFallback(imageUrl: string): Promise<
   const response = await callUtilityLLM({
     temperature: TIER3_TEMPERATURE,
     maxTokens: TIER3_MAX_TOKENS,
+    reasoningEffort: JUDGEMENT_REASONING_EFFORT,
     responseFormat: zodResponseFormat(tier3WireSchema, "source_image_classification"),
     messages: [
       { role: "system", content: systemPrompt },
