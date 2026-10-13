@@ -13,6 +13,24 @@
 
 ---
 
+### 2026-10-13 · Utility helpers run on GPT-6 Luna, with reasoning split by what each helper decides
+- **Decision:** The shared utility LLM (`openai-general`) is `gpt-6-luna`, and
+  admin reference research is `gpt-6.1-sol` with web search. They replace
+  `gpt-4o-mini` and `gpt-4.1`. Reasoning effort is split per call site.
+  - **`low`:** the five helpers that make a judgement. These are the duplicate
+    check, comment moderation, the image classifier fallback, video direction
+    and scene prompts, pinned in code through `JUDGEMENT_REASONING_EFFORT`.
+  - **`none`:** the three quick lookups (pronouns, hashtags, stock-photo
+    keywords). They take the engine's default and keep their temperature,
+    because a GPT-6 model honours temperature only at `none`.
+- **Why:** David asked what is best for the product, not what mirrors the old
+  model. Each judgement helper's answer gates something a user sees, so a
+  little reasoning is worth its cost. A lookup gains nothing from reasoning
+  and benefits from the speed. David: *"1. Split."*
+- **Reference:** PR #666 and workstream #665; UAT accepted 2026-10-13.
+- **Revisit if:** the content-moderation pipeline is redone on a stronger
+  model, which David expects. Moderation's effort then moves with it.
+
 ### 2026-10-12 · Pre-launch, security details are not gated; no tokens are spent on leak prevention
 - **Decision:** Until the trigger below, the canonical disclosure check
   (`workstream-tracking.md`, *What must never happen*) and the private path
