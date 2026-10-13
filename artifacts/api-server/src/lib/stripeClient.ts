@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { logger } from "./logger";
 import { stripeDriver } from "./stripeDriver.js";
+import type { StripeApi, StripeSyncApi } from "./stripeApi.js";
 import {
   readStripeLiveModeStrict,
   throttledRefusalFor,
@@ -70,7 +71,7 @@ export function __setRawClientFactoryForTests(fn: (secretKey: string) => Stripe)
  * carries the same verification — and, like the other, captures the mode ONCE
  * and threads it to both the expected account id and the credential.
  */
-export async function getVerifiedStripeClient(): Promise<{ client: Stripe; liveMode: boolean }> {
+export async function getVerifiedStripeClient(): Promise<{ client: StripeApi; liveMode: boolean }> {
   refuseIfThrottled(await isLiveMode());
 
   for (let attempt = 0; attempt < MAX_CONSTRUCTION_ATTEMPTS; attempt++) {
@@ -115,7 +116,7 @@ export async function getVerifiedStripeClient(): Promise<{ client: Stripe; liveM
  * always agreed. Returning the verified mode alongside the client is what makes
  * a gate and a mutation impossible to split.
  */
-export async function getUncachableStripeClient() {
+export async function getUncachableStripeClient(): Promise<StripeApi> {
   return (await getVerifiedStripeClient()).client;
 }
 
@@ -439,7 +440,7 @@ async function constructAndPublish(
   return built;
 }
 
-export async function getStripeSync() {
+export async function getStripeSync(): Promise<StripeSyncApi> {
   // The fast path compares the published sync against the AUTHORITATIVE mode,
   // never against the interval alone.
   //

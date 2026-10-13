@@ -1,5 +1,7 @@
 /** The driver contract, separate from selection so neither driver imports the selector. */
-import type Stripe from "stripe";
+import type { StripeApi, StripeSyncInstance } from "./stripeApi.js";
+
+export type { StripeSyncInstance };
 
 /** Which configuration setting carries each value, for operator-facing messages. */
 export interface StripeSettingNames {
@@ -18,8 +20,6 @@ export interface StripeCredentialPresence {
   webhookSecretLive: boolean;
 }
 
-/** The `StripeSync` instance type, without importing the library at module load. */
-export type StripeSyncInstance = InstanceType<typeof import("stripe-replit-sync").StripeSync>;
 
 export interface StripeDriver {
   readonly kind: "real" | "fake";
@@ -32,7 +32,7 @@ export interface StripeDriver {
   webhookSecret(liveMode: boolean): string | null;
   /** The account id this environment declares a mode's credentials may touch. */
   expectedAccountId(liveMode: boolean): string | undefined;
-  createClient(secretKey: string): Stripe;
+  createClient(secretKey: string): StripeApi;
   buildSync(params: { liveMode: boolean; secretKey: string; webhookSecret: string | null }): Promise<StripeSyncInstance>;
   credentialPresence(): StripeCredentialPresence;
 }

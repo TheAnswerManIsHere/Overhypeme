@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import type Stripe from "stripe";
+import type { StripeApi } from "../lib/stripeApi.js";
 import { z } from "zod";
 import {
   getUncachableStripeClient,
@@ -600,7 +601,7 @@ type MutationTarget =
  * The panel's fallback to the newest non-qualifying row is for DISPLAY only and
  * must never become a mutation target.
  */
-async function getMutationTarget(stripe: Stripe, userId: string): Promise<MutationTarget> {
+async function getMutationTarget(stripe: StripeApi, userId: string): Promise<MutationTarget> {
   // The CALLER's client, not a fresh one. `stripe_live_mode` is operator-tunable
   // at runtime, so a second `getUncachableStripeClient()` here could resolve to
   // the other account mid-request: the target would be retrieved from one mode
@@ -657,7 +658,7 @@ function respondTargetChanged(res: Response): void {
   });
 }
 
-async function retrieveSubscription(stripe: Stripe, userId: string, subscriptionId: string) {
+async function retrieveSubscription(stripe: StripeApi, userId: string, subscriptionId: string) {
   try {
     return await stripe.subscriptions.retrieve(subscriptionId);
   } catch (error) {
