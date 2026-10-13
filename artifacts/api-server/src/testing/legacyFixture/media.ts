@@ -148,6 +148,13 @@ export class MediaMap {
       return { path: this.stockDataUrl(), kind: "stock", ext: "jpg", acl: null, roles, ...size };
     }
 
+    // A render reference the image vendor hosts: the face photo uploaded to fal's storage for an i2i
+    // render (defaultReferenceResolver.ts:118-122, aiMemePipeline.ts:622). A picture of a person on a
+    // vendor CDN, replaced the same way; another host still stops the export.
+    if (/^https:\/\/([a-z0-9-]+\.)*fal\.media\//i.test(p.source) && p.roles.every((r) => r.role === "render-reference")) {
+      return { path: this.stockDataUrl(), kind: "stock", ext: "jpg", acl: null, roles, ...size };
+    }
+
     const objectPath = objectPathOf(p.source);
     if (!objectPath) {
       throw new MediaPlacementError(`unplaceable media reference of shape ${referencePattern(p.source)} (${p.roles.map((r) => `${r.table}:${r.role}`).join(", ")})`);

@@ -22,7 +22,7 @@ import {
 } from "../testing/legacyFixture/allowlist";
 import { PLACEHOLDER_TEMPLATES, placeholderFor } from "../testing/legacyFixture/placeholderFacts";
 import { Scrubber } from "../testing/legacyFixture/scrub";
-import { MediaMap } from "../testing/legacyFixture/media";
+import { MediaMap, MediaPlacementError } from "../testing/legacyFixture/media";
 import { SHAPES } from "../testing/legacyFixture/shapes";
 import { ShapeStop, type WalkContext } from "../testing/legacyFixture/walker";
 import { normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
@@ -159,6 +159,17 @@ describe("the scrub primitives", () => {
     assert.equal(user.promptIdentity.name, "Avery");
     const sampled = SHAPES.renderControls.transform({ aspectRatio: "landscape", contentMode: "sfw", promptIdentity: { version: 1, name: "Jordan", pronouns: null, source: "review_sample" } }, ctx(), {}) as { promptIdentity: { name: string } };
     assert.equal(sampled.promptIdentity.name, "Jordan");
+  });
+
+  it("replaces a vendor-hosted render reference with the local image, and stops on any other host", () => {
+    const stock = "data:image/jpeg;base64,AA==";
+    const media = new MediaMap(scrubber, () => stock);
+    const fal = "https://v3b.fal.media/files/b/0a1b2c/zqxFacePhoto.jpeg";
+    media.note(fal, "render-reference", { table: "image_prompt_attempts", row: "1" }, null);
+    assert.equal(media.rewrite(fal), stock);
+    const other = new MediaMap(scrubber, () => stock);
+    other.note("https://cdn.example.org/zqx.jpeg", "render-reference", { table: "image_prompt_attempts", row: "2" }, null);
+    assert.throws(() => other.resolve(), MediaPlacementError);
   });
 
   it("finds the credential shapes the export refuses, and passes the synthetic forms", () => {
