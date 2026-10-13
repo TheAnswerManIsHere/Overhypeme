@@ -15,8 +15,9 @@ import { createStripeFakeDatabase } from "./createStripeFakeDatabase";
 import {
   DATABASE_PARTITION_SETTINGS_PARAMS,
   DATABASE_PARTITION_SETTINGS_SQL,
-  STRIPE_FAKE_DATABASE_SETTING,
+  markStripeFakeDatabaseSql,
   markTestDatabaseSql,
+  withDatabase,
   type DatabasePartitionSettings,
 } from "./testDatabaseMarker";
 
@@ -25,12 +26,7 @@ const UNMARKED = `stripe_fake_unmarked_${process.pid}`;
 const TARGET = `stripe_fake_tgt_${process.pid}`;
 const STAMPED = `stripe_fake_stamped_${process.pid}`;
 
-function urlFor(database: string): string {
-  const url = new URL(process.env.DATABASE_URL!);
-  url.pathname = `/${database}`;
-  url.search = "";
-  return url.toString();
-}
+const urlFor = (database: string): string => withDatabase(process.env.DATABASE_URL!, database);
 
 async function settingsOf(database: string): Promise<DatabasePartitionSettings> {
   const client = new pg.Client({ connectionString: urlFor(database) });
@@ -58,7 +54,7 @@ describe("fake-Stripe database partition", () => {
     await control.query(`CREATE DATABASE ${UNMARKED}`);
     await control.query(`CREATE DATABASE ${STAMPED}`);
     await control.query(markTestDatabaseSql(STAMPED));
-    await control.query(`ALTER DATABASE ${STAMPED} SET ${STRIPE_FAKE_DATABASE_SETTING} = 'yes'`);
+    await control.query(markStripeFakeDatabaseSql(STAMPED));
     // The source carries a Stripe mirror, as a test database a real driver once
     // touched would. The copy must not inherit it.
     const source = new pg.Client({ connectionString: urlFor(SOURCE) });

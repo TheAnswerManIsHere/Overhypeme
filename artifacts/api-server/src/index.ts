@@ -54,15 +54,16 @@ if (Number.isNaN(port) || port <= 0) {
 // stripe._managed_webhooks), so the webhook-secret check is informational.
 // The secret-key check is also a warning rather than fatal so the server can
 // still boot for non-Stripe routes; getCredentials() throws when invoked.
+// The fake driver holds no credentials by design (#566), so it gets one info
+// line instead of warnings describing a misconfiguration that is not there.
+const isFakeStripe = stripeDriver().kind === "fake";
 const stripePresence = stripeDriver().credentialPresence();
-if (stripeDriver().kind === "fake") {
-  // No credentials exist by design (#566); the warnings below would describe a
-  // misconfiguration that is not there.
+if (isFakeStripe) {
   logger.info("Stripe: the FAKE driver is selected (STRIPE_BACKEND=fake-double) — test mode only, no real account");
 }
 const missingStripeSecretVars: string[] = [];
-if (stripeDriver().kind === "real" && !stripePresence.secretKeyTest) missingStripeSecretVars.push("STRIPE_SECRET_KEY_TEST");
-if (stripeDriver().kind === "real" && !stripePresence.secretKeyLive) missingStripeSecretVars.push("STRIPE_SECRET_KEY_LIVE");
+if (!isFakeStripe && !stripePresence.secretKeyTest) missingStripeSecretVars.push("STRIPE_SECRET_KEY_TEST");
+if (!isFakeStripe && !stripePresence.secretKeyLive) missingStripeSecretVars.push("STRIPE_SECRET_KEY_LIVE");
 if (missingStripeSecretVars.length > 0) {
   logger.warn(
     { missing: missingStripeSecretVars },
@@ -71,8 +72,8 @@ if (missingStripeSecretVars.length > 0) {
 }
 
 const missingWebhookSecretVars: string[] = [];
-if (stripeDriver().kind === "real" && !stripePresence.webhookSecretTest) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_TEST");
-if (stripeDriver().kind === "real" && !stripePresence.webhookSecretLive) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_LIVE");
+if (!isFakeStripe && !stripePresence.webhookSecretTest) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_TEST");
+if (!isFakeStripe && !stripePresence.webhookSecretLive) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_LIVE");
 if (missingWebhookSecretVars.length > 0) {
   logger.warn(
     { missing: missingWebhookSecretVars },

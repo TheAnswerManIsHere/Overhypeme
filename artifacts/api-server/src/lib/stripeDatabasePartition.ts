@@ -53,7 +53,6 @@ let readSettings: () => Promise<DatabasePartitionSettings> = async () => {
 };
 
 const allowed = new Set<DriverKind>();
-let reads = 0;
 
 /** Why `kind` may not use a database with these settings, or null when it may. */
 export function partitionRefusal(kind: DriverKind, s: DatabasePartitionSettings): string | null {
@@ -81,7 +80,6 @@ export async function requireStripeDatabasePartition(kind: DriverKind, liveMode:
   if (allowed.has(kind)) return;
   let settings: DatabasePartitionSettings;
   try {
-    reads++;
     settings = await readSettings();
   } catch (err) {
     throw new StripeUnverifiedError(
@@ -104,15 +102,4 @@ export function __setPartitionReaderForTests(fn: () => Promise<DatabasePartition
     readSettings = previous;
     allowed.clear();
   };
-}
-
-/** Test seam: how many times the settings have been read. */
-export function __partitionReadsForTests(): number {
-  return reads;
-}
-
-/** Test seam: forget the cached verdict. */
-export function __resetPartitionForTests(): void {
-  allowed.clear();
-  reads = 0;
 }

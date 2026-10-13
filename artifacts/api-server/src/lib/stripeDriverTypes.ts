@@ -1,8 +1,6 @@
 /** The driver contract, separate from selection so neither driver imports the selector. */
 import type { StripeApi, StripeSyncInstance } from "./stripeApi.js";
 
-export type { StripeSyncInstance };
-
 /** Which configuration setting carries each value, for operator-facing messages. */
 export interface StripeSettingNames {
   secret: string;
@@ -19,7 +17,6 @@ export interface StripeCredentialPresence {
   webhookSecretTest: boolean;
   webhookSecretLive: boolean;
 }
-
 
 export interface StripeDriver {
   readonly kind: "real" | "fake";

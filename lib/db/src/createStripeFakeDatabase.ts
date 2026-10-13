@@ -21,19 +21,13 @@ import { pathToFileURL } from "node:url";
 import pg from "pg";
 
 import {
-  STRIPE_FAKE_DATABASE_SETTING,
-  TEST_DATABASE_SETTING,
-  TEST_DATABASE_VALUE,
+  markStripeFakeDatabaseSql,
+  markTestDatabaseSql,
   testDatabaseRefusal,
+  withDatabase,
 } from "./testDatabaseMarker";
 
 const NAME = /^[a-z_][a-z0-9_]{0,62}$/;
-
-function withDatabase(connectionString: string, database: string): string {
-  const url = new URL(connectionString);
-  url.pathname = `/${database}`;
-  return url.toString();
-}
 
 export async function createStripeFakeDatabase(env: NodeJS.ProcessEnv, target: string): Promise<void> {
   if (!NAME.test(target)) throw new Error(`target name ${JSON.stringify(target)} is not a plain lowercase identifier`);
@@ -57,8 +51,8 @@ export async function createStripeFakeDatabase(env: NodeJS.ProcessEnv, target: s
       );
     }
     await admin.query(`CREATE DATABASE "${target}" TEMPLATE "${source}"`);
-    await admin.query(`ALTER DATABASE "${target}" SET ${TEST_DATABASE_SETTING} = '${TEST_DATABASE_VALUE}'`);
-    await admin.query(`ALTER DATABASE "${target}" SET ${STRIPE_FAKE_DATABASE_SETTING} = '${TEST_DATABASE_VALUE}'`);
+    await admin.query(markTestDatabaseSql(`"${target}"`));
+    await admin.query(markStripeFakeDatabaseSql(`"${target}"`));
   } finally {
     await admin.end();
   }

@@ -95,7 +95,11 @@ function list<T extends { id: string }>(items: readonly T[], params?: unknown): 
   return Object.assign(Promise.resolve(result), iterator) as unknown as Stripe.ApiListPromise<T>;
 }
 
-const empty = (params?: unknown) => list<{ id: string }>([], params);
+/** An empty list of `T` — true of an account with no customers, invoices or charges. */
+const empty = <T extends { id: string }>(params?: unknown) => list<T>([], params);
+
+/** A retrieve for a resource the fake holds none of: Stripe's own 404. */
+const noneById = (kind: string) => (id: string) => Promise.reject(resourceMissing(kind, id));
 
 // ── State ───────────────────────────────────────────────────────────────────
 
@@ -137,40 +141,39 @@ const appSurface: StripeApi = {
   accounts: { retrieve: () => respond(account) },
   billingPortal: { sessions: { create: () => refuse("billingPortal.sessions.create") } },
   charges: {
-    list: (params?: unknown) => list<Stripe.Charge>([], params),
-    retrieve: (id: string) => Promise.reject(resourceMissing("charge", id)),
+    list: empty<Stripe.Charge>,
+    retrieve: noneById("charge"),
   },
   checkout: {
     sessions: {
       create: () => refuse("checkout.sessions.create"),
-      list: (params?: unknown) => list<Stripe.Checkout.Session>([], params),
-      listLineItems: (_id: string, params?: unknown) =>
-        list<Stripe.LineItem>([], params),
-      retrieve: (id: string) => Promise.reject(resourceMissing("checkout.session", id)),
+      list: empty<Stripe.Checkout.Session>,
+      listLineItems: (_id: string, params?: unknown) => empty<Stripe.LineItem>(params),
+      retrieve: noneById("checkout.session"),
     },
   },
   customers: {
     create: () => refuse("customers.create"),
-    retrieve: (id: string) => Promise.reject(resourceMissing("customer", id)),
+    retrieve: noneById("customer"),
   },
-  disputes: { retrieve: (id: string) => Promise.reject(resourceMissing("dispute", id)) },
+  disputes: { retrieve: noneById("dispute") },
   invoicePayments: {
-    list: (params?: unknown) => list<Stripe.InvoicePayment>([], params),
+    list: empty<Stripe.InvoicePayment>,
   },
   invoices: {
     createPreview: () => refuse("invoices.createPreview"),
-    list: (params?: unknown) => list<Stripe.Invoice>([], params),
-    retrieve: (id: string) => Promise.reject(resourceMissing("invoice", id)),
+    list: empty<Stripe.Invoice>,
+    retrieve: noneById("invoice"),
   },
-  paymentIntents: { retrieve: (id: string) => Promise.reject(resourceMissing("payment_intent", id)) },
+  paymentIntents: { retrieve: noneById("payment_intent") },
   prices: { retrieve: (id: string) => findById(FAKE_PRICES, "price", id) },
   products: { retrieve: (id: string) => findById(FAKE_PRODUCTS, "product", id) },
   subscriptionItems: {
-    list: (params?: unknown) => list<Stripe.SubscriptionItem>([], params),
+    list: empty<Stripe.SubscriptionItem>,
   },
   subscriptions: {
     cancel: () => refuse("subscriptions.cancel"),
-    retrieve: (id: string) => Promise.reject(resourceMissing("subscription", id)),
+    retrieve: noneById("subscription"),
     update: () => refuse("subscriptions.update"),
   },
 };

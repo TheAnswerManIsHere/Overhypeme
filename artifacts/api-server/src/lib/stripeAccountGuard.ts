@@ -113,8 +113,9 @@ const inFlight = new Map<string, Promise<void>>();
  * fresh non-authoritative error and the entry expires on its own. That is what
  * keeps a transient Stripe blip from pinning payments off until restart.
  *
- * `definiteMismatchReason` is the exception, and it is narrow on purpose. A
- * CONFIRMED mismatch is a fact: Stripe answered and the account is wrong. Losing
+ * `definiteRefusal` is the exception, and it is narrow on purpose. A
+ * CONFIRMED mismatch (or, since #566, a confirmed database-partition refusal)
+ * is a fact: Stripe, or the database's own settings, answered. Losing
  * that inside the throttle window would report a definite wrong account as
  * "could not tell", which is the same conflation of definite and indefinite this
  * guard exists to end — just in the other direction. It is still not the
@@ -126,9 +127,12 @@ const inFlight = new Map<string, Promise<void>>();
  */
 interface AttemptRecord {
   at: number;
-  definiteMismatchReason?: string;
-  /** The same narrow exception, for a confirmed database-partition refusal (#566). */
-  definitePartitionReason?: string;
+  /**
+   * A definite refusal to replay within the window — a confirmed mismatch, or a
+   * confirmed database-partition refusal (#566). Replayed as its own class, so
+   * a definite answer is never reported as "could not tell".
+   */
+  definiteRefusal?: StripeVerificationError;
 }
 const lastAttempt = new Map<string, AttemptRecord>();
 
@@ -285,7 +289,7 @@ export async function verifyStripeAccount(params: {
       const reason = err instanceof Error ? err.message : String(err);
       if (err instanceof StripeDatabasePartitionError) {
         setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
-        lastAttempt.set(key, { at: Date.now(), definitePartitionReason: reason });
+        lastAttempt.set(key, { at: Date.now(), definiteRefusal: err });
       } else {
         setModeState(liveMode, { state: "pending", reason, lastAttemptAt: Date.now() });
       }
@@ -315,8 +319,9 @@ export async function verifyStripeAccount(params: {
         `but ${names.account} declares ${expected}. ` +
         `Correct ${names.secret} (or ${names.account} if the declaration is wrong).`;
       setModeState(liveMode, { state: "refused", reason, lastAttemptAt: Date.now() });
-      lastAttempt.set(key, { at: Date.now(), definiteMismatchReason: reason });
-      throw new StripeAccountMismatchError(reason, liveMode);
+      const refusal = new StripeAccountMismatchError(reason, liveMode);
+      lastAttempt.set(key, { at: Date.now(), definiteRefusal: refusal });
+      throw refusal;
     }
 
     verified.add(key);
@@ -368,11 +373,10 @@ export function throttledRefusalFor(
   if (verified.has(key)) return null;
   const last = lastAttempt.get(key);
   if (last === undefined || Date.now() - last.at >= VERIFY_THROTTLE_MS) return null;
-  if (last.definiteMismatchReason !== undefined) {
-    return new StripeAccountMismatchError(last.definiteMismatchReason, liveMode);
-  }
-  if (last.definitePartitionReason !== undefined) {
-    return new StripeDatabasePartitionError(last.definitePartitionReason, liveMode);
+  if (last.definiteRefusal !== undefined) {
+    // Minted fresh, same class and message, so a caller never shares a thrown instance.
+    const Refusal = last.definiteRefusal.constructor as new (message: string, liveMode: boolean | null) => StripeVerificationError;
+    return new Refusal(last.definiteRefusal.message, liveMode);
   }
   return new StripeUnverifiedError(
     `Stripe account verification for ${modeName(liveMode)} mode was attempted less than ` +
