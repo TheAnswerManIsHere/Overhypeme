@@ -18,7 +18,6 @@ import {
   REFERENCE_RESEARCH_SOURCE_TYPE_VALUES,
 } from "@workspace/api-zod";
 import { logger } from "../logger";
-import { REASONING_TOKEN_HEADROOM } from "../openaiChatParams";
 
 /**
  * Model for the research call: OpenAI's mid tier, at the same input price as
@@ -32,10 +31,12 @@ export const REFERENCE_RESEARCH_REASONING_EFFORT = "low" as const;
 export const REFERENCE_RESEARCH_MAX_OUTPUT_TOKENS = 1500;
 /**
  * `max_output_tokens` also caps the reasoning tokens, so the request adds this
- * headroom on top of the visible budget; without it, reasoning can consume the
- * cap and leave `output_text` empty. Billing is by tokens used, not the cap.
+ * headroom on top of the visible budget. Its own value, not the chat helpers':
+ * a reasoning model running web search can spend far more than they do, and
+ * OpenAI's reasoning guide suggests starting at 25,000 and tuning from observed
+ * usage (logged below). Billing is by tokens used, not the cap.
  */
-export const REFERENCE_RESEARCH_REASONING_HEADROOM = REASONING_TOKEN_HEADROOM;
+export const REFERENCE_RESEARCH_REASONING_HEADROOM = 25_000;
 /** Hard timeout for the (slower) tool-using, reasoning call. */
 export const REFERENCE_RESEARCH_TIMEOUT_MS = 120_000;
 
@@ -91,19 +92,47 @@ export async function callReferenceResearchModel(args: CallArgs): Promise<string
     const response = await openai.responses.create(buildReferenceResearchRequest(args), {
       timeout: REFERENCE_RESEARCH_TIMEOUT_MS,
     });
-    const text = (response as { output_text?: string }).output_text ?? "";
-    if (!text) {
-      throw new ReferenceResearchOpenAIError(
-        "OpenAI Responses returned empty output_text",
-      );
-    }
-    return text;
+    return readReferenceResearchText(response as ResearchResponseShape);
   } catch (err) {
     if (err instanceof ReferenceResearchOpenAIError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn({ err }, "[referenceResearch.openaiResponses] call failed");
     throw new ReferenceResearchOpenAIError(`OpenAI Responses call failed: ${msg}`, err);
   }
+}
+
+/** The parts of a Responses result the research call reads. */
+export interface ResearchResponseShape {
+  status?: string | null;
+  incomplete_details?: { reason?: string | null } | null;
+  output_text?: string;
+  usage?: { output_tokens?: number; output_tokens_details?: { reasoning_tokens?: number } } | null;
+}
+
+/**
+ * The research JSON from a Responses result. An `incomplete` response (the
+ * output cap or a content filter cut it off) is refused outright, so a
+ * truncated answer never reaches JSON.parse as if it were whole. No retry: the
+ * admin re-runs it, and the logged usage is what the headroom is tuned from.
+ */
+export function readReferenceResearchText(response: ResearchResponseShape): string {
+  logger.info(
+    {
+      status: response.status,
+      outputTokens: response.usage?.output_tokens,
+      reasoningTokens: response.usage?.output_tokens_details?.reasoning_tokens,
+    },
+    "[referenceResearch.openaiResponses] usage",
+  );
+  if (response.status === "incomplete") {
+    const reason = response.incomplete_details?.reason ?? "unknown";
+    throw new ReferenceResearchOpenAIError(`OpenAI Responses returned an incomplete answer (${reason})`);
+  }
+  const text = response.output_text ?? "";
+  if (!text) {
+    throw new ReferenceResearchOpenAIError("OpenAI Responses returned empty output_text");
+  }
+  return text;
 }
 
 /**
