@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v4 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4)
+# PLAN — Get to launch (parent programme) · v5 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5)
 
 Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
 
@@ -294,27 +294,36 @@ pass without noticing.
 entry checked against the code on `main` at `92024f3` before it was placed,
 recorded on #628). These extend the named phase's scope:
 
-- **Phase 3:** the ten migration-only database objects with no `schema.ts`
-  declaration are declared (or given a reasoned exemption) **before the
-  schema baseline is cut**, so a fresh production database cannot lack them;
-  the CI guard against a recurrence if it fits, otherwise the next tooling
-  pass. A **maximum server count** for the autoscale deployment (a cost
-  number David approves), the pool size derived from the new database's real
-  connection limit including the Stripe sync pool, and a boot check that the
-  numbers fit — **before Soft**.
-- **Phase 11:** background jobs get a claim token checked when they finish,
-  so a job reclaimed after the 30-minute cutoff cannot run twice and spend
-  twice (or send an email twice), plus a handler time limit under that
-  cutoff — **before Seed**.
+- **Phase 3:** the schema baseline reproduces **every** migration-only
+  database object — the ten with no `schema.ts` declaration (declared, or
+  given a reasoned exemption) and the seven deliberately left out of
+  `schema.ts` (six partial indexes, one self-referencing foreign key),
+  carried by a raw-SQL supplement or by taking the baseline from a migrated
+  database — so a fresh production database cannot lack any of them; the CI
+  guard against a recurrence if it fits, otherwise the next tooling pass. A
+  **maximum server count** for the autoscale deployment (a cost number
+  David approves), the pool size derived from the new database's real
+  connection limit including the Stripe sync pool, Stripe sync construction
+  made single-flight so a burst cannot build several pools at once, and a
+  boot check that the numbers fit — **before Soft**.
+- **Phase 7:** `sharp` upgraded from 0.34.5 (bundled `libvips` with known
+  CVEs, one High) as part of the image work, which re-verifies renders
+  anyway — **before Seed**, when strangers' uploads first reach it; Phase 15
+  confirms it landed.
+- **Phase 11:** a background job cannot run twice and spend or send twice:
+  the running job renews its claim so a live job is never reclaimed, it
+  checks it still owns the job before the costly step, and email sends and
+  generation calls carry an idempotency key; plus a handler time limit under
+  the reclaim cutoff — **before Seed**. (A token checked only at finish
+  would not do it: the effect happens before the finish.)
 - **Phase 13:** the admin settings cache reads once per expiry and cannot
   refill with a value older than the last save.
 - **Phase 14:** the retention policy names the rate-limit table's IP
   addresses.
 - **Phase 16:** one alert for any background job that has stopped running
   (covers the rate-limit cleanup job and every other).
-- **Discarded:** the Stripe sync mode-scoping entry — its dangerous part was
-  fixed by #577 and #653, and what remains releases its connections within
-  ten seconds.
+- **Stripe sync mode-scoping:** its dangerous part was fixed by #577 and
+  #653; the single-flight remainder is in Phase 3 above.
 
 ## 3. Phases
 
@@ -636,8 +645,8 @@ recorded on #628). These extend the named phase's scope:
 ### Phase 15 — Security hardening
 
 - **Outcome:** no known high finding on the launch scope before real money.
-- **Scope:** `ADMIN_API_KEY` scoped or removed (#455); `sharp` upgraded with
-  render verification; CSP enforcing after observation; HSTS complete;
+- **Scope:** `ADMIN_API_KEY` scoped or removed (#455); `sharp` upgrade
+  (done in Phase 7) confirmed; CSP enforcing after observation; HSTS complete;
   Dependabot triaged by exposure; secrets audit; the old dump's exposure
   closed by rotation, not a history purge (David, 2026-10-12: it held no
   credentials, only three sessions and one account's email and password hash); session cookie and private-media caching checks on the real
