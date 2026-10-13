@@ -240,8 +240,8 @@ application is deployed does not satisfy row 3.
 ## Where the rest lives
 
 - The phased plan, its dependency graph and the decisions David makes at each
-  phase boundary: #628. Its approved plan is committed at
-  `docs/plans/PLAN_GET_TO_LAUNCH.md` on `claude/phase2-ai-doubles` and
+  phase boundary: #628. Its approved plan, `PLAN_GET_TO_LAUNCH.md`, is committed
+  under `docs/plans/` on `claude/phase2-ai-doubles` and
   reaches `main` with that branch's next pull request; #628 records each
   amendment's digest.
 - Every per-item decision from the feature walk:
