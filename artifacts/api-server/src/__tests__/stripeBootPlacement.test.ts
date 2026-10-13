@@ -24,9 +24,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
-import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { portForChildProcess } from "./helpers/childProcessPort.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const API_SERVER_DIR = resolve(HERE, "../..");
@@ -34,22 +34,6 @@ const API_SERVER_DIR = resolve(HERE, "../..");
 /** The listen callback logs this. Its absence is the port never having bound. */
 const LISTENING_MARKER = "Server listening";
 const REFUSAL_MARKER = "REFUSING TO START";
-
-async function freePort(): Promise<number> {
-  return await new Promise((resolveP, rejectP) => {
-    const probe = createServer();
-    probe.on("error", rejectP);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (address === null || typeof address === "string") {
-        probe.close(() => rejectP(new Error("could not obtain a port")));
-        return;
-      }
-      const { port } = address;
-      probe.close(() => resolveP(port));
-    });
-  });
-}
 
 async function portAccepts(port: number): Promise<boolean> {
   return await new Promise((resolveP) => {
@@ -81,7 +65,7 @@ async function bootServer(
   opts: { stopOnListening?: boolean; timeoutMs?: number } = {},
 ): Promise<BootResult> {
   const { stopOnListening = false, timeoutMs = 90_000 } = opts;
-  const port = await freePort();
+  const port = await portForChildProcess();
   const child = spawn(
     process.execPath,
     ["--import", "tsx/esm", resolve(API_SERVER_DIR, "src/index.ts")],

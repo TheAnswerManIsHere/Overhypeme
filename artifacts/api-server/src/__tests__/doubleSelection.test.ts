@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 import { doubleSelectionRefusals, selectedBackend, SELECTORS } from "../lib/doubleSelection.js";
+import { portForChildProcess } from "./helpers/childProcessPort.js";
 
 const DEV = { NODE_ENV: "development" };
 const DOUBLE = { STORAGE_BACKEND: "local-double", STORAGE_DOUBLE_DIR: "/tmp/storage-double" };
@@ -88,7 +89,7 @@ describe("double selection", () => {
 /** Boot the real entrypoint and report how it ended and whether the port ever opened. */
 async function boot(env: NodeJS.ProcessEnv): Promise<{ code: number | null; stderr: string; listened: boolean }> {
   const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  const port = await portForChildProcess();
   const child = spawn(process.execPath, ["--import", "tsx/esm", "src/index.ts"], {
     cwd: apiRoot,
     env: { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: process.env.DATABASE_URL, PORT: String(port), ...env },
