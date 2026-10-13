@@ -25,6 +25,7 @@ import path from "node:path";
 import pg from "pg";
 import { createCanvas } from "@napi-rs/canvas";
 
+import { logger } from "../../lib/logger";
 import { memeKey } from "../../lib/storageKeys";
 import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName } from "./allowlist";
 import type { ExportManifest, Row } from "./export";
@@ -103,7 +104,10 @@ export async function loadFixtureRows(
     const missing = journal.hashes.filter((h) => !targetHashes.has(h)).length;
     if (missing > 0) throw new Error(`[legacy-fixture] refusing to load: the target lacks ${missing} of this code's ${journal.entries} migrations (run migrate first)`);
     if (journal.entries !== manifest.migrationHead.journalEntries) {
-      console.warn(`[legacy-fixture] the fixture was taken at ${manifest.migrationHead.journalEntries} migrations (${manifest.migrationHead.latestTag}); this code has ${journal.entries}. A failed insert below means: re-extract.`);
+      logger.warn(
+        { fixtureMigrations: manifest.migrationHead.journalEntries, fixtureLatestTag: manifest.migrationHead.latestTag, codeMigrations: journal.entries },
+        "[legacy-fixture] the fixture predates this code's migrations; a failed insert below means: re-extract",
+      );
     }
 
     await client.query("BEGIN");

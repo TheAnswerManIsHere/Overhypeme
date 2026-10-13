@@ -100,6 +100,25 @@ const ALLOWLIST = [
       "caught the file-level allowlist letting this second occurrence of the " +
       "same pattern through unexamined. Permanent, same as the entry above.",
   },
+  {
+    file: "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+    pattern: /include\(s\.tierFeaturePermissionsTable, \{/,
+    reason:
+      "The legacy fixture (Phase 2 increment 5, #631) copies the grid's rows as data: the " +
+      "allowlist names the table so its rows are exported. Nothing here resolves a permission, " +
+      "and the code never runs in the app (src/testing/ is outside the deployment entrypoint). " +
+      "Permanent while the grid is exported with the fixture.",
+  },
+  {
+    file: "artifacts/api-server/src/testing/legacyFixture/export.ts",
+    pattern: /if \(table === "tier_feature_permissions"\) return `\$\{row\.tier\}\/\$\{row\.feature_key\}`;/,
+    reason: "The same fixture copy: the exporter names a grid row by its key in a stop message. Permanent, as above.",
+  },
+  {
+    file: "artifacts/api-server/src/testing/legacyFixture/load.ts",
+    pattern: /^ {2}"tier_feature_permissions",$/,
+    reason: "The same fixture copy: the loader upserts the grid's rows as configuration. Permanent, as above.",
+  },
 ];
 
 // Grid tables. Reading these outside the chokepoint reintroduces the second
@@ -199,9 +218,9 @@ for (const file of files) {
       });
     }
 
-    // 2. Nothing else reads the grid tables.
+    // 2. Nothing else reads the grid tables (an ALLOWLIST entry exempts its exact line, as below).
     for (const table of GRID_TABLES) {
-      if (line.includes(table)) {
+      if (line.includes(table) && !fileAllowlist.some((entry) => entry.pattern.test(rawLines[i]))) {
         violations.push({
           file: rel,
           line: i + 1,
