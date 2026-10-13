@@ -103,7 +103,7 @@ export async function enqueueVisualConceptsForReview(args: {
 
 // ─── Review-cycle resolution (shared by handler + endpoint staleness) ────────
 
-interface ResolvedConceptCycle {
+export interface ResolvedConceptCycle {
   reviewId: number;
   stage: ReviewWorkflowStage;
   stagingFactId: number;
@@ -156,7 +156,7 @@ export async function resolveVisualConceptCycle(reviewId: number): Promise<Conce
 
 /** Compute the CURRENT concept input hash for a cycle (no LLM). Shared by the
  *  handler (to stamp) and the endpoint (to test staleness). */
-async function computeCurrentInputHash(cycle: ResolvedConceptCycle): Promise<string> {
+export async function computeCurrentInputHash(cycle: ResolvedConceptCycle): Promise<string> {
   const settings = await resolveVisualConceptsLLMSettings();
   const systemPromptHash = hashText(await getVisualConceptsSystem());
   return buildVisualConceptInputHash({

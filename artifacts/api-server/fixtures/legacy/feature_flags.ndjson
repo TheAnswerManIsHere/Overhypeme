@@ -1,0 +1,11 @@
+{"key":"ads_free","display_name":"Ad-Free Browsing","description":"Browse the site without advertisements.","created_at":"2026-08-14T05:29:11.357Z"}
+{"key":"comment_captcha_bypass","display_name":"Skip Comment CAPTCHA","description":"Bypass hCaptcha when posting comments","created_at":"2026-04-08T18:18:33.851Z"}
+{"key":"custom_avatar","display_name":"Custom Avatar Photo","description":"Select an uploaded photo as the public profile avatar instead of a generated icon.","created_at":"2026-08-14T05:29:11.357Z"}
+{"key":"engine_experiments","display_name":"Engine experiments","description":"Show non-default video engines in the wizard advanced sheet","created_at":"2026-05-20T04:41:43.041Z"}
+{"key":"fact_submit_captcha_bypass","display_name":"Skip Captcha on Fact Submission","description":"Submit facts without completing a captcha challenge.","created_at":"2026-08-14T05:29:11.357Z"}
+{"key":"fact_submit_rate_limit_bypass","display_name":"Higher Fact Submission Rate Limit","description":"Bypass the standard rate limit on fact submissions.","created_at":"2026-08-14T05:29:11.357Z"}
+{"key":"meme_ai_background","display_name":"AI Background Generation","description":"Allows users to generate AI-created meme backgrounds","created_at":"2026-04-29T19:56:33.659Z"}
+{"key":"meme_private_visibility","display_name":"Private Memes","description":"Ability to create private (unlisted) memes","created_at":"2026-04-08T18:18:33.851Z"}
+{"key":"meme_pulid_stylize","display_name":"PuLID Stylized Memes","description":"Generate memes that stylize the user's own uploaded photo via PuLID.","created_at":"2026-08-14T05:29:11.357Z"}
+{"key":"meme_rate_limit_high","display_name":"High Meme Rate Limit","description":"Higher daily meme save cap (200/day instead of 30/day).","created_at":"2026-04-08T18:18:33.851Z"}
+{"key":"video_generation","display_name":"Video Generation","description":"Ability to generate AI-powered videos from meme images","created_at":"2026-04-08T23:36:28.173Z"}

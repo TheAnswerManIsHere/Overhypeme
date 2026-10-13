@@ -486,6 +486,62 @@ answer from `stubAccountRetriever` (`__tests__/helpers/stripeGuardHarness.ts`).
 
 ---
 
+## The legacy fixture
+
+Launch Phase 2, increment 5 (#631) commits a scrubbed copy of the dev
+database's shapes to `artifacts/api-server/fixtures/legacy/`, so tests can
+run the current code against rows older code wrote. Its README states what
+was kept and what was replaced. In short:
+
+- The live text of approved facts is kept. Rejected, pending and reported facts
+  get placeholder text.
+- People, emails, credentials, IP data and Stripe identifiers are synthetic.
+  Sessions, auth state, unfinished jobs, child-safety records and live-mode
+  payment rows never leave the source.
+- Media become local placeholder images, written through the storage double
+  at load. Their paths and ACLs follow the writers that produced them.
+- Relationships, workflow stages and the freshness outcomes of stored renders,
+  concepts and candidates are preserved.
+
+**Loading it.** The loader refuses an unmarked database, a production
+environment, and any storage backend but the local double. Load order is
+fixed:
+
+```sh
+# a fresh marked test database: push-force, then migrate, then
+cd artifacts/api-server && STORAGE_BACKEND=local-double STORAGE_DOUBLE_DIR=/tmp/overhype-storage \
+  PRIVATE_OBJECT_DIR=/e2e-bucket/private PUBLIC_OBJECT_SEARCH_PATHS=/e2e-bucket/public \
+  DATABASE_URL=<that database> pnpm exec tsx scripts/load-legacy-fixture.ts
+DATABASE_URL=<that database> pnpm exec tsx scripts/seed-e2e-test-accounts.ts
+# then boot with the same storage variables
+```
+
+The loader resets every sequence, restores the recorded freshness outcomes,
+and re-asks the real readers; it exits non-zero if any answer differs.
+`__tests__/legacyFixture.integration.test.ts` proves the scrub on a planted
+source (a byte search for every planted value), the refusal, the load, and the
+committed fixture booting and serving its media through the real routes. It
+needs `CREATE DATABASE`, so it runs in CI's per-database shards and skips,
+stating why, under the Repl's schema isolation.
+
+**Refreshing it** runs on the Repl, never in CI, and only after a change to
+the scrub rules is reviewed:
+
+1. Classify any new table or column in `src/testing/legacyFixture/allowlist.ts`.
+   `legacyFixtureAllowlist.test.ts` fails until every one is classified.
+2. Run `scripts/export-legacy-fixture.ts --dry-run` against the dev database.
+   Every connection is forced read-only. The rows and the freshness outcomes
+   come from one snapshot, so the export can run while the dev database is in
+   use. A stop names a path and a shape, never a value. Fix the rule and
+   re-run until there are none.
+3. Run it again with `--out` set to an empty directory outside the repository.
+   Copy the files over and check each one's sha256 against the Repl's own
+   listing.
+4. Replace `fixtures/legacy/` whole, and update the README's counts from the
+   new manifest.
+
+---
+
 ## Production guard (safety-critical)
 
 **A database is a test database only if it says so.** Test databases carry a
