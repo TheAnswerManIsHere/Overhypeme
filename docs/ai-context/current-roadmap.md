@@ -765,6 +765,12 @@ handbook work a launch phase needs and a second app would need identically;
 > follow-ups, toolchain deprecations, code-level tech debt — lives in
 > [`docs/engineering/deferred-work.md`](../engineering/deferred-work.md).
 
+> **Launch classing (2026-10-13, launch plan v6):** every item below is
+> post-launch, named in the plan's *Cut, deleted or deferred* and *Out of
+> scope* sections, except data export, which is launch Phase 21 (Full
+> Global). The speech-bubble moderation-side finish is Phase 7; the
+> follow-ups listed here are what remains after it.
+
 - **Speech/thought bubble follow-ups.** The runtime image-prompt planner
   proposing bubbles (only the candidate Visual-concept generator does today);
   end-user wizard exposure (moderator-only for now); `thinking_level: high`

@@ -240,12 +240,10 @@ application is deployed does not satisfy row 3.
 ## Where the rest lives
 
 - The phased plan, its dependency graph and the decisions David makes at each
-  phase boundary: #628. Its approved plan, `PLAN_GET_TO_LAUNCH.md` (v2,
-  sha256 `6386aad4…`, 2026-10-07), predates the rule that commits an
-  approved plan on its feature branch (`claude-core.md` Planning rule 3), so
-  it was never committed and #628 holds only its digest, not its text. Once
-  recovered, it is committed under `docs/plans/` by that rule; until then no
-  durable copy exists.
+  phase boundary: #628. Its approved plan is committed at
+  `docs/plans/PLAN_GET_TO_LAUNCH.md` on `claude/phase2-ai-doubles` and
+  reaches `main` with that branch's next pull request; #628 records each
+  amendment's digest.
 - Every per-item decision from the feature walk:
   [`launch-feature-inventory.md`](./launch-feature-inventory.md).
 - The rationale for each reversal and hard gate: [`decisions.md`](./decisions.md),

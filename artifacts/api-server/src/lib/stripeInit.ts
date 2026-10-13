@@ -43,6 +43,7 @@ import {
 } from "./stripeAccountGuard.js";
 import { isDefiniteVerificationFailure } from "./stripeVerificationErrors.js";
 import { getStripeSecretKey } from "./stripeClient.js";
+import type { StripeSetupSnapshot } from "@workspace/api-zod";
 
 export type StripeBootOutcome =
   | { kind: "verified"; liveMode: boolean }
@@ -90,6 +91,29 @@ let initializationNotApplicable = false;
  * it lets two callers run the sequence at once.
  */
 const initializationInFlight = new Map<"live" | "test", Promise<boolean>>();
+
+/** The setup steps after verification, named so a failure can say which one. */
+type SetupStep = "migrations" | "sync" | "webhook";
+
+/**
+ * Fixed, operator-facing sentences — never the raw error, which can carry
+ * Stripe's own text. The error itself is in the log line the catch writes.
+ */
+const SETUP_FAILURE_REASONS: Record<SetupStep, string> = {
+  migrations:
+    "Stripe setup failed preparing the Stripe tables in the database; retrying automatically. Details are in the server log.",
+  sync:
+    "Stripe setup failed connecting to the verified Stripe account; retrying automatically. Details are in the server log.",
+  webhook:
+    "Stripe setup failed registering the webhook, so Stripe's events (new subscriptions, refunds) are not reaching this instance; retrying automatically. Details are in the server log.",
+};
+
+/**
+ * The last setup failure per mode, cleared when setup completes for that mode.
+ * Without it, a setup that kept failing was visible only in the log while the
+ * Billing panel read `verified` — the observability half of #577's P1.
+ */
+const setupFailures = new Map<"live" | "test", { step: SetupStep; at: number }>();
 
 /**
  * The three effects the remaining initialization performs, injectable so a test
@@ -145,6 +169,7 @@ export function __resetStripeInitForTests(): void {
   completedModes.clear();
   initializationNotApplicable = false;
   initializationInFlight.clear();
+  setupFailures.clear();
   stopStripeVerificationRetry();
   deterministicallyRefusedModes.clear();
   verificationKickInFlight = false;
@@ -158,6 +183,29 @@ export function hasStripeInitializationCompleted(liveMode?: boolean): boolean {
   if (initializationNotApplicable) return true;
   if (liveMode === undefined) return completedModes.size > 0;
   return completedModes.has(liveMode ? "live" : "test");
+}
+
+/**
+ * This instance's setup state for a mode, for the Billing summary. Meaningful
+ * only once the mode is verified; the summary attaches it only then.
+ */
+export function getStripeSetupStatus(liveMode: boolean): StripeSetupSnapshot {
+  if (hasStripeInitializationCompleted(liveMode)) {
+    return { state: "complete", reason: null, lastFailureAt: null };
+  }
+  const failure = setupFailures.get(liveMode ? "live" : "test");
+  if (failure) {
+    return {
+      state: "failing",
+      reason: SETUP_FAILURE_REASONS[failure.step],
+      lastFailureAt: new Date(failure.at).toISOString(),
+    };
+  }
+  return {
+    state: "in_progress",
+    reason: "Stripe setup (webhook registration) has not finished on this instance yet.",
+    lastFailureAt: null,
+  };
 }
 
 /**
@@ -199,6 +247,7 @@ export async function resumeStripeInitialization(): Promise<boolean> {
   if (joined) return joined;
 
   const attempt = (async (): Promise<boolean> => {
+    let step: SetupStep = "migrations";
     try {
       const active = deps ?? {
         ...productionDeps,
@@ -208,6 +257,7 @@ export async function resumeStripeInitialization(): Promise<boolean> {
       await active.runSyncMigrations({ databaseUrl });
       logger.info("Stripe schema ready");
 
+      step = "sync";
       const stripeSync = await active.getSync();
 
       // Bind the mutation below to this attempt's mode BEFORE it happens.
@@ -235,12 +285,14 @@ export async function resumeStripeInitialization(): Promise<boolean> {
       // reason verification is awaited before the port binds: it used to run
       // BEFORE the account comparison, so a live key in the test variable
       // registered a webhook on the live account and then backfilled it.
+      step = "webhook";
       await stripeSync.findOrCreateManagedWebhook(webhookUrl);
       logger.info({ webhookUrl }, "Stripe webhook configured");
 
       // Required setup is done. The backfill below is fire-and-forget exactly as
       // it has always been, so its failure logs and does not reopen this.
       completedModes.add(mode);
+      setupFailures.delete(mode);
 
       void stripeSync.syncBackfill({ object: "all" })
         .then(() => logger.info("Stripe backfill complete"))
@@ -248,7 +300,8 @@ export async function resumeStripeInitialization(): Promise<boolean> {
 
       return true;
     } catch (err) {
-      logger.error({ err }, "Stripe init failed — will retry; continuing without payments");
+      setupFailures.set(mode, { step, at: Date.now() });
+      logger.error({ err, step }, "Stripe init failed — will retry; continuing without payments");
       return false;
     }
   })();

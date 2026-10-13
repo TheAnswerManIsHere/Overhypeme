@@ -107,4 +107,36 @@ export interface StripeVerificationSnapshot {
   instanceId: string;
   /** Always "instance". A fleet-wide aggregate needs shared state. */
   scope: "instance";
+  /**
+   * Whether this instance has finished the setup that follows verification —
+   * registering the managed webhook on the verified account. Present only when
+   * `state` is `verified`, since setup never runs before verification.
+   *
+   * It exists because `verified` alone overclaimed: checkout opens the moment
+   * the account is verified, but until the webhook is registered Stripe's
+   * events (a subscription starting, a refund) never reach the server. A setup
+   * that kept failing showed only in the log while the panel read "verified".
+   */
+  setup?: StripeSetupSnapshot;
+}
+
+/**
+ * `complete` — the webhook is registered for this mode on this instance.
+ * `in_progress` — setup has not finished and has not failed: it is running, or
+ *   waiting for the next retry pass after the mode changed under it.
+ * `failing` — the last attempt failed; the retry loop tries again on its own.
+ */
+export const STRIPE_SETUP_STATES = ["complete", "in_progress", "failing"] as const;
+
+export type StripeSetupState = (typeof STRIPE_SETUP_STATES)[number];
+
+export interface StripeSetupSnapshot {
+  state: StripeSetupState;
+  /**
+   * Operator-facing reason when not complete. A fixed sentence naming the step
+   * that failed — never the raw error, which can carry Stripe's own text and
+   * stays in the server log.
+   */
+  reason: string | null;
+  lastFailureAt: string | null;
 }

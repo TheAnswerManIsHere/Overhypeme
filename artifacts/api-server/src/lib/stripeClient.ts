@@ -171,9 +171,10 @@ export async function getStripeSecretKey(liveMode?: boolean) {
  * resolved from this one value. Before this existed, `getStripeSync()` read the
  * mode, then `getStripeSecretKey()` read it again, then
  * `getStripeWebhookSecret()` read it a third time — three independent reads
- * (`deferred-work.md:529-565`, found on PR #299's review). Adding verification
- * on top of that would have made a FOURTH read: verify the account for mode A,
- * hand back a client built for mode B, and stamp it verified. That is worse
+ * (the `getStripeSync()` entry in `deferred-work.md`, found on PR #299's
+ * review). Adding verification on top of that would have made a FOURTH read:
+ * verify the account for mode A, hand back a client built for mode B, and stamp
+ * it verified. That is worse
  * than no guard, which is why mode-coherence had to land in the same increment.
  *
  * A mode read that FAILS resolves to unverified, never to a default — see
@@ -222,8 +223,8 @@ let stripeSyncLiveMode: boolean | null = null;
  * Bumped by every `invalidateStripeSync()`, and read by BOTH exported
  * constructors. A construction that completes after its generation has been
  * superseded is discarded rather than handed out — the second half of
- * `deferred-work.md:529-565`, where an old-mode build could publish *after* the
- * invalidation meant to remove it.
+ * the `getStripeSync()` entry in `deferred-work.md`, where an old-mode build
+ * could publish *after* the invalidation meant to remove it.
  *
  * It has to cover both, and covering only the sync path was round 1's P1: the
  * verification in the middle of a construction is a network round-trip, so an
@@ -234,7 +235,14 @@ let stripeSyncLiveMode: boolean | null = null;
  */
 let constructionGeneration = 0;
 
+/** Test seam: how many StripeSync instances this process has built. */
+let stripeSyncBuilds = 0;
+export function __stripeSyncBuildsForTests(): number {
+  return stripeSyncBuilds;
+}
+
 async function buildStripeSync(liveMode: boolean) {
+  stripeSyncBuilds++;
   const { StripeSync } = await import("stripe-replit-sync");
   const secretKey = await getStripeSecretKey(liveMode);
   // If a webhook signing secret is configured for the active mode, pass it through
@@ -288,10 +296,9 @@ export function __discardedBuildsForTests(): { count: number; lastPoolEnded: boo
  * Test-only: close the pool of the currently cached sync, so a suite that
  * builds real StripeSync instances does not leave connections open.
  *
- * Deliberately NOT what `invalidateStripeSync()` does — disposal of previously
- * cached instances is documented deferred work with its own bugfix pass, and
- * this increment took only the disposal of a build its OWN generation check
- * creates and then rejects.
+ * Deliberately NOT what `invalidateStripeSync()` does — an in-flight caller may
+ * still hold a previously cached instance, so that path leaves the pool to
+ * pg-pool's idle release (see the comment there).
  */
 /**
  * Test seam: make the next `getStripeSync()` re-read the stored mode, without
@@ -312,6 +319,10 @@ export async function __endCachedSyncForTests(): Promise<void> {
   lastStrictMode = null;
   strictModeInFlight = null;
   strictModeFailure = null;
+  // A construction still in flight from the previous test must not publish
+  // into this one: the generation bump makes it discard its build.
+  constructionGeneration++;
+  syncConstructions.clear();
   const current = stripeSync;
   stripeSync = null;
   stripeSyncLiveMode = null;
@@ -427,6 +438,50 @@ export async function getVerifiedStripeMode(): Promise<boolean> {
   return refreshVerifiedStripeMode();
 }
 
+/**
+ * Constructions in flight, keyed by `${mode}:${generation}` and joined by
+ * concurrent cache misses for that key. Each resolves to the published sync, or
+ * `null` when a toggle superseded the build.
+ *
+ * A map, not one slot: a remote toggle changes the mode without changing the
+ * local generation, so with a single slot a test → live → test flip during one
+ * slow construction let the live caller evict the test flight and a later test
+ * caller start a second, concurrent test build — both then published (Codex,
+ * #657 round 2). Keyed, a flight for one mode can never displace another's.
+ */
+const syncConstructions = new Map<string, Promise<Awaited<ReturnType<typeof buildStripeSync>> | null>>();
+
+/**
+ * Verify, build and publish a sync for `live`, or return `null` when a toggle
+ * landed while it was in flight (the build is then discarded, never published).
+ */
+async function constructAndPublish(
+  live: boolean,
+  generationAtStart: number,
+): Promise<Awaited<ReturnType<typeof buildStripeSync>> | null> {
+  // Verification precedes construction, so a refusal means no sync object was
+  // ever built for an unverified account — the invariant is "no client
+  // exists", not "a client exists and callers are asked not to use it".
+  const secretKey = await getStripeSecretKey(live);
+  await verifyStripeAccount({ liveMode: live, secretKey });
+
+  const built = await buildStripeSync(live);
+
+  // Same pair as the raw-client constructor: the generation catches a local
+  // toggle, the row re-read catches one committed by another instance while
+  // this construction was out at Stripe.
+  if (constructionGeneration !== generationAtStart || (await captureModeForConstruction()) !== live) {
+    // A toggle landed while this build was in flight. Publishing it now would
+    // reinstate the mode the invalidation just removed.
+    await discardRejectedBuild(built);
+    return null;
+  }
+
+  stripeSync = built;
+  stripeSyncLiveMode = live;
+  return built;
+}
+
 export async function getStripeSync() {
   // The fast path compares the published sync against the AUTHORITATIVE mode,
   // never against the interval alone.
@@ -466,27 +521,34 @@ export async function getStripeSync() {
     // toggle raced back. The strict answer decides.
     if (stripeSync && stripeSyncLiveMode === live) return stripeSync;
 
-    // Verification precedes construction, so a refusal means no sync object was
-    // ever built for an unverified account — the invariant is "no client
-    // exists", not "a client exists and callers are asked not to use it".
-    const secretKey = await getStripeSecretKey(live);
-    await verifyStripeAccount({ liveMode: live, secretKey });
+    // A toggle landed while this caller was reading the mode. Its build would
+    // be discarded by the generation check anyway, so it starts none: it goes
+    // round again and joins the current construction rather than spending a
+    // verification and a pool on a doomed build (Codex, #657 round 1).
+    if (constructionGeneration !== generationAtStart) continue;
 
-    const built = await buildStripeSync(live);
-
-    // Same pair as the raw-client constructor: the generation catches a local
-    // toggle, the row re-read catches one committed by another instance while
-    // this construction was out at Stripe.
-    if (constructionGeneration !== generationAtStart || (await captureModeForConstruction()) !== live) {
-      // A toggle landed while this build was in flight. Publishing it now would
-      // reinstate the mode the invalidation just removed.
-      await discardRejectedBuild(built);
-      continue;
+    // ONE construction per (mode, generation), shared by every caller that
+    // misses at the same moment. Without it, concurrent misses each verified,
+    // each built a StripeSync with its own pool, and the later publish silently
+    // replaced the earlier — routine on a toggle, where setup's getSync() and
+    // the route's own full sync both arrive here together. Keyed by the
+    // generation too, so a toggle never joins a build for the mode it just
+    // left; and removed on settle, rejection included, so a failure is never
+    // cached (the guardrail the deferred-work entry set for any single-flight).
+    const key = `${live ? "live" : "test"}:${generationAtStart}`;
+    let flight = syncConstructions.get(key);
+    if (!flight) {
+      const started = constructAndPublish(live, generationAtStart);
+      syncConstructions.set(key, started);
+      const clear = () => {
+        if (syncConstructions.get(key) === started) syncConstructions.delete(key);
+      };
+      started.then(clear, clear);
+      flight = started;
     }
-
-    stripeSync = built;
-    stripeSyncLiveMode = live;
-    return stripeSync;
+    const published = await flight;
+    if (published === null) continue;
+    return published;
   }
   throw new StripeUnverifiedError(
     `The Stripe mode changed on every one of ${MAX_CONSTRUCTION_ATTEMPTS} construction attempts; ` +
@@ -515,11 +577,12 @@ export function invalidateStripeSync() {
   lastStrictMode = null;
   // The pool of the instance being dropped here is deliberately NOT ended, and
   // the omission is easy to mistake for an oversight now that a disposal helper
-  // exists a few lines up. Disposal of PREVIOUSLY CACHED instances is separate,
-  // documented work (`docs/engineering/deferred-work.md:528-563`) with its own
-  // hazards — an in-flight caller may still hold this object. What this
-  // increment took is disposal of a build its own generation check creates and
-  // then rejects: a leak this code introduces, not one it inherits.
+  // exists a few lines up: an in-flight caller (a webhook, a running sync) may
+  // still hold this object, and ending its pool would fail that work
+  // mid-query. Nothing leaks by leaving it — the pool sets no idle options, so
+  // pg-pool's defaults (min 0, idleTimeoutMillis 10000) close its connections
+  // once that work is done. Only a build the generation check REJECTS is ended
+  // at once, since no caller ever received it.
   stripeSync = null;
   stripeSyncLiveMode = null;
   constructionGeneration++;

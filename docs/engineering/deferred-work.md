@@ -57,7 +57,7 @@ Proactive security and patching deferrals — bumps held for a reason, hardening
 we've sequenced for later.
 
 - **sharp / esbuild bumps parked (PR #243).**
-  - **Launch plan placement (David, 2026-10-13): blocking — `sharp` is upgraded in Phase 7 (the image offering), before Seed; Phase 15 confirms it landed. `esbuild` is not blocking.** Checked at `92024f3`: the lockfile still pins `sharp@0.34.5` (`libvips >=8.17.3`); the current release is `0.35.5` (`libvips >=8.18.7`), and the 0.35 typings bug was fixed in 0.35.1. `userImageUpload.ts` runs it on user-supplied files, so the CVEs bite from the first Seed upload. Phase 7 re-verifies renders anyway. The older `esbuild` copies arrive only through `tsx`/`orval`/`wrangler`, and their flaw is in the dev server, which production never runs. See
+  - **Launch plan placement (David, 2026-10-13): blocking — `sharp` is upgraded in Phase 7 (the image offering), before Seed; Phase 15 confirms it landed. `esbuild` is not blocking.** Checked at `92024f3`, unchanged at `5f51f2b`: the lockfile still pins `sharp@0.34.5` (`libvips >=8.17.3`); the current release is `0.35.5` (`libvips >=8.18.7`), and the 0.35 typings bug was fixed in 0.35.1. `userImageUpload.ts` runs it on user-supplied files, so the CVEs bite from the first Seed upload. Phase 7 re-verifies renders anyway. The older `esbuild` copies arrive only through dev-time tools (`tsx`, `orval`, `wrangler`, `drizzle-kit`, `esbuild-register`), and their flaw is in the dev server, which production never runs. See
   [Dependencies & toolchain](#dependencies--toolchain) below — the sharp 0.35
   hold has a security dimension (we're declining a patch-eligible bump), so the
   quarterly security review should re-check whether a CVE has landed on the
@@ -181,6 +181,7 @@ we've sequenced for later.
   Release B remain `NULL` until Release C's classification backfill, and
   `recordStage2Cost` has an uncounted failure path (see the note under the
   2026-08-18 skip-and-count decision). Original entry kept below.
+  **Launch plan review (on my recommendation, David delegated 2026-10-13): won't-do, both halves.** The backfill has nothing to fix in production: Phase 3's fresh database starts with no rows from before Release B. `recordStage2Cost` lives in `videoPipelineRunner.ts`, which Phase 4 deletes with the video pipeline.
 
   - **What.** Two related gaps, and the second is the one that is easy to get
     wrong. **(a)** On **both** synchronous paths — `aiMemePipeline` and
@@ -283,7 +284,7 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** All `*.overhype.me` subdomains are HTTPS.
 
 - **`ADMIN_API_KEY` scoping + `confirm`/`limit` gates on the API-key backfill launchers.**
-  - **Launch plan placement (David, 2026-10-13): blocking, Phase 15 — scope, not delete.** Checked at `main`: the key unlocks twelve admin routes including `set-password`, and is compared with `!==`. Phase 15: no password set through the key; it reaches only backfills, Stripe sync and import, each with a confirm and a limit; constant-time comparison. Whether production keeps any admin override at all is David's decision at Phase 18 ("in a live environment we need to be hyper sensitive to backdoors of any kind").
+  - **Launch plan placement (David, 2026-10-13): blocking, Phase 15 — scope, not delete.** Checked at `main`: the key unlocks `set-password`, the backfill launchers, Stripe sync, import and job status, and is compared with `!==`. Phase 15: no password set through the key; it reaches only backfills, Stripe sync and import, each with a confirm and a limit; constant-time comparison. Whether production keeps any admin override at all is David's decision at Phase 18 ("in a live environment we need to be hyper sensitive to backdoors of any kind").
   - **Why deferred.** The backfill-launcher gates depend on the `ADMIN_API_KEY`
     scoping decision, which isn't made yet.
   - **Cost of waiting.** Backfill launchers lack a belt-and-suspenders
@@ -312,6 +313,7 @@ re-gather it when the work is scheduled.
 ## Dependencies & toolchain
 
 - **sharp 0.34.5 → 0.35.0 (and esbuild 0.27.3 → 0.28.1) — parked from PR #243.**
+  - **No longer parked (David, 2026-10-13): `sharp` is upgraded in launch Phase 7, before Seed, and confirmed in Phase 15; the "accepted risk" below held only until then.** See the placement under *Security & patching*.
   - **What.** A Dependabot `npm_and_yarn` group bump raising sharp to 0.35.0
     and esbuild to 0.28.1.
   - **Why deferred now.** sharp 0.35 is a 0.x "minor" but effectively a
@@ -485,7 +487,7 @@ re-gather it when the work is scheduled.
     this entry closes and `RECOVER_STUCK_CUTOFF_MIN` stops being load-bearing.
 
 - **`TODO(PR3-signature)` — `artifacts/api-server/src/lib/sendBackToReview.ts:151`.**
-  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking, trigger unchanged.** The marker is still there (now line 137); a null signature is handled.
+  - **RESOLVED — already built (Astra, #661).** Classify time already stamps the signature: `enrichmentJobs.ts` captures `currentProcessingSignatureFromConfig()` before the LLM call and writes it into the candidate, and `enrichmentVersioning.refresh.test.ts` covers a revision changing during classification. The `null` at send-back is correct, since nothing has been classified yet. Only the comment is stale (now `sendBackToReview.ts:137`); it is removed by the next PR that touches that file.
   - **What.** Rows are re-queued with `signature: null` because per-row
     processing signatures aren't stamped at send-back time; the comment defers
     stamping "at classify time once signatures land."
@@ -566,82 +568,51 @@ re-gather it when the work is scheduled.
     and rejection cleanup built in from the start (a rejected in-flight
     promise must be cleared, not cached) — not added later as a patch.
 
-- **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308).**
-  - **Launch plan placement (David, 2026-10-12; corrected 2026-10-13): the dangerous part is resolved; the remainder joins the Phase 3 connection-budget work.** Checked against `main` at `92024f3`: defect (3), mixed-mode credentials, and defect (2), an old-mode build published after invalidation, are fixed by #577 and #653 — `buildStripeSync(liveMode)` captures the mode once, and a generation counter plus a strict row re-read discards and ends a superseded build (`stripeModeToggle.test.ts`). Defect (1) remains: with no single-flight construction, concurrent callers at boot or after a mode toggle each build and use their own two-connection pool, so a burst can exceed the connection budget. pg-pool's idle timeout returns a pool's connections only once they are released, which does not bound that burst (Codex, #661). Single-flight construction is therefore part of the Phase 3 budget work in launch plan v5; ending a dropped instance's pool on invalidation goes with it.
-  - **What.** `stripeClient.ts:120-126` (`getStripeSync()` itself; the cached
-    module-level vars and `buildStripeSync()` start at `:103-107`), three
-    current defects plus one forward-looking guardrail: (1) no single-flight,
-    so concurrent misses each run `buildStripeSync()`, creating extra
-    `StripeSync` instances **and** extra `pg.Pool`s; (2) a `stripe_live_mode`
-    flip mid-flight lets an old-mode build publish *after*
-    `invalidateStripeSync()` — the flight must be generation- **and**
-    mode-scoped, discarding a completion whose generation is no longer
-    current; (3) `buildStripeSync()` re-reads the mode independently for the
-    secret key and the webhook secret rather than using the mode captured at
-    entry, so a flip landing between those reads can yield a live key paired
-    with a test webhook secret or the reverse. **Forward-looking guardrail:**
-    today's code has no stored in-flight promise either — `stripeSync = await
-    buildStripeSync()` simply throws to the caller on failure, leaving the
-    prior cached value in place — but any single-flight fix must clear a
-    rejected promise rather than cache it, or every later webhook would fail
-    until restart. A superseded or invalidated `StripeSync` also **leaks its
-    underlying `pg.Pool`** — the installed `stripe-replit-sync@1.0.0`'s
-    constructor creates a `PostgresClient`, whose constructor creates a
-    `pg.Pool` — so repeated mode flips leak connections steadily; "discard" is
-    the wrong verb throughout, the fix must *dispose*
-    (`postgresClient.pool.end()`).
-  - **Status after PR #577 (the Stripe account guard), from reading
-    `stripeClient.ts` at the harvest of 2026-10-12.** Defects (2) and (3)
-    are closed. A construction generation counter plus a re-read of the
-    stored mode discards a build that a toggle superseded, and closes that
-    build's pool (`discardRejectedBuild`). `buildStripeSync(liveMode)` takes
-    the mode captured at entry for both the secret key and the webhook
-    secret. The rejection-caching guardrail is honoured: verification
-    memoises successes only. **Still open:** (1) there is still no
-    single-flight around construction, so concurrent misses each build, and
-    the later publish overwrites the earlier one without closing its pool;
-    and `invalidateStripeSync()` deliberately does not close the pool of the
-    instance it drops (the code comment says so and points here). The line
-    references in *What* predate #577. **One more trigger since PR #653:**
-    the `stripe_live_mode` PATCH now starts setup (whose `getSync()` calls
-    `getStripeSync()`) and then calls `getStripeSync()` itself for the full
-    sync, so a local toggle can run two constructions at once and orphan one
-    two-connection pool (Fable, #653 round 1). The leak and the concurrency
-    are read from the code, not reproduced by a test: unable to verify by
-    measurement; a test that runs two concurrent `getStripeSync()` misses
-    and counts open pools would settle it.
-  - **Why deferred now.** Pre-existing on `main`; same review/deferral
-    provenance as the `adminConfig` entry above.
-  - **Cost of waiting.** Extra Postgres connections and pool churn on every
-    concurrent Stripe-sync miss or live/test mode flip, worsening the
-    [autoscale connection-budget problem](#security--patching) (now filed
-    under Security & patching, above this section). No known production
-    incident yet; the mixed-mode-credentials case (3) is the most severe if
-    it fires — a live secret key paired with a test webhook secret.
-  - **Revisit trigger.** Next `/bugfix` pass through Stripe sync, or the
-    [autoscale connection-budget entry](#security--patching) being fixed
-    first (its arithmetic assumes this leak doesn't exist). Acceptance needs
-    three cases proven together: a
-    delayed mid-flight mode flip, a construction failure followed by a
-    successful retry, and repeated flips returning the live pool count to one.
+- **`getStripeSync()` is not mode-scoped or rejection-safe (found on PR #299's review, deferred by PR #308) — FIXED by the single-flight bugfix (workstream #652).**
+  - **Launch plan review (David, 2026-10-12; corrected 2026-10-13): nothing to place.** Fixed on `main` by #657. The Phase 3 connection-budget work still counts the StripeSync pool, as the autoscale entry says.
+  - **What it was.** Three defects in the cached `StripeSync` constructor:
+    (1) no single-flight, so concurrent cache misses each built a
+    `StripeSync` and its two-connection `pg.Pool`; (2) a mode flip mid-flight
+    let an old-mode build publish after `invalidateStripeSync()`; (3) the
+    secret key and webhook secret were read under independent mode reads.
+    PR #577 closed (2) and (3) with a construction generation counter, a
+    re-read of the stored mode, and `buildStripeSync(liveMode)`.
+  - **The fix.** Construction is now single-flight, keyed by mode **and**
+    generation: concurrent misses for the same mode share one build; a
+    flight for a superseded generation or another mode is never joined. A
+    rejected flight is cleared, never cached, so the next caller retries.
+    Regression test: `stripeModeToggle.test.ts`, *concurrent callers on a
+    cold cache share ONE construction* (it built twice before the fix).
+  - **What the old "leak" wording got wrong, and what stays by design.** A
+    pool is not leaked: the library's pool sets no idle options, so
+    pg-pool's defaults apply (`min` 0, `idleTimeoutMillis` 10000;
+    `pg-pool/index.js:90,98-99`), and a dropped instance's idle connections
+    close within ten seconds. Builds the generation check rejects are ended
+    at once (`discardRejectedBuild`). A cached instance that
+    `invalidateStripeSync()` drops is deliberately **not** ended: a webhook
+    or sync still running on it would fail mid-query, and idle release
+    reclaims its connections when that work finishes.
+  - **What remains, not a defect.** The toggle PATCH's setup pass and its
+    full sync both run a backfill — admin-visible work, kept on purpose.
 
 - **Three gaps PR #577 recorded for "an immediate follow-up PR" that never shipped (found in the 2026-10-12 batched harvest).**
-  - **Placed (on my recommendation, David delegated 2026-10-13).** (3) is **fixed** by #655: the suite's `afterEach` now restores the variables it sets (checked on `main`). (2) was already fixed. (1)'s remaining half — the panel never shows "verified but setup not finished" — goes into launch Phase 10, before live mode.
+  - **Launch plan review (2026-10-13): nothing to place.** All three are fixed on `main`: (1) by #658, (2) by the #653 follow-up, (3) by #655.
   - **What.** Recorded on workstream #571's harvest notes. Re-read against
     `main` at the harvest. None of the three has a fix in the window, but
     none was reproduced either:
-    1. **(P1 as recorded) — resume half FIXED by the bugfix that followed
-       the harvest; observability half still open.** Diagnosis found the
+    1. **(P1 as recorded) — both halves FIXED by the bugfixes that
+       followed the harvest.** Diagnosis found the
        recorded case was one instance of a class: initialization completion
        was a single process-wide flag, so any switch of the active mode
        left the new account's webhook unregistered. It is now per mode, and a
        committed toggle starts setup for the new mode
        (`stripeModeToggle.test.ts`, *a mode change initializes the newly
-       active mode*). **Still open:** nothing surfaces "verified but setup
-       not complete" to the operator. `hasStripeInitializationCompleted()`
-       (which now takes a mode) still has no caller outside tests, so a
-       setup that keeps failing shows only in the logs while the panel
-       reads `verified`.
+       active mode*). **Observability half FIXED by the bugfix that
+       followed (workstream #652):** the Billing summary attaches a setup
+       state to a verified mode, and the panel reads *Account verified —
+       Stripe setup not finished* with the failing step until the webhook
+       is registered (`stripeModeToggle.test.ts`, *a verified mode whose
+       setup keeps failing reads as failing on the Billing summary*).
     2. **(P2) — FIXED by the follow-up to #653.** `runStripeVerificationRetryOnce`
        made its deterministic-refusal skip on the lenient cached mode
        (`isLiveMode()`) before the strict read, so after a toggle committed
@@ -650,7 +621,9 @@ re-gather it when the work is scheduled.
        only once the stored mode is known to be the refused one
        (`stripeModeToggle.test.ts`, *a refused old mode does not stop the
        retry seeing a remote switch its cache has not caught up with*).
-    3. **(P2)** `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
+    3. **(P2) — FIXED by #655**, with the same leak found and fixed in
+       `routes.stripe` and `routes.adminStripeSync`. As recorded:
+       `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
        `STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_ACCOUNT_ID_TEST` in a
        `beforeEach`. The hook is already scoped inside its `describe`, which
        is the first half of the fix. Nothing restores the variables, though,
@@ -660,9 +633,8 @@ re-gather it when the work is scheduled.
   - **Why deferred.** Not deliberately deferred: the follow-up was promised in
     the harvest notes and never opened. Recorded here so the promise lives
     somewhere with an owner.
-  - **Cost of waiting.** (1)'s remaining half costs diagnosis time: a setup
-    that keeps failing after a toggle shows in the logs, not on the panel. (3) is a test-suite leak: a later suite in the same shard
-    can see Stripe credentials it did not set.
+  - **Cost of waiting.** None now: all three are fixed (workstream #652).
+    The entry stays as the record until the next `/maintenance` prunes it.
   - **Revisit trigger.** Before the live-mode work in launch Phase 10 (#628),
     which is the first time a mode toggle is a real operator action.
 
