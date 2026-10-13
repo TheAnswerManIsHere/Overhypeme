@@ -8,6 +8,12 @@
  * model-agnostic — pass the admin-configured levers, spread the result into
  * `chat.completions.create({ model, messages, ... })`.
  *
+ * GPT-6 at reasoning effort exactly "none" is the exception: OpenAI's GPT-6
+ * guide removes temperature only "when reasoning effort is not `none`", so that
+ * mode keeps the caller's temperature (the like-for-like replacement for the
+ * gpt-4o-mini helpers that set it). The rule is quoted from the GPT-6 guide
+ * only, so gpt-5 / o-series keep the plain reasoning shape at every effort.
+ *
  * Reasoning tokens count against `max_completion_tokens`, so for reasoning
  * models we add headroom on top of the configured visible-output budget;
  * otherwise a small cap (e.g. 200) would be consumed by reasoning and return an
@@ -38,6 +44,11 @@ export function chatModelTuningParams(opts: {
   reasoningEffort?: string;
 }): TuningParams {
   const { model, maxTokens, temperature, reasoningEffort } = opts;
+  const effortTrimmed = reasoningEffort?.trim();
+  if (effortTrimmed === "none" && /^gpt-6/i.test(model.trim())) {
+    // No reasoning, so no reasoning headroom: the caller's budget is the answer's.
+    return { max_completion_tokens: maxTokens, temperature, reasoning_effort: "none" };
+  }
   if (isReasoningChatModel(model)) {
     const params: TuningParams = {
       max_completion_tokens: maxTokens + REASONING_TOKEN_HEADROOM,

@@ -212,8 +212,7 @@ export function msToHuman(ms: number): string {
 // model via chatModelTuningParams (lib/openaiChatParams.ts), so any value here
 // works. GPT-5 models also honor the "Reasoning Effort" lever below.
 export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
-  { value: "gpt-6-luna",   label: "GPT-6 Luna (reasoning — fast, cheap — default)" },
-  { value: "gpt-6.1-sol",  label: "GPT-6.1 Sol (reasoning — mid-tier; no \"None\" effort)" },
+  { value: "gpt-6-luna",   label: "GPT-6 Luna (fast, cheap — default; temperature applies at effort None)" },
   { value: "gpt-4o-mini",  label: "GPT-4o mini (legacy)" },
   { value: "gpt-4o",       label: "GPT-4o" },
   { value: "gpt-4.1-nano", label: "GPT-4.1 nano (fastest, cheapest)" },
@@ -226,8 +225,9 @@ export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
 ];
 
 // Reasoning effort for GPT-5 / GPT-6 / o-series models. Ignored by GPT-4.x models.
+// For GPT-6 models, "None" also restores the temperature lever.
 export const REASONING_EFFORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "none",   label: "None (fastest, cheapest)" },
+  { value: "none",   label: "None (fastest, cheapest; GPT-6 honors temperature)" },
   { value: "low",    label: "Low (default)" },
   { value: "medium", label: "Medium" },
   { value: "high",   label: "High" },

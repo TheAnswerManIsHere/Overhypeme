@@ -47,5 +47,7 @@ export const OPENAI_GENERAL: EngineDefinition = {
 
   defaultTemperature: 0.7,
   defaultMaxTokens: 512,
-  defaultReasoningEffort: "low",
+  // "none" keeps luna non-reasoning, like the gpt-4o-mini it replaced, and
+  // keeps per-call temperature (see openaiChatParams.ts).
+  defaultReasoningEffort: "none",
 };

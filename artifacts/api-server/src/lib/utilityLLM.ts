@@ -20,8 +20,11 @@ import { logger } from "./logger";
 const FALLBACK_MODEL = "gpt-6-luna";
 const FALLBACK_TEMPERATURE = 0.7;
 const FALLBACK_MAX_TOKENS = 512;
-/** gpt-6-luna defaults to medium effort; helper calls want the cheap, fast end. */
-const FALLBACK_REASONING_EFFORT = "low";
+/**
+ * gpt-6-luna defaults to medium effort; "none" keeps helper calls fast and
+ * non-reasoning, like the gpt-4o-mini they replaced, and keeps temperature.
+ */
+const FALLBACK_REASONING_EFFORT = "none";
 
 /** Milliseconds before a utility LLM call is aborted. */
 export const UTILITY_LLM_TIMEOUT_MS = 30_000;
