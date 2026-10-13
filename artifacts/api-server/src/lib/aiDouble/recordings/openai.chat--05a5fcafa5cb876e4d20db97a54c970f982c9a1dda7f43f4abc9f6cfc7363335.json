@@ -1,0 +1,63 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 9024,
+    "messages": [
+      {
+        "content": "You are a fact-template tokenizer for a personalized humor website called Overhype.me.\nUsers write facts in plain English about a person. You convert them into a template using a closed token set.\n\nTOKEN RULES:\n1. Replace the person's name with {NAME}\n2. Replace subject pronouns (he, she) with {SUBJ}; capitalize to {Subj} when sentence-starting\n3. Replace object pronouns (him, her) with {OBJ}; capitalize to {Obj} when needed\n4. Replace possessive adjectives (his, her as adjective) with {POSS}; capitalize to {Poss} when needed\n5. Replace possessive pronouns (his, hers as standalone pronoun) with {POSS_PRO}; capitalize to {Poss_Pro} when needed\n6. Replace reflexive pronouns (himself, herself) with {REFL}; capitalize to {Refl} when needed\n7. Conjugation pairs are ONLY for verbs whose grammatical subject is a\n   {SUBJ}/{Subj} pronoun referring to the personalized person. For such a verb\n   or auxiliary, use {singular_form|plural_form} syntax.\n   The LEFT form is used for he/she; the RIGHT form is used for they.\n   Examples (subject IS the person): {doesn't|don't}  {isn't|aren't}  {was|were}  {does|do}  {has|have}  {pushes|push}  {counts|count}  {keeps|keep}  {runs|run}\n   If the subject is {NAME}, leave the verb plain in its normal singular-name\n   form. \"When {NAME} gives...\" is correct for every pronoun set; do NOT output\n   \"When {NAME} {gives|give}...\"\n   A verb whose subject is ANYTHING ELSE — a literal noun (\"Sharks\", \"time\", \"the earth\", \"death\", \"people\") or any noun phrase that is not the person — MUST stay plain text with NO braces, even if it is third-person singular. The person's pronouns never change another subject's number.\n   Coordinated verbs sharing the person subject each need their OWN pair: \"he\n   runs and hides\" → \"{SUBJ} {runs|run} and {hides|hide}\" (both verbs share the\n   {SUBJ} subject). But if the SECOND clause has a different subject, only the\n   first verb is a pair: \"he runs and dogs bark\" → \"{SUBJ} {runs|run} and dogs\n   bark\" (\"dogs\" is a new, non-person subject — never wrap \"bark\").\n8. NEVER output a subject pronoun token directly followed by \"'s\" ({Subj}'s /\n   {SUBJ}'s) — \"they's\" is never valid English. \"he's\"/\"she's\" is ALWAYS one of\n   two things and must be expanded to the matching pair, never left as \"'s\":\n   - meaning \"is\": {SUBJ} {is|are}  (e.g. \"he's fast\" → \"{SUBJ} {is|are} fast\")\n   - meaning \"has\": {SUBJ} {has|have}  (e.g. \"he's got it\" → \"{SUBJ} {has|have} got it\")\n9. Keep everything else exactly as written — no braces around any other word.\n\nIMPORTANT:\n- Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.\n- Verb conjugation is NARROW: only conjugate a verb whose subject is a person pronoun token ({SUBJ}/{Subj}). Before adding a pair, ask \"is the subject a {SUBJ}/{Subj} token?\" — if the subject is {NAME} or a different noun, leave the verb plain.\n- When the person is the subject, \"they\" triggers plural: \"he sleeps\" → \"{SUBJ} {sleeps|sleep}\", \"he doesn't\" → \"{SUBJ} {doesn't|don't}\", \"he was\" → \"{SUBJ} {was|were}\"\n- If the he/she and they forms are IDENTICAL, leave the verb plain — do NOT wrap it. Modal verbs are the common case: can, will, would, should, could, must, might, may. Output \"{NAME} can fly\" not \"{NAME} {can|can} fly\".\n- SELF-CHECK before returning: re-read every present-tense verb that directly follows {SUBJ}/{Subj}. Each one MUST be a {singular|plural} pair. A bare \"-s\" verb in that position (keeps, runs, is, has, does) is a bug — wrap it. Re-read every verb that follows {NAME}; each one MUST stay plain singular-name text. Re-read every \"'s\" that follows {SUBJ}/{Subj} — it must be expanded to {is|are} or {has|have}, never left as \"'s\".\n- NEVER put braces around words that are not in the token list above. Conjunctions (\"When\", \"But\", \"If\", \"Because\"), articles (\"The\", \"A\", \"An\"), prepositions (\"In\", \"On\", \"At\"), and all other non-token words must be written as plain text without braces. Wrapping any such word in braces is ALWAYS wrong.\n- Return ONLY valid JSON: {\"template\": \"...the tokenized template...\"}\n- Do NOT explain, do NOT add any other keys.\n\nEXAMPLES (correct output):\nInput: \"When David laughs, the earth cries.\"\nOutput: {\"template\": \"When {NAME} laughs, the earth cries.\"}\n\nInput: \"Sarah doesn't age because time fears her.\"\nOutput: {\"template\": \"{NAME} doesn't age because time fears {Obj}.\"}\n\nInput: \"Sharks have a David Week.\"\nOutput: {\"template\": \"Sharks have a {NAME} Week.\"}\n\nInput: \"Alex keeps the virus in his back yard.\"\nOutput: {\"template\": \"{NAME} keeps the virus in {POSS} back yard.\"}\n\nInput: \"He runs and hides from tax auditors.\"\nOutput: {\"template\": \"{Subj} {runs|run} and {hides|hide} from tax auditors.\"}\n\nInput: \"He runs and dogs bark.\"\nOutput: {\"template\": \"{Subj} {runs|run} and dogs bark.\"}\n\nInput: \"He's unstoppable.\"\nOutput: {\"template\": \"{Subj} {is|are} unstoppable.\"}",
+        "role": "system"
+      },
+      {
+        "content": "Convert this fact to a template:\n\n\"Chuck Norris once counted to infinity. Twice. The second time he did it backwards to check his work.\"",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.4-mini",
+    "reasoning_effort": "low",
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "fingerprint": "05a5fcafa5cb876e4d20db97a54c970f982c9a1dda7f43f4abc9f6cfc7363335",
+  "recordedAt": "2026-10-12T23:28:26.008Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-5.4-mini",
+  "response": {
+    "id": "recorded-1",
+    "object": "chat.completion",
+    "created": 1791847705,
+    "model": "gpt-5.4-mini-2026-03-17",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"template\":\"{NAME} once counted to infinity. Twice. The second time {Subj} {did|do} it backwards to check {POSS} work.\"}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1403,
+      "completion_tokens": 121,
+      "total_tokens": 1524,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 73,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

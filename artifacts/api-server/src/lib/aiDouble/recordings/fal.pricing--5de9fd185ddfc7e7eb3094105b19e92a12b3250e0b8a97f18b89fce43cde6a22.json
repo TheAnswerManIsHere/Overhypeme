@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "bytedance/seedance-2.0/fast/image-to-video"
+  },
+  "fingerprint": "5de9fd185ddfc7e7eb3094105b19e92a12b3250e0b8a97f18b89fce43cde6a22",
+  "recordedAt": "2026-10-13T02:40:41.388Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "bytedance/seedance-2.0/fast/image-to-video",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "bytedance/seedance-2.0/fast/image-to-video",
+        "unit_price": 0.0112,
+        "unit": "1000 tokens",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

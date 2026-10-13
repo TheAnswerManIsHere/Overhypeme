@@ -1,0 +1,343 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 8600,
+    "messages": [
+      {
+        "content": "You are the fact enrichment classifier for Overhype.me.\n\nOverhype.me is a positive personalized impossible-facts platform. Users create memes where an absurd fact is rendered with their name and pronouns. Your job is to classify each submitted fact into the structured Overhype.me taxonomy so the app can route image, meme, and video generation later.\n\nYou are not generating an image prompt. You are enriching the fact with durable metadata.\n\nCore product rule:\nThe subject must be portrayed positively as legendary, impressive, dominant, magnetic, respected, superhuman, impossibly capable, or mythically competent. Do not approve facts whose core joke makes the subject pathetic, unlucky, stupid, disgusting, weak, humiliated, creepy, or cruel.\n\nClassify by the joke mechanism, not by superficial topic.\nFor example:\n- A moon fact caused by a sneeze is a superhuman physical feat with an astronomical consequence modifier.\n- A sun blinking fact is environmental obedience or personification, not a cosmic category.\n- Counting to infinity is logic/formal impossibility, not physical scale.\n- A baby driving their mother home is authority/threat reversal with social role reversal subtype.\n- \"Threw a grenade and killed 50 people, then it exploded\" is a superhuman physical feat (the throw is so powerful it kills before the grenade's normal explosion matters), NOT temporal/causality inversion. The explosion is a redundant normal mechanism, not an effect that precedes its cause. Add the normal_function_rendered_unnecessary modifier.\n- A bar fight ending because the subject raises an eyebrow is presence-induced reaction/aura, not temporal inversion.\n\nUse only the allowed primary archetypes and subtypes.\n\nPrimary archetypes:\n1. superhuman_physical_feat\n2. object_logic_impossibility\n3. environmental_obedience_immunity\n4. authority_threat_reversal\n5. temporal_causality_inversion\n6. presence_induced_reaction_aura\n7. logic_formal_impossibility\n8. intellectual_omniscience\n9. technology_system_reaction\n10. intrinsic_legendary_attribute\n11. mundane_act_made_legendary\n\nSubtype rules:\n\nsuperhuman_physical_feat:\nUse when a real physical action is exaggerated to impossible scale.\nAllowed subtypes:\n- force_scaled_action\n- strength_scaled_action\n- speed_scaled_action\n- endurance_scaled_action\n- precision_scaled_action\n- sensory_scaled_action\n- ordinary_action_extreme_consequence\n\nobject_logic_impossibility:\nUse when the object, tool, material, medium, or semantic object logic makes the action impossible.\nAllowed subtypes:\n- mechanical_contradiction\n- semantic_instrument_contradiction\n- material_state_contradiction\n- medium_contradiction\n- target_nature_contradiction\n- object_agency_inversion\n\nenvironmental_obedience_immunity:\nUse when nature, weather, darkness, water, fire, gravity, or another natural/environmental force avoids, obeys, yields to, personifies itself around, or fails to affect the subject.\nAllowed subtypes:\n- environmental_immunity\n- environmental_agency_inversion\n- environmental_control_interface\n- environmental_retreat_obedience\n- personified_natural_force\n\nauthority_threat_reversal:\nUse when a normal power, danger, authority, role, predator, institution, or responsibility relationship is inverted.\nAllowed subtypes:\n- social_role_reversal\n- institutional_authority_reversal\n- predator_danger_reversal\n\ntemporal_causality_inversion:\nUse when time, sequence, cause/effect, process order, history, age, or reversibility is broken.\nAllowed subtypes:\n- pure_timeline_inversion\n- pre_cause_consequence\n- reverse_process_entropy_reversal\n\nIMPORTANT — \"then\" does not automatically mean temporal causality inversion.\nSome facts mention a normal mechanism happening AFTER the result (a grenade exploding, a gun firing, a bomb detonating). Do NOT classify these as temporal inversion when the joke is that the subject's power made the normal mechanism unnecessary.\nUse temporal_causality_inversion ONLY when the humor depends on impossible event order, time reversal, retrocausality, or the effect clearly occurring before its cause.\nUse superhuman_physical_feat (or the relevant power archetype) when:\n- the subject performs an action with an object, tool, weapon, or system;\n- the result happens because the subject's power is impossibly strong;\n- the object's normal function happens later or is implied to be unnecessary;\n- the humor is that the normal mechanism was overkill, redundant, or irrelevant.\nIn that case add the normal_function_rendered_unnecessary modifier.\nBefore assigning temporal_causality_inversion, ask: (1) Is the joke primarily about impossible time order? (2) Or did the subject's power accomplish the result before the normal mechanism was needed? If the normal mechanism still happens later but is redundant, do NOT choose temporal_causality_inversion.\nCanonical example: \"{NAME} once threw a grenade and killed 50 people, then it exploded.\" → primaryArchetype superhuman_physical_feat, subtype force_scaled_action, modifiers include normal_function_rendered_unnecessary. The throw is the impossible force; the explosion is a redundant normal mechanism. Incorrect: temporal_causality_inversion / \"the explosion happened before the throw\".\nAnother redundant-mechanism example: \"{NAME} threw a bullet through the target, then fired the gun.\" → superhuman_physical_feat with normal_function_rendered_unnecessary.\n\npresence_induced_reaction_aura:\nUse when the subject does little or nothing, but people, objects, opportunities, conflicts, crowds, or situations react because of their presence, reputation, aura, or tiny gesture.\nAllowed subtypes:\n- surrender\n- awe_deference\n- prestige_transfer\n- world_waits_for_subject\n- object_obsession\n- respectful_refusal\n- tiny_gesture_massive_reaction\n\nlogic_formal_impossibility:\nUse when the fact violates formal logic, math, infinity, probability, rules, games, paradox, or formal language.\nAllowed subtypes:\n- infinity_impossibility\n- probability_impossibility\n- rule_system_impossibility\n- paradox_or_undefined_impossibility\n- formal_language_impossibility\n\nintellectual_omniscience:\nUse when the subject knows, predicts, solves, remembers, understands, or deduces something impossible.\nAllowed subtypes:\n- hidden_knowledge\n- future_prediction\n- impossible_problem_solving\n- memory_omniscience\n- strategic_omniscience\n- secret_mastery\n\ntechnology_system_reaction:\nUse when machines, apps, computers, passwords, AI, digital systems, networks, devices, or software react to, obey, defer to, or fail against the subject.\nAllowed subtypes:\n- security_system_submission\n- device_obedience\n- software_permission_inversion\n- ai_deference\n- machine_intimidation\n- network_system_reaction\n\nintrinsic_legendary_attribute:\nUse when the subject has an impossible built-in trait, aura, body feature, biological property, personal field, possession, or metaphorical property made physical.\nAllowed subtypes:\n- body_feature_impossibility\n- aura_property\n- biological_impossibility\n- metaphor_made_physical\n- personal_effect_field\n- legendary_possession\n\nmundane_act_made_legendary:\nUse when an ordinary everyday action, task, habit, errand, work activity, food/drink activity, or social behavior is treated as absurdly epic, mythic, dominant, or legendary.\nAllowed subtypes:\n- domestic_task_mythologized\n- ordinary_errand_mythologized\n- food_drink_ritualized\n- commute_travel_mythologized\n- social_habit_mythologized\n- work_task_mythologized\n\nVisual literalness values:\n- literal_dramatization: the fact should be depicted directly as if it happened.\n- symbolic_abstraction: the fact is too conceptual to show literally and needs symbolic visual language.\n- metaphorical_visualization: the fact should become a concrete visual metaphor.\n- grounded_roleplay: the fact should be staged as a realistic human/social scene.\n- mixed: the fact needs both literal and symbolic elements.\n\nVisual complexity values:\n- low: straightforward visual representation.\n- medium: needs interpretation but has clear visual anchors.\n- high: abstract, wordplay-heavy, ambiguous, or hard to make visually clear.\n\nOverhype fit values:\n- strong: clearly positive Overhype.me fact.\n- questionable: funny or interesting, but may be confusing, too negative, gross, cruel, non-visual, or weakly overhyped.\n- reject: does not fit positive Overhype.me without rewrite.\n\nAdult suitability values:\n- safe: appropriate for normal SFW rendering, but not especially suited to suggestive/spicy rendering.\n- compatible: can reasonably support suggestive/spicy rendering if the user and source image are eligible.\n- incompatible: should not be rendered in adult mode because the fact involves minors, childhood, family, school, medical vulnerability, workplace/professional context, brands, institutions, or another incompatible context.\n- requires_review: may be compatible but needs human review due to ambiguity, brand/professional context, authority context, violence-adjacent context, or unusual framing.\n\nAdult suitability is not permission to generate adult content. It is only a fact-level compatibility signal. Runtime gates must still enforce paid status, age verification, source-image eligibility, and policy constraints.\n\nHashtag rules:\n- Suggest 3 to 8 reusable tags.\n- Use lowercase only.\n- Do not include the # character.\n- Do not include spaces.\n- Do not include the subject's name. The subject is shown to you with the canonical placeholder name \"Alex\" (they/them) — it is a stand-in for whoever the meme is personalized to, NOT a topic. Never emit \"alex\" (in any form) as a hashtag, the same way you never list the subject as a semanticEntity.\n- Do not include the name of this app. \"Overhype\", \"Overhype.me\", and \"overhypeme\" are this platform's own name (it appears throughout these instructions and as branding, NOT in the fact itself) — never emit it as a hashtag.\n- Do not include generic-humor tags. EVERY fact on this platform is meant to be funny, so tags that merely assert that (\"humor\", \"humour\", \"funny\", \"joke\", \"jokes\", \"comedy\", \"comedic\", \"hilarious\", \"lol\", \"lmao\", \"haha\", \"laugh\", \"amusing\", \"witty\", and the like) describe the whole database, not this fact — they carry no discovery value. Tag the fact's actual TOPIC (what it's about), never the fact that it's a joke.\n- Prefer tags useful for discovery, not one-off words.\n- Include brand or company tags only when explicitly present in the fact. The app's own name (Overhype.me) does NOT count as such a brand.\n- The subject name, the app name, and generic-humor tags are stripped automatically if they slip through, so spending a hashtag slot on them just wastes it — always provide 3 to 8 genuine discovery tags that describe the fact's topic.\n\nCultural reference rules:\nDetect outside-context dependencies in the fact and emit them as a culturalReferences array. Outside-context means the joke relies on knowledge that isn't obvious from the literal words: a brand, a workplace/professional context, a familiar phrase or idiom, wordplay, mechanism knowledge (e.g. how a magnifying glass normally focuses sunlight), or an inside reference to a cultural artifact (TV show, song, event). Examples:\n- \"Sharks have a David Week\" → cultural_reference, canonical \"Shark Week\" (broadcast TV); visualImplication \"sharks are the audience watching the subject as spectacle\".\n- \"David doesn't prepare for demos, demos prepare for David. #Yardi\" → professional_domain_context / workplace_context (SaaS presales demos at Yardi).\n- \"David can set an ant on fire with a magnifying glass. At night.\" → mechanism_knowledge (magnifying glass focuses sunlight; nighttime breaks it).\n\nEach cultural reference object has:\n- sourcePhrase (string): the literal phrase or word in the fact that triggers the reference.\n- referenceType (one of: cultural_reference, brand_reference, workplace_context, professional_domain_context, idiom_or_phrase, wordplay, mechanism_knowledge, inside_reference).\n- canonicalReference (string): the canonical name/source of the reference (e.g. \"Shark Week\", \"Pi\", \"Victoria's Secret\"). May be \"\" when there is no single canonical name.\n- explanation (string): plain-language explanation of the joke mechanism that the reference enables.\n- visualImplication (string): how the reference should change the visual interpretation of the scene.\n- confidence (number 0..1): how confident you are that the reference is the joke's actual hook.\n- requiresAdminReview (boolean): true when the reference touches a real brand, workplace, professional context, or is otherwise ambiguous and worth a human sanity check.\n\nCultural references INFORM the visual interpretation but MUST NOT change the primary archetype or subtype. The taxonomy classifies the joke MECHANISM; cultural references only flesh out HOW to render it.\n\nIf the fact has no outside-context dependency, emit an empty array: culturalReferences: [].\nDo NOT emit a \"none\" reference type — there is no \"none\" type.\n\nSemantic entity and capitalization-aware interpretation:\n\nPreserve and interpret meaningful capitalization. DO NOT normalize casing before semantic interpretation. The fact text is provided to you in a field named factTextExact — use it verbatim.\n\nDistinguish common nouns from proper nouns, named entities, brands, cultural references, celestial bodies, abstract concepts, and personified concepts when that distinction changes the visual meaning of the fact.\n\nExamples:\n- \"earth\" usually means dirt, soil, ground, or terrain.\n- \"Earth\" usually means the planet Earth.\n- \"apple\" usually means the fruit.\n- \"Apple\" may mean the technology company or brand.\n- \"sun\" may mean sunlight or the visible sun generally.\n- \"Sun\" may mean the named celestial body or a personified entity, depending on context.\n- \"law\" may mean legal rules or the legal system.\n- \"Law\" may indicate personification, a title, or an institution, depending on context.\n\nUse capitalization as a strong signal, but do not rely on capitalization alone. If a word is capitalized only because it begins a sentence, set capitalizationSignal to \"sentence_initial_ambiguous\", set requiresAdminReview to true, and infer the referent from context.\n\nWhen capitalization, wording, or cultural reference materially changes the visual referent, add a semanticEntities entry. Required fields per entry: surfaceText (verbatim case from the fact), normalizedText (lowercase comparable form), entityKind (one of: proper_noun, common_noun, named_entity, brand_or_cultural_reference, abstract_concept, personified_concept, physical_object, place, celestial_body, institution_or_system, ambiguous), visualReferent (the concrete interpretation, e.g. \"the planet Earth\" or \"ground, dirt, soil, or terrain beneath the subject\"), capitalizationSignal (one of: capitalized_named_entity, lowercase_common_noun, sentence_initial_ambiguous, all_caps_presentation_ignored, mixed_case_brand_or_title, not_relevant), materiallyAffectsVisualPrompt (boolean — true when changing the interpretation would materially change the rendered image), requiresAdminReview (boolean — true for sentence-initial ambiguity, brand/cultural references, ambiguous kind, or any case an admin should sanity-check), confidence (0-1), notes (string with the reasoning; \"\" if none).\n\nDo NOT list every noun. Only list terms whose interpretation materially affects the visual prompt, is ambiguous, or could be confused with another referent. When no entries are warranted, emit an empty array: semanticEntities: [].\n\nDo NOT list the SUBJECT of the fact — the person the fact is about, shown here with the canonical placeholder name \"Alex\" (and they/them pronouns) — as a semanticEntities entry. The subject's identity is owned separately by the personalization/rendering layer; \"Alex\" is a stand-in for whoever the meme is personalized to, not a referent to resolve. Only list OTHER terms (places, objects, named entities, brands, cultural references, celestial bodies, personified concepts) whose interpretation materially affects the visual prompt.\n\nSemantic entities do NOT change the primaryArchetype or subtype. The taxonomy is unchanged; semantic entities are RENDER context for the downstream image prompt generator.\n\nModifier rules:\nPrefer known modifiers from the known modifier catalog when possible. You may add a custom modifier only if no known modifier captures an important rendering, discovery, identity, setting, or safety constraint.\n\nKnown modifier catalog:\n- single_subject_focus\n- identity_strict\n- identity_essence_only\n- face_prominent\n- full_body_needed\n- age_transform\n- baby_child_version\n- older_self_version\n- grounded_realism\n- mock_heroic\n- action_comedy\n- cinematic_aftermath\n- symbolic_abstraction_required\n- metaphorical_visualization\n- clear_causal_relationship\n- crowd_reaction\n- environmental_reaction\n- object_transformation\n- technology_reaction\n- official_setting\n- professional_context\n- domestic_setting\n- office_setting\n- school_setting\n- hospital_setting\n- courtroom_setting\n- airport_setting\n- gym_setting\n- bar_setting\n- battlefield_setting\n- technology_setting\n- underwater_setting\n- space_setting\n- outdoor_nature_setting\n- city_setting\n- avoid_weapons_focus\n- avoid_gross_literalization\n- avoid_extra_faces\n- avoid_duplicate_subject\n- astronomical_consequence\n- celestial_object\n- subject_object_reversal\n- normal_function_rendered_unnecessary\n- projectile_impact_power\n- brand_context\n- workplace_context\n- audience_inside_reference\n\nReturn ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, \"\" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, \"\" if none), culturalReferences (array; empty array if no outside-context dependency, otherwise objects with sourcePhrase, referenceType, canonicalReference, explanation, visualImplication, confidence, requiresAdminReview), semanticEntities (array; empty array when no capitalization-sensitive disambiguation is needed, otherwise objects with surfaceText, normalizedText, entityKind, visualReferent, capitalizationSignal, materiallyAffectsVisualPrompt, requiresAdminReview, confidence, notes).\nDo not include explanation outside the JSON.",
+        "role": "system"
+      },
+      {
+        "content": "Classify this submitted Overhype.me fact.\n\nInspect the EXACT spelling and capitalization of factTextExact. Do NOT lowercase, title-case, or otherwise normalize the case before semantic interpretation — capitalization is meaningful (e.g. \"Earth\" vs \"earth\").\n\nfactTextExact:\nAlex once counted to infinity. Twice. The second time They do it backwards to check their work.\n\nNotes:\n- The fact text has been rendered to canonical plain English (identity tokens resolved).\n- Classify the joke mechanism of the fact itself.\n- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.\n- Identify capitalization-sensitive or ambiguity-sensitive terms whose visual interpretation matters and list them in semanticEntities. Do not list every noun — only terms where interpretation materially affects the visual prompt or is genuinely ambiguous.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "response_format": {
+      "json_schema": {
+        "name": "fact_enrichment",
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "adminReviewNotes": {
+              "type": "string"
+            },
+            "adultSuitability": {
+              "enum": [
+                "safe",
+                "compatible",
+                "incompatible",
+                "requires_review"
+              ],
+              "type": "string"
+            },
+            "adultSuitabilityNotes": {
+              "type": "string"
+            },
+            "culturalReferences": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "canonicalReference": {
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "explanation": {
+                    "type": "string"
+                  },
+                  "referenceType": {
+                    "enum": [
+                      "cultural_reference",
+                      "brand_reference",
+                      "workplace_context",
+                      "professional_domain_context",
+                      "idiom_or_phrase",
+                      "wordplay",
+                      "mechanism_knowledge",
+                      "inside_reference"
+                    ],
+                    "type": "string"
+                  },
+                  "requiresAdminReview": {
+                    "type": "boolean"
+                  },
+                  "sourcePhrase": {
+                    "type": "string"
+                  },
+                  "visualImplication": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sourcePhrase",
+                  "referenceType",
+                  "canonicalReference",
+                  "explanation",
+                  "visualImplication",
+                  "confidence",
+                  "requiresAdminReview"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "modifiers": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "overhypeFit": {
+              "enum": [
+                "strong",
+                "questionable",
+                "reject"
+              ],
+              "type": "string"
+            },
+            "primaryArchetype": {
+              "enum": [
+                "superhuman_physical_feat",
+                "object_logic_impossibility",
+                "environmental_obedience_immunity",
+                "authority_threat_reversal",
+                "temporal_causality_inversion",
+                "presence_induced_reaction_aura",
+                "logic_formal_impossibility",
+                "intellectual_omniscience",
+                "technology_system_reaction",
+                "intrinsic_legendary_attribute",
+                "mundane_act_made_legendary"
+              ],
+              "type": "string"
+            },
+            "semanticEntities": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "capitalizationSignal": {
+                    "enum": [
+                      "capitalized_named_entity",
+                      "lowercase_common_noun",
+                      "sentence_initial_ambiguous",
+                      "all_caps_presentation_ignored",
+                      "mixed_case_brand_or_title",
+                      "not_relevant"
+                    ],
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "entityKind": {
+                    "enum": [
+                      "proper_noun",
+                      "common_noun",
+                      "named_entity",
+                      "brand_or_cultural_reference",
+                      "abstract_concept",
+                      "personified_concept",
+                      "physical_object",
+                      "place",
+                      "celestial_body",
+                      "institution_or_system",
+                      "ambiguous"
+                    ],
+                    "type": "string"
+                  },
+                  "materiallyAffectsVisualPrompt": {
+                    "type": "boolean"
+                  },
+                  "normalizedText": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "requiresAdminReview": {
+                    "type": "boolean"
+                  },
+                  "surfaceText": {
+                    "type": "string"
+                  },
+                  "visualReferent": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "surfaceText",
+                  "normalizedText",
+                  "entityKind",
+                  "visualReferent",
+                  "capitalizationSignal",
+                  "materiallyAffectsVisualPrompt",
+                  "requiresAdminReview",
+                  "confidence",
+                  "notes"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "subtype": {
+              "enum": [
+                "force_scaled_action",
+                "strength_scaled_action",
+                "speed_scaled_action",
+                "endurance_scaled_action",
+                "precision_scaled_action",
+                "sensory_scaled_action",
+                "ordinary_action_extreme_consequence",
+                "mechanical_contradiction",
+                "semantic_instrument_contradiction",
+                "material_state_contradiction",
+                "medium_contradiction",
+                "target_nature_contradiction",
+                "object_agency_inversion",
+                "environmental_immunity",
+                "environmental_agency_inversion",
+                "environmental_control_interface",
+                "environmental_retreat_obedience",
+                "personified_natural_force",
+                "social_role_reversal",
+                "institutional_authority_reversal",
+                "predator_danger_reversal",
+                "pure_timeline_inversion",
+                "pre_cause_consequence",
+                "reverse_process_entropy_reversal",
+                "surrender",
+                "awe_deference",
+                "prestige_transfer",
+                "world_waits_for_subject",
+                "object_obsession",
+                "respectful_refusal",
+                "tiny_gesture_massive_reaction",
+                "infinity_impossibility",
+                "probability_impossibility",
+                "rule_system_impossibility",
+                "paradox_or_undefined_impossibility",
+                "formal_language_impossibility",
+                "hidden_knowledge",
+                "future_prediction",
+                "impossible_problem_solving",
+                "memory_omniscience",
+                "strategic_omniscience",
+                "secret_mastery",
+                "security_system_submission",
+                "device_obedience",
+                "software_permission_inversion",
+                "ai_deference",
+                "machine_intimidation",
+                "network_system_reaction",
+                "body_feature_impossibility",
+                "aura_property",
+                "biological_impossibility",
+                "metaphor_made_physical",
+                "personal_effect_field",
+                "legendary_possession",
+                "domestic_task_mythologized",
+                "ordinary_errand_mythologized",
+                "food_drink_ritualized",
+                "commute_travel_mythologized",
+                "social_habit_mythologized",
+                "work_task_mythologized"
+              ],
+              "type": "string"
+            },
+            "suggestedHashtags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "taxonomyConfidence": {
+              "type": "number"
+            },
+            "visualComplexity": {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            "visualLiteralness": {
+              "enum": [
+                "literal_dramatization",
+                "symbolic_abstraction",
+                "metaphorical_visualization",
+                "grounded_roleplay",
+                "mixed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "primaryArchetype",
+            "subtype",
+            "modifiers",
+            "visualLiteralness",
+            "visualComplexity",
+            "overhypeFit",
+            "adultSuitability",
+            "adultSuitabilityNotes",
+            "suggestedHashtags",
+            "taxonomyConfidence",
+            "adminReviewNotes",
+            "culturalReferences",
+            "semanticEntities"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    }
+  },
+  "fingerprint": "811a66fbfd10c1f02596c4e8218293e521e6f3160dc681dece790b6cfe4e1b3e",
+  "recordedAt": "2026-10-12T23:28:42.210Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-5.5",
+  "response": {
+    "id": "recorded-2",
+    "object": "chat.completion",
+    "created": 1791847708,
+    "model": "gpt-5.5-2026-04-23",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"primaryArchetype\":\"logic_formal_impossibility\",\"subtype\":\"infinity_impossibility\",\"modifiers\":[\"single_subject_focus\",\"symbolic_abstraction_required\",\"mock_heroic\"],\"visualLiteralness\":\"symbolic_abstraction\",\"visualComplexity\":\"medium\",\"overhypeFit\":\"strong\",\"adultSuitability\":\"safe\",\"adultSuitabilityNotes\":\"\",\"suggestedHashtags\":[\"infinity\",\"math\",\"counting\",\"numbers\",\"logic\",\"backwards\"],\"taxonomyConfidence\":0.98,\"adminReviewNotes\":\"\",\"culturalReferences\":[],\"semanticEntities\":[{\"surfaceText\":\"infinity\",\"normalizedText\":\"infinity\",\"entityKind\":\"abstract_concept\",\"visualReferent\":\"an endless mathematical sequence or infinity symbol represented with limitless numbers\",\"capitalizationSignal\":\"lowercase_common_noun\",\"materiallyAffectsVisualPrompt\":true,\"requiresAdminReview\":false,\"confidence\":0.97,\"notes\":\"The joke depends on infinity as an unfinishable mathematical concept, so it should be visualized symbolically rather than as a physical object.\"}]}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 4981,
+      "completion_tokens": 1257,
+      "total_tokens": 6238,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 1025,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

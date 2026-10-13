@@ -17,7 +17,8 @@
  * Set `admin_config` key `nsfw_classifier_fail_open = "true"` to enable.
  */
 
-import { fal } from "@fal-ai/client";
+// Through the shared facade, so the AI double and the recorder reach this call too.
+import { fal } from "../falClient";
 import { getConfigInt, getConfigString } from "../adminConfig";
 import { logger } from "../logger";
 

@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "fal-ai/imageutils/nsfw"
+  },
+  "fingerprint": "b97aa3352c02fd951659329fa7551bba9a58d49cc38517cb44ff74d0899ffa93",
+  "recordedAt": "2026-10-12T23:35:00.465Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/imageutils/nsfw",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "fal-ai/imageutils/nsfw",
+        "unit_price": 0.001,
+        "unit": "images",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 16,
+    "messages": [],
+    "model": "gpt-5.4-mini"
+  },
+  "fingerprint": "89e215c3367d9034f32ac9e7ce75beb694608ae6a813e008e039c6e57e2c01d5",
+  "recordedAt": "2026-10-13T02:41:20.580Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-5.4-mini",
+  "error": {
+    "name": "APIError",
+    "message": "400 Invalid 'messages': empty array. Expected an array with minimum length 1, but got an empty array instead.",
+    "status": 400,
+    "body": {
+      "message": "Invalid 'messages': empty array. Expected an array with minimum length 1, but got an empty array instead.",
+      "type": "invalid_request_error",
+      "param": "messages",
+      "code": "empty_array"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "kind": "fal.subscribe",
+  "request": {
+    "endpoint": "fal-ai/nano-banana-2",
+    "input": {
+      "prompt": ""
+    }
+  },
+  "fingerprint": "b8c0d9fdf50dfd021d3786e05fecd5e2b42473472c645f392e08376ae99670cd",
+  "recordedAt": "2026-10-13T02:41:19.421Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/nano-banana-2",
+  "error": {
+    "name": "ValidationError",
+    "message": "Unprocessable Entity",
+    "status": 422,
+    "body": {
+      "detail": [
+        {
+          "type": "string_too_short",
+          "loc": [
+            "body",
+            "prompt"
+          ],
+          "msg": "String should have at least 3 characters",
+          "input": "",
+          "ctx": {
+            "min_length": 3
+          }
+        }
+      ]
+    }
+  }
+}

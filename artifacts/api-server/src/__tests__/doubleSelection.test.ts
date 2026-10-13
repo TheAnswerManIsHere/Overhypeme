@@ -101,6 +101,34 @@ describe("double selection", () => {
     }
   });
 
+  it("refuses the filesystem root as the storage double's directory", () => {
+    for (const dir of ["/", "//", " / "]) {
+      assert.match(
+        doubleSelectionRefusals({ ...DEV, STORAGE_BACKEND: "local-double", STORAGE_DOUBLE_DIR: dir }).join(),
+        /must not be the filesystem root/,
+        JSON.stringify(dir),
+      );
+    }
+    assert.deepEqual(doubleSelectionRefusals({ ...DEV, ...DOUBLE }), []);
+  });
+
+  it("selects the AI double only when named, and needs no credential for it", () => {
+    for (const value of [undefined, "", "vendors"]) {
+      assert.equal(selectedBackend("AI_BACKEND", { ...DEV, AI_BACKEND: value }), "vendors");
+    }
+    assert.equal(selectedBackend("AI_BACKEND", { ...DEV, AI_BACKEND: "recorded-double" }), "recorded-double");
+    assert.deepEqual(doubleSelectionRefusals({ ...DEV, AI_BACKEND: "recorded-double" }), []);
+    assert.match(doubleSelectionRefusals({ ...DEV, AI_BACKEND: "recorded" }).join(), /not recognised/);
+  });
+
+  it("refuses the recorder without both vendor keys", () => {
+    const keys = { FAL_AI_API_KEY: "k", OPENAI_API_KEY: "k" };
+    assert.deepEqual(doubleSelectionRefusals({ ...DEV, AI_BACKEND: "recorder", ...keys }), []);
+    assert.deepEqual(doubleSelectionRefusals({ ...DEV, AI_BACKEND: "recorder", FAL_KEY: "k", OPENAI_API_KEY: "k" }), []);
+    assert.match(doubleSelectionRefusals({ ...DEV, AI_BACKEND: "recorder", OPENAI_API_KEY: "k" }).join(), /FAL_AI_API_KEY/);
+    assert.match(doubleSelectionRefusals({ ...DEV, AI_BACKEND: "recorder", FAL_AI_API_KEY: "k" }).join(), /OPENAI_API_KEY/);
+  });
+
   it("allows the real backend in production", () => {
     assert.deepEqual(doubleSelectionRefusals({ NODE_ENV: "production", REPLIT_DEPLOYMENT: "1" }), []);
     assert.deepEqual(doubleSelectionRefusals({ NODE_ENV: "production", STORAGE_BACKEND: "replit" }), []);
@@ -167,6 +195,13 @@ describe("the server's boot refuses a bad selection before listening", () => {
     assert.notEqual(result.code, 0);
     assert.match(result.stderr, /STRIPE_SECRET_KEY_TEST is set, and the fake Stripe driver refuses/);
     assert.equal(result.listened, false, "the port must never open");
+  });
+
+  it("exits on a production boot naming the AI double", async () => {
+    const result = await boot({ ...PROD_BOOT, AI_BACKEND: "recorded-double" });
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /AI_BACKEND=recorded-double names a test double/);
+    assert.equal(result.listened, false);
   });
 
   it("exits on an unrecognised value outside production", async () => {

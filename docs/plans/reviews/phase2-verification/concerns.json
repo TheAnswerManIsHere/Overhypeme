@@ -1,0 +1,65 @@
+[
+  {
+    "id": "P2-1",
+    "title": "Production-config auth smoke contradicts the double prohibition",
+    "raised": "assess-1",
+    "source": ".agents/reviews/phase2-verification/round-1.md",
+    "state": "addressed",
+    "concern": "The auth journey needs a mail sink, but a production boot naming a double refuses to start; the existing E2E boot is development mode, so ordinary login there proves nothing about production configuration. A sink replacing the no-key log fallback would also skip the queued delivery path.",
+    "proposed": "v2: two distinct mechanisms \u2014 deploy-selectable doubles refuse in production; test-harness substitution installs only the mail transport (below the queue) via a test launcher the deployment entrypoint has no path to. Journey 1 states the observable evidence Astra listed. Cookie feasibility on a local origin is the increment's first check, marked unable to verify.",
+    "evidence": [
+      "artifacts/api-server/src/lib/env.ts:23-24",
+      "artifacts/api-server/src/lib/email.ts:121-134"
+    ]
+  },
+  {
+    "id": "P2-2",
+    "title": "Bound the acceptance suite; separate lane, disposition and result",
+    "raised": "assess-1",
+    "source": ".agents/reviews/phase2-verification/round-1.md",
+    "state": "addressed",
+    "concern": "'Every journey the launch scope names' reaches later phases' features, while a small green suite could be presented as evidence for more. Name a baseline; keep lane, disposition and result distinct; a missing journey makes a run incomplete.",
+    "proposed": "v2: Direction replaced with Astra's wording; seven named baseline journeys with observable outcomes; three-record rule; automated steps name their check; /uat shows only the human residue with machine/live checks visible. Corrected: the two upload specs were deleted in #563; storage journeys are new. v3 (round 2): journey 4 is a free user's public photo meme with normal free permissions; the private-meme check moves to journey 6 on the paid account (createMemeRecord.ts:207-209 refuses private without the entitlement); hero-render building stays Phase 7.",
+    "evidence": [
+      "git log --diff-filter=D: 507ddd4",
+      "docs/plans/PLAN_PHASE2_VERIFICATION.md#the-baseline-journeys"
+    ]
+  },
+  {
+    "id": "P2-3",
+    "title": "Extend the existing provider seam and cover the work around it",
+    "raised": "assess-1",
+    "source": ".agents/reviews/phase2-verification/round-1.md",
+    "state": "addressed",
+    "concern": "falClient.ts already re-exports one shared client; doubles must also cover ensureFalConfigured, both OpenAI clients, pricing, and the image download, or the journey bypasses or fails before the double. A double's own record cannot prove no other request escaped.",
+    "proposed": "v2: extend the shared fal client and the two OpenAI clients; Astra's coverage rule adopted verbatim in substance; pricing warm-up does not reach out; the acceptance run fails on any unexpected outbound request, detected outside the app.",
+    "evidence": [
+      "artifacts/api-server/src/lib/falClient.ts",
+      "artifacts/api-server/src/lib/imagePromptJobs.ts:362-365"
+    ]
+  },
+  {
+    "id": "P2-4",
+    "title": "Keep the Stripe prerequisite unless David changes it",
+    "raised": "assess-1",
+    "source": ".agents/reviews/phase2-verification/round-1.md",
+    "state": "accepted-by-david",
+    "concern": "The oracle makes the Stripe fake's merge part of Phase 2's exit before product phases start; 'subject to question 2' left the approved gate uncertain, and the package did not carry the proposed change or its consequences.",
+    "proposed": "v2: the approved gate stands until David answers; question 2 carries both recommendations (Claude: gate only Phase 10; Astra: keep the approved gate) and what evidence is unavailable meanwhile (checkout/webhook/cancel/refund/dispute, all Phase 10 scope; paid journeys still run via entitlement grants). David 2026-10-08: \"Gate only Phase 10.\" The Stripe fake gates only Phase 10; Phases 3-9 start once increments 1-7 land. Astra's dissent (keep the approved gate) recorded.",
+    "evidence": [
+      "oracle-phase2.md, Phase 2 exit evidence and Lane"
+    ]
+  },
+  {
+    "id": "P2-5",
+    "title": "Fixture approval package must carry the concrete options",
+    "raised": "assess-1",
+    "source": ".agents/reviews/phase2-verification/round-1.md",
+    "state": "accepted-by-david",
+    "concern": "The privacy decision must stay David's and the plan must carry the concrete retention choices; the technical design must show excluded classes never enter an intermediate export and media references resolve locally.",
+    "proposed": "v2: allowlist export, synthetic identities and media, excluded classes never extracted, approval before extraction \u2014 fixed in the plan; question 1 carries three options with Claude's recommendation. David 2026-10-08: option 1, shapes only, committed, approved live fact text kept.",
+    "evidence": [
+      "docs/plans/PLAN_PHASE2_VERIFICATION.md#the-legacy-fixture-what-is-designed-now-what-david-decides"
+    ]
+  }
+]

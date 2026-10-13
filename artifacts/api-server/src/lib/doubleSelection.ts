@@ -45,10 +45,36 @@ export const SELECTORS = {
   STORAGE_BACKEND: {
     real: "replit",
     doubles: ["local-double"],
-    requires: (env) =>
-      (env.STORAGE_DOUBLE_DIR ?? "").startsWith("/")
-        ? []
-        : ["STORAGE_DOUBLE_DIR must be an absolute directory for the local storage double"],
+    requires: (env) => {
+      const dir = (env.STORAGE_DOUBLE_DIR ?? "").trim();
+      if (!dir.startsWith("/")) return ["STORAGE_DOUBLE_DIR must be an absolute directory for the local storage double"];
+      // The filesystem root would make every path on the host an object key.
+      if (/^\/+$/.test(dir)) return ["STORAGE_DOUBLE_DIR must not be the filesystem root"];
+      return [];
+    },
+  },
+  /**
+   * The three AI vendor clients together — the shared fal client, the shared
+   * OpenAI client and the embeddings client (`lib/aiClients.ts`,
+   * `lib/falClient.ts`). One switch for all three, so a half-doubled boot that
+   * would leak a real call cannot be configured.
+   *
+   * - `recorded-double` replays committed vendor recordings (`lib/aiDouble/`)
+   *   and needs no credential.
+   * - `recorder` wraps the real clients and captures request/response pairs
+   *   for those recordings. It calls real vendors, so it needs their keys; it
+   *   is run only by `scripts/record-ai-baseline.ts`, never in CI.
+   */
+  AI_BACKEND: {
+    real: "vendors",
+    doubles: ["recorded-double", "recorder"],
+    requires: (env) => {
+      if ((env.AI_BACKEND ?? "").trim() !== "recorder") return [];
+      const missing: string[] = [];
+      if (!(env.FAL_AI_API_KEY ?? env.FAL_KEY ?? "").trim()) missing.push("AI_BACKEND=recorder needs FAL_AI_API_KEY (or FAL_KEY)");
+      if (!(env.OPENAI_API_KEY ?? "").trim()) missing.push("AI_BACKEND=recorder needs OPENAI_API_KEY");
+      return missing;
+    },
   },
   /**
    * Stripe: the real SDK and the environment's credentials, or the in-process

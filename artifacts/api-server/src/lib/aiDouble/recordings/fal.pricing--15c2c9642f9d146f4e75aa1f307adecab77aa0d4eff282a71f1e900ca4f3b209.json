@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "fal-ai/kling-video/v3/standard/image-to-video"
+  },
+  "fingerprint": "15c2c9642f9d146f4e75aa1f307adecab77aa0d4eff282a71f1e900ca4f3b209",
+  "recordedAt": "2026-10-13T02:40:41.235Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/kling-video/v3/standard/image-to-video",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "fal-ai/kling-video/v3/standard/image-to-video",
+        "unit_price": 0.14,
+        "unit": "seconds",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}
