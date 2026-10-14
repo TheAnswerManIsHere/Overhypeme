@@ -349,7 +349,7 @@ only Phase 10).
       lives.
 2. **Proposed change to the approved sequencing: what the Stripe fake
    gates.**
-   1. *Only Phase 10 (membership).* Phases 3–9 start once increments 1–7
+   1. *Only Phase 10 (membership).* Phases 3–9 start once increments 1–7 (now 1–8: amendment v5, 2026-10-14, adds increment 8)
       land. What is unavailable meanwhile: checkout, webhook, cancel, refund
       and dispute evidence — all Phase 10's own scope. Paid-path journeys
       (6) still run, because paid users are granted through the entitlement

@@ -297,6 +297,8 @@ is permanent.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:returns membershipTier='legendary' for legendary users (no isPremium field)`
 
+**Deferred:** #631 — 7b — the Profile page showing the Legendary badge for the seeded paid account and Go Legendary for the free one — `artifacts/overhype-me/e2e/testAccounts.spec.ts`
+
 ### 23. The Users list shows the correct tier per user
 
 **Do:** Check the Admin → Users list.
@@ -305,7 +307,7 @@ is permanent.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — GET admin users reports the effective tier per user: legendary for a live member, registered for a lapsed one and a free user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — GET admin users reports the effective tier per user: legendary for a live member, registered for a lapsed one and a free user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the admin Users list showing each user's tier as the API reports it — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 24. The Stripe summary counts add up
 

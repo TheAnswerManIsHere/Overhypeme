@@ -130,6 +130,8 @@ edited value.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override`
 
+**Deferred:** #631 — 7b — reopening the editor after the save shows the saved required visual detail, loaded through the save and reload path — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+
 ## Regression
 
 ### R1. A brand-new submission still enriches
@@ -169,7 +171,9 @@ being blocked.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)`
+**Check:** `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override whose lists are absent (no schema parse)`
+
+**Deferred:** #631 — 7b — a send-back of a fact whose stored visual override lacks its list fields completes to concept_review, the same regression step 4 owes — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`
 
 ## Not bugs
 

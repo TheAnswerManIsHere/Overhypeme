@@ -67,6 +67,8 @@ does not prove the split — step 3b is what actually checks it.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the paid user's generate reaches image_ready and the saved meme decodes `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity` `artifacts/api-server/src/__tests__/promptIdentity.test.ts:reduces a multi-word displayName to only its first token, not a truncated fragment of the whole string`
 
+**Deferred:** #631 — 7b — a four-word display name rendered whole in the caption, the cited test uses a two-word name — `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts`
+
 ### 4. The compiled prompt itself only carries the first name
 
 **Do:** As admin, open the fact you just generated a meme for in

@@ -130,7 +130,7 @@ place; step 6 removes it.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — saving a required visual detail on a Visual-Concept-only fact then reading it back reports the Visual Strategy override as present — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Deferred:** #631 — 7b — saving a required visual detail on a Visual-Concept-only fact then reading it back reports the Visual Strategy override as present — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — reopening the editor after that save shows the orange Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### 6. Clearing that override lowers the badge again
 
@@ -145,7 +145,7 @@ setup.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — removing that required visual detail and saving then reading back reports the Visual Strategy override as absent — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Deferred:** #631 — 7b — removing that required visual detail and saving then reading back reports the Visual Strategy override as absent — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — reopening the editor after that save shows no Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ## Regression
 

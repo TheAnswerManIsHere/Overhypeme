@@ -240,6 +240,8 @@ and share.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:includes our seeded fact and reports a non-zero total` `artifacts/api-server/src/__tests__/routes.facts.test.ts:returns the fact, its rank, and link/variant arrays on success` `artifacts/api-server/src/__tests__/routes.facts.test.ts:creates an upvote and increments upvotes/score` `artifacts/api-server/src/__tests__/routes.facts.test.ts:returns approved non-flagged comments only, paginated` `artifacts/api-server/src/__tests__/routes.facts.test.ts:increments shareCount and returns the new value`
 
+**Deferred:** #628 — Phase 6 (The loop) — the public feed and a fact page showing an active fact in a browser, which no CI browser test can reach because its database seeds no live fact
+
 ### R2. The moderation flow itself is unchanged
 
 **Do:** Take a fact through triage → enrich → concept → approve.
