@@ -45,11 +45,22 @@ jobs:
       variants: ${{ steps.pick.outputs.variants }}
       controls: ${{ steps.pick.outputs.controls }}
     steps:
+      # Inputs reach the shell as environment values, never interpolated into
+      # the script, and only the known values pass.
       - id: pick
+        env:
+          VARIANT: ${{ github.event.inputs.variant || 'both' }}
+          CONTROLS: ${{ github.event.inputs.controls || 'true' }}
         run: |
-          v="${{ github.event.inputs.variant || 'both' }}"
-          if [ "$v" = both ]; then echo 'variants=["fresh","fixture"]' >> "$GITHUB_OUTPUT"; else echo "variants=[\"$v\"]" >> "$GITHUB_OUTPUT"; fi
-          echo "controls=${{ github.event.inputs.controls || 'true' }}" >> "$GITHUB_OUTPUT"
+          case "$VARIANT" in
+            both) echo 'variants=["fresh","fixture"]' >> "$GITHUB_OUTPUT" ;;
+            fresh|fixture) echo "variants=[\"$VARIANT\"]" >> "$GITHUB_OUTPUT" ;;
+            *) echo "unknown variant: $VARIANT" >&2; exit 1 ;;
+          esac
+          case "$CONTROLS" in
+            true|false) echo "controls=$CONTROLS" >> "$GITHUB_OUTPUT" ;;
+            *) echo "controls must be true or false: $CONTROLS" >&2; exit 1 ;;
+          esac
 
   # Journeys 2–7 against the doubles, inside the outbound-request detector.
   # Green only when every journey passed, both observers recorded the
@@ -108,9 +119,12 @@ jobs:
 
       - name: Run
         working-directory: artifacts/api-server
+        env:
+          VARIANT: ${{ matrix.variant }}
+          CONTROL: ${{ matrix.control }}
         run: |
-          pnpm exec tsx scripts/acceptance-run.ts --mode acceptance --variant "${{ matrix.variant }}" \
-            ${{ matrix.control && format('--control {0}', matrix.control) || '' }} --report-dir "$RUNNER_TEMP/acceptance-report"
+          pnpm exec tsx scripts/acceptance-run.ts --mode acceptance --variant "$VARIANT" \
+            ${CONTROL:+--control "$CONTROL"} --report-dir "$RUNNER_TEMP/acceptance-report"
 
       - name: Upload the report
         if: ${{ always() }}
