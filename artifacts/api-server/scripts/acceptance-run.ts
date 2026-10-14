@@ -449,15 +449,20 @@ function controlVerdict(r: VariantReport): { behaved: boolean; why: string } {
   }
 }
 
+/** A Markdown table cell: backslashes first, then pipes, and no line breaks. */
+function cell(text: string): string {
+  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 function renderMarkdown(report: Record<string, any>): string {
   const lines = [`# Acceptance report — ${report.mode}${report.control ? `, control ${report.control}` : ""}`, "", `**Result: ${report.verdict}**`, "", `Commit \`${report.commit}\` · recordings ${report.recordings.files} files, listing sha256 \`${report.recordings.listingSha256.slice(0, 16)}…\`${report.fixtureManifestSha256 ? ` · fixture manifest \`${report.fixtureManifestSha256.slice(0, 16)}…\`` : ""}`, ""];
   if (report.controlVerdict) lines.push(`Control: ${report.controlVerdict.behaved ? "behaved" : "did NOT behave"} — ${report.controlVerdict.why}`, "");
   for (const v of report.variants as VariantReport[]) {
     lines.push(`## Variant: ${v.variant}`, "", "| Journey | Outcome | Note |", "|---|---|---|");
-    for (const j of v.journeys) lines.push(`| ${j.journey} | ${j.status} | ${(j.error ?? (j.deferred ?? []).join("; ")).replace(/\|/g, "\\|").slice(0, 200)} |`);
+    for (const j of v.journeys) lines.push(`| ${j.journey} | ${j.status} | ${cell((j.error ?? (j.deferred ?? []).join("; ")).slice(0, 200))} |`);
     if (v.coverage.length) {
       lines.push("", "| Operation | Journey | Evidence | Detail |", "|---|---|---|---|");
-      for (const c of v.coverage) lines.push(`| ${c.description} | ${c.journey} | ${c.status} | ${c.detail} |`);
+      for (const c of v.coverage) lines.push(`| ${cell(c.description)} | ${c.journey} | ${c.status} | ${cell(c.detail)} |`);
     }
     if (v.detector) {
       lines.push("", `Detector: ${v.detector.ok ? "clean" : "RED"} (${v.detector.netns?.privilege ?? "?"}, IPv6 ${v.detector.netns?.ipv6 ? "observed" : "absent on this kernel"}). Self-test: ${v.detector.selfTest.map((s) => `${s.key} ${s.observable ? (s.syscall && s.sink ? "seen by both" : "MISSED") : "not observable here"}`).join(", ")}. Outbound attempts after it: ${v.detector.violations.sink.length + v.detector.violations.syscall.length}.`);
