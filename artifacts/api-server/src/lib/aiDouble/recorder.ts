@@ -2,7 +2,7 @@
  * `AI_BACKEND=recorder`: the real AI clients, wrapped to capture each
  * request/response pair as a recording (design D6, settled with Astra).
  *
- * Run only by `scripts/record-ai-baseline.ts`, on the Repl, against the
+ * Run only by `scripts/acceptance-run.ts` (record and live modes), on the Repl, against the
  * marked test database — never in CI, and refused in a production boot by
  * `lib/doubleSelection.ts`.
  *
@@ -92,6 +92,17 @@ export class Allowance {
   private persist(): void {
     if (!this.ledgerFile) return;
     fs.writeFileSync(this.ledgerFile, JSON.stringify({ limitUsd: this.limitUsd, committedUsd: this.committedUsd, reused: this.reusedCount, lines: this.lines }, null, 2));
+  }
+
+  /**
+   * Record a call that costs nothing (a fal storage upload), so the live
+   * check's evidence map can see it happened and how it ended (increment 6,
+   * plan D6): a failed upload the application swallows would otherwise leave
+   * no trace at all.
+   */
+  note(kind: RecordingKind, target: string, print: string, ok: boolean): void {
+    this.lines.push({ kind, target, reservedUsd: 0, actualUsd: 0, outcome: ok ? "ok" : "error", fingerprint: print });
+    this.persist();
   }
 
   /** Reserve `usd` or refuse. Returns the line to settle. */
@@ -250,8 +261,12 @@ async function localiseImages(result: any): Promise<any> {
  * paid for again, so a recording run that stopped part-way resumes without
  * re-spending. The recording script refuses a non-empty output directory
  * unless `--resume` is passed, so this reuse is always asked for (#654 round 2).
+ * Off in the live check (`AI_RECORDER_LIVE=1`).
  */
 function alreadyRecorded(kind: RecordingKind, target: string, request: unknown): unknown | undefined {
+  // The live check (increment 6, plan D6) sends every request to its vendor:
+  // a response recorded earlier in the same run is never current evidence.
+  if (process.env.AI_RECORDER_LIVE === "1") return undefined;
   try {
     const rec = findRecording(kind, target, substituteUrls(request));
     return rec.response === undefined ? undefined : structuredClone(rec.response);
@@ -299,7 +314,16 @@ export function recordingFal(
     storage: {
       async upload(file, opts) {
         const request = await falUploadRequest(file);
-        const url = await real.storage.upload(file, opts);
+        const print = fingerprint("fal.storage.upload", request);
+        let url: string;
+        try {
+          url = await real.storage.upload(file, opts);
+        } catch (err) {
+          // Free, but not invisible: the classifier fails open on an upload error, so the ledger is the only witness.
+          allowance.note("fal.storage.upload", "storage", print, false);
+          throw err;
+        }
+        allowance.note("fal.storage.upload", "storage", print, true);
         urlSubstitutes.set(url, falUploadUrl(request.sha256));
         write("fal.storage.upload", "storage", request, { response: falUploadUrl(request.sha256) }, ctx);
         return url;
