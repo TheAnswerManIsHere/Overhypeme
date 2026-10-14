@@ -196,6 +196,10 @@ function freshDatabase(variant: string): URL {
 function sha256(file: string): string {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
+/** A failed psql, pnpm or inner call can name a connection string; the report is an artefact, so a URL's credentials never reach it. */
+function redact(text: string): string {
+  return text.replace(/\/\/[^\s/@]+@/g, "//***@");
+}
 function recordingsIdentity(dir: string, source: string): { source: string; files: number; listingSha256: string } {
   const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort() : [];
   const listing = files.map((f) => `${f}:${sha256(path.join(dir, f))}`).join("\n");
@@ -328,8 +332,8 @@ async function runVariant(variant: Variant, liveRecordings: string, liveLedger: 
   } catch (err) {
     if (mode === "serve") throw err;
     if (inner && inner.exitCode === null) inner.kill("SIGTERM");
-    const setupError = `host-side: ${String((err as Error).message ?? err).split("\n")[0]}`;
-    console.error(`[acceptance] ${variant}: ${(err as Error).stack ?? err}`);
+    const setupError = `host-side: ${redact(String((err as Error).message ?? err).split("\n")[0]!)}`;
+    console.error(`[acceptance] ${variant}: ${redact(String((err as Error).stack ?? err))}`);
     return {
       variant,
       database: "",
@@ -414,7 +418,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     red: [],
     ...(drive?.setupError ? { setupError: drive.setupError } : {}),
     ...(drive?.control ? { control: drive.control } : {}),
-    ...(result.ok === false ? { innerError: String(result.error).slice(0, 2000) } : {}),
+    ...(result.ok === false ? { innerError: redact(String(result.error)).slice(0, 2000) } : {}),
     ...(result.promptPins ? { promptPins: result.promptPins } : {}),
     ...(result.pexelsMeme ? { pexelsMeme: result.pexelsMeme } : {}),
     ...(result.corrupted ? { corrupted: result.corrupted } : {}),
