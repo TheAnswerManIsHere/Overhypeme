@@ -106,8 +106,13 @@ export function tlsServerName(buf: Buffer): string | null {
 export function httpHost(buf: Buffer): string | null {
   const text = buf.toString("latin1");
   if (!/^[A-Z]+ \S+ HTTP\/1\.[01]\r\n/.test(text)) return null;
-  const m = /\r\nhost:[ \t]*([^\r\n]+)/i.exec(text);
-  return m ? m[1]!.trim() : null;
+  // Line by line rather than one regex over the bytes: the bytes are whatever
+  // a process sent, and a pattern with overlapping repeats backtracks on them.
+  for (const line of text.split("\r\n").slice(1)) {
+    if (line === "") break;
+    if (line.slice(0, 5).toLowerCase() === "host:") return line.slice(5).trim() || null;
+  }
+  return null;
 }
 
 export interface SinkEvent {

@@ -73,6 +73,12 @@ describe("the sink's parsers", () => {
     assert.equal(tlsServerName(clientHello("fal.run")), "fal.run");
     assert.deepEqual(describeTcp(clientHello("api.stripe.com")), { name: "api.stripe.com", detail: "tls" });
     assert.equal(httpHost(Buffer.from("GET /x HTTP/1.1\r\nHost: 192.0.2.10\r\n\r\n")), "192.0.2.10");
+    assert.equal(httpHost(Buffer.from("POST / HTTP/1.0\r\nAccept: */*\r\nhOsT:\t api.openai.com \r\n\r\n")), "api.openai.com");
+    assert.equal(httpHost(Buffer.from("GET / HTTP/1.1\r\nAccept: */*\r\n\r\nHost: in-the-body\r\n")), null);
+    // Arbitrary bytes, parsed in linear time.
+    const started = Date.now();
+    assert.equal(httpHost(Buffer.from("GET / HTTP/1.1\r\nhost:" + " ".repeat(200_000) + "\r")), null);
+    assert.ok(Date.now() - started < 1000);
     assert.deepEqual(describeTcp(Buffer.from("\x00\x01binary")), { name: null, detail: "other" });
   });
 });
