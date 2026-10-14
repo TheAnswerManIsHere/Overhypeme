@@ -51,6 +51,7 @@ import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-dat
 
 import { falSubscribeRequest } from "../src/lib/aiDouble/doubles";
 import { evaluateCoverage, readCallRecords, unattributedCalls, type CallRecord, type Mode, type Row, type Variant } from "../src/testing/acceptance/coverage";
+import { controlVerdict } from "../src/testing/acceptance/controls";
 import { evaluateDetector, launchInNamespace, namespaceRoute, type DetectorVerdict, type NamespaceRoute } from "../src/testing/acceptance/detector";
 import type { DriveResult } from "../src/testing/acceptance/driver";
 import type { InnerConfig } from "../src/testing/acceptance/inner";
@@ -172,7 +173,11 @@ function cleanUp(): void {
   }
   fs.rmSync(scratch, { recursive: true, force: true });
 }
-process.once("SIGINT", () => { cleanUp(); process.exit(130); });
+// Every termination signal a handler can catch takes the same cleanup; without
+// a handler Node exits on SIGTERM or SIGHUP without running any `finally`.
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
+  process.once(signal, () => { cleanUp(); process.exit(code); });
+}
 
 function freshDatabase(variant: string): URL {
   const name = `overhype_acceptance_${variant}_${Date.now()}`;
@@ -191,10 +196,10 @@ function freshDatabase(variant: string): URL {
 function sha256(file: string): string {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
-function recordingsIdentity(dir: string): { files: number; listingSha256: string } {
+function recordingsIdentity(dir: string, source: string): { source: string; files: number; listingSha256: string } {
   const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort() : [];
   const listing = files.map((f) => `${f}:${sha256(path.join(dir, f))}`).join("\n");
-  return { files: files.length, listingSha256: createHash("sha256").update(listing).digest("hex") };
+  return { source, files: files.length, listingSha256: createHash("sha256").update(listing).digest("hex") };
 }
 function pexelsOnlyMemes(): number {
   return fs
@@ -295,7 +300,10 @@ interface VariantReport {
   setupError?: string;
   innerError?: string;
   control?: DriveResult["control"];
-  detector?: Pick<DetectorVerdict, "ok" | "problems" | "netns" | "selfTest" | "info"> & { violations: { sink: unknown[]; syscall: string[] } };
+  detector?: Pick<DetectorVerdict, "ok" | "problems" | "netns" | "selfTest" | "info"> & {
+    violations: { sink: unknown[]; syscall: string[] };
+    records: Omit<DetectorVerdict["records"], "syscall"> & { syscall: string[] };
+  };
   uncovered: string[];
   coverage: Row[];
   /** AI calls with no recording, so no operation can claim them (see coverage.ts). */
@@ -307,7 +315,35 @@ interface VariantReport {
   serverLogTail?: string[];
 }
 
+/**
+ * One variant, reported whatever happens to it. A host-side setup failure (the
+ * database, the schema, the relay, the inner spawn) becomes this variant's red
+ * report rather than an exception, so the run still writes its report and a
+ * later variant still runs. The environment-failure exit (90) is the one path
+ * that leaves without a report, by contract.
+ */
 async function runVariant(variant: Variant, liveRecordings: string, liveLedger: string): Promise<VariantReport> {
+  try {
+    return await runVariantUnguarded(variant, liveRecordings, liveLedger);
+  } catch (err) {
+    if (mode === "serve") throw err;
+    if (inner && inner.exitCode === null) inner.kill("SIGTERM");
+    const setupError = `host-side: ${String((err as Error).message ?? err).split("\n")[0]}`;
+    console.error(`[acceptance] ${variant}: ${(err as Error).stack ?? err}`);
+    return {
+      variant,
+      database: "",
+      journeys: [],
+      setupError,
+      uncovered: [],
+      coverage: [],
+      unattributed: [],
+      red: redReasons({ journeys: [], coverage: [], uncovered: [], setupError }),
+    };
+  }
+}
+
+async function runVariantUnguarded(variant: Variant, liveRecordings: string, liveLedger: string): Promise<VariantReport> {
   const url = freshDatabase(variant);
   const work = path.join(scratch, variant);
   fs.mkdirSync(work, { recursive: true });
@@ -392,6 +428,7 @@ async function runVariant(variant: Variant, liveRecordings: string, liveLedger: 
       selfTest: v.selfTest,
       info: v.info,
       violations: { sink: v.violations.sink, syscall: v.violations.syscall.map((l) => l.raw) },
+      records: { ...v.records, syscall: v.records.syscall.map((l) => l.raw) },
     };
   }
   if (mode === "probe") {
@@ -420,42 +457,13 @@ async function runVariant(variant: Variant, liveRecordings: string, liveLedger: 
   return report;
 }
 
-// --- did a control behave? -----------------------------------------------------
-function controlVerdict(r: VariantReport): { behaved: boolean; why: string } {
-  switch (control) {
-    case "forbidden-request": {
-      const named = (r.detector?.violations.sink as Array<{ name: string | null }> | undefined)?.some((e) => e.name === "api.openai.com") ?? false;
-      const sys = (r.detector?.violations.syscall.length ?? 0) > 0;
-      return { behaved: named && sys, why: named && sys ? "both observers recorded the caught request, the sink naming api.openai.com" : "the caught request was not recorded by both observers" };
-    }
-    case "render-failure":
-      return { behaved: r.control?.ok === true, why: r.control?.detail ?? "journey 3 never reached its renders" };
-    case "upload-failure": {
-      const seven = r.journeys.find((j) => j.journey === "7")?.status === "passed";
-      const missing = r.coverage.filter((c) => c.status === "missing").map((c) => c.key).sort();
-      const expected = ["photo-classifier", "photo-upload"];
-      const others = r.red.filter((x) => !x.startsWith("operation photo-upload") && !x.startsWith("operation photo-classifier"));
-      const behaved = seven && JSON.stringify(missing) === JSON.stringify(expected) && others.length === 0;
-      return { behaved, why: behaved ? "journey 7 completed on the fail-open path, and the evaluator marked the photo's upload and classification missing, and nothing else" : `journey 7 ${seven ? "passed" : "did not pass"}; missing rows ${missing.join(", ") || "none"}; other red reasons: ${others.join(" | ") || "none"}` };
-    }
-    case "corrupt-source": {
-      const four = r.journeys.find((j) => j.journey === "4");
-      const othersPassed = r.journeys.filter((j) => j.journey !== "4").every((j) => j.status === "passed");
-      const behaved = four?.status === "failed" && /anyone reads the public meme image/.test(four.error ?? "") && othersPassed;
-      return { behaved, why: behaved ? `journey 4 failed reading its composed image: ${four!.error}` : `journey 4 is ${four?.status} (${four?.error ?? "no error"}); every other journey passed: ${othersPassed}` };
-    }
-    default:
-      return { behaved: false, why: "no control" };
-  }
-}
-
 /** A Markdown table cell: backslashes first, then pipes, and no line breaks. */
 function cell(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 function renderMarkdown(report: Record<string, any>): string {
-  const lines = [`# Acceptance report — ${report.mode}${report.control ? `, control ${report.control}` : ""}`, "", `**Result: ${report.verdict}**`, "", `Commit \`${report.commit}\` · recordings ${report.recordings.files} files, listing sha256 \`${report.recordings.listingSha256.slice(0, 16)}…\`${report.fixtureManifestSha256 ? ` · fixture manifest \`${report.fixtureManifestSha256.slice(0, 16)}…\`` : ""}`, ""];
+  const lines = [`# Acceptance report — ${report.mode}${report.control ? `, control ${report.control}` : ""}`, "", `**Result: ${report.verdict}**`, "", `Commit \`${report.commit}\` · recordings (${report.recordings.source}) ${report.recordings.files} files, listing sha256 \`${report.recordings.listingSha256.slice(0, 16)}…\`${report.fixtureManifestSha256 ? ` · fixture manifest \`${report.fixtureManifestSha256.slice(0, 16)}…\`` : ""}`, ""];
   if (report.controlVerdict) lines.push(`Control: ${report.controlVerdict.behaved ? "behaved" : "did NOT behave"} — ${report.controlVerdict.why}`, "");
   for (const v of report.variants as VariantReport[]) {
     lines.push(`## Variant: ${v.variant}`, "", "| Journey | Outcome | Note |", "|---|---|---|");
@@ -496,13 +504,18 @@ try {
   let commit = "unknown";
   try { commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim(); } catch {}
   const green = reports.every((r) => r.red.length === 0);
-  const controlResult = control ? controlVerdict(reports[0]!) : undefined;
+  const controlResult = control ? controlVerdict(control, reports[0]!) : undefined;
   const report = {
     mode,
     control: control ?? null,
     commit,
     verdict: control ? (controlResult!.behaved ? "control behaved" : "control did NOT behave") : green ? "green" : "red",
-    recordings: recordingsIdentity(mode === "record" ? out : COMMITTED_RECORDINGS),
+    // The corpus the coverage was evaluated against: a live run's own captures
+    // (discarded with the scratch directory), --out for a recording, else the committed set.
+    recordings:
+      mode === "live" ? recordingsIdentity(path.join(scratch, "live-recordings"), "captured by this live run, discarded after it")
+      : mode === "record" ? recordingsIdentity(out, `--out ${out}`)
+      : recordingsIdentity(COMMITTED_RECORDINGS, "committed"),
     fixtureManifestSha256: variants.includes("fixture") ? sha256(path.join(FIXTURE_DIR, "manifest.json")) : null,
     ...(ledger ? { spend: { capUsd: ledger.limitUsd, committedUsd: Number(ledger.committedUsd.toFixed(4)), vendorCalls: ledger.lines.length, reused: ledger.reused ?? 0 } } : {}),
     deferrals: [

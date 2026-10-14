@@ -116,11 +116,15 @@ never derived from the calls that happened.
 
 ## 6. The evidence report
 
-Each run writes a report that outlives it, red or green: the commit; the
-identity of the recordings and of any fixture loaded; each journey's outcome
-and evidence; each expected operation's evidence; the detector's self-test and
-every line either observer recorded; any configuration the run pinned; the
-deferrals; and, when red, the tail of the server's log. Nothing else the run
+Each run writes a report that outlives it, red or green, including a run
+whose setup failed before any journey: the commit; the identity of the
+recordings the run was judged against (for a live check, the answers it
+captured itself) and of any fixture loaded; each journey's outcome and
+evidence; each expected operation's evidence; the detector's self-test, its
+windows, and every line either observer recorded (for the syscall trace,
+every line that addressed a non-local destination, with a count of the
+permitted local ones); any configuration the run pinned; the deferrals; and,
+when red, the tail of the server's log. Nothing else the run
 captured — scratch storage, captured mail, logs from a green run — leaves the
 runner.
 

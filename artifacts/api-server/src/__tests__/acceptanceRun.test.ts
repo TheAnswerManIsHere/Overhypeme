@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { evaluateCoverage, readCallRecords, unattributedCalls } from "../testing/acceptance/coverage.js";
+import { controlVerdict } from "../testing/acceptance/controls.js";
 import { evaluateDetector } from "../testing/acceptance/detector.js";
 import { checkImage } from "../testing/acceptance/imageCheck.js";
 import { describeTcp, dnsAnswer, httpHost, parseDnsQuery, tlsServerName } from "../testing/acceptance/sink.js";
@@ -164,6 +165,16 @@ describe("the detector's verdict", () => {
     const v = evaluateDetector(workdir({ ipv6: true, missSink: "[2001:db8::10]" }));
     assert.equal(v.ok, false);
     assert.match(v.problems.join(), /sink did not record the ipv6 self-test attempt/);
+  });
+
+  it("keeps what each observer recorded, the self-test's lines included, for the report", () => {
+    const v = evaluateDetector(workdir({ ipv6: false, afterSelfTest: true }));
+    assert.equal(v.records.selfTestWindows.length, 4);
+    assert.equal(v.records.selfTestEnd, 14);
+    assert.deepEqual(v.records.sink.map((e) => e.name), ["acceptance-selftest.example", "192.0.2.10", null, "api.openai.com"]);
+    // Every syscall line that addressed a non-local destination, before and after
+    // the self-test's end; the failed IPv6 socket() names none, so it is not one.
+    assert.deepEqual(v.records.syscall.map((l) => l.t), [10.2, 11.2, 13.2, 14.0]);
   });
 
   it("is red when the boundary or the self-test never happened", () => {
@@ -328,6 +339,45 @@ describe("the completion rule", () => {
       red.map((r) => r.split(":")[0]),
       ["journey 4 was never reported", "journey 6 not-run", "operation photo-upload (journey 7)", "uncovered AI call", "detector", "the Pexels-only meme read"],
     );
+  });
+});
+
+describe("a negative control's verdict", () => {
+  const passed = (j: string) => ({ journey: j as never, status: "passed" as const, evidence: {} });
+  const all = () => ["2", "3", "4", "5", "6", "7"].map(passed);
+  const outbound = "detector: 4 outbound attempt(s) recorded after the self-test";
+  const forbidden = (red: string[]) =>
+    controlVerdict("forbidden-request", { journeys: all(), coverage: [], red, detector: { violations: { sink: [{ name: "api.openai.com" }], syscall: [{}] } } });
+
+  it("forbidden-request behaves on its own violation alone, and not beside an unrelated failure", () => {
+    assert.equal(forbidden([outbound]).behaved, true);
+    for (const extra of ["journey 5 failed: 500", "operation hashtags (journey 2): 0 usable", "setup: host-side: boom", "detector: the sink did not record the ipv4 self-test attempt", "uncovered AI call: openai.chat x"]) {
+      const v = forbidden([outbound, extra]);
+      assert.equal(v.behaved, false, extra);
+      assert.match(v.why, /other red reasons/);
+    }
+  });
+
+  it("render-failure accepts only what stopping at journey 3 explains", () => {
+    const stopped = [
+      "operation image-prompts (journey 3, 6): 3 usable of 3 attributed call(s), 4 needed",
+      "operation photo-upload (journey 7): 0 usable of 0 attributed call(s), 1 needed",
+      "journey 3 not-run: the render-failure control stops the run here",
+      "journey 7 not-run: not reached",
+    ];
+    const run = (journeys: ReturnType<typeof all>, red: string[]) => controlVerdict("render-failure", { journeys, coverage: [], red, control: { ok: true, detail: "the render failed" } });
+    const two = [passed("2")];
+    assert.equal(run(two, stopped).behaved, true);
+    assert.equal(run(two, [...stopped, "operation hashtags (journey 2): 0 usable"]).behaved, false);
+    assert.equal(run(two, [...stopped, "journey 4 failed: 500"]).behaved, false);
+    assert.equal(run([], stopped).behaved, false);
+  });
+
+  it("corrupt-source behaves on journey 4's composed-image failure alone", () => {
+    const four = "journey 4 failed: [journey 4] anyone reads the public meme image: 502 from /api/memes/x/image";
+    const journeys = all().map((j) => (j.journey === "4" ? { ...j, status: "failed" as const, error: "[journey 4] anyone reads the public meme image: 502" } : j));
+    assert.equal(controlVerdict("corrupt-source", { journeys, coverage: [], red: [four] }).behaved, true);
+    assert.equal(controlVerdict("corrupt-source", { journeys, coverage: [], red: [four, "uncovered AI call: openai.chat x"] }).behaved, false);
   });
 });
 

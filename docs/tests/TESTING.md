@@ -412,7 +412,7 @@ prove it. A new double adds its row to `SELECTORS` there.
 | `STORAGE_BACKEND` | `local-double` — `lib/localObjectStorage.ts` | `STORAGE_DOUBLE_DIR` (absolute), plus the usual `PRIVATE_OBJECT_DIR` / `PUBLIC_OBJECT_SEARCH_PATHS` (any `/<bucket>/<prefix>`) |
 | `STRIPE_BACKEND` | `fake-double` — `lib/stripeFakeDriver.ts` | **no** Stripe credential set (any `STRIPE_SECRET_KEY_*`, `STRIPE_PUBLISHABLE_KEY_*` or `STRIPE_WEBHOOK_SECRET_*` refuses the boot), and a database created for it (below) |
 | `AI_BACKEND` | `recorded-double` — `lib/aiDouble/` (fal, OpenAI chat and embeddings, answered from committed recordings) | nothing — no credential |
-| `AI_BACKEND` | `recorder` — the real AI clients, capturing recordings under a spending ceiling | the fal and OpenAI keys; run only by `scripts/record-ai-baseline.ts`, never in CI |
+| `AI_BACKEND` | `recorder` — the real AI clients, capturing recordings under a spending ceiling | the fal and OpenAI keys; run only by `artifacts/api-server/scripts/acceptance-run.ts` in its `--mode record` and `--mode live` (see *Re-recording* and *The acceptance run* below), never in CI |
 
 **The storage double** keeps bytes and metadata in a local directory and
 implements exactly the file operations the code uses. Everything above it — the

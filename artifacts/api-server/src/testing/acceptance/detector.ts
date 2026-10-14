@@ -6,7 +6,8 @@
  * The rule: a run is red when the namespace could not be built as described,
  * when the self-test did not register on an observer that should have seen
  * it, or when either observer recorded a non-permitted attempt after the
- * self-test ended. The report lists every line from both observers.
+ * self-test ended. The report lists every sink event and every syscall line
+ * that addressed a non-local destination, with a count of the permitted ones.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -62,6 +63,19 @@ export interface DetectorVerdict {
   violations: { sink: SinkEvent[]; syscall: SyscallLine[] };
   /** Failed socket() calls after the self-test: information, never a violation (see syscallRecord.ts). */
   info: SyscallLine[];
+  /**
+   * What each observer recorded across the whole run, so the report outlives
+   * the scratch directory: every sink event, every syscall line that addressed
+   * a non-local destination (the self-test's included), the self-test windows
+   * that interpret them, and a count of the permitted local lines left out.
+   */
+  records: {
+    selfTestWindows: SelfTestRecord["windows"];
+    selfTestEnd: number | null;
+    sink: SinkEvent[];
+    syscall: SyscallLine[];
+    permittedSyscallLines: number;
+  };
 }
 
 function readJson<T>(file: string): T | null {
@@ -126,5 +140,13 @@ export function evaluateDetector(work: string): DetectorVerdict {
   };
   const info = strace.filter((l) => l.t >= after && classify(l) === "info" && l.call === "socket");
   const ok = problems.length === 0 && violations.sink.length === 0 && violations.syscall.length === 0;
-  return { ok, problems, netns, selfTest, violations, info };
+  const recordedAttempts = attempts(strace);
+  const records = {
+    selfTestWindows: self?.windows ?? [],
+    selfTestEnd: self?.end ?? null,
+    sink,
+    syscall: recordedAttempts,
+    permittedSyscallLines: strace.filter((l) => classify(l) === "permitted").length,
+  };
+  return { ok, problems, netns, selfTest, violations, info, records };
 }
