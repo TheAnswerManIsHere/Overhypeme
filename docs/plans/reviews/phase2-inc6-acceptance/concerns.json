@@ -1,0 +1,75 @@
+[
+  {
+    "id": "S1",
+    "title": "Extend the existing driver with an explicit completion contract for journeys 2\u20137 in both database variants",
+    "raised": "scope-0",
+    "source": ".agents/reviews/phase2-inc6-acceptance/round-2.md",
+    "state": "addressed",
+    "concern": "The baseline driver covers only journeys 3, 4, 6 and 7. Submission and onboarding happen inside journey 3 with no assertion that the submission appears in the moderation queue; journey 5's refusal is absent; journey 3 never retrieves the render images; journey 4 retrieves the image but not the permalink; journeys 4, 6 and 7 check status or byte count, never that the body decodes as an image. The plan should map each journey outcome to its assertion and evidence, require results for 2\u20137 in both database variants, leave an aborted chain visibly incomplete, keep the expected-render-failure early return out of acceptance success, decode served media (journey 7 compared byte-for-byte with the fixture upload), and keep journey 6's spend assertion Deferred to #651.",
+    "proposed": "Bounded additions to drive-ai-baseline.ts; API-level execution stays consistent with the oracle.",
+    "evidence": [
+      "artifacts/api-server/scripts/drive-ai-baseline.ts:116",
+      "artifacts/api-server/scripts/drive-ai-baseline.ts:289"
+    ],
+    "response": "Agreed; goes into the plan's design as the journey-to-assertion map and the completion rule. No disagreement. Round 1: substantially addressed; the decode definition was header-only. v2 D2 requires a full pixel decode (sharp raw().toBuffer()), Astra's truncated-JPEG measurement is quoted in the surface, and D10 tests the truncated case. Class: an evidence check that reads less than it claims; swept the plan for other 'decodes' uses, all now point at D2's definition. Round 2: the decoded image's identity was the remaining gap: both meme saves send preview.jpg, which the server stores and serves instead of composing from the source (verified: createMemeRecord.ts:381-390, memes.ts:626-660). v3 D2 saves recipes with no preview, so the image route composes from the uploaded or generated object; journey 6 also reads the generated object as owner; D10 proves an unreadable source fails the journey. Class: an assertion satisfied by a fixed input the journey supplied itself. Round 3: addressed.",
+    "david": null
+  },
+  {
+    "id": "S2",
+    "title": "Environment isolation and outbound-request detection are separate mechanisms; the detector's boundary and a feasibility check are owed before approval",
+    "raised": "scope-0",
+    "source": ".agents/reviews/phase2-inc6-acceptance/round-0.md",
+    "state": "addressed",
+    "concern": "The recorder guard's environment allowlist is the right pattern to extend to every launch path, but it does not establish the no-outbound property, and the AI double's missing-recording log observes only calls crossing the double. The plan must name the detection boundary, the permitted local endpoints, the processes and lifecycle stages covered (background work and teardown included), and show the decisive evidence: a forbidden request whose error the application catches still yields an independently observed non-green run while permitted local traffic works. A targeted feasibility check in CI and in the container is warranted; a general networking framework or self-reporting production clients are not.",
+    "proposed": "A network-namespace or firewall-level detector outside the process, proven by a small feasibility probe in both environments during planning.",
+    "evidence": [
+      "artifacts/api-server/src/testing/aiRecorderGuard.ts:32",
+      ".github/workflows/build.yml:624"
+    ],
+    "response": "Agreed, and it matches the pre-plan finding that a proxy variable is not a detector because the SDKs can ignore it. The plan will carry the mechanism, its boundary and the probe's measured result. No disagreement. Round 1 narrowed it to the observation boundary: IPv4-only rules, DNS-only self-test, attempts failing before a packet. Measured here: IPv6 absent in the namespace, a v6 fetch fails at socket() unseen by the sink; strace with seccomp-bpf records the attempt. v2 D4 keeps the namespace as containment and adds a second observer (the syscall record), redirects all UDP and IPv6, and a four-attempt self-test per run on both observers; step 1's CI probe exercises the relay and permitted traffic too. Class: coverage claimed from one observer; the self-test makes it checked per run. Round 2: addressed; execution is implementation checkpoint 1 (namespace, tracing, four attempts, local HTTP, relay), and unsupported tracing is an environment failure, never green (v3 D4). Round 3: remains addressed; execution is implementation checkpoint 1.",
+    "david": null
+  },
+  {
+    "id": "S3",
+    "title": "The live check must establish its actual coverage: real storage, the fixture handoff, the Repl's isolated resources and the $5 cap",
+    "raised": "scope-0",
+    "source": ".agents/reviews/phase2-inc6-acceptance/round-2.md",
+    "state": "addressed",
+    "concern": "The recording runner forces the local storage double and passes only AI credentials, and the fixture loader requires that double and writes placeholders into it. Renaming recording mode 'live check' would leave real-storage behaviour untested, and a live launch on real storage needs a deliberate handoff for fixture media. The plan should identify which real provider operations demonstrate each live journey (the Pexels-only meme read included), the marked test database and isolated storage on the Repl with cleanup limited to the run, how fixture preparation and real-storage serving fit together without modifying the committed fixture, and how Allowance enforces the $5 cap separately from recording spend. No pre-existing recording may stand as current vendor evidence; a missing credential, allowance refusal or application fallback stays visible as missing live evidence.",
+    "proposed": "Settle the live check's coverage in the plan, with the Repl's resources established during planning; a service that cannot be exercised is a shortfall for David, never silently accepted.",
+    "evidence": [
+      "artifacts/api-server/scripts/record-ai-baseline.ts:268",
+      "artifacts/api-server/scripts/load-legacy-fixture.ts:28"
+    ],
+    "response": "Agreed on the AI side and the Repl resources. Whether the live check also exercises the real storage bucket is a scope question: the parent defines the live check as evidence that the real AI vendors still accept the recorded request shapes, and storage is not recorded. Brought to David in the scope gate as now/next/never, default next. David chose option 2 on 2026-10-14: real AI over the local storage double; a real-storage live check is next. The AI-side coverage, the Repl resources and the $5 cap are addressed in the plan's D6. Round 1 narrowed it to fallback detection: upload failures unrecorded, zero-substituting reader, same-run reuse, shared allowance for both variants. All four verified in source (recorder.ts:254-262, :299-305; nsfwClassifier.ts:84; userImageUpload.ts:274-277). v2 D6 adds the per-operation live-evidence map using the product's own readers, turns reuse off in live mode, ledgers failed uploads, spans one ledger over both variants, and adds the upload-failure negative control. Class: live coverage inferred from the absence of errors. Round 2: the negative control was mis-targeted (the selector matches kind:target only; failing every upload breaks journey 3 first; the control ran where no ledger exists) and required operations must be per variant. v3 D6 adds a request qualifier to the selector, a call log from the double in the ledger's shape, one evaluator for both modes, and a per-variant expectation table (the judge required over the fixture only). Class: a control that proves a different failure than the one claimed. Round 3: addressed. Astra's one bounded detail, expectations per mode as well as per variant (the Pexels read required in live only), folded into v4 D6 as routine incorporation.",
+    "david": "2026-10-14: option 2 \u2014 the live check runs real AI over the local storage double; a real-storage live check is next."
+  },
+  {
+    "id": "I1",
+    "title": "The browser spec e2e:storage and the acceptance boundary",
+    "raised": "assess-1",
+    "source": ".agents/reviews/phase2-inc6-acceptance/round-1.md",
+    "state": "addressed",
+    "concern": "D3 retains e2e:storage inside acceptance, but the runner boots only the API; photoUpload.spec.ts signs in through the frontend, so its invocation needs the frontend and browser lifecycle, an explicit local base URL, and coverage by the same environment and detector boundary.",
+    "proposed": "Run the browser spec inside the same environment and detector boundary.",
+    "evidence": [
+      "artifacts/overhype-me/e2e/photoUpload.spec.ts:60"
+    ],
+    "response": "Settled differently, with the reason recorded (v2 D3): the spec runs against the runner's --serve stack from the same constructed environment, outside the namespace and outside the acceptance green. A browser's own traffic is not the application's, and a private loopback is unreachable from a host browser; journey 7's acceptance evidence is the driver's. A purely technical fork; open to Astra's dissent in round 2. Round 2: Astra has no remaining objection.",
+    "david": null
+  },
+  {
+    "id": "I2",
+    "title": "The DojoOS comparison must cover all six handbook-shaped parts",
+    "raised": "assess-1",
+    "source": ".agents/reviews/phase2-inc6-acceptance/round-1.md",
+    "state": "addressed",
+    "concern": "D9 reasoned about the launcher and detector only; the oracle also names lane tags, acceptance workflow shape, readiness table, double-selection rule and test-database marker.",
+    "proposed": "Record the disposition of all six on #631.",
+    "evidence": [
+      "docs/plans/PLAN_PHASE2_VERIFICATION.md:357-365"
+    ],
+    "response": "v2 D9 gives each of the six a disposition, read against DojoOS's docs/tests (lane tags and the checker are already synced there; its UAT dir holds only a README; the selection rule and the marker are absent as code and serve as rule text), and the #631 comment carries all six.",
+    "david": null
+  }
+]

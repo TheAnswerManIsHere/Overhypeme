@@ -372,14 +372,19 @@ worker can never claim its email. To run it locally:
 createdb overhype_e2e_auth
 psql postgres://overhype:overhype@localhost:5432/postgres -c "ALTER DATABASE overhype_e2e_auth SET overhype.test_database = 'yes';"
 # then push-force + migrate + the E2E account seed against it
-cd artifacts/api-server && NODE_ENV=production PORT=8081 \
+cd artifacts/api-server && env -i PATH="$PATH" HOME="$HOME" NODE_ENV=production PORT=8081 \
   DATABASE_URL=postgres://overhype:overhype@localhost:5432/overhype_e2e_auth \
   CRON_SECRET=x IP_HASH_SALT=local-auth-journey-salt-0123456789 \
   SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
-  E2E_MAIL_SINK_DIR=/tmp/overhype-mail pnpm exec tsx src/testing/productionModeLauncher.ts
+  E2E_MAIL_SINK_DIR=/tmp/overhype-mail node --import tsx/esm src/testing/productionModeLauncher.ts
 cd artifacts/overhype-me && PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8081 pnpm exec vite
 E2E_BASE_URL=http://localhost:5174 E2E_MAIL_SINK_DIR=/tmp/overhype-mail pnpm --filter @workspace/overhype-me run e2e:auth
 ```
+
+The launcher's environment is constructed: it refuses any variable outside
+`PRODUCTION_MODE_ENV_ALLOWLIST` (`src/testing/launchEnvironment.ts`), so a
+vendor key cannot reach it. That is why the recipe uses `env -i` and `node`
+rather than `pnpm exec`, which adds variables of its own.
 
 The journey fails, rather than skipping, when `E2E_MAIL_SINK_DIR` is unset — so
 a plain `playwright test` against the dev stack reports it red. Run the named
@@ -407,33 +412,32 @@ prove it. A new double adds its row to `SELECTORS` there.
 | `STORAGE_BACKEND` | `local-double` — `lib/localObjectStorage.ts` | `STORAGE_DOUBLE_DIR` (absolute), plus the usual `PRIVATE_OBJECT_DIR` / `PUBLIC_OBJECT_SEARCH_PATHS` (any `/<bucket>/<prefix>`) |
 | `STRIPE_BACKEND` | `fake-double` — `lib/stripeFakeDriver.ts` | **no** Stripe credential set (any `STRIPE_SECRET_KEY_*`, `STRIPE_PUBLISHABLE_KEY_*` or `STRIPE_WEBHOOK_SECRET_*` refuses the boot), and a database created for it (below) |
 | `AI_BACKEND` | `recorded-double` — `lib/aiDouble/` (fal, OpenAI chat and embeddings, answered from committed recordings) | nothing — no credential |
-| `AI_BACKEND` | `recorder` — the real AI clients, capturing recordings under a spending ceiling | the fal and OpenAI keys; run only by `scripts/record-ai-baseline.ts`, never in CI |
+| `AI_BACKEND` | `recorder` — the real AI clients, capturing recordings under a spending ceiling | the fal and OpenAI keys; run only by `artifacts/api-server/scripts/acceptance-run.ts` in its `--mode record` and `--mode live` (see *Re-recording* and *The acceptance run* below), never in CI |
 
 **The storage double** keeps bytes and metadata in a local directory and
 implements exactly the file operations the code uses. Everything above it — the
 storage service, the ACL, the access checks — runs unchanged, so it never
 serves an object the real access layer would refuse. It does not sign URLs: a
-call that needs one fails visibly. Baseline journey 7
-(`e2e/photoUpload.spec.ts`, `pnpm --filter @workspace/overhype-me run
-e2e:storage`) runs on a dev stack started with it:
+call that needs one fails visibly. Baseline journey 7's acceptance evidence is
+the acceptance run's driver (below). Its browser spec (`e2e/photoUpload.spec.ts`,
+`pnpm --filter @workspace/overhype-me run e2e:storage`) runs against the
+runner's serve mode, which boots the same constructed acceptance server — the
+local storage double, the AI double, no credential — on a fresh marked
+database with the accounts seeded, and waits:
 
 ```sh
-cd artifacts/api-server && STORAGE_BACKEND=local-double STORAGE_DOUBLE_DIR=/tmp/overhype-storage \
-  PRIVATE_OBJECT_DIR=/e2e-bucket/private PUBLIC_OBJECT_SEARCH_PATHS=/e2e-bucket/public \
-  AI_BACKEND=recorded-double ARACHNID_SHIELD_USERNAME= ARACHNID_SHIELD_PASSWORD= \
-  PORT=8080 NODE_ENV=development CRON_SECRET=x ALLOWED_ORIGINS=http://localhost:5173 pnpm exec tsx src/index.ts
+cd artifacts/api-server && DATABASE_URL=<a marked test database> pnpm exec tsx scripts/acceptance-run.ts --mode serve --port 8080
+cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ pnpm exec vite
+E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:storage
 ```
 
 An upload is scanned by fal's NSFW classifier and by Arachnid before it reaches
 storage. `AI_BACKEND=recorded-double` answers the classifier from a recording,
 so the journey exercises it rather than skipping it; the journey uploads the
 committed fixture photo whose bytes that recording was made from. Arachnid has
-no double yet, so its blanked keys make it skip. Until the outbound-request
-detector (increment 6) exists, run this journey only where no other vendor
-credential is set — never on the Repl, which carries real ones.
-
-It is an acceptance journey, so it is not in the per-PR gate; the acceptance
-run (Phase 2, increment 6) runs it.
+no double and no key in the acceptance allowlist, so it skips. The browser
+spec runs outside the outbound-request detector (a browser's own traffic is
+not the application's) and is not part of the acceptance run's green.
 
 **The Stripe fake** (#566, `docs/plans/PLAN_STRIPE_FAKE.md`) is a credential-free
 Stripe for the read path: account verification, managed-webhook registration,
@@ -539,6 +543,82 @@ the scrub rules is reviewed:
    listing.
 4. Replace `fixtures/legacy/` whole, and update the README's counts from the
    new manifest.
+
+---
+
+## The acceptance run
+
+Baseline journeys 2–7 (Phase 2, increment 6; plan
+`docs/plans/PLAN_PHASE2_INC6_ACCEPTANCE.md`), on demand, never in the per-PR
+gate: the **Acceptance** workflow (`.github/workflows/acceptance.yml`,
+dispatched by hand, and run on a pull request that changes the acceptance
+tooling) and this command run the same thing:
+
+```sh
+cd artifacts/api-server && DATABASE_URL=<a marked test database> \
+  pnpm exec tsx scripts/acceptance-run.ts --mode acceptance [--variant fresh|fixture|both] [--report-dir <dir>]
+```
+
+Each variant gets a fresh marked database (schema push, migrations); the
+fixture variant then loads the committed legacy fixture and pins the three AI
+prompt rows (`fact_enrichment_system`, `fact_visual_concepts_system`,
+`fact_image_prompt_system`) to the code defaults, so one recording set serves
+both variants (David, 2026-10-14). The accounts are seeded, the server boots
+through `src/testing/acceptanceLauncher.ts` from a constructed environment
+that holds no credential, and the driver walks the journeys over HTTP. The run
+is **green only when** every journey passed (a journey whose prerequisite
+failed is reported `not-run`, never omitted), every image read back decoded,
+no AI call went uncovered, every expected operation has a usable recorded
+answer, and the outbound-request detector recorded the self-test and nothing
+after it.
+
+**The outbound-request detector** (`src/testing/acceptance/`): the whole run
+— fixture load, seed, server, its workers, the driver — executes inside a
+private network and mount namespace whose only interface is loopback, so no
+packet can leave. Inside, NAT sends every DNS query and every non-loopback
+connection to a sink that records the name it carried, and `strace` records
+every outbound attempt, including one that fails before a packet exists. A
+self-test at the start makes four deliberate attempts (a hostname, an IPv4
+literal, an IPv6 literal, a UDP datagram) that both observers must record; a
+kernel without IPv6 reports that attempt as not observable rather than
+claiming it. The database is reached through a unix-socket relay. It needs
+`ip` (iproute2), `iptables`, `strace` and `unshare`; it creates the namespace
+unprivileged where the kernel allows it and through `sudo` where it does not.
+A host that can do neither exits 90, an environment failure, never a run with
+less coverage.
+
+**Controls** prove the run can go red for each reason it claims (`--control`;
+the exit code says whether the control failed in exactly the expected way):
+`forbidden-request` (a caught vendor request after the self-test, named by
+both observers), `render-failure` (the recorded vendor error reaches the
+render job's failed state), `corrupt-source` (a stored photo replaced by
+non-image bytes makes journey 4's composed image fail), and `upload-failure
+--variant fixture` (the photo's upload fails, journey 7 completes on the
+fail-open classifier, and the evaluator marks the upload and classification
+missing).
+
+**The report** (`acceptance-report.json` and `.md`, in `--report-dir`, which
+the workflow uploads) names the commit, the recordings' listing hash, the
+fixture manifest digest, each journey's outcome and evidence, each expected
+operation's evidence, the detector's verdict, the prompt pins, and the
+deferrals: journey 6's spend clause (#651) and the fixture's Pexels-only
+stock memes, which no acceptance journey reads.
+
+**The live check** runs the same journeys against the real vendors, on the
+Repl only, never in CI: before each launch stage and whenever a vendor client
+library is upgraded. Same-run reuse is off, so no recording stands in for a
+current answer, and the report must show a usable current answer for every
+expected operation, plus, over the fixture, one Pexels-only legacy meme read.
+Its cap is $5 per invocation (David, 2026-10-14), separate from the recording
+ceiling; more needs `--allowance-raised-by-david <YYYY-MM-DD>`.
+
+```sh
+cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
+  pnpm exec tsx scripts/acceptance-run.ts --mode live --variant both [--allowance <usd>]
+```
+
+The contract behind all of this, written for any product in the fleet, is
+`docs/engineering/acceptance-workflow.md`.
 
 ---
 
@@ -712,15 +792,15 @@ the real download, probe and storage path runs with no network.
 error recorded for it.
 
 The recordings cover the baseline the driver walks
-(`scripts/drive-ai-baseline.ts`: journey 3's moderation chain for one fixed
-fact, journey 6's paid AI image meme, journeys 7 and 4's photo upload and
-meme). Replaying them proves the doubles carry the real consumers through:
+(`src/testing/acceptance/driver.ts`: journeys 2–7, over a fresh database and
+over the legacy fixture). Replaying them proves the doubles carry the real
+consumers through:
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<a marked test database> \
-  pnpm exec tsx scripts/record-ai-baseline.ts --mode replay
+  pnpm exec tsx scripts/acceptance-run.ts --mode replay [--variant fresh|fixture|both]
 # the recorded vendor error, through the real render job:
-AI_DOUBLE_FAIL=fal.subscribe:fal-ai/nano-banana-2 DATABASE_URL=… pnpm exec tsx scripts/record-ai-baseline.ts --mode replay
+DATABASE_URL=… pnpm exec tsx scripts/acceptance-run.ts --mode replay --control render-failure
 ```
 
 Each run creates a fresh test database on that server, seeds the test
@@ -738,10 +818,12 @@ ceiling the recorder enforces before every vendor call:
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
-  pnpm exec tsx scripts/record-ai-baseline.ts --mode record --allowance <usd> --out /tmp/ai-recordings/recordings
+  pnpm exec tsx scripts/acceptance-run.ts --mode record --allowance <usd> --out /tmp/ai-recordings/recordings [--variant fresh|fixture]
 ```
 
-`--out` must be empty, so every request reaches the current clients; the
+A full re-record passes `--variant both`, so the fixture's extra request (the
+duplicate judge, which only a catalogue with a near neighbour reaches) lands
+in the same `--out`. `--out` must be empty, so every request reaches the current clients; the
 spending ledger is written beside it and must not be left over from an
 earlier run. Review the new recordings, then **replace**
 `lib/aiDouble/recordings/` with them rather than adding to it, so no recording

@@ -105,7 +105,7 @@ you'd normally check).
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 6 (acceptance run, baseline journey 4): storage now has its double (increment 3), but completing a meme also needs an active fact to build on, which arrives with the legacy fixture (increment 5)
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: an ordinary free account uploads a photo and saves a public meme from it; its permalink and its composed image are readable, the image decoded
 
 ### R4. A meme completes — video flow
 
@@ -127,7 +127,9 @@ pre-existing limit.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 6 (acceptance journey 2, free user submits a fact): the ordinary free account landed in increment 2; the submission check under the stricter limit is not written yet
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account's submission is accepted and listed in the admin queue
+
+**Deferred:** #631 — increment 7 (burn-down): that submissions keep their own stricter limit is not asserted
 
 ### R6. Admin Taxonomy Health loads
 

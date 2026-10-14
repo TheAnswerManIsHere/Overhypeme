@@ -11,6 +11,14 @@
  *   `fal.subscribe:fal-ai/nano-banana-2`) makes that operation throw the
  *   vendor error recorded for it, rebuilt as the SDK's own error class, so a
  *   real consumer handles it exactly as it would the vendor's.
+ *   `<kind>:<target>@<qualifier>` narrows it to requests whose canonical form
+ *   contains the qualifier (for an upload, its sha256), so one operation can
+ *   fail while every other of its kind succeeds; with no recorded error for
+ *   that operation it throws a plain error (increment 6, plan D6's
+ *   upload-failure control).
+ * - When `AI_DOUBLE_CALL_LOG` names a file, every call is appended to it, one
+ *   JSON line each — kind, target, fingerprint and outcome — the shape of the
+ *   recorder's ledger, so one evaluator reads either (increment 6, plan D6).
  * - Every call is appended to `doubleCalls`, so a test can assert the double —
  *   not the vendor — answered.
  * - When `AI_DOUBLE_MISS_LOG` names a file, every request with no recording is
@@ -25,6 +33,7 @@ import fs from "node:fs";
 import { ApiError, ValidationError } from "@fal-ai/client";
 import OpenAI from "openai";
 
+import { fingerprint, normaliseRequest } from "./fingerprint";
 import { allRecordings, findRecording, NoRecordingError, type RecordedError, type RecordingKind } from "./recordings";
 
 export interface DoubleCall {
@@ -35,9 +44,21 @@ export interface DoubleCall {
 
 export const doubleCalls: DoubleCall[] = [];
 
-function failureRequested(kind: RecordingKind, target: string, env: NodeJS.ProcessEnv = process.env): boolean {
+/** Whether `AI_DOUBLE_FAIL` asks this call to fail: "all" for `kind:target`, "qualified" for `kind:target@qualifier`. */
+function failureRequested(kind: RecordingKind, target: string, request: unknown, env: NodeJS.ProcessEnv = process.env): "all" | "qualified" | null {
   const wanted = (env.AI_DOUBLE_FAIL ?? "").trim();
-  return wanted !== "" && wanted === `${kind}:${target}`;
+  if (wanted === "") return null;
+  const at = wanted.indexOf("@");
+  if (at < 0) return wanted === `${kind}:${target}` ? "all" : null;
+  if (wanted.slice(0, at) !== `${kind}:${target}`) return null;
+  return JSON.stringify(normaliseRequest(request)).includes(wanted.slice(at + 1)) ? "qualified" : null;
+}
+
+export type CallOutcome = "replayed" | "failed-on-request" | "no-recording" | "recorded-error";
+
+function logCall(kind: RecordingKind, target: string, print: string, outcome: CallOutcome): void {
+  const callLog = process.env.AI_DOUBLE_CALL_LOG;
+  if (callLog) fs.appendFileSync(callLog, JSON.stringify({ t: Date.now() / 1000, kind, target, fingerprint: print, outcome }) + "\n");
 }
 
 function rebuild(err: RecordedError): Error {
@@ -58,17 +79,26 @@ function logMiss(entry: { kind: RecordingKind; target: string; fingerprint: stri
 function noteMiss(kind: RecordingKind, target: string, print: string): void {
   doubleCalls.push({ kind, target, outcome: "no-recording" });
   logMiss({ kind, target, fingerprint: print });
+  logCall(kind, target, print, "no-recording");
 }
 
 /** Answer one operation from its recording, or fail visibly. */
 function replay(kind: RecordingKind, target: string, request: unknown): unknown {
-  if (failureRequested(kind, target)) {
+  const failure = failureRequested(kind, target, request);
+  if (failure) {
     const recorded = allRecordings().find((r) => r.kind === kind && r.target === target && r.error);
+    const print = fingerprint(kind, request);
     if (!recorded?.error) {
+      if (failure === "qualified") {
+        doubleCalls.push({ kind, target, outcome: "failed-on-request" });
+        logCall(kind, target, print, "failed-on-request");
+        throw new Error(`[ai-double] ${kind} ${target} failed on request (AI_DOUBLE_FAIL)`);
+      }
       noteMiss(kind, target, "none");
       throw new NoRecordingError(kind, `${target} (recorded failure)`, "none");
     }
     doubleCalls.push({ kind, target, outcome: "failed-on-request" });
+    logCall(kind, target, print, "failed-on-request");
     throw rebuild(recorded.error);
   }
   let rec;
@@ -79,6 +109,7 @@ function replay(kind: RecordingKind, target: string, request: unknown): unknown 
     throw err;
   }
   doubleCalls.push({ kind, target, outcome: "replayed" });
+  logCall(kind, target, rec.fingerprint, rec.error ? "recorded-error" : "replayed");
   if (rec.error) {
     // The request itself was recorded as a vendor error. That is the answer it
     // replays, but not coverage: a run that never asked for a failure is told.

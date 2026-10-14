@@ -147,7 +147,9 @@ and a new, uncalled backend client.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 6 (acceptance journey 4, free user makes and saves a photo meme): ordinary sign-in is checked by `artifacts/overhype-me/e2e/testAccounts.spec.ts`; browsing and meme-making are not
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2 and 4: an ordinary account signs in and saves a public photo meme whose composed image anyone can read
+
+**Deferred:** #631 — increment 7 (burn-down): browsing the facts list is not asserted
 
 ## Not bugs
 

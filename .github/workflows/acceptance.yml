@@ -1,0 +1,156 @@
+name: Acceptance
+
+# The on-demand acceptance run (Launch Phase 2, increment 6, #631; plan
+# docs/plans/PLAN_PHASE2_INC6_ACCEPTANCE.md, D8). Never a required check: its
+# job names are none of the required checks in .agents/machinery.json, and no
+# ruleset names them. It holds no credential and references no secret.
+#
+# `workflow_dispatch` fires only for a workflow file on the default branch;
+# `pull_request`, limited to the acceptance tooling's own paths, lets a change
+# to that tooling prove itself here before it merges.
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Which database the journeys run over"
+        type: choice
+        options: [both, fresh, fixture]
+        default: both
+      controls:
+        description: "Also run the four negative controls"
+        type: boolean
+        default: true
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/acceptance.yml
+      - artifacts/api-server/scripts/acceptance-run.ts
+      - artifacts/api-server/src/testing/**
+      - artifacts/api-server/src/lib/aiDouble/**
+      - artifacts/api-server/fixtures/legacy/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Acceptance plan
+    runs-on: ubuntu-24.04
+    outputs:
+      variants: ${{ steps.pick.outputs.variants }}
+      controls: ${{ steps.pick.outputs.controls }}
+    steps:
+      # Inputs reach the shell as environment values, never interpolated into
+      # the script, and only the known values pass.
+      - id: pick
+        env:
+          VARIANT: ${{ github.event.inputs.variant || 'both' }}
+          CONTROLS: ${{ github.event.inputs.controls || 'true' }}
+        run: |
+          case "$VARIANT" in
+            both) echo 'variants=["fresh","fixture"]' >> "$GITHUB_OUTPUT" ;;
+            fresh|fixture) echo "variants=[\"$VARIANT\"]" >> "$GITHUB_OUTPUT" ;;
+            *) echo "unknown variant: $VARIANT" >&2; exit 1 ;;
+          esac
+          case "$CONTROLS" in
+            true|false) echo "controls=$CONTROLS" >> "$GITHUB_OUTPUT" ;;
+            *) echo "controls must be true or false: $CONTROLS" >&2; exit 1 ;;
+          esac
+
+  # Journeys 2–7 against the doubles, inside the outbound-request detector.
+  # Green only when every journey passed, both observers recorded the
+  # self-test and nothing after it, no AI call went uncovered, and every
+  # expected operation has evidence.
+  acceptance:
+    name: Acceptance (${{ matrix.variant }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.plan.outputs.variants) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services: &postgres
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: overhype
+          POSTGRES_PASSWORD: overhype
+          POSTGRES_DB: overhype_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U overhype -d overhype_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
+    steps: &steps
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the detector's tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q strace iproute2 iptables postgresql-client-16
+
+      - name: Mark the test database
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER DATABASE overhype_test SET overhype.test_database = 'yes';"
+
+      - name: Run
+        working-directory: artifacts/api-server
+        env:
+          VARIANT: ${{ matrix.variant }}
+          CONTROL: ${{ matrix.control }}
+        run: |
+          pnpm exec tsx scripts/acceptance-run.ts --mode acceptance --variant "$VARIANT" \
+            ${CONTROL:+--control "$CONTROL"} --report-dir "$RUNNER_TEMP/acceptance-report"
+
+      - name: Upload the report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: acceptance-report-${{ matrix.variant }}${{ matrix.control && format('-{0}', matrix.control) || '' }}
+          path: ${{ runner.temp }}/acceptance-report/
+          if-no-files-found: warn
+
+  # The negative controls: each must fail in exactly the way it expects, so a
+  # green here means the run CAN go red for that reason.
+  controls:
+    name: Acceptance control (${{ matrix.control }})
+    needs: plan
+    if: ${{ needs.plan.outputs.controls == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { control: forbidden-request, variant: fresh }
+          - { control: render-failure, variant: fresh }
+          - { control: corrupt-source, variant: fresh }
+          - { control: upload-failure, variant: fixture }
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services: *postgres
+    env:
+      DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
+    steps: *steps

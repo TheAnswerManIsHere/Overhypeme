@@ -63,7 +63,7 @@ export const SELECTORS = {
    *   and needs no credential.
    * - `recorder` wraps the real clients and captures request/response pairs
    *   for those recordings. It calls real vendors, so it needs their keys; it
-   *   is run only by `scripts/record-ai-baseline.ts`, never in CI.
+   *   is run only by `scripts/acceptance-run.ts` (record and live modes), never in CI.
    */
   AI_BACKEND: {
     real: "vendors",

@@ -1,6 +1,6 @@
 /**
  * Boots the real API server to record the AI baseline (Launch Phase 2,
- * increment 4, #631; design D6). Started only by `scripts/record-ai-baseline.ts`
+ * increment 4, #631; design D6). Started only by `scripts/acceptance-run.ts` (record and live modes)
  * with an explicitly constructed environment; never in CI. Refuses, before the
  * application is imported, anything `./aiRecorderGuard.ts` refuses and any
  * database not marked as a test database.

@@ -7,7 +7,7 @@ import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
-import { sanitizeHashtagsForPersistence } from "../lib/hashtags";
+import { SUGGEST_HASHTAGS_LIMIT, sanitizeHashtagsForPersistence } from "../lib/hashtags";
 import { verifyCaptcha } from "../lib/captcha";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
 import {
@@ -51,8 +51,6 @@ const TokenizeEnrichmentBody = z.object({
 // Dedicated limiter so the suggestion affordance is throttled independently of
 // the global AI limiter (it fires once per Preview, not per keystroke).
 const requireSuggestHashtagsRateLimit = createRateLimiter("ai_suggest_hashtags", 20, RATE_WINDOW_MS);
-
-const SUGGEST_HASHTAGS_LIMIT = 6;
 
 const SUGGEST_HASHTAGS_SYSTEM_PROMPT =
   "You generate discovery hashtags for a short humorous \"fact\" about a person. " +

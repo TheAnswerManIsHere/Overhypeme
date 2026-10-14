@@ -1,5 +1,5 @@
 /**
- * What the AI baseline driver (`scripts/drive-ai-baseline.ts`) requires of a
+ * What the AI baseline driver (`src/testing/acceptance/driver.ts`) requires of a
  * review's render cards before it accepts their outcome; kept beside the other
  * test support so it can be unit-tested.
  */

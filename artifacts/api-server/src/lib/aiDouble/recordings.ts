@@ -67,7 +67,7 @@ export class NoRecordingError extends Error {
     readonly target: string,
     readonly print: string,
   ) {
-    super(`[ai-double] no recording for ${kind} ${target} (fingerprint ${print.slice(0, 12)}); record it with scripts/record-ai-baseline.ts`);
+    super(`[ai-double] no recording for ${kind} ${target} (fingerprint ${print.slice(0, 12)}); record it with scripts/acceptance-run.ts --mode record`);
     this.name = "NoRecordingError";
   }
 }

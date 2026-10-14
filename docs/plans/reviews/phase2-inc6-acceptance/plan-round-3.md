@@ -1,0 +1,17 @@
+The revised plan serves the agreed outcome. Both issues from assessment 2 are addressed at the design level, and I found no further issue requiring resolution before approval. I recommend Claude present this version to David. No additional product decision is needed beyond his approval.
+
+**S1 — Addressed.** Journeys 4 and 6 now save recipes without the unrelated preview. That matches the existing [recipe-serving route](/home/user/Overhypeme/artifacts/api-server/src/routes/memes.ts:690), which loads the selected object before composing the meme. Journey 6 also reads its generated object through the [owner-facing route](/home/user/Overhypeme/artifacts/api-server/src/routes/memes.ts:572).
+
+The corrupted-source control makes this correction meaningful: an unreadable upload or generation must fail its journey even though the committed preview remains valid. Preserve the terminal-state polling, full pixel decoding, explicit `not-run` outcomes, and separate #651 deferral. Together these make the driver’s assertions the evidence for journey completion; recording presence cannot substitute for them.
+
+**S3 — Addressed.** The revised upload-failure control now targets the photo’s bytes, leaves moderation’s reference uploads alone, and exercises the same coverage evaluator as live mode. The existing [upload path](/home/user/Overhypeme/artifacts/api-server/src/lib/userImageUpload.ts:274) supports the intended demonstration: under the fixture’s fail-open configuration, the upload can complete despite the vendor failure. The control must establish both successful owner read-back and rejection by the evaluator for missing vendor evidence.
+
+The explicit variant expectations also resolve the duplicate-judge issue. Disabling live recorder reuse and sharing one allowance across both variants preserve the distinction between current vendor evidence and replay.
+
+**S2 — Remains addressed, with execution still an implementation checkpoint.** The plan separates containment from observation, checks both observers on every run, and keeps them attached through child shutdown. Step 1 must establish namespace creation, tracing, all four deliberate attempts, permitted local HTTP, and database access in the actual container and GitHub runner. The supplied measurements support this approach; they do not establish that the complete proposed runner already works. Unsupported tracing remains an environment failure, never a green run with reduced coverage.
+
+One bounded implementation detail deserves explicit treatment in the shared evaluator: expectations depend on **mode as well as variant**. The fixture’s Pexels read is required in live mode; acceptance records the nine untouched memes as the agreed coverage gap. Sharing the evaluator must preserve that settled distinction. This needs no new product decision or separate assessment.
+
+The checkout is `076e7b5`, and the fixture manifest matches the oracle’s digest. D5 preserves the fixture boundary: load the committed artefact, pin prompt rows only in the disposable database, then seed and boot. No fixture refresh or file change is needed.
+
+**I1 and I2 remain addressed.** The separate browser check and the six-part DojoOS comparison retain their previously assessed scope. I have no outstanding technical disagreement. The remaining work is implementation and the named execution evidence; this assessment does not authorise implementation.
