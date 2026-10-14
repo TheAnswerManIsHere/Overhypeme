@@ -49,6 +49,13 @@ export function stripDeniedHashtags(tags: readonly string[]): string[] {
 export { isDeniedHashtag };
 
 /**
+ * How many suggestions the hashtag suggester keeps (`routes/ai.ts`). Shared so
+ * the acceptance run's evidence check reads a recorded answer with the same
+ * limit the product applies (`testing/acceptance/coverage.ts`).
+ */
+export const SUGGEST_HASHTAGS_LIMIT = 6;
+
+/**
  * Turn arbitrary tag input into the attachable list: string-only → normalize →
  * drop empty → strip denied → dedupe (first-seen order) → cap at `limit`.
  *

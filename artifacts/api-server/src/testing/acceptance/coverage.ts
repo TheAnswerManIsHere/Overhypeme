@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { falUploadUrl } from "../../lib/aiDouble/doubles";
+import { SUGGEST_HASHTAGS_LIMIT, sanitizeHashtagsForPersistence } from "../../lib/hashtags";
 import { extractNsfwScore } from "../../lib/moderation/nsfwClassifier";
 
 export type Mode = "acceptance" | "replay" | "record" | "live";
@@ -103,9 +104,13 @@ export function operations(photoSha256: string): Operation[] {
       kind: "openai.chat",
       target: /./,
       matches: (r) => systemText(r).includes("You generate discovery hashtags"),
+      // The product's own reader (routes/ai.ts suggestHashtagsForText): the
+      // array through the same sanitizer and limit. An answer it reduces to no
+      // suggestions is the product's fallback, not a usable value (plan D6).
       usable: (r) => {
         try {
-          return Array.isArray(JSON.parse(content(r)).hashtags);
+          const tags = JSON.parse(content(r)).hashtags;
+          return Array.isArray(tags) && sanitizeHashtagsForPersistence(tags, { limit: SUGGEST_HASHTAGS_LIMIT }).length > 0;
         } catch {
           return false;
         }

@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { evaluateCoverage, readCallRecords, unattributedCalls } from "../testing/acceptance/coverage.js";
+import { sanitizeHashtagsForPersistence } from "../lib/hashtags.js";
 import { controlVerdict } from "../testing/acceptance/controls.js";
 import { evaluateDetector } from "../testing/acceptance/detector.js";
 import { checkImage } from "../testing/acceptance/imageCheck.js";
@@ -226,6 +227,24 @@ describe("evidence per operation", () => {
     fs.writeFileSync(path.join(dir, `fal.subscribe--${nsfw.fingerprint}.json`), JSON.stringify({ ...nsfw, response: { data: { unexpected: "shape" } } }));
     const rows = evaluateCoverage({ mode: "live", variant: "fresh", calls: fresh(), recordingsDir: dir, photoSha256: PHOTO_SHA });
     assert.deepEqual(rows.filter((r) => r.status === "missing").map((r) => r.key), ["photo-classifier"]);
+  });
+
+  it("counts the hashtag answer only when the product's sanitizer leaves at least one suggestion", () => {
+    const hashtag = recs().find((r) => r.kind === "openai.chat" && JSON.stringify(r.request).includes("You generate discovery hashtags"))!;
+    const withAnswer = (answer: string) => {
+      const dir = tmp();
+      for (const f of fs.readdirSync(COMMITTED)) fs.copyFileSync(path.join(COMMITTED, f), path.join(dir, f));
+      const response = { ...hashtag.response, choices: [{ ...hashtag.response.choices[0], message: { ...hashtag.response.choices[0].message, content: answer } }] };
+      fs.writeFileSync(path.join(dir, `openai.chat--${hashtag.fingerprint}.json`), JSON.stringify({ ...hashtag, response }));
+      const rows = evaluateCoverage({ mode: "live", variant: "fresh", calls: fresh(), recordingsDir: dir, photoSha256: PHOTO_SHA });
+      return rows.find((r) => r.key === "hashtags")!.status;
+    };
+    // "humor" is on the product's denylist, so an answer of only that tag is the product's empty fallback.
+    assert.deepEqual(sanitizeHashtagsForPersistence(["humor"], { limit: 6 }), []);
+    assert.equal(withAnswer(JSON.stringify({ hashtags: [] })), "missing");
+    assert.equal(withAnswer(JSON.stringify({ hashtags: ["humor", "", 7] })), "missing");
+    assert.equal(withAnswer(JSON.stringify({ hashtags: "infinity" })), "missing");
+    assert.equal(withAnswer(JSON.stringify({ hashtags: ["humor", "infinity"] })), "satisfied");
   });
 
   it("reads the recorder's ledger and the double's call log as the same records, and reports calls nothing recorded", () => {
