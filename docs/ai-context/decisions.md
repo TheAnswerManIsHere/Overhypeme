@@ -13,6 +13,23 @@
 
 ---
 
+### 2026-10-14 · The dev-admin-login backdoor is cut for launch
+- **Decision:** the dev-admin-login route and its wordmark triple-tap are
+  removed before launch (Phase 4, cut and prune), and are not given further
+  checks in the meantime. David, 2026-10-14, on the finding that a flag-off
+  preview's triple-tap lands on a bare "Not found" page instead of doing
+  nothing: *"We're going to remove that functionality for launch so leave as
+  is."* Supersedes the 2026-07 hardening entry's assumption that the preview
+  shortcut stays; that entry's fail-closed gate still governs until removal.
+- **Why:** the route mints an admin session; the safest launch shape for an
+  unauthenticated privilege path is its absence, and scripting a gesture that
+  is about to be deleted spends verification on nothing.
+- **Reference:** #631 (increment 7a), `launch-definition.md` *Cut, deleted or
+  deferred*, `docs/tests/UAT/PR221_DEV_ADMIN_LOGIN_HARDENING_UAT.md` (its
+  browser-gesture lines now name Phase 4).
+- **Revisit if:** a preview admin workflow is still needed after launch; it
+  would need its own authenticated design, not this route.
+
 ### 2026-10-13 · Utility helpers run on GPT-6 Luna, with reasoning split by what each helper decides
 - **Decision:** The shared utility LLM (`openai-general`) is `gpt-6-luna`, and
   admin reference research is `gpt-6.1-sol` with web search. They replace

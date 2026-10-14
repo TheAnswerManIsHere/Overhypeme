@@ -44,14 +44,18 @@ bug.
 
 **Do:** Click "Sync Stripe data" and let it finish.
 
-**Expect:** A green line reads *"Last sync completed successfully. Last
-synced just now."*
+**Expect:** A green line reads *"Last sync completed …"* and *"Last synced
+just now."* This button syncs three of the eight resource types, so the
+line reads *"Last sync completed — 3 of 8 resources reported"* unless every
+resource is already complete from an earlier full backfill, when it reads
+*"Last sync completed successfully."* Both are a working sync (David,
+2026-10-14).
 
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all complete → ok, with the most recent stamp`
 
-**Deferred:** #631 — 7b — the green summary sentence as the page renders it (Last sync completed successfully, Last synced just now), not only its derived tone — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the green summary line as the page renders it (Last sync completed, then Last synced just now), not only its derived tone — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 3. The green summary survives a reload
 
