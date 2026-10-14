@@ -1,4 +1,4 @@
-# PLAN — Phase 2 increment 7: the burn-down · technical design · v3 (rounds 1–3 with Astra incorporated; David's capture-and-read decision of 2026-10-14 added) · APPROVED by David 2026-10-14
+# PLAN — Phase 2 increment 7: the burn-down · technical design · v3 (rounds 1–3 with Astra incorporated; David's capture-and-read decision of 2026-10-14 added) · APPROVED by David 2026-10-14 · amended 2026-10-14 after the 7a reading (below)
 
 Parent: `docs/plans/PLAN_PHASE2_VERIFICATION.md` v4 (sha256 `db036f0f…`, approved by David 2026-10-08 / 2026-10-11), *Settled Decisions*, increment 7. Nothing here changes scope; anything that would is marked **for David**.
 
@@ -596,3 +596,31 @@ None open. The four of 2026-10-14 are in the oracle.
 - [ ] The live baseline at `de15e8f` quoted on #631; no vendor spend by this increment.
 - [ ] Increment 8 merged (its own sub-plan): the inventory oracle returns 0; every 4b step cites its capture check.
 - [ ] #631's State of Play reads Phase 2 done against the parent's Definition of Done after the last of 7a, 7b and increment 8; #628's Phase 2 box checked then.
+
+## Amendments approved by David after the 7a reading (2026-10-14)
+
+The approved v3 text above is sha256 `0e72af4b541bae673649408bc0fa43af63e5f3772ff6425ed37d39972e669ac2`.
+David's answers to the reading's questions amend it as follows; nothing else
+changes.
+
+1. **D2, "No new spec file", is read to let the route smoke test carry
+   admin pages no CI spec opened yet** (question 1, answer 1). Eleven steps
+   on the Config, Email Queue and Refunds and Disputes screens are 7b lines
+   targeting `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`, which adds
+   those pages to its route list and asserts the facts there. No new spec
+   file is created.
+2. **The dev-admin-login backdoor and its wordmark triple-tap are cut for
+   launch** (Phase 4): *"We're going to remove that functionality for
+   launch so leave as is."* The six browser-gesture lines in the PR221 UAT
+   name Phase 4; the cut list, the launch inventory and `decisions.md`
+   record it.
+3. **Two behaviour mismatches are bugs, each fixed in its own bugfix PR**:
+   the over-long Visual Concept shows an error code instead of the server's
+   message (PR224 steps 1, 2 and 4), and a refused style shows the raw code
+   `style_invalid` (PR223 step 5). Their 7b lines stay open until each fix
+   lands with its regression test.
+4. **The billing sync step's Expect is corrected to the product** (PR276
+   step 2): a three-resource sync honestly reads "3 of 8 resources
+   reported" unless every resource is already complete. This is the one
+   Expect edit in 7a, by David's decision, not to fit a check.
+
