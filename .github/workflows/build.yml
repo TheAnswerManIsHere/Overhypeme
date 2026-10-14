@@ -609,7 +609,7 @@ jobs:
       # 5174 proxying to it. The launcher refuses an unmarked database, any
       # Resend key, and email links that do not point at localhost. The captured
       # mail holds live sign-in links for this throwaway database and is never
-      # uploaded.
+      # uploaded. Its environment is constructed (see the step below).
       - name: Start dev and production-mode stacks
         env:
           AUTH_DB: postgres://overhype:overhype@localhost:5432/overhype_e2e_auth
@@ -621,12 +621,17 @@ jobs:
             pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &)
           (cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ \
             pnpm exec vite > /tmp/vite.log 2>&1 &)
-          (cd artifacts/api-server && env -u RESEND_API_KEY -u RESEND_API_KEY_DEV -u RESEND_API_KEY_PROD \
+          # A constructed environment (#631 increment 6, plan D3): `env -i` passes
+          # only the named settings, and the launcher refuses any variable outside
+          # its allowlist, so no vendor key can reach this server whatever the
+          # runner carries. `node --import tsx/esm`, not `pnpm exec`, because pnpm
+          # adds variables of its own.
+          (cd artifacts/api-server && env -i PATH="$PATH" HOME="$HOME" \
             DATABASE_URL="$AUTH_DB" PORT=8081 NODE_ENV=production CRON_SECRET=ci-auth-dummy \
             IP_HASH_SALT=ci-auth-journey-salt-0123456789abcdef \
             SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
             E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink \
-            pnpm exec tsx src/testing/productionModeLauncher.ts > /tmp/api-server-prodmode.log 2>&1 &)
+            node --import tsx/esm src/testing/productionModeLauncher.ts > /tmp/api-server-prodmode.log 2>&1 &)
           (cd artifacts/overhype-me && PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8081 \
             pnpm exec vite > /tmp/vite-prodmode.log 2>&1 &)
           wait_for_url() {

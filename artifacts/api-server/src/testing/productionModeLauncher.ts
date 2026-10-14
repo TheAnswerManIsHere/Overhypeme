@@ -15,16 +15,28 @@
  * verification email as an async job, the worker claims it and the job handler
  * runs exactly as in production, and only the final send lands in the sink.
  *
- *   NODE_ENV=production PORT=8081 DATABASE_URL=… IP_HASH_SALT=… CRON_SECRET=… \
- *   SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
- *   E2E_MAIL_SINK_DIR=/tmp/overhype-mail pnpm exec tsx src/testing/productionModeLauncher.ts
+ *   env -i PATH="$PATH" HOME="$HOME" NODE_ENV=production PORT=8081 DATABASE_URL=… \
+ *   IP_HASH_SALT=… CRON_SECRET=… SITE_BASE_URL=http://localhost:5174 \
+ *   ALLOWED_ORIGINS=http://localhost:5174 E2E_MAIL_SINK_DIR=/tmp/overhype-mail \
+ *   node --import tsx/esm src/testing/productionModeLauncher.ts
+ *
+ * `env -i` and `node` rather than `pnpm exec`: pnpm adds its own variables, and
+ * the launcher refuses anything outside `PRODUCTION_MODE_ENV_ALLOWLIST`.
  */
 import { testDatabaseRefusal } from "@workspace/db/test-database";
 
+import { allowlistRefusals, PRODUCTION_MODE_ENV_ALLOWLIST } from "./launchEnvironment";
 import { productionModeRefusals } from "./productionModeGuard";
 
+// The environment is constructed from a named list (Phase 2, increment 6, plan
+// D3): any other variable, a vendor key above all, is refused here, beside the
+// guard's own refusals, which keep the Resend rule and its specific message.
 const databaseRefusal = await testDatabaseRefusal(process.env);
-const refusals = [...productionModeRefusals(process.env), ...(databaseRefusal ? [databaseRefusal] : [])];
+const refusals = [
+  ...productionModeRefusals(process.env),
+  ...allowlistRefusals(process.env, PRODUCTION_MODE_ENV_ALLOWLIST, "production-mode launcher"),
+  ...(databaseRefusal ? [databaseRefusal] : []),
+];
 if (refusals.length > 0) {
   process.stderr.write(
     `[production-mode launcher] refusing to start:\n${refusals.map((r) => `  - ${r}`).join("\n")}\n`,
