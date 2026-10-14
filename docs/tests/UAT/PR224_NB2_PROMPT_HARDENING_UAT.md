@@ -35,6 +35,8 @@ raw length, instead of it saving and quietly breaking the render.
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
 
+**Deferred:** #631 — 7b — the rejection text the moderator sees on an over-length Concept is unasserted, the editor shows the error code and not the length message — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 
 **Do:** Paste a Visual Concept stuffed with many `{NAME}` tokens (short raw
@@ -47,7 +49,7 @@ once names are filled in."
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the rejection text saying the Concept expands to up to N characters is unasserted, the editor shows the error code only — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
 
 ### 3. Trimming an over-budget Concept lets it save
 
@@ -58,7 +60,7 @@ budget and Save again.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
 
 ### 4. Excessive aggregate visual guidance is rejected
 
@@ -73,6 +75,8 @@ aggregate that's capped.
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool`
 
+**Deferred:** #631 — 7b — the combined-guidance rejection for a mix of role bindings, required details, composition notes and additions is unasserted, and its text reaches no screen — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+
 ### 5. A deterministically-broken render fails fast with a specific reason
 
 **Do:** Trigger a render that can't succeed for a fixed reason — corrupt
@@ -86,7 +90,7 @@ forever or shipping a degraded image.
 
 **Check:** `artifacts/api-server/src/__tests__/asyncJobs.test.ts:terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:signals required_budget_overflow instead of silently truncating required content (§10.5)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the render handler turning a corrupt frozen enrichment, a leaked token or a required-budget overflow into a failed attempt with its specific error code is unasserted — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
 
 ### 6. Built-in style descriptions are shorter but look the same
 
@@ -97,6 +101,8 @@ then render using one of them (e.g. cinematic or anime).
 unchanged from before.
 
 **Lane:** human
+
+**Deferred:** #628 — Phase 8 (Engine evaluation) — built-in style presets are re-reviewed and tuned against the winning engine, so an unchanged-look comparison belongs there
 
 ## Regression
 
@@ -112,15 +118,17 @@ Save.
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override`
 
+**Deferred:** #631 — 7b — a typical Concept with several role bindings and required details saving through the PATCH route is unasserted, the cited check validates an empty override — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+
 ### R2. A valid fact still renders end-to-end
 
 **Do:** Render a valid fact, any style.
 
 **Expect:** it renders as before.
 
-**Lane:** ci
+**Lane:** scripted
 
-**Deferred:** #631 — increment 4 (AI doubles) — needs a real fal render of a valid fact
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 3 and 6: a valid fact's review renders reach done with decodable images, and the paid user's render reaches image_ready
 
 ## Not bugs
 

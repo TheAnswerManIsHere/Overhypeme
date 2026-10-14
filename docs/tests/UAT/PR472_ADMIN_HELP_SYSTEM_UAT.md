@@ -35,6 +35,8 @@ list down the left on a wide screen.
 
 **Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders the manual front page as a document, not as markdown source`
 
+**Deferred:** #631 — 7b — the table listing chapters 1-12 (the first table is a different one), bordered cells, chapter list left of the content — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+
 ### 2. A chapter renders as prose
 
 **Do:** From the front page, click into **Chapter 3 · Moderation**.
@@ -46,7 +48,7 @@ block. It reads like a page, not like a text file.
 
 **Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders a chapter as prose with real headings and lists`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — bold text, bullet lists and a table or quoted block rendering inside a chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### 3. A cold deep link parks on the right heading
 
@@ -72,7 +74,9 @@ specific section, it lands on that section.
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 13 (admin console): the console and its help are rebuilt
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:marks every in-app link so the page can make it base-aware and routed`; `artifacts/overhype-me/src/components/admin/helpContent.test.ts:emits a data-help-internal value the guard accepts, matching the href`
+
+**Deferred:** #631 — 7b — clicking a chapter then an in-chapter link to another chapter navigating in-app and landing on its section — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### 5. Search results name their location
 
@@ -85,7 +89,7 @@ belongs to.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index is populated and attributes every entry to a real chapter section`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — typing visual concept in the search box showing result rows that each name a section and its chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### 6. A search result lands where it says
 
@@ -98,6 +102,8 @@ chapter, and not a different one.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:a cold deep link parks on its heading, not the chapter top`
 
+**Deferred:** #631 — 7b — clicking a search result navigating in-app to that section of that chapter, parked on its heading — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+
 ### 7. Search holds up on other terms
 
 **Do:** Search **`moderation`**, then **`stale`**.
@@ -108,7 +114,7 @@ chapter, and not a different one.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — searching stale at all, and hits for moderation and stale containing the term — `artifacts/overhype-me/src/components/admin/helpContent.test.ts`
 
 ### 8. Plumbing inside links is not searchable
 
@@ -144,6 +150,8 @@ surface"*.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpMap.test.ts:admin help map builds the href a ? control actually links to`
 
+**Deferred:** #631 — 7b — the ? control beside View Site on Queue Health, clicked, landing in chapter 12 parked on the Worker liveness heading — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+
 ### 11. The rest of the `?` map is sane
 
 **Do:** Click the `?` from each of these screens in turn: Moderation, Taxonomy
@@ -154,7 +162,11 @@ Ch. 10 § *For the admin*; Ch. 12 § *Email, the most consequential rider*;
 Ch. 2 · Content Lifecycle; Ch. 11 · Admin Console. Say which row is unhelpful
 if any is — it's a one-line change per screen.
 
-**Lane:** human
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/admin/helpMap.test.ts:builds the href a ? control actually links to`
+
+**Deferred:** #631 — 7b — hrefs for Taxonomy Health, Billing, Email Queue, Facts and Dashboard, as only Moderation and Queue Health are asserted — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`
 
 ### 12. A link out of the Manual opens GitHub
 
@@ -189,7 +201,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 13 (admin console): the console and its help are rebuilt
+**Deferred:** #631 — 7b — kept sidebar items in their existing relative order, with Help as the last item — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### R2. Moderation's pending count still works
 
@@ -199,7 +211,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 13 (admin console): the console and its help are rebuilt
+**Deferred:** #631 — 7b — Moderation item showing a pending-count badge equal to the review and comment counts — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### R3. The sidebar still collapses
 
@@ -209,7 +221,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 13 (admin console): the console and its help are rebuilt
+**Deferred:** #631 — 7b — the collapse toggle narrowing the sidebar, and a collapsed icon's tooltip naming its page — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### R4. Admin still works on a phone
 
@@ -219,7 +231,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 13 (admin console): the console and its help are rebuilt
+**Deferred:** #631 — 7b — at phone width the hamburger opening the drawer with the nav items, and closing it again — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### R5. View Site and Sign Out still work
 
@@ -229,7 +241,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 13 (admin console): the console and its help are rebuilt
+**Deferred:** #631 — 7b — View Site going to the home page, Sign Out ending the session — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### R6. Other admin screens load unchanged
 
@@ -237,9 +249,11 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Expect:** each loads exactly as before.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+
+**Deferred:** #631 — increment 8 (capture and read) — each admin page looks as it did before the help system, sidebar, header and content unchanged
 
 ### R7. A non-admin is still refused
 
@@ -251,7 +265,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the same Access-Denied selector does match when access is genuinely refused`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — signed out and the seeded free account at /admin/help both showing Access Denied — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
 
 ## Not bugs
 

@@ -81,7 +81,7 @@ recorded with amount and currency on the Membership screen.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe one-time checkout
+**Deferred:** #628 — Phase 10 (membership and money) — lifetime is cut as a new sale (monthly only at launch), so the one-time checkout goes with the monthly-only rebuild
 
 ### 5. Granting Legendary for Life makes the user Legendary
 
@@ -92,7 +92,7 @@ click "Grant" in the "Legendary for Life" section.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the grant route and its effect on the tier have no route-level check yet
+**Deferred:** #631 — 7b — POST grant-lifetime answers success and the target user's tier becomes legendary, in the response and in the database — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 6. A grant is recorded distinctly from a purchase — the real fix
 
@@ -109,7 +109,7 @@ revenue — could not tell a comp from a real sale.
 
 **Check:** `artifacts/api-server/src/__tests__/entitlementVerification.test.ts:produces a grant that carries actor, label and reason`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — membership read returns the grant as admin_grant with granted-by label and reason and null amount and payment id — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the membership screen shows the entry as an admin grant with who granted it and why, no amount, no payment id — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 7. Revoking a grant drops the user
 
@@ -119,7 +119,7 @@ revenue — could not tell a comp from a real sale.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the revoke route has no route-level check yet
+**Deferred:** #631 — 7b — POST revoke-lifetime succeeds and the user's tier drops to registered, in the response and in the database — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 8. A revoked grant stays in the history
 
@@ -130,7 +130,7 @@ it. It is not deleted — that history is the point.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the revoked-grant history has no check yet
+**Deferred:** #631 — 7b — after a revoke the membership read still returns the grant with status revoked, revoker label and an admin_revoke history row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the membership screen lists the grant as revoked with who revoked it — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 9. A revoked user can be granted again
 
@@ -140,7 +140,7 @@ it. It is not deleted — that history is the point.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — re-granting after a revoke has no check yet
+**Deferred:** #631 — 7b — a second grant after a revoke succeeds and the user is legendary again, with a new active grant row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 10. A second grant is refused, not silently stacked
 
@@ -154,7 +154,7 @@ anyway.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the already-has-an-active-grant refusal in the admin route has no check yet
+**Deferred:** #631 — 7b — a second grant returns 400 with "User already has an active admin grant", leaving one active row so one revoke drops the user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 11. A full refund drops the user's access
 
@@ -216,8 +216,6 @@ entitles them.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
-
 ### 16. Removing the last membership finally drops the user
 
 **Do:** Now refund the lifetime purchase too, from the setup in the
@@ -241,7 +239,7 @@ them up.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a cancelled subscription beside an active admin grant derives legendary on the grant alone, the cited test shows a lifetime holding the tier — `artifacts/api-server/src/__tests__/membershipState.test.ts`
 
 ### 18. A dispute revokes access immediately
 
@@ -299,8 +297,6 @@ is permanent.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:returns membershipTier='legendary' for legendary users (no isPremium field)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
-
 ### 23. The Users list shows the correct tier per user
 
 **Do:** Check the Admin → Users list.
@@ -309,7 +305,7 @@ is permanent.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the admin Users list tier column has no check yet
+**Deferred:** #631 — 7b — GET admin users reports the effective tier per user: legendary for a live member, registered for a lapsed one and a free user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 24. The Stripe summary counts add up
 
@@ -321,7 +317,7 @@ is permanent.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:moves a lapsed member between the two dashboard counts, not out of both`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the Billing page's Active Subscribers and Registered cards show the summary route's counts, both above zero with the seeded accounts — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 25. Private memes are still Legendary-only
 
@@ -331,7 +327,7 @@ is permanent.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — private-meme gating by tier has no check yet
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:rejects an explicit private request from a registered non-admin instead of publishing it`
 
 ### 26. PuLID / identity memes are still Legendary-only
 
@@ -351,7 +347,9 @@ is permanent.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the tiered daily upload limit has no check yet
+**Check:** `artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts:legendary users get the legendary cap`
+
+**Deferred:** #631 — 7b — the legendary daily upload cap is strictly higher than the registered cap, the test asserts only greater-or-equal — `artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts`
 
 ### 28. Fact-of-the-day email still goes to Legendary members
 
@@ -385,7 +383,7 @@ alarming.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the convergence strip render has no check yet
+**Deferred:** #631 — 7b — after a successful sweep the grace-sweep route reports neverRun false, alerting false and a lastSuccessAt — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the Refunds and Disputes strip reads Healthy, last converged N ago, in grey — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 31. The convergence strip is honest right after a deploy
 
@@ -396,7 +394,7 @@ alarming.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the convergence strip render has no check yet
+**Deferred:** #631 — 7b — before any sweep has run the grace-sweep route reports neverRun true and alerting false — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the strip reads Not yet run, waiting Nm since start, never Healthy — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 32. The convergence strip refreshes itself
 
@@ -407,7 +405,7 @@ reload.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the convergence strip refresh has no check yet
+**Deferred:** #631 — 7b — the strip refetches its status every 30 seconds with no reload — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 33. The pending-convergence count is shown
 
@@ -418,7 +416,7 @@ users are lagging.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the pending-convergence count render has no check yet
+**Deferred:** #631 — 7b — the grace-sweep route driftedCount counts a seeded lapsed legendary user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the strip reads No users pending convergence on a clean database — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 34. An amber convergence strip is a label problem, not an access one
 
@@ -429,7 +427,7 @@ this is a label problem, not an access problem.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the drifted-tier amber state has no check yet
+**Deferred:** #631 — 7b — with the alert threshold exceeded the route reports alerting true and lists the drifted user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the strip turns amber and says stored tiers are drifting while access is correct — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 35. A partial refund is labelled and does not remove access
 
@@ -454,7 +452,7 @@ display path.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the pricing-page render has no check yet
+**Deferred:** #628 — Phase 10 (membership and money) — the pricing page is rebuilt monthly-only there, so unchanged has no meaning to hold afterwards
 
 ### R2. A non-membership checkout is refused outright
 
@@ -467,7 +465,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — the refusal sits in front of Stripe checkout and its check needs the Stripe fake
+**Deferred:** #566 — the Stripe fake — the checkout route creates a customer first, and the fake neither holds one to retrieve nor creates one
 
 ### R3. Cancelling a subscription still shows the period-end message
 
@@ -497,7 +495,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe plan switch
+**Deferred:** #628 — Phase 10 (membership and money) — annual billing is cut as a new sale, so the monthly-to-annual switch goes with the monthly-only rebuild
 
 ### R6. Payment history still lists everything
 
@@ -509,7 +507,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — payment-history returns refund and dispute rows as well as purchases — `artifacts/api-server/src/__tests__/routes.stripe.test.ts`; #631 — 7b — the card lists refund and dispute entries with their labels, the test always mocks an empty history — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
 
 ### R7. Deactivating and reinstating a user restores the right tier
 
@@ -522,7 +520,7 @@ them would have handed Legendary back based on a stale local row.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — reinstating re-checks Stripe
+**Deferred:** #631 — 7b — deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #566 — the Stripe fake — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve
 
 ### R8. Creating a user with Legendary records an admin grant
 
@@ -532,7 +530,7 @@ them would have handed Legendary back based on a stale local row.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the create-user grant has no check yet
+**Deferred:** #631 — 7b — POST admin users with Legendary creates the user with an active admin_grant row, reason and an admin_grant history event — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ## Not bugs
 - **Two race conditions are watch-for-if-you-see-it, not required steps**

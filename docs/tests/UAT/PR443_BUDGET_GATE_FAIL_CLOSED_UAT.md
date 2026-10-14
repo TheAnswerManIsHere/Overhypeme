@@ -68,9 +68,9 @@ generate an **AI meme image** (the standard, no-reference path).
 
 **Expect:** It generates exactly as before — no new error, no new delay.
 
-**Lane:** live
+**Lane:** scripted
 
-**Deferred:** #631 — increment 4 (AI doubles) — needs a real fal generation to show the standard path is unaffected
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the seeded paid user POSTs the standard generate request, gets 202, and the render reaches image_ready with no gate refusal
 
 ### 2. Reference-photo (PuLID) generation still works
 
@@ -130,6 +130,8 @@ are.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/budgetGate.test.ts:admins are exempt and always allowed with infinite limit`
+
+**Deferred:** #628 — Phase 11 (spend controls) — the admin exemption is reworked there, and the reference-photo generation the step runs is retired with the cut
 
 ## Regression
 

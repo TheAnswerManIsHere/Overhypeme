@@ -54,7 +54,7 @@ old failure: the card silently continuing to say Monthly with no notice.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:shows the annual renewal date from the app DB, not the mirror's monthly one`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 10 (membership and money) — annual billing is cut as a new sale, so the switch and its annual card states go with the monthly-only rebuild
 
 ### 2. The switch is no longer offered
 
@@ -67,7 +67,7 @@ old failure: the card silently continuing to say Monthly with no notice.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:reports the annual plan from the app DB while the mirror still says monthly`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 10 (membership and money) — annual billing is cut as a new sale, so the switch and its annual card states go with the monthly-only rebuild
 
 ### 3. No price line rather than the wrong price
 
@@ -96,6 +96,8 @@ mirror still hasn't synced after a few minutes, this step is recorded
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:shows the annual amount once the mirror agrees`
 
+**Deferred:** #628 — Phase 10 (membership and money) — annual billing is cut as a new sale, so the annual price line and label go with the monthly-only rebuild
+
 ## Regression
 
 ### R1. A genuine monthly subscriber is unaffected
@@ -111,7 +113,7 @@ not have removed the ordinary path.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:still shows the monthly amount and the switch button when both agree`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — plan label reads Monthly and the price line reads $3.99/month, the test matches only $3.99 — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #628 — Phase 10 (membership and money) — the Switch to Annual save 48% wording goes with the annual cut
 
 ### R2. PR #600's fix still holds
 
@@ -137,7 +139,7 @@ switch, no cancel.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the card names the lifetime membership as Legendary for Life, the test asserts only the absent switch and cancel — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
 
 ## Not bugs
 

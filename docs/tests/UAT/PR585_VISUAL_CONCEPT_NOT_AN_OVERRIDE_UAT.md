@@ -59,7 +59,7 @@ and so on) are unchanged and still populated.
 
 **Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:does NOT count coreSceneOverride — it is the required Visual Concept, not an override`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the editor showing no Overridden Visual Strategy bar with classification fields still populated, when only the Visual Concept is set, is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### 2. The badge still appears where something really was overridden
 
@@ -74,7 +74,7 @@ the case that must not have been broken by the fix.
 
 **Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:still raises the signal when that same blob carries real override content` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:still counts every other rendered field when a Visual Concept is also present`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the editor showing the Overridden Visual Strategy bar when the summary reports real override content is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### 3. The Visual Concept still reaches the picture prompt
 
@@ -100,6 +100,8 @@ name is set). Match the scene, not the literal characters.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:wins over the AI plan's coreScene and is marked required + moderator-authored` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:leaves coreSceneOverride fully rendered and tokenized (signal ≠ render path)`
+
+**Deferred:** #631 — 7b — the preview endpoint returning a compiled prompt whose CORE SCENE is the fact's saved Visual Concept is unasserted — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
 
 ### 4. A bad token in the Visual Concept is still caught
 
@@ -128,7 +130,7 @@ place; step 6 removes it.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — no test saves a required detail and reads the badge back on reopen
+**Deferred:** #631 — 7b — saving a required visual detail on a Visual-Concept-only fact then reading it back reports the Visual Strategy override as present — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
 ### 6. Clearing that override lowers the badge again
 
@@ -143,7 +145,7 @@ setup.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — no test clears the override and reads the badge back on reopen
+**Deferred:** #631 — 7b — removing that required visual detail and saving then reading back reports the Visual Strategy override as absent — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
 ## Regression
 
@@ -157,7 +159,7 @@ archetype, subtype, fit — and no error banner.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — no test asserts the enrichment editor opens with classification fields populated and no error banner
+**Deferred:** #631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### R2. Real override content still reaches the prompt alongside the scene
 
@@ -175,6 +177,8 @@ sample identity, so match the scene rather than the literal characters.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:coexists with requiredVisualDetails — both land in the compiled prompt`
+
+**Deferred:** #631 — 7b — the preview endpoint returning one prompt carrying both CORE SCENE and the fact's required visual detail is unasserted — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
 
 ## Not bugs
 

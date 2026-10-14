@@ -27,9 +27,9 @@ This does three things you asked for:
 **Expect:** the Visual Concept card sits near the top, with a red `*` in
 its header.
 
-**Lane:** ci
+**Lane:** human
 
-**Deferred:** #631 — increment 7 (burn-down) — no test asserts the required marker on the Visual Concept card header
+**Deferred:** #631 — 7b — the red * required marker in the Visual Concept card header — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`; increment 8 (capture and read) — Moderation Step 2 shows the Visual Concept card near the top of the step with a red * in its header
 
 ### 2. A blank Visual Concept blocks Save
 
@@ -42,7 +42,7 @@ approving" message, and the save is refused.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.candidateEnrichmentEditing.test.ts:PATCH refuses`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the staging fact's enrichment PATCH, the route Moderation Step 2 saves through, refusing a blank Visual Concept — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; 7b — the card's blocking Required wording when the concept is blank — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
 
 ### 3. A blank Visual Concept blocks Approve
 
@@ -66,7 +66,7 @@ before.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:succeeds with a non-empty saved Visual Concept (presence-based — no enable toggle)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — Save stores the typed scene text itself as the stored Visual Concept — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
 ### 5. The Core Scene field is gone from Advanced Options
 
@@ -80,7 +80,7 @@ first.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — no test asserts the Core Scene field and master toggle are absent from Advanced Options
+**Deferred:** #631 — 7b — the override panel shows no Core Scene field and no master toggle while the other override fields remain — `artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx`
 
 ### 6. The Facts page enforces the same requirement
 
@@ -90,9 +90,9 @@ Visual Concept, and Save.
 **Expect:** the same Visual Concept card appears, required the same way,
 and the save is refused with the same message.
 
-**Lane:** ci
+**Lane:** human
 
-**Deferred:** #631 — increment 7 (burn-down) — the Facts-page enrichment PATCH has no test for refusing a blank Visual Concept
+**Deferred:** #631 — 7b — the Facts-page enrichment PATCH refusing a blank Visual Concept with visual_concept_required — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; increment 8 (capture and read) — the Facts page enrichment view shows the Visual Concept card with its required marker
 
 ### 7. A filled override field applies without any toggle
 
@@ -103,7 +103,7 @@ and Save.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:a populated override emits its section regardless of any (removed) toggle`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:a populated override emits its section regardless of any (removed) toggle`; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:forbidden details + negative additions become STRICT 'Do not' lines without double-prefixing`
 
 ### 8. Clearing an override field turns it off
 

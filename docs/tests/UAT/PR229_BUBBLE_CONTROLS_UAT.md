@@ -100,9 +100,11 @@ note. The bubble still compiles — the warning doesn't block saving. The
 model may add, ignore, or misattribute that character; confirm on the
 render.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`
+
+**Deferred:** #631 — 7b — the preview listing the unresolved-entity note is unasserted, the preview test covers other warning codes only — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`; increment 8 (capture and read) — the render with an unmatched character shows what the model added or ignored — needs a real render
 
 ### 7. Bubble text over 60 characters shows a soft warning
 
@@ -114,6 +116,8 @@ render.
 
 **Check:** `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns at 60+ chars of text`
 
+**Deferred:** #631 — 7b — the counter element turning amber is unasserted, the test checks only the warning text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`
+
 ### 8. Bubble text is hard-capped at 80 characters
 
 **Do:** Try to type bubble text past 80 characters.
@@ -124,7 +128,7 @@ render.
 
 **Check:** `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:rejects over-cap text (81) and entity (61)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the editor input refusing characters past 80 is unasserted, only the server schema rejects 81 — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`
 
 ### 9. A 5th bubble is blocked
 
@@ -157,9 +161,11 @@ Regenerate).
 title — a speech row like `Speech — subject: "You're the man of the house
 now."`
 
-**Lane:** ci
+**Lane:** live
 
-**Deferred:** #631 — increment 4 (AI doubles) — needs the model to propose a bubble from a quote-bearing fact
+**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:renders the normalized proposed bubbles on the card (exactly what pick applies)`
+
+**Deferred:** #631 — 7b — the model proposing a speech bubble from a quote-bearing fact is unasserted, no journey submits a fact with a quote — acceptance journey 3
 
 ### 12. Using a proposed idea fills both the Concept and the bubble editor
 
@@ -172,7 +178,7 @@ Speech & Thought Bubbles editor — the same rows the card showed.
 
 **Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:"Use as draft" calls onPick with the COMPLETE candidate (scene + bubbles)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that wires Use as draft into the Concept field and bubble editor is rebuilt there
 
 ### 13. The picked bubble renders correctly
 
@@ -191,9 +197,9 @@ Speech & Thought Bubbles editor — the same rows the card showed.
 **Expect:** ideas come back with no bubbles — the AI shouldn't invent
 speech where the fact has none.
 
-**Lane:** ci
+**Lane:** live
 
-**Deferred:** #631 — increment 4 (AI doubles) — needs the model to generate ideas for a fact with no dialogue
+**Deferred:** #631 — 7b — the AI proposing no bubbles for a dialogue-free fact is unasserted, journey 3 picks a candidate but never checks bubbles are empty — acceptance journey 3
 
 ### 15. Picking an idea is blocked while other Advanced edits are unsaved
 
@@ -231,7 +237,7 @@ prompt.
 
 **Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:"Use as draft" calls onPick with the COMPLETE candidate (scene + bubbles)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that wires Use as draft into the Concept field is rebuilt there
 
 ### R3. Advanced Options still saves unrelated fields
 
@@ -243,7 +249,7 @@ unchanged.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — no test saves a role binding or required detail through Advanced Options and reads it back
+**Deferred:** #631 — 7b — role bindings and required details saved through the enrichment PATCH and read back unchanged are unasserted — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
 ### R4. Editing the Concept or a bubble marks ideas stale, non-blocking
 
@@ -256,6 +262,8 @@ renders — this is non-blocking, as before.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:ok + stale (current:false) → hides candidates, shows the stale reason` `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:stale-but-saved concept still advances (visualConcepts.current false is allowed)`
+
+**Deferred:** #631 — 7b — editing and saving the Concept or a bubble making the stored ideas stale is unasserted, the stale test changes the archetype instead — `artifacts/api-server/src/__tests__/visualConceptJobs.test.ts`
 
 ## Not bugs
 

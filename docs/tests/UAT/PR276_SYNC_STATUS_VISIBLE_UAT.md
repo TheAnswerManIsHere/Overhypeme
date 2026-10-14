@@ -38,6 +38,8 @@ bug.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:the sync status panel should render on load` — runs in CI against the fake Stripe driver (#566)
 
+**Deferred:** #631 — 7b — the rows for Customers through Payment Methods each showing a state, and the coloured summary line, on first load — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
 ### 2. A green summary when the last sync worked
 
 **Do:** Click "Sync Stripe data" and let it finish.
@@ -49,7 +51,7 @@ synced just now."*
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all complete → ok, with the most recent stamp`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the green summary sentence as the page renders it (Last sync completed successfully, Last synced just now), not only its derived tone — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 3. The green summary survives a reload
 
@@ -62,7 +64,7 @@ doesn't revert to a bare product count.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:surfaces stored row state (running / complete / error) and per-resource counts derived from the data tables`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the green summary line still rendering on the page after a full reload following a successful sync — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 4. A failed sync shows a red summary — the main event
 
@@ -76,7 +78,7 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the red line's full wording, did not complete with the error text then Catalog data may be stale — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 5. The Plans row itself shows the failure
 
@@ -87,6 +89,8 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:failure path: simulated error on plans surfaces error icon + failure banner` — presentation evidence: the error is injected through the simulation route, not produced by Stripe
+
+**Deferred:** #631 — 7b — the red cross icon on the failed resource row, only the data-status attribute and error text are asserted — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 6. The failure survives a reload
 
@@ -125,6 +129,8 @@ something did sync, and something didn't; it should never round up to
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:a partial run is reported as failed, never rounded up to success`
 
+**Deferred:** #631 — 7b — the Last synced stamp still appearing on the red summary while other rows are complete — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
 ### 9. A never-synced install says so, in amber
 
 **Do:** On a database that has never run a sync (mostly for the
@@ -139,7 +145,7 @@ blank — "never ran" and "still working" must not look alike.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all-idle with no stamps → never synced, not success`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the amber line's actionable wording, run a full sync to populate the catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 10. The "Last synced" stamp survives a server restart
 
@@ -154,7 +160,7 @@ in-memory value that resets on restart.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:preserves syncedCount across a simulated server restart (regression: counts survive process loss)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the Plans header Last synced stamp rendering from the per-resource timestamp after a reload — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ## Regression
 
@@ -169,6 +175,8 @@ disables then re-enables.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:intermediate transitions: rows progress pending → syncing… → complete in order` — the animation, under a controlled delay; and `success path: a real sync drives all rows to complete` for a real sync re-enabling the button, against the fake Stripe driver
 
+**Deferred:** #631 — 7b — the Sync button being disabled while the run is in flight, only its re-enabling is asserted — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
 ### R2. Full sync still works across all resources
 
 **Do:** Click "Full sync".
@@ -179,7 +187,7 @@ disables then re-enables.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:full run invokes every tracked resource sequentially in SYNC_RESOURCES order`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — Full sync driving all eight resource rows to complete in the panel, beyond the runner's call order — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R3. The LIVE / TEST badge still shows the right mode
 
@@ -199,7 +207,7 @@ disables then re-enables.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the product-count render has no check yet
+**Deferred:** #631 — 7b — the N products found count matching the synced catalog, 1 product on the fake fixture — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R5. The product list still renders correctly
 
@@ -209,7 +217,7 @@ disables then re-enables.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the product-list render has no check yet
+**Deferred:** #631 — 7b — the product list's description and prices (4.99 per month, 49.00 per year, 99.00 one-time) beside the name — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R6. The Setup Checklist rows are unchanged
 
@@ -219,7 +227,7 @@ disables then re-enables.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the Setup Checklist render has no check yet
+**Deferred:** #631 — 7b — the four Setup Checklist rows present with their ticked state for the fake catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R7. Toggling live/test mode is unchanged
 
@@ -240,7 +248,7 @@ PR is admin-only.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the pricing-page render has no check yet
+**Deferred:** #628 — Phase 10 (Membership and money) — the pricing page is rebuilt monthly-only there (F2), and no existing spec opens /pricing
 
 ## Not bugs
 

@@ -46,6 +46,8 @@ fire Xs ago · N in flight".
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`
 
+**Deferred:** #631 — 7b — the Scheduling label's green colour, which no assertion reads — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+
 ### 3. A summary line sits above the cards
 
 **Do:** Look above the worker lane cards.
@@ -67,7 +69,7 @@ never need to refresh the page.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — the Last checked timestamp advancing about every 5 seconds with no reload — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 5. The Queues section lists every registered queue
 
@@ -82,7 +84,7 @@ no-more-retries counts, an oldest age when those apply, and a trailing
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — per-row summary text: skipped and no-more-retries counts, oldest age, trailing 24h done / failed figures — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 6. A queue that has never run still appears
 
@@ -96,6 +98,8 @@ never executed once.
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run` `artifacts/api-server/src/__tests__/queueHealth.test.ts:reports a registered queue that has never run, rather than omitting it`
 
+**Deferred:** #631 — 7b — never-run row showing zero counts, as the api test asserts only pending is 0 and the spec drops zero checks — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+
 ### 7. A queue row expands to individual jobs
 
 **Do:** Click a queue row.
@@ -105,7 +109,7 @@ count, and any error.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — clicking a queue row expands it to job id, state, attempt count and error text — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 8. A queue row collapses again
 
@@ -115,7 +119,7 @@ count, and any error.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — a second click on the same queue row collapsing it — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 9. Every job state is a labelled badge
 
@@ -131,7 +135,9 @@ different operator stories now.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Check:** `artifacts/api-server/src/__tests__/queueHealth.test.ts`
+
+**Deferred:** #631 — 7b — six job states as labelled badges: Queued, Working (spinning), Done, Failed, Skipped (reason), Failed no more retries — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 10. A first-load failure says so, explicitly
 
@@ -147,7 +153,7 @@ page whose entire job is revealing problems.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — first-load failure showing the Could not load queue health panel with Retry and the not-healthy sentence, no green cards — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 11. A failure after data is on screen keeps the stale data visible
 
@@ -162,7 +168,7 @@ up and never asks you to refresh.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — a failed refresh keeping the numbers with the amber Showing data banner, retrying, and clearing on recovery — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 12. Loading looks like loading
 
@@ -173,7 +179,7 @@ page.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — first load showing five grey skeleton bars, not a single spinner — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ## Regression
 
@@ -183,9 +189,9 @@ page.
 
 **Expect:** Works exactly as before — untouched by this PR.
 
-**Lane:** ci
+**Lane:** human
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — /admin/email-queue loads and lists its jobs with no error — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; increment 8 (capture and read) — the Email Queue page looks as it did before the queue health work
 
 ### R2. Memes still generate end to end
 
@@ -193,9 +199,9 @@ page.
 
 **Expect:** The queue's behaviour is unchanged.
 
-**Lane:** ci
+**Lane:** scripted
 
-**Deferred:** #631 — increment 4 (AI doubles)
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: paid user POSTs /api/memes/ai/:factId/generate, polls the render job to image_ready, saves the meme and reads its image
 
 ### R3. Enrichment / send-back / Taxonomy Health actions still run
 
@@ -203,9 +209,9 @@ page.
 
 **Expect:** Unchanged.
 
-**Lane:** ci
+**Lane:** scripted
 
-**Deferred:** #631 — increment 4 (AI doubles) — the enrichment half needs fal/OpenAI
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: provisional-approve runs enrichment then Visual Ideas to concept_review; `artifacts/api-server/src/__tests__/factSendBackJob.test.ts:success: creates a candidate + refresh review and returns the ids`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Re-enrich with forceOverwriteAdminEdited queues a concrete job`
 
 ### R4. The admin sidebar gains only Queue Health
 
@@ -218,7 +224,7 @@ present and working.
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:renders inside the admin console for an admin`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — every pre-existing sidebar item still present with its route, Queue Health sitting after Email Queue — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### R5. The new endpoints are admin-gated
 

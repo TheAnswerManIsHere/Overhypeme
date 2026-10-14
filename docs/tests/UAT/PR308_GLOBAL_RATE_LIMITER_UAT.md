@@ -46,9 +46,11 @@ pages, make a meme, whatever your usual click-through covers.
 **Expect:** Nothing looks or feels different. No new errors, no slowdowns,
 no unexpected redirects.
 
-**Lane:** scripted
+**Lane:** human
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`
+
+**Deferred:** #631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — increment 8 (capture and read) — home and facts pages show their usual layout and content
 
 ### 2. A video or image generation completes normally
 
@@ -81,9 +83,9 @@ you'd normally check).
 
 **Expect:** Works normally.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Check:** `artifacts/overhype-me/e2e/testAccounts.spec.ts:the free account signs in through the login form as registered`
 
 ### R2. The facts feed browses normally
 
@@ -95,7 +97,7 @@ you'd normally check).
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — no API request made while the feed routes load is answered 429 — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### R3. A meme completes — image flow
 
@@ -125,11 +127,11 @@ you'd normally check).
 **Expect:** Works normally — still protected by its own stricter,
 pre-existing limit.
 
-**Lane:** scripted
+**Lane:** ci
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account's submission is accepted and listed in the admin queue
 
-**Deferred:** #631 — increment 7 (burn-down): that submissions keep their own stricter limit is not asserted
+**Deferred:** #631 — 7b — the sixth submission inside the window is refused 429 with the fact-submission message — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
 
 ### R6. Admin Taxonomy Health loads
 
@@ -157,11 +159,11 @@ pre-existing limit.
 
 **Expect:** The preview image still renders.
 
-**Lane:** ci
+**Lane:** scripted
 
 **Check:** `artifacts/api-server/src/__tests__/phase5.og.routes.test.ts:returns 200 with full og:* tags and 1h cache`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the unfurl page's og:image URL for a saved public meme serves a decoded image — acceptance journey 4
 
 ## Not bugs
 

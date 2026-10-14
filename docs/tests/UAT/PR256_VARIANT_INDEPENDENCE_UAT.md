@@ -36,7 +36,7 @@ variant — previously it was hidden entirely, root-only.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #628 — Phase 4 (Cut and prune) — the Pexels Image Pipeline panel is Pexels and is removed with it, so it is not scripted now
 
 ### 3. A variant can refresh its own images
 
@@ -49,6 +49,8 @@ independent of its root's.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:a variant (parentId set) is accepted — images are no longer root-only (variant independence)`
 
+**Deferred:** #628 — Phase 4 (Cut and prune) — the variant's own stock images are Pexels images, removed with Pexels, and the cited check shows the request is accepted but not that images were generated
+
 ### 4. A variant can generate its own AI meme background
 
 **Do:** As a legendary user, try generating an AI meme background for a
@@ -57,9 +59,11 @@ variant fact.
 **Expect:** It's accepted and generates — previously rejected with "AI meme
 generation only supported on root facts."
 
-**Lane:** ci
+**Lane:** scripted
 
 **Check:** `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts:a variant (parentId set) is accepted — AI image generation is no longer root-only (variant independence)`
+
+**Deferred:** #631 — 7b — a completed AI generation for a variant fact reaches image_ready and its image reads back, not only the 202 and attempt row — acceptance journey 6
 
 ### 5. Editing a root's text no longer blocks on its variants
 
@@ -98,6 +102,8 @@ visible regardless of which health card filter is selected.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:is visible regardless of the selected card filter (not gated like send-back)`
 
+**Deferred:** #628 — Phase 4 (Cut and prune) — two of the panel's three buttons (Backfill images, Backfill Pexels) drive Pexels and go with it, which rewrites this step, and the cited test also never selects a card filter
+
 ### 8. Backfill images enqueues durable jobs
 
 **Do:** Click "Backfill images".
@@ -110,7 +116,7 @@ line shows "N of M done" as jobs complete.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill images' confirms before firing and posts to backfill-images`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 4 (Cut and prune) — Backfill images is Pexels image prep and goes with Pexels, and the cited check shows the confirm and the POST, not the enqueue for every active fact missing images
 
 ### 9. Re-clicking Backfill images while jobs run is safe
 
@@ -124,7 +130,7 @@ rather than double-running.
 
 **Check:** `artifacts/api-server/src/__tests__/factPexelsJobs.test.ts:is stable per fact id`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 4 (Cut and prune) — the dedupe is on the Pexels job queue, removed with Pexels, and the cited check asserts only the dedupe key format
 
 ### 10. Backfill AI memes follows the same pattern
 
@@ -134,9 +140,11 @@ rather than double-running.
 images; the confirmation message notes this one calls paid OpenAI/fal.ai
 APIs.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill AI memes' posts to backfill-ai-memes`
+
+**Deferred:** #631 — 7b — the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`
 
 ### 11. A root with an active variant can be sent back to review
 
@@ -177,7 +185,7 @@ button, and it's no longer picked up by "Send next 50 stale" automatically.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button — `artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx`
 
 ### 14. A flagged fact can still be retried deliberately
 
@@ -190,7 +198,7 @@ way to clear the flag.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a row flagged for repeated failures can be ticked and Send selected posts its fact id with no rejection shown — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`
 
 ### 15. Bulk send-back reports any facts it excluded
 
@@ -201,9 +209,9 @@ repeated-failure protection.
 after repeated failures — investigate before considering the migration
 complete") so it's never silently missed.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — the Send next 50 stale status line reads N fact(s) excluded after repeated failures, investigate before considering the migration complete — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`
 
 ## Regression
 
@@ -215,7 +223,9 @@ complete") so it's never silently missed.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact is tokenised, enriched, given a saved Visual Concept and review renders, then approved to an active fact; journey 6: its AI image generates and a private meme saves from it; journey 4: a public photo meme saves from it
+
+**Deferred:** #628 — Phase 4 (Cut and prune) — a root fact's Pexels stock images are removed with Pexels, while enrichment and memes are the journeys cited
 
 ### R2. The public fact feed / detail page for roots is unchanged
 
@@ -223,11 +233,11 @@ complete") so it's never silently missed.
 
 **Expect:** Unchanged.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:returns the fact, its rank, and link/variant arrays on success`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a root fact's detail still returns its own AI meme images unchanged — `artifacts/api-server/src/__tests__/routes.facts.test.ts`; increment 8 (capture and read) — the public feed and a root fact's detail page render as before with every section present
 
 ### R3. Send-back for a root with no variants is unchanged
 
@@ -247,7 +257,7 @@ complete") so it's never silently missed.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #628 — Phase 4 (Cut and prune) — the single-fact Refresh images button and route are Pexels and are removed with it
 
 ### R5. The Facts editor for a root fact is unchanged
 
@@ -255,9 +265,11 @@ complete") so it's never silently missed.
 
 **Expect:** Unchanged.
 
-**Lane:** scripted
+**Lane:** human
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` — the Admin · Facts route loads without a crash or reload loop (list page only, no fact opened)
+
+**Deferred:** #631 — increment 8 (capture and read) — the Facts editor opened on a root fact shows its usual panels and fields with no error
 
 ## Not bugs
 
