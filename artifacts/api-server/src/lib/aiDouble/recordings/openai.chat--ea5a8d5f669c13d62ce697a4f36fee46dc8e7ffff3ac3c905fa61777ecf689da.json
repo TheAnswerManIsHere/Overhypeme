@@ -1,0 +1,60 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 8060,
+    "messages": [
+      {
+        "content": "You are a duplicate detector for a template-based facts database. Entries may use tokens like {NAME} and {SUBJ} for the subject person.\n\nNew entry:\n\"Alex once counted to infinity. Twice. The second time They do it backwards to check their work.\"\n\nCandidate existing entries:\n1. \"Alex has counted to infinity - twice.\"\n\nDo any candidates express the same fact or joke as the new entry, even if worded differently? Paraphrases and minor rewrites count as duplicates. Respond with JSON only: {\"isDuplicate\": true|false, \"matchIndex\": <1-based index or null>}",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "reasoning_effort": "low",
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "fingerprint": "ea5a8d5f669c13d62ce697a4f36fee46dc8e7ffff3ac3c905fa61777ecf689da",
+  "recordedAt": "2026-10-14T02:53:00.440Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-6-luna",
+  "response": {
+    "id": "recorded-1",
+    "object": "chat.completion",
+    "created": 1791946378,
+    "model": "gpt-6-luna",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"isDuplicate\":true,\"matchIndex\":1}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 130,
+      "completion_tokens": 66,
+      "total_tokens": 196,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 43,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

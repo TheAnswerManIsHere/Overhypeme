@@ -150,7 +150,8 @@ export function readCallRecords(file: string): CallRecord[] {
   const text = fs.readFileSync(file, "utf8").trim();
   if (text.startsWith("{") && text.includes('"lines"')) {
     const ledger = JSON.parse(text) as { lines: Array<{ kind: string; target: string; fingerprint?: string; outcome: string }> };
-    return ledger.lines.map((l) => ({ kind: l.kind, target: l.target, fingerprint: l.fingerprint, ok: l.outcome === "ok", outcome: l.outcome }));
+    // A reused answer is a recording already on disk: usable evidence in a recording run, never present in a live one.
+    return ledger.lines.map((l) => ({ kind: l.kind, target: l.target, fingerprint: l.fingerprint, ok: l.outcome === "ok" || l.outcome === "reused", outcome: l.outcome }));
   }
   return text
     .split("\n")

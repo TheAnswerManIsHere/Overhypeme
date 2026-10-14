@@ -62,7 +62,8 @@ export interface LedgerLine {
   target: string;
   reservedUsd: number;
   actualUsd: number | null;
-  outcome: "ok" | "error" | "refused";
+  /** `reused`: answered from a recording already on disk, at no cost (a `--resume` run; never the live check). */
+  outcome: "ok" | "error" | "refused" | "reused";
   /** The request's fingerprint, so a run can tell which errored call later got a real answer. */
   fingerprint?: string;
 }
@@ -141,9 +142,14 @@ export class Allowance {
     return this.committedUsd;
   }
 
-  /** Count a request answered from a recording already on disk. */
-  noteReused(): void {
+  /**
+   * Count a request answered from a recording already on disk. With the
+   * request named, it is also a ledger line, so the evidence evaluator can see
+   * which operation the reused answer served (increment 6, plan D6).
+   */
+  noteReused(kind?: RecordingKind, target?: string, print?: string): void {
     this.reusedCount += 1;
+    if (kind && target) this.lines.push({ kind, target, reservedUsd: 0, actualUsd: 0, outcome: "reused", fingerprint: print });
     this.persist();
   }
 
@@ -287,7 +293,7 @@ export function recordingFal(
       const request = falSubscribeRequest(endpoint, opts);
       const prior = alreadyRecorded("fal.subscribe", endpoint, request);
       if (prior !== undefined) {
-        allowance.noteReused();
+        allowance.noteReused("fal.subscribe", endpoint, fingerprint("fal.subscribe", substituteUrls(request)));
         return prior;
       }
       const unit = await falUnitPrice(endpoint);
@@ -356,7 +362,7 @@ export function recordingOpenAI<T extends Record<string, any>>(real: T, allowanc
     async (params: any, options?: any) => {
       const prior = alreadyRecorded(kind, params.model, params);
       if (prior !== undefined) {
-        allowance.noteReused();
+        allowance.noteReused(kind, params.model, fingerprint(kind, substituteUrls(params)));
         return prior;
       }
       const line = allowance.reserve(kind, params.model, reserve(params), fingerprint(kind, substituteUrls(params)));

@@ -178,7 +178,10 @@ describe("the image check", () => {
 
 describe("evidence per operation", () => {
   const recs = () => fs.readdirSync(COMMITTED).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(fs.readFileSync(path.join(COMMITTED, f), "utf8")));
-  const fresh = () => recs().filter((r) => !(r.kind === "fal.pricing") && !r.error).map((r) => ({ kind: r.kind, target: r.target, fingerprint: r.fingerprint, ok: true, outcome: "replayed" }));
+  // The calls a fresh run makes: every answered recording but the duplicate judge, which only the fixture reaches.
+  const isJudge = (r: any) => JSON.stringify(r.request).includes("You are a duplicate detector");
+  const fresh = () => recs().filter((r) => r.kind !== "fal.pricing" && !r.error && !isJudge(r)).map((r) => ({ kind: r.kind, target: r.target, fingerprint: r.fingerprint, ok: true, outcome: "replayed" }));
+  const fixture = () => recs().filter((r) => r.kind !== "fal.pricing" && !r.error).map((r) => ({ kind: r.kind, target: r.target, fingerprint: r.fingerprint, ok: true, outcome: "replayed" }));
 
   it("finds a usable answer for every operation a fresh run expects in the committed recordings", () => {
     const rows = evaluateCoverage({ mode: "acceptance", variant: "fresh", calls: fresh(), recordingsDir: COMMITTED, photoSha256: PHOTO_SHA });
@@ -187,8 +190,10 @@ describe("evidence per operation", () => {
   });
 
   it("requires the duplicate judge over the fixture, and marks it missing when it never happened", () => {
-    const rows = evaluateCoverage({ mode: "acceptance", variant: "fixture", calls: fresh(), recordingsDir: COMMITTED, photoSha256: PHOTO_SHA });
-    assert.deepEqual(rows.filter((r) => r.status === "missing").map((r) => r.key), ["duplicate-judge"]);
+    const without = evaluateCoverage({ mode: "acceptance", variant: "fixture", calls: fresh(), recordingsDir: COMMITTED, photoSha256: PHOTO_SHA });
+    assert.deepEqual(without.filter((r) => r.status === "missing").map((r) => r.key), ["duplicate-judge"]);
+    const withJudge = evaluateCoverage({ mode: "acceptance", variant: "fixture", calls: fixture(), recordingsDir: COMMITTED, photoSha256: PHOTO_SHA });
+    assert.deepEqual(withJudge.filter((r) => r.status === "missing").map((r) => r.key), []);
   });
 
   it("marks an operation missing when its call failed, even though its recording exists", () => {
@@ -208,9 +213,9 @@ describe("evidence per operation", () => {
 
   it("reads the recorder's ledger and the double's call log as the same records, and reports calls nothing recorded", () => {
     const dir = tmp();
-    fs.writeFileSync(path.join(dir, "ledger.json"), JSON.stringify({ limitUsd: 5, committedUsd: 0, lines: [{ kind: "openai.chat", target: "m", fingerprint: "abc", outcome: "error" }] }));
+    fs.writeFileSync(path.join(dir, "ledger.json"), JSON.stringify({ limitUsd: 5, committedUsd: 0, lines: [{ kind: "openai.chat", target: "m", fingerprint: "abc", outcome: "error" }, { kind: "openai.chat", target: "m", fingerprint: "abc", outcome: "reused" }] }));
     fs.writeFileSync(path.join(dir, "calls.jsonl"), JSON.stringify({ t: 1, kind: "openai.chat", target: "m", fingerprint: "abc", outcome: "replayed" }) + "\n");
-    assert.deepEqual(readCallRecords(path.join(dir, "ledger.json")).map((c) => c.ok), [false]);
+    assert.deepEqual(readCallRecords(path.join(dir, "ledger.json")).map((c) => c.ok), [false, true]);
     assert.deepEqual(readCallRecords(path.join(dir, "calls.jsonl")).map((c) => c.ok), [true]);
     assert.equal(unattributedCalls({ calls: readCallRecords(path.join(dir, "calls.jsonl")), recordingsDir: COMMITTED }).length, 1);
   });
@@ -281,12 +286,14 @@ describe("the recorder in the live check", () => {
       queue: { submit: async () => ({}), status: async () => ({}), result: async () => ({}) },
       config: () => {},
     };
-    const fal = recordingFal(real as never, new Allowance(1), { clients: {} }, async () => 0.001);
+    const allowance = new Allowance(1);
+    const fal = recordingFal(real as never, allowance, { clients: {} }, async () => 0.001);
     const opts = { input: { image_url: "https://fal-double.invalid/files/x" } };
     delete process.env.AI_RECORDER_LIVE;
     await fal.subscribe("fal-ai/imageutils/nsfw", opts);
     await fal.subscribe("fal-ai/imageutils/nsfw", opts);
     assert.equal(sent, 1, "a recording run reuses what it already holds");
+    assert.deepEqual(allowance.lines.map((l) => l.outcome), ["ok", "reused"], "and its ledger names the reused answer");
     process.env.AI_RECORDER_LIVE = "1";
     await fal.subscribe("fal-ai/imageutils/nsfw", opts);
     assert.equal(sent, 2, "the live check never does");
