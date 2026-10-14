@@ -4,7 +4,7 @@
  * given, so it is unit-tested without booting anything.
  *
  * The launcher boots the real API server to record the AI baseline (Launch Phase 2,
- * increment 4, #631; design D6). Started only by `scripts/record-ai-baseline.ts`,
+ * increment 4, #631; design D6). Started only by `scripts/acceptance-run.ts` (record and live modes),
  * which hands it an explicitly constructed environment; never in CI.
  *
  * Every refusal here runs before the application is imported, so a wrong

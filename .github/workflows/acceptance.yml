@@ -1,8 +1,8 @@
 name: Acceptance
 
 # The on-demand acceptance run (Launch Phase 2, increment 6, #631; plan
-# docs/plans/PLAN_PHASE2_INC6_ACCEPTANCE.md). Never a required check: its job
-# names are none of the required checks in .agents/machinery.json, and no
+# docs/plans/PLAN_PHASE2_INC6_ACCEPTANCE.md, D8). Never a required check: its
+# job names are none of the required checks in .agents/machinery.json, and no
 # ruleset names them. It holds no credential and references no secret.
 #
 # `workflow_dispatch` fires only for a workflow file on the default branch;
@@ -10,13 +10,25 @@ name: Acceptance
 # to that tooling prove itself here before it merges.
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: "Which database the journeys run over"
+        type: choice
+        options: [both, fresh, fixture]
+        default: both
+      controls:
+        description: "Also run the four negative controls"
+        type: boolean
+        default: true
   pull_request:
     branches:
       - main
     paths:
       - .github/workflows/acceptance.yml
       - artifacts/api-server/scripts/acceptance-run.ts
-      - artifacts/api-server/src/testing/acceptance/**
+      - artifacts/api-server/src/testing/**
+      - artifacts/api-server/src/lib/aiDouble/**
+      - artifacts/api-server/fixtures/legacy/**
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -26,14 +38,33 @@ permissions:
   contents: read
 
 jobs:
-  # The detector's feasibility on this runner (plan step 1): the namespace is
-  # built, both observers record the four self-test attempts, the database is
-  # reached through the relay, and a caught vendor request turns the run red.
-  probe:
-    name: Acceptance detector probe
+  plan:
+    name: Acceptance plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    services:
+    outputs:
+      variants: ${{ steps.pick.outputs.variants }}
+      controls: ${{ steps.pick.outputs.controls }}
+    steps:
+      - id: pick
+        run: |
+          v="${{ github.event.inputs.variant || 'both' }}"
+          if [ "$v" = both ]; then echo 'variants=["fresh","fixture"]' >> "$GITHUB_OUTPUT"; else echo "variants=[\"$v\"]" >> "$GITHUB_OUTPUT"; fi
+          echo "controls=${{ github.event.inputs.controls || 'true' }}" >> "$GITHUB_OUTPUT"
+
+  # Journeys 2–7 against the doubles, inside the outbound-request detector.
+  # Green only when every journey passed, both observers recorded the
+  # self-test and nothing after it, no AI call went uncovered, and every
+  # expected operation has evidence.
+  acceptance:
+    name: Acceptance (${{ matrix.variant }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.plan.outputs.variants) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services: &postgres
       postgres:
         image: pgvector/pgvector:pg16
         env:
@@ -49,7 +80,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
-    steps:
+    steps: &steps
       - name: Check out code
         uses: actions/checkout@v7
 
@@ -71,21 +102,41 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q strace iproute2 iptables postgresql-client-16
-          echo "apparmor_restrict_unprivileged_userns=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
-          echo "ipv6 present: $([ -d /proc/sys/net/ipv6 ] && echo yes || echo no)"
 
       - name: Mark the test database
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER DATABASE overhype_test SET overhype.test_database = 'yes';"
 
-      - name: Probe — must be green
-        working-directory: artifacts/api-server
-        run: pnpm exec tsx scripts/acceptance-run.ts --mode probe
-
-      - name: Probe with a caught vendor request — must be red
+      - name: Run
         working-directory: artifacts/api-server
         run: |
-          set +e
-          pnpm exec tsx scripts/acceptance-run.ts --mode probe --control forbidden-request > control.json
-          code=$?
-          cat control.json
-          if [ "$code" -ne 1 ]; then echo "::error::the control exited $code; a caught vendor request must make the run red (exit 1)"; exit 1; fi
+          pnpm exec tsx scripts/acceptance-run.ts --mode acceptance --variant "${{ matrix.variant }}" \
+            ${{ matrix.control && format('--control {0}', matrix.control) || '' }} --report-dir "$RUNNER_TEMP/acceptance-report"
+
+      - name: Upload the report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: acceptance-report-${{ matrix.variant }}${{ matrix.control && format('-{0}', matrix.control) || '' }}
+          path: ${{ runner.temp }}/acceptance-report/
+          if-no-files-found: warn
+
+  # The negative controls: each must fail in exactly the way it expects, so a
+  # green here means the run CAN go red for that reason.
+  controls:
+    name: Acceptance control (${{ matrix.control }})
+    needs: plan
+    if: ${{ needs.plan.outputs.controls == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { control: forbidden-request, variant: fresh }
+          - { control: render-failure, variant: fresh }
+          - { control: corrupt-source, variant: fresh }
+          - { control: upload-failure, variant: fixture }
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services: *postgres
+    env:
+      DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
+    steps: *steps

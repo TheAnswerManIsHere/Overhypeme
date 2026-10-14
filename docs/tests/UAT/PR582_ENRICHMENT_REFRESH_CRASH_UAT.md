@@ -134,9 +134,11 @@ edited value.
 **Expect:** It reaches a classified state with `Enrichment ✓ ready`, exactly as
 before this PR.
 
-**Lane:** ci
+**Lane:** scripted
 
-**Deferred:** #631 — increment 6 (acceptance journeys 2–3, submission and moderation with AI doubles): the ordinary account landed in increment 2; enrichment needs the AI doubles (increment 4)
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2–3: a new submission is enriched and its Visual Ideas prepared (the review reaches `concept_review`), over a fresh database and over the legacy fixture
+
+**Deferred:** #631 — increment 7 (burn-down): the `Enrichment ✓ ready` label on Admin → Moderation is not asserted
 
 ### R2. The enrichment editor still opens on a normal fact
 

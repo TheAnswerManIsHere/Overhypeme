@@ -183,7 +183,7 @@ finish.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 6 (acceptance run, baseline journey 4): storage now has its double (increment 3), but completing a meme also needs an active fact to build on, which arrives with the legacy fixture (increment 5)
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: an ordinary free account saves a public photo meme; anyone reads its permalink and its composed image, the image decoded
 
 ## Not bugs
 

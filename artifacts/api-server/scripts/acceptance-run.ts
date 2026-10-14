@@ -55,6 +55,7 @@ import { evaluateDetector, launchInNamespace, namespaceRoute, type DetectorVerdi
 import type { DriveResult } from "../src/testing/acceptance/driver";
 import type { InnerConfig } from "../src/testing/acceptance/inner";
 import { startPgRelay } from "../src/testing/acceptance/pgRelay";
+import { redReasons } from "../src/testing/acceptance/verdict";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = path.resolve(API_ROOT, "../..");
@@ -392,21 +393,27 @@ async function runVariant(variant: Variant, liveRecordings: string, liveLedger: 
       info: v.info,
       violations: { sink: v.violations.sink, syscall: v.violations.syscall.map((l) => l.raw) },
     };
-    if (!v.ok) report.red.push(...v.problems.map((p) => `detector: ${p}`), ...(v.violations.sink.length || v.violations.syscall.length ? [`detector: ${v.violations.sink.length + v.violations.syscall.length} outbound attempt(s) recorded after the self-test`] : []));
   }
-  if (mode !== "probe" && mode !== "serve") {
+  if (mode === "probe") {
+    report.red.push(...(report.detector ? redReasons({ journeys: [], coverage: [], uncovered: [], detector: report.detector }).filter((r) => r.startsWith("detector")) : []));
+    if (result.ok !== true) report.red.push("the probe's database or local HTTP check failed");
+  } else if (mode !== "serve") {
     const calls = readCallRecords(callRecord).slice(priorLedgerLines);
     report.coverage = evaluateCoverage({ mode: mode as Mode, variant, calls, recordingsDir, photoSha256: photoSha });
     report.unattributed = unattributedCalls({ calls, recordingsDir });
-    for (const row of report.coverage) if (row.status === "missing") report.red.push(`operation ${row.key} (journey ${row.journey}): ${row.detail}`);
-    for (const j of report.journeys) if (j.status !== "passed") report.red.push(`journey ${j.journey} ${j.status}${j.error ? `: ${j.error}` : ""}`);
-    if (report.journeys.length === 0) report.red.push("no journey ran");
-    for (const u of report.uncovered) report.red.push(`uncovered AI call: ${u}`);
-    if (mode === "live" && variant === "fixture" && !(result.pexelsMeme as { ok?: boolean } | undefined)?.ok) report.red.push(`the Pexels-only meme read: ${JSON.stringify(result.pexelsMeme)}`);
+    report.red.push(
+      ...redReasons({
+        journeys: report.journeys,
+        coverage: report.coverage,
+        uncovered: report.uncovered,
+        detector: report.detector,
+        setupError: report.setupError,
+        innerError: report.innerError,
+        pexelsMeme: result.pexelsMeme as { ok?: boolean } | undefined,
+        requirePexelsMeme: mode === "live" && variant === "fixture",
+      }),
+    );
   }
-  if (report.setupError) report.red.push(`setup: ${report.setupError}`);
-  if (report.innerError) report.red.push(`the inner program failed: ${report.innerError.split("\n")[0]}`);
-  if (mode === "probe" && result.ok !== true) report.red.push("the probe's database or local HTTP check failed");
   if (report.red.length > 0 && fs.existsSync(path.join(work, "server.log"))) {
     report.serverLogTail = fs.readFileSync(path.join(work, "server.log"), "utf8").split("\n").slice(-200);
   }

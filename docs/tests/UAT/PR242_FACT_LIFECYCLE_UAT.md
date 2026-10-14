@@ -28,7 +28,9 @@ get the normal "submitted for review" confirmation.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 6 (acceptance journey 2, free user submits a fact): the ordinary free account landed in increment 2 (`scripts/seed-e2e-test-accounts.ts`); the submission-to-queue check is not written yet
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account submits through the submission endpoint and the review is listed in the admin queue at `triage_pending`
+
+**Deferred:** #631 — increment 7 (burn-down): the confirmation message the form shows after submitting is not asserted (the journey drives the API, not the form)
 
 ### 2. Bulk import reports facts as queued, not imported
 
