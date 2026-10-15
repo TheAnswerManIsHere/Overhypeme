@@ -64,9 +64,9 @@ were.
 **Expect:** Before signing in, the back link at the top reads "BACK TO
 FACT" (not "GO BACK"), and tapping it takes you to that fact.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Deferred:** #631 — 7b — back link reads BACK TO FACT and points at the fact for a ?from=/facts/ value — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`
 
 ### 3. A fact page still round-trips after sign-in
 
@@ -153,7 +153,7 @@ nothing broke, not observing a fix.
 
 **Lane:** scripted
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Deferred:** #628 — Phase 5 (account and identity) — Onboard.tsx returnTo hand-off is unasserted and Phase 5 rebuilds the onboarding path (B10, one path for every sign-in method)
 
 ### R2. Google sign-in on desktop is unchanged
 
@@ -164,7 +164,9 @@ started.
 
 **Lane:** human
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Google button opens popup on macOS Chrome with maxTouchPoints 0`
+
+**Deferred:** #628 — Phase 5 (account and identity) — a real Google sign-in completing and returning the visitor needs the real provider, verified end to end on the real domain
 
 ### R3. Google sign-in on iPad is unchanged
 
@@ -174,7 +176,9 @@ started.
 
 **Lane:** human
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Google button triggers a full-page redirect, not a popup`
+
+**Deferred:** #628 — Phase 5 (account and identity) — completing a real Google sign-in on an iPad and returning needs the real provider, verified on the real domain
 
 ### R4. Apple sign-in is unchanged
 
@@ -184,7 +188,9 @@ started.
 
 **Lane:** human
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Apple button opens popup on Windows Chrome`
+
+**Deferred:** #628 — Phase 5 (account and identity) — a real Apple sign-in completing and returning on desktop and iPad needs the real provider, the flow most likely to break on the real domain
 
 ### R5. A wrong password still shows an error
 
@@ -192,9 +198,11 @@ started.
 
 **Expect:** An error message appears on the page; you stay on `/login`.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Check:** `artifacts/overhype-me/e2e/testAccounts.spec.ts:a wrong password is refused and leaves no session`
+
+**Deferred:** #631 — 7b — after the wrong-password error the visitor is still on /login — `artifacts/overhype-me/e2e/testAccounts.spec.ts`
 
 ### R6. Registering a new account is unchanged
 
@@ -212,9 +220,9 @@ started.
 
 **Expect:** Goes to the facts list.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Deferred:** #631 — 7b — back link reads BACK TO FACTS and points at / when no from value is present — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`
 
 ### R8. Sign out still returns you home
 
@@ -222,9 +230,9 @@ started.
 
 **Expect:** Returns you to the home page.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #628 — Phase 5 (account and identity)
+**Check:** `artifacts/overhype-me/e2e/authJourney.spec.ts` (per-PR E2E job, production-mode stack: signing out from the profile page ends the session and returns the browser to the home page /)
 
 ## Not bugs
 

@@ -29,7 +29,9 @@ nothing reworded, no sentences dropped.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:token-renders {NAME} BEFORE sanitation so the sentence survives` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:wins over the AI plan's coreScene and is marked required + moderator-authored`
+
+**Deferred:** #631 — 7b — pronoun tokens rendered inside the verbatim moderator scene, the tests render name tokens only — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
 
 ### 2. The concept isn't restated three times
 
@@ -44,6 +46,8 @@ little or nothing) — they no longer re-tell the whole scene.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:drops a tight restatement of the scene but keeps a distinct detail that reuses scene words`
 
+**Deferred:** #631 — 7b — ENVIRONMENT and ROLE DETAILS dropping a restatement of an authored Concept is unasserted, only SUBJECT DETAILS on the AI-scene path is — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+
 ### 3. Style lives in its own section when no style is selected
 
 **Do:** With no visual style selected, open the compiled prompt and look
@@ -57,7 +61,7 @@ medium words mixed in.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the LIGHTING section holding only light and mood with no style or medium words is unasserted when no style is selected — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
 
 ### 4. Style lives in its own section when a style is selected
 
@@ -72,7 +76,7 @@ the style doesn't appear twice.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the style phrase appearing once and not inside the LIGHTING section is unasserted, only the RENDER STYLE line and the light text are — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
 
 ### 5. Readable in-scene text is quoted
 
@@ -84,7 +88,7 @@ the style doesn't appear twice.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:renders the planner's in-scene text and excludes overlay text (no blanket ban)`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:renders the planner's in-scene text and excludes overlay text (no blanket ban)` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:routes kind=visual_graphic UNQUOTED (never baked in as literal words) while literal_text stays quoted`
 
 ### 6. Picture-only text is not quoted as words
 
@@ -112,6 +116,8 @@ you to rewrite it as pure scene description; the render still proceeds.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`
 
+**Deferred:** #631 — 7b — the warning message nudging a rewrite as visible scene description is unasserted, only its code is — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+
 ### 8. An empty Concept still uses the AI scene, at full strictness
 
 **Do:** Open the preview for a fact with no authored Concept.
@@ -124,7 +130,7 @@ applies only when a moderator Concept is present.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:keeps the AI path unchanged when the override's scene is empty/blank or absent`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a blank Concept leaving the planner's subject and environment requirement in force is unasserted, expectationsFromInput is never checked for it — `artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts`
 
 ### 9. Style phrasing differs between i2i and t2i, with a default for none
 
@@ -140,7 +146,7 @@ optical detail, and the clarity of a high-quality photograph."
 
 **Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, i2i uses promptSuffixReference` `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the none-style line asserted in full and the built-in styles' i2i Reimagine versus t2i declarative copy are unasserted, fixture styles only — `artifacts/api-server/src/__tests__/styleResolution.test.ts`
 
 
 ## Regression

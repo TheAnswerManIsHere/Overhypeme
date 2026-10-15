@@ -23,7 +23,7 @@ a silent save, and not a generic "Save failed" error.
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:no confirmation → confirmation_required with a populated impact` `artifacts/overhype-me/src/components/admin/patchFactDraft.test.ts:maps REQUIRES_CONFIRMATION → confirmation_required with the impact`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — PATCH /admin/facts/:id answering 409 REQUIRES_CONFIRMATION with the impact for changed text on a live fact, and 200 once confirmed — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; 7b — the Facts page opening the red-bordered Change approved fact text modal, not a silent save or a Save failed banner — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 2. The modal names the consequences
 
@@ -36,7 +36,9 @@ about variants — a root re-word deliberately doesn't touch them.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the modal test asserts only the meme consequence, not the struck-through old wording, the stale-taxonomy line or the absence of variant copy
+**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:shows the meme consequence only when persisted memes exist`
+
+**Deferred:** #631 — 7b — the struck-through old wording, the stale-taxonomy consequence line and the absence of any variant copy are unasserted — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`
 
 ### 3. A wrong confirmation phrase leaves the button disabled
 
@@ -82,7 +84,7 @@ fact now displays the new wording.
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:valid confirmation → commits, clears signature, preserves enrichmentStatus, writes ONE audit row`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — after Confirm the modal closes, a green Saved message shows and the fact displays the new wording — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 7. The edit is recorded in history
 
@@ -96,7 +98,7 @@ reason you typed.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:returns fact-scoped entries newest-first with a deleted-actor fallback`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the expanded Approved text edit history panel listing who, when, old to new wording and the reason is unasserted (the API test reads only newText and actor) — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 8. A non-text edit is not gated
 
@@ -110,7 +112,7 @@ for a real text change.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:accepts isActive=true on an ALREADY-ACTIVE fact as a harmless no-op`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a save that changes no text on a live fact sends no text and opens no warning modal, it saves at once — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 9. Cancelling the modal preserves your draft
 
@@ -122,7 +124,7 @@ still in the box — you can edit more or discard it.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — no test drives Cancel on the modal and checks the draft text survives
+**Deferred:** #631 — 7b — Cancel closes the modal, saves nothing and leaves the edited text in the box — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 10. A brand-new (staging) fact's text edits freely
 
@@ -137,7 +139,7 @@ that prep is restarting.
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a never-approved staging fact's text save opens no warning modal and the Saved message says prep is restarting — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 11. A restarted staging fact re-enters prep and blocks approval
 
@@ -152,7 +154,7 @@ complete.
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)` `artifacts/api-server/src/__tests__/moderationWorkflow.guards.test.ts:canProductionApprove: still production_review-only (never concept_review)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a restarted review's stage refuses production approval and its enrichment job is queued — `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts`; #628 — Phase 4 (Cut and prune) — the images prep it re-runs is the Pexels job that the cut deletes
 
 ### 12. A variant mid-review does not block the root fact's re-word
 
@@ -213,7 +215,7 @@ field, and Save.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — an enrichment-editor save on a live fact answers 200 without the text-confirmation code and leaves the fact's text unchanged — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
 ## Not bugs
 

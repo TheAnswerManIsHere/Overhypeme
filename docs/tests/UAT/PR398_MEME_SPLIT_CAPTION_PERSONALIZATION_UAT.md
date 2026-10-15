@@ -48,9 +48,11 @@ cached copy.
 **Expect:** The picture reads **"NICK BARON MAKES / ONIONS CRY."** — it
 does **not** read "{NAME} MAKES".
 
-**Lane:** ci
+**Lane:** scripted
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`
+
+**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4
 
 ### 2. The caption underneath was never broken and still isn't
 
@@ -73,11 +75,11 @@ preview carefully and note the exact words top and bottom; then save it.
 words as the preview did, in the same two places, with your name spelled
 out, and no `{` or `}` anywhere on the picture.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the saved meme's served image carries the spelled-out name and no brace, equal to the hand-typed twin — acceptance journey 4; increment 8 (capture and read) — the builder preview and the finished meme picture show the same top and bottom words with the name spelled out
 
 ### 4. Splitting with the name on the bottom half
 
@@ -88,11 +90,11 @@ cry because of …"), and drag the split slider so the name lands on the
 
 **Expect:** The preview shows your name, and the saved picture matches it.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a name landing in the bottom half is drawn on the saved meme's served image — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the bottom line and the saved picture matches it
 
 ### 5. Splitting with the name on the top half
 
@@ -101,11 +103,11 @@ the **top** half.
 
 **Expect:** The preview shows your name, and the saved picture matches it.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes {NAME} in both split halves`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — a name landing in the top half is drawn on the saved meme's served image — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the top line and the saved picture matches it
 
 ### 6. Pronoun and verb agreement — they/them
 
@@ -116,9 +118,11 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 **Expect:** The picture reads "**They keep**", not "They keeps" and not
 "{Subj} {keeps|keep}".
 
-**Lane:** ci
+**Lane:** scripted
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`
+
+**Deferred:** #631 — 7b — a creator with they/them pronouns gets They keep drawn on the served image, not keeps or a raw pair — acceptance journey 4
 
 ### 7. Pronoun and verb agreement — he/him
 
@@ -126,9 +130,11 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 
 **Expect:** This time it reads "**He keeps**".
 
-**Lane:** ci
+**Lane:** scripted
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`
+
+**Deferred:** #631 — 7b — a creator with he/him pronouns gets He keeps drawn on the served image — acceptance journey 4
 
 ### 8. The downloaded file matches the page
 
@@ -139,7 +145,7 @@ page.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, and the Download button fetches that same image URL — acceptance journey 4
 
 ### 9. The share preview matches
 
@@ -149,7 +155,7 @@ page.
 
 **Lane:** scripted
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #628 — Phase 6 (The loop) — #592 fixes meme OG previews and that phase's exit evidence verifies the OG card and its image with a crawler fixture, which must show the spelled-out name and no token
 
 ### 10. Merchandise export shows the real name (only if you use it)
 
@@ -160,7 +166,7 @@ to see the product preview image.
 
 **Lane:** scripted
 
-**Deferred:** #628 — Phase 4 (cut and prune; merch and Zazzle retired with the cut)
+**Deferred:** #628 — Phase 4 (Cut and prune) — merch and Zazzle export are on the cut list and are removed with it
 
 ## Regression
 
@@ -173,6 +179,10 @@ a meme picture.
 
 **Lane:** human
 
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:preserves every other text option and does not mutate the input`
+
+**Deferred:** #631 — increment 8 (capture and read) — a finished meme picture shows the usual text size, font, outline or shadow and all-caps treatment, as before the fix
+
 ### R2. Line positioning is unchanged
 
 **Do:** Check where the top and bottom lines sit vertically, and try the
@@ -181,6 +191,10 @@ split slider and the position sliders.
 **Expect:** Unchanged — they behave as they always did.
 
 **Lane:** human
+
+**Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/step2-image/__tests__/splitLogic.test.ts:clamps maxTopY below the bottom-block boundary`
+
+**Deferred:** #631 — increment 8 (capture and read) — the top and bottom lines of a finished meme sit where they always did and the split and position sliders still move them
 
 ### R3. Photo framing and image quality are unchanged
 
@@ -191,6 +205,8 @@ split slider and the position sliders.
 
 **Lane:** human
 
+**Deferred:** #631 — increment 8 (capture and read) — a finished photo meme shows the usual framing and crop, the chosen aspect ratio and the usual sharpness
+
 ### R4. Gradient-template memes are unaffected
 
 **Do:** Look at a meme made from a gradient template (not a photo).
@@ -199,7 +215,7 @@ split slider and the position sliders.
 
 **Lane:** human
 
-**Deferred:** #628 — Phase 4 (cut and prune; gradient templates retired with the cut)
+**Deferred:** #628 — Phase 4 (Cut and prune) — gradient templates are on the cut list and are deleted, so there is nothing left to compare
 
 ### R5. The name highlight elsewhere in the app is untouched
 
@@ -208,7 +224,9 @@ in the app.
 
 **Expect:** Untouched.
 
-**Lane:** human
+**Lane:** ci
+
+**Check:** `artifacts/overhype-me/src/components/facts/HighlightedFactText.test.tsx:highlights a plain {NAME} substitution`
 
 ## Not bugs
 

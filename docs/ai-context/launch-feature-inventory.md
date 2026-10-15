@@ -93,7 +93,7 @@ routes, delete, git keeps it) · **your call**.
 | B23 | Spend view | The user's own generation spend | code only | ship, verify it's meaningful to a user, else hide |
 | B24 | Self-service account deletion | **Does not exist**; admin-only | doc | your call: "email us to delete" in the privacy policy + admin flow for launch (recommended), self-service `next` |
 | B25 | Sessions | No sliding expiry, unlimited concurrent, no "my sessions" UI | doc | ship as-is for launch |
-| B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) |
+| B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) for "view as user"; **dev admin login cut** (David, 2026-10-14; `decisions.md`) |
 
 ### Decisions — Journey B (David, 2026-10-05)
 

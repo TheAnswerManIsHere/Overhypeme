@@ -56,6 +56,8 @@ renders for you, the creator.
 
 **Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for an admin whose membership tier is only registered`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
 
+**Deferred:** #631 — 7b — picking Private in the builder and saving sends isPublic false and the browser lands on the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`
+
 ### 2. A private meme is not reachable logged out
 
 **Do:** Copy the permalink from step 1 and open it in a
@@ -70,7 +72,7 @@ exactly what you saw.
 
 **Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:an unauthenticated caller gets 404`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 6 (The loop) — #591 rewrites the private-meme not-found page and its privacy suite covers permalinks, and the cited check proves the API 404, not the page a logged-out visitor sees
 
 ### 3. The creator can still see it afterward
 
@@ -99,9 +101,9 @@ it **Public**.
 
 **Expect:** The public meme shows up in both.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Deferred:** #631 — 7b — a logged-out request to a fact's meme list returns its public meme and omits its private one, which is the data the fact page gallery shows — `artifacts/api-server/src/__tests__/routes.memes.test.ts`
 
 ### 6. A real Legendary account still gets privacy
 
@@ -138,7 +140,7 @@ selected with your in-progress meme intact.
 
 **Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — closing the upgrade modal leaves Public selected and the in-progress meme intact — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`
 
 ### 9. A registered account's meme still saves public
 
@@ -157,9 +159,9 @@ hasn't changed.
 
 **Expect:** No visibility control at all — unchanged.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #628 — Phase 7 (image offering; private/public meme privacy model revisited)
+**Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:omits the control for a viewer who cannot save yet`
 
 ### 11. Video memes still work
 
@@ -170,7 +172,7 @@ that's the pre-existing gap #394 flagged, not something this PR touches.
 
 **Lane:** scripted
 
-**Deferred:** #628 — Phase 4 (cut and prune; video memes retired with the cut)
+**Deferred:** #628 — Phase 4 (Cut and prune) — video memes (pipeline and engines) are on the cut list and are removed with it
 
 ## Regression
 

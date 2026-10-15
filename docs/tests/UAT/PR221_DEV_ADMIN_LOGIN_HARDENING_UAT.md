@@ -42,7 +42,7 @@ triple-tap the **wordmark** (the "overhype.me" logo in the top bar).
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — grants when enabled (non-prod preview)`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
 
 ### 2. Triple-tap does nothing when the secret is unset
 
@@ -56,7 +56,7 @@ the fail-closed default.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — inert when disabled`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
 
 ### 3. Triple-tap does nothing in production, regardless
 
@@ -67,9 +67,9 @@ reachable there. (To be admin in production, use a real admin login.)
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set`
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set` `artifacts/overhype-me/e2e/authJourney.spec.ts`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
 
 ## Regression
 
@@ -84,6 +84,8 @@ triple-tap the wordmark.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — grants when enabled (non-prod preview)`
 
+**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+
 ### R2. Preview with the secret unset does nothing
 
 **Do:** In a Replit preview with `ENABLE_DEV_ADMIN_LOGIN` unset,
@@ -95,6 +97,8 @@ triple-tap the wordmark.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — inert when disabled`
 
+**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+
 ### R3. Production deploy does nothing regardless of the variable
 
 **Do:** On a production deploy, triple-tap the wordmark, whatever the
@@ -104,7 +108,9 @@ env var is set to.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set`
+**Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set` `artifacts/overhype-me/e2e/authJourney.spec.ts`
+
+**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
 
 ### R4. Normal login is unaffected
 

@@ -38,7 +38,9 @@ Delay (ms)`.
 
 **Lane:** scripted
 
-**Deferred:** #628 — Phase 14 (compliance)
+**Check:** `artifacts/api-server/src/__tests__/migrations.0097.test.ts:seeds exactly the keys ncmecConfig declares, and reserves exactly five`
+
+**Deferred:** #628 — Phase 14 (compliance) — the page rendering all eight as generic cards is unasserted, no spec opens /admin/config, and the Safety surface built there decides where these keys show
 
 ### 2. A reserved setting refuses to save
 
@@ -55,7 +57,7 @@ which validates the resulting configuration before applying it."*
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #628 — Phase 14 (compliance) — card shows the refusal as an inline red message, no spec opens /admin/config, and the Safety surface it names is built there
 
 ### 3. A refused save doesn't actually write
 
@@ -66,9 +68,9 @@ doesn't reset the field on its own).
 **Expect:** The value is back to what it was before your edit — your
 attempt did not take effect.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #628 — Phase 14 (compliance)
+**Deferred:** #631 — 7b — a refused save leaves the reserved key's stored value unchanged, which is what a reload shows — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 4. Unrelated config keys still work normally
 
@@ -83,9 +85,11 @@ it's fine to edit and set back like any other key.
 **Expect:** Works exactly as before — this PR only added a refusal for
 the five NCMEC keys named in step 2, nothing else on the page changed.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Check:** `artifacts/api-server/src/__tests__/membershipConfigRoute.test.ts:accepts a write that keeps the set coherent, and stores it`
+
+**Deferred:** #631 — 7b — saving unrelated config keys through the config page persists each value — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ## Regression
 
@@ -97,9 +101,7 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
-
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — /admin/config loads normally with the existing keys listed — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### R2. A normal config key still saves
 
@@ -107,9 +109,11 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 
 **Expect:** Saves normally.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down)
+**Check:** `artifacts/api-server/src/__tests__/membershipConfigRoute.test.ts:accepts a write that keeps the set coherent, and stores it`
+
+**Deferred:** #631 — 7b — saving an ordinary key through the config page succeeds — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### R3. NCMEC Safety Alert Email is editable like any unreserved key
 
@@ -123,7 +127,7 @@ step 4's note).
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:still writes ncmec_safety_alert_email, which is deliberately not reserved`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the unreserved key's new value is stored, not only a 200 — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #628 — Phase 14 (compliance) — card shows an editable field with a working save button, no spec opens /admin/config
 
 ### R4. NCMEC Submission Enabled still refuses to save
 
@@ -136,7 +140,7 @@ after a page reload.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the refused save leaves the reserved key's stored value unchanged — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #628 — Phase 14 (compliance) — card shows the refusal as inline red text, no spec opens /admin/config
 
 ### R5. Ordinary product use is unaffected
 
@@ -149,7 +153,7 @@ and a new, uncalled backend client.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2 and 4: an ordinary account signs in and saves a public photo meme whose composed image anyone can read
 
-**Deferred:** #631 — increment 7 (burn-down): browsing the facts list is not asserted
+**Deferred:** #631 — 7b — browsing the facts list shows the approved fact — acceptance journey 3
 
 ## Not bugs
 

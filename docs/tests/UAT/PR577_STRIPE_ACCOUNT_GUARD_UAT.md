@@ -44,7 +44,7 @@ toggle still works and now explains itself, and that paying still works exactly 
 
 **Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 2. That report says which instance it speaks for
 
@@ -58,7 +58,7 @@ deployment as a whole.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 19 — the rendered value is labelled with its instance`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — the rendered sentence This instance only (id) plus Other instances of this deployment may differ, not just the id — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`
 
 ### 3. The report agrees with the mode chip
 
@@ -71,6 +71,8 @@ confirmed.
 **Lane:** live
 
 **Check:** `ask_question` via the Replit connector: read-only, report `stripe_live_mode` and the boot-log line confirming the Stripe account was verified for that mode
+
+**Deferred:** #631 — 7b — the page showing the TEST chip and the verified box together, which the connector read does not show — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 4. The mode toggle still works, and explains itself either way
 
@@ -88,7 +90,7 @@ something reports a failure.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5 — a refused target leaves the stored mode unchanged and returns a non-success naming the mismatch`; `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5c — a valid toggle still works end to end`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:uses the server's message rather than the hardcoded fallback`
 
-**Deferred:** #631 — increment 7 (burn-down): the cited check covers part of this step; the rest is not yet asserted
+**Deferred:** #631 — 7b — on the page, a refused toggle leaves the chip on TEST and shows a red error naming the reason, never Failed to update — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #628 — Phase 20 (Full launch (US)) — the chip flipping to LIVE and the box re-reporting needs the real live account, verified on the deployed site
 
 ### 5. Paying still works, unchanged
 
@@ -113,7 +115,7 @@ rows and no errors.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the connection checklist render has no check yet
+**Deferred:** #631 — 7b — the Stripe Connection section and the per-mode variable checkmark rows rendering with no missing row or error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R2. A manual Stripe sync still runs
 
@@ -121,11 +123,9 @@ rows and no errors.
 
 **Expect:** The sync starts and reports progress per resource as it always has.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
-
-**Deferred:** #566 — the Stripe fake: this spec needs a Stripe that is safe to talk to, so it cannot run anywhere yet
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:success path: a real sync drives all rows to complete` — runs in CI against the fake Stripe driver; and `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:intermediate transitions: rows progress pending → syncing… → complete in order` for the per-resource progress
 
 ### R3. The subscriber counts still load
 
@@ -135,7 +135,7 @@ rows and no errors.
 
 **Lane:** ci
 
-**Deferred:** #631 — increment 7 (burn-down) — the subscriber-count render has no check yet
+**Deferred:** #631 — 7b — the Active Subscribers and Registered numbers rendering as numbers, with no spinner left and no error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ## Not bugs
 

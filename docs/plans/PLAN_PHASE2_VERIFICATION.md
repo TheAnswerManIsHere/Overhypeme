@@ -1,4 +1,4 @@
-# PLAN — Launch Phase 2: the verification build · v3 · APPROVED by David 2026-10-08
+# PLAN — Launch Phase 2: the verification build · v5 · APPROVED by David 2026-10-08; amended 2026-10-11 (v4, the second-consumer check) and 2026-10-14 (v5, increment 8)
 
 ```plan-oracle
 # Oracle — Launch Phase 2: the verification build
@@ -242,11 +242,23 @@ its journey in the same PR.
      vendor client library is upgraded. It is the only evidence that the
      real vendor still accepts our requests in the recorded shape.
   7. **Burn-down.** Each remaining step scripted into the lane its
-     disposition names, or explicitly deferred to its owner phase.
+     disposition names, or explicitly deferred to its owner phase. Run as
+     two pull requests, 7a (the reading) and 7b (the checks), on the
+     sub-plan `docs/plans/PLAN_PHASE2_INC7_BURN_DOWN.md` (David,
+     2026-10-14).
+  8. **Capture and read** (David, 2026-10-14, amendment v5: "there are
+     tests that I'm still being asked to do that seem like they are simply
+     you running the program and taking a screenshot of something … that
+     needs to be a piece of what you can accomplish"). A UAT step whose
+     `Expect` needs a screen looked at but no product or taste judgement is
+     verified by a machine capture that Claude reads, not by David. Increment
+     7a counts the class; increment 8 builds the capture run, the lane-model
+     change in the handbook (format, checker, `/uat`) and the capture
+     scripts, on its own short sub-plan; 7b and 8 land in either order.
   The Stripe fake (#566) runs on its own sensitive plan in parallel with
-  increments 2–7. **It gates only Phase 10 (membership)** (David,
+  increments 2–8. **It gates only Phase 10 (membership)** (David,
   2026-10-08, changing the parent's sequencing: "Gate only Phase 10"):
-  Phases 3–9 start once increments 1–7 land; checkout, webhook, cancel,
+  Phases 3–9 start once increments 1–8 land; checkout, webhook, cancel,
   refund and dispute evidence waits for Phase 10, which owns it.
 - **One selection rule for every double**, so there is one thing to audit:
   a double is chosen only by an explicit environment value naming it; an
@@ -337,7 +349,7 @@ only Phase 10).
       lives.
 2. **Proposed change to the approved sequencing: what the Stripe fake
    gates.**
-   1. *Only Phase 10 (membership).* Phases 3–9 start once increments 1–7
+   1. *Only Phase 10 (membership).* Phases 3–9 start once increments 1–7 (now 1–8: amendment v5, 2026-10-14, adds increment 8)
       land. What is unavailable meanwhile: checkout, webhook, cancel, refund
       and dispute evidence — all Phase 10's own scope. Paid-path journeys
       (6) still run, because paid users are granted through the entitlement
@@ -364,4 +376,6 @@ leave to its own harness increment (the two-process async harness, media
 probes and generated fixtures, voice and transcription doubles). Journey 6
 and the two gaps recorded on #637 (allowlisted boot env, journeys 1 and 7;
 `STORAGE_DOUBLE_DIR=/` refusal) are increment 4's and 6's, as their thread
-replies say.
+replies say. **And increment 8 has landed** (amendment v5, David,
+2026-10-14): no step whose only obligation is a screen looked at is left in
+David's share of a UAT.
