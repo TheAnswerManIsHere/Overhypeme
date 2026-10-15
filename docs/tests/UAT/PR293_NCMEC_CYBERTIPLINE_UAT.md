@@ -57,7 +57,7 @@ which validates the resulting configuration before applying it."*
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
 
-**Deferred:** #628 — Phase 14 (compliance) — card shows the refusal as an inline red message, no spec opens /admin/config, and the Safety surface it names is built there
+**Deferred:** #631 — 7b — the refusal error equals the literal copy This key controls NCMEC CyberTipline filing and cannot be written through the generic config route, written out in the test rather than read from NCMEC_RESERVED_KEY_REFUSAL — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #628 — Phase 14 (compliance) — card shows the refusal as an inline red message, no spec opens /admin/config, and the Safety surface it names is built there
 
 ### 3. A refused save doesn't actually write
 

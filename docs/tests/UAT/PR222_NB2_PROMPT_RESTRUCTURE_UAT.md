@@ -116,7 +116,7 @@ you to rewrite it as pure scene description; the render still proceeds.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`
 
-**Deferred:** #631 — 7b — the preview route, for a fact whose stored Concept has compiler-owned language, keeping it verbatim in CORE SCENE and returning moderator_core_scene_owned_language whose message says rewrite it as visible scene description — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`; #631 — 7b — the image-prompt job enqueuing image_generation, not failing, for an attempt whose Concept raises moderator_core_scene_owned_language — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
+**Deferred:** #631 — 7b — the preview route, for a fact whose stored Concept has compiler-owned language, keeping it verbatim in CORE SCENE and returning moderator_core_scene_owned_language whose message says rewrite it as visible scene description — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`; #631 — 7b — the image-prompt job enqueuing image_generation, not failing, for an attempt whose Concept raises moderator_core_scene_owned_language — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`; #631 — 7b — the Runtime Prompt Preview panel showing the moderator_core_scene_owned_language warning's message when the preview response carries it — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
 
 ### 8. An empty Concept still uses the AI scene, at full strictness
 

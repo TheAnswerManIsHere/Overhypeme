@@ -1,5 +1,5 @@
 {
- "about": "Phase 2 increment 7b part 1: every UAT step that claims coverage, read clause by clause against the assertions it cites (plan amendment 6, 2026-10-15). An asserted clause quotes an assertion that fails if the clause breaks; a gap names its Deferred clause.",
+ "about": "Phase 2 increment 7b part 1: every UAT step that claims coverage, read clause by clause against the assertions it cites (plan amendment 6, 2026-10-15). An asserted clause quotes an assertion that fails if the clause breaks; a gap names its Deferred clause. A clause has one of three states. asserted: a quoted assertion, at its exact file:line, fails if the clause breaks. gap: no such assertion exists, and the step's Deferred line carries gap_clause with a 7b target or an owner. live: the clause can only be observed on the running deployment, by the step's live Check (a procedure run on the Repl, not a test); it is unasserted, its result is recorded at the Phase 2 close per the plan's D7, and it is never counted as asserted.",
  "base": "origin/main 2fefd3b",
  "steps": [
   {
@@ -359,7 +359,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts",
-       "line": 153,
+       "line": 152,
        "quote": "const res = await request(app()).post(\"/api/auth/dev-admin-login\").send({});"
       },
       {
@@ -478,7 +478,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts",
-       "line": 153,
+       "line": 152,
        "quote": "const res = await request(app()).post(\"/api/auth/dev-admin-login\").send({});"
       },
       {
@@ -876,7 +876,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview route, for a fact whose stored Concept has compiler-owned language, keeping it verbatim in CORE SCENE and returning moderator_core_scene_owned_language whose message says rewrite it as visible scene description — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "gap_clause": "#631 — 7b — the Runtime Prompt Preview panel showing the moderator_core_scene_owned_language warning's message when the preview response carries it — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`"
     },
     {
      "text": "the render still proceeds",
@@ -6487,12 +6487,12 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "saving a reserved NCMEC key fails with the refusal message the Expect quotes",
+     "text": "saving a reserved NCMEC key fails with a refusal",
      "status": "asserted",
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1043,
+       "line": 1044,
        "quote": ".patch(`/admin/config/${key}`)"
       },
       {
@@ -6513,6 +6513,13 @@
      ],
      "fails_because": "if the route stopped refusing any of the five keys, status would be 200 and the 403 assertion fails; a different error body fails the equality",
      "gap_clause": null
+    },
+    {
+     "text": "the refusal message reads exactly the copy the Expect quotes",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — the refusal error equals the literal copy This key controls NCMEC CyberTipline filing and cannot be written through the generic config route, written out in the test rather than read from NCMEC_RESERVED_KEY_REFUSAL — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
     },
     {
      "text": "the card shows the message as an inline red error",
@@ -7973,7 +7980,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 341,
+       "line": 340,
        "quote": "await toggleGridCellInUi(page, \"disable\");"
       },
       {
@@ -8158,7 +8165,7 @@
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 255,
+       "line": 256,
        "quote": "\"previewing as a user must actually withdraw the Admin row's entitlements, not just relabel the button\","
       }
      ],
@@ -8171,7 +8178,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 261,
+       "line": 262,
        "quote": "\"a previewing admin should meet the same submission gate a registered member meets\","
       }
      ],
@@ -10971,5 +10978,11 @@
     }
    ]
   }
- ]
+ ],
+ "counts": {
+  "steps": 324,
+  "asserted": 263,
+  "gap": 489,
+  "live": 1
+ }
 }
