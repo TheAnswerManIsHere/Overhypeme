@@ -3,7 +3,10 @@
 > **APPROVED by David, 2026-10-15** ("1. Confirm. 2. Approve."), after the
 > planning loop's round 1 (Astra, 2026-10-15, slug `agent-legible-codebase`,
 > one exchange, run with `--oracle-changed`). The item-2 amendment below is
-> confirmed and the oracle carries it. v4 reconciled v3 with the tool as it
+> confirmed and the oracle carries it. **Amended and approved by David,
+> 2026-10-15** ("Option 1"), after Phase 0's review: Phase 2 also waits on
+> AI-Handbook #212 being synced (decision 14, *Sequencing*, *Changes after
+> approval*). v4 reconciled v3 with the tool as it
 > shipped in the AI Handbook (#209, `ed60621`); v5 incorporated round 1; what
 > changed in each version is listed in *Changes from v3* and *Changes from
 > v4* at the end.
@@ -368,7 +371,13 @@ implemented, so here it is configured, not built. The contract
     repository's own `node_modules/typescript`. It is added in Phase 2 and
     not earlier. The shipped `check` fails until all four configuration
     files are adopted, and adopting means the headers and the baseline are
-    complete.
+    complete. **Phase 2 also waits on AI-Handbook #212 landing and being
+    synced here** (David, 2026-10-15, option 1): Phase 2 is where the forcing
+    rule starts binding agents to the tool's answers, and three of #212's
+    recogniser gaps are forms this tree uses today (a relation named only
+    after `ON` or `REFERENCES`, an Express 5 `*name` wildcard, a child-form
+    wouter route), each missed silently rather than reported as unresolved.
+    Phases 1 and 1b do not wait on it.
 15. **The eval (intent item 8)** runs the handbook protocol: 30 tasks, 10 per
     tier, arm B at the pre-adoption commit, arm A at the adopted commit, two
     seeds per task per arm, with keys verified by hand. It runs only after
@@ -580,8 +589,10 @@ surface.
      transcripts and recording query use;
   5. score, and set `enabled` from the verdict.
 
-**Sequencing:** 0 → 1 → 1b → 2 → eval. A Phase 2 violation whose fix changes
-behaviour is filed as a follow-up and exempted, never fixed in Phase 2.
+**Sequencing:** 0 → 1 → 1b → 2 → eval. Phase 2 opens only once AI-Handbook
+#212 has landed and been synced here (decision 14); the eval only once #210
+has (decision 15). A Phase 2 violation whose fix changes behaviour is filed
+as a follow-up and exempted, never fixed in Phase 2.
 
 ## Risks and Mitigations
 
@@ -624,6 +635,7 @@ digest not commit — David confirmed on 2026-10-15.
       the oracle re-run and count recorded.
 - [ ] `.agents/map/architecture.json` exists with every exemption dated and
       reasoned; `.agents/map/size-baseline.json` freezes the over-cap files.
+- [ ] AI-Handbook #212 has landed and been synced before Phase 2 opens.
 - [ ] All four configuration files say `"adopted": true`; `node
       scripts/map.mjs check` runs in the Build job and is green; a
       deliberate stale index, missing header, boundary violation and size
@@ -678,3 +690,11 @@ item-2 amendment and reopened none of C1–C5):
    reads "its registration in `app.ts`"), completing what v4's change 8
    started.
 
+## Changes after approval
+
+1. **Phase 2 waits on AI-Handbook #212** (David, 2026-10-15, "Option 1").
+   Phase 0's Codex review (#689) found four defects in the synced tool, all
+   handbook-owned; three are recogniser gaps this tree hits, and the round
+   translation pointed out that nothing gated Phase 2, where agents become
+   bound to the tool's answers, on their fix. Decision 14, *Sequencing* and
+   *Definition of Done* now carry the gate. Phases 1 and 1b are unaffected.
