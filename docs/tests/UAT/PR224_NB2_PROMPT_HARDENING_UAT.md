@@ -33,7 +33,9 @@ raw length, instead of it saving and quietly breaking the render.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
+
+**Deferred:** #631 — 7b — the step describes a path the editor prevents: the Visual Concept box stops input at 1,500 characters, and the schema cap of 1,500 runs ahead of the budget gate on both save routes, so a pasted over-length Concept is truncated and the budget's raw-length rejection reaches no screen; the step's Do and Expect need rewriting to what a moderator can do — `artifacts/overhype-me/src/components/admin/VisualConceptCard.tsx`
 
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 
