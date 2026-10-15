@@ -12,15 +12,18 @@ read it. Now it does, for every limit the Concept breaks at once.
 The fix sits in the editor shared by the moderation page and the Facts page,
 and it covers both ways a Concept is saved: a fact's own enrichment and a
 refresh candidate under review. Steps 1–3 are checked by automated tests on
-every PR. **Step 4 is the one for you:** whether the message reads well on
-both screens, since the Facts page shows it in a narrow header bar and the
-message can be two or three sentences long.
+every PR. **Steps 4 and 5 are yours,** one screen each: whether the message
+reads well on the moderation page and on the Facts page, since the Facts page
+shows it in a narrow header bar and the message can be two or three sentences
+long.
 
 ## Setup
 
 - [claude] Confirm the Repl is synced to the merge commit of this PR.
 - [claude] Post in chat a ready-to-paste Visual Concept of exactly 1,500 characters, dense with `{NAME}` tokens: it fits the box, but once names are filled in it expands past the 2,000-character budget.
-- [restore] Nothing to restore on the server: a refused save writes nothing. Step 4 ends by discarding the unsaved edit on each screen, which clears it from your browser too. On the moderation page that Discard is reached after a reload, because the page hides it behind the error (#691).
+- [restore] Nothing to restore on the server: a refused save writes nothing. The refused edits stay in your browser as unsaved drafts until you discard them, below.
+- [restore] David — moderation page: reload the page, reopen the item you used in step 4 at the Visual Concept step, and click Discard on the Save/Discard bar that has returned (the page hides it behind the error until a reload, #691). Done when reopening that item shows its original saved Concept and no unsaved-changes bar.
+- [restore] David — Facts page: open the fact you used in step 5, and in its Visual Taxonomy Enrichment click "Discard changes". Done when its header bar shows no unsaved changes.
 
 ## Steps
 
@@ -54,11 +57,19 @@ message can be two or three sentences long.
 
 **Check:** `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:a refused save with no details still shows the server's error text` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:details without a usable message fall back to the server's error text`
 
-### 4. The refusal reads well on both screens
+### 4. The refusal reads well on the moderation page
 
-**Do:** On the moderation page, open any item at the Visual Concept step, replace the Visual Concept with the one from chat (the counter reads 1500/1500), and click Save. Read the red message. The Save/Discard bar disappears behind it; that is #691, not this fix. To clear the edit, reload the page, reopen the same item at the Visual Concept step, and click Discard on the bar that has returned. Reopening the item afterwards shows its original saved Concept and no unsaved-changes bar. Then on the Facts page, open any fact's Visual Taxonomy Enrichment, replace its Visual Concept with the same text, save, read the red message in the header bar, and click "Discard changes".
+**Do:** On the moderation page, open any item at the Visual Concept step and note which item it is. Replace its Visual Concept with the one from chat posted in Setup (the counter reads 1500/1500), click Save, and read the red message.
 
-**Expect:** On both screens the message reads "The Visual Concept expands to up to N characters once names/pronouns are filled in; the maximum is 2000. Shorten it or use fewer personalization tokens." It is readable and tells you what to shorten and by roughly how much. It is not cut off or crammed so tightly in the Facts header bar that you can't take it in. Nothing saves on either screen.
+**Expect:** The message reads "The Visual Concept expands to up to N characters once names/pronouns are filled in; the maximum is 2000. Shorten it or use fewer personalization tokens." It is readable and tells you what to shorten and by roughly how much. Nothing saves. The Save/Discard bar disappearing behind the message is expected: that is #691, not a failure of this step.
+
+**Lane:** human
+
+### 5. The refusal reads well on the Facts page
+
+**Do:** On the Facts page, open any fact's Visual Taxonomy Enrichment and note which fact it is. Replace its Visual Concept with the one from chat posted in Setup, save, and read the red message in the enrichment header bar.
+
+**Expect:** The header bar reads "The Visual Concept expands to up to N characters once names/pronouns are filled in; the maximum is 2000. Shorten it or use fewer personalization tokens." It is readable, not cut off or crammed so tightly that you can't take it in. Nothing saves.
 
 **Lane:** human
 
@@ -76,7 +87,7 @@ message can be two or three sentences long.
 
 ## Not bugs
 
-- **A long message on the Facts page.** When a Concept breaks two or three limits at once, all of their sentences are shown together, so you can fix everything in one pass. If that reads badly in step 4, say so: showing only the first sentence is a one-line change.
+- **A long message on the Facts page.** When a Concept breaks two or three limits at once, all of their sentences are shown together, so you can fix everything in one pass. If that reads badly in step 5, say so: showing only the first sentence is a one-line change.
 - **A Concept pushed past 1,500 characters by name chips or by tokenizing shows "… at most 1500 character(s)".** The box stops typing and pasting at 1,500, but inserted name chips and the tokenizer can lengthen the text past it. The server's schema check then refuses it before the budget check, with its own wording and the number. That message predates this fix.
 - **On the moderation page, the Save/Discard bar disappears after a refused save.** That predates this fix and is tracked as #691. Saving still works through "Save enrichment" in Advanced Options, and Discard comes back after a reload.
 - **`visual_concept_required` still shows as a bare code.** That is a different refusal, for a missing Concept, and the server sends no sentence behind it. It is outside this fix and is recorded on #631.
