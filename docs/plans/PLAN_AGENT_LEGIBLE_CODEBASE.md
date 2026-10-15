@@ -1,12 +1,12 @@
 # Plan — Agent-legible codebase substrate (Phases 1 and 2)
 
-> **DRAFT v4 — NOT APPROVED.** Committed on 2026-10-15 at David's request so
-> the draft survives this container. It is not an approved plan: it goes back
-> through the planning loop (`plan-review-loop`, slug
-> `agent-legible-codebase`, with `--oracle-changed`) and to David for approval
-> before any adoption code is written. v4 reconciles v3 with the tool as it
-> shipped in the AI Handbook (#209, `ed60621`); what changed is listed in
-> *Changes from v3* at the end.
+> **DRAFT v5 — NOT APPROVED.** v4 was committed on 2026-10-15 at David's
+> request so the draft survives its container; v5 is the revision after the
+> planning loop's round 1 (Astra, 2026-10-15, slug `agent-legible-codebase`,
+> run with `--oracle-changed`). It is not an approved plan until David approves
+> it in words; no adoption code is written before that. v4 reconciled v3 with
+> the tool as it shipped in the AI Handbook (#209, `ed60621`); what changed in
+> each version is listed in *Changes from v3* and *Changes from v4* at the end.
 
 Workstream: #683. Research notes: `docs/plans/agent-legible-codebase-research.md`
 (committed on this branch). Handbook plan, approved 2026-10-14:
@@ -193,6 +193,7 @@ implementation, because the tree has moved since.
 | HTTP route registration forms | `git grep -c -E '<form>' -- artifacts/api-server/src cloudflare` per form | `router.<verb>(` 263; `app.<verb>/use(` 171; `Router()` 31; `.use("/api` 9; worker `URLPattern/pathname` 1; frontend `<Route path=` 40 in `App.tsx` (wouter) |
 | Table reference forms | `git grep` as noted | Drizzle `pgTable("…")` 48 tables; single-line `sql\`… FROM/INTO/UPDATE/JOIN <table>` 56; multi-line `sql\`` openers 90; `db.execute(` 133 |
 | Over-cap files | the tool's `freeze` at an 800-line cap, probed 2026-10-14 | 32 files |
+| Generated source families (every one is codegen-owned; see decision 1) | `git ls-files \| grep -E '/generated/\|/\.generated/'`, plus the barrels `lib/api-spec/patch-generated.mjs` rewrites | four directories on 2026-10-15: `artifacts/overhype-me/src/generated/help/` 16 (written by `generate:help`), `lib/api-zod/src/generated/` 1 + `types/` 89 and `lib/api-client-react/src/generated/` 2 (written by the api-spec `codegen` script), and the sandbox's `.generated/` (already outside the indexed set); plus `lib/api-zod/src/index.ts`, which `patch-generated.mjs` rewrites |
 
 The exclusions in the first oracle each have a reason recorded in *Settled
 decisions* below. Files carrying the `SYNCED FROM AI-Handbook` marker are
@@ -261,9 +262,23 @@ implemented, so here it is configured, not built. The contract
      and consumers.
    - **Headered**: the indexed set minus the following.
      - Tests and e2e. Their purpose is the describe block.
-     - Codegen-owned files: every path `lib/api-spec/patch-generated.mjs`
-       writes, and the orval output directories. They are listed under
-       `codegenOwned` with the owning command.
+     - Codegen-owned files: **every generated source-output family in the
+       tree, each with its owning command** (C8). On 2026-10-15 that is the
+       orval output directories and the barrels `lib/api-spec/patch-generated.mjs`
+       rewrites (`lib/api-zod/src/index.ts` among them), owned by the api-spec
+       `codegen` script; and the sixteen help modules under
+       `artifacts/overhype-me/src/generated/help/`, owned by
+       `pnpm --filter @workspace/overhype-me run generate:help` and already
+       guarded for drift by `check:help-content` in the Build job. The builder
+       completes the inventory while authoring `config.json`, against the
+       inventory row above. Generated outputs stay in the indexed set — they
+       contribute edges and consumers — and receive no authored header and no
+       size baseline, because a header there is a hand edit to a generated
+       file, which *Must not change* forbids, and the next codegen run would
+       delete it.
+     - `lib/api-spec/type-templates/`, which `patch-generated.mjs` copies
+       verbatim into generated output when orval emits an empty file: a header
+       there would land in a file nobody authored.
      - `components/ui`, which is vendored.
      - `.d.ts` files.
      - Any file carrying the `SYNCED FROM AI-Handbook` marker. The sync
@@ -363,6 +378,44 @@ implemented, so here it is configured, not built. The contract
     prepared run repository has no installed compiler, so arm A cannot use the
     tool, and three eval-integrity gaps are open. The verdict sets `enabled`
     in `.agents/map/config.json`.
+
+    **The experimental conditions this repository fixes before the first
+    measured run** (C7). The protocol leaves them to the consumer, and left
+    unspecified they can produce a `disable` verdict that measures the wrong
+    thing:
+    - **Both arm commits are recorded** on #683 before any run: arm B is the
+      last `main` commit before Phase 0 merged; arm A is the adopted commit,
+      after the #210 re-sync.
+    - **Every key is valid on both trees.** Adoption spans several merges and
+      unrelated product work lands between the two commits, so a key built on
+      one tree can be wrong on the other. `keys` is run at both commits
+      (`--root` on a checkout of each, with the task file placed there) and
+      the two key sets compared; a task whose keys differ is replaced by one
+      whose target is unchanged between the commits, until the sets are
+      identical. That one verified set grades both arms.
+    - **Tasks are framed as the moments the forcing rule names.** The shipped
+      rule binds *before editing an indexed file* and *at a class sweep*; a
+      bare navigation question triggers neither, so arm A could lawfully never
+      query and a flat hidden tier would be misread. Each task's `question`
+      is therefore a pre-edit dependency investigation or a class sweep
+      ("you are about to change X in F; do not make the change; list every
+      file that must be checked"), the same wording in both arms. The prompt
+      wrapper the harness adds (the answer format) is unchanged.
+    - **Each arm's agent runs under its own tree's resident instructions.**
+      The agent is launched with the prepared run repository as its working
+      directory, so the instructions it loads are that commit's `AGENTS.md`,
+      `CLAUDE.md` and, in arm A, the seeded `.claude/rules/map-before-edit.md`
+      and the synced fleet rule — never a subagent of a session rooted in
+      another checkout, whose instruction load would be that session's. Arm A
+      encounters the forcing instruction the way a working agent would, and
+      nothing coaches it further.
+    - **Transcripts are kept and query use is recorded per run**, so a flat
+      hidden tier can be read as "did not query" or "queried and the index
+      did not answer", as the protocol's last paragraph requires. Non-use is
+      scored as it is; it is part of what the eval measures.
+
+    None of this changes the protocol, the thresholds or the harness; a
+    change to any of those is a handbook PR.
 
 ## Repo Context Inspected
 
@@ -470,7 +523,7 @@ each PR body with real output.
   - `dependents lib/api-zod/src/brandTokens.ts#BRAND_ORANGE` lists
     `VideoBuilder.tsx` through the generated barrel;
   - `dependents lib/api-zod/src/brandTokens.ts` lists only module edges;
-  - `route POST /api/stripe/webhook` names `app.ts:186`;
+  - `route POST /api/stripe/webhook` names its registration in `app.ts`;
   - `route GET /api/healthz` names its registration;
   - `routes cloudflare/og-router/src/index.ts` lists the worker's patterns;
   - `table stripe.products` lists `stripeStorage.ts` as an external relation,
@@ -478,7 +531,9 @@ each PR body with real output.
   - `table facts` lists the typed sites, the `sql` sites and the
     `client.query` site in `scripts/one-shot-cleanup-test-data.ts`.
 
-  The three set counts are recorded against their oracles.
+  The three set counts are recorded against their oracles, and `purpose` on
+  a generated help module and on `lib/api-zod/src/index.ts` reports the file
+  as indexed and not headered.
 - **Phase 1b**: each batch's header count falls, and no header carries a tag
   outside the vocabulary.
 - **Phase 2**: `check` is green. A deliberate stale index, missing header,
@@ -518,10 +573,14 @@ surface.
 
   From this merge, the fleet rule binds here.
 - **The eval**, after AI-Handbook #210 lands and a re-sync delivers it:
-  1. write the thirty tasks;
-  2. run `keys` and verify them by hand;
-  3. run both arms;
-  4. score, and set `enabled` from the verdict.
+  1. record both arm commits on #683;
+  2. write the thirty tasks in the pre-edit or class-sweep framing
+     (decision 15);
+  3. run `keys` at both commits, replace any task whose keys differ, and
+     verify the resulting set by hand;
+  4. run both arms, each agent rooted in its prepared run repository, keeping
+     transcripts and recording query use;
+  5. score, and set `enabled` from the verdict.
 
 **Sequencing:** 0 → 1 → 1b → 2 → eval. A Phase 2 violation whose fix changes
 behaviour is filed as a follow-up and exempted, never fixed in Phase 2.
@@ -573,8 +632,11 @@ behaviour is filed as a follow-up and exempted, never fixed in Phase 2.
       growth each fail it once on the PR.
 - [ ] `.claude/rules/map-before-edit.md` carries the indexed set's globs.
 - [ ] No product bundle gained a dependency (lockfile diff reviewed).
-- [ ] The eval has run after #210, and its verdict and runs file are on #683
-      with `enabled` set to match.
+- [ ] The eval has run after #210 under decision 15's conditions — both arm
+      commits recorded, one key set verified on both trees, tasks in the
+      pre-edit or class-sweep framing, each agent rooted in its run
+      repository, transcripts kept — and its verdict and runs file are on
+      #683 with `enabled` set to match.
 - [ ] Workstream #683's Phases checklist is updated at each merge.
 
 ## Changes from v3
@@ -595,3 +657,26 @@ behaviour is filed as a follow-up and exempted, never fixed in Phase 2.
 7. **One oracle amendment proposed**: intent item 2, digest not commit.
 8. **The acceptance journey for `stripe.products`** names the statement's
    first line, not a fixed line number.
+
+## Changes from v4
+
+Round 1 of the planning loop (Astra, 2026-10-15; its assessment supports the
+item-2 amendment and reopened none of C1–C5):
+
+1. **The eval's experimental conditions are fixed in the plan** (C7, decision
+   15): both arm commits recorded; one key set verified on both trees; tasks
+   framed as the pre-edit investigation or class sweep the forcing rule
+   binds; each arm's agent rooted in its own run repository so it loads that
+   tree's instructions; transcripts kept and query use recorded. Without
+   them a `disable` verdict could measure an unframed question or a key
+   invalid on one arm rather than the tool.
+2. **Codegen ownership is a rule over every generated family, not a list of
+   the API codegen** (C8, decision 1): the sixteen generated help modules and
+   the barrels `patch-generated.mjs` rewrites join the orval output under
+   `codegenOwned`, each with its owning command, and the type templates it
+   copies verbatim leave the headered set. The affected-surface inventory
+   gains the oracle.
+3. **One acceptance journey no longer pins a line number** (`app.ts:186`
+   reads "its registration in `app.ts`"), completing what v4's change 8
+   started.
+
