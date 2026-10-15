@@ -33,9 +33,7 @@ raw length, instead of it saving and quietly breaking the render.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
-
-**Deferred:** #631 — 7b — the rejection text the moderator sees on an over-length Concept is unasserted, the editor shows the error code and not the length message — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
 
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 
@@ -47,9 +45,7 @@ once names are filled in."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap`
-
-**Deferred:** #631 — 7b — the rejection text saying the Concept expands to up to N characters is unasserted, the editor shows the error code only — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
 
 ### 3. Trimming an over-budget Concept lets it save
 
@@ -73,9 +69,9 @@ aggregate that's capped.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
 
-**Deferred:** #631 — 7b — the combined-guidance rejection for a mix of role bindings, required details, composition notes and additions is unasserted, and its text reaches no screen — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the combined-guidance rejection for an actual mix of role bindings, required details, composition notes and additions measured through the compiler is unasserted, the cited checks inject the emitted length — `artifacts/api-server/src/__tests__/promptBudget.test.ts`
 
 ### 5. A deterministically-broken render fails fast with a specific reason
 

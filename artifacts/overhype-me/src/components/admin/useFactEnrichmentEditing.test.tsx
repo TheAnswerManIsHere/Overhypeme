@@ -14,7 +14,12 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { FactEnrichment } from "@workspace/api-zod";
+import {
+  MODERATOR_ADDITIONS_RENDERED_MAX,
+  validateVisualStrategyOverrideForSave,
+  type FactEnrichment,
+  type VisualPromptStrategyOverride,
+} from "@workspace/api-zod";
 import { useFactEnrichmentEditing, type UseFactEnrichmentEditingOptions } from "./useFactEnrichmentEditing";
 import { createLocalStorageAdapter } from "@/lib/form-draft-storage";
 
@@ -163,6 +168,33 @@ function mockFetchWithTokenize(
   return { calls };
 }
 
+/** Replace the stubbed fetch's answer to the enrichment PATCH (fact or
+ *  candidate route) with a failure, leaving every other endpoint as stubbed. */
+function failEnrichmentPatch(status: number, body: unknown) {
+  const inner = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    if ((init?.method ?? "GET") === "PATCH" && /\/(candidate-)?enrichment$/.test(u)) {
+      return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    }
+    return inner(url, init);
+  }));
+}
+
+/** The 400 both enrichment PATCH routes send when a Visual Concept is over the
+ *  prompt budget (`res.status(400).json({ error: "visual_strategy_override_over_budget",
+ *  details: budget.errors })`, admin.ts and reviews.ts). The details come from the
+ *  REAL shared validator, so the sentences asserted below are the server's own
+ *  wording: a Concept over the raw cap that also expands past the rendered cap
+ *  once names are filled in, plus an over-cap combined-guidance emission. */
+const OVER_BUDGET = validateVisualStrategyOverrideForSave(
+  { ...VSO, coreSceneOverride: "{NAME} leaps the canyon. ".repeat(80) } as VisualPromptStrategyOverride,
+  MODERATOR_ADDITIONS_RENDERED_MAX + 1,
+  0,
+);
+const OVER_BUDGET_BODY = { error: "visual_strategy_override_over_budget", details: OVER_BUDGET.errors };
+const budgetMessage = (code: string) => OVER_BUDGET.errors.find((e) => e.code === code)!.message;
+
 describe("useFactEnrichmentEditing", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => vi.unstubAllGlobals());
@@ -253,6 +285,58 @@ describe("useFactEnrichmentEditing", () => {
     expect(result.current.enrichment?.visualComplexity).toBe("high");
     expect(result.current.draft.hasUncommittedChanges).toBe(false);
     expect(calls.some((c) => c.method === "GET" && c.url === "/api/admin/facts/8/enrichment-resolved")).toBe(true);
+  });
+
+  // ── A refused save shows the server's reason, not its error code (#685) ────
+
+  it("REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code", async () => {
+    mockFetch({ 7: makeEnrichment() });
+    failEnrichmentPatch(400, OVER_BUDGET_BODY);
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), visualPromptStrategyOverride: VSO })),
+    );
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.draft.save(); });
+
+    expect(ok).toBe(false);
+    const msg = result.current.draft.commitError ?? "";
+    // Every violated cap's sentence reaches the moderator (UAT PR224 steps 1, 2, 4).
+    expect(msg).toContain(budgetMessage("core_scene_raw_too_long"));
+    expect(msg).toContain(budgetMessage("core_scene_rendered_too_long"));
+    expect(msg).toMatch(/expands to up to \d+ characters once names\/pronouns are filled in/);
+    expect(msg).toContain(budgetMessage("moderator_additions_rendered_too_long"));
+    expect(msg).not.toContain("visual_strategy_override_over_budget");
+    // The refused edit stays in the draft for the moderator to shorten.
+    expect(result.current.draft.hasUncommittedChanges).toBe(true);
+  });
+
+  it("a refused save with no details still shows the server's error text", async () => {
+    mockFetch({ 7: makeEnrichment() });
+    failEnrichmentPatch(400, { error: "Invalid enrichment: overhypeFit: Invalid enum value" });
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), suggestedHashtags: ["x"] })),
+    );
+    await act(async () => { await result.current.draft.save(); });
+    expect(result.current.draft.commitError).toBe("Invalid enrichment: overhypeFit: Invalid enum value");
+  });
+
+  it("details without a usable message fall back to the server's error text", async () => {
+    mockFetch({ 7: makeEnrichment() });
+    failEnrichmentPatch(400, { error: "something_coded", details: [{ code: "x" }, "not-an-object", { message: "" }] });
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), suggestedHashtags: ["x"] })),
+    );
+    await act(async () => { await result.current.draft.save(); });
+    expect(result.current.draft.commitError).toBe("something_coded");
   });
 
   // ── reviewCandidate target (refresh cycles) ────────────────────────────────
@@ -385,6 +469,26 @@ describe("useFactEnrichmentEditing", () => {
     await act(async () => { result.current.overrideContext!.onOverride("/overhypeFit", "questionable"); });
     await waitFor(() => expect(result.current.overrideError).toMatch(/already promoted/));
     expect(result.current.overrideContext?.pending["/overhypeFit"]).toBe("error");
+  });
+
+  it("REGRESSION #685 (candidate route): an over-budget candidate save shows the budget sentence", async () => {
+    mockCandidateFetch(31, makeEnrichment());
+    failEnrichmentPatch(400, OVER_BUDGET_BODY);
+    const { result } = renderEditing({
+      target: { kind: "reviewCandidate", reviewId: 31, factId: 42 },
+      enabled: true,
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({ ...(prev as FactEnrichment), visualPromptStrategyOverride: VSO })),
+    );
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.draft.save(); });
+
+    expect(ok).toBe(false);
+    expect(result.current.draft.commitError).toContain(budgetMessage("core_scene_rendered_too_long"));
+    expect(result.current.draft.commitError).not.toContain("visual_strategy_override_over_budget");
   });
 
   // ── flushOverrides: the terminal-action race guard ──────────────────────────
