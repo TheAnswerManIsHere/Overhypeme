@@ -6,6 +6,9 @@
  * the FINAL normalized text, never the raw input. Centralizing this here
  * means no route can independently forget a pass, validate before
  * normalizing, or derive metadata from stale text.
+ *
+ * @purpose The one normalize-validate-derive step every route runs before writing a fact template, so canonical text, split index and hasPronouns come from the final text.
+ * @subsystem token-rendering
  */
 
 import { applyDeterministicGrammar, validateTemplate, type GrammarValidationResult } from "./templateGrammar";

@@ -10,6 +10,9 @@
  * `@workspace/api-zod` module (`resolvedIdentityForms.ts`) — this file is a
  * thin, byte-identical-output wrapper so budget projection and rendering can
  * never drift on pronoun-form derivation.
+ *
+ * @purpose Server-side template rendering: the fixed canonical identity used for embeddings and duplicate checks, a personalized render, and the guard keeping that identity out of semantic entities.
+ * @subsystem token-rendering
  */
 
 import {

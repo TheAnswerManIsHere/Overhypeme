@@ -23,6 +23,9 @@
  * Both expand to an explicit {is|are} pair, matching the deterministic net's
  * "ambiguous is/has defaults to the copula" rule. Pure and idempotent —
  * running it twice equals running it once.
+ *
+ * @purpose Pure, unit-testable transform behind the subject-contraction backfill, expanding both the 's contraction and the legacy {He's} token into {is|are}.
+ * @subsystem token-rendering
  */
 
 import { expandSubjectContractions, HAS_ONLY_FOLLOWING_WORDS } from "./templateGrammar";

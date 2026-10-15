@@ -6,6 +6,9 @@
  *
  * The script processes rows in batches of 100 and logs progress. After all
  * rows are updated it queries the table once more to confirm 0 NULLs remain.
+ *
+ * @purpose One-off CLI backfill that fills split_token_index on fact rows where it is still null.
+ * @subsystem token-rendering
  */
 import { eq, isNull } from "drizzle-orm";
 import { db } from "@workspace/db";

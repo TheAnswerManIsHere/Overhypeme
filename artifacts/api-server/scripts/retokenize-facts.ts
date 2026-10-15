@@ -15,6 +15,9 @@
  * (text, canonicalText, splitTokenIndex, hasPronouns; updatedAt via $onUpdate).
  *
  * Run: pnpm --filter @workspace/api-server exec tsx scripts/retokenize-facts.ts
+ *
+ * @purpose One-off CLI script that re-runs every fact through the LLM tokenizer, for a deep re-pass rather than routine repair.
+ * @subsystem token-rendering
  */
 
 import { installStdioGuard } from "../src/lib/stdioGuard";

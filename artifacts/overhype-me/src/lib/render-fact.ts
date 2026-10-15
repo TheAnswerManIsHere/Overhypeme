@@ -1,3 +1,8 @@
+/**
+ * @purpose Browser-side renderer that substitutes a visitor's name and pronouns into a fact template, plus the legacy non-AI tokenizer and the name-segment split used for highlighting.
+ * @subsystem token-rendering
+ */
+
 import { parseCustom } from "@/lib/pronouns";
 
 /** Whether verb conjugation should use singular (he/she/ze/xe/…) or plural (they) forms. */

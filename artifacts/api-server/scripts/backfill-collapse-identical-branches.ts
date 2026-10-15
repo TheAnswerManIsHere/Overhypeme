@@ -26,6 +26,9 @@
  *   pnpm --filter @workspace/api-server exec tsx scripts/backfill-collapse-identical-branches.ts --fact-id 123 --dry-run
  *
  * Defaults to --dry-run (reports, writes nothing). --apply is required to mutate.
+ *
+ * @purpose One-off CLI backfill that collapses identical conjugation branches such as {can|can} in stored fact templates and pending review submissions.
+ * @subsystem token-rendering
  */
 
 import { installStdioGuard } from "../src/lib/stdioGuard";

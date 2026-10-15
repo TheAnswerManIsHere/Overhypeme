@@ -1,3 +1,8 @@
+/**
+ * @purpose The browser's pronoun-set model: the presets, the default, and serialization of custom five-form sets with their verb plurality.
+ * @subsystem token-rendering
+ */
+
 /** The three common preset pronoun pairs shown as one-click options. */
 export const PRONOUN_PRESETS = ["he/him", "she/her", "they/them"] as const;
 

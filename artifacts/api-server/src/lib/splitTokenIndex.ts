@@ -1,4 +1,9 @@
 /**
+ * @purpose Computes the default top/bottom word split stored on each fact for the image wizard's two caption blocks.
+ * @subsystem token-rendering
+ */
+
+/**
  * Picks a sensible default word-split index for a fact template.
  *
  * The split index is the number of words that go into the *top* text block

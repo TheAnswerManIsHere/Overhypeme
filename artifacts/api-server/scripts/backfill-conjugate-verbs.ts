@@ -20,6 +20,9 @@
  *   pnpm --filter @workspace/api-server exec tsx scripts/backfill-conjugate-verbs.ts --fact-id 123 --apply
  *
  * Defaults to --dry-run (reports, writes nothing). --apply is required to mutate.
+ *
+ * @purpose One-off CLI backfill that adds missed person-subject verb conjugation pairs to stored fact templates, fixing renders like "They keeps".
+ * @subsystem token-rendering
  */
 
 import { installStdioGuard } from "../src/lib/stdioGuard";

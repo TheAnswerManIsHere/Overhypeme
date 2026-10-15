@@ -8,6 +8,9 @@
  * scripts all import these so the prompt can never drift between copies again.
  * The pure grammar helpers (token validation, the deterministic conjugation net)
  * stay in api-zod.
+ *
+ * @purpose Server-owned tokenizer policy: the model, system prompt and post-processing that turn a plain-English fact into a personalization template.
+ * @subsystem token-rendering
  */
 
 import {
