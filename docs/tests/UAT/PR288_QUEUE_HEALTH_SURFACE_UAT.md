@@ -35,6 +35,8 @@ Email Queue).
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`
 
+**Deferred:** #631 — 7b — the Worker lanes section on /admin/queue-health holding exactly five lane cards, no sixth — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+
 ### 2. Each lane card reports its own state
 
 **Do:** Look at each worker lane card.
@@ -58,6 +60,8 @@ HH:MM:SS."
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:summarises lane liveness in words above the cards`
+
+**Deferred:** #631 — 7b — the summary's Last checked value on /admin/queue-health matching a clock time such as 14:03:27, not any text such as Invalid Date — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 4. The page polls on its own
 
@@ -84,7 +88,7 @@ no-more-retries counts, an oldest age when those apply, and a trailing
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run`
 
-**Deferred:** #631 — 7b — per-row summary text: skipped and no-more-retries counts, oldest age, trailing 24h done / failed figures — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Deferred:** #631 — 7b — each queue row on /admin/queue-health reading N queued · N working · N done · N failed, then skipped, no-more-retries and oldest age when nonzero, ending 24h: N done / N failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 6. A queue that has never run still appears
 
@@ -98,7 +102,7 @@ never executed once.
 
 **Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run` `artifacts/api-server/src/__tests__/queueHealth.test.ts:reports a registered queue that has never run, rather than omitting it`
 
-**Deferred:** #631 — 7b — never-run row showing zero counts, as the api test asserts only pending is 0 and the spec drops zero checks — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Deferred:** #631 — 7b — a registered queue with no jobs appearing on /admin/queue-health as its own row reading 0 queued · 0 working · 0 done · 0 failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 7. A queue row expands to individual jobs
 
@@ -168,7 +172,7 @@ up and never asks you to refresh.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a failed refresh keeping the numbers with the amber Showing data banner, retrying, and clearing on recovery — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Deferred:** #631 — 7b — after a load, a failed poll on /admin/queue-health keeping the queue rows and showing the amber banner Showing data from <time>, the last refresh failed and we are still retrying, clearing when the API recovers — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
 
 ### 12. Loading looks like loading
 
@@ -203,6 +207,8 @@ page.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: paid user POSTs /api/memes/ai/:factId/generate, polls the render job to image_ready, saves the meme and reads its image
 
+**Deferred:** #631 — 7b — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion — acceptance journey 6
+
 ### R3. Enrichment / send-back / Taxonomy Health actions still run
 
 **Do:** Run an enrichment / send-back / Taxonomy Health action.
@@ -211,7 +217,9 @@ page.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: provisional-approve runs enrichment then Visual Ideas to concept_review; `artifacts/api-server/src/__tests__/factSendBackJob.test.ts:success: creates a candidate + refresh review and returns the ids`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Re-enrich with forceOverwriteAdminEdited queues a concrete job`
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: provisional-approve runs enrichment then Visual Ideas to concept_review; `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:starts a refresh cycle: candidate + new review, createdBy = the admin, ids echoed`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Repair projections resolves inline with terminal outcomes`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Re-enrich with forceOverwriteAdminEdited queues a concrete job` (queued only)
+
+**Deferred:** #631 — 7b — a Re-enrich job queued through /api/admin/taxonomy-health/actions/backfill-enrichment reaching done in /api/admin/taxonomy-health/job-status after the worker runs it — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts`
 
 ### R4. The admin sidebar gains only Queue Health
 

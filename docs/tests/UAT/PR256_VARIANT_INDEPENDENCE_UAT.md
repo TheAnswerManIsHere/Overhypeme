@@ -23,9 +23,11 @@ fact page / meme builder.
 is correct, intended behavior: it means the variant hasn't been backfilled
 yet (see step 8), not that something is broken.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:a variant with no images of its own shows none — it does NOT inherit its root's pexelsImages/aiMemeImages (variant independence)`
+
+**Deferred:** #628 — Phase 4 (Cut and prune) — the variant's stock images are Pexels images, removed with Pexels, so the no-stock-images half goes with it; #631 — increment 8 (capture and read) — a variant with no images of its own shows no AI images on its fact page or in its meme builder, not its root's
 
 ### 2. A variant's Pexels panel is now visible in the Facts editor
 
@@ -63,7 +65,7 @@ generation only supported on root facts."
 
 **Check:** `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts:a variant (parentId set) is accepted — AI image generation is no longer root-only (variant independence)`
 
-**Deferred:** #631 — 7b — a completed AI generation for a variant fact reaches image_ready and its image reads back, not only the 202 and attempt row — acceptance journey 6
+**Deferred:** #631 — 7b — the paid user's POST /memes/ai/:id/generate on a variant fact reaches image_ready and the owner reads its generated image back — acceptance journey 6
 
 ### 5. Editing a root's text no longer blocks on its variants
 
@@ -76,6 +78,8 @@ waiting on the variant.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:does NOT block a root edit when a child is mid-review`
+
+**Deferred:** #631 — 7b — a confirmed PATCH /admin/facts/:id text edit on a root returns 200 and stores the new text while its variant has a pending review or a nonterminal enrichment job — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 6. Editing a root's text no longer marks its variants stale
 
@@ -90,6 +94,8 @@ reason.
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:does NOT clear child variant signatures on a confirmed root edit`
 
+**Deferred:** #631 — 7b — after a confirmed PATCH /admin/facts/:id text edit on a root, each variant's lastProcessedSignature and enrichment are unchanged and it is not stale for reprocess — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+
 ### 7. Bulk Media Backfill panel is on Taxonomy Health
 
 **Do:** Go to Admin → Taxonomy Health.
@@ -102,7 +108,7 @@ visible regardless of which health card filter is selected.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:is visible regardless of the selected card filter (not gated like send-back)`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — two of the panel's three buttons (Backfill images, Backfill Pexels) drive Pexels and go with it, which rewrites this step, and the cited test also never selects a card filter
+**Deferred:** #628 — Phase 4 (Cut and prune) — two of the panel's three buttons (Backfill images, Backfill Pexels) drive Pexels and go with it, which rewrites this step, and the cited test also never selects a card filter; #631 — 7b — the bulk-media-backfill-panel renders above the health cards and still renders, with its Backfill AI memes button, after a different card filter is selected — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`
 
 ### 8. Backfill images enqueues durable jobs
 
@@ -144,7 +150,7 @@ APIs.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill AI memes' posts to backfill-ai-memes`
 
-**Deferred:** #631 — 7b — the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`
+**Deferred:** #631 — 7b — the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`; #631 — 7b — clicking Backfill AI memes calls window.confirm before any POST to backfill-ai-memes, and declining that confirm sends nothing — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`; #631 — 7b — POST /admin/facts/backfill-ai-memes as admin enqueues one durable job per active fact, root or variant, missing AI meme images — `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts`
 
 ### 11. A root with an active variant can be sent back to review
 
@@ -159,7 +165,7 @@ variants. Refresh the variants individually instead of the root.")
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:selected: a stale root with an active variant still enqueues — variants classify from their own text, so a root refresh can't invalidate them`; `artifacts/api-server/src/__tests__/factSendBackJob.test.ts:succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them` asserts the queued send-back job opens a refresh candidate for that root; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx:the unified single-row 'Send back to review' posts through the bulk-send-back endpoint (not the old Facts-editor endpoint)` asserts the row button's route
 
 ### 12. Bulk send-back now picks up roots with active variants
 
@@ -171,6 +177,8 @@ silently skipping them forever.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a stale root with an active variant is eligible — variants classify from their own text, so a root refresh can't invalidate them`
+
+**Deferred:** #631 — 7b — POST /admin/taxonomy-health/actions/bulk-send-back with scope all_stale, not only pickSendBackTargets, enqueues a stale root that has an active variant — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts`
 
 ### 13. Repeated-failure protection flags a fact after 3 failures
 
@@ -185,7 +193,7 @@ button, and it's no longer picked up by "Send next 50 stale" automatically.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
 
-**Deferred:** #631 — 7b — a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button — `artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx`
+**Deferred:** #631 — 7b — a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button — `artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx`; #631 — 7b — POST /admin/taxonomy-health/actions/bulk-send-back scope all_stale leaves out a 3-strike stale fact that would otherwise fall within its 50-fact batch, so the cap cannot hide a regression — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts`
 
 ### 14. A flagged fact can still be retried deliberately
 
@@ -198,7 +206,7 @@ way to clear the flag.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`
 
-**Deferred:** #631 — 7b — a row flagged for repeated failures can be ticked and Send selected posts its fact id with no rejection shown — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`
+**Deferred:** #631 — 7b — a row flagged for repeated failures can be ticked and Send selected posts its fact id with no rejection shown — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`; #631 — 7b — once the fact_send_back job Send selected queued for a 3-strike fact finishes, GET /admin/taxonomy-health/facts reports repeatedFailure false for it — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts`
 
 ### 15. Bulk send-back reports any facts it excluded
 

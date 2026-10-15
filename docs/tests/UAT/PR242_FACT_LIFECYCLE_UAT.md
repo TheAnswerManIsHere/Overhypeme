@@ -30,7 +30,7 @@ get the normal "submitted for review" confirmation.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account submits through the submission endpoint and the review is listed in the admin queue at `triage_pending`
 
-**Deferred:** #631 — 7b — the confirmation screen the form shows after submitting (You're Done, your fact is in the queue for review) is unasserted — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Deferred:** #631 — 7b — /submit showing You're Done! and Your fact is in the queue for review. after a submission as the ordinary free account — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
 
 ### 2. Bulk import reports facts as queued, not imported
 
@@ -42,7 +42,7 @@ JSON/CSV), and import.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Queued N fact(s) for moderation (skipped as duplicates) message on the Facts import panel, not imported, is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Deferred:** #631 — 7b — the Facts import panel on /admin/facts showing Queued N fact(s) for moderation, the (N skipped as duplicates) note when rows were skipped, and They'll appear after review., never imported — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 3. Imported facts land in the moderation queue at triage, not live
 
@@ -57,6 +57,8 @@ enriched → activated like any submission.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts` — POST /admin/facts/import (the route the Admin Facts import panel calls, facts.tsx:884-890): valid rows become triage_pending reviews and no fact row is written
 
+**Deferred:** #631 — 7b — after an import on /admin/facts, the imported text absent from the active Facts list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #628 — Phase 13 (Admin console) — the Moderation screen showing imported facts at Stage 1 (triage) is rebuilt in Phase 13
+
 ### 4. Re-importing the same text is skipped as a duplicate
 
 **Do:** Re-import the same fact text from step 2.
@@ -66,7 +68,7 @@ existing facts and things already in the queue.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — re-import dedup against an existing fact and an unresolved review is unasserted on POST /admin/facts/import, the cited tests hit the API-key route — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/import answering queued 0 and skipped 1 with no new review, once for a text matching an existing fact and once for one matching an unresolved review — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 5. Adding a variant queues it instead of publishing instantly
 
@@ -94,7 +96,7 @@ under the parent after you approve it for production.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`
 
-**Deferred:** #631 — 7b — after approve for production the variant is live with its parent set and nests under the parent, unlike before approval — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
+**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing the queued variant with its parent fact is rebuilt in Phase 13; #631 — 7b — POST /admin/reviews/:id/approve-for-production on a variant review leaving the fact active with parentId set to the parent fact, inactive before — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`; #631 — 7b — /admin/facts showing the approved variant nested under its parent row, and not before approval — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 7. Toggling an inactive fact to Active is rejected
 
@@ -109,7 +111,7 @@ live again."
 
 **Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects flipping an INACTIVE fact to active — activation is moderation-only`
 
-**Deferred:** #631 — 7b — the 400 body's message text, A fact can only be activated through moderation, is unasserted (only the code is) — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — the Facts editor showing A fact can only be activated through moderation after an inactive fact is toggled Active and saved — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 8. Toggling an active fact to inactive still works
 
@@ -170,7 +172,7 @@ fact; no duplicate reviews stack up.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:409 REVIEW_ALREADY_IN_PROGRESS naming the in-flight review on a second click`
 
-**Deferred:** #631 — 7b — the 409 body's message text and that no second review exists for the fact after the second click are unasserted — `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts`
+**Deferred:** #631 — 7b — the second POST /admin/facts/:id/resubmit-for-moderation answering error A moderation review is already in progress for this fact. — `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts`; #631 — 7b — after the second resubmit click exactly one unresolved review exists for the fact — `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts`
 
 ### 13. Resubmit isn't available on an active fact
 
@@ -186,7 +188,7 @@ Back to Review.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:404 for a missing fact; 409 ALREADY_ACTIVE`
 
-**Deferred:** #631 — 7b — no Resubmit button on an active fact with Send Back to Review shown instead, and the 409 message pointing at Send Back, are unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Deferred:** #631 — 7b — /admin/facts on an active fact showing Send Back to Review and no Resubmit for Moderation button — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — 7b — the 409 ALREADY_ACTIVE body's error containing use Send Back to Review to refresh it instead — `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts`
 
 ### 14. Production approval is still blocked without a Visual Concept
 
@@ -201,7 +203,7 @@ live.
 
 **Check:** `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts:throws ConceptMissingError and does NOT activate a conceptless fact`
 
-**Deferred:** #631 — 7b — approve-for-production without a Visual Concept answering 409 CONCEPT_MISSING with its message, then succeeding once a concept is saved, is unasserted at the route — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
+**Deferred:** #631 — 7b — POST /admin/reviews/:id/approve-for-production on a production_review review with no Visual Concept answering 409 CONCEPT_MISSING with error Save a non-empty Visual Concept before approving for production., then 200 with the fact active once a concept is saved — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`; #628 — Phase 13 (Admin console) — the Moderation screen showing the Save a non-empty Visual Concept refusal is rebuilt in Phase 13
 
 ### 15. Existing live facts stayed live, with placeholders backfilled
 
@@ -216,6 +218,8 @@ there confidently." (greppable, to replace at your leisure).
 
 **Check:** read-only SQL via the Replit connector: `SELECT count(*) FROM facts WHERE is_active AND enrichment IS NULL` (expect 0), then spot-check the placeholder scene
 
+**Deferred:** #631 — 7b — migration 0092's statements leaving an active fact with a projection and a non-empty scene active, with its scene unchanged — `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts`; #631 — 7b — migration 0092's sentinel statement setting coreSceneOverride to {NAME} stands there confidently. on an active fact with a projection and no scene, leaving it active — `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts`
+
 ### 16. Facts with no usable enrichment were deactivated, not silently kept
 
 **Do:** Look for any old facts that had no usable enrichment at all.
@@ -226,6 +230,8 @@ re-add any worth keeping via import, which now routes through moderation.
 **Lane:** live
 
 **Check:** read-only SQL via the Replit connector: list facts with `is_active = false` and no usable enrichment (`SELECT id, text FROM facts WHERE NOT is_active AND enrichment IS NULL`)
+
+**Deferred:** #631 — 7b — migration 0092's first statement setting is_active false on an active fact whose primary_archetype or enrichment is null — `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts`
 
 ## Regression
 
@@ -250,7 +256,7 @@ and share.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2–3: a submission goes triage_pending, provisional approve, preparation to concept_review, Visual Concept saved and approved, renders, approve-for-production, and the fact reads back active `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects flipping an INACTIVE fact to active — activation is moderation-only`
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2–3: a submission goes triage_pending, provisional approve, preparation to concept_review, Visual Concept saved and approved, renders, approve-for-production, and the fact reads back active `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects flipping an INACTIVE fact to active — activation is moderation-only`; `artifacts/api-server/src/__tests__/routes.admin.test.ts` — POST /admin/facts/import and POST /admin/facts/:id/variants write no fact row; `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued` — the resubmitted fact stays inactive
 
 ### R3. Refresh / send-back of a live fact is unchanged
 
@@ -273,7 +279,7 @@ moderator-written Visual Concept.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:preserves the moderator visual-strategy override across re-classification`
 
-**Deferred:** #631 — 7b — the Backfill enrichment endpoint keeping the moderator's Visual Concept is unasserted, the cited test covers runEnrichmentForFact not that loop — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/backfill-enrichment?force=true on an active fact with a moderator Visual Concept leaving its visualPromptStrategyOverride unchanged after the background loop — `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts`
 
 ## Not bugs
 

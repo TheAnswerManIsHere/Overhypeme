@@ -56,6 +56,8 @@ were.
 
 **Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:honours a legitimate same-origin path`
 
+**Deferred:** #631 — 7b — submitting the login form at /login?from=/profile assigns location.href exactly /profile — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`
+
 ### 2. A fact page's back link shows before sign-in
 
 **Do:** Find any fact, note its URL (e.g. `/facts/123`), and go to
@@ -188,7 +190,7 @@ started.
 
 **Lane:** human
 
-**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Apple button opens popup on Windows Chrome`
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Apple button opens popup on Windows Chrome`; `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Apple button triggers a full-page redirect, not a popup` (the iPad half)
 
 **Deferred:** #628 — Phase 5 (account and identity) — a real Apple sign-in completing and returning on desktop and iPad needs the real provider, the flow most likely to break on the real domain
 

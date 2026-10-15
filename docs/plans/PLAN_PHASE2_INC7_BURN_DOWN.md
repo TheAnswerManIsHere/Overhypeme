@@ -624,3 +624,34 @@ changes.
    reported" unless every resource is already complete. This is the one
    Expect edit in 7a, by David's decision, not to fit a check.
 
+
+## Amendments approved by David after 7a's review (2026-10-15)
+
+The text above, with the 2026-10-14 amendments, is sha256
+`55fa176f5eddcd00574032c95c971dd01ae09a3e8937376a0812830b0ec88c66`.
+
+5. **7a's second-review findings are recorded, not fixed in 7a** (David,
+   2026-10-15, option 1 of three): eleven clauses, recorded on #631
+   (issuecomment-6182043216, with its addendum 6182167137). 7b opens with
+   a full re-read.
+6. **7b, part 1 is the re-read, its own documents-only PR** (David,
+   2026-10-15, "1" to the scope gate). It covers every step that claims any
+   coverage: 324 of the 377 steps at `2fefd3b`, the 269 with a `Check:`
+   line and the 187 with a `#631 — 7b` line. Its rules:
+   - Each `Expect` is listed clause by clause. A clause is **asserted** only
+     when a quoted assertion, at its `file:line`, would fail if that clause
+     broke. Otherwise it is a **gap**, and a Deferred clause names it, with
+     a target (D2) or an owner.
+   - The readers are Opus, not Sonnet. Every quote is checked mechanically
+     against the file at the cited line before anything is written.
+   - The result is committed as a clause ledger under
+     `docs/plans/reviews/phase2-inc7/`. 7b's scripting is planned and
+     sized from that ledger.
+   - The 13 steps hand-cleared in 7a's round 1 are read first, PR425 step 14
+     first of all. The eleven recorded clauses are written into their
+     documents.
+   - D1's never-list holds: no `Expect` edit, no test, no product, script
+     or CI change. A step that the product contradicts goes to David.
+   - The same ceremony as 7a: internal tier, standard loop, two-review limit.
+7. **7b's scripting is part 2**, planned from the ledger's counts, and its
+   split by target file comes to David with those counts.

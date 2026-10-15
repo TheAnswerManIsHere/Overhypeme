@@ -56,7 +56,7 @@ renders for you, the creator.
 
 **Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for an admin whose membership tier is only registered`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
 
-**Deferred:** #631 — 7b — picking Private in the builder and saving sends isPublic false and the browser lands on the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`
+**Deferred:** #631 — 7b — picking Private in the builder and saving sends isPublic false and the browser lands on the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`; #631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a private meme to its non-admin owner — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`
 
 ### 2. A private meme is not reachable logged out
 
@@ -84,6 +84,8 @@ exactly what you saw.
 
 **Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
 
+**Deferred:** #631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a private meme to its non-admin owner — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`
+
 ### 4. The public path is untouched
 
 **Do:** On the same account, make a second meme on the same fact and leave
@@ -93,7 +95,9 @@ it **Public**.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`
+**Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=true when a legendary user explicitly asks for public` — the explicit isPublic true the builder sends is stored public
+
+**Deferred:** #631 — 7b — a Public save on the same fact right after a Private one with otherwise identical inputs returns a new public meme, not the private one — `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts`; #631 — 7b — saving from the builder with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`; #631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a public meme to a logged-out caller — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`
 
 ### 5. A public meme appears in listings
 
@@ -101,9 +105,9 @@ it **Public**.
 
 **Expect:** The public meme shows up in both.
 
-**Lane:** ci
+**Lane:** human
 
-**Deferred:** #631 — 7b — a logged-out request to a fact's meme list returns its public meme and omits its private one, which is the data the fact page gallery shows — `artifacts/api-server/src/__tests__/routes.memes.test.ts`
+**Deferred:** #631 — 7b — GET /api/facts/:factId/memes?visibility=community, logged out, returns the fact's public meme and omits its private one — `artifacts/api-server/src/__tests__/routes.memes.test.ts`; #631 — increment 8 (capture and read) — logged out, the fact page's meme gallery shows the public meme
 
 ### 6. A real Legendary account still gets privacy
 
@@ -118,6 +122,8 @@ traded one entitled account for another.
 
 **Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for a legendary user`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:an unauthenticated caller gets 404`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:owner sees a private meme (200) and it is no-store`
 
+**Deferred:** #631 — 7b — picking Private in the builder and saving sends isPublic false and the browser lands on the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`; #628 — Phase 6 (The loop) — #591 rewrites the private-meme not-found page and its privacy suite covers permalinks, and the cited check proves the API 404, not the page a logged-out visitor sees; #631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a private meme to its non-admin owner — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`
+
 ### 7. A plain registered account is still offered the upgrade, not the feature
 
 **Do:** Log in as your **plain registered** account and start a meme.
@@ -125,9 +131,11 @@ traded one entitled account for another.
 **Expect:** The control is visible, and **Private** is dimmed with the
 `LEGEND` badge.
 
-**Lane:** ci
+**Lane:** human
 
-**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`
+**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:shows a registered creator the upsell instead of letting them pick private` — the builder renders the control for a registered viewer
+
+**Deferred:** #631 — 7b — the locked Private pill renders with the opacity-60 dimming class when canSetPrivate is false — `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx`; #631 — increment 8 (capture and read) — signed in as the plain registered account, the builder's image step shows the visibility control with Private dimmed and the LEGEND badge
 
 ### 8. Tapping Private for a registered account opens the upgrade modal
 
@@ -138,7 +146,7 @@ selected with your in-progress meme intact.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`
+**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:shows a registered creator the upsell instead of letting them pick private` — tapping Private opens the upgrade modal's Go Legendary to keep memes private copy
 
 **Deferred:** #631 — 7b — closing the upgrade modal leaves Public selected and the in-progress meme intact — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`
 
@@ -153,15 +161,19 @@ hasn't changed.
 
 **Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`
 
+**Deferred:** #631 — 7b — POST /api/memes with isPublic true from a registered non-admin account returns 201 and stores the meme public — `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts`; #631 — 7b — saving from the builder with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`; #631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a public meme to a logged-out caller — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`
+
 ### 10. Logged-out visitors still see no control
 
 **Do:** Logged out, open `/facts/39/meme`.
 
 **Expect:** No visibility control at all — unchanged.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:omits the control for a viewer who cannot save yet`
+
+**Deferred:** #631 — increment 8 (capture and read) — logged out, /facts/39/meme opens the builder and its image step shows no Public or Private visibility control
 
 ### 11. Video memes still work
 
@@ -186,6 +198,8 @@ finish.
 **Lane:** scripted
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: an ordinary free account saves a public photo meme; anyone reads its permalink and its composed image, the image decoded
+
+**Deferred:** #631 — 7b — saving from the builder with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`
 
 ## Not bugs
 

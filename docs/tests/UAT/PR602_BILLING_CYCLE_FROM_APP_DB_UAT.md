@@ -83,6 +83,8 @@ suppress.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:suppresses the charged amount rather than showing the pre-switch price`
 
+**Deferred:** #628 — Phase 10 (membership and money) — annual billing is cut as a new sale, so the annual price line and label go with the monthly-only rebuild
+
 ### 4. The amount returns once Stripe's copy catches up
 
 **Do:** Tell me when you reach this step; I check whether the mirror has synced

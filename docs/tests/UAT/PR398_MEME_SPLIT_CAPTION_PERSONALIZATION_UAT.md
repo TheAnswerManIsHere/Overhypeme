@@ -61,9 +61,11 @@ does **not** read "{NAME} MAKES".
 **Expect:** It still reads "Nick Baron makes onions cry." — same as
 before, it was never broken.
 
-**Lane:** live
+**Lane:** human
 
-**Check:** `curl -s https://overhype.me/api/memes/o1bV9xne49` via the Replit connector; the caption field must read "Nick Baron makes onions cry."
+**Check:** `curl -s https://overhype.me/api/memes/o1bV9xne49` via the Replit connector; the factText field must read "Nick Baron makes onions cry."
+
+**Deferred:** #631 — 7b — GET /api/memes/:slug for a meme whose creator is Nick Baron, he/him, on the fact {NAME} makes onions cry. returns factText Nick Baron makes onions cry. — `artifacts/api-server/src/__tests__/routes.memes.test.ts`; #631 — increment 8 (capture and read) — the meme page shows Nick Baron makes onions cry. as the text under the picture
 
 ### 3. A brand-new meme's picture matches its own preview
 
@@ -94,7 +96,7 @@ cry because of …"), and drag the split slider so the name lands on the
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`
 
-**Deferred:** #631 — 7b — a name landing in the bottom half is drawn on the saved meme's served image — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the bottom line and the saved picture matches it
+**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the bottom half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the bottom line and the saved picture matches it
 
 ### 5. Splitting with the name on the top half
 
@@ -107,7 +109,7 @@ the **top** half.
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes {NAME} in both split halves`
 
-**Deferred:** #631 — 7b — a name landing in the top half is drawn on the saved meme's served image — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the top line and the saved picture matches it
+**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the top half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the top line and the saved picture matches it
 
 ### 6. Pronoun and verb agreement — they/them
 
@@ -122,7 +124,7 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`
 
-**Deferred:** #631 — 7b — a creator with they/them pronouns gets They keep drawn on the served image, not keeps or a raw pair — acceptance journey 4
+**Deferred:** #631 — 7b — a creator whose profile pronouns are they/them saves a {Subj} {keeps|keep} split and the served image equals the same split typed by hand as They keep — acceptance journey 4
 
 ### 7. Pronoun and verb agreement — he/him
 
@@ -134,7 +136,7 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`
 
-**Deferred:** #631 — 7b — a creator with he/him pronouns gets He keeps drawn on the served image — acceptance journey 4
+**Deferred:** #631 — 7b — a creator whose profile pronouns are he/him saves the same {Subj} {keeps|keep} split and the served image equals the same split typed by hand as He keeps — acceptance journey 4
 
 ### 8. The downloaded file matches the page
 
@@ -143,9 +145,9 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 **Expect:** The downloaded file has the name on it, matching what's on the
 page.
 
-**Lane:** scripted
+**Lane:** human
 
-**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, and the Download button fetches that same image URL — acceptance journey 4
+**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4; #631 — increment 8 (capture and read) — the file the meme page's Download button saves shows the creator's spelled-out name and is the same picture the page shows
 
 ### 9. The share preview matches
 
@@ -224,9 +226,11 @@ in the app.
 
 **Expect:** Untouched.
 
-**Lane:** ci
+**Lane:** human
 
-**Check:** `artifacts/overhype-me/src/components/facts/HighlightedFactText.test.tsx:highlights a plain {NAME} substitution`
+**Check:** `artifacts/overhype-me/src/components/facts/HighlightedFactText.test.tsx:highlights a plain {NAME} substitution`; `artifacts/overhype-me/src/__tests__/factTextHighlighting.guard.test.ts:only allowlisted modules import the flat renderFact` — on-screen fact text goes through the highlighting renderer
+
+**Deferred:** #631 — increment 8 (capture and read) — the name inside fact text elsewhere in the app shows in the brand orange highlight
 
 ## Not bugs
 
