@@ -45,6 +45,9 @@
  *
  * Scheduled from `src/index.ts` with the same self-rescheduling `setTimeout`
  * pattern as `transientRenderPurger`.
+ *
+ * @purpose Scheduled retention job that deletes expired rate_limit_counters rows in bounded batches behind a grace margin, because the keys hold raw IPs, session tokens and emails; batch size and budget come from admin config.
+ * @subsystem security
  */
 
 import { db } from "@workspace/db";

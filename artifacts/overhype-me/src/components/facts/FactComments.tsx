@@ -1,3 +1,7 @@
+/**
+ * @purpose A fact's comment list and composer in two variants, the compact feed form on expanded cards and the hero and the full form on the fact page, with optimistic adds, captcha gating and draft persistence.
+ * @subsystem community
+ */
 import { useState, useRef, useEffect, useMemo, Suspense } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";

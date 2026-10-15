@@ -138,20 +138,29 @@ should validate-and-reject unknown tokens, not silently strip them.
 
 Because `validateTemplate` accepts any well-formed pair position-independently,
 an already-tokenized submission (`{Subj} keeps it`, `{Subj}'s fast`) could
-otherwise validate and store unrepaired. So **every** template-writing route runs
-the full `applyDeterministicGrammar` sequence through the shared server helper
-**`normalizeFactTemplateForStorage(text)`** (in
-`artifacts/api-server/src/lib/`), which returns a discriminated union on `valid`
-and — on success — the derived storage columns (`canonicalText`,
-`splitTokenIndex`, `hasPronouns`) computed from the FINAL normalized text.
-Callers: `POST /facts`, `PATCH /admin/facts/:id`, `POST /admin/facts/:id/variants`
-(422 on invalid), and the bulk paths `POST /admin/facts/import`,
-`POST /admin/facts/import-csv`, and the API-key `POST /admin/import/facts` (which
-keep their existing response shapes and add a `failed` array — invalid rows are
-reported and skipped, valid rows written: partial success). `POST
-/facts/submit-review` uses `normalizeFactTemplateForPendingReview` (normalize +
-validate, no fact-only metadata). Normalization runs BEFORE dedupe/canonical/
-embedding so stored text and derived metadata never drift.
+otherwise validate and store unrepaired. So **every** template-writing ingress
+runs the full `applyDeterministicGrammar` sequence, then validates, through one
+of the two variants of the shared server helper in
+`artifacts/api-server/src/lib/normalizeFactTemplateForStorage.ts`. Both return a
+discriminated union on `valid`.
+
+- **`normalizeFactTemplateForPendingReview(text)`** — normalize and validate, no
+  fact-only metadata. Every ingress that writes `pending_reviews.submittedText`
+  uses it: `POST /facts/submit-review` and `POST /admin/facts/:id/variants`
+  (422 on invalid), and the bulk paths `POST /admin/facts/import`,
+  `POST /admin/facts/import-csv` and the API-key `POST /admin/import/facts`
+  (which keep their existing response shapes and add a `failed` array — invalid
+  rows are reported and skipped, valid rows queued: partial success).
+- **`normalizeFactTemplateForStorage(text)`** — the same, plus, on success, the
+  derived `facts` columns (`canonicalText`, `splitTokenIndex`, `hasPronouns`)
+  computed from the FINAL normalized text. Its one caller is the approved-text
+  edit, `confirmedFactTextEdit` behind `PATCH /admin/facts/:id`.
+
+A pending review's metadata is derived when it becomes a staging fact:
+`ensureStagingFact` (`artifacts/api-server/src/lib/moderationStaging.ts`) computes
+the three columns itself from the already-normalized `submittedText`, without
+the helper. Normalization runs BEFORE dedupe/canonical/embedding so stored text
+and derived metadata never drift.
 
 The authoritative server-side `hasPronouns` detector for storage is
 `hasFactPronounMarkersForStorage` (same module) — it must NOT treat `{NAME}` or

@@ -14,6 +14,9 @@
  * `localhost`, yet its serialized path is `//evil.com` — a protocol-relative
  * URL once handed to a redirect. Re-checking the prefix after resolution,
  * not only before it, is what catches this.
+ *
+ * @purpose Reduces a caller-supplied returnTo to a same-origin relative path, collapsing absolute, protocol-relative and scheme URLs to / and re-checking after resolution; the one open-redirect rule for the OAuth callbacks and the dev-admin login.
+ * @subsystem security
  */
 export function getSafeReturnTo(value: unknown): string {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {

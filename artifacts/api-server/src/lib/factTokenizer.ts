@@ -9,7 +9,7 @@
  * The pure grammar helpers (token validation, the deterministic conjugation net)
  * stay in api-zod.
  *
- * @purpose Server-owned tokenizer policy: the model, system prompt and post-processing that turn a plain-English fact into a personalization template.
+ * @purpose Server-owned tokenizer policy: the model, system prompt and post-processing that turn plain-English fact text, and admins' Visual Strategy Override prose, into a personalization template.
  * @subsystem token-rendering
  */
 

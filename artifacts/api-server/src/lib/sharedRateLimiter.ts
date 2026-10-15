@@ -1,3 +1,7 @@
+/**
+ * @purpose Fleet-wide rate limiting on the rate_limit_counters table: builds the scoped key, upserts the windowed count in one statement, reports near-limit and blocked, and purges counters by key prefix.
+ * @subsystem security
+ */
 import crypto from "crypto";
 import { db, rateLimitCountersTable } from "@workspace/db";
 import { like, sql } from "drizzle-orm";

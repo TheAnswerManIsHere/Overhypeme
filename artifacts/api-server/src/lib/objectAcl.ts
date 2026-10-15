@@ -1,3 +1,7 @@
+/**
+ * @purpose Object-storage ACL policy kept as GCS object metadata: set and read the owner-and-visibility policy, and the permission check that lets anyone read a public object and only the owner read or write a private one.
+ * @subsystem security
+ */
 import { File } from "@google-cloud/storage";
 
 const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";

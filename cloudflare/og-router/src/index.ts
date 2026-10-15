@@ -20,6 +20,9 @@
  *      Twitter/X to refuse to render the meme image as a large card.
  *      Rebuilding the Response object here drops the platform-injected
  *      cookie before it ever leaves the edge.
+ *
+ * @purpose Cloudflare Worker in front of overhype.me: serves known crawlers the OG shell for /m/:slug meme permalinks, passes everyone else through to the SPA, and strips the platform-injected Set-Cookie from meme-image and OG responses so the edge can cache them publicly.
+ * @subsystem worker
  */
 import { isbot } from "isbot";
 

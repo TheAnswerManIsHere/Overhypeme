@@ -1,3 +1,7 @@
+/**
+ * @purpose The fetch mutator the generated React Query client calls: optional base URL and bearer-token getter for non-browser bundles, header merging, response-type inference, and ApiError and ResponseParseError for failed or unparseable responses.
+ * @subsystem api-codegen
+ */
 export type CustomFetchOptions = RequestInit & {
   responseType?: "json" | "text" | "blob" | "auto";
 };

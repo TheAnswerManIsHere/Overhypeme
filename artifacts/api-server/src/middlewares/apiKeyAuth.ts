@@ -1,3 +1,7 @@
+/**
+ * @purpose Middleware for machine-to-machine callers: requires the static ADMIN_API_KEY in the X-API-Key header and rejects every request while the key is unconfigured; used by the API-key fact import route.
+ * @subsystem security
+ */
 import { type Request, type Response, type NextFunction } from "express";
 
 /**

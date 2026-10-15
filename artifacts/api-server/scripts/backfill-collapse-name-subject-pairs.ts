@@ -43,7 +43,7 @@
  *
  * Defaults to --dry-run (reports, writes nothing). --apply is required to mutate.
  *
- * @purpose One-off CLI backfill that collapses {NAME}-subject conjugation pairs in stored fact templates to their singular branch.
+ * @purpose One-off CLI backfill that collapses {NAME}-subject conjugation pairs in stored fact templates and pending review submissions to their singular branch.
  * @subsystem token-rendering
  */
 

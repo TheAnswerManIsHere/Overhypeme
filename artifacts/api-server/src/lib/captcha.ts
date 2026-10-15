@@ -4,6 +4,9 @@
  * Bypass rules (intentional):
  * - Dev/staging: if HCAPTCHA_SECRET is not set, verification is skipped with a warning.
  * - Production: if HCAPTCHA_SECRET is not set, all verifications fail (returns false).
+ *
+ * @purpose Server-side hCaptcha verification shared by every captcha-gated route; skips with a warning when no secret is configured outside production, and fails closed in production.
+ * @subsystem security
  */
 import { logger } from "./logger";
 

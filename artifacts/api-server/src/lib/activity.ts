@@ -1,6 +1,9 @@
 /**
  * Helper to log entries to the activity_feed table.
  * All writes are fire-and-forget — errors are logged but never surface to callers.
+ *
+ * @purpose logActivity and the ActivityType union for the per-user activity feed; writes are fire-and-forget, logged on failure and never surfaced to callers.
+ * @subsystem community
  */
 import { db } from "@workspace/db";
 import { activityFeedTable } from "@workspace/db/schema";

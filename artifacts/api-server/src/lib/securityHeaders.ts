@@ -37,6 +37,9 @@
  *    a `Cross-Origin-Opener-Policy` could sever `window.opener` and is low value
  *    on a JSON/redirect surface. COEP stays off (helmet default) — requiring it
  *    would break cross-origin embeds.
+ *
+ * @purpose The security-header chain app.ts mounts first on every response: helmet baselines, a route-class-aware report-only CSP, an env-aware frame policy and production-only HSTS; the public cross-origin relaxation lives in cacheHeaders instead.
+ * @subsystem security
  */
 import helmet from "helmet";
 import type { Request, RequestHandler } from "express";
