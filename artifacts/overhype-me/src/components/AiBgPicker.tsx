@@ -21,6 +21,7 @@ import {
   pollHttpErrorFromResponse,
   retryDelayMsFor,
 } from "@/components/meme-builder/wizard/util/pollRetryClassification";
+import { generationErrorMessage } from "@/lib/generation-errors";
 
 // ─── Shared admin constants (same as MemeBuilder) ────────────────────────────
 
@@ -435,7 +436,7 @@ export function AiBgPicker({
     );
     if (!res.ok) {
       const body = await res.json() as { error?: string };
-      throw new Error(body.error ?? "Delete failed");
+      throw new Error(generationErrorMessage(body.error, "Delete failed"));
     }
     setLocalImages(prev => {
       if (!prev) return prev;
@@ -554,11 +555,10 @@ export function AiBgPicker({
           setAiGenState("error");
           return;
         }
-        const code = body.error ?? "Generation failed";
         throw new Error(
-          code === "fact_enrichment_invalid"
+          body.error === "fact_enrichment_invalid"
             ? "This fact isn't enriched yet — it can't be turned into an AI background."
-            : code,
+            : generationErrorMessage(body.error, "Generation failed"),
         );
       }
 
@@ -663,7 +663,7 @@ export function AiBgPicker({
                 setAiGenerateError(
                   s.status === "blocked"
                     ? `This fact can't be staged as an AI background${s.subjectFactCompatibility?.recommendedFallback ? ` — try ${s.subjectFactCompatibility.recommendedFallback}` : ""}.`
-                    : (s.error ?? "Generation failed."),
+                    : generationErrorMessage(s.error, "Generation failed."),
                 );
                 setAiGenState("error");
                 return;

@@ -22,6 +22,7 @@ import {
   isRetryablePollError,
   pollHttpErrorFromResponse,
 } from "@/components/meme-builder/wizard/util/pollRetryClassification";
+import { generationErrorMessage } from "@/lib/generation-errors";
 
 // Subset of @workspace/api-zod types — duplicated narrowly so this component
 // can compile without pulling the entire taxonomy package into the frontend.
@@ -212,8 +213,8 @@ export function SourceImageConfirmModal({
     })
       .then(async (r) => {
         if (!r.ok) {
-          const body = await r.json().catch(() => ({ error: "analyze_failed" })) as { error?: string };
-          throw new Error(body.error ?? "analyze_failed");
+          const body = await r.json().catch(() => ({})) as { error?: string };
+          throw new Error(generationErrorMessage(body.error, "We couldn't read that image. Please try again."));
         }
         return r.json() as Promise<{ analysis: SourceImageAnalysis }>;
       })
@@ -264,8 +265,8 @@ export function SourceImageConfirmModal({
           }),
         });
         if (!res.ok) {
-          const body = await res.json().catch(() => ({ error: "generate_v2_failed" })) as { error?: string };
-          throw new Error(body.error ?? "generate_v2_failed");
+          const body = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(generationErrorMessage(body.error, "Generation failed. Please try again."));
         }
         const data = (await res.json()) as { renderJobId: string; attemptId: number };
         setRenderJobId(data.renderJobId);
@@ -332,7 +333,7 @@ export function SourceImageConfirmModal({
                 clearInterval(pollRef.current);
                 pollRef.current = null;
               }
-              setError(status.error ?? "Generation failed.");
+              setError(generationErrorMessage(status.error, "Generation failed."));
               setPhase("failed");
             }
           } catch {
