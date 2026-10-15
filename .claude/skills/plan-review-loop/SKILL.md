@@ -433,16 +433,21 @@ link.
    the workstream's draft Project item — the private path that section
    names — in full, and never stays in a working tree alone. Beside the
    file, the oracle is still quoted verbatim into the implementation PR
-   body, and the harvest comment goes on the workstream issue (a prototype's
+   body — sanitized instead for a plan that failed the check, saying so and
+   naming the private path (`claude-core.md` Pull requests rule 3) — and the harvest comment goes on the workstream issue (a prototype's
    version posts none, so the short plan verbatim in its PR body is its
-   record).
+   record — for a short plan that failed the check, the private item holds
+   the full text and the PR body or, in the branch regime, the workstream
+   issue carries the sanitized short plan, saying so).
 5. **Exchanges run go in the workstream issue's harvest comment.** With no PR,
    that comment is the only place `/maintenance` can read planning cost from.
    A prototype's version posts no harvest comment, so its exchanges-run line
    goes in the issue's State of Play block at approval, where `/maintenance`
    reads it instead.
-   A private-path workstream has no public issue — its tracking is the draft
-   Project item, and the same trail goes in that item's note.
+   A private-path workstream has no public issue, or — where it turned
+   sensitive after one opened — a public issue holding only sanitized tracking
+   (`workstream-tracking.md`); either way the same trail goes in the draft
+   Project item's note.
 
 **The implementation PR's `Oracle source:` line names the plan and its
 digest** (`claude-core.md` Pull requests rule 4):
@@ -451,9 +456,14 @@ digest** (`claude-core.md` Pull requests rule 4):
 Oracle source: PLAN_<SLUG>.md, sha256 <the 64-char digest>, approved by David <YYYY-MM-DD>
 ````
 
+A plan that failed the disclosure check keeps the same line, digest taken at
+approval, with `, private path` appended: the file is not committed, and the
+digest pins the text the private item holds.
+
 For a prototype's version the line keeps its phase form and carries the
-digest beside it, and the body carries the short plan verbatim (rules 3 and
-4; the `prototype` skill's ceremony bullet):
+digest beside it, and the body carries the short plan verbatim — sanitized,
+saying so, for one that failed the check, with `, private path` appended to
+the line as above (rules 3 and 4; the `prototype` skill's ceremony bullet):
 
 ````markdown
 Oracle source: prototype phase — <feature>, <questions file>; PLAN_<SLUG>.md, sha256 <digest>, approved by David <YYYY-MM-DD>

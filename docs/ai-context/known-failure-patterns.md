@@ -1417,7 +1417,11 @@ new. Same avoidance: when a change introduces a new failure mode on a shared
 resource (an endpoint, a response shape, an error code), grep for **every**
 caller of that resource before considering the fix complete — not just the
 one a review comment or the plan happened to name, and not assuming the
-count found is the count that exists.
+count found is the count that exists. Where the repository's map is adopted
+and enabled and the resource is a TypeScript declaration, its symbol query
+runs beside the grep and reaches the callers behind barrels and aliases
+([`agents-core.md`](../../.agents/core/agents-core.md), *Query the structure
+before you change it*).
 
 ### Sub-pattern: the sweep itself has three failure modes, learned one per round
 

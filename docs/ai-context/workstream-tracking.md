@@ -505,7 +505,8 @@ set" `stage:done`, and nothing ever asked him to.)
   `/status-all` keep surfacing it, and it hides the issues that are really
   open.
 - **Sensitive / disclosure-carve-out workstreams never become public
-  issues.** They're draft Project items instead — this repo is public, and
+  issues** (one that turns sensitive after its issue opened is the case at
+  the end of this bullet). They're draft Project items instead — this repo is public, and
   an issue body is public even though the Project itself is private. This
   is the **canonical definition** of the disclosure check that gates
   opening a public workstream issue, referenced (not restated) by
@@ -517,11 +518,33 @@ set" `stage:done`, and nothing ever asked him to.)
   public issue, confirm it contains none of unpatched-vulnerability
   details, auth/authorization bypass specifics, secrets/credentials,
   payment-fraud abuse paths, private customer/commercial data, or
-  embargoed-plan content. If it does, it stays off the public path — a
-  draft Project item. **The same check gates committing an approved plan**
+  embargoed-plan content — **or anything the repository's own documents
+  keep out of public prose for a subsystem** (a subsystem document's
+  must-not-publish header, or a restriction the overlay declares): that
+  content fails this check wherever it appears, which is what makes those
+  restrictions bind a plan, an issue, a PR body, a harvest or a handoff,
+  not only the document that states them. If it does, it stays off the
+  public path — a draft Project item. **The same check gates committing an approved plan**
   (`claude-core.md` Planning rule 3): a plan that passes is committed on
   its feature branch, and a plan that fails goes in full into the
-  workstream's draft Project item, never into a working tree alone.
+  workstream's draft Project item, never into a working tree alone; its
+  implementation PR's oracle is then a sanitized copy that says so and names
+  that item (`claude-core.md` Pull requests rule 3). **The check covers the
+  whole public body, not only the oracle**: before any PR opens, its summary,
+  scope, verification and UAT prose pass the same check or are written
+  sanitized, whichever path its plan took. **The draft item is write-only to
+  agents** (the `uat` skill's private path), so a later session gets the full
+  text back one way: it asks David, and he pastes it in (David, 2026-10-12).
+  That relay is the whole retrieval route, and it is acceptable only because
+  private plans are rare; the session writes the relayed text to its
+  scratchpad, never the repository. **A workstream that turns sensitive
+  after its public issue exists** — the approval-time check fails on a plan
+  whose scope passed when the issue opened — moves the plan, not the issue:
+  the full plan goes to a new draft item, the public issue keeps only
+  sanitized tracking (labels, a State of Play line saying the plan is on the
+  private path, and nothing it holds), and any text already on the issue that
+  fails the check is edited out and named to David in one line, since an
+  edit does not unpublish what was already read.
 - **No hand-typed GitHub UI name (a field, an option) gets matched by exact
   string in code.** The sync script's first live run against the real board
   failed all 9 workstream syncs because the real `Waiting On` field

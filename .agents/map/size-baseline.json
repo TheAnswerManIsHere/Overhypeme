@@ -1,0 +1,6 @@
+{
+  "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on. cap is the most non-blank lines (after the header comment) any sized file may hold; baselines freeze files already over it, which may then only shrink. node scripts/map.mjs freeze writes the baselines at adoption; node scripts/map.mjs ratchet lowers them and never raises one. Set adopted to true once frozen. Contract: docs/ai-context/agent-legible-codebase.md.",
+  "adopted": false,
+  "cap": 800,
+  "baselines": {}
+}
