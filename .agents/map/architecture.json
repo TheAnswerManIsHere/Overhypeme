@@ -1,0 +1,8 @@
+{
+  "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on. The allowed dependency directions, written from the architecture you intend, never copied from the imports you have: packages by path, layers by prefix within a package, and subsystems by @subsystem tag. Anything not allowed fails the check; an existing violation being retired goes in exemptions with its reason and date. Complete it and set adopted to true. Contract: docs/ai-context/agent-legible-codebase.md.",
+  "adopted": false,
+  "packages": [],
+  "allowPackages": {},
+  "allowSubsystems": {},
+  "exemptions": []
+}

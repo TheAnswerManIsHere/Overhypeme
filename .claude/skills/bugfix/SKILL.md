@@ -251,7 +251,10 @@ the PR back only delays the review that catches things.
    Use **`.github/pull_request_template.md`** — the
    repo template applies to bug fixes too. Fill the **Approved-plan oracle**
    section with the **bugfix oracle** instead of "n/a — no plan" — **which
-   block depends on the tier:**
+   block depends on the tier:** Before it opens, the whole body — the
+   quoted symptom, root cause and blast radius included — passes the
+   canonical disclosure check or is written sanitized, its specifics on the
+   private path ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#what-must-never-happen)).
 
    **The tier letter goes on the body's `Oracle source:` line**
    (`claude-core.md` Pull requests rule 4); everything else stays prose. The

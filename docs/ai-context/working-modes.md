@@ -305,6 +305,16 @@ the *disk*; use one only when that is genuinely what you mean. An oracle that
 silently skips a tracked file is the false-completeness failure below,
 arriving through the tool rather than the prose.
 
+**The corpus is one axis; reach is the other.** When the class is the uses of
+one TypeScript declaration, a text search over exactly the tracked set still
+misses the users that import it through a barrel or under an alias, since they
+share no text with it. Where the repository's map is adopted and enabled, that
+class takes the map's symbol query beside `git grep`, and its `unresolved`
+section is read by hand
+([`agents-core.md`](../../.agents/core/agents-core.md), *Query the structure
+before you change it*). That is not a second example of the corpus property
+above; it answers a question the corpus cannot.
+
 **This is the same move, moved earlier.** The class-sweep protocol exists
 because a reviewer's cited instance is never guaranteed to be every instance.
 Running that discovery step at *plan entry* instead of waiting for review to
@@ -566,7 +576,9 @@ the oracle exists to prevent.
 
 So a plan owes one of two things for every load-bearing invariant: **state it
 in one of the four pasted sections**, or **paste it into the PR's oracle block
-explicitly alongside them**. *Must Not Change* is usually the natural home —
+explicitly alongside them** — in its sanitized form for a plan that failed the
+disclosure check, which keeps the requirement and drops the restricted
+specifics (`claude-core.md` Pull requests rule 3). *Must Not Change* is usually the natural home —
 an invariant worth protecting is, by definition, something that must not
 change. This was found by Codex reviewing this very rule, which is a fair
 demonstration of the rule's own point: no compiler or test could have caught a
@@ -1173,7 +1185,10 @@ prototype phase, per feature*, above).
 
 - **A clean automatic pass on PR-open is the whole ceremony** for an internal
   PR in the standard loop (Trivial and Documentation are outside it, above). Finding nothing, it needs no judge: nothing was written, so the head is
-  already reviewed.
+  already reviewed. The one exception is a PR whose plan took the private
+  path, which the two assessors read against the full text once before
+  merge, clean pass or not (David, 2026-10-12; `claude-core.md`, *Internal
+  tooling: what is downstream*).
 - **Never a second review of an unchanged head; always a review of a changed
   one.** The rule here used to read "no re-request without a behavioural
   change", which contradicts the write-gate it sits under: a documentation pull
@@ -1245,7 +1260,13 @@ instances are.** For every finding, whichever agent is driving the fixes:
    one-liner that detects *every* instance, not just the cited ones. If the
    finding genuinely cannot be mechanized (a pure design/semantics finding),
    the reply says so — that inability is itself a signal, and the round's
-   two assessments weigh that finding as such.
+   two assessments weigh that finding as such. **Where the repository's map is
+   adopted and enabled, a class made of the uses of one TypeScript declaration
+   takes `node scripts/map.mjs dependents <file>#<name>` as its oracle beside
+   `git grep`**: it reaches users behind barrels and aliases that share no text
+   with the declaration, and it names what it could not resolve
+   ([`agents-core.md`](../../.agents/core/agents-core.md), *Query the structure
+   before you change it*).
 3. **Sweep the full scope before fixing, fix every hit, re-run the oracle
    to zero.** Scope defaults to the whole artifact/diff and widens to the
    repo when the class plausibly lives outside it. The reply cites the
@@ -1344,7 +1365,11 @@ the paragraph fifty lines above had already diagnosed and fixed in the
 planning list.
 
 A round with **no findings** needs no dispatch: there is nothing to assess,
-and the loop ends on the head that round reviewed.
+and the loop ends on the head that round reviewed — except on a PR whose plan
+took the private path, where Codex saw only the sanitized oracle, so its
+silence says nothing about the restricted requirements; that PR's clean
+round is assessed once against the full text before merge (David,
+2026-10-12; `pr-watch`).
 
 **A round that did return findings is dispatched, whatever those findings look
 like** (David, 2026-09-18). The exemption here used to extend to a round "whose
@@ -1638,7 +1663,11 @@ oracle and the Tier A/B bugfix oracle below.
    the affected-surface inventory (above) at bug scale: name the pattern
    (the function, the table, the shape of derivation the bug lives in), write
    the tracked-set/callers-search that finds every site matching it, and state
-   what it found — not a memory of "what calls this." Regression tests pin
+   what it found — not a memory of "what calls this." Where the map is
+   adopted and enabled, the callers of a TypeScript declaration come from its
+   symbol query beside that search
+   ([`agents-core.md`](../../.agents/core/agents-core.md), *Query the
+   structure before you change it*). Regression tests pin
    the fixed behavior; they say nothing about the neighbors, which is exactly
    where a small-looking fix does its damage, and "I checked the obvious
    callers" is exactly the gap a mechanical search closes for free.

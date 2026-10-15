@@ -1,0 +1,19 @@
+{
+  "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on: the sync never overwrites it. Complete it, set adopted to true, and run node scripts/map.mjs build. Setting enabled to false stands every guard and the forcing rule down at once (the back-out). Contract: docs/ai-context/agent-legible-codebase.md.",
+  "_programs": "Every TypeScript program the indexed files belong to: each product tsconfig, plus supplementary programs for files no product tsconfig reaches (tests a tsconfig excludes, JavaScript tooling). A supplementary program takes roots (globs), and may extend a tsconfig to inherit its paths and options. The build refuses when an indexed file is reached by no program.",
+  "adopted": false,
+  "enabled": true,
+  "programs": [
+    { "tsconfig": "tsconfig.json" },
+    { "name": "tooling", "roots": ["scripts/**/*.{mjs,js,ts}"], "compilerOptions": { "allowJs": true } }
+  ],
+  "sets": {
+    "indexed": {
+      "include": ["**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"],
+      "exclude": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**", "**/*.min.js"]
+    },
+    "headered": { "exclude": ["**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/e2e/**"] },
+    "sized": { "exclude": [] }
+  },
+  "codegenOwned": []
+}

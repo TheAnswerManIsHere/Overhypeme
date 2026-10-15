@@ -106,7 +106,22 @@ requires it.
    **The oracle comes first, and it is agreed with David before round 1.** It
    is the outcome he agreed the work should achieve — an approved plan, an
    issue discussion, or an explicit request — recorded where it can be quoted,
-   normally a comment on the workstream issue. `assessmentBrief` refuses
+   normally a comment on the workstream issue; for a plan that failed the
+   disclosure check, the oracle file is the full text from the private item,
+   and the assessors' brief keeps their posted quotes and paraphrases to the
+   sanitized copy (`review-proxy.md`). That item is write-only to me, so a
+   session that does not already hold the text asks David to paste it — a
+   🛑, since the round cannot run without it — and writes it to the
+   scratchpad, never the repository (David, 2026-10-12;
+   `workstream-tracking.md`). **Such a PR is also assessed when its round
+   comes back clean**, once before merge (David, 2026-10-12; `claude-core.md`,
+   *Internal tooling: what is downstream*). **No script mode runs that
+   assessment yet** (AI-Handbook #206), and the documentation mode is not a
+   substitute: it declares the Documentation class and applies its rubric to
+   code. Until the mode exists, such a PR's clean round is a 🛑 to David,
+   saying the assessment it is owed cannot run, and he decides how it
+   proceeds.
+   `assessmentBrief` refuses
    without one. **Reaching round 1 with no agreed oracle is a 🛑 to David, not
    a package I write myself.**
 
@@ -506,7 +521,8 @@ requires it.
      comment, before it runs. The bill is **conditional and the condition is
      the findings**: two assessments at roughly a hundred and fifty thousand
      tokens each **only if the round returns findings**, since step 3
-     dispatches neither on a clean round; a translation when one is owed,
+     dispatches neither on a clean round — save the one clean round of a PR
+     whose plan took the private path, which step 3 assesses anyway; a translation when one is owed,
      which the last round before a merge always is, so a clean terminal round
      is not free; and my own turns either way. Then what is downstream if this
      round finds nothing. When that reads "a sentence in a
@@ -971,7 +987,10 @@ this is the UAT-descent shape:
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
 and `Where it actually stands`/`What's blocking` whenever there's real
 narrative to add (a round's findings, an escalation's actual question, what
-shipped at merge). Per `workstream-tracking.md`'s ownership rule: the skill
+shipped at merge), all of it under the canonical disclosure check — on a
+workstream that turned sensitive after its issue opened, the issue gets the
+sanitized tracking only and the narrative goes in the draft item
+(`workstream-tracking.md`). Per `workstream-tracking.md`'s ownership rule: the skill
 that moves the label moves the block, in the same edit, every time.
 
 An echo of my own comment bouncing back as a webhook event still needs the

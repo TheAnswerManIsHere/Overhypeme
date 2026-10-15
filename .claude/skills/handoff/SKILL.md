@@ -100,7 +100,9 @@ before Step 4 writes anything:
   container is refused as a resume point, never written down as one. An
   approved plan not yet committed is committed now (`claude-core.md`
   Planning rule 3), or, if it failed the disclosure check, is on the private
-  path that rule names. The abandon-by-enumeration alternative above never
+  path that rule names — a draft item no session can read back, so the
+  prompt says the destination asks David to paste it
+  (`workstream-tracking.md`). The abandon-by-enumeration alternative above never
   covers a file the destination needs. (Overhype.me #631, 2026-10-12: a
   State of Play line read *"plan in the planning session's working tree"*,
   nothing refused it, and the approved plan was lost with that container.)

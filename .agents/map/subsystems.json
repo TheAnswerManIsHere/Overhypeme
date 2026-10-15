@@ -1,0 +1,7 @@
+{
+  "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on. The vocabulary of @subsystem tags: each tag names the document that governs it. A tag marked infrastructure may be imported by every subsystem. Complete it and set adopted to true. Contract: docs/ai-context/agent-legible-codebase.md.",
+  "adopted": false,
+  "subsystems": {
+    "tooling": { "doc": "AGENTS.md", "infrastructure": true }
+  }
+}
