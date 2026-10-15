@@ -138,29 +138,38 @@ should validate-and-reject unknown tokens, not silently strip them.
 
 Because `validateTemplate` accepts any well-formed pair position-independently,
 an already-tokenized submission (`{Subj} keeps it`, `{Subj}'s fast`) could
-otherwise validate and store unrepaired. So **every** template-writing ingress
-runs the full `applyDeterministicGrammar` sequence, then validates, through one
+otherwise validate and store unrepaired. So **every** ingress of new template
+text runs the full `applyDeterministicGrammar` sequence, then validates, through one
 of the two variants of the shared server helper in
 `artifacts/api-server/src/lib/normalizeFactTemplateForStorage.ts`. Both return a
 discriminated union on `valid`.
 
 - **`normalizeFactTemplateForPendingReview(text)`** — normalize and validate, no
-  fact-only metadata. Every ingress that writes `pending_reviews.submittedText`
-  uses it: `POST /facts/submit-review` and `POST /admin/facts/:id/variants`
+  fact-only metadata. Every route that writes new text to
+  `pending_reviews.submittedText` uses it: `POST /facts/submit-review` and `POST /admin/facts/:id/variants`
   (422 on invalid), and the bulk paths `POST /admin/facts/import`,
   `POST /admin/facts/import-csv` and the API-key `POST /admin/import/facts`
   (which keep their existing response shapes and add a `failed` array — invalid
   rows are reported and skipped, valid rows queued: partial success).
 - **`normalizeFactTemplateForStorage(text)`** — the same, plus, on success, the
   derived `facts` columns (`canonicalText`, `splitTokenIndex`, `hasPronouns`)
-  computed from the FINAL normalized text. Its one caller is the approved-text
-  edit, `confirmedFactTextEdit` behind `PATCH /admin/facts/:id`.
+  computed from the FINAL normalized text. Its one route caller is the
+  approved-text edit, `confirmedFactTextEdit` behind `PATCH /admin/facts/:id`;
+  the legacy-fixture builder
+  (`artifacts/api-server/src/testing/legacyFixture/placeholderFacts.ts`) also
+  calls it and consumes all three derived columns.
 
 A pending review's metadata is derived when it becomes a staging fact:
 `ensureStagingFact` (`artifacts/api-server/src/lib/moderationStaging.ts`) computes
 the three columns itself from the already-normalized `submittedText`, without
-the helper. Normalization runs BEFORE dedupe/canonical/embedding so stored text
-and derived metadata never drift.
+the helper. Two paths re-enter moderation with text that is already stored and
+use neither variant: `POST /admin/facts/:id/send-back-to-review`
+(`sendBackToReview.ts`) and `POST /admin/facts/:id/resubmit-for-moderation`
+(`resubmitForModeration.ts`) copy the fact's own text into
+`pending_reviews.submittedText`, and because those reviews already point at a
+staging fact, `ensureStagingFact` returns that fact untouched. Normalization
+runs BEFORE dedupe/canonical/embedding so stored text and derived metadata
+never drift.
 
 The authoritative server-side `hasPronouns` detector for storage is
 `hasFactPronounMarkersForStorage` (same module) — it must NOT treat `{NAME}` or

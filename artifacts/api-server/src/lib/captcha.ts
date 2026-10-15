@@ -2,10 +2,11 @@
  * Shared hCaptcha server-side verification helper.
  *
  * Bypass rules (intentional):
- * - Dev/staging: if HCAPTCHA_SECRET is not set, verification is skipped with a warning.
- * - Production: if HCAPTCHA_SECRET is not set, all verifications fail (returns false).
+ * - NODE_ENV is not "production": if HCAPTCHA_SECRET is not set, verification is skipped with a warning.
+ * - NODE_ENV is "production": if HCAPTCHA_SECRET is not set, all verifications fail (returns false).
+ * This reads NODE_ENV alone, a narrower test than isProductionEnv in ./env (see #700).
  *
- * @purpose Server-side hCaptcha verification shared by every captcha-gated route; skips with a warning when no secret is configured outside production, and fails closed in production.
+ * @purpose Server-side hCaptcha verification shared by every captcha-gated route; with no secret configured it fails closed when NODE_ENV is production and skips with a warning otherwise, a narrower test than isProductionEnv (#700).
  * @subsystem security
  */
 import { logger } from "./logger";

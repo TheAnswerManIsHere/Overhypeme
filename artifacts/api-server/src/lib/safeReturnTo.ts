@@ -4,7 +4,7 @@
  * Rejects anything that isn't a plain absolute path on our own origin —
  * absolute URLs (`https://evil.com`), protocol-relative (`//evil.com`), and
  * non-path schemes (`javascript:…`) all collapse to `/`. Shared by the OAuth
- * callbacks and the dev-admin-login route so the open-redirect rule is
+ * login and link routes and the dev-admin-login route so the open-redirect rule is
  * single-sourced (see the path-classification / duplicate-source-of-truth
  * traps in docs/ai-context/known-failure-patterns.md).
  *
@@ -15,7 +15,7 @@
  * URL once handed to a redirect. Re-checking the prefix after resolution,
  * not only before it, is what catches this.
  *
- * @purpose Reduces a caller-supplied returnTo to a same-origin relative path, collapsing absolute, protocol-relative and scheme URLs to / and re-checking after resolution; the one open-redirect rule for the OAuth callbacks and the dev-admin login.
+ * @purpose Reduces a caller-supplied returnTo to a same-origin relative path, collapsing absolute, protocol-relative and scheme URLs to / and re-checking after resolution; the one open-redirect rule for the OAuth login and link routes and the dev-admin login.
  * @subsystem security
  */
 export function getSafeReturnTo(value: unknown): string {

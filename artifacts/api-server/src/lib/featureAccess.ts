@@ -28,7 +28,7 @@
  * admin lockout impossible by configuration: nothing that grants console
  * access lives in the grid.
  *
- * @purpose The permission chokepoint: the only module that reads the tier feature grid, resolving a principal's features as the union of its tier and admin rows, failing closed; also the requireFeature middleware, the admin matrix read and write, and the grid revision.
+ * @purpose The permission chokepoint: the only module that reads the tier feature grid, resolving a principal's features as the union of its tier and admin rows; the can and requireFeature gates fail closed, while the entitlement resolver behind the login payload throws on a database error; also the admin matrix read and write, and the grid revision.
  * @subsystem membership
  */
 

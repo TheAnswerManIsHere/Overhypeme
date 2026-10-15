@@ -21,7 +21,7 @@
  *      Rebuilding the Response object here drops the platform-injected
  *      cookie before it ever leaves the edge.
  *
- * @purpose Cloudflare Worker in front of overhype.me: serves known crawlers the OG shell for /m/:slug meme permalinks, passes everyone else through to the SPA, and strips the platform-injected Set-Cookie from meme-image and OG responses so the edge can cache them publicly.
+ * @purpose Cloudflare Worker in front of overhype.me: serves known crawlers the OG shell for /m/:slug meme permalinks, passes everyone else through to the SPA, and strips the platform-injected Set-Cookie from meme-image and OG responses, applying long-lived public edge caching only to a 200 the origin did not mark private or no-store.
  * @subsystem worker
  */
 import { isbot } from "isbot";
@@ -65,9 +65,10 @@ const MEME_IMAGE_EDGE_CACHE_VERSION = 4;
 
 /**
  * Fetch the origin response and return a clone that has all `Set-Cookie`
- * headers removed and a long-lived public Cache-Control.  Use for endpoints
- * that are safe to share across all users (meme images, OG shells) and that
- * would otherwise be poisoned by GCP's GAESA cookie.
+ * headers removed. Use for the meme-image and OG endpoints, which GCP's GAESA
+ * cookie would otherwise make uncacheable. The long-lived public Cache-Control
+ * is applied only to a 200 the origin did not mark private or no-store, so an
+ * owner-only meme image or OG shell keeps the origin's policy.
  */
 async function fetchAndStripCookies(request: Request): Promise<Response> {
   let originRequest: Request = request;

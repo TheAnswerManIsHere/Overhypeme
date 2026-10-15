@@ -1,5 +1,5 @@
 /**
- * @purpose The /activity page: a signed-in user's paginated feed of moderation outcomes on their own submissions and comments, read from /api/activity-feed, with mark-all-read.
+ * @purpose The /activity page: a signed-in user's paginated feed of status updates on their own submissions and comments, from posting to moderation outcome, read from /api/activity-feed, with mark-all-read.
  * @subsystem community
  */
 import { useState, useEffect } from "react";
