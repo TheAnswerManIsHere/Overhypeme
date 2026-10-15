@@ -83,7 +83,7 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` asserts the rendered summary's error tone, Last sync failed and plans
 
-**Deferred:** #631 — 7b — after the reload in the failure step, the sync-summary text containing plans did not complete: Simulated failure for testing, and Catalog data may be stale. — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — after the reload in the failure step, the sync-summary text containing plans did not complete: Simulated failure for testing, and Catalog data may be stale. — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 5. The Plans row itself shows the failure
 
@@ -109,7 +109,7 @@ and you'd see a cheerful product count instead.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` — presentation evidence, as step 5
 
-**Deferred:** #631 — 7b — after the reload, the red cross icon on the failed Plans row, beyond its data-status and error text — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — after the reload, the red cross icon on the failed Plans row, beyond its data-status and error text — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 7. The summary names which resource failed
 
@@ -136,7 +136,7 @@ something did sync, and something didn't; it should never round up to
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:a partial run is reported as failed, never rounded up to success`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` asserts the rendered error tone after Products and Prices completed
 
-**Deferred:** #631 — 7b — the Last synced stamp still appearing on the red summary while other rows are complete — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the Last synced stamp still appearing on the red summary while other rows are complete — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 9. A never-synced install says so, in amber
 
@@ -152,7 +152,7 @@ blank — "never ran" and "still working" must not look alike.
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all-idle with no stamps → never synced, not success`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:an all-idle status still renders, as the never-synced state` asserts the rendered never tone and Never synced, from a stubbed all-idle status
 
-**Deferred:** #631 — 7b — the amber line's actionable wording, run a full sync to populate the catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the amber line's actionable wording, run a full sync to populate the catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the never-tone sync-summary line carrying the text-amber-400 class, so it shows amber, not only data-tone never — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 10. The "Last synced" stamp survives a server restart
 

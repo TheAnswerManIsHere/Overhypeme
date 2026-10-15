@@ -226,9 +226,11 @@ in the app.
 
 **Expect:** Untouched.
 
-**Lane:** ci
+**Lane:** human
 
 **Check:** `artifacts/overhype-me/src/components/facts/HighlightedFactText.test.tsx:highlights a plain {NAME} substitution`; `artifacts/overhype-me/src/__tests__/factTextHighlighting.guard.test.ts:only allowlisted modules import the flat renderFact` — on-screen fact text goes through the highlighting renderer
+
+**Deferred:** #631 — increment 8 (capture and read) — the name inside fact text elsewhere in the app shows in the brand orange highlight
 
 ## Not bugs
 

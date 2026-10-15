@@ -92,7 +92,7 @@ grinding through. Splitting into smaller batches still works.
 
 **Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv accepts an import of exactly 2000 rows — the cap is inclusive` — a batch at the cap is accepted and every row processed
 
-**Deferred:** #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2 MB by bytes but under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 7. A bad email on set-password is refused
 
@@ -149,7 +149,7 @@ email (e.g. `notanemail`).
 
 **Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`
 
-**Deferred:** #631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2 MB by bytes but under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### R5. Set-password with a malformed email
 

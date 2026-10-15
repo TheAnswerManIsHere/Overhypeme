@@ -168,7 +168,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2 MB by bytes but under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "gap_clause": "#631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
     },
     {
      "text": "splitting into smaller batches still works: a CSV at the 2000-row cap is accepted and every row processed",
@@ -328,7 +328,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2 MB by bytes but under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "gap_clause": "#631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
     }
    ]
   },
@@ -1333,18 +1333,18 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "the over-long Concept is rejected rather than saved",
+     "text": "the box stops accepting text at 1,500 characters",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the fact enrichment PATCH answering 400 visual_strategy_override_over_budget with a core_scene_raw_too_long detail and leaving the row unchanged, for a Concept over 1500 characters — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "gap_clause": "#631 — 7b — the Visual Concept box's textarea carrying maxLength 1500, so text pasted past 1,500 characters is cut there and the counter reads 1500/1500 — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
     },
     {
-     "text": "the rejection explains it is over the prompt budget by raw length",
+     "text": "its counter reads 1500/1500",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor showing the server's message, The Visual Concept is N characters, the maximum is 1500, not the code visual_strategy_override_over_budget — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`"
+     "gap_clause": "#631 — 7b — the Visual Concept box's textarea carrying maxLength 1500, so text pasted past 1,500 characters is cut there and the counter reads 1500/1500 — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
     }
    ]
   },
@@ -1363,10 +1363,16 @@
     },
     {
      "text": "the rejection says it expands to up to N characters once names are filled in",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor showing the server's message that the Visual Concept expands to up to N characters once names/pronouns are filled in, not the code — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx",
+       "line": 347,
+       "quote": "expect(msg).toMatch(/expands to up to \\d+ characters once names\\/pronouns are filled in; the maximum is 2000/);"
+      }
+     ],
+     "fails_because": "if the editor showed the error code instead of the server budget sentence, the toMatch on \"expands to up to N characters\" fails (REGRESSION #685)",
+     "gap_clause": null
     }
    ]
   },
@@ -1399,11 +1405,24 @@
      "gap_clause": "#631 — 7b — the fact enrichment PATCH answering 400 with a moderator_additions_rendered_too_long detail for many role bindings, required details, composition notes and additions together — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
     },
     {
-     "text": "the rejection reports the combined guidance is over budget",
+     "text": "the combined guidance is measured through the compiler for a real mix of entries",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor showing the server's message that your visual guidance adds up to N characters over the combined maximum, not the code — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`"
+     "gap_clause": "#631 — 7b — the combined-guidance rejection for an actual mix of role bindings, required details, composition notes and additions measured through the compiler is unasserted, the cited checks inject the emitted length — `artifacts/api-server/src/__tests__/promptBudget.test.ts`"
+    },
+    {
+     "text": "the rejection reports the combined guidance is over budget",
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx",
+       "line": 348,
+       "quote": "expect(msg).toContain(budgetMessage(\"moderator_additions_rendered_too_long\"));"
+      }
+     ],
+     "fails_because": "if the editor dropped the combined-guidance budget sentence, the toContain on its budget message fails (REGRESSION #685)",
+     "gap_clause": null
     },
     {
      "text": "individual normal entries save on their own",
@@ -4255,7 +4274,7 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "the summary line is red (the error tone)",
+     "text": "the summary line carries the error tone",
      "status": "asserted",
      "evidence": [
       {
@@ -4271,6 +4290,13 @@
      ],
      "fails_because": "if the page derived a non-error tone for a failed run, data-tone would not be error and this fails",
      "gap_clause": null
+    },
+    {
+     "text": "the summary line is red",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     },
     {
      "text": "it reads Last sync failed",
@@ -4377,7 +4403,7 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "after a reload the red summary line is still there",
+     "text": "after a reload the summary line still carries the error tone",
      "status": "asserted",
      "evidence": [
       {
@@ -4398,6 +4424,13 @@
      ],
      "fails_because": "if the panel or summary rendered only during a run (the original bug), after page.reload the summary is absent or not in the error tone and these fail",
      "gap_clause": null
+    },
+    {
+     "text": "after a reload the summary line is still red",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     },
     {
      "text": "after a reload the Plans row still reports the failure",
@@ -4454,7 +4487,7 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "the summary is red, not green, while the other rows completed",
+     "text": "the summary carries the error tone, not ok, while the other rows completed",
      "status": "asserted",
      "evidence": [
       {
@@ -4477,6 +4510,13 @@
      "gap_clause": null
     },
     {
+     "text": "the summary shows red, not green",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+    },
+    {
      "text": "the Last synced stamp still appears on that red summary",
      "status": "gap",
      "evidence": [],
@@ -4492,7 +4532,7 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "an amber line shows, not a spinner and not blank (the never tone)",
+     "text": "a summary line shows in the never tone, not a spinner and not blank",
      "status": "asserted",
      "evidence": [
       {
@@ -4508,6 +4548,13 @@
      ],
      "fails_because": "if an all-idle status rendered nothing or the running tone, data-tone would be absent or running and this fails",
      "gap_clause": null
+    },
+    {
+     "text": "that line is amber",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — the never-tone sync-summary line carrying the text-amber-400 class, so it shows amber, not only data-tone never — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     },
     {
      "text": "it reads Never synced",
@@ -7348,10 +7395,10 @@
    "doc": "PR398_MEME_SPLIT_CAPTION_PERSONALIZATION_UAT.md",
    "id": "R5",
    "heading": "R5. The name highlight elsewhere in the app is untouched",
-   "lane": "ci",
+   "lane": "human",
    "clauses": [
     {
-     "text": "the orange highlight on the name in fact text elsewhere in the app is untouched",
+     "text": "the name in fact text elsewhere in the app keeps its highlight span (text-primary)",
      "status": "asserted",
      "evidence": [
       {
@@ -7365,11 +7412,6 @@
        "quote": "expect(highlightedSpans(container)).toEqual([\"Sam\"]);"
       },
       {
-       "path": "artifacts/overhype-me/src/index.css",
-       "line": 38,
-       "quote": "--primary: 24 100% 50%;"
-      },
-      {
        "path": "artifacts/overhype-me/src/__tests__/factTextHighlighting.guard.test.ts",
        "line": 142,
        "quote": "if (!(rel in FLAT_RENDER_ALLOWLIST)) offenders.push(rel);"
@@ -7377,6 +7419,13 @@
      ],
      "fails_because": "if the shared renderer stopped wrapping the name in the text-primary (orange, hue 24) span, the span list would be empty and toEqual fails; if a surface switched to the flat renderFact, the guard's offender list fails",
      "gap_clause": null
+    },
+    {
+     "text": "that highlight shows in the brand orange",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — increment 8 (capture and read) — the name inside fact text elsewhere in the app shows in the brand orange highlight"
     }
    ]
   },
@@ -9647,7 +9696,7 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "the verification box renders in its verified (green) state",
+     "text": "the verification box renders in its verified state",
      "status": "asserted",
      "evidence": [
       {
@@ -9658,6 +9707,13 @@
      ],
      "fails_because": "if the component stopped reaching verified from a verified sample, data-state would stay pending and this fails",
      "gap_clause": null
+    },
+    {
+     "text": "the verified box is green",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — the verification box in its verified state carrying the text-green-400 class, so it shows green, not only data-state verified — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`"
     },
     {
      "text": "the box reads Payments verified",
@@ -10981,8 +11037,8 @@
  ],
  "counts": {
   "steps": 324,
-  "asserted": 263,
-  "gap": 489,
+  "asserted": 265,
+  "gap": 494,
   "live": 1
  }
 }

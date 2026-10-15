@@ -44,7 +44,7 @@ toggle still works and now explains itself, and that paying still works exactly 
 
 **Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`
 
-**Deferred:** #631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the verification box in its verified state carrying the text-green-400 class, so it shows green, not only data-state verified — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`
 
 ### 2. That report says which instance it speaks for
 
