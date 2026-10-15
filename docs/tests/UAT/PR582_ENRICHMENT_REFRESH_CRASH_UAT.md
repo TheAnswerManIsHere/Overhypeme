@@ -53,6 +53,8 @@ been retried yet.
 
 **Check:** `ask_question` (read-only): report the enrichment lane's queued/working/done/failed counts and any async_jobs row whose last error contains the forEach message; compare to the setup capture
 
+**Deferred:** #631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`
+
 ### 2. The stuck facts start clearing on the Moderation screen
 
 **Do:** Go to **Admin → Moderation** and read the banner plus the rows that were
@@ -67,7 +69,7 @@ their backoff window may legitimately still read `Preparing…`.
 
 **Check:** `ask_question` (read-only): list review rows in prep_pending and their enrichment status and workflow stage; compare to the setup capture
 
-**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen whose row labels this step reads is rebuilt in Phase 13
+**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen whose row labels this step reads is rebuilt in Phase 13; #631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`
 
 ### 3. A fresh send-back completes end to end
 
@@ -85,7 +87,7 @@ Queue Health shows no new job carrying the `forEach` error.
 
 **Check:** `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)`
 
-**Deferred:** #628 — Phase 13 (Admin console) — the Enrichment ready and concept-stage labels on the Moderation row sit on the screen Phase 13 rebuilds
+**Deferred:** #631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`; #628 — Phase 13 (Admin console) — the Enrichment ready and concept-stage labels on the Moderation row sit on the screen Phase 13 rebuilds
 
 ### 4. A fact carrying a moderator visual override refreshes
 
@@ -102,7 +104,7 @@ content you noted before the refresh, word for word.
 
 **Check:** `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override whose lists are absent (no schema parse)`
 
-**Deferred:** #631 — 7b — a send-back of a fact whose stored visual override lacks its list fields completes to concept_review and keeps the override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`; #628 — Phase 13 (Admin console) — the Enrichment ready label on the Moderation row is on the screen Phase 13 rebuilds
+**Deferred:** #631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`; #628 — Phase 13 (Admin console) — the Enrichment ready label on the Moderation row is on the screen Phase 13 rebuilds; #631 — 7b — the editor rendered with that refresh candidate's enrichment shows the override's core scene and required visual detail text verbatim in its Visual Concept and override fields — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### 5. An empty override is still reported as empty
 
@@ -116,7 +118,7 @@ or one whose override is an empty scaffold.
 
 **Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override that is a bare version stub` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)`
 
-**Deferred:** #631 — 7b — the Enrichment editor showing no Overridden bar when a fact has no override or only an empty scaffold is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Deferred:** #631 — 7b — the Enrichment editor showing no Overridden bar when a fact has no override or only an empty scaffold is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`; #631 — 7b — GET /admin/facts/:id/enrichment-resolved returns overrideSummary.hasVisualStrategyOverride false for a fact with no visual override and for one storing an empty scaffold — `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts`
 
 ### 6. Saving a visual override still works
 
@@ -130,7 +132,7 @@ edited value.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override`
 
-**Deferred:** #631 — 7b — reopening the editor after the save shows the saved required visual detail, loaded through the save and reload path — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Deferred:** #631 — 7b — reopening the editor after the save shows the saved required visual detail, loaded through the save and reload path — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`; #631 — 7b — after that PATCH, GET /api/admin/facts/:id returns the edited required visual detail in enrichment.visualPromptStrategyOverride.requiredVisualDetails — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — tokenizeAndSaveVisualOverride on a fact target with a newly added required visual detail returns true and sends PATCH /api/admin/facts/:id/enrichment carrying it — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
 
 ## Regression
 
@@ -158,6 +160,8 @@ subtype, fit — and no error banner.
 
 **Lane:** ci
 
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:returns the enrichment and enrichmentStatus` — the editor's load request, GET /api/admin/facts/:id, returns the fact's completed enrichment
+
 **Deferred:** #631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### R3. PR216 step 3 is reachable again
@@ -173,7 +177,7 @@ being blocked.
 
 **Check:** `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override whose lists are absent (no schema parse)`
 
-**Deferred:** #631 — 7b — a send-back of a fact whose stored visual override lacks its list fields completes to concept_review, the same regression step 4 owes — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`
 
 ## Not bugs
 

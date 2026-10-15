@@ -36,11 +36,11 @@ three are freely editable like any other setting: `NCMEC Safety Alert
 Email`, `NCMEC Submit — Max Attempts`, and `NCMEC Submit — 4th Retry
 Delay (ms)`.
 
-**Lane:** scripted
+**Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/migrations.0097.test.ts:seeds exactly the keys ncmecConfig declares, and reserves exactly five`
 
-**Deferred:** #628 — Phase 14 (compliance) — the page rendering all eight as generic cards is unasserted, no spec opens /admin/config, and the Safety surface built there decides where these keys show
+**Deferred:** #628 — Phase 14 (compliance) — the page rendering all eight as generic cards is unasserted, no spec opens /admin/config, and the Safety surface built there decides where these keys show; #631 — 7b — admin PATCH /admin/config of each of the three unreserved NCMEC keys returns 200 and stores the new value — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 2. A reserved setting refuses to save
 

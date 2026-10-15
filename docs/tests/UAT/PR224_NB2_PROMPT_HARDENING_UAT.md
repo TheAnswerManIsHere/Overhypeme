@@ -35,7 +35,7 @@ raw length, instead of it saving and quietly breaking the render.
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
 
-**Deferred:** #631 — 7b — the rejection text the moderator sees on an over-length Concept is unasserted, the editor shows the error code and not the length message — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 visual_strategy_override_over_budget with a core_scene_raw_too_long detail and leaving the row unchanged, for a Concept over 1500 characters — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the editor showing the server's message, The Visual Concept is N characters, the maximum is 1500, not the code visual_strategy_override_over_budget — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
 
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 
@@ -49,7 +49,7 @@ once names are filled in."
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap`
 
-**Deferred:** #631 — 7b — the rejection text saying the Concept expands to up to N characters is unasserted, the editor shows the error code only — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a core_scene_rendered_too_long detail for a Concept of 110 {NAME} tokens under the raw cap — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the editor showing the server's message that the Visual Concept expands to up to N characters once names/pronouns are filled in, not the code — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
 
 ### 3. Trimming an over-budget Concept lets it save
 
@@ -62,6 +62,8 @@ budget and Save again.
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
 
+**Deferred:** #631 — 7b — the fact enrichment PATCH accepting with 200 and storing a token-free Concept just under the cap, about 1,490 characters — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+
 ### 4. Excessive aggregate visual guidance is rejected
 
 **Do:** Add role bindings, required details, composition notes, and
@@ -73,9 +75,9 @@ aggregate that's capped.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a single normal required detail saves with 200
 
-**Deferred:** #631 — 7b — the combined-guidance rejection for a mix of role bindings, required details, composition notes and additions is unasserted, and its text reaches no screen — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a moderator_additions_rendered_too_long detail for many role bindings, required details, composition notes and additions together — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the editor showing the server's message that your visual guidance adds up to N characters over the combined maximum, not the code — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
 
 ### 5. A deterministically-broken render fails fast with a specific reason
 
@@ -90,7 +92,7 @@ forever or shipping a degraded image.
 
 **Check:** `artifacts/api-server/src/__tests__/asyncJobs.test.ts:terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:signals required_budget_overflow instead of silently truncating required content (§10.5)`
 
-**Deferred:** #631 — 7b — the render handler turning a corrupt frozen enrichment, a leaked token or a required-budget overflow into a failed attempt with its specific error code is unasserted — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
+**Deferred:** #631 — 7b — the image-prompt job turning a corrupt frozen enrichment, a leaked {NAME} token or a required-budget overflow into a first-attempt terminal failure with its specific code and no image_generation job — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
 
 ### 6. Built-in style descriptions are shorter but look the same
 
@@ -129,6 +131,8 @@ Save.
 **Lane:** scripted
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 3 and 6: a valid fact's review renders reach done with decodable images, and the paid user's render reaches image_ready
+
+**Deferred:** #631 — 7b — a paid generate with a selected look style polling to image_ready with a decodable image, every journey renders with no style selected — acceptance journey 6
 
 ## Not bugs
 
