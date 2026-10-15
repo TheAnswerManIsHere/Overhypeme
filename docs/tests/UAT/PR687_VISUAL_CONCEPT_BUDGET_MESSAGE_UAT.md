@@ -20,7 +20,7 @@ message can be two or three sentences long.
 
 - [claude] Confirm the Repl is synced to the merge commit of this PR.
 - [claude] Post in chat a ready-to-paste Visual Concept of exactly 1,500 characters, dense with `{NAME}` tokens: it fits the box, but once names are filled in it expands past the 2,000-character budget.
-- [restore] Nothing to restore on the server: a refused save writes nothing. Step 4 ends by discarding the unsaved edit on each screen, which clears it from your browser too.
+- [restore] Nothing to restore on the server: a refused save writes nothing. Step 4 ends by discarding the unsaved edit on each screen, which clears it from your browser too. On the moderation page that Discard is reached after a reload, because the page hides it behind the error (#691).
 
 ## Steps
 
@@ -56,7 +56,7 @@ message can be two or three sentences long.
 
 ### 4. The refusal reads well on both screens
 
-**Do:** On the moderation page, open any item at the Visual Concept step, replace the Visual Concept with the one from chat (the counter reads 1500/1500), and click Save. Read the red message, then click Discard. Then on the Facts page, open any fact's Visual Taxonomy Enrichment, replace its Visual Concept with the same text, save, read the red message in the header bar, and click "Discard changes".
+**Do:** On the moderation page, open any item at the Visual Concept step, replace the Visual Concept with the one from chat (the counter reads 1500/1500), and click Save. Read the red message. The Save/Discard bar disappears behind it; that is #691, not this fix. To clear the edit, reload the page, reopen the same item at the Visual Concept step, and click Discard on the bar that has returned. Reopening the item afterwards shows its original saved Concept and no unsaved-changes bar. Then on the Facts page, open any fact's Visual Taxonomy Enrichment, replace its Visual Concept with the same text, save, read the red message in the header bar, and click "Discard changes".
 
 **Expect:** On both screens the message reads "The Visual Concept expands to up to N characters once names/pronouns are filled in; the maximum is 2000. Shorten it or use fewer personalization tokens." It is readable and tells you what to shorten and by roughly how much. It is not cut off or crammed so tightly in the Facts header bar that you can't take it in. Nothing saves on either screen.
 
@@ -78,4 +78,5 @@ message can be two or three sentences long.
 
 - **A long message on the Facts page.** When a Concept breaks two or three limits at once, all of their sentences are shown together, so you can fix everything in one pass. If that reads badly in step 4, say so: showing only the first sentence is a one-line change.
 - **A Concept pushed past 1,500 characters by name chips or by tokenizing shows "… at most 1500 character(s)".** The box stops typing and pasting at 1,500, but inserted name chips and the tokenizer can lengthen the text past it. The server's schema check then refuses it before the budget check, with its own wording and the number. That message predates this fix.
+- **On the moderation page, the Save/Discard bar disappears after a refused save.** That predates this fix and is tracked as #691. Saving still works through "Save enrichment" in Advanced Options, and Discard comes back after a reload.
 - **`visual_concept_required` still shows as a bare code.** That is a different refusal, for a missing Concept, and the server sends no sentence behind it. It is outside this fix and is recorded on #631.
