@@ -1,6 +1,6 @@
 /**
  * @purpose Navbar name tag where a visitor views and edits the name and pronouns their facts render with, including the AI pronoun suggestion.
- * @subsystem token-rendering
+ * @subsystem public-site
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";

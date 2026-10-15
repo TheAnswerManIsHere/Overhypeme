@@ -1,6 +1,6 @@
 /**
  * @purpose React context and hook holding the visitor's personalization name and pronouns, persisted in localStorage and seeded from share-link parameters.
- * @subsystem token-rendering
+ * @subsystem public-site
  */
 
 import { createContext, useContext, useState, useEffect, ReactNode, createElement } from "react";

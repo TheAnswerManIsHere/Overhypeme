@@ -4,7 +4,7 @@
  * This is a suggestion only — users always pick their own pronouns.
  *
  * @purpose Suggests he/him or she/her from a first name via a common-names table, used to prefill the pronoun choice on Home and Login.
- * @subsystem token-rendering
+ * @subsystem public-site
  */
 
 const MALE_NAMES = new Set([

@@ -1,9 +1,4 @@
 /**
- * @purpose Computes the default top/bottom word split stored on each fact for the image wizard's two caption blocks.
- * @subsystem token-rendering
- */
-
-/**
  * Picks a sensible default word-split index for a fact template.
  *
  * The split index is the number of words that go into the *top* text block
@@ -18,6 +13,9 @@
  * `overhype-me/src/components/meme-builder/wizard/step2-image/sliders/splitLogic.ts`
  * but is kept server-side so the value can be persisted on the facts row at
  * insert time and served back to the wizard without client-side computation.
+ *
+ * @purpose Computes the default top/bottom word split stored on each fact for the image wizard's two caption blocks.
+ * @subsystem token-rendering
  */
 export function computeSplitTokenIndex(text: string): number {
   const words = text.split(/\s+/).filter((w) => w.length > 0);
