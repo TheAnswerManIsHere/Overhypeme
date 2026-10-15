@@ -4211,18 +4211,18 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "a green line reads Last sync completed, in the branch the state produces (3 of 8 resources reported, or completed successfully)",
+     "text": "a green line reads Sync complete, naming what was synced and how long it took",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — after the Sync Stripe data run, the green sync-summary text equal to the one branch the CI fake state produces, 3 of 8 resources reported or completed successfully, asserted in full, then Last synced just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#631 — 7b — after the Sync Stripe data run, the green line reading Sync complete followed by the synced counts and the run's duration, and the Plans header reading Last synced: just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     },
     {
-     "text": "the same line reads Last synced just now",
+     "text": "the Plans header reads Last synced: just now",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — after the Sync Stripe data run, the green sync-summary text equal to the one branch the CI fake state produces, 3 of 8 resources reported or completed successfully, asserted in full, then Last synced just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#631 — 7b — after the Sync Stripe data run, the green line reading Sync complete followed by the synced counts and the run's duration, and the Plans header reading Last synced: just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     }
    ]
   },
@@ -4237,14 +4237,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and text Last sync completed, beyond the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and its full text, Last sync completed followed by N of 8 resources reported or successfully as the CI state produces, not the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     },
     {
      "text": "it does not revert to a bare product count",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and text Last sync completed, beyond the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and its full text, Last sync completed followed by N of 8 resources reported or successfully as the CI state produces, not the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     }
    ]
   },
@@ -9823,18 +9823,18 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "the Stripe Connection section opens with no errors",
+     "text": "the Setup Checklist section opens with no errors",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the Stripe Connection section reading Connected to Stripe, and the six STRIPE_*_TEST and _LIVE CheckRows rendering via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#631 — 7b — the Setup Checklist section rendering the six STRIPE_*_TEST and _LIVE CheckRows with no missing row and no error, via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     },
     {
      "text": "the list of environment-variable checkmarks renders with no missing rows",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the Stripe Connection section reading Connected to Stripe, and the six STRIPE_*_TEST and _LIVE CheckRows rendering via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#631 — 7b — the Setup Checklist section rendering the six STRIPE_*_TEST and _LIVE CheckRows with no missing row and no error, via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
     }
    ]
   },
@@ -9909,7 +9909,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "gap_clause": "#631 — 7b — a job that failed with an error and then succeeded on retry showing no error in the Queue Health response, which stays open until #692 lands with its regression test — `artifacts/api-server/src/__tests__/queueHealth.test.ts`"
     },
     {
      "text": "the enrichment lane's failed count is no higher than the setup capture",

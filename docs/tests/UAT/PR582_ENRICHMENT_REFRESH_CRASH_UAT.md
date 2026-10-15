@@ -53,7 +53,7 @@ been retried yet.
 
 **Check:** `ask_question` (read-only): report the enrichment lane's queued/working/done/failed counts and any async_jobs row whose last error contains the forEach message; compare to the setup capture
 
-**Deferred:** #631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`; #631 — 7b — a job that failed with an error and then succeeded on retry showing no error in the Queue Health response, which stays open until #692 lands with its regression test — `artifacts/api-server/src/__tests__/queueHealth.test.ts`
 
 ### 2. The stuck facts start clearing on the Moderation screen
 

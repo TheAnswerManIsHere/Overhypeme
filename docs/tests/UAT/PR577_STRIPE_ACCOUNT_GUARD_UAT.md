@@ -108,14 +108,15 @@ change — same screens, same wording, no new message anywhere in the flow.
 
 ### R1. The Stripe connection checklist still renders
 
-**Do:** On the Billing page, open the "Stripe Connection" section.
+**Do:** On the Billing page, open the "Setup Checklist" section (David,
+2026-10-15: the checkmarks live there, not under "Stripe Connection").
 
 **Expect:** The list of environment-variable checkmarks renders as it did before, with no missing
 rows and no errors.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Stripe Connection section reading Connected to Stripe, and the six STRIPE_*_TEST and _LIVE CheckRows rendering via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the Setup Checklist section rendering the six STRIPE_*_TEST and _LIVE CheckRows with no missing row and no error, via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R2. A manual Stripe sync still runs
 

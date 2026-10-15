@@ -171,4 +171,9 @@ email (e.g. `notanemail`).
 - **The import caps are generous.** 1000 facts / 2000 CSV rows per call
   is well above a normal batch; if you ever hit them, just import in
   chunks.
+- **A CSV over about 2 MB gets a generic server error, not the clear
+  message.** The server's 2 MiB request limit rejects it before the import
+  route runs. Accepted by David on 2026-10-15: the import is only ever used
+  for a few hundred rows (`decisions.md`, 2026-10-15). A CSV just over the
+  2,000,000-character cap but under 2 MiB still gets the clear error.
 - **No user-facing change.** Nothing outside the admin panel is affected.

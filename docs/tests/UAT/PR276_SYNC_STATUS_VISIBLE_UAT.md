@@ -44,18 +44,19 @@ bug.
 
 **Do:** Click "Sync Stripe data" and let it finish.
 
-**Expect:** A green line reads *"Last sync completed …"* and *"Last synced
-just now."* This button syncs three of the eight resource types, so the
-line reads *"Last sync completed — 3 of 8 resources reported"* unless every
-resource is already complete from an earlier full backfill, when it reads
-*"Last sync completed successfully."* Both are a working sync (David,
-2026-10-14).
+**Expect:** A green line reads *"Sync complete — … synced in …"*, naming
+what was synced and how long it took, and the Plans header reads *"Last
+synced: just now"*. The summary line, *"Last sync completed — N of 8
+resources reported."* or *"Last sync completed successfully."* once all eight
+resource types are complete, is hidden while that message shows and appears
+after a reload (step 3). Both are a working sync (David, 2026-10-14; the
+after-click wording corrected 2026-10-15).
 
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all complete → ok, with the most recent stamp`
 
-**Deferred:** #631 — 7b — after the Sync Stripe data run, the green sync-summary text equal to the one branch the CI fake state produces, 3 of 8 resources reported or completed successfully, asserted in full, then Last synced just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — after the Sync Stripe data run, the green line reading Sync complete followed by the synced counts and the run's duration, and the Plans header reading Last synced: just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 3. The green summary survives a reload
 
@@ -68,7 +69,7 @@ doesn't revert to a bare product count.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:surfaces stored row state (running / complete / error) and per-resource counts derived from the data tables`
 
-**Deferred:** #631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and text Last sync completed, beyond the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and its full text, Last sync completed followed by N of 8 resources reported or successfully as the CI state produces, not the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 4. A failed sync shows a red summary — the main event
 

@@ -13,6 +13,24 @@
 
 ---
 
+### 2026-10-15 · An oversized CSV import's generic error is accepted
+- **Decision:** a CSV import whose body exceeds the server's 2 MiB request
+  limit gets a generic 500 "Internal server error", not the clear "too many /
+  invalid input" message PR218 step 6 and R4 describe, and nothing is changed
+  for it. David, 2026-10-15: *"I'm never going to use the CSV import and even
+  if I did it would only be for a few hundred rows. It'll never exceed that
+  size. If I ever need to do something with it in the future we'll fix it
+  then."*
+- **Why:** the body-size limit (`app.ts`, `express.json({ limit: "2mb" })`)
+  rejects the request before the import route's own size check runs, and the
+  fallback error handler answers every unhandled error with a 500. A CSV
+  between 2,000,001 characters and 2 MiB still reaches the route and gets the
+  clear 400; the 2000-row cap is unaffected. The import is an admin tool used
+  far below either limit.
+- **Reference:** #690 (7b part 1's re-read found it), PR218 step 6 and R4's
+  *Not bugs* note.
+- **Revisit if:** the CSV import is used for large batches.
+
 ### 2026-10-14 · The dev-admin-login backdoor is cut for launch
 - **Decision:** the dev-admin-login route and its wordmark triple-tap are
   removed before launch (Phase 4, cut and prune), and are not given further
