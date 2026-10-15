@@ -1,19 +1,152 @@
 {
-  "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on: the sync never overwrites it. Complete it, set adopted to true, and run node scripts/map.mjs build. Setting enabled to false stands every guard and the forcing rule down at once (the back-out). Contract: docs/ai-context/agent-legible-codebase.md.",
-  "_programs": "Every TypeScript program the indexed files belong to: each product tsconfig, plus supplementary programs for files no product tsconfig reaches (tests a tsconfig excludes, JavaScript tooling). A supplementary program takes roots (globs), and may extend a tsconfig to inherit its paths and options. The build refuses when an indexed file is reached by no program.",
+  "_README": "Owned by this repository (seeded by the AI-Handbook sync, completed 2026-10-15 for #683 Phase 1). Contract: docs/ai-context/agent-legible-codebase.md. Approved plan: docs/plans/PLAN_AGENT_LEGIBLE_CODEBASE.md, decisions 1 and 2. Setting enabled to false stands every guard and the forcing rule down at once (the back-out).",
+  "_sets": "Indexed: every source file under the six areas below; artifacts/mockup-sandbox is a design space with no production consumer and is left out. Headered: indexed minus tests and e2e (their purpose is the describe block), vendored components/ui, the type templates patch-generated.mjs copies verbatim into generated output, codegen-owned paths, .d.ts and synced files (the last three by the tool itself). Sized: the headered set.",
+  "_codegenOwned": "Every generated source-output family, with the command that owns it. lib/api-zod/src/index.ts is rewritten by the api-spec codegen (measured 2026-10-15 by planting a comment and running codegen); lib/api-client-react/src/index.ts is not, and is handwritten.",
   "adopted": false,
   "enabled": true,
   "programs": [
-    { "tsconfig": "tsconfig.json" },
-    { "name": "tooling", "roots": ["scripts/**/*.{mjs,js,ts}"], "compilerOptions": { "allowJs": true } }
+    {
+      "tsconfig": "artifacts/api-server/tsconfig.json"
+    },
+    {
+      "tsconfig": "artifacts/overhype-me/tsconfig.json"
+    },
+    {
+      "tsconfig": "cloudflare/og-router/tsconfig.json"
+    },
+    {
+      "tsconfig": "lib/api-client-react/tsconfig.json"
+    },
+    {
+      "tsconfig": "lib/api-zod/tsconfig.json"
+    },
+    {
+      "tsconfig": "lib/db/tsconfig.json"
+    },
+    {
+      "tsconfig": "lib/integrations-anthropic-ai/tsconfig.json"
+    },
+    {
+      "tsconfig": "lib/integrations-openai-ai-server/tsconfig.json"
+    },
+    {
+      "tsconfig": "lib/redact/tsconfig.json"
+    },
+    {
+      "tsconfig": "lib/replit-auth-web/tsconfig.json"
+    },
+    {
+      "tsconfig": "scripts/tsconfig.json"
+    },
+    {
+      "name": "overhype-me-tooling",
+      "_why": "the frontend's .test.ts files (its tsconfig excludes them), e2e, scripts and config files, resolved with the frontend's own paths so @/* works",
+      "extends": "artifacts/overhype-me/tsconfig.json",
+      "roots": [
+        "artifacts/overhype-me/src/**/*.test.ts",
+        "artifacts/overhype-me/e2e/**",
+        "artifacts/overhype-me/scripts/**",
+        "artifacts/overhype-me/*.config.ts"
+      ]
+    },
+    {
+      "name": "api-server-tooling",
+      "_why": "operational scripts and the build script outside src/",
+      "extends": "artifacts/api-server/tsconfig.json",
+      "roots": [
+        "artifacts/api-server/scripts/**",
+        "artifacts/api-server/*.mjs"
+      ],
+      "compilerOptions": {
+        "allowJs": true
+      }
+    },
+    {
+      "name": "db-tooling",
+      "_why": "drizzle config and snapshot scripts outside src/",
+      "extends": "lib/db/tsconfig.json",
+      "roots": [
+        "lib/db/drizzle.config.ts",
+        "lib/db/scripts/**"
+      ]
+    },
+    {
+      "name": "redact-tests",
+      "_why": "the redact package's tsconfig excludes its tests",
+      "extends": "lib/redact/tsconfig.json",
+      "roots": [
+        "lib/redact/src/__tests__/**"
+      ]
+    },
+    {
+      "name": "api-spec",
+      "_why": "orval config, the codegen patcher and its type templates; no tsconfig",
+      "roots": [
+        "lib/api-spec/**"
+      ]
+    },
+    {
+      "name": "integrations-batch",
+      "_why": "lib/integrations/ has no tsconfig",
+      "roots": [
+        "lib/integrations/**"
+      ]
+    },
+    {
+      "name": "repo-tooling",
+      "_why": "consumer-owned and synced root scripts, their tests, and synced skill helpers",
+      "roots": [
+        "scripts/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}",
+        "scripts/__tests__/**",
+        ".claude/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
+      ]
+    }
   ],
   "sets": {
     "indexed": {
-      "include": ["**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"],
-      "exclude": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**", "**/*.min.js"]
+      "include": [
+        "artifacts/api-server/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}",
+        "artifacts/overhype-me/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}",
+        "cloudflare/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}",
+        "lib/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}",
+        "scripts/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}",
+        ".claude/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
+      ],
+      "exclude": [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/coverage/**",
+        "**/*.min.js"
+      ]
     },
-    "headered": { "exclude": ["**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/e2e/**"] },
-    "sized": { "exclude": [] }
+    "headered": {
+      "exclude": [
+        "**/__tests__/**",
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/e2e/**",
+        "**/components/ui/**",
+        "lib/api-spec/type-templates/**"
+      ]
+    },
+    "sized": {
+      "exclude": []
+    }
   },
-  "codegenOwned": []
+  "codegenOwned": [
+    {
+      "paths": [
+        "lib/api-zod/src/generated/**",
+        "lib/api-client-react/src/generated/**",
+        "lib/api-zod/src/index.ts"
+      ],
+      "command": "pnpm --filter @workspace/api-spec run codegen"
+    },
+    {
+      "paths": [
+        "artifacts/overhype-me/src/generated/help/**"
+      ],
+      "command": "pnpm --filter @workspace/overhype-me run generate:help"
+    }
+  ]
 }

@@ -1,6 +1,11 @@
 ---
 paths:
-  - "__complete-during-adoption__/**"
+  - "artifacts/api-server/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
+  - "artifacts/overhype-me/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
+  - "cloudflare/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
+  - "lib/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
+  - "scripts/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
+  - ".claude/**/*.{ts,tsx,mts,cts,mjs,cjs,js,jsx}"
 ---
 
 <!-- Seeded once by the AI-Handbook sync and owned by this repository from then on. At adoption, replace the path above with the globs of sets.indexed.include in .agents/map/config.json, so this rule loads whenever an agent touches an indexed file. -->
