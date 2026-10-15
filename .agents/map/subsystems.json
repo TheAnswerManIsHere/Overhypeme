@@ -1,7 +1,62 @@
 {
-  "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on. The vocabulary of @subsystem tags: each tag names the document that governs it. A tag marked infrastructure may be imported by every subsystem. Complete it and set adopted to true. Contract: docs/ai-context/agent-legible-codebase.md.",
+  "_README": "Owned by this repository. The vocabulary of @subsystem tags: each product tag names the docs/ai-context document that governs it; infrastructure tags may be imported by every subsystem. Contract: docs/ai-context/agent-legible-codebase.md; plan decision 8.",
   "adopted": false,
   "subsystems": {
-    "tooling": { "doc": "AGENTS.md", "infrastructure": true }
+    "accounts-auth": {
+      "doc": "docs/ai-context/accounts-and-auth.md"
+    },
+    "admin-console": {
+      "doc": "docs/ai-context/admin-console.md"
+    },
+    "community": {
+      "doc": "docs/ai-context/community-and-engagement.md"
+    },
+    "legal-safety": {
+      "doc": "docs/ai-context/legal-safety-moderation.md"
+    },
+    "membership": {
+      "doc": "docs/ai-context/membership-entitlements.md"
+    },
+    "studio": {
+      "doc": "docs/ai-context/meme-and-video-studio.md"
+    },
+    "moderation": {
+      "doc": "docs/ai-context/moderation-workflow.md"
+    },
+    "public-site": {
+      "doc": "docs/ai-context/public-site-and-sharing.md"
+    },
+    "security": {
+      "doc": "docs/ai-context/security-model.md"
+    },
+    "taxonomy-enrichment": {
+      "doc": "docs/ai-context/taxonomy-and-enrichment.md"
+    },
+    "token-rendering": {
+      "doc": "docs/ai-context/token-rendering-and-grammar.md"
+    },
+    "visual-pipeline": {
+      "doc": "docs/ai-context/visual-pipeline.md"
+    },
+    "db-schema": {
+      "doc": "docs/ai-context/architecture-map.md",
+      "infrastructure": true
+    },
+    "api-codegen": {
+      "doc": "docs/ai-context/architecture-map.md",
+      "infrastructure": true
+    },
+    "frontend-shell": {
+      "doc": "docs/ai-context/architecture-map.md",
+      "infrastructure": true
+    },
+    "worker": {
+      "doc": "docs/ai-context/public-site-and-sharing.md",
+      "infrastructure": true
+    },
+    "tooling": {
+      "doc": "AGENTS.md",
+      "infrastructure": true
+    }
   }
 }
