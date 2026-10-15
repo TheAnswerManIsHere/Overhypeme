@@ -24,18 +24,21 @@ guardrails out.
 
 ## Steps
 
-### 1. An over-long Visual Concept is rejected on raw length
+### 1. An over-long Visual Concept cannot be entered
 
-**Do:** Paste a Visual Concept longer than ~1500 characters and click Save.
+**Do:** Paste a Visual Concept longer than 1,500 characters into the Visual
+Concept box.
 
-**Expect:** a specific rejection explaining it's over the prompt budget by
-raw length, instead of it saving and quietly breaking the render.
+**Expect:** the box stops accepting text at 1,500 characters and its counter
+reads 1500/1500, so an over-long Concept can never be saved and quietly break
+the render (David, 2026-10-15: rewritten from a raw-length rejection the
+editor's own cap prevents a moderator from reaching).
 
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
 
-**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 visual_strategy_override_over_budget with a core_scene_raw_too_long detail and leaving the row unchanged, for a Concept over 1500 characters — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the editor showing the server's message, The Visual Concept is N characters, the maximum is 1500, not the code visual_strategy_override_over_budget — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the Visual Concept box's textarea carrying maxLength 1500, so text pasted past 1,500 characters is cut there and the counter reads 1500/1500 — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
 
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 
@@ -47,9 +50,9 @@ once names are filled in."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
 
-**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a core_scene_rendered_too_long detail for a Concept of 110 {NAME} tokens under the raw cap — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the editor showing the server's message that the Visual Concept expands to up to N characters once names/pronouns are filled in, not the code — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a core_scene_rendered_too_long detail for a Concept of 110 {NAME} tokens under the raw cap — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
 ### 3. Trimming an over-budget Concept lets it save
 
@@ -60,7 +63,7 @@ budget and Save again.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: after a budget refusal, trimming the Concept and saving again succeeds`
 
 **Deferred:** #631 — 7b — the fact enrichment PATCH accepting with 200 and storing a token-free Concept just under the cap, about 1,490 characters — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
@@ -75,9 +78,9 @@ aggregate that's capped.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a single normal required detail saves with 200
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a single normal required detail saves with 200
 
-**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a moderator_additions_rendered_too_long detail for many role bindings, required details, composition notes and additions together — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the editor showing the server's message that your visual guidance adds up to N characters over the combined maximum, not the code — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a moderator_additions_rendered_too_long detail for many role bindings, required details, composition notes and additions together — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the combined-guidance rejection for an actual mix of role bindings, required details, composition notes and additions measured through the compiler is unasserted, the cited checks inject the emitted length — `artifacts/api-server/src/__tests__/promptBudget.test.ts`
 
 ### 5. A deterministically-broken render fails fast with a specific reason
 

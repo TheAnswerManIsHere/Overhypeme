@@ -1,0 +1,4 @@
+{
+  "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on. The question set for the eval that decides whether the map earns its keep here: thirty tasks, ten per tier (keyword, structural, hidden). Answer keys are built by node scripts/map-eval.mjs keys, never by the map, and verified by hand before scoring. Protocol: docs/ai-context/agent-legible-codebase-eval.md.",
+  "tasks": []
+}

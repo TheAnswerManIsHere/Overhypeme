@@ -77,10 +77,13 @@ it's missing a session David knows is active, that session hasn't opened
 its workstream issue yet. Mention this possibility in the report if the
 count looks low relative to what David expects.
 
-**Sensitive/disclosure-carve-out workstreams.** Per the plan-review-loop's
-disclosure rule, those live as draft Project items, not issues, precisely
-because this repo is public. They're deliberately invisible to any
-tool-based report, including this one.
+**Sensitive/disclosure-carve-out workstreams.** Per the canonical disclosure
+rule ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#what-must-never-happen)),
+those live as draft Project items, not issues, precisely because this repo
+is public. They're deliberately invisible to any tool-based report,
+including this one — except one that turned sensitive after its issue
+opened, whose issue stays visible with sanitized tracking only, its plan
+still invisible.
 
 ## Step 1 — Fetch every open workstream issue
 

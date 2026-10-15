@@ -48,8 +48,10 @@ inventory** —
 defines it. If this plan touches a *pattern* (a permission shape, a
 derivation rule, a naming convention) rather than one call site, name the
 class and write the mechanical oracle
-(`git grep -n`, which searches the tracked set) that finds every instance
-before scoping the plan — the hit list is what the plan's scope is drawn
+(`git grep -n`, which searches the tracked set; for the uses of a
+TypeScript declaration where the map is adopted and enabled, its symbol query
+beside it — [`agents-core.md`](core/agents-core.md), *Query the structure
+before you change it*) that finds every instance before scoping the plan — the hit list is what the plan's scope is drawn
 from, not a recalled inventory. Note the oracle and its result as a Settled
 Decision even when it finds nothing new.
 
@@ -107,7 +109,8 @@ Decisions already made during the pre-plan conversation, and why (design
 choices, trade-offs resolved before writing this plan). These four sections
 — Direction, Product Intent, Must Not Change, Settled Decisions — are the
 oracle a reviewer checks the eventual implementation PR against, verbatim
-(see
+— sanitized instead, saying so, for a plan that failed the disclosure check
+([`core/claude-core.md`](core/claude-core.md) Pull requests rule 3) (see
 [`docs/engineering/code-review.md`](../docs/engineering/code-review.md#the-review-oracle-the-pr-body)).
 
 ## Repo Context Inspected

@@ -81,6 +81,14 @@ The oracle describes the outcome David agreed the work should achieve. It may
 come from an approved plan, an issue discussion, or an explicit request. It is
 authority over intended behavior, scope, and acceptance criteria.
 
+**When the PR body carries a sanitized oracle** (a plan that failed the
+disclosure check), the oracle in your package is the full text from the
+private item (relayed by David, `workstream-tracking.md`), and your
+assessment is posted on a public PR: nothing beyond the sanitized copy in the
+PR body appears in it. A restricted specific does not
+appear in your assessment in any wording — quoted, summarised, explained or
+hinted at — and each requirement is named by its sanitized label.
+
 Read it for both purpose and stated requirements. Use purpose to evaluate
 alternatives, without disregarding an explicit requirement. Implementation
 details in a plan may be reconsidered while preserving the outcome. Preserve

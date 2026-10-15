@@ -77,6 +77,10 @@ file, that's the same smell facing the other way.
 - **Engineering practice** — testing, migrations, code review under
   `docs/engineering/`; [`PLANS.md`](../PLANS.md) for planning.
 - **Web research** — [`web-research.md`](../../docs/ai-context/web-research.md).
+- **Querying structure before an edit** — where a repo's map is adopted and
+  enabled, [`agents-core.md`](agents-core.md), *Query the structure before you
+  change it*, binds me; the tool's contract is
+  [`agent-legible-codebase.md`](../../docs/ai-context/agent-legible-codebase.md).
 - **Environment memory** — `.agents/memory/`, the fleet's accumulated
   environment and tooling gotchas.
 
@@ -681,7 +685,8 @@ vary with WHICH finding it returns.** Two assessments that each re-read the
 repository, a translation when one is owed, and my own turns to package, post,
 reply and resolve — the same bill for a label's wording as for a role running
 as the wrong model, and the Worth rule is applied only after it has been paid.
-**A clean round is not that bill**: neither assessor is dispatched when there
+**A clean round is not that bill** (save the one clean round of a PR whose
+plan took the private path, assessed regardless, below): neither assessor is dispatched when there
 is nothing to assess, so the cost is my turns plus the translation the last
 round before a merge always owes. Stating it otherwise overstates the
 commonest way a loop ends, which corrupts the very decision the disclosure
@@ -728,7 +733,13 @@ nearly all of it — stays internal:
 - **A clean automatic pass is the whole ceremony** (standard loop; Trivial,
   Documentation and a prototype-phase feature are outside it, above). Round 1 fires on PR-open;
   finding nothing, there is nothing to assess and no receipt to write —
-  nothing was written, so the head is already reviewed.
+  nothing was written, so the head is already reviewed. **The exception is
+  a PR whose plan took the private path** (David, 2026-10-12): Codex sees
+  only the sanitized oracle, so its clean pass says nothing about the
+  restricted requirements, and Astra and the Fable assessor read the change
+  against the full text once before merge, clean pass or not (`pr-watch`;
+  until its script mode exists, AI-Handbook #206, that round is a 🛑 to
+  David instead).
 - **Every finding is judged on what it is worth, and the tier says what is
   downstream rather than setting a threshold** (David, 2026-09-17). The old
   rubric here reserved a write for "a very high chance of a critical flaw" and
@@ -792,7 +803,8 @@ The loop:
   refuses to compose a package without one, which is what makes the agreement
   happen up front. **The assessors take it from where it was agreed — the
   plan, the issue, David's words — never from my PR body.** The body carries
-  a verbatim copy for Codex (Pull requests rule 3), but a copy I wrote is my
+  a copy for Codex (verbatim, or sanitized for a plan on the private path:
+  Pull requests rule 3), but a copy I wrote is my
   prose, and a slip in it would reach both assessors unchecked.
 - **What happens next is what I state, in a `review-action` block.** Nothing
   parses an assessment, so no phrase in one can authorise work.
@@ -1004,11 +1016,21 @@ design. Mechanics:
    leaves out); otherwise its oracle is its owner's feedback (rule 4 gives
    the line). "n/a — no plan" only for a
    genuinely trivial change. Verbatim carries a guarded string in its defanged
-   form (interaction rule 11).
+   form (interaction rule 11). **A plan that failed the disclosure check**
+   (Planning rule 3) is the exception to verbatim: the body carries a
+   sanitized oracle that keeps each requirement's meaning without the
+   restricted specifics, says that it is sanitized, and names the private
+   path holding the full text — the same treatment the decisions record
+   already gets (*A reversible choice proceeds*, rule 1). The canonical
+   check covers the whole body before the PR opens, not only its oracle
+   (`workstream-tracking.md`).
 4. **The body says in one plain line what the code is judged against.**
    `Oracle source:` then one of: the approved plan's filename and full sha256
    digest (the digest pins the text David approved, and verifies the file
-   committed under Planning rule 3); the issue where the scope was agreed in
+   committed under Planning rule 3 — or, for a plan that failed the
+   disclosure check, the same filename and digest, taken at approval, with
+   `private path` beside them: the file is not committed and the digest
+   pins the text the private item holds); the issue where the scope was agreed in
    conversation; the bugfix tier (A, B or C — a Tier C schema fix names `C`);
    or `no plan`, for the "n/a — no plan" change rule 3 allows; or, for a
    prototype-phase feature on `main`, `prototype phase — <feature>`, with the
@@ -1052,7 +1074,9 @@ Production is a separate, explicitly-asked `publish_app`.
 
 **The bar: CI green + Codex review returned for the head commit + every thread
 resolved + the translations that were owed delivered** (every decline round,
-plus the last round before the merge). That is the whole bar, for
+plus the last round before the merge), and, for a PR whose plan took the
+private path, the one assessment against the full text (*Internal tooling:
+what is downstream*). That is the whole bar, for
 product and internal PRs alike — except the two classes and the phase that leave the loop
 (*Review loops*, above): a **Trivial** PR merges on green CI and resolved
 threads unless Codex's automatic pass posts a P1, and a **Documentation** PR

@@ -25,7 +25,9 @@ as the [planning contract](../ai-context/planning-contract.md#2-turn-agreed-inte
 For a PR built from a David-approved plan, the PR body's **Approved-plan
 oracle** section (see the
 [PR template](../../.github/pull_request_template.md)) carries that plan's
-Product Intent / Must Not Change / Settled Decisions verbatim, and its
+Product Intent / Must Not Change / Settled Decisions verbatim (or a sanitized
+copy that says so, for a plan that failed the disclosure check — see the
+exception below), and its
 **Decisions taken on my recommendation** section lists the reversible choices
 the builder proceeded on without asking
 ([`agent-working-rules.md`](../ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10))
@@ -34,7 +36,14 @@ against that, not only against internal consistency: does it implement
 everything the intent called for, does it touch anything the plan marked
 must-not-change, does it match the settled decisions rather than a plausible
 alternative. Flag a dropped or narrowed requirement even if the code itself
-never mentions it — the absence is the finding.
+never mentions it — the absence is the finding. Against a sanitized oracle,
+a requirement you cannot see is not flagged as dropped: on the structured
+defect pass it is not posted at all (the body's own "sanitized" statement is
+the record that it was not reviewable there), and on a full-assessment
+write-up it is named as unseen. A clean structured pass is therefore never
+the whole review of such a PR: the two assessors read the change against
+the full text once before merge, whether or not that pass found anything
+(`claude-core.md`, *Internal tooling: what is downstream*; `pr-watch`).
 
 **If the plan cites a direction, check the code against that too, not just
 the plan's own Product Intent.** A plan built under
@@ -47,7 +56,8 @@ quietly wrong" shape this oracle exists to catch. Missing Direction on a PR
 whose plan cited one is itself a finding.
 
 **The body names the oracle's source on one plain line**, `Oracle source:` —
-the approved plan's filename and full sha256 digest, the issue where the scope
+the approved plan's filename and full sha256 digest (marked `private path` for
+a plan that failed the disclosure check), the issue where the scope
 was agreed, the bugfix tier, `no plan`, or `prototype phase — <feature>` with
 the questions file named beside it and, for a first version or a later one
 David asked a loop for, the approved plan's digest — otherwise a
@@ -72,8 +82,11 @@ something vague), recompute `sha256sum` on that file, and flag a mismatch.
 A named plan file found in neither place is a finding too — the approved
 plan has no durable home. The one exception is a plan that failed the
 disclosure check, which lives on the private path instead: there, present
-and specific is as far as a reviewer can go, and matching it to the approved
-plan is David's check.
+and specific is as far as a reviewer can go, the body's oracle is a
+sanitized copy that says so (`claude-core.md` Pull requests rule 3), and
+matching either to the approved plan is David's check — so a full-assessment
+review of such a PR says which requirements it could not see rather than
+claiming them, and the structured defect pass posts nothing for them.
 
 ### The bugfix oracle (a PR with no plan)
 
@@ -230,7 +243,9 @@ longer apply.
 **Internal tooling: the depth is lighter, and how long it loops is not this
 file's to say (David, 2026-09-19).** Guards, `scripts/`, skills, agent
 contracts, process docs and documentation harvests are reviewed by the
-automatic pass when the PR opens, and a clean pass ships — except the prose
+automatic pass when the PR opens, and a clean pass ships — save a PR whose
+plan took the private path, assessed against the full text regardless
+(above), and except the prose
 among them that is the Documentation class, and anything David declares
 Trivial, which leave this loop ([`working-modes.md`](../ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)). Iteration beyond
 that is bounded by the **two-review limit** in
@@ -677,7 +692,10 @@ line — a dropped requirement, a touched must-not-change area — the most
 defensible nearby line). A clean round is an empty findings list; on a diff
 this is stronger evidence than on a plan (compiling, passing tests, and CI back
 it up), so — unlike the plan contract — silence here is a real, sufficient
-result, not a transport limitation to work around.
+result, not a transport limitation to work around. The exception is a PR
+built against a sanitized oracle: its silence covers only what the body
+shows, which is why such a PR is also assessed against the full text
+(above).
 
 (The product's plan-review skill defines the full plan-review format; this
 section is the code-review analog.)

@@ -85,7 +85,9 @@ harvest (the batched harvest at `/maintenance` has none of its own) —
 has a GitHub issue as its spine, tracked on a private Project board and kept
 current via `stage:`/`waiting:`/`mode:` labels — with **two** exceptions.
 *Sensitive/disclosure-carve-out work* never becomes a public issue and is a
-private draft Project item instead. *David's Replit tweaks* — display-only UI
+private draft Project item instead — or, where it turned sensitive after its
+issue opened, keeps that issue with sanitized tracking only
+([`workstream-tracking.md`](../../docs/ai-context/workstream-tracking.md#what-must-never-happen)). *David's Replit tweaks* — display-only UI
 changes he makes himself during UAT — carry no issue of their own: like every
 change to `main` since his ruling of 2026-10-03 (*"Yes, everything goes
 through a pull request"*), each arrives as a pull request, and that PR is its
@@ -107,7 +109,9 @@ When asked to **plan**:
 
 When asked to **implement** (an approved plan):
 1. Re-read the approved plan + relevant `docs/ai-context/` files.
-2. Confirm the affected files.
+2. Confirm the affected files — where the repository's map is adopted and
+   enabled, by its queries (*Query the structure before you change it*,
+   below).
 3. Make the smallest coherent change.
 4. Run relevant tests.
 5. Summarize what changed, what was tested, what remains risky, and the
@@ -126,6 +130,28 @@ Prefer, in order:
 7. Tests and regression protection.
 8. Simplicity and scope control.
 9. Observability and debuggability.
+
+## Query the structure before you change it (David, 2026-10-14)
+
+**In a repository whose map is adopted and enabled** — `.agents/map/config.json`
+says `"adopted": true` and `"enabled": true` — the structural index is how you
+learn what a change touches, and two moments require it:
+
+- **Before editing a file in the map's indexed set**, run `node scripts/map.mjs
+  deps <file>` and `node scripts/map.mjs dependents <file>`; before changing an
+  exported declaration, also `node scripts/map.mjs dependents <file>#<name>`,
+  which finds users behind barrels and aliases that text search misses.
+- **At a class sweep** ([`working-modes.md`](../../docs/ai-context/working-modes.md),
+  *A finding names an instance; the fix owes the class*) whose class is the uses
+  of a TypeScript declaration, that symbol query is the mechanical oracle,
+  beside `git grep`.
+
+**An answer's `unresolved` section is yours to read by hand**; an empty
+`resolved` section is not a clean answer while it lists anything. A query that
+refuses because the index is stale is answered with `node scripts/map.mjs
+build`, then the query again. Where the map is unadopted or disabled, this rule
+does not apply. The tool, its contract and its back-out:
+[`agent-legible-codebase.md`](../../docs/ai-context/agent-legible-codebase.md).
 
 ## Important product principles
 

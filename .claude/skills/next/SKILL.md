@@ -362,7 +362,9 @@ looks thin:
 - **A prototype branch** — a `prototype/<feature>` branch opens no PR, so
   the PR sweep never finds it; only the registry and the branch itself do.
 - **Sensitive / disclosure-carve-out workstreams**, which are private draft
-  Project items by design, not issues.
+  Project items by design, not issues — or, for one that turned sensitive
+  after its issue opened, an issue holding only sanitized tracking, whose
+  plan is still invisible here (`workstream-tracking.md`).
 - **A stale backlog.** `/next` computes from `queue:` labels, `Blocked by:`
   markers, and Phases checklists — all maintained by ceremonies, all able
   to drift. Step 1's PR sweep catches a *stale-stage* PR (the label lies
