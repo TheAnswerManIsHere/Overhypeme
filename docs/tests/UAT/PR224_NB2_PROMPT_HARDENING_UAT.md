@@ -58,7 +58,7 @@ budget and Save again.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: after a budget refusal, trimming the Concept and saving again succeeds`
 
 ### 4. Excessive aggregate visual guidance is rejected
 

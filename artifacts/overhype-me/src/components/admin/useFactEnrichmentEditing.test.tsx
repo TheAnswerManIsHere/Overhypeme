@@ -509,6 +509,42 @@ describe("useFactEnrichmentEditing", () => {
     expect(result.current.overrideContext?.pending["/overhypeFit"]).toBe("error");
   });
 
+  it("REGRESSION #685: after a budget refusal, trimming the Concept and saving again succeeds", async () => {
+    const { calls } = mockFetchWithTokenize({ 7: makeEnrichment() });
+    // The other guidance's emission is within its pool, so the Concept alone decides.
+    refuseLikeBudgetGate(0);
+    const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: OVER_BUDGET_CONCEPT },
+      })),
+    );
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["Alex"]); });
+    expect(ok).toBe(false);
+    expect(result.current.draft.commitError).toContain(budgetMessage("core_scene_rendered_too_long"));
+
+    // The moderator shortens the retained draft and saves again.
+    const TRIMMED = "{NAME} leaps the canyon. ".repeat(20);
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: { ...VSO, coreSceneOverride: TRIMMED },
+      })),
+    );
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["Alex"]); });
+
+    expect(ok).toBe(true);
+    expect(result.current.draft.commitError).toBeNull();
+    expect(result.current.draft.hasUncommittedChanges).toBe(false);
+    const patches = calls.filter((c) => c.method === "PATCH" && c.url === "/api/admin/facts/7/enrichment");
+    const sent = (patches[patches.length - 1]!.body as { enrichment: FactEnrichment }).enrichment;
+    expect(sent.visualPromptStrategyOverride?.coreSceneOverride).toBe(TRIMMED);
+  });
+
   it("REGRESSION #685 (candidate route): an over-budget candidate save shows the budget sentence", async () => {
     const { calls } = mockFetchWithTokenize({ 31: makeEnrichment() });
     refuseLikeBudgetGate(0);
