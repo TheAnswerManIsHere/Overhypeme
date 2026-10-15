@@ -189,6 +189,24 @@ export interface UseFactEnrichmentEditingResult {
   getServerVisualOverride: () => VisualPromptStrategyOverride | null;
 }
 
+/**
+ * The text a moderator sees when the enrichment PATCH refuses a save. The
+ * over-budget refusal carries a machine code in `error` and the human sentence
+ * for each violated cap in `details[].message` (both PATCH routes send
+ * `{ error: "visual_strategy_override_over_budget", details: budget.errors }`),
+ * so the sentences win; any other refusal falls back to `error` (#685).
+ */
+function saveRefusalMessage(body: unknown): string | undefined {
+  const b = body as { error?: unknown; details?: unknown } | null;
+  if (!b || typeof b !== "object") return undefined;
+  const details = Array.isArray(b.details) ? b.details : [];
+  const sentences = details
+    .map((d) => (d && typeof d === "object" ? (d as { message?: unknown }).message : undefined))
+    .filter((m): m is string => typeof m === "string" && m.trim() !== "");
+  if (sentences.length > 0) return sentences.join(" ");
+  return typeof b.error === "string" && b.error ? b.error : undefined;
+}
+
 export function useFactEnrichmentEditing({
   target,
   enabled,
@@ -303,7 +321,7 @@ export function useFactEnrichmentEditing({
       }
       if (!r.ok) {
         let msg = r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`;
-        try { const b = (await r.json()) as { error?: string }; if (b?.error) msg = b.error; } catch { /* generic */ }
+        try { msg = saveRefusalMessage(await r.json()) ?? msg; } catch { /* generic */ }
         throw new Error(msg);
       }
       try {

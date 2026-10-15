@@ -296,7 +296,7 @@ function FactEnrichmentPanel({
                 ) : draft.committing ? (
                   <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
                 ) : draft.commitError ? (
-                  <span className="text-destructive">{draft.commitError}</span>
+                  <span className="text-destructive">Save refused</span>
                 ) : draft.hasUncommittedChanges ? (
                   <span>{draft.draftLabel || "Unsaved changes"}</span>
                 ) : draft.committedAt ? (
@@ -316,6 +316,16 @@ function FactEnrichmentPanel({
             </div>
           </div>
 
+          {/* A refused save's reason can be several sentences (the prompt-budget
+              refusal carries one per violated cap, #685), so it gets its own
+              wrapping box below the header — the header's status slot cannot
+              shrink and would push the sentence past the panel edge. */}
+          {draft.commitError && (
+            <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="enrichment-commit-error">
+              <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+              <p className="text-sm text-destructive min-w-0 break-words">{draft.commitError}</p>
+            </div>
+          )}
           {draft.loading && !enrichment && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…

@@ -35,7 +35,7 @@ raw length, instead of it saving and quietly breaking the render.
 
 **Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
 
-**Deferred:** #631 — 7b — the rejection text the moderator sees on an over-length Concept is unasserted, the editor shows the error code and not the length message — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the step describes a path the editor prevents: the Visual Concept box stops input at 1,500 characters, and the schema cap of 1,500 runs ahead of the budget gate on both save routes, so a pasted over-length Concept is truncated and the budget's raw-length rejection reaches no screen; the step's Do and Expect need rewriting to what a moderator can do — `artifacts/overhype-me/src/components/admin/VisualConceptCard.tsx`
 
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 
@@ -47,9 +47,7 @@ once names are filled in."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap`
-
-**Deferred:** #631 — 7b — the rejection text saying the Concept expands to up to N characters is unasserted, the editor shows the error code only — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
 
 ### 3. Trimming an over-budget Concept lets it save
 
@@ -60,7 +58,7 @@ budget and Save again.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: after a budget refusal, trimming the Concept and saving again succeeds`
 
 ### 4. Excessive aggregate visual guidance is rejected
 
@@ -73,9 +71,9 @@ aggregate that's capped.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
 
-**Deferred:** #631 — 7b — the combined-guidance rejection for a mix of role bindings, required details, composition notes and additions is unasserted, and its text reaches no screen — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Deferred:** #631 — 7b — the combined-guidance rejection for an actual mix of role bindings, required details, composition notes and additions measured through the compiler is unasserted, the cited checks inject the emitted length — `artifacts/api-server/src/__tests__/promptBudget.test.ts`
 
 ### 5. A deterministically-broken render fails fast with a specific reason
 
