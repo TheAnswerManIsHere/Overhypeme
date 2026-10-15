@@ -20,9 +20,13 @@
  *      rows, so it stays in this backfill-only module rather than the shared
  *      api-zod grammar contract.
  *
- * Both expand to an explicit {is|are} pair, matching the deterministic net's
+ * Both expand to an explicit conjugation pair — {has|have} when the next word
+ * is got/gotten/been/had, otherwise {is|are} — matching the deterministic net's
  * "ambiguous is/has defaults to the copula" rule. Pure and idempotent —
  * running it twice equals running it once.
+ *
+ * @purpose Pure, unit-testable transform behind the subject-contraction backfill, expanding the 's contraction and the legacy {He's} token into {has|have} before got/gotten/been/had and {is|are} otherwise.
+ * @subsystem token-rendering
  */
 
 import { expandSubjectContractions, HAS_ONLY_FOLLOWING_WORDS } from "./templateGrammar";

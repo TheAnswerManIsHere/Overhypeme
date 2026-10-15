@@ -8,6 +8,9 @@
  * scripts all import these so the prompt can never drift between copies again.
  * The pure grammar helpers (token validation, the deterministic conjugation net)
  * stay in api-zod.
+ *
+ * @purpose Server-owned tokenizer policy: the model, system prompt and post-processing that turn a plain-English fact into a personalization template.
+ * @subsystem token-rendering
  */
 
 import {
@@ -145,7 +148,7 @@ export function stripUnknownTokens(template: string): string {
  * Returns the final template plus one scoped flag per rewrite pass so callers
  * can log each independently: `nameCollapsed` (a {NAME}-subject pair was
  * collapsed to its singular branch), `contractionExpanded` (a `{Subj}'s`/
- * `{SUBJ}'s` was expanded to an {is|are} pair), `conjugated` (the net wrapped
+ * `{SUBJ}'s` was expanded to an {is|are} or {has|have} pair), `conjugated` (the net wrapped
  * a missed verb), and `collapsed` (a duplicate pair was dropped). No flag is
  * overloaded to mean "anything changed" — a raw `{can|can}` collapses with
  * `conjugated: false, collapsed: true`.

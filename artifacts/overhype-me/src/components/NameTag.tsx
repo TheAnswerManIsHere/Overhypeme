@@ -1,3 +1,8 @@
+/**
+ * @purpose Navbar name tag where a visitor views and edits the name and pronouns their facts render with, including the AI pronoun suggestion.
+ * @subsystem public-site
+ */
+
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Pencil, Loader2 } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";

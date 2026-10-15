@@ -1,6 +1,7 @@
 /**
  * Backfill: retire the never-valid "They's" render from stored fact templates
- * by expanding subject-pronoun 's contractions into an explicit {is|are} pair
+ * by expanding subject-pronoun 's contractions into an explicit conjugation
+ * pair, {has|have} before got/gotten/been/had and {is|are} otherwise
  * ("{Subj}'s unstoppable" → "{Subj} {is|are} unstoppable"; legacy "{He's}
  * unstoppable" → "{Subj} {is|are} unstoppable").
  *
@@ -18,7 +19,8 @@
  * running it once). It does NOT re-tokenize.
  *
  * Row states:
- *   - rows with a subject-pronoun contraction → expanded to {is|are} (changed)
+ *   - rows with a subject-pronoun contraction → expanded to {is|are}, or {has|have} before
+ *     got/gotten/been/had (changed)
  *   - rows without one → no-op (left untouched, counted as scanned)
  *   - INACTIVE staging facts → included (do NOT filter to isActive=true;
  *     moderation staging facts need the repair before approval)
@@ -51,6 +53,9 @@
  *   pnpm --filter @workspace/api-server exec tsx scripts/backfill-expand-subject-contractions.ts --fact-id 123 --dry-run
  *
  * Defaults to --dry-run (reports, writes nothing). --apply is required to mutate.
+ *
+ * @purpose One-off CLI backfill that expands subject-pronoun 's contractions in stored fact templates into {is|are} pairs, or {has|have} before got/gotten/been/had, retiring the "They's" render.
+ * @subsystem token-rendering
  */
 
 import { installStdioGuard } from "../src/lib/stdioGuard";

@@ -1,3 +1,8 @@
+/**
+ * @purpose Renders a personalized fact with the visitor's name in the brand colour, splitting from the template so a possessive name stays one segment.
+ * @subsystem token-rendering
+ */
+
 import { renderFactSegments } from "@/lib/render-fact";
 
 /**

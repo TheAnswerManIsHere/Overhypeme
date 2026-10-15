@@ -1,3 +1,8 @@
+/**
+ * @purpose Server-side re-export of the shared template grammar from the api-zod package, so server modules import it from one local path.
+ * @subsystem token-rendering
+ */
+
 export {
   validateTemplate,
   autoConjugatePersonSubjectVerbs,

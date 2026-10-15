@@ -3,6 +3,9 @@
  * accepts. Exported as the single source of truth so consumers that need to
  * recognise valid tokens — e.g. the tokenize route's `stripUnknownTokens`
  * cleanup — cannot drift from what `validateTemplate` accepts.
+ *
+ * @purpose The template grammar contract shared by server and browser: the closed token set, the validator, and the deterministic cleanup passes every template write applies.
+ * @subsystem token-rendering
  */
 export const ALLOWED_SIMPLE_TOKENS: ReadonlySet<string> = new Set([
   "NAME",

@@ -42,6 +42,9 @@
  *   pnpm --filter @workspace/api-server exec tsx scripts/backfill-collapse-name-subject-pairs.ts --fact-id 123 --dry-run
  *
  * Defaults to --dry-run (reports, writes nothing). --apply is required to mutate.
+ *
+ * @purpose One-off CLI backfill that collapses {NAME}-subject conjugation pairs in stored fact templates to their singular branch.
+ * @subsystem token-rendering
  */
 
 import { installStdioGuard } from "../src/lib/stdioGuard";
