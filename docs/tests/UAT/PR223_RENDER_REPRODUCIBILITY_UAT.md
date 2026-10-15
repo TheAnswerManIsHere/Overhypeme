@@ -39,7 +39,7 @@ from `main`.
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`
 
-**Deferred:** #631 — 7b — a legendary reference-photo generate completing is undriven, journey 6 sends no photo — acceptance journey 6; increment 8 (capture and read) — the generated image shows the user's subject from their photo — needs a real render
+**Deferred:** #631 — 7b — a legendary reference-photo generate completing is undriven, journey 6 sends no photo — acceptance journey 6; #631 — 7b — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes — acceptance journey 4; increment 8 (capture and read) — the generated image shows the user's subject from their photo — needs a real render
 
 ### 2. Generate without a reference photo
 
@@ -52,6 +52,8 @@ display name exactly as stored.
 **Lane:** scripted
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the paid user's no-photo generate polls to image_ready, the generated image decodes and is saved as a private meme `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`
+
+**Deferred:** #631 — 7b — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes — acceptance journey 4
 
 ### 3. A long display name doesn't leak into the caption
 
@@ -67,7 +69,7 @@ does not prove the split — step 3b is what actually checks it.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the paid user's generate reaches image_ready and the saved meme decodes `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity` `artifacts/api-server/src/__tests__/promptIdentity.test.ts:reduces a multi-word displayName to only its first token, not a truncated fragment of the whole string`
 
-**Deferred:** #631 — 7b — a four-word display name rendered whole in the caption, the cited test uses a two-word name — `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts`
+**Deferred:** #631 — 7b — after the paid account's display name is set to David Franklin The Third, its generate reaching image_ready and the saved meme's served image drawing that name whole — acceptance journey 6
 
 ### 4. The compiled prompt itself only carries the first name
 
@@ -96,7 +98,7 @@ of the old behavior where it quietly rendered with no style at all.
 
 **Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:returns a typed style_invalid error for an inactive style (never silently 'no style')`
 
-**Deferred:** #631 — 7b — the generate route answering 400 style_invalid and enqueuing no attempt for a deactivated style is unasserted, only the prepare helper is — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`
+**Deferred:** #631 — 7b — the generate route, as the legendary account, answering 400 style_invalid with reason inactive and inserting no attempt for a deactivated styleId — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`; #631 — 7b — the generate route's refusal of a deactivated style carrying a style-unavailable message the builder shows, not only the code style_invalid, with amendment 3's bugfix — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`
 
 ### 6. Re-enabling the style lets the same generate succeed
 
@@ -109,7 +111,7 @@ generate.
 
 **Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix`
 
-**Deferred:** #631 — 7b — the generate route accepting a re-enabled style with 202 and a selected-style snapshot on the attempt is unasserted, only style resolution is — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`
+**Deferred:** #631 — 7b — the generate route, as the legendary account, answering 202 for a re-enabled styleId and freezing a selected-style snapshot with that style's prompt on the attempt — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`; #631 — 7b — the image-prompt job compiling an attempt whose frozen style snapshot is selected into a RENDER STYLE line carrying that snapshot's prompt, resolveStylePrompt is untested — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
 
 ## Regression
 
@@ -123,7 +125,7 @@ generate.
 
 **Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:renders fact text from the SAME reduced identity the snapshot carries (user path)`
 
-**Deferred:** #631 — 7b — the worker turning the frozen style snapshot into the compiled RENDER STYLE line is unasserted, resolveStylePrompt is untested — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
+**Deferred:** #631 — 7b — the generate route, as the legendary account, answering 202 for an active styleId and freezing a selected-style snapshot with that style's prompt on the attempt — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`; #631 — 7b — the image-prompt job compiling an attempt whose frozen style snapshot is selected into a RENDER STYLE line carrying that snapshot's prompt, resolveStylePrompt is untested — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
 
 ### R2. An anonymous / no-profile render still falls back
 
@@ -136,7 +138,7 @@ no display name set).
 
 **Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:falls back to canonical identity when there is no user`
 
-**Deferred:** #631 — 7b — a generate by an account with no display name enqueuing with the canonical fallback snapshot is unasserted, only the prepare helper is — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`
+**Deferred:** #631 — 7b — a generate by an account with no display name enqueuing with the canonical fallback snapshot is unasserted, only the prepare helper is — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`; #631 — 7b — the image-prompt job for an attempt carrying the canonical fallback identity snapshot compiling with the canonical name and enqueuing image_generation — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
 
 ### R3. Older renders still display correctly
 
@@ -147,7 +149,7 @@ this PR).
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a completed attempt predating the frozen identity and style snapshots being read back through a render status route is unasserted — `artifacts/api-server/src/__tests__/adminReviewRenderTools.test.ts`
+**Deferred:** #631 — 7b — a completed attempt with no frozen identity or style snapshot, polled through GET /memes/ai/renders/:renderJobId, answering image_ready with its image path — `artifacts/api-server/src/__tests__/adminReviewRenderTools.test.ts`
 
 ## Not bugs
 

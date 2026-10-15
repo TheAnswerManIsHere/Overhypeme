@@ -125,6 +125,8 @@ the admin overlay.
 
 **Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants` `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows an entitled user's selected photo`
 
+**Deferred:** #631 — 7b — with the Admin custom_avatar cell off, effectiveAvatarUrl still returns the selected photo for a Legendary subject, admin and non-admin — `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts`
+
 ### 5. The admin account loses the feature when only its own cell is off
 
 **Do:** On your admin account (stored tier `registered`), check whether
@@ -136,7 +138,7 @@ for Legendary can never lose a feature by being an admin.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants`
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants`; `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics an admin resolves a superset of what their own tier alone resolves` — the overlay never removes a tier grant; `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:own-tier monotonicity (PR #402) being an admin never makes an account worse off, for any key or tier` — no tier loses a key by being admin
 
 **Deferred:** #631 — 7b — custom_avatar itself, with only the Admin cell off a registered-tier admin's Profile Photo pill is locked — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
 
@@ -150,6 +152,8 @@ for Legendary can never lose a feature by being an admin.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin drops the Admin row's entitlements, and leaves a way back`
+
+**Deferred:** #631 — 7b — after Exit Admin, the dev admin's Profile no longer shows the Admin Panel button, as a registered member's does not — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
 
 ### 7. A way back into admin is always visible
 
@@ -210,7 +214,9 @@ no preview state, can ever cost you console access.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:/admin while previewing explains the state instead of refusing` `artifacts/api-server/src/__tests__/tierMiddleware.test.ts:requireRole('admin') — unified middleware calls next for an admin even when adminModeDisabled (realUserRole ignores the toggle)`
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:/admin while previewing explains the state instead of refusing` `artifacts/api-server/src/__tests__/tierMiddleware.test.ts:requireRole('admin') — unified middleware calls next for an admin even when adminModeDisabled (realUserRole ignores the toggle)`; `artifacts/api-server/src/__tests__/authMiddleware.fresh.test.ts:realUserRole stays 'admin' even when adminModeDisabled toggle is set (userRole becomes 'registered')` — the session middleware keeps realUserRole admin under the toggle
+
+**Deferred:** #631 — 7b — with every Admin-row cell turned off in Admin → Features, the dev admin still gets the /admin console, not Access Denied — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
 
 ### 12. Resuming admin restores Legendary features
 
@@ -248,6 +254,8 @@ return to the meme builder for the same fact and pick Image again.
 
 **Check:** `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement an unauthenticated caller gets 404`
 
+**Deferred:** #628 — Phase 6 (The loop) — #591 rewrites the private-meme not-found page and its privacy suite covers permalinks, and the cited check proves the API 404, not the page a logged-out visitor sees
+
 ### 15. Photo upload during onboarding is never gated
 
 **Do:** On a plain registered account, go through profile photo upload /
@@ -262,6 +270,8 @@ gating the upload would break free onboarding.)
 
 **Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user`
 
+**Deferred:** #631 — 7b — the free account uploads a JPEG via POST /api/storage/upload-avatar then sets it via POST /api/users/me/profile-image, both 200 with the photo stored — acceptance journey 7
+
 ### 16. The public avatar stays generic until upgraded
 
 **Do:** On the same account, check your public avatar.
@@ -271,7 +281,9 @@ shown.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`
+**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`; `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user` — the photo is stored
+
+**Deferred:** #631 — 7b — logged out, GET /facts/:factId submittedByImage and GET /facts/:factId/comments authorImage are the generated icon for a registered author with a stored unselected photo — `artifacts/api-server/src/__tests__/routes.facts.test.ts`; #628 — Phase 6 (The loop) — the public fact page gets its browser journey there, and the route assertion proves the avatar URL the API returns, not the icon the logged-out page shows
 
 ### 17. Selecting the photo as avatar is refused with an upgrade prompt
 
@@ -317,7 +329,7 @@ all — a pre-existing bug closed on the way past.)
 
 **Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`
 
-**Deferred:** #631 — 7b — GET /facts submittedByImage and GET /facts/:id/comments authorImage show the generated icon for a stored unselected photo, only the projection function is tested — `artifacts/api-server/src/__tests__/routes.facts.test.ts`
+**Deferred:** #631 — 7b — logged out, GET /facts/:factId submittedByImage and GET /facts/:factId/comments authorImage are the generated icon for a registered author with a stored unselected photo — `artifacts/api-server/src/__tests__/routes.facts.test.ts`; #628 — Phase 6 (The loop) — the public fact page gets its browser journey there, and the route assertion proves the avatar URL the API returns, not the icon the logged-out page shows
 
 ### 20. The same account's own profile also withholds the photo
 
@@ -378,7 +390,7 @@ out.
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement a public meme is visible to anyone`
 
-**Deferred:** #631 — 7b — logged-out load of / and /top-facts, the smoke spec signs in as admin before every route — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #628 — Phase 6 (The loop) — the public fact page and meme permalink page get their browser journey there
+**Deferred:** #631 — 7b — logged out with no session, / renders real content with no sign-in wall, the smoke spec signs in as admin before every route — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #628 — Phase 6 (The loop) — the public fact page and meme permalink page get their browser journey there
 
 ### R2. Commenting captcha is unchanged for a registered user
 
@@ -408,9 +420,9 @@ out.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`
+**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:happy path: inserts a triage_pending review with NO paid prep and returns 201` — a verified registered user still submits
 
-**Deferred:** #631 — 7b — the per-minute fact_submit limiter returns 429 submitting too quickly for a registered user, only the pending cap is tested — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
+**Deferred:** #631 — 7b — POST /facts/submit-review as a registered user over the per-minute fact_submit limit returns 429 with error You're submitting facts too quickly, only the pending cap is tested — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
 
 ### R5. AI backgrounds still generate
 
@@ -443,7 +455,7 @@ one.
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
-**Deferred:** #631 — 7b — admin Users, Refunds and Disputes, Config, Engines and Email Queue are opened by no spec, the smoke list holds seven admin routes — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Deferred:** #631 — 7b — admin Users, Refunds and Disputes, Config, Engines and Email Queue each render the AdminLayout nav with no error boundary for the dev admin, no spec opens them — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### R8. Admin notification preferences still work
 

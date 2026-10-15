@@ -46,7 +46,7 @@ little or nothing) — they no longer re-tell the whole scene.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:drops a tight restatement of the scene but keeps a distinct detail that reuses scene words`
 
-**Deferred:** #631 — 7b — ENVIRONMENT and ROLE DETAILS dropping a restatement of an authored Concept is unasserted, only SUBJECT DETAILS on the AI-scene path is — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+**Deferred:** #631 — 7b — with an authored coreSceneOverride, its restated phrase in SUBJECT DETAILS, ROLE DETAILS or ENVIRONMENT dropped so it counts once, while a distinct detail survives — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
 
 ### 3. Style lives in its own section when no style is selected
 
@@ -74,9 +74,9 @@ the style doesn't appear twice.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`:styleSource=selected_look_style with a non-empty suffix when a look style is chosen — the preview route compiles the chosen style's i2i copy into the prompt
 
-**Deferred:** #631 — 7b — the style phrase appearing once and not inside the LIGHTING section is unasserted, only the RENDER STYLE line and the light text are — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+**Deferred:** #631 — 7b — the style phrase appearing once and not inside the LIGHTING section is unasserted, only the RENDER STYLE line and the light text are — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`; #631 — 7b — choosing a style in the rpp-look-style control sending that style's id as lookStyleId in the preview request body — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
 
 ### 5. Readable in-scene text is quoted
 
@@ -116,7 +116,7 @@ you to rewrite it as pure scene description; the render still proceeds.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`
 
-**Deferred:** #631 — 7b — the warning message nudging a rewrite as visible scene description is unasserted, only its code is — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+**Deferred:** #631 — 7b — the preview route, for a fact whose stored Concept has compiler-owned language, keeping it verbatim in CORE SCENE and returning moderator_core_scene_owned_language whose message says rewrite it as visible scene description — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`; #631 — 7b — the image-prompt job enqueuing image_generation, not failing, for an attempt whose Concept raises moderator_core_scene_owned_language — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`; #631 — 7b — the Runtime Prompt Preview panel showing the moderator_core_scene_owned_language warning's message when the preview response carries it — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
 
 ### 8. An empty Concept still uses the AI scene, at full strictness
 
@@ -130,7 +130,7 @@ applies only when a moderator Concept is present.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:keeps the AI path unchanged when the override's scene is empty/blank or absent`
 
-**Deferred:** #631 — 7b — a blank Concept leaving the planner's subject and environment requirement in force is unasserted, expectationsFromInput is never checked for it — `artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts`
+**Deferred:** #631 — 7b — a blank Concept leaving the planner's subject and environment requirement in force is unasserted, expectationsFromInput is never checked for it — `artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts`; #631 — 7b — the preview route for a fact with no stored Concept returning a compiled prompt whose CORE SCENE is the planner's coreScene — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
 
 ### 9. Style phrasing differs between i2i and t2i, with a default for none
 
@@ -146,7 +146,7 @@ optical detail, and the clarity of a high-quality photograph."
 
 **Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, i2i uses promptSuffixReference` `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`
 
-**Deferred:** #631 — 7b — the none-style line asserted in full and the built-in styles' i2i Reimagine versus t2i declarative copy are unasserted, fixture styles only — `artifacts/api-server/src/__tests__/styleResolution.test.ts`
+**Deferred:** #631 — 7b — the none-style line asserted in full and the built-in styles' i2i Reimagine versus t2i declarative copy are unasserted, fixture styles only — `artifacts/api-server/src/__tests__/styleResolution.test.ts`; #631 — 7b — the preview route in t2i_fallback mode with a look style compiling that style's declarative promptSuffix, not its promptSuffixReference — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
 
 
 ## Regression
@@ -163,6 +163,8 @@ or logo) is still present.
 
 **Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:STRICT CONSTRAINTS policy guardrails are preserved (overlay-text + incidental-text)`
 
+**Deferred:** #631 — 7b — the STRICT CONSTRAINTS overlay exclusion naming full meme captions, watermarks and real logos, the test matches only its opening words — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+
 ### R2. Subject binding / anti-split still holds
 
 **Do:** Open the compiled prompt for a de-aging fact and check subject
@@ -172,7 +174,7 @@ binding.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits anti-entity-split constraints for age transforms`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits anti-entity-split constraints for age transforms`; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`:binds the reference person to the transformed life stage from an age modifier — Render exactly one David
 
 ### R3. Violence policy default is unchanged
 

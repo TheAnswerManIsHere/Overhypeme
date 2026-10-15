@@ -66,7 +66,7 @@ only blocks malformed ids you'd never type by hand.)
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
 
-**Deferred:** #631 — 7b — after the 200 the stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Deferred:** #631 — 7b — after POST /admin/users/set-password returns 200 for a real email, that user's stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
 
 ### 5. A huge paste-list import is refused
 
@@ -79,7 +79,7 @@ grinding through. Splitting into smaller batches still works.
 
 **Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
 
-**Deferred:** #631 — 7b — over-1000 paste list returns 400 with nothing queued and exactly 1000 is accepted at the route, only the FactsImportBody schema is tested — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — POST /admin/facts/import as admin with exactly 1000 facts returns 200 with all 1000 processed, not refused or truncated — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 6. A huge CSV import is refused
 
@@ -90,9 +90,9 @@ grinding through. Splitting into smaller batches still works.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`
+**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv accepts an import of exactly 2000 rows — the cap is inclusive` — a batch at the cap is accepted and every row processed
 
-**Deferred:** #631 — 7b — CSV over 2 MB by bytes returns 400 at the route with nothing queued, only the ImportCsvBody schema is tested — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### 7. A bad email on set-password is refused
 
@@ -103,7 +103,7 @@ email (e.g. `notanemail`).
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a malformed email such as notanemail returns 400 a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Deferred:** #631 — 7b — POST /admin/users/set-password with email notanemail returns 400 with error a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
 
 ## Regression
 
@@ -137,7 +137,7 @@ email (e.g. `notanemail`).
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
 
-**Deferred:** #631 — 7b — after the 200 the stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Deferred:** #631 — 7b — after POST /admin/users/set-password returns 200 for a real email, that user's stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
 
 ### R4. Import an oversized batch
 
@@ -149,7 +149,7 @@ email (e.g. `notanemail`).
 
 **Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`
 
-**Deferred:** #631 — 7b — over-1000 paste list and over-2 MB CSV are rejected at the route with nothing queued, only the schemas are tested for those two — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
 
 ### R5. Set-password with a malformed email
 
@@ -159,7 +159,7 @@ email (e.g. `notanemail`).
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a malformed email such as notanemail returns 400 a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Deferred:** #631 — 7b — POST /admin/users/set-password with email notanemail returns 400 with error a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
 
 ## Not bugs
 
@@ -171,4 +171,9 @@ email (e.g. `notanemail`).
 - **The import caps are generous.** 1000 facts / 2000 CSV rows per call
   is well above a normal batch; if you ever hit them, just import in
   chunks.
+- **A CSV over about 2 MB gets a generic server error, not the clear
+  message.** The server's 2 MiB request limit rejects it before the import
+  route runs. Accepted by David on 2026-10-15: the import is only ever used
+  for a few hundred rows (`decisions.md`, 2026-10-15). A CSV just over the
+  2,000,000-character cap but under 2 MiB still gets the clear error.
 - **No user-facing change.** Nothing outside the admin panel is affected.

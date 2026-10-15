@@ -38,24 +38,25 @@ bug.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:the sync status panel should render on load` — runs in CI against the fake Stripe driver (#566)
 
-**Deferred:** #631 — 7b — the rows for Customers through Payment Methods each showing a state, and the coloured summary line, on first load — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — on first load before any click, all eight rows, Products through Payment Methods, each carrying a data-status, and the sync-summary line carrying a data-tone — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 2. A green summary when the last sync worked
 
 **Do:** Click "Sync Stripe data" and let it finish.
 
-**Expect:** A green line reads *"Last sync completed …"* and *"Last synced
-just now."* This button syncs three of the eight resource types, so the
-line reads *"Last sync completed — 3 of 8 resources reported"* unless every
-resource is already complete from an earlier full backfill, when it reads
-*"Last sync completed successfully."* Both are a working sync (David,
-2026-10-14).
+**Expect:** A green line reads *"Sync complete — … synced in …"*, naming
+what was synced and how long it took, and the Plans header reads *"Last
+synced: just now"*. The summary line, *"Last sync completed — N of 8
+resources reported."* or *"Last sync completed successfully."* once all eight
+resource types are complete, is hidden while that message shows and appears
+after a reload (step 3). Both are a working sync (David, 2026-10-14; the
+after-click wording corrected 2026-10-15).
 
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all complete → ok, with the most recent stamp`
 
-**Deferred:** #631 — 7b — the green summary line as the page renders it (Last sync completed, then Last synced just now), not only its derived tone — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — after the Sync Stripe data run, the green line reading Sync complete followed by the synced counts and the run's duration, and the Plans header reading Last synced: just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 3. The green summary survives a reload
 
@@ -68,7 +69,7 @@ doesn't revert to a bare product count.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:surfaces stored row state (running / complete / error) and per-resource counts derived from the data tables`
 
-**Deferred:** #631 — 7b — the green summary line still rendering on the page after a full reload following a successful sync — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and its full text, Last sync completed followed by N of 8 resources reported or successfully as the CI state produces, not the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 4. A failed sync shows a red summary — the main event
 
@@ -80,9 +81,9 @@ complete: &lt;the actual Stripe error&gt;. Catalog data may be stale."*
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` asserts the rendered summary's error tone, Last sync failed and plans
 
-**Deferred:** #631 — 7b — the red line's full wording, did not complete with the error text then Catalog data may be stale — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — after the reload in the failure step, the sync-summary text containing plans did not complete: Simulated failure for testing, and Catalog data may be stale. — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 5. The Plans row itself shows the failure
 
@@ -108,6 +109,8 @@ and you'd see a cheerful product count instead.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` — presentation evidence, as step 5
 
+**Deferred:** #631 — 7b — after the reload, the red cross icon on the failed Plans row, beyond its data-status and error text — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
 ### 7. The summary names which resource failed
 
 **Do:** Read the summary line's wording after the failed sync.
@@ -118,7 +121,7 @@ catalog (products/prices/plans) or something peripheral
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:an errored resource → error tone, naming the resource and its message`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` asserts the rendered summary names plans
 
 ### 8. A partial failure is reported as failed, not success
 
@@ -131,9 +134,9 @@ something did sync, and something didn't; it should never round up to
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:a partial run is reported as failed, never rounded up to success`
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:a partial run is reported as failed, never rounded up to success`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:a failed sync is still visible after a full page reload` asserts the rendered error tone after Products and Prices completed
 
-**Deferred:** #631 — 7b — the Last synced stamp still appearing on the red summary while other rows are complete — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the Last synced stamp still appearing on the red summary while other rows are complete — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 9. A never-synced install says so, in amber
 
@@ -147,9 +150,9 @@ blank — "never ran" and "still working" must not look alike.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all-idle with no stamps → never synced, not success`
+**Check:** `artifacts/overhype-me/src/pages/admin/syncStatusSummary.test.ts:all-idle with no stamps → never synced, not success`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:an all-idle status still renders, as the never-synced state` asserts the rendered never tone and Never synced, from a stubbed all-idle status
 
-**Deferred:** #631 — 7b — the amber line's actionable wording, run a full sync to populate the catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the amber line's actionable wording, run a full sync to populate the catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the never-tone sync-summary line carrying the text-amber-400 class, so it shows amber, not only data-tone never — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 10. The "Last synced" stamp survives a server restart
 
@@ -164,7 +167,7 @@ in-memory value that resets on restart.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:preserves syncedCount across a simulated server restart (regression: counts survive process loss)`
 
-**Deferred:** #631 — 7b — the Plans header Last synced stamp rendering from the per-resource timestamp after a reload — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the plans-last-synced stamp reading Last synced: from per-resource lastSyncedAt when GET /api/admin/stripe/sync/status is stubbed as after a restart, finishedAt null — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — GET /api/admin/stripe/sync/status, after _resetSyncRunnerForTests, still returning the seeded products row's lastSyncedAt non-null — `artifacts/api-server/src/__tests__/routes.adminStripeSync.test.ts`
 
 ## Regression
 
@@ -177,9 +180,9 @@ disables then re-enables.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:intermediate transitions: rows progress pending → syncing… → complete in order` — the animation, under a controlled delay; and `success path: a real sync drives all rows to complete` for a real sync re-enabling the button, against the fake Stripe driver
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:intermediate transitions: rows progress pending → syncing… → complete in order` — the animation, under a controlled delay, on a run the simulate endpoint starts; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:failure path: simulated error on plans surfaces error icon + failure banner` asserts the button enabled again; `success path: a real sync drives all rows to complete` flips its label back, against the fake Stripe driver
 
-**Deferred:** #631 — 7b — the Sync button being disabled while the run is in flight, only its re-enabling is asserted — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the rows passing pending, syncing… and complete for a run the Sync Stripe data click itself starts, not one the simulate endpoint started with its own status writes — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the Sync button being disabled while the run is in flight, only its re-enabling is asserted — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R2. Full sync still works across all resources
 
@@ -191,7 +194,7 @@ disables then re-enables.
 
 **Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:full run invokes every tracked resource sequentially in SYNC_RESOURCES order`
 
-**Deferred:** #631 — 7b — Full sync driving all eight resource rows to complete in the panel, beyond the runner's call order — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — Full sync driving all eight resource rows to complete in the panel, beyond the runner's call order — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the rows passing syncing… before complete on the Billing page for a run the Full sync click starts, POST /api/admin/stripe/full-sync — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R3. The LIVE / TEST badge still shows the right mode
 
@@ -203,6 +206,8 @@ disables then re-enables.
 
 **Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:Plans header should show TEST badge` — against the fake Stripe driver, which is test-mode only
 
+**Deferred:** #631 — 7b — the plans-mode-badge reading LIVE, and no TEST, when /api/admin/config is stubbed with stripe_live_mode true, since the fake is test-mode only — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+
 ### R4. The product count is still accurate
 
 **Do:** Check the "N products found" count after a sync.
@@ -211,7 +216,7 @@ disables then re-enables.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the N products found count matching the synced catalog, 1 product on the fake fixture — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the plans-count text reading 1 product found after Sync Stripe data, matching the fake fixture's one product — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R5. The product list still renders correctly
 
@@ -221,7 +226,9 @@ disables then re-enables.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the product list's description and prices (4.99 per month, 49.00 per year, 99.00 one-time) beside the name — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:the fake fixture product should be listed` — the product name, against the fake Stripe driver
+
+**Deferred:** #631 — 7b — the product list's description text, Fake Legendary membership, and the prices $4.99/month, $49.00/year and $99.00 one-time beside Legendary (fake) — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R6. The Setup Checklist rows are unchanged
 
@@ -231,7 +238,7 @@ disables then re-enables.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the four Setup Checklist rows present with their ticked state for the fake catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the four Setup Checklist labels rendering, with Stripe products configured in dashboard and Membership prices available ticked for the fake catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R7. Toggling live/test mode is unchanged
 
@@ -242,6 +249,8 @@ disables then re-enables.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5c — a valid toggle still works end to end`
+
+**Deferred:** #631 — 7b — on the Billing page, Switch to Live Mode with the PATCH to /api/admin/config/stripe_live_mode stubbed to 200 flipping the Stripe Mode chip to LIVE and the button to Switch to Test Mode — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### R8. The customer pricing page is completely unchanged
 

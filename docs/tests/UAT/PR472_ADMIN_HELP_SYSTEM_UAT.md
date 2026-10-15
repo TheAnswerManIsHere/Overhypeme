@@ -48,7 +48,7 @@ block. It reads like a page, not like a text file.
 
 **Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders a chapter as prose with real headings and lists`
 
-**Deferred:** #631 — 7b — bold text, bullet lists and a table or quoted block rendering inside a chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Deferred:** #631 — 7b — bold text, bullet lists and a table or quoted block rendering inside a chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`; #631 — 7b — clicking Chapter 3 · Moderation in the /admin/help chapter list opening /admin/help/3-moderation in-app with its chapter body rendered — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### 3. A cold deep link parks on the right heading
 
@@ -114,7 +114,7 @@ chapter, and not a different one.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`
 
-**Deferred:** #631 — 7b — searching stale at all, and hits for moderation and stale containing the term — `artifacts/overhype-me/src/components/admin/helpContent.test.ts`
+**Deferred:** #631 — 7b — typing moderation, then stale, in the /admin/help search box showing result rows, each naming a section and its chapter and containing the term — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### 8. Plumbing inside links is not searchable
 
@@ -127,6 +127,8 @@ Manual points at, not words on the page.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index indexes visible link text but NOT link targets`
 
+**Deferred:** #631 — 7b — typing ai-context/glossary.md in the /admin/help search box showing No matches for “ai-context/glossary.md” and no result rows — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+
 ### 9. The front page is not indexed — your decision
 
 **Do:** Search **`Chapter quality bar`**.
@@ -136,7 +138,9 @@ asked to keep out of search. The page is still readable; it just isn't indexed.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index excludes the README`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index excludes the README`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders the manual front page as a document, not as markdown source` (the front page still renders)
+
+**Deferred:** #631 — 7b — typing Chapter quality bar in the /admin/help search box showing No matches for “Chapter quality bar” and no result rows — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ### 10. The `?` on a screen lands somewhere that answers "what is this?"
 
@@ -166,7 +170,7 @@ if any is — it's a one-line change per screen.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpMap.test.ts:builds the href a ? control actually links to`
 
-**Deferred:** #631 — 7b — hrefs for Taxonomy Health, Billing, Email Queue, Facts and Dashboard, as only Moderation and Queue Health are asserted — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`
+**Deferred:** #631 — 7b — helpHrefFor for /admin/taxonomy-health, /admin/billing, /admin/email-queue, /admin/facts and /admin returning the Ch. 4, 10 and 12 sections and Ch. 2 and 11 the Expect names — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`
 
 ### 12. A link out of the Manual opens GitHub
 
@@ -180,6 +184,8 @@ undisturbed.
 
 **Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:generated help content opens every off-manual link in a new tab, and no in-app link`; `artifacts/overhype-me/src/components/admin/helpContent.test.ts:rewrites intra-manual links to in-app routes and off-manual links to GitHub`
 
+**Deferred:** #631 — 7b — clicking a github.com link inside a chapter on /admin/help opening a new tab while the console tab stays on that chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+
 ### 13. A stale bookmark fails tidily
 
 **Do:** Open `/admin/help/no-such-chapter`.
@@ -190,6 +196,8 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:a stale bookmark fails tidily, with a way back`
+
+**Deferred:** #631 — 7b — /admin/help/no-such-chapter showing the No such chapter panel inside the admin console, its sidebar nav visible beside it — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
 
 ## Regression
 
