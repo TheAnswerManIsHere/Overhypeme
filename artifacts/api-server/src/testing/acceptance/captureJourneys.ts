@@ -81,7 +81,7 @@ export async function driveCaptures(base: string, opts: { out: string; commit: s
     const reference = await readImage(paid, "pr223", "the owner reads the reference photo", `/api/storage${uploaded.objectPath}`);
     if (!reference.bytes.equals(photo)) throw new JourneyError("pr223", "the owner reads the reference photo", `${reference.bytes.length} bytes differ from the ${photo.length} uploaded`);
     shot("pr223-s1-reference", photo, reference.format, {
-      doc: "PR223_RENDER_REPRODUCIBILITY",
+      doc: "PR223_RENDER_REPRODUCIBILITY_UAT",
       step: "1",
       shows: `The reference photo the paid (legendary) test account uploaded for the generation: the repository's test-face.jpg fixture, ${reference.width}×${reference.height}, byte-identical to what the API serves back to its owner.`,
     });
@@ -102,7 +102,7 @@ export async function driveCaptures(base: string, opts: { out: string; commit: s
     // The wizard shows the result through the storage route (`AiSourcePanel`).
     const generated = await readImage(paid, "pr223", "the owner reads the generated image", `/api/storage${job.generatedObjectPath}`);
     shot("pr223-s1-result", generated.bytes, generated.format, {
-      doc: "PR223_RENDER_REPRODUCIBILITY",
+      doc: "PR223_RENDER_REPRODUCIBILITY_UAT",
       step: "1",
       shows: `The full-size image (${generated.width}×${generated.height}) the reference-photo generation (POST /api/memes/pulid-jobs, the meme builder's AI styling path) produced for fact ${fact.id} ("${fact.text}"), from the reference photo pr223-s1-reference, as the API serves it to its owner. To judge: does it show the person from the reference photo.`,
     });
@@ -203,7 +203,7 @@ export async function driveCaptures(base: string, opts: { out: string; commit: s
 
     const image = await readImage(admin, "pr229", "the test render's image", `/api/admin/reviews/${reviewId}/renders/${renderJobId}/image`);
     shot("pr229-s6-render", image.bytes, image.format, {
-      doc: "PR229_BUBBLE_CONTROLS",
+      doc: "PR229_BUBBLE_CONTROLS_UAT",
       step: "6",
       shows: `The full-size moderation test render (${image.width}×${image.height}, POST /api/admin/reviews/${reviewId}/render) of a Visual Concept whose one speech bubble reads "${vso.bubbles[0]!.text}" and is attributed to "${vso.bubbles[0]!.entity}", a character not in the scene. ${unresolved ? `The compiler reported bubble_entity_unresolved for it: the entity matched no subject or role binding (role bindings saved: ${(vso.roleBindings ?? []).length}).` : "The compiler did NOT report the entity unresolved."} To judge: whether the model added, ignored or misattributed the mailman.`,
     });

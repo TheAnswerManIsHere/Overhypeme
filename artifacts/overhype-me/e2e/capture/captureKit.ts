@@ -37,7 +37,7 @@ export const CAPTURE_COMMIT = execSync("git rev-parse HEAD", { encoding: "utf8" 
 export const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 
 export interface ShotMeta {
-  /** The UAT doc's filename stem, e.g. PR398_MEME_SPLIT_CAPTION_PERSONALIZATION. */
+  /** The UAT doc's filename stem, e.g. PR398_MEME_SPLIT_CAPTION_PERSONALIZATION_UAT. */
   doc: string;
   /** The step id within the doc, e.g. "3" or "R1". */
   step: string;

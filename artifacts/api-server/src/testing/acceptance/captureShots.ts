@@ -19,7 +19,7 @@ import path from "node:path";
 export const CAPTURE_ALLOWANCE_CAP_USD = 2;
 
 export interface ShotMeta {
-  /** The UAT doc's filename stem, e.g. PR223_RENDER_REPRODUCIBILITY. */
+  /** The UAT doc's filename stem, e.g. PR223_RENDER_REPRODUCIBILITY_UAT: `docs/tests/UAT/<doc>.md` exists, and the evidence store files the shot under it. */
   doc: string;
   /** The step id within the doc. */
   step: string;

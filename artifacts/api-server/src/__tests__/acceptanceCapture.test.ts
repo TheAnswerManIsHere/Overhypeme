@@ -24,7 +24,7 @@ const base = (over: Partial<Parameters<typeof captureRefusals>[0]> = {}) =>
 describe("the capture manifest", () => {
   it("has exactly the browser capture kit's keys, in its order", () => {
     const bytes = Buffer.from("image bytes");
-    const line = manifestLine("pr229-s6-render", "pr229-s6-render.png", { doc: "PR229_BUBBLE_CONTROLS", step: "6", shows: "a render" }, "abc123", bytes);
+    const line = manifestLine("pr229-s6-render", "pr229-s6-render.png", { doc: "PR229_BUBBLE_CONTROLS_UAT", step: "6", shows: "a render" }, "abc123", bytes);
     assert.deepEqual(Object.keys(line), ["shot", "file", "doc", "step", "shows", "commit", "sha256", "bytes"]);
     assert.equal(line.sha256, createHash("sha256").update(bytes).digest("hex"));
     assert.equal(line.bytes, bytes.length);
@@ -34,8 +34,8 @@ describe("the capture manifest", () => {
   it("writes the bytes unaltered beside an appended manifest line, and refuses an empty image", () => {
     const dir = tmp();
     const bytes = Buffer.alloc(5000, 7);
-    writeShot(dir, "pr223-s1-result", bytes, "jpeg", { doc: "PR223_RENDER_REPRODUCIBILITY", step: "1", shows: "x" }, "c1");
-    writeShot(dir, "pr223-s1-reference", bytes, "png", { doc: "PR223_RENDER_REPRODUCIBILITY", step: "1", shows: "y" }, "c1");
+    writeShot(dir, "pr223-s1-result", bytes, "jpeg", { doc: "PR223_RENDER_REPRODUCIBILITY_UAT", step: "1", shows: "x" }, "c1");
+    writeShot(dir, "pr223-s1-reference", bytes, "png", { doc: "PR223_RENDER_REPRODUCIBILITY_UAT", step: "1", shows: "y" }, "c1");
     assert.ok(fs.readFileSync(path.join(dir, "pr223-s1-result.jpg")).equals(bytes));
     const lines = fs.readFileSync(path.join(dir, "manifest.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
     assert.deepEqual(lines.map((l) => l.file), ["pr223-s1-result.jpg", "pr223-s1-reference.png"]);

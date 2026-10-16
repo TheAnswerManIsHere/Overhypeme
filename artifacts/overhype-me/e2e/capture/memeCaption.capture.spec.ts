@@ -25,7 +25,7 @@ import {
   FREE_SESSION,
 } from "./captureKit";
 
-const DOC = "PR398_MEME_SPLIT_CAPTION_PERSONALIZATION";
+const DOC = "PR398_MEME_SPLIT_CAPTION_PERSONALIZATION_UAT";
 const FACT = "Firearms carry {NAME} for protection.";
 const SPLIT = { min: 1, max: 4 };
 
