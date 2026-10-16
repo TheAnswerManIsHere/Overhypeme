@@ -1,6 +1,6 @@
 /**
  * Browser-level stubs for the read endpoints a public screen needs, for the
- * described-screen checks in `describedScreens.spec.ts` (#631, increment 8).
+ * described-screen checks in `publicScreens.spec.ts` (#631, increment 8).
  *
  * Why stubs and not rows: the dev stack CI boots has an empty database and no
  * AI doubles, and an active fact can only be created through the moderation
@@ -10,7 +10,9 @@
  * (session, config, route stats) still reaches the real dev server.
  *
  * The bodies are typed against the generated API client, so a renamed or
- * retyped field is a type error here rather than a silently stale fixture.
+ * retyped field is a type error when these files are type-checked. Nothing in
+ * CI type-checks e2e/ today (the package's tsconfig includes only src/), so
+ * that is a check a contributor runs, not a gate.
  */
 import type { Page, Route } from "@playwright/test";
 import type { FactDetail, FactSummary } from "@workspace/api-client-react";
