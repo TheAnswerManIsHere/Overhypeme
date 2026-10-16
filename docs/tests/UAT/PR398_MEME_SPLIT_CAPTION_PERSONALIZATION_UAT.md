@@ -56,16 +56,17 @@ does **not** read "{NAME} MAKES".
 
 ### 2. The caption underneath was never broken and still isn't
 
-**Do:** On the same meme page, read the text underneath the picture.
+**Do:** On the same meme page, read the caption sentence: on a desktop
+screen it sits beside the picture, under the "What's next?" heading.
 
-**Expect:** It still reads "Nick Baron makes onions cry." — same as
-before, it was never broken.
+**Expect:** It reads "Nick Baron makes onions cry." and shows no `{NAME}`.
+The meme's API record carries that sentence as its factText.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `curl -s https://overhype.me/api/memes/o1bV9xne49` via the Replit connector; the factText field must read "Nick Baron makes onions cry."
+**Check:** `curl -s https://overhype.me/api/memes/o1bV9xne49` via the Replit connector; the factText field must read "Nick Baron makes onions cry."; `artifacts/overhype-me/e2e/publicScreens.spec.ts:the meme page shows the creator's personalized sentence as its caption`
 
-**Deferred:** #631 — 7b — GET /api/memes/:slug for a meme whose creator is Nick Baron, he/him, on the fact {NAME} makes onions cry. returns factText Nick Baron makes onions cry. — `artifacts/api-server/src/__tests__/routes.memes.test.ts`; #631 — increment 8 (capture and read) — the meme page shows Nick Baron makes onions cry. as the text under the picture
+**Deferred:** #631 — 7b — GET /api/memes/:slug for a meme whose creator is Nick Baron, he/him, on the fact {NAME} makes onions cry. returns factText Nick Baron makes onions cry. — `artifacts/api-server/src/__tests__/routes.memes.test.ts`
 
 ### 3. A brand-new meme's picture matches its own preview
 
@@ -224,13 +225,15 @@ split slider and the position sliders.
 **Do:** Check the orange highlight on the name in the fact text elsewhere
 in the app.
 
-**Expect:** Untouched.
+**Expect:** The name inside fact text is drawn in the brand orange (the
+`--primary` colour in `src/index.css`) and the rest of the sentence is not:
+the sample name "David Franklin" in the home page's welcome card, and the
+visitor's own name in a feed card once they have entered one. On-screen fact
+text goes through the highlighting renderer.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/facts/HighlightedFactText.test.tsx:highlights a plain {NAME} substitution`; `artifacts/overhype-me/src/__tests__/factTextHighlighting.guard.test.ts:only allowlisted modules import the flat renderFact` — on-screen fact text goes through the highlighting renderer
-
-**Deferred:** #631 — increment 8 (capture and read) — the name inside fact text elsewhere in the app shows in the brand orange highlight
+**Check:** `artifacts/overhype-me/src/components/facts/HighlightedFactText.test.tsx:highlights a plain {NAME} substitution`; `artifacts/overhype-me/src/__tests__/factTextHighlighting.guard.test.ts:only allowlisted modules import the flat renderFact` — on-screen fact text goes through the highlighting renderer; `artifacts/overhype-me/e2e/publicScreens.spec.ts:the name inside fact text is drawn in the brand orange`
 
 ## Not bugs
 
