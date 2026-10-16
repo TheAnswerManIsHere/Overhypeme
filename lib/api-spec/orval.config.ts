@@ -1,3 +1,7 @@
+/**
+ * @purpose Orval configuration for the api-spec codegen script: generates the React Query client from openapi.yaml into lib/api-client-react, and the Zod schemas and TypeScript types into lib/api-zod.
+ * @subsystem api-codegen
+ */
 import { defineConfig, InputTransformerFn } from "orval";
 import path from "path";
 

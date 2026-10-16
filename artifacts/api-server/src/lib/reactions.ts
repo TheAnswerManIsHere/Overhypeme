@@ -1,3 +1,7 @@
+/**
+ * @purpose The shared reactions mechanism behind fact ratings and meme and comment hearts: writes the polymorphic reactions row, recomputes the target's denormalized counts in the same transaction, plus the Wilson score for fact ratings, and bulk-reads a viewer's reactions for list responses.
+ * @subsystem community
+ */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {

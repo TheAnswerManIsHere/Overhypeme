@@ -1,3 +1,7 @@
+/**
+ * @purpose The read-authorization gates for private storage objects: userCanReadObject layers the legacy upload-owner fallback and ACL heal over the object ACL, and userOwnsAiReferenceImage gates AI reference images by their user_ai_images row.
+ * @subsystem security
+ */
 import type { Request } from "express";
 import type { File } from "@google-cloud/storage";
 import { db } from "@workspace/db";

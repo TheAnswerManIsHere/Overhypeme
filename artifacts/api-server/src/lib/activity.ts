@@ -1,6 +1,10 @@
 /**
  * Helper to log entries to the activity_feed table.
- * All writes are fire-and-forget — errors are logged but never surface to callers.
+ * Writes are best-effort: an error is logged and swallowed, never thrown. Each
+ * caller chooses whether to await the insert or fire and forget it.
+ *
+ * @purpose logActivity and the ActivityType union for the per-user activity feed; a best-effort write that logs and swallows errors and never throws, which callers either await or fire and forget.
+ * @subsystem community
  */
 import { db } from "@workspace/db";
 import { activityFeedTable } from "@workspace/db/schema";

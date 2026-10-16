@@ -1,3 +1,7 @@
+/**
+ * @purpose The /activity page: a signed-in user's paginated feed of status updates on their own submissions and comments, from posting to moderation outcome, read from /api/activity-feed, with mark-all-read.
+ * @subsystem community
+ */
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";

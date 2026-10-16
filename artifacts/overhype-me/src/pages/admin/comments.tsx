@@ -1,3 +1,7 @@
+/**
+ * @purpose Orphaned admin page for the comment moderation queue, with pending and flagged tabs over the admin comment endpoints; /admin/comments redirects to /admin/moderation, which carries its own comment panel, so nothing routes here.
+ * @subsystem community
+ */
 import { useState, useEffect, useCallback } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Link } from "wouter";

@@ -1,3 +1,7 @@
+/**
+ * @purpose Express rate-limit middleware factories: the per-instance global /api backstop over BoundedMemoryStore, the DB-backed per-route limiter over checkSharedRateLimit, and the tier-aware fact-submission limiter; windows and maxes default from env, and each factory takes per-call overrides.
+ * @subsystem security
+ */
 import { can, principalFromRequest } from "./featureAccess";
 import { type Request, type Response, type NextFunction } from "express";
 import { rateLimit, ipKeyGenerator, type RateLimitRequestHandler, type Store } from "express-rate-limit";

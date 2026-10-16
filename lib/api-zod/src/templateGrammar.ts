@@ -4,7 +4,7 @@
  * recognise valid tokens — e.g. the tokenize route's `stripUnknownTokens`
  * cleanup — cannot drift from what `validateTemplate` accepts.
  *
- * @purpose The template grammar contract shared by server and browser: the closed token set, the validator, and the deterministic cleanup passes every template write applies.
+ * @purpose The template grammar contract shared by server and browser: the closed token set, the validator, and the deterministic cleanup sequence every new-text ingress write applies.
  * @subsystem token-rendering
  */
 export const ALLOWED_SIMPLE_TOKENS: ReadonlySet<string> = new Set([

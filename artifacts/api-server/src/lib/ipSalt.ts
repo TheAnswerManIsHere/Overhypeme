@@ -9,6 +9,9 @@
  *
  * `transientRenderLog.ts` re-exports `hashIp` from here, so existing callers
  * are unaffected.
+ *
+ * @purpose The IP-hash salt and hashIp: resolves the salt with a dev fallback, asserts it is configured in production at boot, and imports nothing that reaches the database so the assertion runs before the DB graph loads.
+ * @subsystem security
  */
 
 import crypto from "node:crypto";

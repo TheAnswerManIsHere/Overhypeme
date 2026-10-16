@@ -16,6 +16,9 @@
  *
  * Eviction fails safe: an evicted key's counter resets, giving that caller a
  * looser limit for one window. It can never produce a wrongful 429.
+ *
+ * @purpose A bounded in-memory Store for express-rate-limit that mirrors MemoryStore's window rotation but caps the tracked keys and evicts oldest-first, so a flood of distinct IPs cannot grow the global limiter into an OOM.
+ * @subsystem security
  */
 import type { Options, ClientRateLimitInfo, Store } from "express-rate-limit";
 

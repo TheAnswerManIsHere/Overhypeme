@@ -27,6 +27,9 @@
  * `requireRole('admin')` over `realUserRole`. That separation is what makes
  * admin lockout impossible by configuration: nothing that grants console
  * access lives in the grid.
+ *
+ * @purpose The permission chokepoint: the only module that reads the tier feature grid, resolving a principal's features as the union of its tier and admin rows; the can and requireFeature gates fail closed, while the entitlement resolver behind the login payload throws on a database error; also the admin matrix read and write, and the grid revision.
+ * @subsystem membership
  */
 
 import { type Request, type Response, type NextFunction } from "express";

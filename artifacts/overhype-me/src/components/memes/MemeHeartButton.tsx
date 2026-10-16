@@ -1,3 +1,7 @@
+/**
+ * @purpose Heart toggle for a meme, sized to sit beside its metadata or as a card overlay: an optimistic flip with rollback on failure, with anonymous taps routed to login.
+ * @subsystem community
+ */
 import { useEffect, useState } from "react";
 import { Heart } from "lucide-react";
 import { useHeartMeme } from "@workspace/api-client-react";

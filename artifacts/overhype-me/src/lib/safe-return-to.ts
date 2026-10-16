@@ -26,6 +26,9 @@
  * Differs from the server's in its miss value only: this returns `null` rather
  * than `"/"`, so callers can tell "no destination given" from "a destination
  * was given and it was rejected" and keep their existing null-handling.
+ *
+ * @purpose Client-side twin of the server's getSafeReturnTo: reduces a redirect target to a same-origin path by the same rules, returning null rather than / on a miss so callers can tell no destination from a rejected one.
+ * @subsystem security
  */
 export function getSafeReturnTo(value: unknown): string | null {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {

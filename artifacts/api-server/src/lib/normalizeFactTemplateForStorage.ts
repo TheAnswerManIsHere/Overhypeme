@@ -1,13 +1,17 @@
 /**
- * The single storage-normalization contract every fact-template-writing route
- * shares: run the full deterministic grammar cleanup, validate the result,
- * and — on success — compute the text-derived metadata (`canonicalText`,
- * `splitTokenIndex`, `hasPronouns`) every `facts` row must keep in sync, from
- * the FINAL normalized text, never the raw input. Centralizing this here
+ * The single normalization contract every route that ingests new
+ * fact-template text shares: run the full deterministic grammar cleanup and validate the result.
+ * For a `facts` row the storage variant then, on success, computes the
+ * text-derived metadata (`canonicalText`, `splitTokenIndex`, `hasPronouns`)
+ * every row must keep in sync, from the FINAL normalized text, never the raw
+ * input. A new-text `pending_reviews` write takes the pending-review variant,
+ * which stops at validation; the metadata is derived when the review becomes
+ * a staging fact (`moderationStaging.ts`). The send-back and resubmit paths,
+ * which copy an existing fact's text into a review, use neither variant. Centralizing this here
  * means no route can independently forget a pass, validate before
  * normalizing, or derive metadata from stale text.
  *
- * @purpose The one normalize-validate-derive step every route runs before writing a fact template, so canonical text, split index and hasPronouns come from the final text.
+ * @purpose The normalize-validate step every new-text template ingress shares, in two variants: the pending-review variant, which the submission, variant and import routes run and which stops at validation, and the storage variant, which the approved-text edit and the legacy-fixture builder run to also derive canonical text, split index and hasPronouns from the final text.
  * @subsystem token-rendering
  */
 

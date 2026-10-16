@@ -54,7 +54,7 @@
  *
  * Defaults to --dry-run (reports, writes nothing). --apply is required to mutate.
  *
- * @purpose One-off CLI backfill that expands subject-pronoun 's contractions in stored fact templates into {is|are} pairs, or {has|have} before got/gotten/been/had, retiring the "They's" render.
+ * @purpose One-off CLI backfill that expands subject-pronoun 's contractions in stored fact templates and pending review submissions into {is|are} pairs, or {has|have} before got/gotten/been/had, retiring the "They's" render.
  * @subsystem token-rendering
  */
 

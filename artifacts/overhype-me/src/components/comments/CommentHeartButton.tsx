@@ -1,3 +1,7 @@
+/**
+ * @purpose Heart toggle for a comment: an optimistic flip reconciled against the heart mutation's response, with anonymous taps routed to login.
+ * @subsystem community
+ */
 import { useState } from "react";
 import { Heart } from "lucide-react";
 import { useHeartComment } from "@workspace/api-client-react";

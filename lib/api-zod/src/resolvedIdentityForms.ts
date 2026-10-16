@@ -16,7 +16,7 @@
  * Pure, dependency-light (only `templateGrammar`), so it is safe for both
  * frontend and backend to import.
  *
- * @purpose Resolves a name and pronoun set into the form each template token takes, and defines the substitution function renderCanonical wraps, with the token-key set the prompt-identity budget is typed against.
+ * @purpose Resolves a name and slash-form pronoun set into the form each template token takes, falling back to they/them for a pipe-delimited custom set, and defines the substitution function renderCanonical wraps, with the token-key set the prompt-identity budget is typed against.
  * @subsystem token-rendering
  */
 
