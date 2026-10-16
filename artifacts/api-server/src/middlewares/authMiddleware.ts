@@ -1,3 +1,7 @@
+/**
+ * @purpose Resolves the session (Bearer token, then cookie) and rebuilds req.user from the active user row: effective tier, admin over all three grants with the view-as-user toggle applied to isAdmin only, and captcha from the row or the session; a session that is expired or whose user is missing or inactive is deleted, and with none valid, the request proceeds unauthenticated.
+ * @subsystem accounts-auth
+ */
 import { type Request, type Response, type NextFunction } from "express";
 import type { AuthUser } from "@workspace/api-zod";
 import { db } from "@workspace/db";

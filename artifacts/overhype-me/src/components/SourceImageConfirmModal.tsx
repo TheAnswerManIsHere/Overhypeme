@@ -12,6 +12,9 @@
  * The caller (AiBgPicker) opens this modal whenever the user generates from a
  * reference-photo upload; Generic (no-upload) generation still falls through
  * to the legacy /generate route.
+ *
+ * @purpose Pre-generate confirm modal for a reference-photo upload: posts analyze-source, shows per-subject-kind text and choices, then posts generate-v2 with the chosen render mode and polls the render until it is ready, blocked or failed, or until 60 polls have run that were not rate-limited; a rate-limited poll is not counted, so sustained 429s keep it polling.
+ * @subsystem visual-pipeline
  */
 
 import { useEffect, useState, useRef, useCallback } from "react";

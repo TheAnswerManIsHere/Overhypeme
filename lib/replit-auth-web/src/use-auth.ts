@@ -1,3 +1,7 @@
+/**
+ * @purpose Client AuthProvider and useAuth: loads /api/auth/user at mount, polls the entitlement version and refetches on a change, and exposes the user, role and realRole, the server-sent entitlements with can(), and login and logout; a failed first load leaves no user and no entitlements.
+ * @subsystem accounts-auth
+ */
 import { useState, useEffect, useCallback, createContext, useContext, createElement } from "react";
 import type { ReactNode } from "react";
 import type { AuthUser } from "@workspace/api-client-react";

@@ -1,3 +1,7 @@
+/**
+ * @purpose exportUserData returns one user's row, sessions, search history and membership history; runRetentionWindowJobs deletes organization invites over 14 days old, expired email-verification and password-reset tokens, and search history over 90 days old.
+ * @subsystem accounts-auth
+ */
 import { db, usersTable, sessionsTable, emailVerificationTokensTable, passwordResetTokensTable } from "@workspace/db";
 import { searchHistoryTable, membershipHistoryTable } from "@workspace/db/schema";
 import { eq, lt, sql } from "drizzle-orm";

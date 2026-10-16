@@ -1,3 +1,7 @@
+/**
+ * @purpose OAuth and session routes: Google and Apple login, provider linking and the two callbacks, logout, GET /auth/user with the resolved entitlements, the entitlement-version probe, and the admin-mode toggle.
+ * @subsystem accounts-auth
+ */
 import { isRealAdminRequest } from "../lib/adminIdentity";
 import {
   getGridRevision,

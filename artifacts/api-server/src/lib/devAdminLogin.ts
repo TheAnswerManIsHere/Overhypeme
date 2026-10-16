@@ -9,13 +9,16 @@
  *   - NEVER enabled in production, even if the flag is somehow set there
  *     (belt-and-suspenders — production wins over the flag).
  *
- * The handler (routes/localAuth.ts), the permissive CORS + origin-exemption
- * (app.ts), and the UI trigger (Navbar.tsx, via `import.meta.env.DEV`) all gate
- * on this one predicate so they can't drift out of sync. Finding C1 — see
- * docs/ai-context/security-model.md.
+ * The handler (routes/localAuth.ts) and the permissive CORS + origin-exemption
+ * (app.ts) gate on this one predicate so they can't drift out of sync. The UI
+ * trigger (Navbar.tsx) cannot call it and gates separately on
+ * `import.meta.env.DEV`. Finding C1 — see docs/ai-context/security-model.md.
  *
  * Read at request time (handler) and at boot (app.ts); the environment is fixed
  * for the process lifetime, so both agree.
+ *
+ * @purpose isDevAdminLoginEnabled: true only when ENABLE_DEV_ADMIN_LOGIN is "true" and neither REPLIT_DEPLOYMENT is "1" nor NODE_ENV is "production"; the dev-admin-login handler and app.ts's CORS exemption gate on it.
+ * @subsystem security
  */
 export function isDevAdminLoginEnabled(): boolean {
   const isProduction =

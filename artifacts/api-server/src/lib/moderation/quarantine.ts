@@ -14,6 +14,9 @@
  * Soft-delete only. Rows live forever in the DB; the bytes survive at least
  * `quarantine_evidence_retention_days` per `objectStorage.deleteObject`'s
  * restricted-prefix guard.
+ *
+ * @purpose quarantineImage: stores rejected image bytes under the restricted quarantine prefix with a quarantined_memes audit row, then files the NCMEC report stub when reportToNcmec is set (by default only for Arachnid); throws if the storage or audit write fails, while a report failure is only logged.
+ * @subsystem legal-safety
  */
 
 import { randomUUID } from "node:crypto";

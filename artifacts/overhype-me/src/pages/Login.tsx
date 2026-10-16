@@ -1,3 +1,7 @@
+/**
+ * @purpose Sign-in page: email/password login or registration (registration requires pronouns client-side, suggested from the first name), Google and Apple sign-in, a resend-verification prompt, and the reset-success and OAuth error notices; a local sign-in returns to the safe from path.
+ * @subsystem accounts-auth
+ */
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";

@@ -1,3 +1,7 @@
+/**
+ * @purpose Server upload pipeline (processAndStoreUserUpload) for the meme and avatar variants: a meme must decode as a JPEG, while an avatar is accepted on its declared content type without decoding; it then runs the upload moderation checks, stores the bytes (avatar public, meme private) and records upload_image_metadata; on any rejection it has already written the response.
+ * @subsystem studio
+ */
 import { randomUUID } from "crypto";
 import { type Request, type Response } from "express";
 import sharp from "sharp";

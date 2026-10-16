@@ -14,6 +14,9 @@
  * confidence / box. This module normalizes whatever the engine produces into
  * a `SourceImageDetection[]`. When wiring a new detector with a different
  * output shape, extend `normalizeDetections()` rather than touching callers.
+ *
+ * @purpose Tier-1 source-image detector: runs the admin-configured detector engine (default fal-yolo-world) on an image URL and normalizes its output to SourceImageDetection[]; a missing engine or a failed detector call throws Tier1DetectorError, while errors from the fal-key check and the engine-id and catalogue reads propagate unwrapped, which the analyzer does not catch.
+ * @subsystem visual-pipeline
  */
 
 import { fal, ensureFalConfigured } from "../falClient";
