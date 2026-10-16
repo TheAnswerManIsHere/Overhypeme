@@ -29,7 +29,7 @@ import { runSelfTest } from "./selfTest";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
-export type InnerMode = "acceptance" | "replay" | "record" | "live";
+export type InnerMode = "acceptance" | "replay" | "record" | "live" | "capture";
 
 export interface InnerConfig {
   job: "probe" | "journeys";
@@ -50,6 +50,8 @@ export interface InnerConfig {
   aiDoubleFail?: string;
   /** Keep the server running after the journeys until SIGTERM (serve mode). */
   serve?: { port: number; origin: string };
+  /** Capture mode (increment 8, D7): run the capture journeys instead of 2–7, writing images to `out`. */
+  capture?: { out: string; commit: string };
 }
 
 const node = process.execPath;
@@ -142,6 +144,20 @@ async function readPexelsMeme(databaseUrl: string, base: string): Promise<Record
   return check.ok ? { ok: true, slug: rows[0].slug, ...check.image } : { ok: false, slug: rows[0].slug, problem: check.problem };
 }
 
+/** The active fixture fact the PR223 capture generates for: the first whose text personalises the name. */
+async function captureFact(databaseUrl: string): Promise<{ id: number; text: string } | null> {
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query<{ id: number; text: string }>(
+      `SELECT id, text FROM facts WHERE is_active AND text LIKE '%{NAME}%' ORDER BY id LIMIT 1`,
+    );
+    return rows[0] ?? null;
+  } finally {
+    await client.end();
+  }
+}
+
 function storageEnv(work: string) {
   return {
     STORAGE_BACKEND: "local-double",
@@ -183,7 +199,7 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
 
   const port = cfg.serve?.port ?? (await freePort());
   const mode = cfg.mode ?? "acceptance";
-  const recording = mode === "record" || mode === "live";
+  const recording = mode === "record" || mode === "live" || mode === "capture";
   const values: Record<string, string | undefined> = {
     ...base,
     ...storage,
@@ -203,6 +219,9 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
       AI_RECORDER_ALLOWANCE_USD: cfg.allowanceUsd,
       AI_RECORDER_LEDGER: cfg.callRecord,
     });
+    // Capture is the recorder with reuse off, like the live check, but only the
+    // AI vendors: every vendor call it makes stays inside the recorder's allowance.
+    if (mode === "capture") Object.assign(values, { AI_RECORDER_LIVE: "1" });
     if (mode === "live") {
       Object.assign(values, {
         AI_RECORDER_LIVE: "1",
@@ -211,7 +230,7 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
         ARACHNID_SHIELD_PASSWORD: process.env.ARACHNID_SHIELD_PASSWORD || undefined,
       });
     }
-    env = constructEnvironment(mode === "live" ? LIVE_ENV_ALLOWLIST : RECORDER_ENV_ALLOWLIST, values);
+    env = constructEnvironment(mode === "live" || mode === "capture" ? LIVE_ENV_ALLOWLIST : RECORDER_ENV_ALLOWLIST, values);
     entry = "src/testing/aiRecorderLauncher.ts";
   } else {
     Object.assign(values, {
@@ -243,6 +262,16 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
       if (!text) return 0;
       return text.startsWith("{") && text.includes('"lines"') ? (JSON.parse(text) as { lines: unknown[] }).lines.length : text.split("\n").length;
     };
+    if (cfg.capture) {
+      const { driveCaptures } = await import("./captureJourneys");
+      out.capture = await driveCaptures(baseUrl, {
+        out: cfg.capture.out,
+        commit: cfg.capture.commit,
+        fact: await captureFact(cfg.databaseUrl),
+        log: (l) => process.stdout.write(`[capture] ${l}\n`),
+      });
+      return out;
+    }
     const { driveBaseline } = await import("./driver");
     out.drive = await driveBaseline(baseUrl, (l) => process.stdout.write(`[journeys] ${l}\n`), {
       expectRenderFailure: cfg.control === "render-failure",

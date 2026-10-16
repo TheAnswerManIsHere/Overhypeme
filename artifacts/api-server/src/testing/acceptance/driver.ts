@@ -71,7 +71,7 @@ export class JourneyError extends Error {
 }
 
 /** A cookie jar per identity: Set-Cookie parsed by hand, so Secure cookies work over local http. */
-class Session {
+export class Session {
   private cookies = new Map<string, string>();
   constructor(
     private readonly base: string,
@@ -116,7 +116,7 @@ class Session {
   }
 }
 
-async function poll<T>(journey: string, what: string, read: () => Promise<T>, done: (v: T) => boolean, failed: (v: T) => string | null, timeoutMs: number): Promise<T> {
+export async function poll<T>(journey: string, what: string, read: () => Promise<T>, done: (v: T) => boolean, failed: (v: T) => string | null, timeoutMs: number): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const value = await read();
@@ -162,7 +162,7 @@ export interface DriveOptions {
   beforeJourney4?: (objectPath: string) => void;
 }
 
-async function readImage(session: Session, journey: string, what: string, url: string, aspect?: "landscape"): Promise<{ bytes: Buffer; width: number; height: number; format: string }> {
+export async function readImage(session: Session, journey: string, what: string, url: string, aspect?: "landscape"): Promise<{ bytes: Buffer; width: number; height: number; format: string }> {
   const res = await session.request("GET", url);
   if (res.status !== 200) throw new JourneyError(journey, what, `${res.status} from ${url}`);
   const bytes = Buffer.from(await res.arrayBuffer());
