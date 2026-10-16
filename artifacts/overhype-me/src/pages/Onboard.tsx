@@ -1,3 +1,7 @@
+/**
+ * @purpose Onboarding page: an hCaptcha step posting to /api/users/me/complete-onboarding, then an optional square-cropped photo uploaded as an avatar and set via /api/users/me/profile-image, then on to the safe returnTo.
+ * @subsystem accounts-auth
+ */
 import { useEffect, useRef, useState } from "react";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useLocation } from "wouter";

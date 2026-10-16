@@ -15,6 +15,9 @@
  *   - true            → log warn + allow through (upload proceeds without NSFW tag)
  *
  * Set `admin_config` key `nsfw_classifier_fail_open = "true"` to enable.
+ *
+ * @purpose fal.ai NSFW classifier client: scores an image URL against the admin_config endpoint and threshold, and classifyAndDecide returns accept (tagged NSFW when the user's NSFW mode is on), reject or error for the caller to act on.
+ * @subsystem legal-safety
  */
 
 // Through the shared facade, so the AI double and the recorder reach this call too.

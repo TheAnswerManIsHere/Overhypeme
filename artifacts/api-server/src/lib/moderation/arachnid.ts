@@ -19,6 +19,9 @@
  * itself. Callers are responsible for invoking
  * {@link quarantineImage} on a hit and stamping the upload metadata
  * columns on a clean scan.
+ *
+ * @purpose Project Arachnid Shield hash-match client: scans image bytes and returns a clean, match, error or disabled outcome, plus the fail-open setting; it persists nothing, so acting on a match is the caller's job.
+ * @subsystem legal-safety
  */
 
 import { logger } from "../logger";

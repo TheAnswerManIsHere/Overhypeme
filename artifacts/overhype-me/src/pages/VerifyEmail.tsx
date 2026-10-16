@@ -1,3 +1,7 @@
+/**
+ * @purpose Email-verification landing page: sends the URL token to /api/auth/verify-email, then hard-navigates to the profile on success so the new session is picked up, or shows already-verified or the error.
+ * @subsystem accounts-auth
+ */
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";

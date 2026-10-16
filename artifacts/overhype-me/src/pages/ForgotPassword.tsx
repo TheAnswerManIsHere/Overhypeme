@@ -1,3 +1,7 @@
+/**
+ * @purpose Forgot-password page: posts the email to /api/auth/forgot-password and shows the same confirmation whatever happens, network errors included.
+ * @subsystem accounts-auth
+ */
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";

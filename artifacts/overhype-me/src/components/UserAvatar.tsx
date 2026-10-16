@@ -1,3 +1,7 @@
+/**
+ * @purpose Circular avatar for a given URL, falling back to an initial or a person icon, with, for a Legendary user, a gold ring and (at md and lg) a crown; renders as a button or a div, and the account menu is its one importer.
+ * @subsystem frontend-shell
+ */
 import { forwardRef } from "react";
 import { Crown, User as UserIcon } from "lucide-react";
 

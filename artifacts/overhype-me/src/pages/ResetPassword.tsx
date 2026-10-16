@@ -1,3 +1,7 @@
+/**
+ * @purpose Reset-password page: takes the token from the URL, checks the two passwords match, posts to /api/auth/reset-password and on success goes to /login?reset=success.
+ * @subsystem accounts-auth
+ */
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";

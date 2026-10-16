@@ -1,3 +1,7 @@
+/**
+ * @purpose Name-and-pronoun bottom sheet for signed-out visitors, mounted by Layout: opens once per browser session unless a name is stored or was set explicitly, a share link is active or the path is suppressed, suggests pronouns from the name until the visitor picks, and saves to usePersonName.
+ * @subsystem public-site
+ */
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";

@@ -13,6 +13,9 @@
  *   - The report row defaults `evidence_retention_until = now() + 90 days`.
  *   - The bytes live in the restricted prefix; `objectStorage.deleteObject`
  *     refuses to delete them unless `force: true` is passed.
+ *
+ * @purpose NCMEC report stub: inserts a pending ncmec_reports row and best-effort emails the reachable admins who have notifications on; it never contacts NCMEC.
+ * @subsystem legal-safety
  */
 
 import { db, usersTable } from "@workspace/db";

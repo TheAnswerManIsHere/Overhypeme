@@ -15,6 +15,9 @@
  * calling this. Arbitrary external URLs are forbidden by the route, not by
  * this module — keep the analyzer URL-agnostic so internal admin tooling
  * can also call it on object storage paths.
+ *
+ * @purpose Source-image analyzer entrypoint: returns the cached analysis when its version matches, else runs the Tier-1 detector, the Tier-2 heuristics and, when Tier-2 asks to escalate and the caller allows it, the Tier-3 AI-vision fallback, caching the result on the upload's metadata row when one exists; also resolves the subject render mode.
+ * @subsystem visual-pipeline
  */
 
 import { eq } from "drizzle-orm";

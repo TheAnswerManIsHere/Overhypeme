@@ -22,6 +22,9 @@
  * privilege never honours the "view as user" toggle — view-as-user changes what
  * an admin can do, never who gets paged or who counts as an admin. Feature
  * entitlements are `featureAccess.ts`'s job and deliberately DO honour it.
+ *
+ * @purpose SQL, row and request predicates for really-an-admin over all three grants (the is_admin column, ADMIN_USER_IDS, the bootstrap email), plus an active-only SQL variant for admin counts and paging; none honours the view-as-user toggle.
+ * @subsystem accounts-auth
  */
 
 import { type Request } from "express";

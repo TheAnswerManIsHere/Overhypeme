@@ -26,6 +26,9 @@
  *    transaction-scoped advisory lock taken on the same connection as the count
  *    and the write. It must be transaction-scoped: a session-level lock could
  *    outlive its transaction under this app's connection pooling.
+ *
+ * @purpose Last-admin guard: under a transaction-scoped advisory lock it refuses a demotion, deactivation, deletion or bootstrap-boundary email change that would leave no active reachable admin, and exports a self-demotion check and the delete-path reservation; used by the admin user routes and email-change verification.
+ * @subsystem accounts-auth
  */
 
 import { db } from "@workspace/db";

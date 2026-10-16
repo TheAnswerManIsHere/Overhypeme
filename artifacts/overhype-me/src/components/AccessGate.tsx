@@ -1,3 +1,7 @@
+/**
+ * @purpose Shared not-allowed UI, as a full page or an inline panel: sign-in for a login reason (with a return path) or Go Legendary to /pricing for a Legendary reason.
+ * @subsystem frontend-shell
+ */
 import { Lock, ShieldAlert } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/Button";

@@ -1,3 +1,7 @@
+/**
+ * @purpose Session and OAuth primitives: the sid cookie and 7-day TTL, Postgres-backed session create, get (expired rows deleted), update and delete, the Bearer-then-cookie session id, Google and Apple OIDC configuration, and the ADMIN_USER_IDS and bootstrap-email admin checks.
+ * @subsystem accounts-auth
+ */
 import * as client from "openid-client";
 import crypto from "crypto";
 import { type Request, type Response } from "express";

@@ -3,6 +3,9 @@
  * `maxSize` on the long edge. The cropped image is the user's reusable
  * identity asset — meme overlays, AI image generation, and AI video memes
  * all consume a square face crop, so we normalise on upload.
+ *
+ * @purpose Client image prep and upload: center-crops or downscales to JPEG, or sends the file unchanged with preprocess none, then POSTs to /api/storage/upload-meme or upload-avatar and throws on a non-OK response.
+ * @subsystem studio
  */
 export async function cropToSquareJpeg(file: File, maxSize = 1024): Promise<File> {
   const dataUrl = await new Promise<string>((resolve, reject) => {

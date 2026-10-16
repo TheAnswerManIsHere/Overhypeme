@@ -9,6 +9,9 @@
  * via `quarantine.quarantineImage`, an audit row is written, and the user
  * gets a generic 422. Per spec, error responses MUST NOT leak which check
  * fired.
+ *
+ * @purpose Shared moderation types: ModerationContext, ScanEvidence, ModerationRejectedError and the generic reject message, which exists so a response does not reveal which check fired.
+ * @subsystem legal-safety
  */
 
 import type { QuarantineSource } from "@workspace/db/schema";

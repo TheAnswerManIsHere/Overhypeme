@@ -26,6 +26,9 @@
  * assert exact documents rather than element presence.
  *
  * Verified 2026-07-30 against <https://report.cybertip.org/ispws/documentation/>.
+ *
+ * @purpose Pure builders for the CyberTipline report and file-details XML, taking a frozen reporter snapshot and persisted provenance and throwing rather than guessing a missing value; only tests call them so far.
+ * @subsystem legal-safety
  */
 
 import { XMLBuilder } from "fast-xml-parser";

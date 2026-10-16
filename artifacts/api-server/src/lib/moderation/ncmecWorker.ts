@@ -66,6 +66,9 @@
  *   open. Phase 5's worker must bound elapsed time since *claim*, not since *handler
  *   start* — by refreshing/fencing the lease immediately before the ISPWS sequence, or by
  *   deriving the deadline from remaining time rather than a fixed constant.
+ *
+ * @purpose Pure NCMEC submission-eligibility (isSubmittable) and waiting-state (classifyWaitingState) functions and the sequence deadline; no worker exists yet, and only tests call them.
+ * @subsystem legal-safety
  */
 
 import type { AsyncJobStatus, NcmecReport, NcmecSubmissionStatus } from "@workspace/db";

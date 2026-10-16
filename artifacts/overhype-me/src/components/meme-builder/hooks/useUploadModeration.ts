@@ -1,3 +1,7 @@
+/**
+ * @purpose Meme-builder upload hook: accepts JPEG, PNG or WebP up to 15 MB client-side, POSTs the bytes unchanged to /api/storage/upload-meme (which takes JPEG only, #702), and maps 413, 415, 422 and other failures to the too-large, invalid-format, rejected and network states.
+ * @subsystem studio
+ */
 import { useCallback, useState } from "react";
 
 export type UploadStatus = "idle" | "previewing" | "uploading" | "moderating" | "ready" | "error";

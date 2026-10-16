@@ -1,3 +1,7 @@
+/**
+ * @purpose Server upload pipeline (processAndStoreUserUpload) for the meme and avatar variants: validates and probes the image, runs the upload moderation checks, stores it (avatar public, meme private) and records upload_image_metadata; on any rejection it has already written the response.
+ * @subsystem studio
+ */
 import { randomUUID } from "crypto";
 import { type Request, type Response } from "express";
 import sharp from "sharp";

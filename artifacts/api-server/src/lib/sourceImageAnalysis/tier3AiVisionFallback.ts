@@ -11,6 +11,9 @@
  * Admin-configurable system prompt via `fact_source_classifier_system`.
  * The active utility LLM (model + temperature defaults) is shared with
  * fact-enrichment / visual-preview via `callUtilityLLM`.
+ *
+ * @purpose Tier-3 classifier: asks the shared utility LLM, with an admin-configurable system prompt and a structured-output schema, for a SourceImageAnalysis-shaped verdict on an image URL; the analyzer calls it only on escalation.
+ * @subsystem visual-pipeline
  */
 
 import { zodResponseFormat } from "openai/helpers/zod";
