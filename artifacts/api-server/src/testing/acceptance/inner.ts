@@ -49,7 +49,7 @@ export interface InnerConfig {
   allowanceUsd?: string;
   aiDoubleFail?: string;
   /** Keep the server running after the journeys until SIGTERM (serve mode). */
-  serve?: { port: number };
+  serve?: { port: number; origin: string };
 }
 
 const node = process.execPath;
@@ -219,7 +219,7 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
       AI_DOUBLE_MISS_LOG: cfg.missLog,
       AI_DOUBLE_CALL_LOG: cfg.callRecord,
       AI_DOUBLE_FAIL: cfg.aiDoubleFail,
-      ...(cfg.serve ? { ALLOWED_ORIGINS: "http://localhost:5173" } : {}),
+      ...(cfg.serve ? { ALLOWED_ORIGINS: cfg.serve.origin } : {}),
     });
     env = constructEnvironment(ACCEPTANCE_ENV_ALLOWLIST, values);
     entry = "src/testing/acceptanceLauncher.ts";

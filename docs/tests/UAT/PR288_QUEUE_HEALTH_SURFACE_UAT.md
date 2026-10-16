@@ -191,11 +191,18 @@ page.
 
 **Do:** Use Admin → Email Queue.
 
-**Expect:** Works exactly as before — untouched by this PR.
+**Expect:** The Email Queue page loads and lists its jobs with no error.
+It shows the All, Pending, Sending, Delivered and Abandoned filters; the
+record count and the auto-purge setting; the Clear pending, Clear delivered,
+Clear abandoned and Refresh buttons; and a table with the columns Recipient,
+Subject, Kind, Status, Attempts, Last error, Next attempt and Created.
+Nothing from the Queue Health page appears on it.
 
-**Lane:** human
+**Lane:** ci
 
-**Deferred:** #631 — 7b — /admin/email-queue loads and lists its jobs with no error — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; increment 8 (capture and read) — the Email Queue page looks as it did before the queue health work
+**Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:Email Queue shows its filters, its actions and its table`
+
+**Deferred:** #631 — 7b — /admin/email-queue loads and lists its jobs with no error — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### R2. Memes still generate end to end
 

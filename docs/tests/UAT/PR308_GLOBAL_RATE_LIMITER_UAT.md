@@ -43,14 +43,20 @@ untouched, not about reproducing the block.
 **Do:** Use the app normally for a few minutes — browse facts, open a few
 pages, make a meme, whatever your usual click-through covers.
 
-**Expect:** Nothing looks or feels different. No new errors, no slowdowns,
-no unexpected redirects.
+**Expect:** The home page shows the top bar (logo, search box, Sign in),
+the Facts, Top Facts and Library links, the hashtag rail with "For you",
+the "About David Franklin" card with its name box, and the feed of fact
+cards. Top Facts shows its heading, the This week / This month / All time
+choices and the ranked facts. A fact page shows the fact, "Make a meme of
+this" and "Memes from this fact". No error message shows and each page
+stays on its own address. No API response is a 429, and an ordinary request
+is not slowed by the limiter.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`
+**Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:home, Top Facts and a fact page show their usual layout and content`
 
-**Deferred:** #631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — increment 8 (capture and read) — home and facts pages show their usual layout and content; #631 — 7b — an ordinary API request through the global limiter completes within an asserted time bound measuring the limiter's own overhead — `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts`
+**Deferred:** #631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — 7b — an ordinary API request through the global limiter completes within an asserted time bound measuring the limiter's own overhead — `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts`
 
 ### 2. A video or image generation completes normally
 
