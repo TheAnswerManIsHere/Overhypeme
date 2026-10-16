@@ -29,6 +29,7 @@ import { logger } from "./logger";
 import { aiBackend, recorder } from "./aiClients";
 import { falDouble, falPricingReplay, type FalLike } from "./aiDouble/doubles";
 import { recordingFal, recordFalPricing } from "./aiDouble/recorder";
+import { imageSizePresetPx } from "./falImageSizes";
 
 let configured = false;
 let configuredKey: string | null = null;
@@ -138,13 +139,44 @@ export async function fetchFalPricing(endpointId: string): Promise<unknown | nul
 
 /**
  * The recorder's price for one call of `endpoint`, from the pricing API.
- * Only a per-call unit can be reserved per call; anything else is unknown.
+ * Null when it cannot be bounded, and the recorder then refuses the call.
  */
-export async function falUnitPrice(endpoint: string): Promise<number | null> {
-  const body = (await fetchFalPricing(endpoint)) as { prices?: Array<{ endpoint_id: string; unit_price: number; unit?: string }> } | null;
-  const entry = body?.prices?.find((p) => p.endpoint_id === endpoint);
-  if (!entry || !/^(image|images|request|requests)$/i.test(entry.unit ?? "")) return null;
-  return Number(entry.unit_price);
+export async function falUnitPrice(endpoint: string, input?: unknown): Promise<number | null> {
+  return falCallPrice(await fetchFalPricing(endpoint), endpoint, input);
+}
+
+/**
+ * One call's price from a pricing answer. A per-image or per-request unit is
+ * the price as it stands. A per-megapixel unit (`fal-ai/flux-pulid`) is
+ * bounded from the request: the output size from `image_size` (a fal preset,
+ * an explicit `{ width, height }`, or fal's `landscape_4_3` default when the
+ * request names none), rounded UP to whole megapixels, times `num_images`.
+ * A size or count the request states but this cannot read is null, so the
+ * call is refused rather than under-reserved.
+ */
+export function falCallPrice(body: unknown, endpoint: string, input?: unknown): number | null {
+  const prices = (body as { prices?: Array<{ endpoint_id: string; unit_price: number; unit?: string }> } | null)?.prices;
+  const entry = prices?.find((p) => p.endpoint_id === endpoint);
+  if (!entry || !Number.isFinite(Number(entry.unit_price))) return null;
+  const unit = Number(entry.unit_price);
+  if (/^(image|images|request|requests)$/i.test(entry.unit ?? "")) return unit;
+  if (!/^(megapixel|megapixels)$/i.test(entry.unit ?? "")) return null;
+  const req = (input ?? {}) as { image_size?: unknown; num_images?: unknown };
+  const size =
+    req.image_size === undefined
+      ? imageSizePresetPx("landscape_4_3")
+      : typeof req.image_size === "string"
+        ? imageSizePresetPx(req.image_size)
+        : explicitSize(req.image_size);
+  if (!size) return null;
+  const count = req.num_images === undefined ? 1 : req.num_images;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1) return null;
+  return unit * Math.ceil((size.width * size.height) / 1_000_000) * count;
+}
+
+function explicitSize(v: unknown): { width: number; height: number } | null {
+  const { width, height } = (v ?? {}) as { width?: unknown; height?: unknown };
+  return typeof width === "number" && typeof height === "number" && width > 0 && height > 0 ? { width, height } : null;
 }
 
 /**
