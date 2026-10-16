@@ -23,11 +23,11 @@ fact page / meme builder.
 is correct, intended behavior: it means the variant hasn't been backfilled
 yet (see step 8), not that something is broken.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:a variant with no images of its own shows none — it does NOT inherit its root's pexelsImages/aiMemeImages (variant independence)`
+**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:a variant with no images of its own shows none — it does NOT inherit its root's pexelsImages/aiMemeImages (variant independence)`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:a variant with no images of its own shows no AI images on its fact page or in its meme builder`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the variant's stock images are Pexels images, removed with Pexels, so the no-stock-images half goes with it; #631 — increment 8 (capture and read) — a variant with no images of its own shows no AI images on its fact page or in its meme builder, not its root's
+**Deferred:** #628 — Phase 4 (Cut and prune) — the variant's stock images are Pexels images, removed with Pexels, so the no-stock-images half goes with it
 
 ### 2. A variant's Pexels panel is now visible in the Facts editor
 
@@ -239,13 +239,19 @@ complete") so it's never silently missed.
 
 **Do:** View the public feed and detail page for a root fact.
 
-**Expect:** Unchanged.
+**Expect:** The feed lists the root fact as a card with its text and
+hashtags. Its detail page shows the fact card (text, hashtags, votes), the
+"Make a meme of this" button, "Memes from this fact" with its total, the
+Community tab, the All / Images / Videos filters and the Sort control, the
+fact's memes, the Comments section, "Alternate phrasings" listing its
+variants, and "More facts you'll like". It shows no "Variant of" banner, no
+error, and still returns its own AI meme images.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:returns the fact, its rank, and link/variant arrays on success`
+**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:returns the fact, its rank, and link/variant arrays on success`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:the public feed and a root fact's detail page show every section`
 
-**Deferred:** #631 — 7b — a root fact's detail still returns its own AI meme images unchanged — `artifacts/api-server/src/__tests__/routes.facts.test.ts`; increment 8 (capture and read) — the public feed and a root fact's detail page render as before with every section present
+**Deferred:** #631 — 7b — a root fact's detail still returns its own AI meme images unchanged — `artifacts/api-server/src/__tests__/routes.facts.test.ts`
 
 ### R3. Send-back for a root with no variants is unchanged
 
@@ -271,13 +277,17 @@ complete") so it's never silently missed.
 
 **Do:** Open the Facts editor for a root fact.
 
-**Expect:** Unchanged.
+**Expect:** The editor opens headed "Edit fact #N" with its fields: ID,
+created and updated dates, caption split, text, upvotes, downvotes, score,
+Wilson score, comment count, share count, parent ID (blank for a root), use
+case and submitted-by ID. Below them: Variants with its count, the Visual
+Taxonomy Enrichment, Enrichment Version History, Approved text edit history
+and Prompt Diagnostics sections, and the Save Changes, Discard, Cancel, Send
+Back to Review and Delete Fact buttons. No error shows.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` — the Admin · Facts route loads without a crash or reload loop (list page only, no fact opened)
-
-**Deferred:** #631 — increment 8 (capture and read) — the Facts editor opened on a root fact shows its usual panels and fields with no error
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` — the Admin · Facts route loads without a crash or reload loop (list page only, no fact opened); `artifacts/overhype-me/e2e/adminScreens.spec.ts:the Facts editor opened on a root fact shows its usual panels and fields with no error`
 
 ## Not bugs
 

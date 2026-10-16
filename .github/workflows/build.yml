@@ -651,6 +651,13 @@ jobs:
       - name: Run admin-surface suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:surfaces
 
+      # Described screens (#631, increment 8): the UAT steps whose Expect is a
+      # screen a machine can read, asserted in a browser. Public screens read
+      # typed API stubs (the dev database holds no facts); saves reach the real
+      # server. Its own step, so a red build names it.
+      - name: Run described-screens suite
+        run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:screens
+
       - name: Run test-account suite
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:accounts
 
