@@ -26,6 +26,15 @@
  *                      without --allowance-raised-by-david <YYYY-MM-DD>).
  *                      Green only when every operation shows a usable current
  *                      answer.
+ *   --mode capture     On the Repl only, never in CI: the real-render UAT
+ *                      captures (#631 increment 8, plan D7). The fixture
+ *                      variant, the real AI clients under the recorder, reuse
+ *                      off, a required --allowance (never above $2 without
+ *                      --allowance-raised-by-david <YYYY-MM-DD>), and the
+ *                      capture journeys (`src/testing/acceptance/captureJourneys.ts`)
+ *                      instead of 2–7: full-size images, `manifest.jsonl` and
+ *                      the recorder's spend ledger written to an empty --out.
+ *                      Red when a shot was not produced.
  *   --mode serve       The acceptance server, left running on --port for a
  *                      browser spec (`e2e:storage`); no journeys.
  *   --mode probe       The detector's feasibility check alone.
@@ -51,6 +60,8 @@ import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-dat
 
 import { falSubscribeRequest } from "../src/lib/aiDouble/doubles";
 import { evaluateCoverage, readCallRecords, unattributedCalls, type CallRecord, type Mode, type Row, type Variant } from "../src/testing/acceptance/coverage";
+import type { CaptureResult } from "../src/testing/acceptance/captureJourneys";
+import { captureRefusals } from "../src/testing/acceptance/captureShots";
 import { controlVerdict } from "../src/testing/acceptance/controls";
 import { evaluateDetector, launchInNamespace, namespaceRoute, type DetectorVerdict, type NamespaceRoute } from "../src/testing/acceptance/detector";
 import type { DriveResult } from "../src/testing/acceptance/driver";
@@ -70,7 +81,7 @@ function arg(name: string): string | undefined {
 }
 const flag = (name: string) => process.argv.includes(`--${name}`);
 
-const MODES = ["probe", "acceptance", "replay", "record", "live", "serve"] as const;
+const MODES = ["probe", "acceptance", "replay", "record", "live", "capture", "serve"] as const;
 type RunMode = (typeof MODES)[number];
 const CONTROLS = ["forbidden-request", "render-failure", "upload-failure", "corrupt-source"] as const;
 type Control = (typeof CONTROLS)[number];
@@ -78,11 +89,12 @@ type Control = (typeof CONTROLS)[number];
 const mode = arg("mode") as RunMode | undefined;
 if (!mode || !MODES.includes(mode)) {
   console.error(`usage: acceptance-run.ts --mode ${MODES.join("|")} [--variant fresh|fixture|both] [--control ${CONTROLS.join("|")}] [--report-dir <dir>]
-       record: --allowance <usd> --out <dir> [--resume];  live: [--allowance <usd>] [--allowance-raised-by-david <date>];  serve: [--port <n>] [--origin http://localhost:<port>]`);
+       record: --allowance <usd> --out <dir> [--resume];  live: [--allowance <usd>] [--allowance-raised-by-david <date>];  serve: [--port <n>] [--origin http://localhost:<port>]
+       capture: --allowance <usd> --out <empty dir> [--allowance-raised-by-david <date>]`);
   process.exit(2);
 }
 const control = arg("control") as Control | undefined;
-const variantArg = arg("variant") ?? (mode === "acceptance" || mode === "live" ? "both" : "fresh");
+const variantArg = arg("variant") ?? (mode === "acceptance" || mode === "live" ? "both" : mode === "capture" ? "fixture" : "fresh");
 const variants: Variant[] = variantArg === "both" ? ["fresh", "fixture"] : [variantArg as Variant];
 
 // --- refusals, before anything is created ----------------------------------
@@ -112,6 +124,11 @@ const openaiKey = process.env.OPENAI_API_KEY || "";
 const out = path.resolve(arg("out") ?? COMMITTED_RECORDINGS);
 const resume = flag("resume");
 const recordLedger = path.join(out, "..", "ai-recorder-ledger.json");
+/** The capture run's spend ledger, written beside its images. */
+const captureLedger = path.join(out, "ai-recorder-ledger.json");
+function headCommit(): string {
+  try { return execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim(); } catch { return "unknown"; }
+}
 let allowance = arg("allowance") ?? "";
 if (mode === "record" || mode === "live") {
   if (process.env.CI) refusals.push(`the ${mode} run never runs in CI`);
@@ -132,6 +149,9 @@ if (mode === "live") {
   else if (Number(allowance) > 5 && !/^\d{4}-\d{2}-\d{2}$/.test(raisedBy ?? "")) {
     refusals.push("the live check's cap is $5 per run (David, 2026-10-14); a higher --allowance needs --allowance-raised-by-david <YYYY-MM-DD>");
   }
+}
+if (mode === "capture") {
+  refusals.push(...captureRefusals({ env: process.env, allowance: arg("allowance"), raisedBy: arg("allowance-raised-by-david"), out: arg("out") && out, variant: variantArg, control }));
 }
 const dbRefusal = await testDatabaseRefusal(process.env);
 if (dbRefusal) refusals.push(dbRefusal);
@@ -323,6 +343,7 @@ interface VariantReport {
   corrupted?: string;
   red: string[];
   serverLogTail?: string[];
+  capture?: CaptureResult;
 }
 
 /**
@@ -359,11 +380,12 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
   fs.mkdirSync(work, { recursive: true });
   fs.chmodSync(work, 0o777);
   const missLog = path.join(work, "ai-double-misses.jsonl");
-  const recordingsDir = mode === "record" ? out : mode === "live" ? liveRecordings : COMMITTED_RECORDINGS;
-  const callRecord = mode === "record" ? recordLedger : mode === "live" ? liveLedger : path.join(work, "ai-calls.jsonl");
+  const recordingsDir = mode === "record" ? out : mode === "live" || mode === "capture" ? liveRecordings : COMMITTED_RECORDINGS;
+  const callRecord = mode === "record" ? recordLedger : mode === "live" ? liveLedger : mode === "capture" ? captureLedger : path.join(work, "ai-calls.jsonl");
   const ledgerLines = (f: string) => (fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, "utf8")) as { lines: unknown[] }).lines.length : 0);
   const priorLedgerLines = mode === "record" || mode === "live" ? ledgerLines(callRecord) : 0;
-  if (mode === "record" || mode === "live") fs.mkdirSync(recordingsDir, { recursive: true });
+  if (mode === "record" || mode === "live" || mode === "capture") fs.mkdirSync(recordingsDir, { recursive: true });
+  if (mode === "capture") fs.mkdirSync(out, { recursive: true });
 
   const relay = detecting ? await startPgRelay(path.join(work, "pg"), { host: !url.hostname || url.hostname === "localhost" ? "127.0.0.1" : url.hostname, port: Number(url.port || 5432) }) : null;
   const photoSha = sha256(PHOTO);
@@ -384,12 +406,13 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
       : control === "upload-failure" ? `fal.storage.upload:storage@${photoSha}`
       : undefined,
     ...(mode === "serve" ? { serve: { port: Number(arg("port") ?? 8080), origin: serveOrigin } } : {}),
+    ...(mode === "capture" ? { capture: { out, commit: headCommit() } } : {}),
   };
   const cfgPath = path.join(work, "inner-config.json");
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
   const innerArgs = ["--import", "tsx/esm", "src/testing/acceptance/inner.ts", cfgPath];
   const innerEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME };
-  if (mode === "record" || mode === "live") Object.assign(innerEnv, { FAL_AI_API_KEY: falKey, OPENAI_API_KEY: openaiKey });
+  if (mode === "record" || mode === "live" || mode === "capture") Object.assign(innerEnv, { FAL_AI_API_KEY: falKey, OPENAI_API_KEY: openaiKey });
   if (mode === "live") {
     Object.assign(innerEnv, { PEXELS_API_KEY: process.env.PEXELS_API_KEY });
     if (process.env.ARACHNID_SHIELD_USERNAME && process.env.ARACHNID_SHIELD_PASSWORD) {
@@ -444,6 +467,13 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
   if (mode === "probe") {
     report.red.push(...(report.detector ? redReasons({ journeys: [], coverage: [], uncovered: [], detector: report.detector }).filter((r) => r.startsWith("detector")) : []));
     if (result.ok !== true) report.red.push("the probe's database or local HTTP check failed");
+  } else if (mode === "capture") {
+    const capture = result.capture as CaptureResult | undefined;
+    if (capture) report.capture = capture;
+    report.red.push(
+      ...redReasons({ journeys: [], coverage: [], uncovered: [], setupError: report.setupError, innerError: report.innerError }),
+      ...(capture ? capture.problems : ["the capture journeys never ran"]),
+    );
   } else if (mode !== "serve") {
     const calls = readCallRecords(callRecord).slice(priorLedgerLines);
     report.coverage = evaluateCoverage({ mode: mode as Mode, variant, calls, recordingsDir, photoSha256: photoSha });
@@ -486,10 +516,15 @@ function renderMarkdown(report: Record<string, any>): string {
       lines.push("", `Detector: ${v.detector.ok ? "clean" : "RED"} (${v.detector.netns?.privilege ?? "?"}, IPv6 ${v.detector.netns?.ipv6 ? "observed" : "absent on this kernel"}). Self-test: ${v.detector.selfTest.map((s) => `${s.key} ${s.observable ? (s.syscall && s.sink ? "seen by both" : "MISSED") : "not observable here"}`).join(", ")}. Outbound attempts after it: ${v.detector.violations.sink.length + v.detector.violations.syscall.length}.`);
     }
     if (v.unattributed.length) lines.push("", `AI calls with no recording (no operation can claim them): ${v.unattributed.map((c) => `${c.kind} ${c.target} (${c.outcome})`).join(", ")}`);
+    if (v.capture) {
+      lines.push("", "| Shot | Doc | Step | File | Bytes |", "|---|---|---|---|---|");
+      for (const c of v.capture.shots) lines.push(`| ${c.shot} | ${c.doc} | ${c.step} | ${c.file} | ${c.bytes} |`);
+    }
     if (v.red.length) lines.push("", "Red because:", ...v.red.map((x) => `- ${x}`));
     lines.push("");
   }
-  lines.push("Deferred, never passed:", ...(report.deferrals as string[]).map((d) => `- ${d}`));
+  if ((report.deferrals as string[]).length) lines.push("Deferred, never passed:", ...(report.deferrals as string[]).map((d) => `- ${d}`));
+  if (report.mode === "capture" && report.spend) lines.push("", `Spend: $${report.spend.committedUsd} of a $${report.spend.capUsd} allowance across ${report.spend.vendorCalls} vendor calls${report.spend.ledger ? ` (ledger ${report.spend.ledger})` : ""}`);
   return lines.join("\n") + "\n";
 }
 
@@ -510,9 +545,8 @@ try {
     if (missing.length) reports[reports.length - 1]!.red.push(...missing.map((m) => `the recording's failure control: ${m}`));
   }
   const spend = (f: string) => (fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, "utf8")) as { limitUsd: number; committedUsd: number; reused?: number; lines: unknown[] }) : null);
-  const ledger = mode === "record" ? spend(recordLedger) : mode === "live" ? spend(liveLedger) : null;
-  let commit = "unknown";
-  try { commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim(); } catch {}
+  const ledger = mode === "record" ? spend(recordLedger) : mode === "live" ? spend(liveLedger) : mode === "capture" ? spend(captureLedger) : null;
+  const commit = headCommit();
   const green = reports.every((r) => r.red.length === 0);
   const controlResult = control ? controlVerdict(control, reports[0]!) : undefined;
   const report = {
@@ -523,12 +557,12 @@ try {
     // The corpus the coverage was evaluated against: a live run's own captures
     // (discarded with the scratch directory), --out for a recording, else the committed set.
     recordings:
-      mode === "live" ? recordingsIdentity(path.join(scratch, "live-recordings"), "captured by this live run, discarded after it")
+      mode === "live" || mode === "capture" ? recordingsIdentity(path.join(scratch, "live-recordings"), `captured by this ${mode} run, discarded after it`)
       : mode === "record" ? recordingsIdentity(out, `--out ${out}`)
       : recordingsIdentity(COMMITTED_RECORDINGS, "committed"),
     fixtureManifestSha256: variants.includes("fixture") ? sha256(path.join(FIXTURE_DIR, "manifest.json")) : null,
-    ...(ledger ? { spend: { capUsd: ledger.limitUsd, committedUsd: Number(ledger.committedUsd.toFixed(4)), vendorCalls: ledger.lines.length, reused: ledger.reused ?? 0 } } : {}),
-    deferrals: [
+    ...(ledger ? { spend: { capUsd: ledger.limitUsd, committedUsd: Number(ledger.committedUsd.toFixed(4)), vendorCalls: ledger.lines.length, reused: ledger.reused ?? 0, ...(mode === "capture" ? { ledger: captureLedger } : {}) } } : {}),
+    deferrals: mode === "capture" ? [] : [
       "journey 6: spend recorded against the user — deferred to #651 (David, 2026-10-12)",
       ...(variants.includes("fixture") && mode !== "live" ? [`the fixture's ${pexelsOnlyMemes()} Pexels-only stock memes: read by no acceptance journey; the live check reads one (David, 2026-10-14)`] : []),
     ],
@@ -540,6 +574,15 @@ try {
   fs.writeFileSync(path.join(reportDir, "acceptance-report.md"), renderMarkdown(report));
   console.log(renderMarkdown(report));
   console.log(`[acceptance] report: ${path.join(reportDir, "acceptance-report.json")}`);
+  if (mode === "capture") {
+    const shots = reports.flatMap((r) => r.capture?.shots ?? []);
+    console.log(`[capture] ${shots.length} shot(s) and manifest.jsonl in ${out}`);
+    console.log(
+      ledger
+        ? `[capture] total spend: $${ledger.committedUsd.toFixed(4)} of the $${ledger.limitUsd} allowance across ${ledger.lines.length} vendor calls (${ledger.lines.filter((l) => (l as { outcome?: string }).outcome === "refused").length} refused); ledger ${captureLedger}`
+        : `[capture] total spend: no ledger was written (no vendor call was made)`,
+    );
+  }
   exitCode = control ? (controlResult!.behaved ? 0 : 1) : green ? 0 : 1;
 } catch (err) {
   exitCode = 1;
