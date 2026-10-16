@@ -25,7 +25,8 @@ export function rootToken(name: string): string {
     "utf8",
   );
   const root = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-  const m = new RegExp(`${name.replace(/[-]/g, "\\-")}:\\s*([^;]+);`).exec(root);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+  const m = new RegExp(`${escaped}:\\s*([^;]+);`).exec(root);
   if (!m) throw new Error(`${name} not found in the :root block of src/index.css`);
   return m[1]!.trim();
 }
