@@ -68,7 +68,7 @@ import { evaluateDetector, launchInNamespace, namespaceRoute, type DetectorVerdi
 import type { DriveResult } from "../src/testing/acceptance/driver";
 import type { InnerConfig } from "../src/testing/acceptance/inner";
 import { startPgRelay } from "../src/testing/acceptance/pgRelay";
-import { redReasons } from "../src/testing/acceptance/verdict";
+import { captureRedReasons, redReasons } from "../src/testing/acceptance/verdict";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = path.resolve(API_ROOT, "../..");
@@ -472,8 +472,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     const capture = result.capture as CaptureResult | undefined;
     if (capture) report.capture = capture;
     report.red.push(
-      ...redReasons({ journeys: [], coverage: [], uncovered: [], setupError: report.setupError, innerError: report.innerError }),
-      ...(capture ? capture.problems : ["the capture journeys never ran"]),
+      ...captureRedReasons({ setupError: report.setupError, innerError: report.innerError, capture }),
     );
   } else if (mode !== "serve") {
     const calls = readCallRecords(callRecord).slice(priorLedgerLines);

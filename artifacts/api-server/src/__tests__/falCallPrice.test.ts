@@ -9,7 +9,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { falCallPrice } from "../lib/falClient.js";
+import { db } from "@workspace/db";
+import { falPricingCacheTable } from "@workspace/db/schema";
+import { like } from "drizzle-orm";
+
+import { falCachedCallPrice, falCallPrice } from "../lib/falClient.js";
 import { Allowance, recordingFal } from "../lib/aiDouble/recorder.js";
 import { resetRecordingCache } from "../lib/aiDouble/recordings.js";
 import { FAL_PRESET_SIZES } from "../lib/aiDouble/falPresetSizes.js";
@@ -93,5 +97,36 @@ describe("recordingFal prices each call from its request", () => {
     });
     await rec.subscribe(PULID, { input: { image_size: "portrait_16_9", prompt: "unpriced-input-probe" } });
     assert.deepEqual(seen, [{ image_size: "portrait_16_9", prompt: "unpriced-input-probe" }]);
+  });
+});
+
+describe("falCachedCallPrice: the in-server recorder prices from the product's cache", () => {
+  const PREFIX = "tfccprice-";
+  const KEYS = ["FAL_AI_API_KEY", "FAL_KEY", "AI_BACKEND"] as const;
+  let saved: Record<string, string | undefined> = {};
+  before(async () => {
+    saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+    for (const k of KEYS) delete process.env[k];
+    await db.delete(falPricingCacheTable).where(like(falPricingCacheTable.endpointId, `${PREFIX}%`));
+    const now = new Date();
+    await db.insert(falPricingCacheTable).values({ endpointId: `${PREFIX}pulid`, unitPrice: "0.0333", unit: "megapixels", currency: "USD", fetchedAt: now, createdAt: now, updatedAt: now });
+  });
+  after(async () => {
+    await db.delete(falPricingCacheTable).where(like(falPricingCacheTable.endpointId, `${PREFIX}%`));
+    for (const k of KEYS) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+  });
+
+  it("bounds a cached per-megapixel price from the request, with no live pricing call", async () => {
+    close(await falCachedCallPrice(`${PREFIX}pulid`, { image_size: "square_hd" }), 0.0666);
+  });
+
+  it("ignores a stale cached price and refuses when it cannot fetch a live one", async () => {
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await db.insert(falPricingCacheTable).values({ endpointId: `${PREFIX}stale`, unitPrice: "0.0333", unit: "megapixels", currency: "USD", fetchedAt: old, createdAt: old, updatedAt: old });
+    assert.equal(await falCachedCallPrice(`${PREFIX}stale`, { image_size: "square_hd" }), null);
+  });
+
+  it("refuses an endpoint the cache has no price for and cannot fetch one", async () => {
+    assert.equal(await falCachedCallPrice(`${PREFIX}absent`, { image_size: "square_hd" }), null);
   });
 });

@@ -21,10 +21,26 @@ export interface VerdictInput {
 
 export const EXPECTED_JOURNEYS = ["2", "3", "4", "5", "6", "7"] as const;
 
-export function redReasons(v: VerdictInput): string[] {
+/** Why a run failed before or outside its journeys: shared by every mode. */
+export function setupReasons(v: Pick<VerdictInput, "setupError" | "innerError">): string[] {
   const red: string[] = [];
   if (v.setupError) red.push(`setup: ${v.setupError}`);
   if (v.innerError) red.push(`the inner program failed: ${v.innerError.split("\n")[0]}`);
+  return red;
+}
+
+/**
+ * A capture run's verdict (#631 increment 8, D7). It drives its doc's capture
+ * journey and never journeys 2–7, so setup and its own shots decide it; the
+ * full verdict would call every capture run red for the journeys it never
+ * runs, and the evidence would never be published.
+ */
+export function captureRedReasons(v: Pick<VerdictInput, "setupError" | "innerError"> & { capture?: { problems: string[] } }): string[] {
+  return [...setupReasons(v), ...(v.capture ? v.capture.problems : ["the capture journeys never ran"])];
+}
+
+export function redReasons(v: VerdictInput): string[] {
+  const red: string[] = setupReasons(v);
   for (const j of EXPECTED_JOURNEYS) {
     const o = v.journeys.find((x) => x.journey === j);
     if (!o) red.push(`journey ${j} was never reported`);

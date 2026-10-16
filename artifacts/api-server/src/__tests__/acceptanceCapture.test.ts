@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CAPTURE_DOCS, captureRefusals, extForFormat, manifestLine, writeShot } from "../testing/acceptance/captureShots.js";
+import { captureRedReasons } from "../testing/acceptance/verdict.js";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "capture-test-"));
@@ -99,5 +100,18 @@ describe("the real-render captures, by doc", () => {
       const own = block.slice(0, block.indexOf("\n  }\n"));
       for (const shot of shots) assert.match(own, new RegExp(`shot\\("${shot}"`), `${doc} writes ${shot}`);
     }
+  });
+});
+
+describe("the capture run's verdict", () => {
+  it("is green when its own shots were produced, and never asks for journeys 2–7", () => {
+    assert.deepEqual(captureRedReasons({ capture: { problems: [] } }), []);
+  });
+
+  it("is red on a missing shot, a setup or inner failure, or journeys that never ran", () => {
+    assert.deepEqual(captureRedReasons({ capture: { problems: ["pr223-s1-result: no image was produced"] } }), ["pr223-s1-result: no image was produced"]);
+    assert.deepEqual(captureRedReasons({ setupError: "no db", capture: { problems: [] } }), ["setup: no db"]);
+    assert.deepEqual(captureRedReasons({ innerError: "boom\nstack", capture: { problems: [] } }), ["the inner program failed: boom"]);
+    assert.deepEqual(captureRedReasons({}), ["the capture journeys never ran"]);
   });
 });

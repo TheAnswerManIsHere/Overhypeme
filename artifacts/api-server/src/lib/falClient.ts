@@ -93,7 +93,7 @@ function backendFal(): FalLike {
     case "recorder": {
       if (!recordingClient) {
         const { allowance, ctx } = recorder();
-        recordingClient = recordingFal(vendorFal as unknown as FalLike, allowance, ctx, falUnitPrice);
+        recordingClient = recordingFal(vendorFal as unknown as FalLike, allowance, ctx, falCachedCallPrice);
       }
       return recordingClient;
     }
@@ -144,6 +144,32 @@ export async function fetchFalPricing(endpointId: string): Promise<unknown | nul
 export async function falUnitPrice(endpoint: string, input?: unknown): Promise<number | null> {
   return falCallPrice(await fetchFalPricing(endpoint), endpoint, input);
 }
+
+/**
+ * The in-server recorder's price for one call. It reads the product's own
+ * price cache first (the `fal_pricing_cache` table `falPricing.ts` fills),
+ * which the budget gate has usually just stored for this endpoint, and only
+ * without a fresh row does it ask the pricing API. A second live read is what
+ * fal rate-limits: on the 2026-10-16 capture run the recorder's own fetch for
+ * `fal-ai/flux-pulid` got 429 seconds after the cache had stored that price,
+ * and the render was refused. The database module loads lazily, so importing
+ * this client still needs no database.
+ */
+export async function falCachedCallPrice(endpoint: string, input?: unknown): Promise<number | null> {
+  try {
+    const [{ db }, { falPricingCacheTable }, { eq }] = await Promise.all([import("@workspace/db"), import("@workspace/db/schema"), import("drizzle-orm")]);
+    const [row] = await db.select().from(falPricingCacheTable).where(eq(falPricingCacheTable.endpointId, endpoint)).limit(1);
+    if (row && Date.now() - row.fetchedAt.getTime() <= CACHED_PRICE_FRESH_MS) {
+      return falCallPrice({ prices: [{ endpoint_id: endpoint, unit_price: Number(row.unitPrice), unit: row.unit }] }, endpoint, input);
+    }
+  } catch {
+    // No readable cache: price it live, as before.
+  }
+  return falUnitPrice(endpoint, input);
+}
+
+/** The age past which `falPricing.ts` refreshes a cached price (its CACHE_STALE_MS). */
+const CACHED_PRICE_FRESH_MS = 60 * 60 * 1000;
 
 /**
  * One call's price from a pricing answer. A per-image or per-request unit is
