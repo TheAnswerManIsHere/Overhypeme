@@ -27,8 +27,13 @@ import { expect, type APIRequestContext, type Browser, type BrowserContext, type
 import { FREE_ACCOUNT, TEST_ACCOUNT_PASSWORD } from "../helpers/testAccounts";
 
 export const CAPTURE_DIR = path.resolve(process.env["UAT_CAPTURE_DIR"] ?? "test-results/uat-captures");
-export const CAPTURE_COMMIT =
-  process.env["UAT_CAPTURE_COMMIT"] ?? execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+/**
+ * The commit the shots were taken at, read from the checkout that ran them
+ * and never taken as input: a caller-supplied value could name a tree that is
+ * not what was captured (#706 round 1, 4290933096; agents-core.md, derive
+ * what is derivable).
+ */
+export const CAPTURE_COMMIT = execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
 export const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 
 export interface ShotMeta {
@@ -54,7 +59,15 @@ export function saveShot(name: string, bytes: Buffer, meta: ShotMeta, ext = "png
     sha256: createHash("sha256").update(bytes).digest("hex"),
     bytes: bytes.length,
   };
-  fs.appendFileSync(path.join(CAPTURE_DIR, "manifest.jsonl"), JSON.stringify(line) + "\n");
+  // One record per file, always true to the bytes on disk: a rerun into the
+  // same directory replaces the shot AND its record (#706 round 1,
+  // 4290933106). Read-modify-write, not a run-start reset, so it stays right
+  // when Playwright restarts a worker mid-run.
+  const manifest = path.join(CAPTURE_DIR, "manifest.jsonl");
+  const kept = fs.existsSync(manifest)
+    ? fs.readFileSync(manifest, "utf8").split("\n").filter((l) => l.trim() && (JSON.parse(l) as { file?: string }).file !== file)
+    : [];
+  fs.writeFileSync(manifest, [...kept, JSON.stringify(line)].join("\n") + "\n");
   return file;
 }
 

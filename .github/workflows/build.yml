@@ -690,7 +690,7 @@ jobs:
       - name: Run the UAT capture set
         run: |
           E2E_BASE_URL=http://localhost:5180 UAT_CAPTURE_DIR="$RUNNER_TEMP/uat-captures" \
-            UAT_CAPTURE_COMMIT="${{ github.sha }}" pnpm --filter @workspace/overhype-me run e2e:capture
+            pnpm --filter @workspace/overhype-me run e2e:capture
 
       - name: Upload traces on failure
         if: failure()
