@@ -49,7 +49,7 @@ lettered with exactly `You're the man of the house now.` — not the text
 baked in as a caption across the image, and not a second/duplicate
 speaker.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; lettering and tail placement are a judgement on a real render
 
@@ -76,7 +76,7 @@ trail "leading to the head of the bartender", text `Not again.`
 **Expect:** the thought cloud attributes to the bartender, not the
 subject.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; attribution is a judgement on a real render
 
@@ -89,7 +89,7 @@ thought) and render 2–3 times at 2K.
 character across attempts. This is the highest-risk case — note any
 attempt where attribution slips.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; attribution across repeats is a judgement on real renders
 
@@ -194,7 +194,7 @@ Speech & Thought Bubbles editor — the same rows the card showed.
 
 **Expect:** the quote renders in a balloon on the subject.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; the balloon on a real render is a judgement
 

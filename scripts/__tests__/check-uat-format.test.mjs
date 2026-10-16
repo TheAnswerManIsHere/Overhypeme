@@ -17,12 +17,12 @@ const doc = ({ title, setup, steps, regression, tail = "" } = {}) =>
     "",
     "## Steps",
     "",
-    steps ?? ["### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", "**Lane:** human"].join("\n"),
+    steps ?? ["### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
     "",
     "## Regression",
     "",
     regression ??
-      ["### R1. Sidebar unchanged", "", "**Do:** Look at it.", "", "**Expect:** Same items.", "", "**Lane:** human"].join("\n"),
+      ["### R1. Sidebar unchanged", "", "**Do:** Look at it.", "", "**Expect:** Same items.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
     "",
     tail,
   ].join("\n");
@@ -226,7 +226,8 @@ const real = (rel) => rel === "e2e/help.spec.ts" || rel === "src/__tests__/help.
 const scan = (steps) => scanDoc(NAME, doc({ steps }), { exists: real });
 
 test("every lane is accepted, and a machine lane with an existing check passes", () => {
-  assert.deepEqual(scan(step("**Lane:** human")), []);
+  assert.deepEqual(scan(step("**Lane:** human", "**Judgement:** whether it reads well.")), []);
+  assert.deepEqual(scan(step("**Lane:** capture", "", "**Check:** `e2e/help.spec.ts:manual page`")), []);
   assert.deepEqual(scan(step("**Lane:** ci", "", "**Check:** `src/__tests__/help.test.ts`")), []);
   assert.deepEqual(scan(step("**Lane:** scripted", "", "**Check:** `e2e/help.spec.ts:opens the manual`")), []);
   assert.deepEqual(scan(step("**Lane:** live", "", "**Check:** `curl -sI https://example.test/help`")), []);
@@ -244,7 +245,7 @@ test("a regression check needs a lane too", () => {
 });
 
 test("a machine lane without a check, or with an unbackticked one, is a finding", () => {
-  for (const lane of ["ci", "scripted", "live"]) {
+  for (const lane of ["ci", "scripted", "live", "capture"]) {
     assert.ok(scan(step(`**Lane:** ${lane}`)).some((p) => p.includes("no **Check:**")), lane);
   }
   assert.ok(scan(step("**Lane:** ci", "**Check:** the help test")).some((p) => p.includes("backticked")));
@@ -258,11 +259,12 @@ test("a check citing a file that does not exist is a finding; a command is not c
 test("a deferred machine step needs an owner but no check; a human step needs no check", () => {
   assert.deepEqual(scan(step("**Lane:** ci", "**Deferred:** #631 — the storage double lands first")), []);
   assert.ok(scan(step("**Lane:** ci", "**Deferred:** later")).some((p) => p.includes("without an owner")));
-  assert.deepEqual(scan(step("**Lane:** human", "**Deferred:** #628 — rebuilt in Phase 7")), []);
+  assert.deepEqual(scan(step("**Lane:** human", "**Judgement:** his own device.", "**Deferred:** #628 — rebuilt in Phase 7")), []);
+  assert.deepEqual(scan(step("**Lane:** capture", "**Deferred:** #628 — real renders arrive in Phase 7")), []);
 });
 
 test("a whitespace-only or empty citation is refused in every machine lane", () => {
-  for (const lane of ["ci", "scripted", "live"]) {
+  for (const lane of ["ci", "scripted", "live", "capture"]) {
     assert.ok(scan(step(`**Lane:** ${lane}`, "**Check:** `   `")).some((p) => p.includes("non-empty")), lane);
     assert.ok(scan(step(`**Lane:** ${lane}`, "**Check:** ``")).some((p) => p.includes("non-empty")), lane);
   }
@@ -274,4 +276,28 @@ test("a check supplied on a deferred step is still validated", () => {
   assert.ok(scan(step("**Lane:** ci", "**Check:** `src/__tests__/gone.test.ts`", deferred)).some((p) => p.includes("does not exist")));
   assert.ok(scan(step("**Lane:** ci", "**Check:** the help test", deferred)).some((p) => p.includes("backticked")));
   assert.deepEqual(scan(step("**Lane:** ci", deferred)), []);
+});
+
+// --- the judgement line -----------------------------------------------------
+
+test("a human step without a Judgement line is a finding, deferred or not", () => {
+  assert.ok(scan(step("**Lane:** human")).some((p) => p.includes('lane "human" with no **Judgement:**')));
+  assert.ok(scan(step("**Lane:** human", "**Deferred:** #628 — Phase 5")).some((p) => p.includes("no **Judgement:**")));
+});
+
+test("an empty or doubled Judgement line is a finding", () => {
+  assert.ok(scan(step("**Lane:** human", "**Judgement:**")).some((p) => p.includes("empty **Judgement:**")));
+  assert.ok(scan(step("**Lane:** human", "**Judgement:** taste.", "**Judgement:** device.")).some((p) => p.includes("2 **Judgement:** lines")));
+});
+
+test("a Judgement line on any machine lane is a finding", () => {
+  for (const lane of ["ci", "scripted", "live", "capture"]) {
+    const found = scan(step(`**Lane:** ${lane}`, "**Check:** `src/__tests__/help.test.ts`", "**Judgement:** taste."));
+    assert.ok(found.some((p) => p.includes("carries a **Judgement:** line")), lane);
+  }
+});
+
+test("a regression step in the human lane needs its Judgement line too", () => {
+  const found = scanDoc(NAME, doc({ regression: "### R1. Still there\n\n**Do:** Look.\n\n**Expect:** Yes.\n\n**Lane:** human" }), { exists: real });
+  assert.ok(found.some((p) => p.includes('"R1. Still there"') && p.includes("**Judgement:**")));
 });

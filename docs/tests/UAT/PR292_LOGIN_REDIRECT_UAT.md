@@ -166,6 +166,8 @@ started.
 
 **Lane:** human
 
+**Judgement:** a real Google sign-in on your own account, on your own desktop browser; no test identity can complete the real provider's flow, so only you can perform the Do.
+
 **Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Google button opens popup on macOS Chrome with maxTouchPoints 0`
 
 **Deferred:** #628 — Phase 5 (account and identity) — a real Google sign-in completing and returning the visitor needs the real provider, verified end to end on the real domain
@@ -178,6 +180,8 @@ started.
 
 **Lane:** human
 
+**Judgement:** a real Google sign-in on your own account, on your own iPad; no test identity can complete the real provider's flow, so only you can perform the Do.
+
 **Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Google button triggers a full-page redirect, not a popup`
 
 **Deferred:** #628 — Phase 5 (account and identity) — completing a real Google sign-in on an iPad and returning needs the real provider, verified on the real domain
@@ -189,6 +193,8 @@ started.
 **Expect:** Same as Google in R2/R3.
 
 **Lane:** human
+
+**Judgement:** a real Apple sign-in on your own account, on your own desktop and iPad; no test identity can complete the real provider's flow, so only you can perform the Do.
 
 **Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Apple button opens popup on Windows Chrome`; `artifacts/overhype-me/src/__tests__/loginRedirect.test.ts:Apple button triggers a full-page redirect, not a popup` (the iPad half)
 

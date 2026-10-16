@@ -102,10 +102,12 @@ forever or shipping a degraded image.
 **Do:** Open the style picker and read the built-in style descriptions,
 then render using one of them (e.g. cinematic or anime).
 
-**Expect:** the copy is shorter and cleaner, but the rendered style look is
-unchanged from before.
+**Expect:** the copy is shorter and cleaner, and the render still looks like
+the style it names.
 
 **Lane:** human
+
+**Judgement:** whether a tuned built-in style still looks like the style it names is taste, and only you can say the look survived the shorter copy.
 
 **Deferred:** #628 — Phase 8 (Engine evaluation) — built-in style presets are re-reviewed and tuned against the winning engine, so an unchanged-look comparison belongs there
 

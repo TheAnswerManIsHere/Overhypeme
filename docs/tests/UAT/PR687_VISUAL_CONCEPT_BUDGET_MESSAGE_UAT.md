@@ -76,6 +76,8 @@ narrow status slot beside it.
 
 **Lane:** human
 
+**Judgement:** whether the refusal reads clearly and tells you what to shorten, and by roughly how much, is a reading-quality call only you can make; the sentence itself is asserted by step 4's check.
+
 ### 6. The refusal on the Facts page sits in a wrapped box under the heading
 
 **Do:** On the Facts page, open a fact's Visual Taxonomy Enrichment, replace its Visual Concept with a 1,500-character one dense with `{NAME}` tokens, and click Save enrichment.

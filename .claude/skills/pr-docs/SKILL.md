@@ -104,9 +104,13 @@ the mandatory live check had no recorded command for close-out to run).
    [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
    A step is `human` only when no machine can answer it — taste, legibility,
    whether a result reads right, or something only his own account or device
-   can do. Everything else is `ci`, `scripted` or `live`, and **the check it
-   cites is written in this same PR**, so the UAT he runs is the human residue
-   and nothing more. **The lane is read from the `Expect`'s clauses and
+   can do — and it says which, in its `**Judgement:**` line. Everything else
+   is `ci`, `scripted`, `live` or `capture`, and **the check it cites is
+   written in this same PR**, so the UAT he runs is the human residue and
+   nothing more. `capture` is for an answer only pixels hold — the words
+   the product draws onto an image, a canvas preview, a real AI render's
+   content — with its `Expect` written as the screen it should show, never
+   "as before" (`uat-doc-format.md`, *Lanes*). **The lane is read from the `Expect`'s clauses and
    from who can perform the `Do`, never from the heading or the verb**
    (David, 2026-10-15; the rule's home is the `uat` skill, *Where the
    browser automation lives*, which also says what `/uat` does with a step
@@ -130,8 +134,9 @@ the mandatory live check had no recorded command for close-out to run).
    The deferred step is **never** turned into a `human` step to get past
    the wait: David's share is judgement only. Such a run is Blocked until #N
    lands, which is the honest state of a behaviour nothing has yet checked.
-   `node scripts/check-uat-format.mjs` refuses a step without a lane and a
-   machine-lane step whose cited check does not exist.
+   `node scripts/check-uat-format.mjs` refuses a step without a lane, a
+   machine-lane step whose cited check does not exist, a `human` step
+   without its `**Judgement:**` line, and that line on any other lane.
 
    **No Artifact page (David, 2026-08-21 — retiring the 2026-07-22 rule).**
    The Artifact existed as a reading surface for working through the doc
