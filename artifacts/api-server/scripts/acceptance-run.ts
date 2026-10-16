@@ -78,7 +78,7 @@ type Control = (typeof CONTROLS)[number];
 const mode = arg("mode") as RunMode | undefined;
 if (!mode || !MODES.includes(mode)) {
   console.error(`usage: acceptance-run.ts --mode ${MODES.join("|")} [--variant fresh|fixture|both] [--control ${CONTROLS.join("|")}] [--report-dir <dir>]
-       record: --allowance <usd> --out <dir> [--resume];  live: [--allowance <usd>] [--allowance-raised-by-david <date>];  serve: [--port <n>]`);
+       record: --allowance <usd> --out <dir> [--resume];  live: [--allowance <usd>] [--allowance-raised-by-david <date>];  serve: [--port <n>] [--origin http://localhost:<port>]`);
   process.exit(2);
 }
 const control = arg("control") as Control | undefined;
@@ -96,6 +96,12 @@ if ((control === "render-failure" || control === "upload-failure" || control ===
 }
 if (control === "upload-failure" && variantArg !== "fixture") refusals.push("the upload-failure control needs the fixture's fail-open classifier: --variant fixture");
 if (control && variants.length > 1) refusals.push("a control runs one variant: pass --variant");
+// The browser origin the serve-mode server trusts for mutations. Loopback only:
+// the capture set (#631 increment 8) runs its own Vite beside the E2E Smoke
+// stack, which already holds :5173.
+const serveOrigin = arg("origin") ?? "http://localhost:5173";
+if (mode === "serve" && !/^http:\/\/localhost:\d{2,5}$/.test(serveOrigin)) refusals.push(`--origin must be http://localhost:<port>, got ${serveOrigin}`);
+if (mode !== "serve" && arg("origin") !== undefined) refusals.push("--origin applies to --mode serve only");
 const CREDENTIAL = /^(FAL_|OPENAI_|STRIPE_|RESEND_|PEXELS_|ARACHNID_|NCMEC_|HCAPTCHA_|SENTRY_DSN)/;
 if (mode === "acceptance" || mode === "replay" || mode === "serve" || mode === "probe") {
   const held = Object.keys(process.env).filter((k) => CREDENTIAL.test(k) && (process.env[k] ?? "").trim() !== "");
@@ -377,7 +383,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
       control === "render-failure" ? "fal.subscribe:fal-ai/nano-banana-2"
       : control === "upload-failure" ? `fal.storage.upload:storage@${photoSha}`
       : undefined,
-    ...(mode === "serve" ? { serve: { port: Number(arg("port") ?? 8080) } } : {}),
+    ...(mode === "serve" ? { serve: { port: Number(arg("port") ?? 8080), origin: serveOrigin } } : {}),
   };
   const cfgPath = path.join(work, "inner-config.json");
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));

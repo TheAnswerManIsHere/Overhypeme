@@ -480,7 +480,7 @@ jobs:
     # cancel-in-progress still cancels superseded runs.
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     permissions:
       contents: read
@@ -663,6 +663,28 @@ jobs:
       - name: Run production-mode account journey
         run: E2E_BASE_URL=http://localhost:5174 E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink pnpm --filter @workspace/overhype-me run e2e:auth
 
+      # The UAT capture set (#631 increment 8, plan D5): the shots a UAT
+      # `capture` step is read from, produced through the acceptance launcher's
+      # serve mode (a fresh marked database with the legacy fixture, the AI
+      # doubles, no vendor key) and its own Vite, beside the stacks above.
+      # CI proves each shot can still be produced; the reading of a shot is
+      # Claude's, at UAT time, never this step's exit status.
+      - name: Start the acceptance server for the capture set
+        run: |
+          (cd artifacts/api-server && pnpm exec tsx scripts/acceptance-run.ts --mode serve --variant fixture \
+            --port 8090 --origin http://localhost:5180 > /tmp/acceptance-serve.log 2>&1 &)
+          (cd artifacts/overhype-me && PORT=5180 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8090 \
+            pnpm exec vite --port 5180 > /tmp/vite-capture.log 2>&1 &)
+          timeout 300 bash -c 'until curl -sf http://localhost:8090/api/config > /dev/null; do sleep 3; done' \
+            || { echo "::error::the acceptance server never became healthy"; tail -50 /tmp/acceptance-serve.log; exit 1; }
+          timeout 90 bash -c 'until curl -sf http://localhost:5180/ > /dev/null; do sleep 2; done' \
+            || { echo "::error::the capture Vite never became healthy"; tail -50 /tmp/vite-capture.log; exit 1; }
+
+      - name: Run the UAT capture set
+        run: |
+          E2E_BASE_URL=http://localhost:5180 UAT_CAPTURE_DIR="$RUNNER_TEMP/uat-captures" \
+            UAT_CAPTURE_COMMIT="${{ github.sha }}" pnpm --filter @workspace/overhype-me run e2e:capture
+
       - name: Upload traces on failure
         if: failure()
         uses: actions/upload-artifact@v6
@@ -674,5 +696,8 @@ jobs:
             /tmp/vite.log
             /tmp/api-server-prodmode.log
             /tmp/vite-prodmode.log
+            /tmp/acceptance-serve.log
+            /tmp/vite-capture.log
+            ${{ runner.temp }}/uat-captures/
           retention-days: 7
           if-no-files-found: ignore
