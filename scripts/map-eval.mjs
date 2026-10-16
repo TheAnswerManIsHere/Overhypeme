@@ -12,19 +12,21 @@
 //   node scripts/map-eval.mjs score --runs <file>   recall, precision, tokens per arm and tier, and the verdict
 //
 // INDEPENDENCE IS THE WHOLE POINT. An answer key built by the tool under test
-// grades the tool against itself. So this shares no module with map.mjs and
-// never reads the map's index: a symbol's key comes from the compiler's own
-// reference finder (the language service), and a relation's key from every
-// compiler-parsed string and template literal carrying the relation's name.
+// grades the tool against itself. So this shares no module with map.mjs, and
+// no key is ever built from the map's index (`prepare` runs one map query in
+// a run repository, only to prove arm A's tool answers there). A symbol's key
+// comes from the compiler's own reference finder (the language service), and
+// a relation's key from every compiler-parsed string and template literal
+// carrying the relation's name.
 // Compiler diagnostics are never the key — a removed export errors only at
 // the barrel that re-exports it while its real callers stay silent. Every key
 // is written unverified, and `score` refuses until a person has checked each
 // one and set "verified": true.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { appendFileSync, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const MAP_DIR = ".agents/map";
@@ -48,7 +50,44 @@ export const THRESHOLDS = {
 export const ARMS = ["A", "B"];
 export const SEEDS_PER_TASK_PER_ARM = 2;
 
+/** The protocol's task set: this many tasks in each tier, every id distinct. */
+export const TIERS = ["keyword", "structural", "hidden"];
+export const TASKS_PER_TIER = 10;
+
 // ── pure functions (unit-tested on bare Node) ──────────────────────────────
+
+/**
+ * Everything wrong with a task set, as readable lines; empty means it is the
+ * protocol's set. A repeated id silently merges two questions (one key, one
+ * prompt file, one row of the matrix), and a short tier is a different
+ * experiment, so neither may reach a key or a verdict.
+ */
+export function taskProblems(tasks) {
+  if (!Array.isArray(tasks)) return ["the task set is not a JSON array under \"tasks\""];
+  const problems = [];
+  const byId = new Map();
+  tasks.forEach((t) => byId.set(t?.id, (byId.get(t?.id) || 0) + 1));
+  const dup = [...byId].filter(([, n]) => n > 1).map(([id]) => JSON.stringify(id));
+  if (dup.length) problems.push(`duplicate task id(s): ${dup.join(", ")}`);
+  const unknown = tasks.filter((t) => !TIERS.includes(t?.tier)).map((t) => `${JSON.stringify(t?.id)} (tier ${JSON.stringify(t?.tier)})`);
+  if (unknown.length) problems.push(`task(s) in no protocol tier: ${unknown.join(", ")}`);
+  for (const tier of TIERS) {
+    const ids = tasks.filter((t) => t?.tier === tier).map((t) => t.id);
+    if (ids.length !== TASKS_PER_TIER) problems.push(`tier ${tier}: ${ids.length} task(s), the protocol needs ${TASKS_PER_TIER}${ids.length ? ` (${ids.join(", ")})` : ""}`);
+  }
+  return problems;
+}
+
+/**
+ * Whether a regenerated key keeps its verification: only when everything the
+ * person verifying was shown is unchanged, the answer files and the incidental
+ * list both. A new incidental candidate is exactly what they never reviewed.
+ */
+export function keepsVerification(prior, entry) {
+  if (!prior?.verified) return false;
+  const same = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
+  return same(prior.files, entry.files) && same(prior.incidental, entry.incidental);
+}
 
 /**
  * Everything wrong with a runs file, as readable lines; empty means it is the
@@ -137,10 +176,22 @@ export function summarize(runs, tasks, keys) {
   return res;
 }
 
-/** Relation token as a pattern: `stripe.products` matches `"stripe"."products"` too. */
+/**
+ * A relation's whole name as a pattern, each part bare or double-quoted:
+ * `stripe.products` matches `"stripe"."products"`. An unqualified name (or
+ * one qualified by `public`, the default schema) also matches `public.facts`,
+ * while another schema's relation of the same name, `tenant.facts`, and a
+ * longer name, `user_facts`, stay distinct.
+ */
 export function relationPattern(name) {
-  const parts = name.toLowerCase().split(".").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return new RegExp(`(^|[^\\w.$])"?${parts.join(`"?\\s*\\.\\s*"?`)}"?(?![\\w$])`, "i");
+  const esc = (p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const ident = (p) => `(?:"${esc(p)}"|${esc(p)})`;
+  let parts = name.toLowerCase().split(".");
+  if (parts.length === 2 && parts[0] === "public") parts = [parts[1]];
+  const dot = "\\s*\\.\\s*";
+  const body = parts.length === 1 ? `(?:${ident("public")}${dot})?${ident(parts[0])}` : parts.map(ident).join(dot);
+  // Not inside a longer name, a quoted one, or after another qualifier's dot.
+  return new RegExp(`(?<![\\w$"])(?<!\\.\\s*)${body}(?![\\w$])`, "i");
 }
 
 export function looksLikeSql(text) {
@@ -306,7 +357,7 @@ function readJson(root, rel) {
 function cmdKeys(root, log) {
   const cfg = readJson(root, `${MAP_DIR}/config.json`);
   const { tasks } = readJson(root, TASKS);
-  if (!tasks.length) fail(`${TASKS} holds no tasks`, "write the question set first (protocol: thirty tasks, ten per tier)");
+  requireTaskSet(tasks);
   const ts = loadCompiler(root, cfg);
   const svcs = services(ts, root, cfg);
   const prior = existsSync(join(root, KEYS)) ? JSON.parse(readFileSync(join(root, KEYS), "utf8")) : {};
@@ -319,8 +370,7 @@ function cmdKeys(root, log) {
       const typed = t.target.symbol ? symbolKey(ts, root, svcs, t.target.symbol) : [];
       entry = { files: [...new Set([...r.files, ...typed])].sort(), incidental: r.incidental, method: `SQL-like literals carrying the name${t.target.symbol ? " + findReferences on the table symbol" : ""}` };
     } else entry = { files: [...(t.target.files || [])].sort(), method: "authored with the task" };
-    const same = prior[t.id] && JSON.stringify(prior[t.id].files) === JSON.stringify(entry.files);
-    keys[t.id] = { ...entry, verified: same ? !!prior[t.id].verified : false };
+    keys[t.id] = { ...entry, verified: keepsVerification(prior[t.id], entry) };
     log(`  ${t.id} (${t.tier}): ${entry.files.length} file(s)${keys[t.id].verified ? ", still verified" : ", NEEDS VERIFICATION"}`);
   }
   writeFileSync(join(root, KEYS), JSON.stringify(keys, null, 2) + "\n");
@@ -328,8 +378,17 @@ function cmdKeys(root, log) {
   return 0;
 }
 
+function requireTaskSet(tasks) {
+  const problems = taskProblems(tasks);
+  if (problems.length) {
+    fail(`${TASKS} is not the protocol's task set:\n    ${problems.join("\n    ")}`,
+      `give every task a distinct id and write exactly ${TASKS_PER_TIER} per tier (${TIERS.join(", ")})`);
+  }
+}
+
 function cmdPrompts(root, out, log) {
   const { tasks } = readJson(root, TASKS);
+  requireTaskSet(tasks);
   mkdirSync(out, { recursive: true });
   for (const t of tasks) {
     writeFileSync(join(out, `${t.id}.txt`),
@@ -360,13 +419,80 @@ function cmdPrepare(root, ref, out, log) {
   git("init", "-q");
   git("add", "-A");
   git("-c", "user.name=eval", "-c", "user.email=eval@localhost", "commit", "-q", "--no-gpg-sign", "-m", "eval run snapshot");
-  log(`prepared ${dest} from ${ref} as a fresh one-commit repository; grading material excluded: ${removed.length ? removed.join(", ") : "none present"}`);
+  const refuse = (msg, fix) => { rmSync(dest, { recursive: true, force: true }); fail(msg, fix); };
+  // The arm-A agent is measured using the map, so the map must run here with
+  // no install inside the measured run: the run repository gets its own copy
+  // of the source checkout's installed dependencies, and their directories
+  // are excluded in this repository's own .git/info/exclude, so git shows nothing.
+  const provided = provideDependencies(root, dest);
+  mkdirSync(join(dest, ".git", "info"), { recursive: true });
+  appendFileSync(join(dest, ".git", "info", "exclude"), provided.map((d) => `/${d}\n`).join(""));
+  if (!provided.some((d) => existsSync(join(dest, d, "typescript", "package.json")))) {
+    refuse(`no node_modules/typescript is reachable from ${root}, so the map could not run in the prepared repository`,
+      "install the repository's dependencies in this checkout, then prepare again; the run itself never installs");
+  }
+  // Where the tree carries an index, a query must answer from it as it stands:
+  // a different installed compiler would make arm A's every query refuse.
+  if (existsSync(join(dest, MAP_DIR, "index.json")) && existsSync(join(dest, "scripts", "map.mjs"))) {
+    const probe = spawnSync(process.execPath, [join("scripts", "map.mjs"), "unresolved", "table"], { cwd: dest, encoding: "utf8" });
+    if (probe.status !== 0) {
+      let named = "unknown";
+      try { named = JSON.parse(readFileSync(join(dest, MAP_DIR, "index.json"), "utf8")).compiler; } catch {}
+      refuse(`a map query in the prepared repository does not answer (exit ${probe.status}); the index at ${ref} was built with compiler ${named}:\n    ${(probe.stderr || probe.stdout).trim().split("\n").slice(0, 3).join("\n    ")}`,
+        `install the dependencies ${ref} declares in this checkout, so the compiler matches the committed index, then prepare again`);
+    }
+  }
+  log(`prepared ${dest} from ${ref} as a fresh one-commit repository; grading material excluded: ${removed.length ? removed.join(", ") : "none present"}; dependencies provided: ${provided.join(", ")}`);
   return 0;
+}
+
+/**
+ * Give a run repository its own copy of the source checkout's installed
+ * dependencies, with no path back into the source checkout, where the
+ * grading material is committed. Each node_modules directory beside a
+ * tracked package.json is materialised: directories are recreated, files
+ * hard-linked (copied across filesystems), and every symlink re-pointed by
+ * where it really resolves: into the source checkout, at the run
+ * repository's own copy of that path (a workspace package, a package
+ * manager's store, a self-link); anywhere else, at that place unchanged.
+ * The walk never follows a symlink, so it cannot copy the source tree in.
+ * Hard links share inodes; nothing in either arm writes into node_modules.
+ */
+function provideDependencies(root, dest) {
+  const dirs = new Set([""]);
+  for (const f of listFiles(dest)) {
+    if (/(^|\/)package\.json$/.test(f) && !f.split("/").includes("node_modules")) dirs.add(f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "");
+  }
+  const provided = [];
+  for (const d of [...dirs].sort()) {
+    const src = join(root, d, "node_modules");
+    if (!existsSync(src)) continue;
+    materialise(root, dest, src, join(dest, d, "node_modules"));
+    provided.push(d ? `${d}/node_modules` : "node_modules");
+  }
+  return provided;
+}
+
+function materialise(root, dest, from, to) {
+  const st = lstatSync(from);
+  if (st.isSymbolicLink()) {
+    let real;
+    try { real = realpathSync(from); } catch { return; } // dangling: it reaches nothing
+    const inSource = real === root || real.startsWith(root + sep);
+    symlinkSync(inSource ? relative(dirname(to), join(dest, relative(root, real))) || "." : real, to);
+  } else if (st.isDirectory()) {
+    mkdirSync(to, { recursive: true });
+    for (const e of readdirSync(from)) materialise(root, dest, join(from, e), join(to, e));
+  } else if (st.isFile()) {
+    try { linkSync(from, to); }
+    catch (e) { if (e.code === "EXDEV" || e.code === "EPERM") copyFileSync(from, to); else throw e; }
+  }
 }
 
 function cmdScore(root, runsFile, log) {
   if (!runsFile) fail("score needs --runs <file>", "the runs file is a JSON array of {task, arm, seed, files, tokens, toolCalls, seconds}");
   const { tasks } = readJson(root, TASKS);
+  requireTaskSet(tasks);
   const keys = readJson(root, KEYS);
   const unverified = tasks.filter((t) => !keys[t.id]?.verified).map((t) => t.id);
   if (unverified.length) fail(`answer keys not yet verified by hand: ${unverified.join(", ")}`, `check each in ${KEYS} and set "verified": true`);

@@ -222,12 +222,15 @@ traps are in
 [`codex-cli-in-container.md`](../../../.agents/memory/codex-cli-in-container.md).
 
 **The oracle is pinned on the first exchange and checked on every one after.**
-Without that, the oracle is read from the plan file I rewrite each time, so
-deleting a requirement from the plan *and* from its oracle block would have the
-next exchange measure the plan against my rewritten intent — me steering the
-process through the one input nobody was watching. A deliberate change is still
+Without that, the oracle is read from the plan file I rewrite each time, so a
+requirement that drops out of the plan *and* its oracle block in one rewrite
+would have the next exchange measure the plan against the rewritten intent
+with nobody noticing. The pin is a mistake catch on a file I author, which is
+all the rule allows it to be (`agents-core.md`, *Important product
+principles*): it is not a defence against my changing the oracle on purpose,
+since I could as easily not run the loop. A deliberate change is still
 possible, with `--oracle-changed "<what David agreed to change>"`, and it is
-stamped on the exchange. Silence is what is refused.
+stamped on the exchange so David reads it. Silence is what is refused.
 
 ### Discussing before revising
 

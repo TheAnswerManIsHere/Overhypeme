@@ -50,7 +50,7 @@ repository it indexes.
 | `node scripts/map.mjs check` | Every guard: adoption, schema, coverage, freshness, headers, boundaries, sizes. What CI runs |
 | `node scripts/map.mjs deps <file>` | The modules this file imports |
 | `node scripts/map.mjs dependents <file>` | The modules that import or re-export this file |
-| `node scripts/map.mjs dependents <file>#<name>` | Every site referencing that declaration, through any alias or re-export |
+| `node scripts/map.mjs dependents <file>#<name>` | Every site in other files referencing that declaration, through any alias or re-export; the file itself is read directly |
 | `node scripts/map.mjs route <METHOD> <path>` | The registration and handler that own a route (`ANY`, `PAGE` for client routes) |
 | `node scripts/map.mjs routes <file>` | The routes a file registers |
 | `node scripts/map.mjs table <name>` | Where a table or external relation is declared and used |
@@ -129,8 +129,9 @@ that lists them). An empty `resolved` section never prints alone, and while
 **File queries and symbol queries are different relations.** `dependents
 <file>` reports module edges: who imports or re-exports the file.
 `dependents <file>#<name>` reports references to the canonical declaration
-through any chain of aliases and re-exports, which is the question a barrel
-makes necessary: a constant declared in one file and imported from a
+from other files, through any chain of aliases and re-exports, which is the
+question a barrel makes necessary (the declaring file itself is read
+directly, and the eval's answer key uses the same definition): a constant declared in one file and imported from a
 package's index is used by files that never import the declaring file. Every
 name a file exports for the declaration (its own, a local alias, `default`, a
 barrel's re-export) answers with the same users. A reverse query also lists
@@ -150,7 +151,7 @@ adding a form is a handbook change with a fixture, never a consumer patch.
 |---|---|
 | Module edges | `import`, `export … from`, `import()`, `require()`, with each program's own resolution (workspace packages through `exports`, path aliases) |
 | Symbols | Every identifier resolving to a repository module's export, aliases and re-exports followed to the declaration |
-| HTTP routes | Express `Router`/`Application` method registrations, composed through `use(path, router)` mounts, with the handler's declaration when it resolves; `route(path).verb()`; wouter `<Route path component>` (method `PAGE`); in a Cloudflare Worker (a default-exported object with `fetch`), a string or regular-expression literal tested against a request's `pathname` (method `ANY`) |
+| HTTP routes | Express `Router`/`Application` method registrations, composed through `use(path, router)` mounts, with the handler's declaration when it resolves; `route(path).verb()`; wouter `<Route path component>` (method `PAGE`); in a Cloudflare Worker (a default-exported object with `fetch`, bare, wrapped in parentheses, `as` or `satisfies`, or held in a same-file `const`), a string or regular-expression literal tested against a request's `pathname` (method `ANY`) |
 | Tables | Drizzle `pgTable` declarations map relation names to table symbols; a table answer joins typed references to the symbol with references in SQL text |
 | SQL text | Drizzle `sql` tagged templates and `sql.raw`, Drizzle `execute`, the `query` method of a `pg` `Client` or `Pool`, including a statement bound to a same-file variable, and a same-file string constant interpolated into it; relation names outside the Drizzle set are reported as **external relations**, derived and never whitelisted |
 | Candidates kept | A `query`/`execute` call carrying SQL whose receiver is unresolved or not a supported client, a route-shaped registration on an unresolved receiver, a module loaded by a computed name, a route under a mount whose prefix is computed (reported at the route, naming the mount), and any computed path or relation: each is an `unresolved` site, never dropped |
@@ -172,6 +173,16 @@ barrel, a package's exports, a lockfile or the compiler does.
 differ. **While editing**, every query recomputes the digest and refuses a
 stale index with exit 3 and the command that fixes it: `node scripts/map.mjs
 build`. The index is never edited by hand.
+
+**What a query's recheck covers is narrower than the build's digest.** A
+query loads no compiler, so it cannot learn which files the programs would
+read now. It rechecks the files the last build recorded as read, the current
+indexed set, the configuration and package files, the lockfile and the
+compiler version. A file a program **newly** reads that is outside the
+indexed set (a declaration file excluded from indexing but included by a
+`tsconfig`, say) is seen by the next `build` and by `check` in CI, not by a
+query before then. Keeping every file the programs read inside the indexed
+set closes that gap by configuration.
 
 ## The header convention
 
@@ -196,8 +207,9 @@ from the architecture intended, never copied from the imports that exist**,
 in three dimensions, all checked against the index's own graph (never a second
 resolver that could disagree with the compiler):
 
-- **Package**: `packages` by path; `allowPackages` lists, per package, the
-  packages it may import.
+- **Package**: `packages` by path, where `.` is the repository root and holds
+  every file no more specific package claims; `allowPackages` lists, per
+  package, the packages it may import.
 - **Layer**: within a package, `layers` by path prefix and `allowLayers`.
 - **Feature area**: the `@subsystem` tag; `allowSubsystems` lists what each
   may import, and `infrastructure` tags are importable by all. A header-exempt

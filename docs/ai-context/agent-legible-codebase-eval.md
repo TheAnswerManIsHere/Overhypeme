@@ -21,7 +21,9 @@ map does not make those worse.
 ## The task set
 
 `.agents/map/eval-tasks.json`, consumer-owned, thirty questions over the
-repository, ten per tier:
+repository, ten per tier, each with its own id. `keys`, `prompts` and `score`
+refuse a set with a repeated id or a tier of any other size, naming the tier
+and the ids, since either would make the eval a different experiment:
 
 | Tier | The answer… |
 |---|---|
@@ -40,9 +42,12 @@ A key built by the tool under test grades the tool against itself. So
 never reads the map's index, and builds each key by a different mechanism:
 
 - **Symbol**: the compiler's own reference finder (the language service's
-  find-references) over every declared program.
+  find-references) over every declared program, counting files other than
+  the declaring one, which is the definition the map's symbol query uses.
 - **Relation**: every compiler-parsed string and template literal carrying the
-  relation's name that reads as SQL, plus find-references on the table symbol
+  relation's whole name that reads as SQL (bare or quoted; an unqualified name
+  also matches its `public.` form, and another schema's relation of the same
+  name does not), plus find-references on the table symbol
   when one is given. Literals that mention the name but do not read as SQL are
   listed as `incidental`, for the person verifying.
 
@@ -52,8 +57,9 @@ stay silent. Diagnostics may corroborate; they cannot be complete.
 
 Every key is written with `"verified": false`. A person checks each one, adds a
 missed file or removes an incidental one, and sets it true. `score` refuses
-while any key is unverified, and a key whose files change on a rebuild loses
-its verification.
+while any key is unverified, and a key whose files or incidental list change
+on a rebuild loses its verification, since a new incidental candidate is one
+nobody has checked.
 
 ## The arms
 
@@ -76,7 +82,17 @@ prompt per task carrying the question and the answer format, never the target.
 
 1. Write the task set, run `keys`, verify every key by hand, commit both.
 2. For each task, arm and seed: `prepare` a run repository at that arm's commit, and
-   dispatch a fresh agent into it with the task's prompt. Record a run line:
+   dispatch a fresh agent into it with the task's prompt, started with the
+   run repository as its working directory: an agent started in the scorer's
+   checkout has the keys beside it, and nothing `prepare` does can undo that.
+   The checkout `prepare` runs from must have its dependencies installed:
+   `prepare` gives the run repository its own copy of them (hard-linked where
+   the filesystem allows, with no link back into the source checkout), so
+   neither arm installs anything inside a measured run, and it refuses when
+   no `node_modules/typescript` is reachable.
+   Where the tree carries the map's index, it also runs one map query there
+   and refuses unless it answers, so arm A is never handed a map that cannot
+   run (a different installed compiler would make every query refuse). Record a run line:
    `{task, arm, seed, files, tokens, toolCalls, seconds}`, with tokens read
    from the dispatch's own usage report, never estimated.
 3. `node scripts/map-eval.mjs score --runs <file>` prints recall and precision
