@@ -29,7 +29,7 @@ pick a disabled style instead of a silent plain render.
 ### 1. Generate with a reference photo
 
 **Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
-Repl under the $2.00 cap), signed in as the paid test account, uploads the
+Repl under the $3.00 cap), signed in as the paid test account, uploads the
 reference face photo `artifacts/api-server/src/assets/test-face.jpg`,
 generates an AI image for a fixture fact through the meme builder's
 reference-photo path (`POST /api/memes/pulid-jobs`), and captures the

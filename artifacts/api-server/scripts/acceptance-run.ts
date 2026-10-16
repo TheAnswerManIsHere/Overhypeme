@@ -29,7 +29,7 @@
  *   --mode capture     On the Repl only, never in CI: the real-render UAT
  *                      captures (#631 increment 8, plan D7). The fixture
  *                      variant, the real AI clients under the recorder, reuse
- *                      off, a required --allowance (never above $2 without
+ *                      off, a required --allowance (never above $3 without
  *                      --allowance-raised-by-david <YYYY-MM-DD>), and the
  *                      capture journeys for the one UAT doc --doc names
  *                      (`src/testing/acceptance/captureJourneys.ts`, its

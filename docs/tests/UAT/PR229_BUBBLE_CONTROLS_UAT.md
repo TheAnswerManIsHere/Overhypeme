@@ -96,7 +96,7 @@ attempt where attribution slips.
 ### 6. An unmatched entity gets a soft warning, not a block
 
 **Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
-Repl under the $2.00 cap), as the dev admin, takes a fixture fact to concept
+Repl under the $3.00 cap), as the dev admin, takes a fixture fact to concept
 review, saves one speech bubble whose entity is `the mailman` (a character
 not in the scene) through the enrichment save, approves the concept, runs
 the moderation test render, and captures the full-size result.

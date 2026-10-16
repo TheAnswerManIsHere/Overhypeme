@@ -52,12 +52,12 @@ describe("the capture run's refusals", () => {
     assert.deepEqual(base({ out: tmp() }), []);
   });
 
-  it("refuses without an allowance, and above $2 without the date David raised it", () => {
+  it("refuses without an allowance, and above $3 without the date David raised it", () => {
     assert.match(base({ allowance: undefined }).join("\n"), /needs --allowance/);
     assert.match(base({ allowance: "0" }).join("\n"), /positive/);
-    assert.match(base({ allowance: "2.01" }).join("\n"), /cap is \$2\.00 per run/);
-    assert.deepEqual(base({ allowance: "3", raisedBy: "2026-10-16" }), []);
-    assert.match(base({ allowance: "3", raisedBy: "soon" }).join("\n"), /cap is \$2\.00/);
+    assert.match(base({ allowance: "3.01" }).join("\n"), /cap is \$3\.00 per run/);
+    assert.deepEqual(base({ allowance: "4", raisedBy: "2026-10-16" }), []);
+    assert.match(base({ allowance: "4", raisedBy: "soon" }).join("\n"), /cap is \$3\.00/);
   });
 
   it("refuses CI, missing keys, a non-empty --out, no --out, another variant and a control", () => {
@@ -86,7 +86,7 @@ describe("the capture run's refusals", () => {
     });
     assert.equal(r.status, 2);
     assert.match(r.stderr, /never runs in CI/);
-    assert.match(r.stderr, /cap is \$2\.00 per run/);
+    assert.match(r.stderr, /cap is \$3\.00 per run/);
     assert.match(r.stderr, /needs --doc/);
   });
 });

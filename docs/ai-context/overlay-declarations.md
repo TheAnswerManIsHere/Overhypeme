@@ -159,12 +159,15 @@ produced.
   can still be produced; the reading is Claude's at run time.
 - **Real-render capture** (a real AI render; on the Repl only, never in CI),
   from `artifacts/api-server`, through the connector as an ops run:
-  `node --import tsx/esm scripts/acceptance-run.ts --mode capture --doc <UAT doc stem> --allowance 2 --out <empty dir>`,
+  `node --import tsx/esm scripts/acceptance-run.ts --mode capture --doc <UAT doc stem> --allowance 3 --out <empty dir>`,
   one UAT doc per run, as `/uat` runs one doc; the doc's shots are the
   ones its steps cite.
-- **Paid-render cap: $2.00 per UAT run** (David, 2026-10-16, approving the
-  plan). The recorder refuses any call that would exceed it; a higher
-  allowance needs `--allowance-raised-by-david <YYYY-MM-DD>`.
+- **Paid-render cap: $3.00 per UAT run** (David, 2026-10-16: the plan's
+  $2.00, raised by its amendment 1 once PR229's real render was measured).
+  The recorder holds four attempts' price for each fal render, so the cap
+  is a worst-case ceiling; a run's actual spend is in its ledger. The
+  recorder refuses any call that would exceed the cap; a higher allowance
+  needs `--allowance-raised-by-david <YYYY-MM-DD>`.
 - **Evidence store: the `uat-evidence` branch**, never merged and only
   appended to, one directory per run, `<UAT doc stem>/<commit under test>/<run date>/`,
   holding the shots and their `manifest.jsonl` (one record per file: shot,
