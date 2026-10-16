@@ -284,7 +284,9 @@ payload contains no heading with a link, no `~~~` fence and no Setext heading;
 every one of those cases was hypothetical, and every finding about them was
 correct, which is what makes the trap hard to see from inside. **The test is
 not "could this input break it?" but "what happens if it is wrong, and who
-notices first?"**
+notices first?"** — for a spec the agent writes itself, which is the only
+input a sweep has, and that is the rule of `agents-core.md`, *Important product principles*: who produced the value decides
+whether a guard is in scope at all.
 
 ---
 

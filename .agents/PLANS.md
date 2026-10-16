@@ -147,7 +147,10 @@ Server-side checks, route protection (`requireAdmin`/`requireRole`), validation
 schemas, and audit needs.
 
 ## Testing Plan
-Automated tests + manual QA. Tests must prove the **general invariant**, not only
+Automated tests, plus a UAT doc for the judgement residue only — a screen fact
+is an assertion in the same PR, never a manual step
+([`uat-doc-format.md`](../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
+Tests must prove the **general invariant**, not only
 the reported example, with negative cases. Name the runner commands (see
 `docs/tests/TESTING.md`).
 

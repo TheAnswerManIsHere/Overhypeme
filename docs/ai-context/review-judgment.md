@@ -45,13 +45,21 @@ constant directly. A value derivable from an existing source of truth may lose
 its redundant copy. A genuine choice stays an input, validated in proportion to
 credible mistakes. Where we control the producer, first consider whether
 correcting its output or simplifying the interface eliminates the need for
-consumer-side protection. Each proposed change still needs to pass the Worth
-assessment: internal ownership does not guarantee correct output, and
-deterministic construction differs from model-generated content, manual choices
-and coordination between agents. Where a model's output feeds a script, the
-script extends no latitude, and exactness at that boundary is the standard.
-Protection needs a credible remaining failure and a consequence that justifies
-its cost.
+consumer-side protection. **Who produced the value decides whether a guard is
+in scope at all** — the rule's home is `agents-core.md`, *A check earns its
+place only when the value can differ from what you intended*; this step
+carries its application for an assessor who reads nothing else, and the home
+governs on any conflict. An input the agent authors itself, following its own
+protocol — a file it writes, a ref or path it picks, an argument it types —
+gets at most a cheap well-formedness check that catches its own mistake, and
+never a defence against a value it would have to construct on purpose
+against that protocol: the only actor who could supply such a value is the
+agent running the script, and it could equally not run it (David, 2026-09-11
+and 2026-10-15: *"you are the one who would write the id"*). An input from
+outside the agent's control — a user, a webhook body, a fetched document,
+another program's output, anything a script exists to constrain — is in
+scope, and exactness at that boundary is the standard. Protection needs a
+credible remaining failure and a consequence that justifies its cost.
 
 **4. Identify a credible failure path and its consequence.** What could happen,
 under what conditions, affecting whom. Weigh frequency, reach, detectability,

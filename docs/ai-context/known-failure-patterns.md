@@ -397,10 +397,14 @@ for evidence that cannot exist) or gets silently ignored, and the real gate
 goes undefined. **Avoid:** for every check in a workflow, ask *where does the
 thing being tested physically live at this moment, and can the tester reach
 it?* **Overhype:** the app runs from the Repl, and the Repl tracks `main`, so
-**everything that tests running behavior is post-merge** — David's UAT and
+**everything that tests the deployed build is post-merge** — David's UAT and
 Replit's `TEST_RUN` alike (the one later exception is a `prototype/<feature>`
 branch, tested on its own prototype environment with no merge at all —
 [`working-modes.md`](./working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
+Running behaviour itself is testable before the merge: the per-PR E2E job
+and a local stack at the commit under test both drive the app, which is
+where a UAT doc's screen facts are checked (the `uat` skill, *Where the
+browser automation lives*); only the deployed build waits for the sync.
 Merge + sync is what makes a build testable;
 production is the separate, deferred `publish_app` step. This misfired twice
 in one day on PR #413 (2026-08-11): Codex caught a `TEST_RUN`-as-merge-gate
@@ -1789,7 +1793,9 @@ whether the operation can instead be made correct **by construction**
 narrower control that doesn't need to parse intent at all — a server-side
 rule, a protocol-level restriction — already covers the actual risk. Size
 the defense to the *realistic* threat model (an honest mistake) rather than
-a fully adversarial one, when the two genuinely differ, and say so out loud
+a fully adversarial one, when the two genuinely differ — and who produced
+the value is what decides that (`agents-core.md`, *Important product principles*): a guard's own operator is one actor, the
+agent whose commands the shell guard constrained was another — and say so out loud
 rather than quietly absorbing round after round. **Overhype:**
 .claude/guard.sh / scripts/guard-decision.mjs (both since retired — #94; PR #329) — Codex review
 rounds found 11, then 11, then 12, then 19 parser gaps (fixing 9, 11, 11, 0).
@@ -3090,7 +3096,11 @@ name the `Worth:` line of a fixed four-line reply form; the form was retired on
 2026-09-17 and the discipline was not.) The tell is a decline whose consequence clause quotes details
 specific to the reviewer's scenario — "gitignored", "one directory over", "a
 file I chose by hand". Those are properties of the example. Strip them and ask
-what remains reachable. And re-examine a class the reviewer raises a second
+what remains reachable — **and by whom**: who produced the value decides
+whether a guard is in scope at all (`agents-core.md`, *Important product principles*), so "I chose it" is the fact that settles a
+hostile-value finding on an operator-chosen path, while a class the operator
+reaches by an honest slip, as `--out .git/HEAD` is, is still weighed at its
+worst. And re-examine a class the reviewer raises a second
 time on its new evidence and scope, naming what the new instance shows that the
 first did not. **Repetition alone does not establish that the earlier judgement
 was wrong** (David, 2026-09-17): the rule used to say it did, which turned any

@@ -1,6 +1,6 @@
 ---
 name: uat
-description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, present one step at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT doc — that's `pr-docs`.
+description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, resolve every machine-lane step myself first (a screen fact whose action I can perform is mine to check in a browser, whatever the doc labels it; one only his own account or device can perform stays his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT doc — that's `pr-docs`.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
@@ -15,8 +15,9 @@ record, the bug intake, and the way back.
 
 **What has not changed:** the doc is still written per
 [`pr-docs`](../pr-docs/SKILL.md), still lands on its PR before merge, still
-David's own to-do list, and **I delete it once he confirms the run
-complete** (David, 2026-08-22) — see section 6.
+the script his judgement steps come from (the machine-lane steps in it are
+mine, section 3), and **I delete it once he confirms the run complete**
+(David, 2026-08-22) — see section 6.
 
 **The UAT doc is no longer published as an Artifact page (David,
 2026-08-21).** That reading surface existed because he was reading alone; the
@@ -53,7 +54,8 @@ An invocation may name a PR, an issue, or nothing.
    **None → say so** and don't invent a run.
 
 Then give him a **three-line preview before step 1**, never the whole doc:
-how many steps and how many regression checks, what I'm setting up for him
+how many machine-lane checks I resolved and how many steps are his, in
+`## Steps` and in `## Regression` (section 3), what I'm setting up for him
 (section 2), and anything he needs on hand — an admin login, a phone, a fresh browser tab. The doc's
 narrative preamble is mine to have read, not his to sit through.
 
@@ -90,15 +92,28 @@ Four rules, because setup writes to the live app:
   that skipped teardown would leave production mis-configured for exactly
   that long. Tear down, record in the run what setup is owed on resume, and
   re-create it when he comes back.
-- **Say plainly what I can't set up.** I have no admin session — every
-  `/admin/*` route answers *Access Denied* to me, which is the same
-  limitation that made admin click-throughs UAT-shaped in the first place.
-  Admin-gated setup falls to David, as exact click steps in the preview, not
-  as a vague "get the app ready."
+- **Say plainly what I can't set up.** On the deployed build I have no
+  admin session: the live-environment connector reads, it does not click,
+  so admin-gated setup *there* falls to David, as exact click steps in the
+  preview, not as a vague "get the app ready." That is the deployed build
+  only. On a local stack at the commit under test, the test identity the
+  consumer's per-PR browser job already signs in with is mine (Overhype.me:
+  the seeded test accounts and the dev-admin login, #631 increment 2), which
+  is what lets me run a screen check myself (*Where the browser automation
+  lives*, below); a consumer whose gate has no such identity has not settled
+  it, and a screen check behind a login there is a `[david]` setup line or
+  stays his, never an identity I invent. Until
+  2026-10-15 this bullet called the missing admin session "the same
+  limitation that made admin click-throughs UAT-shaped", a reason that
+  section retires.
 
-Setup runs through the Replit connector per CLAUDE.md's connector policy,
-and it is a **deliberately mutating** action — scope it explicitly, or Replit
-Agent will helpfully build a feature instead.
+Setup for a step read on the deployed build runs through the Replit
+connector per CLAUDE.md's connector policy, and it is a **deliberately
+mutating** action — scope it explicitly, or Replit Agent will helpfully
+build a feature instead. Setup for a step I read in a browser against a
+local stack is applied to that stack instead (section 3): the same
+`[claude]` lines, seeded into the throwaway database the browser opens,
+never written to the deployed build and read locally.
 
 ## 3. The walkthrough — one step, minimal context, cheap pass
 
@@ -109,12 +124,16 @@ this is true:
 > A step is any `### ` heading inside `## Steps` or `## Regression`, in
 > document order. Nothing else in the file is a step.
 
-So enumerate once at the start, say both counts in the preview ("7 steps, then
-4 regression checks"), and present them in order — the regression checks are
-steps in every sense that matters here: presented, recorded, and counted
-toward the verdict in section 6. There is nothing to infer and nothing to
-classify; if a doc doesn't parse this way it is not in the format, and the
-answer is to fix the doc, not to guess.
+So enumerate once at the start, say the counts in the preview ("7 steps,
+then 4 regression checks" — each count split by lane, below, since the
+machine-lane ones are resolved before he starts), and present them in order
+— the regression checks are steps in every sense that matters here:
+presented, recorded, and counted toward the verdict in section 6. There is nothing to infer and nothing to
+classify about *which headings are steps*; if a doc doesn't parse this way it
+is not in the format, and the answer is to fix the doc, not to guess. (Which
+lane a step is in is a different reading — its `Expect`'s clauses, below —
+and a label that disagrees with them is the doc-wrong case, not the
+authority.)
 
 **That determinism is the point, and it was bought the hard way.** The first
 version of this skill tried to infer coverage from whatever shape a doc
@@ -125,7 +144,10 @@ sweep. A false pass makes this session *worse* than the file it replaced.
 Hence one format, one rule (David, 2026-08-22; #554, #560).
 
 **Lanes decide who verifies each step, and only `human` reaches David**
-(David, 2026-10-07; [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
+(David, 2026-10-07; [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
+— and a `human` step whose `Expect` a screen can answer is read as a
+machine step, whatever its label (the bullet below; *Where the browser
+automation lives*).
 **The commit under test** is the commit the run verifies: **the Repl's
 checked-out commit when the run starts** — the same SHA close-out's sync
 check reads — and it must **contain the PR's merge commit** (an ancestor
@@ -166,12 +188,50 @@ the doc-wrong case below, never a check to run early:
   its runnable **Check:** in the surviving doc (`pr-docs`), so the resumed
   run executes it; a doc still carrying the line after #N closed is the
   doc-wrong case, and closing #N alone is never passing evidence.
+- **A `human` step whose `Expect` a screen can answer** — an element is
+  there, a message reads a given sentence, a status or an error shows, a
+  layout holds at a width — **is mine, whatever lane the doc gave it,
+  when its `Do` is one I can perform**: the lane is read from the
+  `Expect`'s clauses and from who can perform the `Do`, never from the
+  heading or the verb (the rule's home is *Where the browser automation
+  lives*, below; David, 2026-10-15: *"any tests that require checking that
+  a button exists or an error message is showing or any other UI element
+  testing that doesn't require taste input from me"* are run
+  automatically). A `Do` only his own account or device can perform keeps
+  the step `human`, and its screen-fact `Expect` is read after his "yes"
+  (the format's self-contained rule, `uat-doc-format.md`, *Lanes*). I run
+  the step in a real browser at the commit under test, in this block,
+  before he sees anything: a browser in the session's container against a
+  local stack at that commit, launched the way the consumer's per-PR
+  browser job launches it, on a throwaway test-marked database, signed in
+  as the test identity that job already uses (Overhype.me: Playwright, the
+  E2E Smoke launcher, the seeded test accounts or the dev-admin login); or
+  the live-environment connector read-only where the step needs the
+  deployed build. The state the step needs — its `[claude]` setup lines —
+  is applied to the stack the browser opens, never seeded on the deployed
+  build and read locally (section 2). A consumer whose gate has no test
+  identity has not settled the identity question: a screen check behind a
+  login there is a `[david]` setup line or stays his, never an identity I
+  invent. The record quotes what the browser read, with the
+  commit it ran at; a screenshot is evidence when layout is the claim. Only
+  the clause that is judgement — "it is readable", "the image suits the
+  subject" — reaches him, as a turn of its own recorded on the step's own
+  row as a multi-part result (the "it sort of worked" rule, section 4): the
+  row is Pass only when every clause is, and the preview counts that step
+  among his. Such a step was mislabelled
+  (`uat-doc-format.md`, *A step is `human` only when no machine can answer
+  it*): it is the doc-wrong case, and the lane fix rides the next PR that
+  touches the doc. Measured once before the rule: Overhype.me #685's run,
+  2026-10-15, two `human` steps read from the screen in Chromium in fourteen
+  minutes once David asked; the rule removes the ask.
 
 Each gets the same four statuses as a human step, with its evidence in the
 record. A machine-lane step that fails is a failure like any other: section 4
 applies, and I file it before he sees the first human step. **He sees the
-machine block, then only the human steps** — so the preview says both counts
-("9 machine-lane checks, all passed; 3 steps for you").
+machine block, then only the human steps that are judgement** — a `human`
+label over a screen fact went into the machine block, above — so the
+preview says both counts ("9 machine-lane checks, all passed; 3 steps for
+you").
 
 **One step per turn.** What to do, what to expect, nothing else — not the
 next step, not the section after, not the reasoning behind the expectation
@@ -350,19 +410,19 @@ have no reliable way to tell which is current.
 
 | Step | Status | Note |
 | --- | --- | --- |
-| 1 · Manual renders | Pass | |
-| 2 · Deep link | Fail | #903 — landed at chapter top, not the heading |
-| 3 · Search | Pass | |
-| 4 · Deliberate absences | — | not yet run |
-| R1 · Sidebar unchanged | — | not yet run |
-| R2 · Admin on a phone | — | not yet run |
+| 1 · Manual renders (ci) | Pass | `adminHelp.spec.ts` green on the commit under test |
+| 2 · Deep link (human, run in browser) | Fail | #903 — landed at chapter top, not the heading; a screen fact, read by me at 1440 px, so the lane fix rides the next PR touching the doc |
+| 3 · Search results read as the right answers (human) | Pass | |
+| 4 · Nothing feels missing from the chapter list (human) | — | not yet run |
+| R1 · Sidebar unchanged (ci) | Pass | `adminHelp.spec.ts` green on the commit under test |
+| R2 · Readable on his own phone (human, his device) | — | not yet run |
 
 **Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
 **Spend so far:** 23 min · 41,200 tokens (Opus, $6/M proxy, $0.25) over 5 walkthrough turns
-**Resume at:** step 4 (4 of 6 remaining, R1–R2 included)
+**Resume at:** step 4 (2 judgement steps remaining, 4 and R2; step 2's screen fact was mine and is recorded; the 2 machine-lane checks are resolved at this commit)
 ```
 
 **Write it on the moments that matter, not every turn:** once after setup
@@ -489,20 +549,42 @@ when he's gone quiet mid-run and something needs him. This is a deliberate,
 narrow carve-out from interaction rule 6 rather than a drift away from it —
 written down so a later session doesn't "fix" it back.
 
-## What version 1 deliberately doesn't do
+## Where the browser automation lives
 
-**Playwright automation of the mechanical steps** is the intended next phase,
-not a gap (David, 2026-08-21) — the goal is that he only ever judges what
-genuinely needs human eyes. It waits on one real decision: a browser driving
-the admin console needs an admin identity that isn't David's personal login,
-and picking that (a dedicated test-admin account, most likely) is a security
-question, not a detail.
+**Driving a browser for the mechanical steps is not a later phase** (David,
+2026-08-21, asking for it; 2026-10-14 and 2026-10-15, asking again after
+screen checks reached him). Until 2026-10-15 this section said it waited on
+one decision — an admin identity that is not David's personal login — and
+that decision is settled wherever the consumer's per-PR browser job already
+signs in as a test identity, which is the identity I use (Overhype.me: the
+seeded test accounts and the dev-admin login, #631 increment 2), so the
+paragraph was a stale reason not to open a browser; a consumer whose gate
+has no such identity has not settled it, and section 3's machine block says
+what happens there. **The rule (David, 2026-10-15): a step's lane is read
+from its `Expect`'s clauses and from who can perform its `Do`, never from
+its heading or its verb. A screen fact — an element is there, a message
+reads a given sentence, a status or an error shows, a layout holds — is
+machine-lane; a `Do` only David's own account or device can perform keeps
+the step `human`; the clause that is judgement is a `human` step of its
+own; and a screen fact that reaches a run labelled `human` is run by me, in
+a real browser at the commit under test, before he sees anything (section
+3's machine block says how).** What remains is where each check lives, and
+that is three places:
 
-Worth saying now, because it shapes that phase: **once a step is fully
-scriptable, UAT is usually the wrong home for it.** It belongs in CI or in
-the PR's post-merge verification, where it runs on every change forever
-instead of once. The automation phase is mostly *draining* mechanical steps
-out of UAT into the layers that already exist — and scripting whatever
+- **A screen fact a PR claims lives in CI**, as an assertion in a spec or
+  component test the gate already runs, written in the same PR
+  (`pr-docs`): it runs on every change forever instead of once.
+- **A screen fact that reached a run as a `human` step is run by me at run
+  time**, in the machine block above, and the step's lane is corrected.
+- **A capture run that writes the named screens for me to read** covers a
+  backlog's "look at the screen, no judgement" steps at once; it is a
+  consumer's increment to build (Overhype.me #631, increment 8), and until it
+  lands the run-time rule covers each run by hand.
+
+**Once a step is fully scriptable, UAT is usually the wrong home for it.** It
+belongs in CI or in the PR's post-merge verification, where it runs on every
+change forever instead of once. Automation is mostly *draining* mechanical
+steps out of UAT into the layers that already exist — and scripting whatever
 live-app checks are left over.
 
 ## Model tier

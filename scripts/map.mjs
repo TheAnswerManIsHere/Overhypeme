@@ -13,7 +13,7 @@
 //   node scripts/map.mjs check                 every guard; what CI runs
 //   node scripts/map.mjs deps <file>           what this file imports
 //   node scripts/map.mjs dependents <file>     modules that import this file
-//   node scripts/map.mjs dependents <file#sym> sites referencing that declaration
+//   node scripts/map.mjs dependents <file#sym> sites in other files referencing that declaration
 //   node scripts/map.mjs route <METHOD> <path> which handler owns a route
 //   node scripts/map.mjs routes <file>         routes registered in a file
 //   node scripts/map.mjs table <name>          where a table or relation is used
@@ -589,6 +589,11 @@ function extractFile(ts, prog, sf, ctx) {
   const symAt = (node) => {
     try { return checker.getSymbolAtLocation(node); } catch { return undefined; }
   };
+  // Syntax that annotates an expression without changing it: `(x)`, `x as T`,
+  // `x satisfies T`, `<T>x`. Recognition always looks through it.
+  const isWrapper = (n) => ts.isParenthesizedExpression(n) || ts.isAsExpression(n) ||
+    !!ts.isSatisfiesExpression?.(n) || !!ts.isTypeAssertionExpression?.(n);
+  const unwrap = (n) => { while (n && isWrapper(n)) n = n.expression; return n; };
 
   // ── exports ──────────────────────────────────────────────────────────────
   const modSym = symAt(sf);
@@ -636,7 +641,7 @@ function extractFile(ts, prog, sf, ctx) {
   };
   const sqlText = (node, depth = 0) => {
     if (!node || depth > 4) return null;
-    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)) return sqlText(node.expression, depth + 1);
+    if (isWrapper(node)) return sqlText(node.expression, depth + 1);
     if (ts.isStringLiteralLike(node)) return { text: node.text, exprs: [] };
     if (ts.isTemplateExpression(node)) {
       let t = node.head.text;
@@ -701,12 +706,21 @@ function extractFile(ts, prog, sf, ctx) {
   };
 
   // ── worker routes: a default-exported object with a `fetch` member ────────
-  const isWorker = sf.statements.some(
-    (st) =>
-      ts.isExportAssignment(st) &&
-      ts.isObjectLiteralExpression(st.expression) &&
-      st.expression.properties.some((p) => p.name && p.name.getText(sf) === "fetch"),
-  );
+  // The object may be wrapped (`{…} satisfies ExportedHandler`, `as`, parentheses)
+  // or held in a same-file const; a miss here would drop every route silently.
+  const exportedObject = (expr) => {
+    let e = unwrap(expr);
+    if (e && ts.isIdentifier(e)) {
+      const d = resolveAlias(symAt(e))?.valueDeclaration;
+      e = d && d.getSourceFile() === sf && ts.isVariableDeclaration(d) ? unwrap(d.initializer) : null;
+    }
+    return e && ts.isObjectLiteralExpression(e) ? e : null;
+  };
+  const isWorker = sf.statements.some((st) => {
+    if (!ts.isExportAssignment(st) || st.isExportEquals) return false;
+    const obj = exportedObject(st.expression);
+    return !!obj && obj.properties.some((p) => p.name && p.name.getText(sf) === "fetch");
+  });
   const regexSource = (node) => {
     if (!node) return null;
     if (node.kind === ts.SyntaxKind.RegularExpressionLiteral) return node.text;
@@ -762,7 +776,7 @@ function extractFile(ts, prog, sf, ctx) {
       if (csym && csym.name === "pgTable" && libraryOfDecls(csym.declarations) === "drizzle") {
         const nameArg = node.arguments[0];
         let holder = node.parent;
-        while (holder && (ts.isAsExpression(holder) || ts.isParenthesizedExpression(holder) || ts.isSatisfiesExpression?.(holder))) holder = holder.parent;
+        while (holder && isWrapper(holder)) holder = holder.parent;
         const varName = holder && ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name) ? holder.name.text : null;
         if (nameArg && ts.isStringLiteralLike(nameArg)) {
           ctx.tables.push({ name: nameArg.text.toLowerCase(), file: rel, line: lineOf(node), symbol: varName ? `${rel}#${varName}` : null });
@@ -1182,11 +1196,15 @@ function headerFailures(index, vocab) {
 
 /** Where a file sits in each boundary dimension. */
 function classifier(index, arch, vocab, codegen) {
-  const pkgs = [...(arch.packages || [])].sort((a, b) => b.path.length - a.path.length);
-  const pkgOf = (f) => pkgs.find((p) => f === p.path || f.startsWith(p.path.replace(/\/$/, "") + "/")) || null;
+  // A package path is repository-relative; "." or "./" is the repository root,
+  // which holds every file a more specific (longer) package does not.
+  const base = (p) => p.path.replace(/^\.(?:\/|$)/, "").replace(/\/+$/, "");
+  const pkgs = [...(arch.packages || [])].sort((a, b) => base(b).length - base(a).length);
+  const pkgOf = (f) => pkgs.find((p) => { const b = base(p); return b === "" || f === b || f.startsWith(b + "/"); }) || null;
   const layerOf = (f, p) => {
     if (!p) return null;
-    const local = f.slice(p.path.replace(/\/$/, "").length + 1);
+    const b = base(p);
+    const local = b === "" ? f : f.slice(b.length + 1);
     const ls = [...(p.layers || [])].sort((a, b) => b.prefix.length - a.prefix.length);
     return ls.find((l) => local.startsWith(l.prefix))?.name ?? null;
   };
@@ -1529,13 +1547,13 @@ function cmdDependents(root, target, opts, log) {
   }
   res.sort((a, b) => a.file.localeCompare(b.file));
   return answer(opts, log, {
-    banners, title: `dependents ${target}${key !== target ? `  → ${key}` : ""}  (sites referencing this declaration, through any alias or re-export)`,
+    banners, title: `dependents ${target}${key !== target ? `  → ${key}` : ""}  (sites in other files referencing this declaration, through any alias or re-export)`,
     resolvedData: res, fmt: (d) => `${d.file}:${d.line}${d.count > 1 ? `  (+${d.count - 1} more in file)` : ""}`,
     unresolvedData: (() => { const st = relatedStems(index, key); return unresolvedOf(index, "import", (_, u) => u.reason === "dynamic-target" || [...st].some((s) => u.detail.includes(`/${s}"`) || u.detail.includes(`"${s}"`))); })(),
     coverage: [
       external
         ? `${target} re-exports a declaration from outside the indexed set; its users are not indexed, so no reference is listed`
-        : `canonical symbol references across ${Object.keys(index.files).length} indexed files; an unresolved import above could hide a user`,
+        : `canonical symbol references in other files, across ${Object.keys(index.files).length} indexed files; the file itself is read directly; an unresolved import above could hide a user`,
       `${unresolvedOf(index, "import").length} unresolved imports in the repository in all: \`node scripts/map.mjs unresolved import\` lists them`,
     ],
   });

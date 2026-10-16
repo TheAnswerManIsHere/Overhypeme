@@ -11,7 +11,10 @@ import {
   routeMatches, stableStringify, serializeIndex, validateSchema, formatAnswer, carriesSyncBanner, computeSets, nearest,
   run as runMap,
 } from "../map.mjs";
-import { median, scoreAnswer, verdict, summarize, relationPattern, THRESHOLDS, GRADING_MATERIAL, runProblems, SEEDS_PER_TASK_PER_ARM, run as runEval } from "../map-eval.mjs";
+import {
+  median, scoreAnswer, verdict, summarize, relationPattern, THRESHOLDS, GRADING_MATERIAL, runProblems, SEEDS_PER_TASK_PER_ARM,
+  taskProblems, TIERS, TASKS_PER_TIER, keepsVerification, run as runEval,
+} from "../map-eval.mjs";
 
 test("globs: ** spans directories including none, * stays in a segment, braces alternate", () => {
   assert.ok(globToRegExp("src/**/*.ts").test("src/a.ts"));
@@ -137,6 +140,14 @@ test("eval: a relation pattern matches quoted and schema forms, and grading mate
   assert.ok(!relationPattern("stripe.products").test("from stripe.products_v2"));
   assert.ok(relationPattern("facts").test("SELECT 1 FROM facts"));
   assert.ok(!relationPattern("facts").test("SELECT 1 FROM user_facts"));
+  // The default schema is the same relation; another schema is a different one, quoted or not.
+  assert.ok(relationPattern("facts").test("SELECT 1 FROM public.facts"));
+  assert.ok(relationPattern("facts").test('SELECT 1 FROM "public"."facts"'));
+  assert.ok(relationPattern("public.facts").test("SELECT 1 FROM facts"));
+  assert.ok(!relationPattern("facts").test("SELECT 1 FROM tenant.facts"));
+  assert.ok(!relationPattern("facts").test('SELECT 1 FROM "tenant"."facts"'));
+  assert.ok(!relationPattern("facts").test("SELECT 1 FROM tenant . facts"));
+  assert.ok(!relationPattern("stripe.products").test("SELECT 1 FROM products"));
   assert.deepEqual(GRADING_MATERIAL, [".agents/map/eval-tasks.json", ".agents/map/eval-keys.json", ".agents/map/eval-results"]);
 });
 
@@ -166,4 +177,25 @@ test("scoring needs the complete matrix: every task, both arms, the protocol's s
   assert.match(runProblems(full.map((r, i) => (i ? r : { ...r, tokens: undefined })), tasks).join("\n"), /run 1: tokens is not a measured number/);
   assert.match(runProblems(full.map((r, i) => (i ? r : { ...r, files: "a.ts" })), tasks).join("\n"), /run 1: files is not an array/);
   assert.deepEqual(runProblems({}, tasks), ["the runs file is not a JSON array"]);
+});
+
+test("the task set is the protocol's: distinct ids and ten per tier, refused naming the tier and the ids", () => {
+  assert.deepEqual([TIERS, TASKS_PER_TIER], [["keyword", "structural", "hidden"], 10]);
+  const full = TIERS.flatMap((tier) => Array.from({ length: TASKS_PER_TIER }, (_, i) => ({ id: `${tier[0]}${i + 1}`, tier })));
+  assert.deepEqual(taskProblems(full), []);
+  assert.match(taskProblems(full.filter((t) => t.id !== "h10")).join("\n"), /tier hidden: 9 task\(s\), the protocol needs 10 \(h1, h2, h3, h4, h5, h6, h7, h8, h9\)/);
+  const dup = full.map((t) => (t.id === "k2" ? { ...t, id: "k1" } : t));
+  assert.match(taskProblems(dup).join("\n"), /duplicate task id\(s\): "k1"/);
+  assert.match(taskProblems([...full, { id: "x1", tier: "easy" }]).join("\n"), /no protocol tier: "x1" \(tier "easy"\)/);
+  assert.deepEqual(taskProblems(undefined), ['the task set is not a JSON array under "tasks"']);
+});
+
+test("a regenerated key keeps its verification only when its files and its incidental list are both unchanged", () => {
+  const prior = { files: ["a.ts"], incidental: ["b.ts"], verified: true };
+  assert.equal(keepsVerification(prior, { files: ["a.ts"], incidental: ["b.ts"] }), true);
+  assert.equal(keepsVerification(prior, { files: ["a.ts"], incidental: ["b.ts", "c.ts"] }), false, "a new incidental candidate was never reviewed");
+  assert.equal(keepsVerification(prior, { files: ["a.ts", "c.ts"], incidental: ["b.ts"] }), false);
+  assert.equal(keepsVerification({ ...prior, verified: false }, { files: ["a.ts"], incidental: ["b.ts"] }), false);
+  assert.equal(keepsVerification({ files: ["a.ts"], verified: true }, { files: ["a.ts"] }), true, "a symbol key has no incidental list on either side");
+  assert.equal(keepsVerification(undefined, { files: [] }), false);
 });

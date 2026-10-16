@@ -162,9 +162,12 @@ does not apply. The tool, its contract and its back-out:
 - **A check earns its place only when the value can differ from what you
   intended — which requires something outside your control to have produced
   it.** A harness report, a network response, a real user, another program's
-  output: observe those and refuse on disagreement. Everything a hand-run
-  script gets from its own operator's argv falls into one of two kinds, and
-  the rule differs:
+  output: observe those and refuse on disagreement. Everything a script gets
+  from the agent that runs it — its argv, a file it authored following its
+  own protocol, a ref or path it chose — falls into one of two kinds, and
+  the rule differs (David, 2026-10-15, on AI-Handbook #211, where two
+  assessments weighed an id the agent would have had to mistype against its
+  own protocol: *"you are the one who would write the id"*):
   - **Derivable** — the script already holds every input needed to compute
     it (a receipt path from role and head). **Derive it; do not take it as
     input at all.** A check whose two sides you both own carries no
@@ -178,9 +181,11 @@ does not apply. The tool, its contract and its back-out:
     exists — is catching the operator's own mistake, which is exactly the
     threat model, and stays. A defence against a *hostile* value of it — a
     planted symlink, a traversal, a hard link the operator would have to
-    create on purpose — is not, and the response to such a finding is to
-    decline it, not to guard (AI-Handbook #7: eleven findings and no added
-    safety).
+    create on purpose, a file whose entries collide only if its author
+    contradicts the format it is writing to — is not, and the response to
+    such a finding is to decline it, not to guard (AI-Handbook #7: eleven
+    findings and no added safety; #211: two assessments and a ruling, for a
+    guard that was never written).
   **Ask who produced the value, never which directory the file sits in.** A
   script that parses a hook payload, a fetched document, a webhook body or
   another program's output is reading something it does not control, however

@@ -1549,9 +1549,12 @@ the miniature UAT. No separate docs.
 
 Everything in Tier A, plus:
 
-- **A real UAT doc** (`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`) — the click-through
-  acceptance script, so David's product-verification net is restored for exactly
-  the fixes that can reach past the reported symptom.
+- **A real UAT doc** (`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`) — the
+  acceptance script, written to the lane rules
+  ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07):
+  a screen fact is a machine-lane assertion, David's share is the judgement
+  residue), so his product-verification net is restored for exactly the
+  fixes that can reach past the reported symptom.
 - **A Post-merge verification section in the PR body only when the fix
   genuinely needs one** — i.e. when something can only be verified in
   Replit's environment (live DB state, live config/data). Per
