@@ -42,7 +42,7 @@ const ASPECT_RATIO_VALUE: Record<AspectRatio, number> = {
 /**
  * PuLID's `image_size` vocabulary keyed by wizard aspect. PuLID has no 16:9
  * portrait/landscape pair finer than this; these are the closest matches in
- * `IMAGE_SIZE_MAP` (falImageSizes.ts).
+ * `IMAGE_SIZE_MAP` (costComputation.ts).
  */
 const ASPECT_RATIO_TO_PULID_IMAGE_SIZE: Record<AspectRatio, string> = {
   landscape: "landscape_16_9",

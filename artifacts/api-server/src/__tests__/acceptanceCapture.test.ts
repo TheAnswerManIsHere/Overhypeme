@@ -13,13 +13,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { captureRefusals, extForFormat, manifestLine, writeShot } from "../testing/acceptance/captureShots.js";
+import { CAPTURE_DOCS, captureRefusals, extForFormat, manifestLine, writeShot } from "../testing/acceptance/captureShots.js";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "capture-test-"));
 const KEYS = { FAL_AI_API_KEY: "x", OPENAI_API_KEY: "x" };
 const base = (over: Partial<Parameters<typeof captureRefusals>[0]> = {}) =>
-  captureRefusals({ env: KEYS, allowance: "2", raisedBy: undefined, out: path.join(tmp(), "new"), variant: "fixture", control: undefined, ...over });
+  captureRefusals({ env: KEYS, allowance: "2", raisedBy: undefined, out: path.join(tmp(), "new"), doc: "PR223_RENDER_REPRODUCIBILITY_UAT", variant: "fixture", control: undefined, ...over });
 
 describe("the capture manifest", () => {
   it("has exactly the browser capture kit's keys, in its order", () => {
@@ -70,6 +70,13 @@ describe("the capture run's refusals", () => {
     assert.match(base({ control: "render-failure" }).join("\n"), /no --control/);
   });
 
+  it("refuses a run that names no one UAT doc, or a doc it has no captures for", () => {
+    assert.match(base({ doc: undefined }).join("\n"), /needs --doc <UAT doc stem>, one of: PR223_RENDER_REPRODUCIBILITY_UAT, PR229_BUBBLE_CONTROLS_UAT$/m);
+    assert.match(base({ doc: "PR398_MEME_SPLIT_CAPTION_PERSONALIZATION_UAT" }).join("\n"), /\(got PR398_MEME_SPLIT_CAPTION_PERSONALIZATION_UAT\)/);
+    assert.match(base({ doc: "toString" }).join("\n"), /needs --doc/);
+    assert.deepEqual(base({ doc: "PR229_BUBBLE_CONTROLS_UAT" }), []);
+  });
+
   it("is applied by the runner before anything is created", () => {
     const r = spawnSync(process.execPath, ["--import", "tsx/esm", "scripts/acceptance-run.ts", "--mode", "capture", "--allowance", "5", "--out", path.join(tmp(), "out")], {
       cwd: API_ROOT,
@@ -79,5 +86,18 @@ describe("the capture run's refusals", () => {
     assert.equal(r.status, 2);
     assert.match(r.stderr, /never runs in CI/);
     assert.match(r.stderr, /cap is \$2\.00 per run/);
+    assert.match(r.stderr, /needs --doc/);
+  });
+});
+
+describe("the real-render captures, by doc", () => {
+  it("name UAT docs that exist, and each doc's shots are written by its journey alone", () => {
+    const journeys = fs.readFileSync(path.join(API_ROOT, "src/testing/acceptance/captureJourneys.ts"), "utf8");
+    for (const [doc, shots] of Object.entries(CAPTURE_DOCS)) {
+      assert.ok(fs.existsSync(path.join(API_ROOT, "../../docs/tests/UAT", `${doc}.md`)), `${doc}.md exists`);
+      const block = journeys.slice(journeys.indexOf(`if (opts.doc === "${doc}")`));
+      const own = block.slice(0, block.indexOf("\n  }\n"));
+      for (const shot of shots) assert.match(own, new RegExp(`shot\\("${shot}"`), `${doc} writes ${shot}`);
+    }
   });
 });

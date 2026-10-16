@@ -29,7 +29,7 @@ import { logger } from "./logger";
 import { aiBackend, recorder } from "./aiClients";
 import { falDouble, falPricingReplay, type FalLike } from "./aiDouble/doubles";
 import { recordingFal, recordFalPricing } from "./aiDouble/recorder";
-import { imageSizePresetPx } from "./falImageSizes";
+import { imageSizePresetPx } from "./aiDouble/falPresetSizes";
 
 let configured = false;
 let configuredKey: string | null = null;

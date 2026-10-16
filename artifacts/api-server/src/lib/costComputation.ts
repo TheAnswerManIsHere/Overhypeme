@@ -6,9 +6,17 @@
  */
 
 import type { CachedPrice } from "./falPricing";
-import { IMAGE_SIZE_MAP } from "./falImageSizes";
 
 // ─── Image size name → pixel dimensions ────────────────────────────────────────
+
+const IMAGE_SIZE_MAP: Record<string, { width: number; height: number }> = {
+  square_hd:       { width: 1024, height: 1024 },
+  square:          { width: 512,  height: 512  },
+  portrait_4_3:    { width: 768,  height: 1024 },
+  portrait_16_9:   { width: 576,  height: 1024 },
+  landscape_4_3:   { width: 1024, height: 768  },
+  landscape_16_9:  { width: 1024, height: 576  },
+};
 
 /** Resolve fal.ai image_size name to pixel dimensions. Falls back to 1024×1024. */
 export function resolveImageSizePx(imageSize: string): { width: number; height: number } {

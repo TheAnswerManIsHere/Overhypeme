@@ -31,8 +31,9 @@
  *                      variant, the real AI clients under the recorder, reuse
  *                      off, a required --allowance (never above $2 without
  *                      --allowance-raised-by-david <YYYY-MM-DD>), and the
- *                      capture journeys (`src/testing/acceptance/captureJourneys.ts`)
- *                      instead of 2–7: full-size images, `manifest.jsonl` and
+ *                      capture journeys for the one UAT doc --doc names
+ *                      (`src/testing/acceptance/captureJourneys.ts`, its
+ *                      CAPTURE_DOCS) instead of 2–7: full-size images, `manifest.jsonl` and
  *                      the recorder's spend ledger written to an empty --out.
  *                      Red when a shot was not produced.
  *   --mode serve       The acceptance server, left running on --port for a
@@ -61,7 +62,7 @@ import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-dat
 import { falSubscribeRequest } from "../src/lib/aiDouble/doubles";
 import { evaluateCoverage, readCallRecords, unattributedCalls, type CallRecord, type Mode, type Row, type Variant } from "../src/testing/acceptance/coverage";
 import type { CaptureResult } from "../src/testing/acceptance/captureJourneys";
-import { captureRefusals } from "../src/testing/acceptance/captureShots";
+import { captureRefusals, type CaptureDoc } from "../src/testing/acceptance/captureShots";
 import { controlVerdict } from "../src/testing/acceptance/controls";
 import { evaluateDetector, launchInNamespace, namespaceRoute, type DetectorVerdict, type NamespaceRoute } from "../src/testing/acceptance/detector";
 import type { DriveResult } from "../src/testing/acceptance/driver";
@@ -90,7 +91,7 @@ const mode = arg("mode") as RunMode | undefined;
 if (!mode || !MODES.includes(mode)) {
   console.error(`usage: acceptance-run.ts --mode ${MODES.join("|")} [--variant fresh|fixture|both] [--control ${CONTROLS.join("|")}] [--report-dir <dir>]
        record: --allowance <usd> --out <dir> [--resume];  live: [--allowance <usd>] [--allowance-raised-by-david <date>];  serve: [--port <n>] [--origin http://localhost:<port>]
-       capture: --allowance <usd> --out <empty dir> [--allowance-raised-by-david <date>]`);
+       capture: --doc <UAT doc stem> --allowance <usd> --out <empty dir> [--allowance-raised-by-david <date>]`);
   process.exit(2);
 }
 const control = arg("control") as Control | undefined;
@@ -151,7 +152,7 @@ if (mode === "live") {
   }
 }
 if (mode === "capture") {
-  refusals.push(...captureRefusals({ env: process.env, allowance: arg("allowance"), raisedBy: arg("allowance-raised-by-david"), out: arg("out") && out, variant: variantArg, control }));
+  refusals.push(...captureRefusals({ env: process.env, allowance: arg("allowance"), raisedBy: arg("allowance-raised-by-david"), out: arg("out") && out, doc: arg("doc"), variant: variantArg, control }));
 }
 const dbRefusal = await testDatabaseRefusal(process.env);
 if (dbRefusal) refusals.push(dbRefusal);
@@ -406,7 +407,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
       : control === "upload-failure" ? `fal.storage.upload:storage@${photoSha}`
       : undefined,
     ...(mode === "serve" ? { serve: { port: Number(arg("port") ?? 8080), origin: serveOrigin } } : {}),
-    ...(mode === "capture" ? { capture: { out, commit: headCommit() } } : {}),
+    ...(mode === "capture" ? { capture: { doc: arg("doc") as CaptureDoc, out, commit: headCommit() } } : {}),
   };
   const cfgPath = path.join(work, "inner-config.json");
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));

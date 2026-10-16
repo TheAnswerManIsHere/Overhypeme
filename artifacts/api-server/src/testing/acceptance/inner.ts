@@ -26,6 +26,7 @@ import pg from "pg";
 import { checkImage } from "./imageCheck";
 import { ACCEPTANCE_ENV_ALLOWLIST, constructEnvironment, LIVE_ENV_ALLOWLIST, RECORDER_ENV_ALLOWLIST } from "../launchEnvironment";
 import { runSelfTest } from "./selfTest";
+import type { CaptureDoc } from "./captureShots";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -51,7 +52,7 @@ export interface InnerConfig {
   /** Keep the server running after the journeys until SIGTERM (serve mode). */
   serve?: { port: number; origin: string };
   /** Capture mode (increment 8, D7): run the capture journeys instead of 2–7, writing images to `out`. */
-  capture?: { out: string; commit: string };
+  capture?: { doc: CaptureDoc; out: string; commit: string };
 }
 
 const node = process.execPath;
@@ -265,6 +266,7 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
     if (cfg.capture) {
       const { driveCaptures } = await import("./captureJourneys");
       out.capture = await driveCaptures(baseUrl, {
+        doc: cfg.capture.doc,
         out: cfg.capture.out,
         commit: cfg.capture.commit,
         fact: await captureFact(cfg.databaseUrl),

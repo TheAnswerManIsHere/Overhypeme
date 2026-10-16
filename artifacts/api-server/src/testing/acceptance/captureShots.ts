@@ -18,6 +18,24 @@ import path from "node:path";
 /** The approved per-run allowance (plan D7, approved by David 2026-10-16). */
 export const CAPTURE_ALLOWANCE_CAP_USD = 2;
 
+/**
+ * The real-render captures, by the UAT doc they answer, with the shots each
+ * one must produce. A capture run drives exactly one doc (`--doc`), as `/uat`
+ * runs one doc, so one doc's failure or spend never reaches another's run and
+ * its evidence fits the declared `<UAT doc stem>/...` directory (#708 round 1,
+ * 4291262774).
+ */
+export const CAPTURE_DOCS = {
+  PR223_RENDER_REPRODUCIBILITY_UAT: ["pr223-s1-reference", "pr223-s1-result"],
+  PR229_BUBBLE_CONTROLS_UAT: ["pr229-s6-render"],
+} as const satisfies Record<string, readonly string[]>;
+
+export type CaptureDoc = keyof typeof CAPTURE_DOCS;
+
+export function isCaptureDoc(v: string | undefined): v is CaptureDoc {
+  return v !== undefined && Object.hasOwn(CAPTURE_DOCS, v);
+}
+
 export interface ShotMeta {
   /** The UAT doc's filename stem, e.g. PR223_RENDER_REPRODUCIBILITY_UAT: `docs/tests/UAT/<doc>.md` exists, and the evidence store files the shot under it. */
   doc: string;
@@ -72,6 +90,8 @@ export interface CaptureRunArgs {
   raisedBy: string | undefined;
   /** `--out`, as given. */
   out: string | undefined;
+  /** `--doc`, as given: the one UAT doc this run captures. */
+  doc: string | undefined;
   variant: string;
   control: string | undefined;
 }
@@ -88,6 +108,9 @@ export function captureRefusals(a: CaptureRunArgs): string[] {
   else if (!(allowance > 0)) refusals.push("--allowance must be a positive dollar amount");
   else if (allowance > CAPTURE_ALLOWANCE_CAP_USD && !/^\d{4}-\d{2}-\d{2}$/.test(a.raisedBy ?? "")) {
     refusals.push(`the capture run's cap is $${CAPTURE_ALLOWANCE_CAP_USD.toFixed(2)} per run (plan D7, David, 2026-10-16); a higher --allowance needs --allowance-raised-by-david <YYYY-MM-DD>`);
+  }
+  if (!isCaptureDoc(a.doc)) {
+    refusals.push(`capture mode needs --doc <UAT doc stem>, one of: ${Object.keys(CAPTURE_DOCS).join(", ")}${a.doc === undefined ? "" : ` (got ${a.doc})`}`);
   }
   if (!a.out) refusals.push("capture mode needs --out <dir>, an empty directory for the images and their manifest");
   else if (fs.existsSync(a.out)) {

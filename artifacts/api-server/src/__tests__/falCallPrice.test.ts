@@ -12,6 +12,8 @@ import path from "node:path";
 import { falCallPrice } from "../lib/falClient.js";
 import { Allowance, recordingFal } from "../lib/aiDouble/recorder.js";
 import { resetRecordingCache } from "../lib/aiDouble/recordings.js";
+import { FAL_PRESET_SIZES } from "../lib/aiDouble/falPresetSizes.js";
+import { resolveImageSizePx } from "../lib/costComputation.js";
 
 const PULID = "fal-ai/flux-pulid";
 // The pricing API's answer for flux-pulid, as recorded 2026-10-13
@@ -49,6 +51,12 @@ describe("falCallPrice", () => {
     assert.equal(falCallPrice({ prices: [{ endpoint_id: PULID, unit_price: 0.1, unit: "seconds" }] }, PULID, {}), null);
     assert.equal(falCallPrice(MEGAPIXEL, "fal-ai/other", {}), null);
     assert.equal(falCallPrice(null, PULID, {}), null);
+  });
+});
+
+describe("the recorder's preset table", () => {
+  it("matches the product's own fal preset sizes, entry for entry", () => {
+    for (const [name, size] of Object.entries(FAL_PRESET_SIZES)) assert.deepEqual(resolveImageSizePx(name), size, name);
   });
 });
 
