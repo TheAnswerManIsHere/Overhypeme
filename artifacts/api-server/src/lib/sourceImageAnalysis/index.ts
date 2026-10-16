@@ -3,12 +3,14 @@
  *
  * Pipeline:
  *   1. Resolve sha256 from upload_image_metadata (existing arachnid hash).
- *   2. Cache lookup: if upload_image_metadata.source_image_analysis is set AND
- *      version matches SOURCE_IMAGE_ANALYZER_VERSION, return it.
+ *   2. Cache lookup: unless the caller sets bypassCache, if
+ *      upload_image_metadata.source_image_analysis is set AND version matches
+ *      SOURCE_IMAGE_ANALYZER_VERSION, return it.
  *   3. Tier-1: call the configured fal detector engine.
  *   4. Tier-2: deterministic heuristics → SourceImageAnalysis.
  *   5. Tier-3 (optional): OpenAI vision fallback when Tier-2 escalates.
- *   6. Cache write-through: persist the result back to upload_image_metadata.
+ *   6. Cache write-through: persist the result back to upload_image_metadata,
+ *      when the upload has a metadata row.
  *
  * Inputs are ALWAYS internal storage references (uploadedObjectPath). The
  * route layer (/memes/ai/:factId/analyze-source) enforces ownership before
@@ -16,7 +18,7 @@
  * this module — keep the analyzer URL-agnostic so internal admin tooling
  * can also call it on object storage paths.
  *
- * @purpose Source-image analyzer entrypoint: returns the cached analysis when its version matches, else runs the Tier-1 detector, the Tier-2 heuristics and, when Tier-2 asks to escalate and the caller allows it, the Tier-3 AI-vision fallback, caching the result on the upload's metadata row when one exists; also resolves the subject render mode.
+ * @purpose Source-image analyzer entrypoint: returns the stored analysis when one exists, its version matches and the caller has not set bypassCache, else runs the Tier-1 detector, the Tier-2 heuristics and, when Tier-2 asks to escalate and the caller allows it, the Tier-3 AI-vision fallback, caching the result on the upload's metadata row when one exists; also resolves the subject render mode.
  * @subsystem visual-pipeline
  */
 
