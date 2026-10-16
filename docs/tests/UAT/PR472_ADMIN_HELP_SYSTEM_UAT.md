@@ -255,13 +255,21 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Do:** Open two or three admin screens you use often.
 
-**Expect:** each loads exactly as before.
+**Expect:** Each screen loads with no Access Denied and no error, and
+shows three things. The sidebar, headed Admin, lists its sixteen entries
+from Dashboard to Help, with the current screen highlighted in orange. The
+header shows the screen's title, the help icon, View Site and Sign Out. The
+content is the screen's own: on Dashboard, the Total facts, Total users,
+Admin access and Platform status tiles and Quick Actions; on Facts
+Management, the Facts and Utilities tabs, the search box, the Show filter
+and the Overridden and Needs review toggles; on Users, Add user and the
+user count; on Moderation, Fact Reviews, Comment Reviews and the Pending,
+Approved, Rejected and All filters; on Configuration, the note that changes
+take effect within 60 seconds.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
-
-**Deferred:** #631 — increment 8 (capture and read) — each admin page looks as it did before the help system, sidebar, header and content unchanged
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; `artifacts/overhype-me/e2e/adminScreens.spec.ts`
 
 ### R7. A non-admin is still refused
 

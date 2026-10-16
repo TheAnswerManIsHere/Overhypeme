@@ -103,11 +103,15 @@ it **Public**.
 
 **Do:** While logged out, check the fact's meme list and the gallery.
 
-**Expect:** The public meme shows up in both.
+**Expect:** The public meme shows up in both: the fact's meme list, and
+the fact page's "Memes from this fact" gallery under Community, where the
+private one does not appear.
 
-**Lane:** human
+**Lane:** ci
 
-**Deferred:** #631 — 7b — GET /api/facts/:factId/memes?visibility=community, logged out, returns the fact's public meme and omits its private one — `artifacts/api-server/src/__tests__/routes.memes.test.ts`; #631 — increment 8 (capture and read) — logged out, the fact page's meme gallery shows the public meme
+**Check:** `artifacts/overhype-me/e2e/publicScreens.spec.ts:logged out, the fact page's gallery shows the public meme and not the private one`
+
+**Deferred:** #631 — 7b — GET /api/facts/:factId/memes?visibility=community, logged out, returns the fact's public meme and omits its private one — `artifacts/api-server/src/__tests__/routes.memes.test.ts`
 
 ### 6. A real Legendary account still gets privacy
 
@@ -131,11 +135,11 @@ traded one entitled account for another.
 **Expect:** The control is visible, and **Private** is dimmed with the
 `LEGEND` badge.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:shows a registered creator the upsell instead of letting them pick private` — the builder renders the control for a registered viewer
+**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:shows a registered creator the upsell instead of letting them pick private` — the builder renders the control for a registered viewer; `artifacts/overhype-me/e2e/publicScreens.spec.ts:a plain registered account sees the visibility control with Private dimmed and the LEGEND badge`
 
-**Deferred:** #631 — 7b — the locked Private pill renders with the opacity-60 dimming class when canSetPrivate is false — `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx`; #631 — increment 8 (capture and read) — signed in as the plain registered account, the builder's image step shows the visibility control with Private dimmed and the LEGEND badge
+**Deferred:** #631 — 7b — the locked Private pill renders with the opacity-60 dimming class when canSetPrivate is false — `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx`
 
 ### 8. Tapping Private for a registered account opens the upgrade modal
 
@@ -167,13 +171,12 @@ hasn't changed.
 
 **Do:** Logged out, open `/facts/39/meme`.
 
-**Expect:** No visibility control at all — unchanged.
+**Expect:** The builder opens. Its image step shows the sign-up prompt
+for using your own photo and no Public / Private visibility control at all.
 
-**Lane:** human
+**Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:omits the control for a viewer who cannot save yet`
-
-**Deferred:** #631 — increment 8 (capture and read) — logged out, /facts/39/meme opens the builder and its image step shows no Public or Private visibility control
+**Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:omits the control for a viewer who cannot save yet`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:logged out, /facts/:id/meme opens the builder and its image step shows no visibility control`
 
 ### 11. Video memes still work
 
